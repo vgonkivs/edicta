@@ -252,7 +252,7 @@ func TestAttack3Expired(t *testing.T) {
 	})
 }
 
-// The nonce registry belongs to the gate task. At this layer the check is
+// The nonce registry lives in the gate. At this layer the check is
 // pure and must be race-free and give identical results under concurrency;
 // the same envelope is presented by many goroutines and yields one hash and
 // one `(agent_pubkey, nonce)`.

@@ -54,7 +54,7 @@ func TestSignerWireEdges(t *testing.T) {
 	}
 }
 
-// Any 20 bytes are a legal signer; v0 ties it to nothing (spec 10.5).
+// Any 20 bytes are a legal signer; v0 ties it to nothing.
 func TestSignerValuesAccepted(t *testing.T) {
 	g, p := edgeGate(t)
 	for name, v := range map[string][]byte{

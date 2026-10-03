@@ -21,8 +21,7 @@ func CheckPayload(c *Commitment, blob []byte) error {
 	return nil
 }
 
-// PlaintextHash is H(salt || plaintext), deliberately without a domain tag
-// (spec 9).
+// PlaintextHash is H(salt || plaintext), deliberately without a domain tag.
 func PlaintextHash(salt [32]byte, plaintext []byte) Hash {
 	h := sha256.New()
 	h.Write(salt[:])

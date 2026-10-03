@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies every vector in spec/vectors/v0 against an independent reading of the spec.
+"""Verifies every vector in spec/vectors/v0 against an independent implementation of the v0 rules.
 
 Usage: python3 spec/vectors/check/check_vectors.py [--dir DIR]
 Exit status 0 when all vectors pass. Requires Python 3.11+ and 'cryptography'

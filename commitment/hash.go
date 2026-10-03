@@ -31,7 +31,7 @@ func HashOf(c *Commitment) (Hash, error) {
 	return HashCanonical(canon), nil
 }
 
-// SigningMessage is the exact 45 bytes that get signed (spec 5, G1).
+// SigningMessage is the exact 45 bytes that get signed.
 func SigningMessage(h Hash) []byte {
 	return tagged(TagSig, h[:])
 }
@@ -55,7 +55,7 @@ func Sign(priv ed25519.PrivateKey, c *Commitment) (*SignedCommitment, Hash, erro
 }
 
 // checkPublicKey is rule G0. crypto/ed25519 accepts small-order and
-// non-canonical keys, which allows universal forgeries (spec 5).
+// non-canonical keys, which allows universal forgeries.
 func checkPublicKey(pub []byte) error {
 	if len(pub) != ed25519.PublicKeySize {
 		return fmt.Errorf("%w: %d bytes", ErrInvalidPublicKey, len(pub))

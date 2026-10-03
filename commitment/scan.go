@@ -36,7 +36,7 @@ type entry struct {
 	val *node
 }
 
-// scanner is the pass-1 well-formedness check (spec 6.2). It builds a small
+// scanner is the pass-1 well-formedness check. It builds a small
 // tree so pass 2 never re-parses bytes.
 type scanner struct {
 	in []byte

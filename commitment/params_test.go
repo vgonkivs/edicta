@@ -118,7 +118,7 @@ func TestConstantsAndTags(t *testing.T) {
 	}
 }
 
-// The preimages are rebuilt here byte by byte from the spec (section 5),
+// The preimages are rebuilt here byte by byte from the layout definition,
 // independently of the vector files.
 func TestHashAndSigningMessageLayout(t *testing.T) {
 	canon := []byte{0xa0, 0x01, 0x02}

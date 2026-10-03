@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// Decode parses and strictly validates bare commitment bytes (spec 6).
+// Decode parses and strictly validates bare commitment bytes.
 func Decode(b []byte) (*Commitment, error) {
 	if len(b) > MaxCommitmentSize {
 		return nil, fmt.Errorf("%w: commitment of %d bytes", ErrTooLarge, len(b))
@@ -27,7 +27,7 @@ func Decode(b []byte) (*Commitment, error) {
 	return c, nil
 }
 
-// DecodeSigned parses and strictly validates an envelope (spec 6).
+// DecodeSigned parses and strictly validates an envelope.
 func DecodeSigned(b []byte) (*SignedCommitment, error) {
 	if len(b) > MaxSignedSize {
 		return nil, fmt.Errorf("%w: envelope of %d bytes", ErrTooLarge, len(b))

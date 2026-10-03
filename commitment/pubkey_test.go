@@ -67,7 +67,7 @@ func TestSmallOrderPublicKeyRejected(t *testing.T) {
 	}
 }
 
-// Mixed-order keys pass G0 (spec 5, threat note); they then fail on the
+// Mixed-order keys pass the G0 key check; they then fail on the
 // signature, not on the key.
 func TestMixedOrderPublicKeyPassesG0(t *testing.T) {
 	for name, h := range map[string]string{

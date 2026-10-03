@@ -1,8 +1,8 @@
-"""DecisionCommitment v0 rules, written from spec/decision-commitment-v0.md.
+"""DecisionCommitment v0 rules.
 
 This module is the Python side of the cross-language check. It must not be
 ported from, or to, the Go implementation: agreement between two independent
-readings of the spec is the point.
+implementations of the same rules is the point.
 """
 
 from __future__ import annotations
@@ -241,12 +241,13 @@ def _ints(c: dict):
 
 def namespace_ok(ns: bytes) -> bool:
     # Celestia v0 user namespace: version 0, 18 zero bytes, and the first 9
-    # sub-id bytes not all zero, which excludes the primary reserved range (spec 10.3).
+    # sub-id bytes not all zero, which excludes the primary reserved range.
     return ns[0] == 0 and not any(ns[1:19]) and any(ns[19:28])
 
 
 def validate_static(c: dict, p: Params):
-    """Stage S, in the normative order S1..S16."""
+    """Stage S: checks S1..S16 in this fixed order, so that every implementation
+    reports the same error for an input with several defects."""
     a = c["action"]["params"]
     k = c["constraints"]
     r = c["payload_ref"]
@@ -301,7 +302,8 @@ def validate_static(c: dict, p: Params):
 
 
 def verify_signature(c: dict, canon: bytes, sig: bytes) -> bytes:
-    """Stage G (G0, then G2, then G1). Returns commitment_hash."""
+    """Stage G: public-key validity (G0), then S < L (G2), then the signature
+    equation (G1). Returns commitment_hash."""
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
@@ -314,7 +316,7 @@ def verify_signature(c: dict, canon: bytes, sig: bytes) -> bytes:
     h = commitment_hash(canon)
     if int.from_bytes(sig[32:], "little") >= ED25519_L:
         raise Reject("ErrSignatureInvalid", "S >= L")
-    # G1 is checked with the spec's own cofactorless equation; OpenSSL (also
+    # G1 is checked with our own cofactorless equation; OpenSSL (also
     # cofactorless) must agree, so a disagreement is a checker bug, not a verdict.
     msg = signing_message(h)
     ours = cofactorless_ok(c["agent_pubkey"], msg, sig)
@@ -366,7 +368,8 @@ def plaintext_hash(salt: bytes, plaintext: bytes) -> bytes:
 
 
 def verify_for_gate(envelope: bytes, now: int, gate: dict, p: Params):
-    """Normative order: D -> S -> G -> T -> C."""
+    """Runs stages D -> S -> G -> T -> C in this fixed order, so that every
+    implementation reports the same error for an input with several defects."""
     p.validate()
     signed, canon = decode_signed(envelope)
     c = signed["commitment"]

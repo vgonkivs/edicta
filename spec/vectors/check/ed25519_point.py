@@ -1,5 +1,5 @@
-"""Minimal Ed25519 point arithmetic for public-key validity (spec rule G0) and
-the cofactorless verification equation (spec rule G1).
+"""Minimal Ed25519 point arithmetic for public-key validity (rule G0) and
+the cofactorless verification equation (rule G1).
 
 Written from RFC 8032 section 5.1 (curve, encoding, decoding). Affine
 coordinates and modular inversion: slow but simple, and only used on a few
@@ -95,7 +95,8 @@ def is_small_order(pt) -> bool:
 
 
 def public_key_problem(enc: bytes):
-    """Rule G0. Returns None if the key is acceptable, else a reason string."""
+    """Rule G0: the key must be a canonical point encoding and not of small order.
+    Returns None if the key is acceptable, else a reason string."""
     pt = decode(enc, strict=True)
     if pt is None:
         return "not a canonical encoding of a curve point"
@@ -134,7 +135,7 @@ def challenge(r_enc: bytes, a_enc: bytes, msg: bytes) -> int:
 
 
 def cofactorless_ok(a_enc: bytes, msg: bytes, sig: bytes) -> bool:
-    """Spec rule G1: accept iff encode([S]B - [k]A) == R bytewise. The caller
+    """Rule G1: accept iff encode([S]B - [k]A) == R bytewise. The caller
     has already enforced G0 (A canonical, not small order) and G2 (S < L)."""
     a = decode(a_enc, strict=True)
     if a is None or len(sig) != 64:

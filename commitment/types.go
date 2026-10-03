@@ -1,6 +1,6 @@
 // Package commitment implements DecisionCommitment v0: the canonical wire
 // format, strict decoder, hashing, signing and the stateless checks of the
-// gate (spec/decision-commitment-v0.md).
+// gate.
 //
 // Functions are pure and bounded by the size limits, so they take no
 // context.Context.
@@ -24,7 +24,7 @@ const (
 type Hash [32]byte
 
 // Enums are uint64 because the decoder accepts any uint and rejects bad
-// values at stage S (spec 6.3, vector side_256).
+// values at stage S.
 type (
 	Side      uint64
 	OrderType uint64
@@ -46,7 +46,7 @@ const (
 	OrderMarket OrderType = 2
 )
 
-// Required fields carry no omitempty (spec 3.6); only optional pointers do.
+// Required fields carry no omitempty; only optional pointers do.
 type Commitment struct {
 	Version        uint64      `cbor:"1,keyasint"`
 	AgentID        string      `cbor:"2,keyasint"`

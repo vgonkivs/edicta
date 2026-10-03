@@ -5,7 +5,7 @@ import (
 	"math/bits"
 )
 
-// ValidateStatic runs stage S in the normative order (spec 7).
+// ValidateStatic runs stage S in the normative order.
 func ValidateStatic(c *Commitment, p Params) error {
 	if c == nil {
 		return fmt.Errorf("%w: nil commitment", ErrUnsupportedActionKind)
@@ -137,7 +137,7 @@ func ValidateStatic(c *Commitment, p Params) error {
 		}
 	}
 
-	// Both products are below 2^127, so 128-bit arithmetic is exact (spec 4.7).
+	// Both products are below 2^127, so 128-bit arithmetic is exact.
 	lh, ll := bits.Mul64(o.Qty, *o.LimitPrice)
 	bh, bl := bits.Mul64(c.Constraints.MaxNotional, QtyScale)
 	if lh > bh || lh == bh && ll > bl {
@@ -146,7 +146,7 @@ func ValidateStatic(c *Commitment, p Params) error {
 	return nil
 }
 
-// validNamespace implements spec 10.3.
+// validNamespace reports whether ns is an acceptable blob namespace.
 func validNamespace(ns []byte) bool {
 	if len(ns) != 29 || ns[0] != 0 {
 		return false
@@ -221,7 +221,7 @@ func CheckAction(c *Commitment, req IBKROrderV0) error {
 	return nil
 }
 
-// VerifyForGate is the normative pipeline D, S, G, T, C (spec 8.6).
+// VerifyForGate is the normative pipeline D, S, G, T, C.
 func VerifyForGate(b []byte, now uint64, g GateScope, p Params) (*SignedCommitment, Hash, error) {
 	if err := p.Validate(); err != nil {
 		return nil, Hash{}, err

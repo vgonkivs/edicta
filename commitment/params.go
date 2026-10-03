@@ -14,7 +14,7 @@ const (
 	defaultRetent = 14400
 )
 
-// Params are read from chain state by the gate at check time (spec 11).
+// Params are read from chain state by the gate at check time.
 type Params struct {
 	FibreRetentionS uint64
 	BlobRetentionS  uint64
@@ -22,7 +22,7 @@ type Params struct {
 }
 
 // DefaultParams uses a conservative blob retention until the Celestia pin is
-// confirmed (spec 11, celestia_blob row).
+// confirmed.
 func DefaultParams() Params {
 	return Params{FibreRetentionS: defaultRetent, BlobRetentionS: defaultRetent, SkewS: defaultSkewS}
 }

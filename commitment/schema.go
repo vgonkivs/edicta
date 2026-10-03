@@ -109,7 +109,7 @@ func actionParams(seen map[uint64]*node) ([]field, error) {
 	return orderSchema, nil
 }
 
-// checkMap applies rule order of spec 6.3 to one map: keys ascending, for
+// checkMap applies the rule order to one map: keys ascending, for
 // each key D15, D16, D18, D19, then recursion; D17 after the map.
 func checkMap(n *node, schema []field, path string) error {
 	seen := make(map[uint64]*node, len(n.entries))

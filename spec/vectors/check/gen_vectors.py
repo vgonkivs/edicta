@@ -543,7 +543,8 @@ def reject_cases() -> list:
 
 
 def g0_keys() -> list:
-    """(id, description, 32-byte agent_pubkey) for rule G0."""
+    """(id, description, 32-byte agent_pubkey) cases that rule G0 (public-key
+    validity) must reject."""
     p = ed.P
     names = {1: "identity", 2: "order 2", 4: "order 4", 8: "order 8"}
     out = []
@@ -599,7 +600,8 @@ def small_order_forgery(a_enc: bytes, msg: bytes):
 
 
 def torsion_r_signature(msg: bytes, signer: str = "agent1") -> bytes:
-    """Signature that only a cofactored verifier accepts (spec 5, G1). Uses the
+    """Signature that only a cofactored verifier accepts, so the cofactorless
+    rule G1 must reject it. Uses the
     signer's secret scalar a (RFC 8032 5.1.5) and a deterministic r:
     R = [r]B + T with T of order 8, k = SHA-512(R || A || msg) mod L,
     S = (r + k*a) mod L. Then [S]B - [k]A = [r]B != R, while
