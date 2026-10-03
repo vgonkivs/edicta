@@ -1,7 +1,11 @@
 package commitment_test
 
 import (
+	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/prior/commitment"
 )
@@ -16,9 +20,7 @@ func loadReject(t testing.TB) rejectFile {
 // owns it and through the full pipeline. Earlier stages must pass.
 func TestRejectVectors(t *testing.T) {
 	rf := loadReject(t)
-	if len(rf.Cases) == 0 {
-		t.Fatal("no reject vectors loaded")
-	}
+	require.NotEmpty(t, rf.Cases, "no reject vectors loaded")
 	for _, rc := range rf.Cases {
 		t.Run(rc.ID, func(t *testing.T) {
 			env := mustHex(t, rc.EnvelopeHex)
@@ -42,9 +44,7 @@ func TestRejectVectors(t *testing.T) {
 			}
 
 			s, err := commitment.DecodeSigned(env)
-			if err != nil {
-				t.Fatalf("stage D must pass for a stage %s vector: %v", rc.Stage, err)
-			}
+			require.NoErrorf(t, err, "stage D must pass for a stage %s vector", rc.Stage)
 			staticErr := commitment.ValidateStatic(&s.Commitment, params)
 
 			if rc.Stage == "S" {
@@ -52,9 +52,7 @@ func TestRejectVectors(t *testing.T) {
 				assertSentinel(t, pipeErr, rc.ExpectError)
 				return
 			}
-			if staticErr != nil {
-				t.Fatalf("stage S must pass for a stage %s vector: %v", rc.Stage, staticErr)
-			}
+			require.NoErrorf(t, staticErr, "stage S must pass for a stage %s vector", rc.Stage)
 			_, verr := commitment.Verify(s)
 
 			if rc.Stage == "G" {
@@ -62,9 +60,7 @@ func TestRejectVectors(t *testing.T) {
 				assertSentinel(t, pipeErr, rc.ExpectError)
 				return
 			}
-			if verr != nil {
-				t.Fatalf("stage G must pass for a stage %s vector: %v", rc.Stage, verr)
-			}
+			require.NoErrorf(t, verr, "stage G must pass for a stage %s vector", rc.Stage)
 
 			switch rc.Stage {
 			case "T":
@@ -74,16 +70,12 @@ func TestRejectVectors(t *testing.T) {
 				assertSentinel(t, commitment.CheckScope(&s.Commitment, gate), rc.ExpectError)
 				assertSentinel(t, pipeErr, rc.ExpectError)
 			case "A":
-				if pipeErr != nil {
-					t.Fatalf("pipeline must pass for a stage A vector: %v", pipeErr)
-				}
-				if rc.Request == nil {
-					t.Fatal("stage A vector without request")
-				}
+				require.NoError(t, pipeErr, "pipeline must pass for a stage A vector")
+				require.NotNil(t, rc.Request, "stage A vector without request")
 				err := commitment.CheckAction(&s.Commitment, toOrder(t, *rc.Request))
 				assertSentinel(t, err, rc.ExpectError)
 			default:
-				t.Fatalf("unknown stage %q", rc.Stage)
+				require.FailNow(t, fmt.Sprintf("unknown stage %q", rc.Stage))
 			}
 		})
 	}
@@ -103,22 +95,22 @@ func TestRejectVectorsCoverSentinels(t *testing.T) {
 	for _, c := range pf.Reject {
 		seen[c.ExpectError] = true
 	}
+	// The signed-before-anchor sentinel is covered by anchor.json, which
+	// TestSignedBeforeAnchorVectors asserts.
+	seen["ErrIssuedBeforeAnchor"] = true
 	for name := range seen {
-		if _, ok := sentinels[name]; !ok {
-			t.Errorf("vector expects %q, which is not a known sentinel", name)
-		}
+		_, ok := sentinels[name]
+		assert.Truef(t, ok, "vector expects %q, which is not a known sentinel", name)
 	}
 	for name := range sentinels {
 		if name == "ErrNonCanonical" || name == "ErrInvalidParams" {
 			continue
 		}
-		if !seen[name] {
-			t.Errorf("sentinel %s has no must-reject vector", name)
-		}
+		assert.Truef(t, seen[name], "sentinel %s has no must-reject vector", name)
 	}
 }
 
-// Stage order D, S, G (G0, G2, G1), T, C is normative. Each case runs a vector with a defect in
+// The stage order decode, static, signature, time, scope is normative. Each case runs a vector with a defect in
 // its own stage at a clock that would also fail a later stage.
 func TestVerifyForGateStageOrder(t *testing.T) {
 	rf := loadReject(t)

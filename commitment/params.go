@@ -41,7 +41,7 @@ func (p Params) Validate() error {
 }
 
 // MaxTTL is min(3600, floor(retention/4)). An unknown da yields 0 so that
-// nothing passes by accident; stage S rejects such a da earlier.
+// nothing passes by accident; static validation rejects such a da earlier.
 func (p Params) MaxTTL(da DA) uint64 {
 	var r uint64
 	switch da {

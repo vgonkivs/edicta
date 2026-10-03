@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from prior_v0 import COMMITMENT, IBKR_ORDER_V0, PARAMS_BY_KIND, Params
+from prior_v0 import COMMITMENT, IBKR_ORDER_V0, PARAMS_BY_KIND, RECEIPT, Params
 
 
 def _conv(obj: dict, schema: dict, to_json: bool) -> dict:
@@ -29,6 +29,14 @@ def commitment_to_json(c: dict) -> dict:
 
 def commitment_from_json(j: dict) -> dict:
     return _conv(j, COMMITMENT, False)
+
+
+def receipt_to_json(r: dict) -> dict:
+    return _conv(r, RECEIPT, True)
+
+
+def receipt_from_json(j: dict) -> dict:
+    return _conv(j, RECEIPT, False)
 
 
 def order_to_json(o: dict) -> dict:

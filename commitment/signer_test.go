@@ -2,7 +2,10 @@ package commitment_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/prior/commitment"
 )
@@ -11,18 +14,14 @@ import (
 // and the 20 signer bytes of the minimal_lmt vector.
 func signerField(t *testing.T) []byte {
 	c, _, _ := baseCommitment(t)
-	if len(c.PayloadRef.Signer) != 20 {
-		t.Fatalf("vector signer length %d", len(c.PayloadRef.Signer))
-	}
+	require.Lenf(t, c.PayloadRef.Signer, 20, "vector signer length %d", len(c.PayloadRef.Signer))
 	return append([]byte{0x05, 0x54}, c.PayloadRef.Signer...)
 }
 
 func TestSignerWireEdges(t *testing.T) {
 	good := signedEnv(t, nil)
 	field := signerField(t)
-	if bytes.Count(good, field) != 1 {
-		t.Fatalf("signer field found %d times", bytes.Count(good, field))
-	}
+	require.EqualValuesf(t, 1, bytes.Count(good, field), "signer field found %d times", bytes.Count(good, field))
 	tests := []struct {
 		name string
 		repl []byte
@@ -64,12 +63,8 @@ func TestSignerValuesAccepted(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			env := signedEnv(t, func(c *commitment.Commitment) { c.PayloadRef.Signer = v })
 			s, _, err := commitment.VerifyForGate(env, edgeNow, g, p)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(s.Commitment.PayloadRef.Signer, v) {
-				t.Fatal("signer did not round-trip")
-			}
+			require.NoError(t, err)
+			require.Equal(t, hex.EncodeToString(v), hex.EncodeToString(s.Commitment.PayloadRef.Signer), "signer did not round-trip")
 		})
 	}
 }
@@ -78,23 +73,15 @@ func TestSignerValuesAccepted(t *testing.T) {
 func TestSignerIsBound(t *testing.T) {
 	c, _, _ := baseCommitment(t)
 	h1, err := commitment.HashOf(c)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	s, _, err := commitment.Sign(loadKey(t, "agent1"), c)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	d := *c
 	d.PayloadRef.Signer = append([]byte{}, c.PayloadRef.Signer...)
 	d.PayloadRef.Signer[19] ^= 1
 	h2, err := commitment.HashOf(&d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if h1 == h2 {
-		t.Fatal("signer does not affect the commitment hash")
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, h2, h1, "signer does not affect the commitment hash")
 	assertSentinel(t, verifyErr(&commitment.SignedCommitment{Commitment: d, Signature: s.Signature}), "ErrSignatureInvalid")
 }
 
@@ -108,14 +95,8 @@ func TestFibreCommitmentsHaveNoSigner(t *testing.T) {
 		}
 		n++
 		c, err := commitment.Decode(mustHex(t, vc.CommitmentCBORHex))
-		if err != nil {
-			t.Fatalf("%s: %v", vc.ID, err)
-		}
-		if c.PayloadRef.Signer != nil {
-			t.Fatalf("%s: signer %x on a fibre commitment", vc.ID, c.PayloadRef.Signer)
-		}
+		require.NoErrorf(t, err, "%s", vc.ID)
+		require.Nilf(t, c.PayloadRef.Signer, "%s: signer %x on a fibre commitment", vc.ID, c.PayloadRef.Signer)
 	}
-	if n == 0 {
-		t.Fatal("no fibre valid vectors")
-	}
+	require.NotEqual(t, 0, n, "no fibre valid vectors")
 }

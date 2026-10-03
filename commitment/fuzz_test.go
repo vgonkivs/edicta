@@ -1,8 +1,10 @@
 package commitment_test
 
 import (
-	"bytes"
+	"encoding/hex"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/prior/commitment"
 )
@@ -31,42 +33,24 @@ func FuzzDecode(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		s, err := commitment.DecodeSigned(data)
 		if err != nil {
-			if !matchesAnySentinel(err) {
-				t.Fatalf("rejection without a sentinel: %v", err)
-			}
+			require.Truef(t, matchesAnySentinel(err), "rejection without a sentinel: %v", err)
 		} else {
-			if len(data) > commitment.MaxSignedSize {
-				t.Fatalf("accepted %d bytes, above MaxSignedSize", len(data))
-			}
+			require.LessOrEqualf(t, len(data), commitment.MaxSignedSize, "accepted %d bytes, above MaxSignedSize", len(data))
 			enc, eerr := commitment.EncodeSigned(s)
-			if eerr != nil {
-				t.Fatalf("EncodeSigned of accepted input: %v", eerr)
-			}
-			if !bytes.Equal(enc, data) {
-				t.Fatalf("accepted input is not canonical\n in  %x\n out %x", data, enc)
-			}
+			require.NoError(t, eerr, "EncodeSigned of accepted input")
+			require.Equalf(t, hex.EncodeToString(data), hex.EncodeToString(enc), "accepted input is not canonical\n in  %x\n out %x", data, enc)
 			canon, cerr := commitment.Encode(&s.Commitment)
-			if cerr != nil {
-				t.Fatalf("Encode of accepted commitment: %v", cerr)
-			}
-			if len(canon) > commitment.MaxCommitmentSize {
-				t.Fatalf("accepted commitment of %d bytes", len(canon))
-			}
+			require.NoError(t, cerr, "Encode of accepted commitment")
+			require.LessOrEqualf(t, len(canon), commitment.MaxCommitmentSize, "accepted commitment of %d bytes", len(canon))
 		}
 
 		c, err := commitment.Decode(data)
 		if err != nil {
-			if !matchesAnySentinel(err) {
-				t.Fatalf("Decode rejection without a sentinel: %v", err)
-			}
+			require.Truef(t, matchesAnySentinel(err), "Decode rejection without a sentinel: %v", err)
 			return
 		}
 		enc, err := commitment.Encode(c)
-		if err != nil {
-			t.Fatalf("Encode of accepted commitment: %v", err)
-		}
-		if !bytes.Equal(enc, data) {
-			t.Fatalf("accepted commitment is not canonical\n in  %x\n out %x", data, enc)
-		}
+		require.NoError(t, err, "Encode of accepted commitment")
+		require.Equalf(t, hex.EncodeToString(data), hex.EncodeToString(enc), "accepted commitment is not canonical\n in  %x\n out %x", data, enc)
 	})
 }

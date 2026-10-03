@@ -69,6 +69,9 @@
         "limit_price": "19050000000",
         "currency": "USD",
         "tif": "1"
+      },
+      "placeholders": {
+        "payload_ref.commitment": "Placeholder: SHA-256 of a fixed label, not the DA commitment of any blob. The commitment bytes and hashes of this vector are normative; the value is not a real anchor. The real share commitment of this payload (payload.json ciphertext_hash_small_blob) with this namespace and signer is da_blob.json case blob_v1_minimal_lmt_payload."
       }
     },
     {
@@ -132,6 +135,9 @@
         "currency": "USD",
         "tif": "2",
         "symbol": "AAPL"
+      },
+      "placeholders": {
+        "payload_ref.commitment": "Placeholder: SHA-256 of a fixed label, not the DA commitment of any blob. The commitment bytes and hashes of this vector are normative; the value is not a real anchor."
       }
     },
     {
@@ -193,6 +199,9 @@
         "limit_price": "19500000000",
         "currency": "USD",
         "tif": "1"
+      },
+      "placeholders": {
+        "payload_ref.commitment": "Placeholder: SHA-256 of a fixed label, not the DA commitment of any blob. The commitment bytes and hashes of this vector are normative; the value is not a real anchor."
       }
     },
     {
@@ -253,6 +262,9 @@
         "limit_price": "19050000000",
         "currency": "USD",
         "tif": "1"
+      },
+      "placeholders": {
+        "payload_ref.commitment": "Placeholder: SHA-256 of a fixed label, not the DA commitment of any blob. The commitment bytes and hashes of this vector are normative; the value is not a real anchor."
       }
     },
     {
@@ -313,6 +325,9 @@
         "limit_price": "19050000000",
         "currency": "USD",
         "tif": "1"
+      },
+      "placeholders": {
+        "payload_ref.commitment": "Placeholder: SHA-256 of a fixed label, not the DA commitment of any blob. The commitment bytes and hashes of this vector are normative; the value is not a real anchor."
       }
     },
     {
@@ -376,6 +391,9 @@
         "currency": "USD",
         "tif": "2",
         "symbol": "AAPL"
+      },
+      "placeholders": {
+        "payload_ref.commitment": "Placeholder: SHA-256 of a fixed label, not the DA commitment of any blob. The commitment bytes and hashes of this vector are normative; the value is not a real anchor."
       }
     },
     {
@@ -439,6 +457,9 @@
         "currency": "USD",
         "tif": "2",
         "symbol": "AAPL"
+      },
+      "placeholders": {
+        "payload_ref.commitment": "Placeholder: SHA-256 of a fixed label, not the DA commitment of any blob. The commitment bytes and hashes of this vector are normative; the value is not a real anchor."
       }
     },
     {
@@ -499,6 +520,9 @@
         "limit_price": "19050000000",
         "currency": "USD",
         "tif": "1"
+      },
+      "placeholders": {
+        "payload_ref.commitment": "Placeholder: SHA-256 of a fixed label, not the DA commitment of any blob. The commitment bytes and hashes of this vector are normative; the value is not a real anchor."
       }
     },
     {
@@ -559,6 +583,9 @@
         "limit_price": "19050000000",
         "currency": "USD",
         "tif": "1"
+      },
+      "placeholders": {
+        "payload_ref.commitment": "Placeholder: SHA-256 of a fixed label, not the DA commitment of any blob. The commitment bytes and hashes of this vector are normative; the value is not a real anchor."
       }
     },
     {
@@ -622,6 +649,9 @@
         "currency": "USD",
         "tif": "2",
         "symbol": "NOT-AAPL"
+      },
+      "placeholders": {
+        "payload_ref.commitment": "Placeholder: SHA-256 of a fixed label, not the DA commitment of any blob. The commitment bytes and hashes of this vector are normative; the value is not a real anchor."
       }
     },
     {
@@ -682,6 +712,9 @@
         "limit_price": "255",
         "currency": "USD",
         "tif": "1"
+      },
+      "placeholders": {
+        "payload_ref.commitment": "Placeholder: SHA-256 of a fixed label, not the DA commitment of any blob. The commitment bytes and hashes of this vector are normative; the value is not a real anchor."
       }
     },
     {
@@ -742,6 +775,9 @@
         "limit_price": "1",
         "currency": "USD",
         "tif": "1"
+      },
+      "placeholders": {
+        "payload_ref.commitment": "Placeholder: SHA-256 of a fixed label, not the DA commitment of any blob. The commitment bytes and hashes of this vector are normative; the value is not a real anchor."
       }
     },
     {
@@ -810,6 +846,9 @@
         "currency": "USD",
         "tif": "2",
         "symbol": "AAPL"
+      },
+      "placeholders": {
+        "payload_ref.commitment": "Placeholder: SHA-256 of a fixed label, not the DA commitment of any blob. The commitment bytes and hashes of this vector are normative; the value is not a real anchor."
       }
     }
   ]

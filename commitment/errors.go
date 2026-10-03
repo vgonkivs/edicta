@@ -2,7 +2,7 @@ package commitment
 
 import "errors"
 
-// Stage D: decoding.
+// Decoding.
 var (
 	ErrTooLarge              = errors.New("commitment: too large")
 	ErrMalformed             = errors.New("commitment: malformed CBOR")
@@ -25,7 +25,7 @@ var (
 	ErrNonCanonical          = errors.New("commitment: re-encoding differs from input")
 )
 
-// Stage S: static validation.
+// Static validation.
 var (
 	ErrUnsupportedVersion   = errors.New("commitment: unsupported version")
 	ErrIntRange             = errors.New("commitment: integer above 2^63-1")
@@ -57,3 +57,6 @@ var (
 	ErrPayloadSizeMismatch = errors.New("commitment: payload size mismatch")
 	ErrPayloadHashMismatch = errors.New("commitment: payload hash mismatch")
 )
+
+// Anchor time.
+var ErrIssuedBeforeAnchor = errors.New("commitment: issued_at before the anchor block")

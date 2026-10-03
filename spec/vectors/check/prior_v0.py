@@ -16,6 +16,7 @@ from ed25519_point import cofactorless_ok, public_key_problem
 TAG_COMMITMENT = b"prior/v0/decision-commitment"
 TAG_SIG = b"prior/v0/sig"
 TAG_RECEIPT = b"prior/v0/receipt"
+TAG_RECEIPT_SIG = b"prior/v0/receipt-sig"
 
 MAX_SIGNED_SIZE = 2176
 MAX_COMMITMENT_SIZE = 2048
@@ -49,7 +50,7 @@ def tagged(tag: bytes) -> bytes:
 # Field schema: key -> (name, type, required, limit)
 # type: "uint" | "bstr" | "tstr" | map schema dict | "params"
 # required: True, False, or DA_BLOB_ONLY (payload_ref.signer: required when
-# da == 2, not defined when da == 1, optional for any other da, which S3 rejects).
+# da == 2, not defined when da == 1, optional for any other da, which the enum check rejects).
 # limit for bstr/tstr: (min_len, max_len); tstr also carries a charset.
 
 DA_FIBRE = 1
@@ -170,7 +171,7 @@ def _schema_decode(it: Item, schema: dict, where: str) -> dict:
 
 
 def decode_signed(envelope: bytes):
-    """Stage D. Returns (signed dict, canonical commitment bytes)."""
+    """Decode and schema-check a signed envelope. Returns (signed dict, canonical commitment bytes)."""
     if len(envelope) > MAX_SIGNED_SIZE:
         raise Reject("ErrTooLarge", f"{len(envelope)} bytes")
     try:
@@ -204,9 +205,9 @@ def commitment_hash(canon: bytes) -> bytes:
     return hashlib.sha256(tagged(TAG_COMMITMENT) + canon).digest()
 
 
-def signing_message(h: bytes) -> bytes:
+def signing_message(h: bytes, tag: bytes = TAG_SIG) -> bytes:
     assert len(h) == 32
-    return tagged(TAG_SIG) + h
+    return tagged(tag) + h
 
 
 @dataclass(frozen=True)
@@ -246,7 +247,7 @@ def namespace_ok(ns: bytes) -> bool:
 
 
 def validate_static(c: dict, p: Params):
-    """Stage S: checks S1..S16 in this fixed order, so that every implementation
+    """Static checks in this fixed order, so that every implementation
     reports the same error for an input with several defects."""
     a = c["action"]["params"]
     k = c["constraints"]
@@ -302,26 +303,32 @@ def validate_static(c: dict, p: Params):
 
 
 def verify_signature(c: dict, canon: bytes, sig: bytes) -> bytes:
-    """Stage G: public-key validity (G0), then S < L (G2), then the signature
-    equation (G1). Returns commitment_hash."""
+    """Public-key validity, then S < L, then the signature equation.
+    Returns commitment_hash."""
+    h = commitment_hash(canon)
+    _verify_tagged_hash(c["agent_pubkey"], h, sig)
+    return h
+
+
+def _verify_tagged_hash(pub: bytes, h: bytes, sig: bytes, tag: bytes = TAG_SIG):
+    """Signature checks for a public key and an already domain-separated hash."""
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-    # G0 is checked here, not left to the library: OpenSSL (via 'cryptography')
+    # Public-key validity is checked here, not left to the library: OpenSSL (via 'cryptography')
     # accepts small-order and non-canonical public keys, so (A = identity,
     # R = identity, S = 0) verifies for every message without this check.
-    problem = public_key_problem(c["agent_pubkey"])
+    problem = public_key_problem(pub)
     if problem:
         raise Reject("ErrInvalidPublicKey", problem)
-    h = commitment_hash(canon)
     if int.from_bytes(sig[32:], "little") >= ED25519_L:
         raise Reject("ErrSignatureInvalid", "S >= L")
-    # G1 is checked with our own cofactorless equation; OpenSSL (also
+    # The signature equation is checked with our own cofactorless equation; OpenSSL (also
     # cofactorless) must agree, so a disagreement is a checker bug, not a verdict.
-    msg = signing_message(h)
-    ours = cofactorless_ok(c["agent_pubkey"], msg, sig)
+    msg = signing_message(h, tag)
+    ours = cofactorless_ok(pub, msg, sig)
     try:
-        Ed25519PublicKey.from_public_bytes(c["agent_pubkey"]).verify(sig, msg)
+        Ed25519PublicKey.from_public_bytes(pub).verify(sig, msg)
         lib = True
     except (InvalidSignature, ValueError):
         lib = False
@@ -329,7 +336,6 @@ def verify_signature(c: dict, canon: bytes, sig: bytes) -> bytes:
         raise RuntimeError(f"G1 disagreement: cofactorless={ours}, OpenSSL={lib}")
     if not ours:
         raise Reject("ErrSignatureInvalid", "cofactorless equation fails")
-    return h
 
 
 def check_time(c: dict, now: int, p: Params):
@@ -368,8 +374,8 @@ def plaintext_hash(salt: bytes, plaintext: bytes) -> bytes:
 
 
 def verify_for_gate(envelope: bytes, now: int, gate: dict, p: Params):
-    """Runs stages D -> S -> G -> T -> C in this fixed order, so that every
-    implementation reports the same error for an input with several defects."""
+    """Runs decoding, static checks, signature, time, then scope in this fixed
+    order, so that every implementation reports the same error for an input with several defects."""
     p.validate()
     signed, canon = decode_signed(envelope)
     c = signed["commitment"]
@@ -378,3 +384,142 @@ def verify_for_gate(envelope: bytes, now: int, gate: dict, p: Params):
     check_time(c, now, p)
     check_scope(c, gate)
     return signed, h
+
+
+# Receipt (gate output). Same CBOR profile as the commitment.
+
+MAX_RECEIPT_SIZE = 512
+RAIL_IBKR = 1
+PATH_DA = 1
+PATH_ARCHIVE = 2
+
+RECEIPT = {
+    1: ("version", "uint", True, None),
+    2: ("commitment_hash", "bstr", True, (32, 32)),
+    3: ("gate_id", "tstr", True, (1, 64, ID_CHARS)),
+    4: ("gate_pubkey", "bstr", True, (32, 32)),
+    5: ("rail", "uint", True, None),
+    6: ("rail_ref", "tstr", True, (1, 128, ID_CHARS)),
+    7: ("path", "uint", True, None),
+    8: ("executed_at", "uint", True, None),
+}
+
+SIGNED_RECEIPT = {
+    1: ("receipt", RECEIPT, True, None),
+    2: ("signature", "bstr", True, (64, 64)),
+}
+
+
+def receipt_hash(canon: bytes) -> bytes:
+    return hashlib.sha256(tagged(TAG_RECEIPT) + canon).digest()
+
+
+def decode_signed_receipt(data: bytes):
+    """Decode and schema-check a signed receipt. Returns (signed dict, canonical receipt bytes)."""
+    if len(data) > MAX_RECEIPT_SIZE:
+        raise Reject("ErrTooLarge", f"{len(data)} bytes")
+    try:
+        it = decode_strict(data)
+    except CBORError as e:
+        raise Reject(e.sentinel, e.detail)
+    signed = _schema_decode(it, SIGNED_RECEIPT, "signed_receipt")
+    inner = next(v for k, v in it.value if k.value == 1)
+    canon = data[inner.start:inner.end]
+    if encode(to_cbor(signed["receipt"], RECEIPT)) != canon:
+        raise Reject("ErrNonCanonical", "re-encoding differs")
+    return signed, canon
+
+
+def validate_receipt_static(r: dict):
+    """Static receipt checks in this fixed order."""
+    if r["version"] != 0:
+        raise Reject("ErrUnsupportedVersion", str(r["version"]))
+    if any(r[n] > MAX_INT for n in ("version", "rail", "path", "executed_at")):
+        raise Reject("ErrIntRange")
+    if r["rail"] == 0:
+        raise Reject("ErrInvalidEnum", "rail=0")
+    if r["path"] not in (PATH_DA, PATH_ARCHIVE):
+        raise Reject("ErrInvalidEnum", f"path={r['path']}")
+    if r["rail"] != RAIL_IBKR:
+        raise Reject("ErrUnsupportedRail", str(r["rail"]))
+    if r["executed_at"] == 0:
+        raise Reject("ErrZeroValue", "executed_at")
+
+
+def verify_receipt(data: bytes):
+    """Decoding, static checks, then signature checks under gate_pubkey.
+    Returns (signed, receipt_hash)."""
+    signed, canon = decode_signed_receipt(data)
+    validate_receipt_static(signed["receipt"])
+    h = receipt_hash(canon)
+    _verify_tagged_hash(signed["receipt"]["gate_pubkey"], h, signed["signature"], TAG_RECEIPT_SIG)
+    return signed, h
+
+
+# Anchor-relative rules. Exact integers; a uint64 implementation that
+# saturates reaches the same verdicts because every left-hand side stays
+# below 2^63 + 600.
+
+U64_MAX = (1 << 64) - 1
+MARGIN_CAP = 600
+
+
+def sat_add(a: int, b: int) -> int:
+    return min(a + b, U64_MAX)
+
+
+def check_anchor_time(issued_at: int, block_time: int, skew: int):
+    """The agent signed no earlier than the anchor block, up to skew."""
+    if sat_add(issued_at, skew) < block_time:
+        raise Reject("ErrIssuedBeforeAnchor")
+
+
+def retention_margin(r: int) -> int:
+    return min(MARGIN_CAP, r // 8)
+
+
+def retention_window(da: int, block_time: int, p: Params, fibre_latest: int | None = None,
+                     fibre_at_height: int | None = None, creation_ts: int = 0):
+    """Returns (r, start) for the retention check, or None when the creation
+    timestamp is unknown (the check then fails). An unreadable at-height retention is a rejection: falling
+    back to the latest value could overstate the window if retention was
+    lowered after the upload."""
+    if da == DA_CELESTIA_BLOB:
+        return p.blob_retention_s, block_time
+    if fibre_at_height is None:
+        raise Reject("ErrRetentionUnavailable")
+    if fibre_latest is None or creation_ts == 0:
+        return None
+    return min(fibre_latest, fibre_at_height), min(block_time, creation_ts)
+
+
+def within_retention(valid_until: int, start: int, r: int) -> bool:
+    """valid_until plus a safety margin must end before the payload leaves retention."""
+    return sat_add(valid_until, retention_margin(r)) <= sat_add(start, r)
+
+
+def route(da: int, within: bool) -> str:
+    """Where the payload may come from once the retention check is known. Raises for da = 1 off the DA path."""
+    if within:
+        return "da"
+    if da == DA_FIBRE:
+        raise Reject("ErrArchiveRecomputeUnsupported")
+    return "archive"
+
+
+def check_registry_epoch(issued_at: int, epoch: int, skew: int):
+    """Nothing signed before the registry existed (plus skew) is admitted."""
+    if issued_at <= sat_add(epoch, skew):
+        raise Reject("ErrBeforeRegistryEpoch")
+
+
+# Client order id per rail.
+
+def client_order_id(rail: int, h: bytes) -> str:
+    if len(h) != 32:
+        raise ValueError("commitment_hash must be 32 bytes")
+    if rail == 0:
+        raise Reject("ErrInvalidEnum", "rail=0")
+    if rail != RAIL_IBKR:
+        raise Reject("ErrUnsupportedRail", str(rail))
+    return h.hex()

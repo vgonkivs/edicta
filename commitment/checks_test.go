@@ -3,6 +3,8 @@ package commitment_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/vgonkivs/prior/commitment"
 )
 
@@ -44,9 +46,7 @@ func TestCheckTime(t *testing.T) {
 			p.SkewS = tt.skew
 			err := commitment.CheckTime(c, tt.now, p)
 			if tt.want == "" {
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
+				require.NoError(t, err, "unexpected error")
 				return
 			}
 			assertSentinel(t, err, tt.want)
@@ -82,9 +82,7 @@ func TestCheckScope(t *testing.T) {
 			tt.mutate(&g, c)
 			err := commitment.CheckScope(c, g)
 			if tt.want == "" {
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
+				require.NoError(t, err, "unexpected error")
 				return
 			}
 			assertSentinel(t, err, tt.want)
@@ -122,9 +120,7 @@ func TestCheckAction(t *testing.T) {
 			tt.mutate(&req)
 			err := commitment.CheckAction(c, req)
 			if tt.want == "" {
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
+				require.NoError(t, err, "unexpected error")
 				return
 			}
 			assertSentinel(t, err, tt.want)
@@ -215,9 +211,7 @@ func TestValidateStaticBoundaries(t *testing.T) {
 			tt.mutate(c, &p)
 			err := commitment.ValidateStatic(c, p)
 			if tt.want == "" {
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
+				require.NoError(t, err, "unexpected error")
 				return
 			}
 			assertSentinel(t, err, tt.want)

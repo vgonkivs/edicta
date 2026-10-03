@@ -5,7 +5,7 @@ import (
 	"math/bits"
 )
 
-// ValidateStatic runs stage S in the normative order.
+// ValidateStatic runs static validation in the normative order.
 func ValidateStatic(c *Commitment, p Params) error {
 	if c == nil {
 		return fmt.Errorf("%w: nil commitment", ErrUnsupportedActionKind)
@@ -164,7 +164,7 @@ func validNamespace(ns []byte) bool {
 	return false
 }
 
-// CheckTime implements T1 and T2. Skew only ever shortens validity at the end.
+// CheckTime checks the start and expiry of validity. Skew only ever shortens validity at the end.
 func CheckTime(c *Commitment, now uint64, p Params) error {
 	if c == nil {
 		return fmt.Errorf("%w: nil commitment", ErrExpired)
@@ -201,7 +201,7 @@ func CheckScope(c *Commitment, g GateScope) error {
 }
 
 // CheckAction matches the order about to be placed against the committed
-// params. Symbol is informational and ignored (rule A1).
+// params. Symbol is informational and ignored.
 func CheckAction(c *Commitment, req IBKROrderV0) error {
 	if c == nil {
 		return fmt.Errorf("%w: nil commitment", ErrActionMismatch)

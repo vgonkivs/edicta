@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"math"
 	"math/big"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/prior/commitment"
 )
@@ -21,13 +25,9 @@ func signedEnv(t *testing.T, mutate func(c *commitment.Commitment)) []byte {
 		mutate(c)
 	}
 	s, _, err := commitment.Sign(loadKey(t, "agent1"), c)
-	if err != nil {
-		t.Fatalf("sign: %v", err)
-	}
+	require.NoError(t, err, "sign")
 	b, err := commitment.EncodeSigned(s)
-	if err != nil {
-		t.Fatalf("encode: %v", err)
-	}
+	require.NoError(t, err, "encode")
 	return b
 }
 
@@ -40,12 +40,9 @@ func TestEdgeSignatureMalleability(t *testing.T) {
 	c, _, _ := baseCommitment(t)
 	priv := loadKey(t, "agent1")
 	s, _, err := commitment.Sign(priv, c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := commitment.Verify(s); err != nil {
-		t.Fatalf("baseline: %v", err)
-	}
+	require.NoError(t, err)
+	_, err = commitment.Verify(s)
+	require.NoError(t, err, "baseline")
 
 	l, _ := new(big.Int).SetString("7237005577332262213973186563042994240857116359379907606001950938285454250989", 10)
 	rev := func(b []byte) []byte {
@@ -59,9 +56,8 @@ func TestEdgeSignatureMalleability(t *testing.T) {
 	sv.Add(sv, l)
 	sb := rev(sv.FillBytes(make([]byte, 32)))
 	mal := &commitment.SignedCommitment{Commitment: s.Commitment, Signature: append(append([]byte{}, s.Signature[:32]...), sb...)}
-	if _, err := commitment.Verify(mal); err == nil {
-		t.Fatal("S+L accepted")
-	}
+	_, err = commitment.Verify(mal)
+	require.Error(t, err, "S+L accepted")
 
 	sigLen := func(n int) *commitment.SignedCommitment {
 		return &commitment.SignedCommitment{Commitment: s.Commitment, Signature: make([]byte, n)}
@@ -79,15 +75,12 @@ func verifyErr(s *commitment.SignedCommitment) error {
 func TestEdgeEnvelopeExtraData(t *testing.T) {
 	good := signedEnv(t, nil)
 	g, p := edgeGate(t)
-	if _, _, err := commitment.VerifyForGate(good, edgeNow, g, p); err != nil {
-		t.Fatalf("baseline: %v", err)
-	}
+	_, _, err := commitment.VerifyForGate(good, edgeNow, g, p)
+	require.NoError(t, err, "baseline")
 	s, _ := commitment.DecodeSigned(good)
 	sigBytes := s.Signature
 	i := bytes.Index(good, sigBytes)
-	if i < 0 {
-		t.Fatal("signature not found in envelope")
-	}
+	require.GreaterOrEqual(t, i, 0, "signature not found in envelope")
 
 	tests := []struct {
 		name string
@@ -113,9 +106,8 @@ func TestEdgeEnvelopeExtraData(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			_, _, err := commitment.VerifyForGate(tt.env, edgeNow, g, p)
 			if tt.name == "empty" || tt.name == "truncated" {
-				if err == nil || !matchesAnySentinel(err) {
-					t.Fatalf("want a sentinel error, got %v", err)
-				}
+				require.Error(t, err)
+				require.True(t, matchesAnySentinel(err))
 				return
 			}
 			assertSentinel(t, err, tt.want)
@@ -127,9 +119,7 @@ func TestEdgeCrossDomainSignatures(t *testing.T) {
 	c, _, _ := baseCommitment(t)
 	priv := loadKey(t, "agent1")
 	canon, err := commitment.Encode(c)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	tag := func(name string, parts ...[]byte) []byte {
 		out := append([]byte{byte(len(name))}, name...)
 		for _, p := range parts {
@@ -160,13 +150,10 @@ func TestEdgeCrossDomainSignatures(t *testing.T) {
 			assertSentinel(t, verifyErr(s), "ErrSignatureInvalid")
 		})
 	}
-	if commitment.HashCanonical(canon) == commitment.Hash(sha256.Sum256(canon)) {
-		t.Fatal("hash lacks domain tag")
-	}
+	require.NotEqual(t, commitment.Hash(sha256.Sum256(canon)), commitment.HashCanonical(canon), "hash lacks domain tag")
 	good := &commitment.SignedCommitment{Commitment: *c, Signature: ed25519.Sign(priv, commitment.SigningMessage(h))}
-	if err := verifyErr(good); err != nil {
-		t.Fatalf("control: %v", err)
-	}
+	err = verifyErr(good)
+	require.NoError(t, err, "control")
 }
 
 func TestEdgeForeignGateRailAccount(t *testing.T) {
@@ -208,9 +195,7 @@ func TestEdgeTimeBoundaries(t *testing.T) {
 		env := signedEnv(t, func(c *commitment.Commitment) { c.IssuedAt, c.ValidUntil = issuedAt, validUntil })
 		_, _, err := commitment.VerifyForGate(env, now, g, p)
 		if want == "" {
-			if err != nil {
-				t.Fatalf("unexpected: %v", err)
-			}
+			require.NoError(t, err)
 			return
 		}
 		assertSentinel(t, err, want)
@@ -262,16 +247,13 @@ func TestEdgeMaxTTLRetention(t *testing.T) {
 	}{{1, 0}, {3, 0}, {4, 1}, {7, 1}, {599, 149}, {14400, 3600}, {14401, 3600}, {math.MaxInt64, 3600}} {
 		p := commitment.Params{FibreRetentionS: tc.ret, BlobRetentionS: tc.ret}
 		for _, da := range []commitment.DA{commitment.DAFibre, commitment.DACelestiaBlob} {
-			if got := p.MaxTTL(da); got != tc.want {
-				t.Errorf("ret %d da %d: MaxTTL %d, want %d", tc.ret, da, got, tc.want)
-			}
+			got := p.MaxTTL(da)
+			assert.Equal(t, tc.want, got)
 		}
 	}
 	p := commitment.DefaultParams()
 	for _, da := range []commitment.DA{0, 3, math.MaxUint64} {
-		if p.MaxTTL(da) != 0 {
-			t.Errorf("da %d: MaxTTL not 0", da)
-		}
+		assert.EqualValuesf(t, 0, p.MaxTTL(da), "da %d: MaxTTL not 0", da)
 	}
 }
 
@@ -327,9 +309,7 @@ func TestEdgeNotionalBoundaries(t *testing.T) {
 			tt.mutate(c)
 			err := commitment.ValidateStatic(c, p)
 			if tt.want == "" {
-				if err != nil {
-					t.Fatalf("unexpected: %v", err)
-				}
+				require.NoError(t, err)
 				return
 			}
 			assertSentinel(t, err, tt.want)
@@ -342,34 +322,27 @@ func TestEdgeUint64WireRoundTrip(t *testing.T) {
 	c.PayloadSize = math.MaxUint64
 	c.Constraints.MaxNotional = math.MaxUint64
 	b, err := commitment.Encode(c)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	d, err := commitment.Decode(b)
-	if err != nil {
-		t.Fatalf("decode of 2^64-1 must succeed at stage D: %v", err)
-	}
-	if d.PayloadSize != math.MaxUint64 || d.Constraints.MaxNotional != math.MaxUint64 {
-		t.Fatal("uint64 lost")
-	}
+	require.NoError(t, err, "decode of 2^64-1 must succeed at stage D")
+	require.Equal(t, uint64(math.MaxUint64), d.PayloadSize, "uint64 lost")
+	require.Equal(t, uint64(math.MaxUint64), d.Constraints.MaxNotional, "uint64 lost")
 	_, p := edgeGate(t)
 	assertSentinel(t, commitment.ValidateStatic(d, p), "ErrIntRange")
 }
 
 func TestEdgeSizeLimits(t *testing.T) {
 	over := func(n int) []byte { return bytes.Repeat([]byte{0xa0}, n) }
-	if _, err := commitment.DecodeSigned(over(commitment.MaxSignedSize + 1)); !isErr(err, "ErrTooLarge") {
-		t.Fatalf("envelope limit+1: %v", err)
-	}
-	if _, err := commitment.DecodeSigned(over(commitment.MaxSignedSize)); err == nil || isErr(err, "ErrTooLarge") {
-		t.Fatalf("envelope at limit must pass the size gate and fail later: %v", err)
-	}
-	if _, err := commitment.Decode(over(commitment.MaxCommitmentSize + 1)); !isErr(err, "ErrTooLarge") {
-		t.Fatalf("commitment limit+1: %v", err)
-	}
-	if _, err := commitment.Decode(over(commitment.MaxCommitmentSize)); err == nil || isErr(err, "ErrTooLarge") {
-		t.Fatalf("commitment at limit: %v", err)
-	}
+	_, err := commitment.DecodeSigned(over(commitment.MaxSignedSize + 1))
+	require.Truef(t, isErr(err, "ErrTooLarge"), "envelope limit+1: %v", err)
+	_, err = commitment.DecodeSigned(over(commitment.MaxSignedSize))
+	require.Errorf(t, err, "envelope at limit must pass the size gate and fail later: %v", err)
+	require.Falsef(t, isErr(err, "ErrTooLarge"), "envelope at limit must pass the size gate and fail later: %v", err)
+	_, err = commitment.Decode(over(commitment.MaxCommitmentSize + 1))
+	require.Truef(t, isErr(err, "ErrTooLarge"), "commitment limit+1: %v", err)
+	_, err = commitment.Decode(over(commitment.MaxCommitmentSize))
+	require.Errorf(t, err, "commitment at limit: %v", err)
+	require.Falsef(t, isErr(err, "ErrTooLarge"), "commitment at limit: %v", err)
 
 	// Inner commitment of 2049 bytes inside an envelope under 2176: a
 	// map of 16 entries whose values are padded by a long byte string.
@@ -380,12 +353,11 @@ func TestEdgeSizeLimits(t *testing.T) {
 		return append(b, make([]byte, 64)...)
 	}
 	// 0xa1 map(1){1: bstr(n)} is 1+1+3+n = n+5 bytes
-	if _, err := commitment.DecodeSigned(pad(commitment.MaxCommitmentSize - 5 + 1)); !isErr(err, "ErrTooLarge") {
-		t.Fatalf("inner commitment 2049 bytes: %v", err)
-	}
-	if _, err := commitment.DecodeSigned(pad(commitment.MaxCommitmentSize - 5)); err == nil || isErr(err, "ErrTooLarge") {
-		t.Fatalf("inner commitment 2048 bytes: %v", err)
-	}
+	_, err = commitment.DecodeSigned(pad(commitment.MaxCommitmentSize - 5 + 1))
+	require.Truef(t, isErr(err, "ErrTooLarge"), "inner commitment 2049 bytes: %v", err)
+	_, err = commitment.DecodeSigned(pad(commitment.MaxCommitmentSize - 5))
+	require.Errorf(t, err, "inner commitment 2048 bytes: %v", err)
+	require.Falsef(t, isErr(err, "ErrTooLarge"), "inner commitment 2048 bytes: %v", err)
 }
 
 func isErr(err error, name string) bool {
@@ -395,23 +367,19 @@ func isErr(err error, name string) bool {
 func TestEdgeNestingDepth(t *testing.T) {
 	// depth 5 map inside envelope key 1
 	deep := []byte{0xa1, 0x01, 0xa1, 0x01, 0xa1, 0x01, 0xa1, 0x01, 0xa1, 0x01, 0x00}
-	if _, err := commitment.DecodeSigned(deep); !isErr(err, "ErrNestingTooDeep") {
-		t.Fatalf("depth 5: %v", err)
-	}
+	_, err := commitment.DecodeSigned(deep)
+	require.Truef(t, isErr(err, "ErrNestingTooDeep"), "depth 5: %v", err)
 	var many []byte
 	for i := 0; i < 2000; i++ {
 		many = append(many, 0xa1, 0x01)
 	}
 	many = append(many, 0)
-	if _, err := commitment.DecodeSigned(many); err == nil {
-		t.Fatal("2000-deep nesting accepted")
-	}
-	if _, err := commitment.DecodeSigned(many[:2176]); err == nil {
-		t.Fatal("deep nesting at size limit accepted")
-	}
-	if _, err := commitment.Decode(deep[:9:9]); err == nil {
-		t.Fatal("bare commitment depth 4 within a commitment must fail (depth 2 base)")
-	}
+	_, err = commitment.DecodeSigned(many)
+	require.Error(t, err, "2000-deep nesting accepted")
+	_, err = commitment.DecodeSigned(many[:2176])
+	require.Error(t, err, "deep nesting at size limit accepted")
+	_, err = commitment.Decode(deep[:9:9])
+	require.Error(t, err, "bare commitment depth 4 within a commitment must fail (depth 2 base)")
 }
 
 // Documents impl-notes behaviour for hand-built inputs.
@@ -420,20 +388,15 @@ func TestEdgeImplNotesAmbiguities(t *testing.T) {
 
 	t.Run("Sign with mismatched key fails", func(t *testing.T) {
 		s, _, err := commitment.Sign(loadKey(t, "agent2"), c)
-		if err == nil || s != nil {
-			t.Fatalf("Sign accepted mismatched key: %v", err)
-		}
-		if !errors.Is(err, commitment.ErrInvalidPublicKey) {
-			t.Fatalf("want ErrInvalidPublicKey, got %v", err)
-		}
+		require.Errorf(t, err, "Sign accepted mismatched key: %v", err)
+		require.Nilf(t, s, "Sign accepted mismatched key: %v", err)
+		require.ErrorIs(t, err, commitment.ErrInvalidPublicKey, "want ErrInvalidPublicKey, got")
 	})
 	t.Run("Sign rejects short private key", func(t *testing.T) {
-		if _, _, err := commitment.Sign(ed25519.PrivateKey(make([]byte, 31)), c); err == nil {
-			t.Fatal("accepted")
-		}
-		if _, _, err := commitment.Sign(nil, c); err == nil {
-			t.Fatal("accepted nil key")
-		}
+		_, _, err := commitment.Sign(ed25519.PrivateKey(make([]byte, 31)), c)
+		require.Error(t, err, "accepted")
+		_, _, err = commitment.Sign(nil, c)
+		require.Error(t, err, "accepted nil key")
 	})
 	t.Run("nil order", func(t *testing.T) {
 		d := *c
@@ -441,9 +404,8 @@ func TestEdgeImplNotesAmbiguities(t *testing.T) {
 		assertSentinel(t, commitment.ValidateStatic(&d, p), "ErrUnsupportedActionKind")
 		assertSentinel(t, verifyErr(&commitment.SignedCommitment{Commitment: d, Signature: make([]byte, 64)}), "ErrSignatureInvalid")
 		assertSentinel(t, commitment.CheckAction(&d, commitment.IBKROrderV0{}), "ErrActionMismatch")
-		if _, err := commitment.Encode(&d); err == nil {
-			t.Fatal("encode of nil order succeeded")
-		}
+		_, err := commitment.Encode(&d)
+		require.Error(t, err, "encode of nil order succeeded")
 	})
 	t.Run("nil envelope", func(t *testing.T) {
 		assertSentinel(t, verifyErr(nil), "ErrSignatureInvalid")
@@ -456,31 +418,25 @@ func TestEdgeImplNotesAmbiguities(t *testing.T) {
 	t.Run("encode does not validate", func(t *testing.T) {
 		d := *c
 		d.Version = 7
-		if _, err := commitment.Encode(&d); err != nil {
-			t.Fatalf("Encode validates: %v", err)
-		}
+		_, err := commitment.Encode(&d)
+		require.NoError(t, err, "Encode validates")
 	})
 	t.Run("nil byte slices encode as empty strings", func(t *testing.T) {
 		d := *c
 		d.Nonce = nil
 		b1, err := commitment.Encode(&d)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		d.Nonce = []byte{}
 		b2, _ := commitment.Encode(&d)
-		if !bytes.Equal(b1, b2) {
-			t.Fatal("nil and empty differ")
-		}
+		require.Equal(t, hex.EncodeToString(b2), hex.EncodeToString(b1), "nil and empty differ")
 		_, err = commitment.Decode(b1)
 		assertSentinel(t, err, "ErrFieldSize")
 	})
 	t.Run("symbol ignored by CheckAction", func(t *testing.T) {
 		req := *c.Action.IBKROrder
 		req.Symbol = ptr("OTHER")
-		if err := commitment.CheckAction(c, req); err != nil {
-			t.Fatal(err)
-		}
+		err := commitment.CheckAction(c, req)
+		require.NoError(t, err)
 	})
 	t.Run("CheckAction limit_price presence", func(t *testing.T) {
 		req := *c.Action.IBKROrder
@@ -490,13 +446,9 @@ func TestEdgeImplNotesAmbiguities(t *testing.T) {
 	t.Run("Verify hashes the struct, DecodeSigned guarantees bytes equal", func(t *testing.T) {
 		env := signedEnv(t, nil)
 		s, err := commitment.DecodeSigned(env)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		again, _ := commitment.EncodeSigned(s)
-		if !bytes.Equal(env, again) {
-			t.Fatal("not canonical")
-		}
+		require.Equal(t, hex.EncodeToString(again), hex.EncodeToString(env), "not canonical")
 	})
 }
 

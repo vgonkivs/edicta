@@ -4,12 +4,13 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/prior/commitment"
 )
@@ -22,12 +23,9 @@ const (
 func readJSON(t testing.TB, name string, v any) {
 	t.Helper()
 	b, err := os.ReadFile(dir + name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(b, v); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	err = json.Unmarshal(b, v)
+	require.NoError(t, err)
 }
 
 func key(t testing.TB, name string) ed25519.PrivateKey {
@@ -38,9 +36,7 @@ func key(t testing.TB, name string) ed25519.PrivateKey {
 	}
 	readJSON(t, "keys.json", &kf)
 	seed, err := hex.DecodeString(kf.Keys[name].SeedHex)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return ed25519.NewKeyFromSeed(seed)
 }
 
@@ -66,9 +62,7 @@ func setup(t testing.TB) env {
 	readJSON(t, "valid.json", &vf)
 	n := func(s string) uint64 {
 		v, err := strconv.ParseUint(s, 10, 64)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		return v
 	}
 	var e env
@@ -76,15 +70,11 @@ func setup(t testing.TB) env {
 		if c.ID == "minimal_lmt" {
 			b, _ := hex.DecodeString(c.Hex)
 			cm, err := commitment.Decode(b)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			e.c = cm
 		}
 	}
-	if e.c == nil {
-		t.Fatal("vector minimal_lmt missing")
-	}
+	require.NotNil(t, e.c, "vector minimal_lmt missing")
 	e.gate = commitment.GateScope{GateID: vf.Gate.GateID, Rail: commitment.Rail(n(vf.Gate.Rail)), Account: vf.Gate.Account}
 	e.params = commitment.Params{FibreRetentionS: n(vf.RawParams["fibre_retention_s"]), BlobRetentionS: n(vf.RawParams["blob_retention_s"]), SkewS: n(vf.RawParams["skew_s"])}
 	return e
@@ -92,13 +82,9 @@ func setup(t testing.TB) env {
 
 func envelope(t testing.TB, c *commitment.Commitment, priv ed25519.PrivateKey) []byte {
 	s, _, err := commitment.Sign(priv, c)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	b, err := commitment.EncodeSigned(s)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return b
 }
 
@@ -111,12 +97,8 @@ func clone(c *commitment.Commitment) *commitment.Commitment {
 
 func mustReject(t *testing.T, err error, want error) {
 	t.Helper()
-	if err == nil {
-		t.Fatalf("gate accepted; want %v", want)
-	}
-	if !errors.Is(err, want) {
-		t.Fatalf("got %v, want %v", err, want)
-	}
+	require.Error(t, err)
+	require.ErrorIs(t, err, want)
 }
 
 // gateAdmit is the stateless part of the gate: verify, then match the order.
@@ -141,26 +123,21 @@ func TestAttack1ActionWithoutCommitment(t *testing.T) {
 		"garbage":    []byte("not cbor at all"),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if err := gateAdmit(e, b, now, req); err == nil {
-				t.Fatal("gate accepted")
-			}
+			err := gateAdmit(e, b, now, req)
+			require.Error(t, err, "gate accepted")
 		})
 	}
 }
 
 func mustEncode(t testing.TB, c *commitment.Commitment) []byte {
 	b, err := commitment.Encode(c)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return b
 }
 
 func envelopeWithSig(t testing.TB, c *commitment.Commitment, sig []byte) []byte {
 	b, err := commitment.EncodeSigned(&commitment.SignedCommitment{Commitment: *c, Signature: sig})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return b
 }
 
@@ -168,9 +145,8 @@ func TestAttack2ParamsOutsideCommitment(t *testing.T) {
 	e := setup(t)
 	b := envelope(t, e.c, key(t, "agent1"))
 	good := *e.c.Action.IBKROrder
-	if err := gateAdmit(e, b, now, good); err != nil {
-		t.Fatalf("control: %v", err)
-	}
+	err := gateAdmit(e, b, now, good)
+	require.NoError(t, err, "control")
 	tests := map[string]func(o *commitment.IBKROrderV0){
 		"qty plus 1 unit": func(o *commitment.IBKROrderV0) { o.Qty++ },
 		"qty doubled":     func(o *commitment.IBKROrderV0) { o.Qty *= 2 },
@@ -276,25 +252,17 @@ func TestAttack4ConcurrentSameEnvelopeSameKey(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if bad.Load() != 0 {
-		t.Fatalf("%d failures", bad.Load())
-	}
+	require.EqualValuesf(t, 0, bad.Load(), "%d failures", bad.Load())
 	for _, h := range hashes {
-		if h != hashes[0] {
-			t.Fatal("different hash for one envelope")
-		}
+		require.EqualValues(t, hashes[0], h, "different hash for one envelope")
 	}
 	t.Run("same nonce in two commitments gives different hashes", func(t *testing.T) {
 		c2 := clone(e.c)
 		c2.Action.IBKROrder.Qty++
 		h1, _ := commitment.HashOf(e.c)
 		h2, _ := commitment.HashOf(c2)
-		if h1 == h2 {
-			t.Fatal("hash collision")
-		}
-		if string(e.c.Nonce) != string(c2.Nonce) {
-			t.Fatal("setup")
-		}
+		require.NotEqual(t, h2, h1, "hash collision")
+		require.Equal(t, string(c2.Nonce), string(e.c.Nonce), "setup")
 	})
 }
 
@@ -312,18 +280,13 @@ func TestAttack6WrongKey(t *testing.T) {
 	req := *e.c.Action.IBKROrder
 	t.Run("signed by agent2, claims agent1", func(t *testing.T) {
 		a2 := key(t, "agent2")
-		if _, _, err := commitment.Sign(a2, e.c); !errors.Is(err, commitment.ErrInvalidPublicKey) {
-			t.Fatalf("Sign must refuse mismatched key, got %v", err)
-		}
+		_, _, err := commitment.Sign(a2, e.c)
+		require.ErrorIs(t, err, commitment.ErrInvalidPublicKey, "Sign must refuse mismatched key, got")
 		h, err := commitment.HashOf(e.c)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		forged := &commitment.SignedCommitment{Commitment: *e.c, Signature: ed25519.Sign(a2, commitment.SigningMessage(h))}
 		b, err := commitment.EncodeSigned(forged)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		mustReject(t, gateAdmit(e, b, now, req), commitment.ErrSignatureInvalid)
 	})
 	t.Run("pubkey swapped to agent2 after signing", func(t *testing.T) {
@@ -336,12 +299,8 @@ func TestAttack6WrongKey(t *testing.T) {
 		c := clone(e.c)
 		c.AgentPubKey = key(t, "agent2").Public().(ed25519.PublicKey)
 		s, _, err := commitment.VerifyForGate(envelope(t, c, key(t, "agent2")), now, e.gate, e.params)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(s.Commitment.AgentPubKey) == string(e.c.AgentPubKey) {
-			t.Fatal("setup")
-		}
+		require.NoError(t, err)
+		require.NotEqual(t, string(e.c.AgentPubKey), string(s.Commitment.AgentPubKey), "setup")
 	})
 }
 
@@ -360,9 +319,8 @@ func TestAttack7PayloadSwapped(t *testing.T) {
 	h, _ := hex.DecodeString(pf.Cases[0].HashHex)
 	c := clone(e.c)
 	c.PayloadSize, c.CiphertextHash = size, h
-	if err := commitment.CheckPayload(c, blob); err != nil {
-		t.Fatalf("control: %v", err)
-	}
+	err := commitment.CheckPayload(c, blob)
+	require.NoError(t, err, "control")
 	for i := range blob {
 		bad := append([]byte(nil), blob...)
 		bad[i] ^= 1
@@ -419,7 +377,7 @@ func TestAttack8CrossDomainReplay(t *testing.T) {
 }
 
 // Small-order agent_pubkey: A = identity, R = identity, S = 0 verifies for any
-// message under a bare Ed25519 library (rule G0, finding B1).
+// message under a bare Ed25519 library (the public key check).
 func TestAttack9SmallOrderKeyForgery(t *testing.T) {
 	e := setup(t)
 	for name, pub := range map[string]string{
@@ -432,9 +390,7 @@ func TestAttack9SmallOrderKeyForgery(t *testing.T) {
 			c.AgentPubKey, _ = hex.DecodeString(pub)
 			sig := append([]byte{1}, make([]byte, 63)...)
 			b, err := commitment.EncodeSigned(&commitment.SignedCommitment{Commitment: *c, Signature: sig})
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			_, _, err = commitment.VerifyForGate(b, now, e.gate, e.params)
 			mustReject(t, err, commitment.ErrInvalidPublicKey)
 		})

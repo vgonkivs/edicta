@@ -19,7 +19,7 @@ var errNilCommitment = errors.New("commitment: nil commitment")
 var errNoOrder = errors.New("commitment: action has no ibkr order params")
 
 // Encode returns the canonical CBOR of c. A nil and an empty byte slice
-// encode identically; the decoder rejects empty values (D18), so the wire
+// encode identically; the decoder rejects empty values, so the wire
 // form stays unique. It does not validate values;
 // that is the job of the decoder and ValidateStatic.
 func Encode(c *Commitment) ([]byte, error) {

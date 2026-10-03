@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// CheckPayload compares size first, which is cheap, then the hash (P1, P2).
+// CheckPayload compares size first, which is cheap, then the hash.
 func CheckPayload(c *Commitment, blob []byte) error {
 	if c == nil {
 		return fmt.Errorf("%w: nil commitment", ErrPayloadSizeMismatch)

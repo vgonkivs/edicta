@@ -2,7 +2,11 @@ package commitment_test
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/prior/commitment"
 )
@@ -20,37 +24,25 @@ func TestPayloadVectors(t *testing.T) {
 				blob := mustHex(t, pc.BlobHex)
 				want := mustHex(t, pc.CiphertextHashHex)
 				sum := sha256.Sum256(blob)
-				if string(sum[:]) != string(want) {
-					t.Fatalf("SHA-256(blob) %x, want %x", sum, want)
-				}
-				if uint64(len(blob)) != u64(t, pc.PayloadSize) {
-					t.Fatalf("len(blob) %d, want %s", len(blob), pc.PayloadSize)
-				}
-				if string(minimal.CiphertextHash) != string(want) || minimal.PayloadSize != uint64(len(blob)) {
-					t.Fatal("minimal_lmt does not commit to this blob")
-				}
-				if err := commitment.CheckPayload(minimal, blob); err != nil {
-					t.Fatalf("CheckPayload: %v", err)
-				}
+				require.Equal(t, string(want), string(sum[:]))
+				require.EqualValues(t, u64(t, pc.PayloadSize), uint64(len(blob)))
+				require.Equal(t, string(want), string(minimal.CiphertextHash), "minimal_lmt does not commit to this blob")
+				require.EqualValues(t, uint64(len(blob)), minimal.PayloadSize, "minimal_lmt does not commit to this blob")
+				err := commitment.CheckPayload(minimal, blob)
+				require.NoError(t, err, "CheckPayload")
 			})
 		case "plaintext_hash_basic":
 			t.Run(pc.ID, func(t *testing.T) {
 				var salt [32]byte
 				copy(salt[:], mustHex(t, pc.SaltHex))
-				if len(mustHex(t, pc.SaltHex)) != 32 {
-					t.Fatal("vector salt is not 32 bytes")
-				}
+				require.Len(t, mustHex(t, pc.SaltHex), 32, "vector salt is not 32 bytes")
 				h := commitment.PlaintextHash(salt, mustHex(t, pc.PlaintextHex))
 				want := mustHex(t, pc.PlaintextHashHex)
-				if string(h[:]) != string(want) {
-					t.Fatalf("PlaintextHash %x, want %x", h[:], want)
-				}
-				if string(minimal.PlaintextHash) != string(want) {
-					t.Fatal("minimal_lmt does not commit to this plaintext hash")
-				}
+				require.Equal(t, string(want), string(h[:]))
+				require.Equal(t, string(want), string(minimal.PlaintextHash), "minimal_lmt does not commit to this plaintext hash")
 			})
 		default:
-			t.Errorf("unexpected payload case %q", pc.ID)
+			assert.Fail(t, fmt.Sprintf("unexpected payload case %q", pc.ID))
 		}
 	}
 }
@@ -58,9 +50,7 @@ func TestPayloadVectors(t *testing.T) {
 func TestPayloadRejectVectors(t *testing.T) {
 	var pf payloadFile
 	loadJSON(t, "payload.json", &pf)
-	if len(pf.Reject) == 0 {
-		t.Fatal("no payload reject vectors loaded")
-	}
+	require.NotEmpty(t, pf.Reject, "no payload reject vectors loaded")
 	for _, pc := range pf.Reject {
 		t.Run(pc.ID, func(t *testing.T) {
 			c := &commitment.Commitment{
@@ -78,17 +68,11 @@ func TestPlaintextHashSaltBoundary(t *testing.T) {
 	salt[0] = 1
 	a := commitment.PlaintextHash(salt, []byte("buy"))
 	b := commitment.PlaintextHash(salt, []byte("buy"))
-	if a != b {
-		t.Fatal("PlaintextHash is not deterministic")
-	}
+	require.Equal(t, b, a, "PlaintextHash is not deterministic")
 	var other [32]byte
-	if commitment.PlaintextHash(other, []byte("buy")) == a {
-		t.Fatal("different salt must change the hash")
-	}
+	require.NotEqual(t, a, commitment.PlaintextHash(other, []byte("buy")), "different salt must change the hash")
 	want := sha256.Sum256(append(append([]byte{}, salt[:]...), "buy"...))
-	if [32]byte(a) != want {
-		t.Fatal("PlaintextHash must be SHA-256(salt || plaintext) with no tag")
-	}
+	require.EqualValues(t, want, [32]byte(a), "PlaintextHash must be SHA-256(salt || plaintext) with no tag")
 }
 
 func TestCheckPayloadOrder(t *testing.T) {
@@ -112,9 +96,7 @@ func TestCheckPayloadOrder(t *testing.T) {
 			c := &commitment.Commitment{PayloadSize: tt.size, CiphertextHash: tt.hash}
 			err := commitment.CheckPayload(c, tt.blob)
 			if tt.want == "" {
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
+				require.NoError(t, err, "unexpected error")
 				return
 			}
 			assertSentinel(t, err, tt.want)

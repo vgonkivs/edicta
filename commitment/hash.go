@@ -54,9 +54,9 @@ func Sign(priv ed25519.PrivateKey, c *Commitment) (*SignedCommitment, Hash, erro
 	return &SignedCommitment{Commitment: cloneCommitment(c), Signature: sig}, h, nil
 }
 
-// checkPublicKey is rule G0. crypto/ed25519 accepts small-order and
+// CheckPublicKey rejects malformed or weak public keys. crypto/ed25519 accepts small-order and
 // non-canonical keys, which allows universal forgeries.
-func checkPublicKey(pub []byte) error {
+func CheckPublicKey(pub []byte) error {
 	if len(pub) != ed25519.PublicKeySize {
 		return fmt.Errorf("%w: %d bytes", ErrInvalidPublicKey, len(pub))
 	}
@@ -77,7 +77,7 @@ func checkPublicKey(pub []byte) error {
 // Verify checks the signature over the signing message with agent_pubkey.
 // It is meaningful only for DecodeSigned output; it does not re-run schema
 // validation. VerifyForGate is the normative pipeline.
-// ed25519.Verify rejects a non-canonical S (G2).
+// ed25519.Verify rejects a non-canonical S.
 func Verify(s *SignedCommitment) (Hash, error) {
 	if s == nil {
 		return Hash{}, fmt.Errorf("%w: nil envelope", ErrSignatureInvalid)
@@ -87,7 +87,7 @@ func Verify(s *SignedCommitment) (Hash, error) {
 		return Hash{}, fmt.Errorf("%w: %v", ErrSignatureInvalid, err)
 	}
 	pub := s.Commitment.AgentPubKey
-	if err := checkPublicKey(pub); err != nil {
+	if err := CheckPublicKey(pub); err != nil {
 		return Hash{}, err
 	}
 	if len(s.Signature) != ed25519.SignatureSize {

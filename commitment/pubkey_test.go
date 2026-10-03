@@ -5,10 +5,12 @@ import (
 	"crypto/ed25519"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/vgonkivs/prior/commitment"
 )
 
-// Rule G0: every encoding below must be rejected before any signature work.
+// Every encoding below must be rejected as a public key before any signature work.
 var badPublicKeys = []struct{ name, hex string }{
 	{"identity", "0100000000000000000000000000000000000000000000000000000000000000"},
 	{"order2", "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"},
@@ -38,7 +40,7 @@ func identityForgerySig() []byte {
 	return append([]byte{1}, make([]byte, 63)...)
 }
 
-// Regression for finding B1: with A = identity, R = identity, S = 0 the
+// Regression: with A = identity, R = identity, S = 0 the
 // verification equation holds for every message.
 func TestSmallOrderPublicKeyRejected(t *testing.T) {
 	g, p := edgeGate(t)
@@ -57,9 +59,7 @@ func TestSmallOrderPublicKeyRejected(t *testing.T) {
 				assertSentinel(t, verifyErr(s), "ErrInvalidPublicKey")
 
 				b, err := commitment.EncodeSigned(s)
-				if err != nil {
-					t.Fatalf("EncodeSigned: %v", err)
-				}
+				require.NoError(t, err, "EncodeSigned")
 				_, _, err = commitment.VerifyForGate(b, edgeNow, g, p)
 				assertSentinel(t, err, "ErrInvalidPublicKey")
 			})
@@ -67,7 +67,7 @@ func TestSmallOrderPublicKeyRejected(t *testing.T) {
 	}
 }
 
-// Mixed-order keys pass the G0 key check; they then fail on the
+// Mixed-order keys pass the public key check; they then fail on the
 // signature, not on the key.
 func TestMixedOrderPublicKeyPassesG0(t *testing.T) {
 	for name, h := range map[string]string{
@@ -81,7 +81,7 @@ func TestMixedOrderPublicKeyPassesG0(t *testing.T) {
 	}
 }
 
-// Small-order R under a valid A is not restricted by G0.
+// Small-order R under a valid A is not restricted by the public key check.
 func TestSmallOrderRWithValidKeyIsSignatureError(t *testing.T) {
 	c, _, _ := baseCommitment(t)
 	s := &commitment.SignedCommitment{Commitment: *c, Signature: identityForgerySig()}
@@ -94,12 +94,9 @@ func TestHonestKeysPassG0(t *testing.T) {
 		priv := loadKey(t, name)
 		c.AgentPubKey = []byte(priv.Public().(ed25519.PublicKey))
 		s, _, err := commitment.Sign(priv, c)
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		if err := verifyErr(s); err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
+		require.NoErrorf(t, err, "%s", name)
+		err = verifyErr(s)
+		require.NoErrorf(t, err, "%s", name)
 	}
 }
 
@@ -113,9 +110,7 @@ func TestStageOrderAroundG0(t *testing.T) {
 			mutate(c)
 		}
 		b, err := commitment.EncodeSigned(&commitment.SignedCommitment{Commitment: *c, Signature: identityForgerySig()})
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		return b
 	}
 	tests := []struct {

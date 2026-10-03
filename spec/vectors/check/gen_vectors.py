@@ -24,10 +24,15 @@ except ImportError:
 
 import ed25519_point as ed
 from cbor_strict import Pairs, Raw, encode, head
-from prior_v0 import (ED25519_L, TAG_COMMITMENT, TAG_RECEIPT, TAG_SIG, Params,
-                      commitment_hash, signing_message, tagged, to_cbor)
+from prior_v0 import (DA_CELESTIA_BLOB, DA_FIBRE, ED25519_L, MAX_RECEIPT_SIZE,
+                      RECEIPT, TAG_COMMITMENT, TAG_RECEIPT, TAG_RECEIPT_SIG,
+                      TAG_SIG, U64_MAX,
+                      Params, Reject, check_anchor_time, check_registry_epoch,
+                      client_order_id, commitment_hash, receipt_hash,
+                      retention_margin, retention_window, route,
+                      signing_message, tagged, to_cbor, within_retention)
 from vecjson import (commitment_to_json, gate_to_json, order_to_json,
-                     params_to_json)
+                     params_to_json, receipt_to_json)
 
 OUT = Path(__file__).resolve().parent.parent / "v0"
 if "--out" in sys.argv:
@@ -48,6 +53,13 @@ KEYS = {
         "public_key_hex": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
         "kat_message_hex": "72",
         "kat_signature_hex": "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+    },
+    "gate1": {
+        "source": "RFC 8032 section 7.1 TEST 3",
+        "seed_hex": "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7",
+        "public_key_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "kat_message_hex": "af82",
+        "kat_signature_hex": "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a",
     },
 }
 
@@ -178,6 +190,12 @@ def valid_cases() -> list:
         if params is not None:
             case["params"] = params_to_json(params)
         case["request"] = order_to_json(request if request is not None else c["action"]["params"])
+        note = ("Placeholder: SHA-256 of a fixed label, not the DA commitment of any blob. The commitment "
+                "bytes and hashes of this vector are normative; the value is not a real anchor.")
+        if cid == "minimal_lmt":
+            note += (" The real share commitment of this payload (payload.json ciphertext_hash_small_blob) "
+                     "with this namespace and signer is da_blob.json case blob_v1_minimal_lmt_payload.")
+        case["placeholders"] = {"payload_ref.commitment": note}
         out.append(case)
 
     add("minimal_lmt", "No optional fields; da=celestia_blob; payload is ciphertext_hash_small_blob in payload.json.", base())
@@ -265,7 +283,7 @@ def reject_cases() -> list:
     _, _, sig = sign_canon(canon)
     good = envelope(canon, sig)
 
-    # Stage D: encoding and schema.
+    # Decoding: encoding and schema.
     out.append(d_case("too_large", "D0", "2177 bytes: a valid envelope padded with zero bytes. The size check runs before any parsing.",
                       good + bytes(2177 - len(good)), "ErrTooLarge"))
     out.append(d_case("truncated", "D1", "Valid envelope with its last byte removed.", good[:-1], "ErrMalformed"))
@@ -386,7 +404,7 @@ def reject_cases() -> list:
     m[8][1] = "ibkr.order.v1"
     out.append(d_case("kind_unknown", "D20", "action.kind \"ibkr.order.v1\"; params cannot be decoded against any schema.", resigned(encode(m)), "ErrUnsupportedActionKind"))
 
-    # Stages S, G, T, C, A: a schema-valid commitment with exactly one defect, correctly signed.
+    # Every later check: a schema-valid commitment with exactly one defect, correctly signed.
     def s_case(cid, stage, rule, desc, c, expect, now=NOW, params=None, gate=None, request=None, signer="agent1"):
         case = {"id": cid, "stage": stage, "rule": rule, "description": desc}
         case.update(signed_case(c, signer))
@@ -543,8 +561,8 @@ def reject_cases() -> list:
 
 
 def g0_keys() -> list:
-    """(id, description, 32-byte agent_pubkey) cases that rule G0 (public-key
-    validity) must reject."""
+    """(id, description, 32-byte agent_pubkey) cases that the public-key
+    validity check must reject."""
     p = ed.P
     names = {1: "identity", 2: "order 2", 4: "order 4", 8: "order 8"}
     out = []
@@ -601,8 +619,8 @@ def small_order_forgery(a_enc: bytes, msg: bytes):
 
 def torsion_r_signature(msg: bytes, signer: str = "agent1") -> bytes:
     """Signature that only a cofactored verifier accepts, so the cofactorless
-    rule G1 must reject it. Uses the
-    signer's secret scalar a (RFC 8032 5.1.5) and a deterministic r:
+    equation must reject it. Uses the signer's secret scalar a
+    (RFC 8032 5.1.5) and a deterministic r:
     R = [r]B + T with T of order 8, k = SHA-512(R || A || msg) mod L,
     S = (r + k*a) mod L. Then [S]B - [k]A = [r]B != R, while
     [8][S]B = [8]R + [8][k]A holds because [8]T = identity."""
@@ -663,6 +681,298 @@ def payload_vectors() -> dict:
     }
 
 
+# Receipts, anchor rules and client order ids.
+
+GATE_KEY = "gate1"
+EXECUTED_AT = NOW + 2
+IBKR_ORDER_ID = "1370093239"
+ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/-"
+
+
+def receipt_for(chash: bytes, path: int = 1, rail_ref: str = IBKR_ORDER_ID, executed_at: int = EXECUTED_AT) -> dict:
+    return {
+        "version": 0,
+        "commitment_hash": chash,
+        "gate_id": GATE["gate_id"],
+        "gate_pubkey": bytes.fromhex(KEYS[GATE_KEY]["public_key_hex"]),
+        "rail": 1,
+        "rail_ref": rail_ref,
+        "path": path,
+        "executed_at": executed_at,
+    }
+
+
+def sign_receipt_bytes(canon: bytes, signer: str = GATE_KEY):
+    rh = receipt_hash(canon)
+    msg = signing_message(rh, TAG_RECEIPT_SIG)
+    return rh, msg, sk(signer).sign(msg)
+
+
+def signed_receipt(inner: bytes, sig: bytes) -> bytes:
+    return encode({1: Raw(inner), 2: sig})
+
+
+def receipt_vectors(valid: list) -> dict:
+    hashes = {v["id"]: bytes.fromhex(v["commitment_hash_hex"]) for v in valid}
+    cases = []
+
+    def add(cid, desc, ref, r):
+        canon = encode(to_cbor(r, RECEIPT))
+        rh, msg, sig = sign_receipt_bytes(canon)
+        cases.append({
+            "id": cid, "description": desc, "commitment_ref": ref, "signer": GATE_KEY,
+            "input": receipt_to_json(r), "receipt_cbor_hex": canon.hex(), "receipt_hash_hex": rh.hex(),
+            "signed_message_hex": msg.hex(), "signature_hex": sig.hex(),
+            "signed_receipt_hex": signed_receipt(canon, sig).hex(),
+        })
+
+    m = hashes["minimal_lmt"]
+    add("receipt_minimal_lmt_da", "minimal_lmt executed on IBKR; payload accepted from the DA layer (path = 1).",
+        "minimal_lmt", receipt_for(m))
+    add("receipt_minimal_lmt_archive", "minimal_lmt executed; payload accepted from the archive (path = 2). Differs from receipt_minimal_lmt_da only in key 7.",
+        "minimal_lmt", receipt_for(m, path=2))
+    add("receipt_full_ibkr_order_da", "full_ibkr_order (da = fibre) executed; DA path.",
+        "full_ibkr_order", receipt_for(hashes["full_ibkr_order"]))
+    ref128 = (ID_ALPHABET * 2)[:128]
+    add("receipt_rail_ref_max", "rail_ref of 128 characters covering the whole ID charset.",
+        "minimal_lmt", receipt_for(m, rail_ref=ref128))
+    add("receipt_rail_ref_tx_hash", "rail_ref holding a 64-character lowercase hex transaction hash, as a chain rail would.",
+        "minimal_lmt", receipt_for(m, rail_ref=h("example tx").hex()))
+    add("receipt_executed_at_max", "executed_at = 2^63-1, the largest allowed uint.",
+        "minimal_lmt", receipt_for(m, executed_at=(1 << 63) - 1))
+    for c in cases:
+        assert len(bytes.fromhex(c["signed_receipt_hex"])) <= MAX_RECEIPT_SIZE
+
+    base_r = receipt_for(m)
+    base_canon = encode(to_cbor(base_r, RECEIPT))
+    _, _, base_sig = sign_receipt_bytes(base_canon)
+    base_signed = signed_receipt(base_canon, base_sig)
+    rejects = []
+
+    def rj(cid, stage, rule, desc, data: bytes, expect, r=None):
+        case = {"id": cid, "stage": stage, "rule": rule, "description": desc,
+                "signed_receipt_hex": data.hex(), "expect_error": expect}
+        if r is not None:
+            canon = encode(to_cbor(r, RECEIPT))
+            case["input"] = receipt_to_json(r)
+            case["receipt_cbor_hex"] = canon.hex()
+            case["receipt_hash_hex"] = receipt_hash(canon).hex()
+        rejects.append(case)
+
+    def resign(inner: bytes) -> bytes:
+        _, _, sig = sign_receipt_bytes(inner)
+        return signed_receipt(inner, sig)
+
+    def raw_receipt(repl: dict, drop=()) -> bytes:
+        mm = to_cbor(base_r, RECEIPT)
+        mm.update(repl)
+        for k in drop:
+            mm.pop(k)
+        return encode(mm)
+
+    def signed_static(r: dict) -> bytes:
+        canon = encode(to_cbor(r, RECEIPT))
+        _, _, sig = sign_receipt_bytes(canon)
+        return signed_receipt(canon, sig)
+
+    # Decoding.
+    big = base_signed + bytes(MAX_RECEIPT_SIZE + 1 - len(base_signed))
+    rj("receipt_too_large", "D", "D0", f"{MAX_RECEIPT_SIZE + 1} bytes: a valid receipt followed by zero bytes. Size is checked before parsing, so this is not ErrTrailingData.", big, "ErrTooLarge")
+    rj("receipt_trailing_byte", "D", "D2", "A valid signed receipt followed by one zero byte.", base_signed + b"\x00", "ErrTrailingData")
+    rj("receipt_unknown_key", "D", "D15", "Receipt key 9 (undefined) added.", resign(raw_receipt({9: 1})), "ErrUnknownKey")
+    rj("signed_receipt_unknown_key", "D", "D15", "SignedReceipt key 3 (undefined) added.", encode({1: Raw(base_canon), 2: base_sig, 3: 0}), "ErrUnknownKey")
+    rj("receipt_missing_rail_ref", "D", "D17", "Key 6 rail_ref absent.", resign(raw_receipt({}, drop=(6,))), "ErrMissingField")
+    rj("receipt_missing_path", "D", "D17", "Key 7 path absent.", resign(raw_receipt({}, drop=(7,))), "ErrMissingField")
+    rj("receipt_missing_signature", "D", "D17", "SignedReceipt without key 2.", encode({1: Raw(base_canon)}), "ErrMissingField")
+    rj("receipt_rail_ref_bad_charset", "D", "D19", "rail_ref contains '#', outside the ID charset.", resign(raw_receipt({6: "1370093239#1"})), "ErrInvalidString")
+    rj("receipt_rail_ref_empty", "D", "D18", "rail_ref is the empty string.", resign(raw_receipt({6: ""})), "ErrFieldSize")
+    rj("receipt_rail_ref_129_chars", "D", "D18", "rail_ref of 129 characters.", resign(raw_receipt({6: "1" * 129})), "ErrFieldSize")
+    rj("receipt_gate_id_unicode", "D", "D19", "gate_id contains U+03BF (Greek small omicron), a look-alike of 'o'.", resign(raw_receipt({3: "gate-paper-\u03bf1"})), "ErrInvalidString")
+    rj("receipt_commitment_hash_31_bytes", "D", "D18", "commitment_hash of 31 bytes.", resign(raw_receipt({2: m[:31]})), "ErrFieldSize")
+    rj("receipt_gate_pubkey_33_bytes", "D", "D18", "gate_pubkey of 33 bytes.", resign(raw_receipt({4: base_r["gate_pubkey"] + b"\x00"})), "ErrFieldSize")
+    rj("receipt_sig_63_bytes", "D", "D18", "Signature of 63 bytes.", encode({1: Raw(base_canon), 2: base_sig[:63]}), "ErrFieldSize")
+    rj("receipt_path_tstr", "D", "D16", "path encoded as the text string \"1\".", resign(raw_receipt({7: "1"})), "ErrWrongType")
+    rj("receipt_rail_ref_bstr", "D", "D16", "rail_ref encoded as a byte string.", resign(raw_receipt({6: IBKR_ORDER_ID.encode()})), "ErrWrongType")
+    rj("receipt_executed_at_nonminimal", "D", "D7", "executed_at in a 9-byte head although it fits in 5.", resign(raw_receipt({8: Raw(bytes([0x1b]) + EXECUTED_AT.to_bytes(8, "big"))})), "ErrNonMinimalInt")
+    rj("receipt_executed_at_float", "D", "D3", "executed_at as a float64.", resign(raw_receipt({8: Raw(b"\xfb" + struct.pack(">d", float(EXECUTED_AT)))})), "ErrFloat")
+    items = sorted(to_cbor(base_r, RECEIPT).items())
+    items[6], items[7] = items[7], items[6]
+    rj("receipt_unsorted_map", "D", "D10", "Keys 7 and 8 swapped.", resign(encode(Pairs(tuple(items)))), "ErrUnsortedMap")
+    env = bytes.fromhex(next(v for v in valid if v["id"] == "minimal_lmt")["envelope_hex"])
+    rj("commitment_envelope_as_receipt", "D", "D16", "The minimal_lmt commitment envelope fed to the receipt decoder: key 2 is agent_id (tstr) where commitment_hash (bstr) is expected.", env, "ErrWrongType")
+
+    # Static receipt checks, correctly signed.
+    def s_rj(cid, rule, desc, r, expect):
+        rj(cid, "S", rule, desc, signed_static(r), expect, r)
+
+    s_rj("receipt_version_1", "R1", "version = 1.", dict(base_r, version=1), "ErrUnsupportedVersion")
+    s_rj("receipt_executed_at_2pow63", "R2", "executed_at = 2^63.", dict(base_r, executed_at=1 << 63), "ErrIntRange")
+    s_rj("receipt_rail_0", "R3", "rail = 0.", dict(base_r, rail=0), "ErrInvalidEnum")
+    s_rj("receipt_path_0", "R3", "path = 0.", dict(base_r, path=0), "ErrInvalidEnum")
+    s_rj("receipt_path_3", "R3", "path = 3.", dict(base_r, path=3), "ErrInvalidEnum")
+    s_rj("receipt_rail_2", "R4", "rail = 2 (no such rail in v0).", dict(base_r, rail=2), "ErrUnsupportedRail")
+    s_rj("receipt_executed_at_0", "R5", "executed_at = 0.", dict(base_r, executed_at=0), "ErrZeroValue")
+
+    # Signature checks.
+    def g_rj(cid, rule, desc, r, sig):
+        canon = encode(to_cbor(r, RECEIPT))
+        rj(cid, "G", rule, desc, signed_receipt(canon, sig), "ErrInvalidPublicKey" if rule == "G0" else "ErrSignatureInvalid", r)
+
+    ident = ed.encode(ed.IDENTITY)
+    r_id = dict(base_r, gate_pubkey=ident)
+    sig_id, forged = small_order_forgery(ident, signing_message(receipt_hash(encode(to_cbor(r_id, RECEIPT))), TAG_RECEIPT_SIG))
+    assert forged
+    g_rj("receipt_gate_pubkey_identity", "G0", "gate_pubkey is the identity point; R = identity, S = 0 satisfies the cofactorless equation, so only G0 rejects it.", r_id, sig_id)
+    wrong_tag = sk(GATE_KEY).sign(signing_message(hashlib.sha256(tagged(TAG_COMMITMENT) + base_canon).digest(), TAG_RECEIPT_SIG))
+    g_rj("receipt_wrong_hash_tag", "G1", "Signed over the receipt bytes hashed with the commitment tag instead of prior/v0/receipt.", base_r, wrong_tag)
+    g_rj("receipt_signed_under_commitment_sig_tag", "G1", "Signed over prior/v0/sig || receipt_hash (the agent signature tag) instead of prior/v0/receipt-sig || receipt_hash.",
+         base_r, sk(GATE_KEY).sign(signing_message(receipt_hash(base_canon), TAG_SIG)))
+    g_rj("receipt_sig_raw_cbor", "G1", "Signature over the raw receipt CBOR instead of the tagged message.", base_r, sk(GATE_KEY).sign(base_canon))
+    g_rj("receipt_sig_wrong_key", "G1", "Signed by agent1 while gate_pubkey is gate1.", base_r, sign_receipt_bytes(base_canon, "agent1")[2])
+    flipped = dict(base_r, rail_ref="1370093238")
+    g_rj("receipt_flipped_rail_ref", "G1", "rail_ref changed after signing (the signature is over rail_ref 1370093239).", flipped, base_sig)
+    agent_pub = bytes.fromhex(KEYS["agent1"]["public_key_hex"])
+    minimal_sig = bytes.fromhex(next(v for v in valid if v["id"] == "minimal_lmt")["signature_hex"])
+    g_rj("receipt_reuses_commitment_signature", "G1", "gate_pubkey = agent1 and the signature is agent1's signature over the minimal_lmt commitment. The receipt hash differs from the commitment hash, so it must not verify.",
+         dict(base_r, gate_pubkey=agent_pub), minimal_sig)
+    s_int = int.from_bytes(base_sig[32:], "little") + ED25519_L
+    g_rj("receipt_sig_noncanonical_s", "G2", "S + L in place of S.", base_r, base_sig[:32] + s_int.to_bytes(32, "little"))
+
+    return {"format": FORMAT, "gate": gate_to_json(GATE), "cases": cases, "reject": rejects}
+
+
+def anchor_vectors() -> dict:
+    """Signed-after-anchor, within-retention and registry-epoch checks. Expected values are written out
+    from the boundary arithmetic and then cross-checked against prior_v0."""
+    b = T0 - 3000
+    skew = PARAMS.skew_s
+    k1 = [
+        {"id": "k1_at_limit", "description": "issued_at + skew_s == block_time: accepted.", "issued_at": b - skew, "block_time": b, "skew_s": skew},
+        {"id": "k1_one_second_early", "description": "issued_at + skew_s == block_time - 1.", "issued_at": b - skew - 1, "block_time": b, "skew_s": skew, "expect_error": "ErrIssuedBeforeAnchor"},
+        {"id": "k1_skew_0_equal", "description": "skew_s = 0, issued_at == block_time: accepted.", "issued_at": b, "block_time": b, "skew_s": 0},
+        {"id": "k1_skew_0_one_second_early", "description": "skew_s = 0, issued_at == block_time - 1.", "issued_at": b - 1, "block_time": b, "skew_s": 0, "expect_error": "ErrIssuedBeforeAnchor"},
+        {"id": "k1_minimal_lmt", "description": "issued_at of minimal_lmt, signed 3000 s after the anchor block.", "issued_at": T0, "block_time": b, "skew_s": skew},
+        {"id": "k1_block_time_u64_max", "description": "A block time of 2^64-1 (hostile header): rejected without overflow.", "issued_at": (1 << 63) - 1, "block_time": U64_MAX, "skew_s": 300, "expect_error": "ErrIssuedBeforeAnchor"},
+    ]
+    for c in k1:
+        try:
+            check_anchor_time(c["issued_at"], c["block_time"], c["skew_s"])
+            got = None
+        except Reject as e:
+            got = e.sentinel
+        assert got == c.get("expect_error"), c["id"]
+
+    k2 = []
+
+    def k2case(cid, desc, da, valid_until, block_time, expect_window, within, blob_r=None,
+               latest=None, at_h=None, creation=None, error=None):
+        c = {"id": cid, "description": desc, "da": da, "valid_until": valid_until, "block_time": block_time}
+        if da == DA_CELESTIA_BLOB:
+            c["blob_retention_s"] = blob_r
+        else:
+            c["fibre_retention_latest_s"] = latest
+            if at_h is not None:
+                c["fibre_retention_at_height_s"] = at_h
+            c["creation_timestamp"] = creation
+        if error is not None:
+            c["expect"] = {"expect_error": error}
+            try:
+                retention_window(da, block_time, Params(latest, 14400, skew), latest, at_h, creation or 0)
+            except Reject as e:
+                assert e.sentinel == error, cid
+            else:
+                raise AssertionError(cid)
+            k2.append(c)
+            return
+        exp = {"within": within}
+        if expect_window is not None:
+            r, start = expect_window
+            exp.update({"r": r, "start": start, "margin": min(600, r // 8)})
+        if within:
+            exp["route"] = "da"
+        elif da == DA_FIBRE:
+            exp["expect_error"] = "ErrArchiveRecomputeUnsupported"
+        else:
+            exp["route"] = "archive"
+        c["expect"] = exp
+        p = Params(latest or 14400, blob_r or 14400, skew)
+        w = retention_window(da, block_time, p, latest, at_h, creation or 0)
+        assert (w is None) == (expect_window is None), cid
+        if w is not None:
+            assert w == expect_window and retention_margin(w[0]) == exp["margin"], cid
+            assert within_retention(valid_until, *[w[1], w[0]]) == within, cid
+        try:
+            assert route(da, within) == exp.get("route"), cid
+        except Reject as e:
+            assert e.sentinel == exp.get("expect_error"), cid
+        k2.append(c)
+
+    r = 14400
+    k2case("k2_blob_at_limit", "da = 2: valid_until + 600 == block_time + 14400. DA path.", 2, b + r - 600, b, (r, b), True, blob_r=r)
+    k2case("k2_blob_one_second_over", "da = 2: one second past the limit. The DA path is skipped; archive with P1, P2, P3.", 2, b + r - 600 + 1, b, (r, b), False, blob_r=r)
+    k2case("k2_blob_minimal_lmt", "da = 2: minimal_lmt valid_until, anchor 3000 s before issued_at.", 2, T0 + 900, b, (r, b), True, blob_r=r)
+    k2case("k2_blob_u64_saturation", "da = 2: block_time + r exceeds 2^64-1; a saturating uint64 sum gives the exact verdict (K1 rejects such a block time first in the pipeline).", 2, (1 << 63) - 1, U64_MAX - 100, (r, U64_MAX - 100), True, blob_r=r)
+    cr = b - 5
+    k2case("k2_fibre_at_limit", "da = 1: start = min(block_time, creation_timestamp) = creation_timestamp; valid_until + 600 == start + 14400.", 1, cr + r - 600, b, (r, cr), True, latest=r, at_h=r, creation=cr)
+    k2case("k2_fibre_one_second_over", "da = 1: one second past the limit; the archive path cannot recompute a Fibre commitment in v0.", 1, cr + r - 600 + 1, b, (r, cr), False, latest=r, at_h=r, creation=cr)
+    k2case("k2_fibre_creation_after_block", "da = 1: creation_timestamp later than block_time; start = block_time.", 1, b + r - 600, b, (r, b), True, latest=r, at_h=r, creation=b + 10)
+    k2case("k2_fibre_creation_unknown", "da = 1: creation_timestamp unknown (0); K2 is false.", 1, b + 600, b, None, False, latest=r, at_h=r, creation=0)
+    k2case("k2_fibre_at_height_unreadable", "da = 1: retention at the anchor height cannot be read. The gate rejects and never substitutes the latest value.", 1, b + 600, b, None, False, latest=r, creation=cr, error="ErrRetentionUnavailable")
+    k2case("k2_fibre_retention_lowered", "da = 1: latest 3600, at H 14400: r = 3600, margin 450; at the limit.", 1, cr + 3600 - 450, b, (3600, cr), True, latest=3600, at_h=r, creation=cr)
+    k2case("k2_fibre_retention_lowered_over", "da = 1: as above, one second over.", 1, cr + 3600 - 450 + 1, b, (3600, cr), False, latest=3600, at_h=r, creation=cr)
+    k2case("k2_fibre_retention_raised", "da = 1: latest 14400, at H 3600: r = 3600; at the limit.", 1, cr + 3600 - 450, b, (3600, cr), True, latest=r, at_h=3600, creation=cr)
+    k2case("k2_fibre_governance_minimum", "da = 1: r = 600 (governance minimum), margin = 75; at the limit.", 1, cr + 600 - 75, b, (600, cr), True, latest=600, at_h=600, creation=cr)
+    k2case("k2_fibre_governance_minimum_over", "da = 1: r = 600, one second over.", 1, cr + 600 - 75 + 1, b, (600, cr), False, latest=600, at_h=600, creation=cr)
+    k2case("k2_margin_floor", "da = 2: r = 4799, margin = floor(4799 / 8) = 599 (below the 600 cap); at the limit.", 2, b + 4799 - 599, b, (4799, b), True, blob_r=4799)
+    k2case("k2_margin_cap", "da = 2: r = 4800, margin = 600 (the cap); one second over.", 2, b + 4800 - 600 + 1, b, (4800, b), False, blob_r=4800)
+
+    e0 = T0 - 86400
+    epoch = [
+        {"id": "epoch_one_second_after", "description": "issued_at == epoch + skew_s + 1: accepted.", "issued_at": e0 + skew + 1, "epoch": e0, "skew_s": skew},
+        {"id": "epoch_at_limit", "description": "issued_at == epoch + skew_s: rejected (strict inequality).", "issued_at": e0 + skew, "epoch": e0, "skew_s": skew, "expect_error": "ErrBeforeRegistryEpoch"},
+        {"id": "epoch_before", "description": "issued_at before the registry was created.", "issued_at": e0 - 1, "epoch": e0, "skew_s": skew, "expect_error": "ErrBeforeRegistryEpoch"},
+        {"id": "epoch_skew_0", "description": "skew_s = 0, issued_at == epoch + 1: accepted.", "issued_at": e0 + 1, "epoch": e0, "skew_s": 0},
+        {"id": "epoch_skew_0_equal", "description": "skew_s = 0, issued_at == epoch: rejected.", "issued_at": e0, "epoch": e0, "skew_s": 0, "expect_error": "ErrBeforeRegistryEpoch"},
+        {"id": "epoch_u64_max", "description": "epoch = 2^64-1: epoch + skew_s saturates and every issued_at is rejected.", "issued_at": (1 << 63) - 1, "epoch": U64_MAX, "skew_s": skew, "expect_error": "ErrBeforeRegistryEpoch"},
+    ]
+    for c in epoch:
+        try:
+            check_registry_epoch(c["issued_at"], c["epoch"], c["skew_s"])
+            got = None
+        except Reject as e:
+            got = e.sentinel
+        assert got == c.get("expect_error"), c["id"]
+
+    def js(o):
+        if isinstance(o, bool) or isinstance(o, str):
+            return o
+        if isinstance(o, int):
+            return str(o)
+        if isinstance(o, dict):
+            return {k: js(v) for k, v in o.items()}
+        if isinstance(o, list):
+            return [js(v) for v in o]
+        return o
+
+    return {"format": FORMAT, "margin_cap": "600", "k1": js(k1), "k2": js(k2), "epoch": js(epoch)}
+
+
+def client_order_id_vectors(valid: list) -> dict:
+    cases = []
+    for v in valid:
+        hh = bytes.fromhex(v["commitment_hash_hex"])
+        cid = client_order_id(1, hh)
+        assert len(cid) == 64
+        cases.append({"id": f"coid_{v['id']}", "rail": "1", "commitment_ref": v["id"],
+                      "commitment_hash_hex": v["commitment_hash_hex"], "client_order_id": cid})
+    hh = bytes.fromhex(valid[0]["commitment_hash_hex"])
+    reject = [
+        {"id": "coid_rail_0", "rail": "0", "commitment_hash_hex": hh.hex(), "expect_error": "ErrInvalidEnum"},
+        {"id": "coid_rail_2", "rail": "2", "commitment_hash_hex": hh.hex(), "expect_error": "ErrUnsupportedRail"},
+    ]
+    return {"format": FORMAT, "cases": cases, "reject": reject}
+
+
 def write(name: str, obj: dict):
     path = OUT / name
     path.write_text(json.dumps(obj, indent=2, ensure_ascii=True) + "\n")
@@ -672,10 +982,14 @@ def write(name: str, obj: dict):
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     head_ = {"format": FORMAT, "params": params_to_json(PARAMS), "gate": gate_to_json(GATE)}
+    valid = valid_cases()
     write("keys.json", {"format": FORMAT, "keys": KEYS})
-    write("valid.json", dict(head_, cases=valid_cases()))
+    write("valid.json", dict(head_, cases=valid))
     write("reject.json", dict(head_, cases=reject_cases()))
     write("payload.json", payload_vectors())
+    write("receipt.json", receipt_vectors(valid))
+    write("anchor.json", anchor_vectors())
+    write("client_order_id.json", client_order_id_vectors(valid))
 
 
 if __name__ == "__main__":

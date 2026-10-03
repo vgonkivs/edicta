@@ -5,6 +5,9 @@ import (
 	"math"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/vgonkivs/prior/commitment"
 )
 
@@ -30,8 +33,8 @@ func TestParamsValidate(t *testing.T) {
 			err := tt.p.Validate()
 			if tt.bad {
 				assertSentinel(t, err, "ErrInvalidParams")
-			} else if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -39,9 +42,8 @@ func TestParamsValidate(t *testing.T) {
 
 func TestDefaultParams(t *testing.T) {
 	want := commitment.Params{FibreRetentionS: 14400, BlobRetentionS: 14400, SkewS: 30}
-	if got := commitment.DefaultParams(); got != want {
-		t.Fatalf("DefaultParams %+v, want %+v", got, want)
-	}
+	got := commitment.DefaultParams()
+	require.Equal(t, want, got)
 }
 
 func TestMaxTTL(t *testing.T) {
@@ -65,9 +67,8 @@ func TestMaxTTL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.p.MaxTTL(tt.da); got != tt.want {
-				t.Fatalf("MaxTTL = %d, want %d", got, tt.want)
-			}
+			got := tt.p.MaxTTL(tt.da)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -98,24 +99,16 @@ func TestVerifyForGateRejectsInvalidParamsFirst(t *testing.T) {
 }
 
 func TestConstantsAndTags(t *testing.T) {
-	if commitment.TagCommitment != "prior/v0/decision-commitment" {
-		t.Errorf("TagCommitment = %q", commitment.TagCommitment)
-	}
-	if commitment.TagSig != "prior/v0/sig" {
-		t.Errorf("TagSig = %q", commitment.TagSig)
-	}
-	if commitment.TagReceipt != "prior/v0/receipt" {
-		t.Errorf("TagReceipt = %q", commitment.TagReceipt)
-	}
-	if commitment.MaxSignedSize != 2176 || commitment.MaxCommitmentSize != 2048 || commitment.MaxPayloadSize != 1<<27 {
-		t.Errorf("size limits: %d %d %d", commitment.MaxSignedSize, commitment.MaxCommitmentSize, commitment.MaxPayloadSize)
-	}
-	if commitment.QtyScale != 10_000 || commitment.MoneyScale != 100_000_000 {
-		t.Errorf("scales: %d %d", commitment.QtyScale, commitment.MoneyScale)
-	}
-	if commitment.DAFibre != 1 || commitment.DACelestiaBlob != 2 {
-		t.Errorf("DA enum: %d %d", commitment.DAFibre, commitment.DACelestiaBlob)
-	}
+	assert.Equalf(t, "prior/v0/decision-commitment", commitment.TagCommitment, "TagCommitment = %q", commitment.TagCommitment)
+	assert.Equalf(t, "prior/v0/sig", commitment.TagSig, "TagSig = %q", commitment.TagSig)
+	assert.Equalf(t, "prior/v0/receipt", commitment.TagReceipt, "TagReceipt = %q", commitment.TagReceipt)
+	assert.EqualValuesf(t, 2176, commitment.MaxSignedSize, "size limits: %d %d %d", commitment.MaxSignedSize, commitment.MaxCommitmentSize, commitment.MaxPayloadSize)
+	assert.EqualValuesf(t, 2048, commitment.MaxCommitmentSize, "size limits: %d %d %d", commitment.MaxSignedSize, commitment.MaxCommitmentSize, commitment.MaxPayloadSize)
+	assert.EqualValues(t, 1<<27, commitment.MaxPayloadSize, "payload size limit")
+	assert.EqualValuesf(t, 10_000, commitment.QtyScale, "scales: %d %d", commitment.QtyScale, commitment.MoneyScale)
+	assert.EqualValuesf(t, 100_000_000, commitment.MoneyScale, "scales: %d %d", commitment.QtyScale, commitment.MoneyScale)
+	assert.EqualValuesf(t, 1, commitment.DAFibre, "DA enum: %d %d", commitment.DAFibre, commitment.DACelestiaBlob)
+	assert.EqualValuesf(t, 2, commitment.DACelestiaBlob, "DA enum: %d %d", commitment.DAFibre, commitment.DACelestiaBlob)
 }
 
 // The preimages are rebuilt here byte by byte from the layout definition,
@@ -126,14 +119,11 @@ func TestHashAndSigningMessageLayout(t *testing.T) {
 	pre = append(pre, canon...)
 	want := sha256.Sum256(pre)
 	got := commitment.HashCanonical(canon)
-	if [32]byte(got) != want {
-		t.Fatalf("HashCanonical = %x, want %x", got[:], want)
-	}
+	require.EqualValues(t, want, [32]byte(got))
 
 	msg := commitment.SigningMessage(got)
 	wantMsg := append([]byte{0x0c}, "prior/v0/sig"...)
 	wantMsg = append(wantMsg, got[:]...)
-	if len(msg) != 45 || string(msg) != string(wantMsg) {
-		t.Fatalf("SigningMessage = %x, want %x", msg, wantMsg)
-	}
+	require.Len(t, msg, 45)
+	require.Equal(t, string(wantMsg), string(msg))
 }

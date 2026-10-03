@@ -89,7 +89,7 @@ var (
 )
 
 // da is key 1 and is visited before key 5, so seen already holds it. Other da
-// values are rejected later at stage S.
+// values are rejected later by static validation.
 func daIs(seen map[uint64]*node, da DA) bool {
 	n := seen[1]
 	return n != nil && n.major == majUint && n.u == uint64(da)
@@ -110,7 +110,7 @@ func actionParams(seen map[uint64]*node) ([]field, error) {
 }
 
 // checkMap applies the rule order to one map: keys ascending, for
-// each key D15, D16, D18, D19, then recursion; D17 after the map.
+// each key its field checks, then recursion; the map-level checks run after.
 func checkMap(n *node, schema []field, path string) error {
 	seen := make(map[uint64]*node, len(n.entries))
 	for _, e := range n.entries {

@@ -5,10 +5,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/prior/commitment"
 )
@@ -60,24 +63,19 @@ var sentinels = map[string]error{
 	"ErrActionMismatch":        commitment.ErrActionMismatch,
 	"ErrPayloadSizeMismatch":   commitment.ErrPayloadSizeMismatch,
 	"ErrPayloadHashMismatch":   commitment.ErrPayloadHashMismatch,
+	"ErrIssuedBeforeAnchor":    commitment.ErrIssuedBeforeAnchor,
 }
 
 // assertSentinel requires err to match the named sentinel and no other one.
 func assertSentinel(t *testing.T, err error, name string) {
 	t.Helper()
 	want, ok := sentinels[name]
-	if !ok {
-		t.Fatalf("vector expects unknown sentinel %q", name)
-	}
-	if err == nil {
-		t.Fatalf("want %s, got nil error", name)
-	}
-	if !errors.Is(err, want) {
-		t.Fatalf("want %s, got %v", name, err)
-	}
+	require.Truef(t, ok, "vector expects unknown sentinel %q", name)
+	require.Error(t, err)
+	require.ErrorIsf(t, err, want, "want %s", name)
 	for other, s := range sentinels {
-		if other != name && errors.Is(err, s) {
-			t.Fatalf("want exactly %s, error also matches %s: %v", name, other, err)
+		if other != name {
+			require.NotErrorIsf(t, err, s, "error also matches %s", other)
 		}
 	}
 }
@@ -94,9 +92,7 @@ func matchesAnySentinel(err error) bool {
 func mustHex(t testing.TB, s string) []byte {
 	t.Helper()
 	b, err := hex.DecodeString(s)
-	if err != nil {
-		t.Fatalf("bad hex %q: %v", s, err)
-	}
+	require.NoErrorf(t, err, "bad hex %q", s)
 	return b
 }
 
@@ -111,9 +107,7 @@ func optHex(t testing.TB, s string) []byte {
 func u64(t testing.TB, s string) uint64 {
 	t.Helper()
 	v, err := strconv.ParseUint(s, 10, 64)
-	if err != nil {
-		t.Fatalf("bad uint %q: %v", s, err)
-	}
+	require.NoErrorf(t, err, "bad uint %q", s)
 	return v
 }
 
@@ -128,12 +122,9 @@ func optU64(t testing.TB, s *string) *uint64 {
 func loadJSON(t testing.TB, name string, v any) {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(vectorDir, name))
-	if err != nil {
-		t.Fatalf("read vector file: %v", err)
-	}
-	if err := json.Unmarshal(b, v); err != nil {
-		t.Fatalf("parse %s: %v", name, err)
-	}
+	require.NoError(t, err, "read vector file")
+	err = json.Unmarshal(b, v)
+	require.NoErrorf(t, err, "parse %s", name)
 }
 
 type jsonScope struct {
@@ -324,13 +315,10 @@ func loadKey(t testing.TB, name string) ed25519.PrivateKey {
 	var kf keysFile
 	loadJSON(t, "keys.json", &kf)
 	k, ok := kf.Keys[name]
-	if !ok {
-		t.Fatalf("no key %q", name)
-	}
+	require.Truef(t, ok, "no key %q", name)
 	priv := ed25519.NewKeyFromSeed(mustHex(t, k.SeedHex))
-	if got := hex.EncodeToString(priv.Public().(ed25519.PublicKey)); got != k.PublicKeyHex {
-		t.Fatalf("seed/public key mismatch in keys.json: %s", got)
-	}
+	got := hex.EncodeToString(priv.Public().(ed25519.PublicKey))
+	require.Equalf(t, k.PublicKeyHex, got, "seed/public key mismatch in keys.json: %s", got)
 	return priv
 }
 
@@ -347,7 +335,7 @@ func validCaseByID(t testing.TB, vf validFile, id string) validCase {
 			return c
 		}
 	}
-	t.Fatalf("no valid vector %q", id)
+	require.FailNow(t, fmt.Sprintf("no valid vector %q", id))
 	return validCase{}
 }
 

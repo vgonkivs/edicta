@@ -1,0 +1,137 @@
+// Package memreg is an in-memory registry for tests and development. It has
+// no durability.
+package memreg
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+
+	"github.com/vgonkivs/prior/gate/registry"
+)
+
+type Registry struct {
+	mu      sync.Mutex
+	claimed bool
+	entries map[registry.Key]registry.Entry
+	meta    registry.Meta
+}
+
+var _ registry.Registry = (*Registry)(nil)
+
+// New creates an empty registry whose creation time is epoch.
+func New(epoch uint64) (*Registry, error) {
+	if epoch == 0 {
+		return nil, errors.New("memreg: epoch must be set")
+	}
+	return &Registry{
+		entries: make(map[registry.Key]registry.Entry),
+		meta:    registry.Meta{Epoch: epoch, Watermark: epoch},
+	}, nil
+}
+
+// Claim marks the registry as owned by one gate.
+func (r *Registry) Claim() (func(), error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.claimed {
+		return nil, registry.ErrInUse
+	}
+	r.claimed = true
+	return func() {
+		r.mu.Lock()
+		r.claimed = false
+		r.mu.Unlock()
+	}, nil
+}
+
+func (r *Registry) Reserve(_ context.Context, e registry.Entry, tolerance uint64) error {
+	if err := registry.CheckReserve(e); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if old, ok := r.entries[e.Key]; ok {
+		return &registry.ExistsError{Existing: old.Clone()}
+	}
+	if e.ValidUntil < r.meta.PruneCutoff {
+		return fmt.Errorf("%w: valid_until %d, cutoff %d", registry.ErrPrunedWindow, e.ValidUntil, r.meta.PruneCutoff)
+	}
+	if registry.BelowWatermark(e.ReservedAt, tolerance, r.meta.Watermark) {
+		return fmt.Errorf("%w: reserved_at %d, watermark %d", registry.ErrBelowWatermark, e.ReservedAt, r.meta.Watermark)
+	}
+	r.entries[e.Key] = e.Clone()
+	r.meta.Watermark = max(r.meta.Watermark, e.ReservedAt)
+	return nil
+}
+
+func (r *Registry) Resolve(_ context.Context, k registry.Key, from registry.State, upd registry.Entry) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	stored, ok := r.entries[k]
+	if !ok {
+		return registry.ErrNotFound
+	}
+	next, err := registry.Transition(stored, from, upd)
+	if err != nil {
+		return err
+	}
+	r.entries[k] = next
+	return nil
+}
+
+func (r *Registry) Get(_ context.Context, k registry.Key) (registry.Entry, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.entries[k]
+	if !ok {
+		return registry.Entry{}, registry.ErrNotFound
+	}
+	return e.Clone(), nil
+}
+
+func (r *Registry) Pending(_ context.Context) ([]registry.Entry, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []registry.Entry
+	for _, e := range r.entries {
+		if registry.NeedsAttention(e) {
+			out = append(out, e.Clone())
+		}
+	}
+	return out, nil
+}
+
+func (r *Registry) Recover(_ context.Context, now uint64) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for k, e := range r.entries {
+		if e.State == registry.StateReserved {
+			r.entries[k] = registry.RecoverEntry(e, now)
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (r *Registry) Meta(_ context.Context) (registry.Meta, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.meta, nil
+}
+
+func (r *Registry) Prune(_ context.Context, cutoff uint64) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.meta.PruneCutoff = max(r.meta.PruneCutoff, cutoff)
+	n := 0
+	for k, e := range r.entries {
+		if registry.Prunable(e, cutoff) {
+			delete(r.entries, k)
+			n++
+		}
+	}
+	return n, nil
+}

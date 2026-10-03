@@ -2,9 +2,11 @@ package commitment_test
 
 import (
 	"bytes"
-	"errors"
-	"strings"
+	"encoding/hex"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/prior/commitment"
 )
@@ -27,21 +29,14 @@ func TestNilCommitment(t *testing.T) {
 			var err error
 			func() {
 				defer func() {
-					if v := recover(); v != nil {
-						t.Fatalf("panic: %v", v)
-					}
+					v := recover()
+					require.Nilf(t, v, "panic: %v", v)
 				}()
 				err = r.call()
 			}()
-			if err == nil {
-				t.Fatal("nil error")
-			}
-			if !errors.Is(err, r.want) {
-				t.Fatalf("want %v, got %v", r.want, err)
-			}
-			if !strings.Contains(err.Error(), "nil commitment") {
-				t.Fatalf("message lacks \"nil commitment\": %v", err)
-			}
+			require.Error(t, err, "nil error")
+			require.ErrorIsf(t, err, r.want, "want %v, got", r.want)
+			require.ErrorContains(t, err, "nil commitment")
 		})
 	}
 }
@@ -53,18 +48,16 @@ func TestTagLengths(t *testing.T) {
 		"TagReceipt":    commitment.TagReceipt,
 	}
 	for name, v := range tags {
-		if n := len(v); n < 1 || n > 255 {
-			t.Errorf("%s length %d outside 1..255", name, n)
-		}
+		n := len(v)
+		assert.GreaterOrEqualf(t, n, 1, "%s length %d outside 1..255", name, n)
+		assert.LessOrEqualf(t, n, 255, "%s length %d outside 1..255", name, n)
 	}
 }
 
 func TestSignDoesNotAliasCaller(t *testing.T) {
 	c, _, _ := baseCommitment(t)
 	s, h, err := commitment.Sign(loadKey(t, "agent1"), c)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	wantNonce := bytes.Clone(s.Commitment.Nonce)
 	wantKey := bytes.Clone(s.Commitment.AgentPubKey)
 	for i := range c.Nonce {
@@ -73,19 +66,13 @@ func TestSignDoesNotAliasCaller(t *testing.T) {
 	for i := range c.AgentPubKey {
 		c.AgentPubKey[i] ^= 0xff
 	}
-	if !bytes.Equal(s.Commitment.Nonce, wantNonce) || !bytes.Equal(s.Commitment.AgentPubKey, wantKey) {
-		t.Fatal("envelope changed after caller mutation")
-	}
+	require.Equal(t, hex.EncodeToString(wantNonce), hex.EncodeToString(s.Commitment.Nonce), "envelope changed after caller mutation")
+	require.Equal(t, hex.EncodeToString(wantKey), hex.EncodeToString(s.Commitment.AgentPubKey), "envelope changed after caller mutation")
 	hh, err := commitment.HashOf(&s.Commitment)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if hh != h {
-		t.Fatal("envelope no longer matches returned hash")
-	}
-	if err := verifyErr(s); err != nil {
-		t.Fatalf("envelope no longer verifies: %v", err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, h, hh, "envelope no longer matches returned hash")
+	err = verifyErr(s)
+	require.NoError(t, err, "envelope no longer verifies")
 }
 
 func TestNilCommitmentEncoding(t *testing.T) {
@@ -101,17 +88,12 @@ func TestNilCommitmentEncoding(t *testing.T) {
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {
 			defer func() {
-				if v := recover(); v != nil {
-					t.Fatalf("panic: %v", v)
-				}
+				v := recover()
+				require.Nilf(t, v, "panic: %v", v)
 			}()
 			err := r.call()
-			if err == nil {
-				t.Fatal("nil error")
-			}
-			if !strings.Contains(err.Error(), "nil commitment") {
-				t.Fatalf("message lacks \"nil commitment\": %v", err)
-			}
+			require.Error(t, err, "nil error")
+			require.ErrorContains(t, err, "nil commitment")
 		})
 	}
 }

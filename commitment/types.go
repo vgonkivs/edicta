@@ -10,6 +10,7 @@ const (
 	TagCommitment = "prior/v0/decision-commitment"
 	TagSig        = "prior/v0/sig"
 	TagReceipt    = "prior/v0/receipt"
+	TagReceiptSig = "prior/v0/receipt-sig"
 
 	MaxSignedSize     = 2176
 	MaxCommitmentSize = 2048
@@ -24,7 +25,7 @@ const (
 type Hash [32]byte
 
 // Enums are uint64 because the decoder accepts any uint and rejects bad
-// values at stage S.
+// values during static validation.
 type (
 	Side      uint64
 	OrderType uint64

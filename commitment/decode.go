@@ -87,7 +87,7 @@ func DecodeSigned(b []byte) (*SignedCommitment, error) {
 	return s, nil
 }
 
-// requireCanonical is rule D21, a guard against encoder or decoder bugs.
+// requireCanonical rejects input that does not re-encode to the same bytes, guarding against encoder or decoder bugs.
 func requireCanonical(c *Commitment, raw []byte) error {
 	enc, err := Encode(c)
 	if err != nil {
