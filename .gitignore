@@ -15,3 +15,6 @@ spec/*
 
 # Python venv for the vector checker
 .venv/
+
+# IDE
+.idea/
