@@ -1,0 +1,816 @@
+{
+  "format": "prior-vectors/v0",
+  "params": {
+    "fibre_retention_s": "14400",
+    "blob_retention_s": "14400",
+    "skew_s": "30"
+  },
+  "gate": {
+    "gate_id": "gate-paper-1",
+    "rail": "1",
+    "account": "DU1234567"
+  },
+  "cases": [
+    {
+      "id": "minimal_lmt",
+      "description": "No optional fields; da=celestia_blob; payload is ciphertext_hash_small_blob in payload.json.",
+      "input": {
+        "version": "0",
+        "agent_id": "dca-agent-1",
+        "agent_pubkey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "nonce": "1b68e586084e2174e940de6b25a1b3ab",
+        "issued_at": "1791000000",
+        "valid_until": "1791000900",
+        "scope": {
+          "gate_id": "gate-paper-1",
+          "rail": "1",
+          "account": "DU1234567"
+        },
+        "action": {
+          "kind": "ibkr.order.v0",
+          "params": {
+            "account": "DU1234567",
+            "conid": "265598",
+            "side": "1",
+            "qty": "100000",
+            "order_type": "1",
+            "limit_price": "19050000000",
+            "currency": "USD",
+            "tif": "1"
+          }
+        },
+        "constraints": {
+          "max_notional": "200000000000"
+        },
+        "payload_ref": {
+          "da": "2",
+          "namespace": "000000000000000000000000000000000000007072696f722f64633031",
+          "commitment": "51a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf",
+          "height": "4200000",
+          "signer": "d81f5ca4a875463f3add2bf65d4476a72da231e0"
+        },
+        "ciphertext_hash": "9edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab",
+        "plaintext_hash": "02d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d1",
+        "payload_size": "301"
+      },
+      "commitment_cbor_hex": "ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090109a1011b0000002e90edd0000aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a004016400554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d19012d",
+      "commitment_hash_hex": "db5023886e4ebb9e061798f574ca911b048342cbf8dba5f50b870b0e2a9597ef",
+      "signer": "agent1",
+      "signed_message_hex": "0c7072696f722f76302f736967db5023886e4ebb9e061798f574ca911b048342cbf8dba5f50b870b0e2a9597ef",
+      "signature_hex": "6dd66b3046b0231d2e0a2023e3fc19d18f709f19b35799c2c683ec670d9bebb95819d042cc5ba3a3c1578ca11a9e60c7956d7bdb4935ed439a0ea86149b05e0e",
+      "envelope_hex": "a201ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090109a1011b0000002e90edd0000aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a004016400554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d19012d0258406dd66b3046b0231d2e0a2023e3fc19d18f709f19b35799c2c683ec670d9bebb95819d042cc5ba3a3c1578ca11a9e60c7956d7bdb4935ed439a0ea86149b05e0e",
+      "now": "1791000060",
+      "request": {
+        "account": "DU1234567",
+        "conid": "265598",
+        "side": "1",
+        "qty": "100000",
+        "order_type": "1",
+        "limit_price": "19050000000",
+        "currency": "USD",
+        "tif": "1"
+      }
+    },
+    {
+      "id": "full_ibkr_order",
+      "description": "da=fibre; every optional field allowed for rail ibkr is present (symbol, price_bound, deadline). chain_id is forbidden for ibkr.",
+      "input": {
+        "version": "0",
+        "agent_id": "dca-agent-1",
+        "agent_pubkey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "nonce": "e1b8281bda4e562a84aded2c00864a59",
+        "issued_at": "1791000000",
+        "valid_until": "1791000900",
+        "scope": {
+          "gate_id": "gate-paper-1",
+          "rail": "1",
+          "account": "DU1234567"
+        },
+        "action": {
+          "kind": "ibkr.order.v0",
+          "params": {
+            "account": "DU1234567",
+            "conid": "265598",
+            "side": "1",
+            "qty": "100000",
+            "order_type": "1",
+            "limit_price": "19050000000",
+            "currency": "USD",
+            "tif": "2",
+            "symbol": "AAPL"
+          }
+        },
+        "constraints": {
+          "max_notional": "200000000000",
+          "price_bound": "19100000000",
+          "deadline": "1791000600"
+        },
+        "payload_ref": {
+          "da": "1",
+          "namespace": "000000000000000000000000000000000000007072696f722f64633031",
+          "commitment": "13247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20",
+          "height": "4200123"
+        },
+        "ciphertext_hash": "376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd53",
+        "plaintext_hash": "02d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d1",
+        "payload_size": "300000"
+      },
+      "commitment_cbor_hex": "ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450e1b8281bda4e562a84aded2c00864a59051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a90169445531323334353637021a00040d7e03644141504c0401051a000186a00601071b000000046f77ee800863555344090209a3011b0000002e90edd000021b000000047272df00031a6ac080180aa4010102581d000000000000000000000000000000000000007072696f722f6463303103582013247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20041a004016bb0b5820376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd530c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d1a000493e0",
+      "commitment_hash_hex": "702720803e87e70fd801929c4a67b95d61c7d95bac8da18c87677c9bc6082735",
+      "signer": "agent1",
+      "signed_message_hex": "0c7072696f722f76302f736967702720803e87e70fd801929c4a67b95d61c7d95bac8da18c87677c9bc6082735",
+      "signature_hex": "d4ff5a2ec3b6a7bd1c19c673c65a9756b1d003b8bec1a7b201ee946ab0691d277f4fce194c3333074035eda394c889a94bdd9138cdbb03dee604d02d7b3ec703",
+      "envelope_hex": "a201ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450e1b8281bda4e562a84aded2c00864a59051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a90169445531323334353637021a00040d7e03644141504c0401051a000186a00601071b000000046f77ee800863555344090209a3011b0000002e90edd000021b000000047272df00031a6ac080180aa4010102581d000000000000000000000000000000000000007072696f722f6463303103582013247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20041a004016bb0b5820376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd530c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d1a000493e0025840d4ff5a2ec3b6a7bd1c19c673c65a9756b1d003b8bec1a7b201ee946ab0691d277f4fce194c3333074035eda394c889a94bdd9138cdbb03dee604d02d7b3ec703",
+      "now": "1791000060",
+      "request": {
+        "account": "DU1234567",
+        "conid": "265598",
+        "side": "1",
+        "qty": "100000",
+        "order_type": "1",
+        "limit_price": "19050000000",
+        "currency": "USD",
+        "tif": "2",
+        "symbol": "AAPL"
+      }
+    },
+    {
+      "id": "sell_with_bound",
+      "description": "SELL requires limit_price >= price_bound.",
+      "input": {
+        "version": "0",
+        "agent_id": "dca-agent-1",
+        "agent_pubkey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "nonce": "a232460657f2b8ce5266a72a142f4266",
+        "issued_at": "1791000000",
+        "valid_until": "1791000900",
+        "scope": {
+          "gate_id": "gate-paper-1",
+          "rail": "1",
+          "account": "DU1234567"
+        },
+        "action": {
+          "kind": "ibkr.order.v0",
+          "params": {
+            "account": "DU1234567",
+            "conid": "265598",
+            "side": "2",
+            "qty": "100000",
+            "order_type": "1",
+            "limit_price": "19500000000",
+            "currency": "USD",
+            "tif": "1"
+          }
+        },
+        "constraints": {
+          "max_notional": "200000000000",
+          "price_bound": "19400000000"
+        },
+        "payload_ref": {
+          "da": "2",
+          "namespace": "000000000000000000000000000000000000007072696f722f64633031",
+          "commitment": "51a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf",
+          "height": "4200000",
+          "signer": "d81f5ca4a875463f3add2bf65d4476a72da231e0"
+        },
+        "ciphertext_hash": "9edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab",
+        "plaintext_hash": "02d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d1",
+        "payload_size": "301"
+      },
+      "commitment_cbor_hex": "ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450a232460657f2b8ce5266a72a142f4266051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a80169445531323334353637021a00040d7e0402051a000186a00601071b000000048a4a63000863555344090109a2011b0000002e90edd000021b00000004845482000aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a004016400554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d19012d",
+      "commitment_hash_hex": "959e63b208873ddbbc794e090a1263e92b1d3aa96e2318d175483331154cf269",
+      "signer": "agent1",
+      "signed_message_hex": "0c7072696f722f76302f736967959e63b208873ddbbc794e090a1263e92b1d3aa96e2318d175483331154cf269",
+      "signature_hex": "1b72539db651164e04e27039d6d233513764f729733b2640eb68f8ad2d129a861d4b5339fd13aa0857a03adf29d5485998bb868e8e023dcb2b5c4e83183a2c04",
+      "envelope_hex": "a201ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450a232460657f2b8ce5266a72a142f4266051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a80169445531323334353637021a00040d7e0402051a000186a00601071b000000048a4a63000863555344090109a2011b0000002e90edd000021b00000004845482000aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a004016400554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d19012d0258401b72539db651164e04e27039d6d233513764f729733b2640eb68f8ad2d129a861d4b5339fd13aa0857a03adf29d5485998bb868e8e023dcb2b5c4e83183a2c04",
+      "now": "1791000060",
+      "request": {
+        "account": "DU1234567",
+        "conid": "265598",
+        "side": "2",
+        "qty": "100000",
+        "order_type": "1",
+        "limit_price": "19500000000",
+        "currency": "USD",
+        "tif": "1"
+      }
+    },
+    {
+      "id": "notional_exact_equal",
+      "description": "qty * limit_price == max_notional * 10^4 is accepted.",
+      "input": {
+        "version": "0",
+        "agent_id": "dca-agent-1",
+        "agent_pubkey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "nonce": "1f868585827c3254d5e2070a8708f6dc",
+        "issued_at": "1791000000",
+        "valid_until": "1791000900",
+        "scope": {
+          "gate_id": "gate-paper-1",
+          "rail": "1",
+          "account": "DU1234567"
+        },
+        "action": {
+          "kind": "ibkr.order.v0",
+          "params": {
+            "account": "DU1234567",
+            "conid": "265598",
+            "side": "1",
+            "qty": "100000",
+            "order_type": "1",
+            "limit_price": "19050000000",
+            "currency": "USD",
+            "tif": "1"
+          }
+        },
+        "constraints": {
+          "max_notional": "190500000000"
+        },
+        "payload_ref": {
+          "da": "2",
+          "namespace": "000000000000000000000000000000000000007072696f722f64633031",
+          "commitment": "51a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf",
+          "height": "4200000",
+          "signer": "d81f5ca4a875463f3add2bf65d4476a72da231e0"
+        },
+        "ciphertext_hash": "9edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab",
+        "plaintext_hash": "02d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d1",
+        "payload_size": "301"
+      },
+      "commitment_cbor_hex": "ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501f868585827c3254d5e2070a8708f6dc051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090109a1011b0000002c5aaf51000aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a004016400554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d19012d",
+      "commitment_hash_hex": "d027ab4048be8bb7102c8373bb6902986bff16df6567989ba0d809c50ba4c42f",
+      "signer": "agent1",
+      "signed_message_hex": "0c7072696f722f76302f736967d027ab4048be8bb7102c8373bb6902986bff16df6567989ba0d809c50ba4c42f",
+      "signature_hex": "6e913ba949c829eb7bc7acddd24b36f633e16f027fe1c3ccc59910fc53b65d27f29b452acb12bba146d47f2b8b26efc954606c947d4ba6dbbce4f8cec4b90c00",
+      "envelope_hex": "a201ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501f868585827c3254d5e2070a8708f6dc051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090109a1011b0000002c5aaf51000aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a004016400554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d19012d0258406e913ba949c829eb7bc7acddd24b36f633e16f027fe1c3ccc59910fc53b65d27f29b452acb12bba146d47f2b8b26efc954606c947d4ba6dbbce4f8cec4b90c00",
+      "now": "1791000060",
+      "request": {
+        "account": "DU1234567",
+        "conid": "265598",
+        "side": "1",
+        "qty": "100000",
+        "order_type": "1",
+        "limit_price": "19050000000",
+        "currency": "USD",
+        "tif": "1"
+      }
+    },
+    {
+      "id": "ttl_exactly_max",
+      "description": "TTL == MaxTTL(da) == min(3600, 14400/4).",
+      "input": {
+        "version": "0",
+        "agent_id": "dca-agent-1",
+        "agent_pubkey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "nonce": "1b68e586084e2174e940de6b25a1b3ab",
+        "issued_at": "1791000000",
+        "valid_until": "1791003600",
+        "scope": {
+          "gate_id": "gate-paper-1",
+          "rail": "1",
+          "account": "DU1234567"
+        },
+        "action": {
+          "kind": "ibkr.order.v0",
+          "params": {
+            "account": "DU1234567",
+            "conid": "265598",
+            "side": "1",
+            "qty": "100000",
+            "order_type": "1",
+            "limit_price": "19050000000",
+            "currency": "USD",
+            "tif": "1"
+          }
+        },
+        "constraints": {
+          "max_notional": "200000000000"
+        },
+        "payload_ref": {
+          "da": "2",
+          "namespace": "000000000000000000000000000000000000007072696f722f64633031",
+          "commitment": "51a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf",
+          "height": "4200000",
+          "signer": "d81f5ca4a875463f3add2bf65d4476a72da231e0"
+        },
+        "ciphertext_hash": "9edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab",
+        "plaintext_hash": "02d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d1",
+        "payload_size": "301"
+      },
+      "commitment_cbor_hex": "ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac08bd007a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090109a1011b0000002e90edd0000aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a004016400554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d19012d",
+      "commitment_hash_hex": "40d1f6c09940def8ee3f859ac478230f2da0553b79b5a1723575f7eb0bba1beb",
+      "signer": "agent1",
+      "signed_message_hex": "0c7072696f722f76302f73696740d1f6c09940def8ee3f859ac478230f2da0553b79b5a1723575f7eb0bba1beb",
+      "signature_hex": "33e4ac5ad4f275b92ace29b499307bb95a5438a70d064febc5e9af224262dcc41aab59cd9c780e3e5e64224145ee341735eaf867396522d23707194ca37b6f0f",
+      "envelope_hex": "a201ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac08bd007a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090109a1011b0000002e90edd0000aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a004016400554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d19012d02584033e4ac5ad4f275b92ace29b499307bb95a5438a70d064febc5e9af224262dcc41aab59cd9c780e3e5e64224145ee341735eaf867396522d23707194ca37b6f0f",
+      "now": "1791000060",
+      "request": {
+        "account": "DU1234567",
+        "conid": "265598",
+        "side": "1",
+        "qty": "100000",
+        "order_type": "1",
+        "limit_price": "19050000000",
+        "currency": "USD",
+        "tif": "1"
+      }
+    },
+    {
+      "id": "deadline_eq_valid_until",
+      "description": "deadline == valid_until is allowed; expiry is the deadline.",
+      "input": {
+        "version": "0",
+        "agent_id": "dca-agent-1",
+        "agent_pubkey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "nonce": "e1b8281bda4e562a84aded2c00864a59",
+        "issued_at": "1791000000",
+        "valid_until": "1791000900",
+        "scope": {
+          "gate_id": "gate-paper-1",
+          "rail": "1",
+          "account": "DU1234567"
+        },
+        "action": {
+          "kind": "ibkr.order.v0",
+          "params": {
+            "account": "DU1234567",
+            "conid": "265598",
+            "side": "1",
+            "qty": "100000",
+            "order_type": "1",
+            "limit_price": "19050000000",
+            "currency": "USD",
+            "tif": "2",
+            "symbol": "AAPL"
+          }
+        },
+        "constraints": {
+          "max_notional": "200000000000",
+          "price_bound": "19100000000",
+          "deadline": "1791000900"
+        },
+        "payload_ref": {
+          "da": "1",
+          "namespace": "000000000000000000000000000000000000007072696f722f64633031",
+          "commitment": "13247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20",
+          "height": "4200123"
+        },
+        "ciphertext_hash": "376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd53",
+        "plaintext_hash": "02d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d1",
+        "payload_size": "300000"
+      },
+      "commitment_cbor_hex": "ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450e1b8281bda4e562a84aded2c00864a59051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a90169445531323334353637021a00040d7e03644141504c0401051a000186a00601071b000000046f77ee800863555344090209a3011b0000002e90edd000021b000000047272df00031a6ac081440aa4010102581d000000000000000000000000000000000000007072696f722f6463303103582013247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20041a004016bb0b5820376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd530c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d1a000493e0",
+      "commitment_hash_hex": "61894380d782295eab67457cdff384717de46f6fab69ba2a258cb0075c0fc747",
+      "signer": "agent1",
+      "signed_message_hex": "0c7072696f722f76302f73696761894380d782295eab67457cdff384717de46f6fab69ba2a258cb0075c0fc747",
+      "signature_hex": "0718c769117d93632bc327dba46516637e61bec524b2f059f42aa27dd717b955ad5e20dc75a5d42c71fd073acda71f93fb2b67093d7f1b5f987e0e565bfb0b07",
+      "envelope_hex": "a201ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450e1b8281bda4e562a84aded2c00864a59051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a90169445531323334353637021a00040d7e03644141504c0401051a000186a00601071b000000046f77ee800863555344090209a3011b0000002e90edd000021b000000047272df00031a6ac081440aa4010102581d000000000000000000000000000000000000007072696f722f6463303103582013247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20041a004016bb0b5820376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd530c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d1a000493e00258400718c769117d93632bc327dba46516637e61bec524b2f059f42aa27dd717b955ad5e20dc75a5d42c71fd073acda71f93fb2b67093d7f1b5f987e0e565bfb0b07",
+      "now": "1791000060",
+      "request": {
+        "account": "DU1234567",
+        "conid": "265598",
+        "side": "1",
+        "qty": "100000",
+        "order_type": "1",
+        "limit_price": "19050000000",
+        "currency": "USD",
+        "tif": "2",
+        "symbol": "AAPL"
+      }
+    },
+    {
+      "id": "fibre_small_payload",
+      "description": "Q9: da=fibre with payload_size 1024 is accepted; the 256 KiB split is a Recorder routing rule.",
+      "input": {
+        "version": "0",
+        "agent_id": "dca-agent-1",
+        "agent_pubkey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "nonce": "e1b8281bda4e562a84aded2c00864a59",
+        "issued_at": "1791000000",
+        "valid_until": "1791000900",
+        "scope": {
+          "gate_id": "gate-paper-1",
+          "rail": "1",
+          "account": "DU1234567"
+        },
+        "action": {
+          "kind": "ibkr.order.v0",
+          "params": {
+            "account": "DU1234567",
+            "conid": "265598",
+            "side": "1",
+            "qty": "100000",
+            "order_type": "1",
+            "limit_price": "19050000000",
+            "currency": "USD",
+            "tif": "2",
+            "symbol": "AAPL"
+          }
+        },
+        "constraints": {
+          "max_notional": "200000000000",
+          "price_bound": "19100000000",
+          "deadline": "1791000600"
+        },
+        "payload_ref": {
+          "da": "1",
+          "namespace": "000000000000000000000000000000000000007072696f722f64633031",
+          "commitment": "13247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20",
+          "height": "4200123"
+        },
+        "ciphertext_hash": "376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd53",
+        "plaintext_hash": "02d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d1",
+        "payload_size": "1024"
+      },
+      "commitment_cbor_hex": "ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450e1b8281bda4e562a84aded2c00864a59051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a90169445531323334353637021a00040d7e03644141504c0401051a000186a00601071b000000046f77ee800863555344090209a3011b0000002e90edd000021b000000047272df00031a6ac080180aa4010102581d000000000000000000000000000000000000007072696f722f6463303103582013247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20041a004016bb0b5820376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd530c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d190400",
+      "commitment_hash_hex": "02aeaacd76e964825718ce9f4ba233f4cec3c23ecbd6230771ffdd10834b359f",
+      "signer": "agent1",
+      "signed_message_hex": "0c7072696f722f76302f73696702aeaacd76e964825718ce9f4ba233f4cec3c23ecbd6230771ffdd10834b359f",
+      "signature_hex": "dad257763880736fbb06aad08fb4c9ac2335723f2aaeb2d76d6d540228b5ce11a18add7543439f57b6922103bcf6563ba7ed8264eb12f7f4701b5d7c89bdf10a",
+      "envelope_hex": "a201ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450e1b8281bda4e562a84aded2c00864a59051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a90169445531323334353637021a00040d7e03644141504c0401051a000186a00601071b000000046f77ee800863555344090209a3011b0000002e90edd000021b000000047272df00031a6ac080180aa4010102581d000000000000000000000000000000000000007072696f722f6463303103582013247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20041a004016bb0b5820376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd530c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d190400025840dad257763880736fbb06aad08fb4c9ac2335723f2aaeb2d76d6d540228b5ce11a18add7543439f57b6922103bcf6563ba7ed8264eb12f7f4701b5d7c89bdf10a",
+      "now": "1791000060",
+      "request": {
+        "account": "DU1234567",
+        "conid": "265598",
+        "side": "1",
+        "qty": "100000",
+        "order_type": "1",
+        "limit_price": "19050000000",
+        "currency": "USD",
+        "tif": "2",
+        "symbol": "AAPL"
+      }
+    },
+    {
+      "id": "blob_large_payload",
+      "description": "Q9: da=celestia_blob with payload_size 262144 is accepted.",
+      "input": {
+        "version": "0",
+        "agent_id": "dca-agent-1",
+        "agent_pubkey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "nonce": "1b68e586084e2174e940de6b25a1b3ab",
+        "issued_at": "1791000000",
+        "valid_until": "1791000900",
+        "scope": {
+          "gate_id": "gate-paper-1",
+          "rail": "1",
+          "account": "DU1234567"
+        },
+        "action": {
+          "kind": "ibkr.order.v0",
+          "params": {
+            "account": "DU1234567",
+            "conid": "265598",
+            "side": "1",
+            "qty": "100000",
+            "order_type": "1",
+            "limit_price": "19050000000",
+            "currency": "USD",
+            "tif": "1"
+          }
+        },
+        "constraints": {
+          "max_notional": "200000000000"
+        },
+        "payload_ref": {
+          "da": "2",
+          "namespace": "000000000000000000000000000000000000007072696f722f64633031",
+          "commitment": "51a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf",
+          "height": "4200000",
+          "signer": "d81f5ca4a875463f3add2bf65d4476a72da231e0"
+        },
+        "ciphertext_hash": "9edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab",
+        "plaintext_hash": "02d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d1",
+        "payload_size": "262144"
+      },
+      "commitment_cbor_hex": "ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090109a1011b0000002e90edd0000aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a004016400554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d1a00040000",
+      "commitment_hash_hex": "2051d07dbcdb000e54e5d9c14311ca0bb8137f84577bcacbcd25eee6f3f5c550",
+      "signer": "agent1",
+      "signed_message_hex": "0c7072696f722f76302f7369672051d07dbcdb000e54e5d9c14311ca0bb8137f84577bcacbcd25eee6f3f5c550",
+      "signature_hex": "4c241f5f4293c50e6dc6834de09306971a9c8cefc9dd49a780a708cf443e8f9515d0a11f85af557352a671a689000c4b3c887d6b023b4f3dafe8dbe5d38efa0e",
+      "envelope_hex": "a201ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090109a1011b0000002e90edd0000aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a004016400554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d1a000400000258404c241f5f4293c50e6dc6834de09306971a9c8cefc9dd49a780a708cf443e8f9515d0a11f85af557352a671a689000c4b3c887d6b023b4f3dafe8dbe5d38efa0e",
+      "now": "1791000060",
+      "request": {
+        "account": "DU1234567",
+        "conid": "265598",
+        "side": "1",
+        "qty": "100000",
+        "order_type": "1",
+        "limit_price": "19050000000",
+        "currency": "USD",
+        "tif": "1"
+      }
+    },
+    {
+      "id": "issued_at_within_skew",
+      "description": "issued_at == now + skew is accepted.",
+      "input": {
+        "version": "0",
+        "agent_id": "dca-agent-1",
+        "agent_pubkey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "nonce": "1b68e586084e2174e940de6b25a1b3ab",
+        "issued_at": "1791000090",
+        "valid_until": "1791000990",
+        "scope": {
+          "gate_id": "gate-paper-1",
+          "rail": "1",
+          "account": "DU1234567"
+        },
+        "action": {
+          "kind": "ibkr.order.v0",
+          "params": {
+            "account": "DU1234567",
+            "conid": "265598",
+            "side": "1",
+            "qty": "100000",
+            "order_type": "1",
+            "limit_price": "19050000000",
+            "currency": "USD",
+            "tif": "1"
+          }
+        },
+        "constraints": {
+          "max_notional": "200000000000"
+        },
+        "payload_ref": {
+          "da": "2",
+          "namespace": "000000000000000000000000000000000000007072696f722f64633031",
+          "commitment": "51a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf",
+          "height": "4200000",
+          "signer": "d81f5ca4a875463f3add2bf65d4476a72da231e0"
+        },
+        "ciphertext_hash": "9edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab",
+        "plaintext_hash": "02d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d1",
+        "payload_size": "301"
+      },
+      "commitment_cbor_hex": "ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07e1a061a6ac0819e07a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090109a1011b0000002e90edd0000aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a004016400554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d19012d",
+      "commitment_hash_hex": "05372bfe75c7ce9240dc42b310031c10c89c15b30e4e7dd412595fa765a6632b",
+      "signer": "agent1",
+      "signed_message_hex": "0c7072696f722f76302f73696705372bfe75c7ce9240dc42b310031c10c89c15b30e4e7dd412595fa765a6632b",
+      "signature_hex": "c8bef511ef7b72a1402a40689f1dee2df1ef37385f895cc0312feafa1afb6cd15c88f2392adfbac1f6171cbf24b7b6445241994cd9d6784a76832e23f6608006",
+      "envelope_hex": "a201ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07e1a061a6ac0819e07a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090109a1011b0000002e90edd0000aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a004016400554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d19012d025840c8bef511ef7b72a1402a40689f1dee2df1ef37385f895cc0312feafa1afb6cd15c88f2392adfbac1f6171cbf24b7b6445241994cd9d6784a76832e23f6608006",
+      "now": "1791000060",
+      "request": {
+        "account": "DU1234567",
+        "conid": "265598",
+        "side": "1",
+        "qty": "100000",
+        "order_type": "1",
+        "limit_price": "19050000000",
+        "currency": "USD",
+        "tif": "1"
+      }
+    },
+    {
+      "id": "symbol_ignored_in_action_match",
+      "description": "Same as full_ibkr_order; the request carries a different symbol, which is informational only.",
+      "input": {
+        "version": "0",
+        "agent_id": "dca-agent-1",
+        "agent_pubkey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "nonce": "e1b8281bda4e562a84aded2c00864a59",
+        "issued_at": "1791000000",
+        "valid_until": "1791000900",
+        "scope": {
+          "gate_id": "gate-paper-1",
+          "rail": "1",
+          "account": "DU1234567"
+        },
+        "action": {
+          "kind": "ibkr.order.v0",
+          "params": {
+            "account": "DU1234567",
+            "conid": "265598",
+            "side": "1",
+            "qty": "100000",
+            "order_type": "1",
+            "limit_price": "19050000000",
+            "currency": "USD",
+            "tif": "2",
+            "symbol": "AAPL"
+          }
+        },
+        "constraints": {
+          "max_notional": "200000000000",
+          "price_bound": "19100000000",
+          "deadline": "1791000600"
+        },
+        "payload_ref": {
+          "da": "1",
+          "namespace": "000000000000000000000000000000000000007072696f722f64633031",
+          "commitment": "13247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20",
+          "height": "4200123"
+        },
+        "ciphertext_hash": "376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd53",
+        "plaintext_hash": "02d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d1",
+        "payload_size": "300000"
+      },
+      "commitment_cbor_hex": "ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450e1b8281bda4e562a84aded2c00864a59051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a90169445531323334353637021a00040d7e03644141504c0401051a000186a00601071b000000046f77ee800863555344090209a3011b0000002e90edd000021b000000047272df00031a6ac080180aa4010102581d000000000000000000000000000000000000007072696f722f6463303103582013247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20041a004016bb0b5820376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd530c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d1a000493e0",
+      "commitment_hash_hex": "702720803e87e70fd801929c4a67b95d61c7d95bac8da18c87677c9bc6082735",
+      "signer": "agent1",
+      "signed_message_hex": "0c7072696f722f76302f736967702720803e87e70fd801929c4a67b95d61c7d95bac8da18c87677c9bc6082735",
+      "signature_hex": "d4ff5a2ec3b6a7bd1c19c673c65a9756b1d003b8bec1a7b201ee946ab0691d277f4fce194c3333074035eda394c889a94bdd9138cdbb03dee604d02d7b3ec703",
+      "envelope_hex": "a201ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450e1b8281bda4e562a84aded2c00864a59051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a90169445531323334353637021a00040d7e03644141504c0401051a000186a00601071b000000046f77ee800863555344090209a3011b0000002e90edd000021b000000047272df00031a6ac080180aa4010102581d000000000000000000000000000000000000007072696f722f6463303103582013247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20041a004016bb0b5820376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd530c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d1a000493e0025840d4ff5a2ec3b6a7bd1c19c673c65a9756b1d003b8bec1a7b201ee946ab0691d277f4fce194c3333074035eda394c889a94bdd9138cdbb03dee604d02d7b3ec703",
+      "now": "1791000060",
+      "request": {
+        "account": "DU1234567",
+        "conid": "265598",
+        "side": "1",
+        "qty": "100000",
+        "order_type": "1",
+        "limit_price": "19050000000",
+        "currency": "USD",
+        "tif": "2",
+        "symbol": "NOT-AAPL"
+      }
+    },
+    {
+      "id": "int_head_widths",
+      "description": "Integer heads of every width: 23 (1 byte), 24 and 255 (2 bytes), 256 and 65535 (3 bytes), 65536 and issued_at (5 bytes).",
+      "input": {
+        "version": "0",
+        "agent_id": "dca-agent-1",
+        "agent_pubkey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "nonce": "a63a0bd3f6970fae989a911697674cbe",
+        "issued_at": "1791000000",
+        "valid_until": "1791000900",
+        "scope": {
+          "gate_id": "gate-paper-1",
+          "rail": "1",
+          "account": "DU1234567"
+        },
+        "action": {
+          "kind": "ibkr.order.v0",
+          "params": {
+            "account": "DU1234567",
+            "conid": "23",
+            "side": "1",
+            "qty": "24",
+            "order_type": "1",
+            "limit_price": "255",
+            "currency": "USD",
+            "tif": "1"
+          }
+        },
+        "constraints": {
+          "max_notional": "256"
+        },
+        "payload_ref": {
+          "da": "2",
+          "namespace": "000000000000000000000000000000000000007072696f722f64633031",
+          "commitment": "51a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf",
+          "height": "65535",
+          "signer": "d81f5ca4a875463f3add2bf65d4476a72da231e0"
+        },
+        "ciphertext_hash": "9edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab",
+        "plaintext_hash": "02d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d1",
+        "payload_size": "65536"
+      },
+      "commitment_cbor_hex": "ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450a63a0bd3f6970fae989a911697674cbe051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a801694455313233343536370217040105181806010718ff0863555344090109a1011901000aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf0419ffff0554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d1a00010000",
+      "commitment_hash_hex": "87fc807d8fed9cd977d47f068ad5990a3933f2bee84ad51a2deacbc26121f3e9",
+      "signer": "agent1",
+      "signed_message_hex": "0c7072696f722f76302f73696787fc807d8fed9cd977d47f068ad5990a3933f2bee84ad51a2deacbc26121f3e9",
+      "signature_hex": "d2ed9c7d24abe92237bea7f339fabaacdf99a654ce8d76deb1166a3d74316eca903977d067d8a42bf3bad24e1239b857c32c00e3c35f4da4a2761af81a75a905",
+      "envelope_hex": "a201ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450a63a0bd3f6970fae989a911697674cbe051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a801694455313233343536370217040105181806010718ff0863555344090109a1011901000aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf0419ffff0554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d1a00010000025840d2ed9c7d24abe92237bea7f339fabaacdf99a654ce8d76deb1166a3d74316eca903977d067d8a42bf3bad24e1239b857c32c00e3c35f4da4a2761af81a75a905",
+      "now": "1791000060",
+      "request": {
+        "account": "DU1234567",
+        "conid": "23",
+        "side": "1",
+        "qty": "24",
+        "order_type": "1",
+        "limit_price": "255",
+        "currency": "USD",
+        "tif": "1"
+      }
+    },
+    {
+      "id": "max_int_values",
+      "description": "Largest allowed values: 2^63-1 in 9-byte heads, payload_size == 2^27.",
+      "input": {
+        "version": "0",
+        "agent_id": "dca-agent-1",
+        "agent_pubkey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "nonce": "86394d090d8467e12dc5bbe3aed53698",
+        "issued_at": "1791000000",
+        "valid_until": "1791000900",
+        "scope": {
+          "gate_id": "gate-paper-1",
+          "rail": "1",
+          "account": "DU1234567"
+        },
+        "action": {
+          "kind": "ibkr.order.v0",
+          "params": {
+            "account": "DU1234567",
+            "conid": "9223372036854775807",
+            "side": "1",
+            "qty": "1",
+            "order_type": "1",
+            "limit_price": "1",
+            "currency": "USD",
+            "tif": "1"
+          }
+        },
+        "constraints": {
+          "max_notional": "9223372036854775807"
+        },
+        "payload_ref": {
+          "da": "2",
+          "namespace": "000000000000000000000000000000000000007072696f722f64633031",
+          "commitment": "51a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf",
+          "height": "9223372036854775807",
+          "signer": "d81f5ca4a875463f3add2bf65d4476a72da231e0"
+        },
+        "ciphertext_hash": "9edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab",
+        "plaintext_hash": "02d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d1",
+        "payload_size": "134217728"
+      },
+      "commitment_cbor_hex": "ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a045086394d090d8467e12dc5bbe3aed53698051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a80169445531323334353637021b7fffffffffffffff04010501060107010863555344090109a1011b7fffffffffffffff0aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041b7fffffffffffffff0554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d1a08000000",
+      "commitment_hash_hex": "1727436eb4eb17009136ce41a1f200e618beb6ec456535decfaf76adccc3739a",
+      "signer": "agent1",
+      "signed_message_hex": "0c7072696f722f76302f7369671727436eb4eb17009136ce41a1f200e618beb6ec456535decfaf76adccc3739a",
+      "signature_hex": "2982fb1c2c106fcecea5e3e2b146dcb9f43585adc1ca0e805d7558b7db6457db53f17b94b57ba34d36484a10dd59473110f68b287cb451cdbd9fcfe0b79c9500",
+      "envelope_hex": "a201ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a045086394d090d8467e12dc5bbe3aed53698051a6ac07dc0061a6ac0814407a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a80169445531323334353637021b7fffffffffffffff04010501060107010863555344090109a1011b7fffffffffffffff0aa5010202581d000000000000000000000000000000000000007072696f722f6463303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041b7fffffffffffffff0554d81f5ca4a875463f3add2bf65d4476a72da231e00b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d1a080000000258402982fb1c2c106fcecea5e3e2b146dcb9f43585adc1ca0e805d7558b7db6457db53f17b94b57ba34d36484a10dd59473110f68b287cb451cdbd9fcfe0b79c9500",
+      "now": "1791000060",
+      "request": {
+        "account": "DU1234567",
+        "conid": "9223372036854775807",
+        "side": "1",
+        "qty": "1",
+        "order_type": "1",
+        "limit_price": "1",
+        "currency": "USD",
+        "tif": "1"
+      }
+    },
+    {
+      "id": "ttl_max_at_601s_retention",
+      "description": "fibre_retention_s=601: MaxTTL = floor(601/4) = 150; TTL 150 is accepted.",
+      "input": {
+        "version": "0",
+        "agent_id": "dca-agent-1",
+        "agent_pubkey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "nonce": "e1b8281bda4e562a84aded2c00864a59",
+        "issued_at": "1791000000",
+        "valid_until": "1791000150",
+        "scope": {
+          "gate_id": "gate-paper-1",
+          "rail": "1",
+          "account": "DU1234567"
+        },
+        "action": {
+          "kind": "ibkr.order.v0",
+          "params": {
+            "account": "DU1234567",
+            "conid": "265598",
+            "side": "1",
+            "qty": "100000",
+            "order_type": "1",
+            "limit_price": "19050000000",
+            "currency": "USD",
+            "tif": "2",
+            "symbol": "AAPL"
+          }
+        },
+        "constraints": {
+          "max_notional": "200000000000",
+          "price_bound": "19100000000",
+          "deadline": "1791000150"
+        },
+        "payload_ref": {
+          "da": "1",
+          "namespace": "000000000000000000000000000000000000007072696f722f64633031",
+          "commitment": "13247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20",
+          "height": "4200123"
+        },
+        "ciphertext_hash": "376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd53",
+        "plaintext_hash": "02d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d1",
+        "payload_size": "300000"
+      },
+      "commitment_cbor_hex": "ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450e1b8281bda4e562a84aded2c00864a59051a6ac07dc0061a6ac07e5607a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a90169445531323334353637021a00040d7e03644141504c0401051a000186a00601071b000000046f77ee800863555344090209a3011b0000002e90edd000021b000000047272df00031a6ac07e560aa4010102581d000000000000000000000000000000000000007072696f722f6463303103582013247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20041a004016bb0b5820376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd530c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d1a000493e0",
+      "commitment_hash_hex": "b03fc08040965777e526b40a23ce2046aff2ae8ccef7e9119ae2ba8247aba6d7",
+      "signer": "agent1",
+      "signed_message_hex": "0c7072696f722f76302f736967b03fc08040965777e526b40a23ce2046aff2ae8ccef7e9119ae2ba8247aba6d7",
+      "signature_hex": "60523aba1d3ca415293293b2725de6b04097bf593071ff0c82e9ac5936f37bc87252b0b644d478bd73d352757086a40875ddb1eba0c40fc2c863263c5e8a0003",
+      "envelope_hex": "a201ad0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450e1b8281bda4e562a84aded2c00864a59051a6ac07dc0061a6ac07e5607a3016c676174652d70617065722d310201036944553132333435363708a2016d69626b722e6f726465722e763002a90169445531323334353637021a00040d7e03644141504c0401051a000186a00601071b000000046f77ee800863555344090209a3011b0000002e90edd000021b000000047272df00031a6ac07e560aa4010102581d000000000000000000000000000000000000007072696f722f6463303103582013247a87a27789c3d23a82f82a0c107424c4a47a8a7867a2b61b0ee7cd02dc20041a004016bb0b5820376852a315842da5258826cedc3e9c41c76c790f3957b0ed38f8cd48bb2dcd530c582002d3d7b521a55fb062572c6c40a3d7950cb5029eeacc50e8103d5bf2ff6598d10d1a000493e002584060523aba1d3ca415293293b2725de6b04097bf593071ff0c82e9ac5936f37bc87252b0b644d478bd73d352757086a40875ddb1eba0c40fc2c863263c5e8a0003",
+      "now": "1791000060",
+      "params": {
+        "fibre_retention_s": "601",
+        "blob_retention_s": "14400",
+        "skew_s": "30"
+      },
+      "request": {
+        "account": "DU1234567",
+        "conid": "265598",
+        "side": "1",
+        "qty": "100000",
+        "order_type": "1",
+        "limit_price": "19050000000",
+        "currency": "USD",
+        "tif": "2",
+        "symbol": "AAPL"
+      }
+    }
+  ]
+}

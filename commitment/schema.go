@@ -1,0 +1,167 @@
+package commitment
+
+import "fmt"
+
+type fieldKind int
+
+const (
+	kUint fieldKind = iota
+	kBytes
+	kText
+	kMap
+)
+
+func (k fieldKind) major() byte {
+	return [...]byte{majUint, majBstr, majTstr, majMap}[k]
+}
+
+type field struct {
+	key      uint64
+	name     string
+	kind     fieldKind
+	min, max int // byte length for kBytes and kText
+	charset  func(byte) bool
+	required bool
+	// onlyIf and requiredIf make a key depend on already visited siblings.
+	onlyIf     func(seen map[uint64]*node) bool
+	requiredIf func(seen map[uint64]*node) bool
+	sub        []field
+	// subFn picks the schema of a map field from its already visited siblings.
+	subFn func(seen map[uint64]*node) ([]field, error)
+}
+
+func isID(c byte) bool {
+	return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' ||
+		c == '.' || c == '_' || c == ':' || c == '/' || c == '-'
+}
+func isPrintable(c byte) bool { return c >= 0x20 && c <= 0x7e }
+func isUpper(c byte) bool     { return c >= 'A' && c <= 'Z' }
+
+var (
+	scopeSchema = []field{
+		{key: 1, name: "gate_id", kind: kText, min: 1, max: 64, charset: isID, required: true},
+		{key: 2, name: "rail", kind: kUint, required: true},
+		{key: 3, name: "account", kind: kText, min: 1, max: 32, charset: isID, required: true},
+		{key: 4, name: "chain_id", kind: kText, min: 1, max: 64, charset: isID},
+	}
+	orderSchema = []field{
+		{key: 1, name: "account", kind: kText, min: 1, max: 32, charset: isID, required: true},
+		{key: 2, name: "conid", kind: kUint, required: true},
+		{key: 3, name: "symbol", kind: kText, min: 1, max: 32, charset: isPrintable},
+		{key: 4, name: "side", kind: kUint, required: true},
+		{key: 5, name: "qty", kind: kUint, required: true},
+		{key: 6, name: "order_type", kind: kUint, required: true},
+		{key: 7, name: "limit_price", kind: kUint},
+		{key: 8, name: "currency", kind: kText, min: 3, max: 3, charset: isUpper, required: true},
+		{key: 9, name: "tif", kind: kUint, required: true},
+	}
+	actionSchema = []field{
+		{key: 1, name: "kind", kind: kText, min: 1, max: 64, charset: isID, required: true},
+		{key: 2, name: "params", kind: kMap, required: true, subFn: actionParams},
+	}
+	constraintsSchema = []field{
+		{key: 1, name: "max_notional", kind: kUint, required: true},
+		{key: 2, name: "price_bound", kind: kUint},
+		{key: 3, name: "deadline", kind: kUint},
+	}
+	payloadRefSchema = []field{
+		{key: 1, name: "da", kind: kUint, required: true},
+		{key: 2, name: "namespace", kind: kBytes, min: 29, max: 29, required: true},
+		{key: 3, name: "commitment", kind: kBytes, min: 32, max: 32, required: true},
+		{key: 4, name: "height", kind: kUint, required: true},
+		{key: 5, name: "signer", kind: kBytes, min: 20, max: 20, onlyIf: notFibre, requiredIf: isBlob},
+	}
+	commitmentSchema = []field{
+		{key: 1, name: "version", kind: kUint, required: true},
+		{key: 2, name: "agent_id", kind: kText, min: 1, max: 64, charset: isID, required: true},
+		{key: 3, name: "agent_pubkey", kind: kBytes, min: 32, max: 32, required: true},
+		{key: 4, name: "nonce", kind: kBytes, min: 16, max: 16, required: true},
+		{key: 5, name: "issued_at", kind: kUint, required: true},
+		{key: 6, name: "valid_until", kind: kUint, required: true},
+		{key: 7, name: "scope", kind: kMap, required: true, sub: scopeSchema},
+		{key: 8, name: "action", kind: kMap, required: true, sub: actionSchema},
+		{key: 9, name: "constraints", kind: kMap, required: true, sub: constraintsSchema},
+		{key: 10, name: "payload_ref", kind: kMap, required: true, sub: payloadRefSchema},
+		{key: 11, name: "ciphertext_hash", kind: kBytes, min: 32, max: 32, required: true},
+		{key: 12, name: "plaintext_hash", kind: kBytes, min: 32, max: 32, required: true},
+		{key: 13, name: "payload_size", kind: kUint, required: true},
+	}
+)
+
+// da is key 1 and is visited before key 5, so seen already holds it. Other da
+// values are rejected later at stage S.
+func daIs(seen map[uint64]*node, da DA) bool {
+	n := seen[1]
+	return n != nil && n.major == majUint && n.u == uint64(da)
+}
+
+func notFibre(seen map[uint64]*node) bool { return !daIs(seen, DAFibre) }
+func isBlob(seen map[uint64]*node) bool   { return daIs(seen, DACelestiaBlob) }
+
+func actionParams(seen map[uint64]*node) ([]field, error) {
+	k, ok := seen[1]
+	if !ok {
+		return nil, fmt.Errorf("%w: action.kind", ErrMissingField)
+	}
+	if string(k.b) != KindIBKROrderV0 {
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedActionKind, k.b)
+	}
+	return orderSchema, nil
+}
+
+// checkMap applies rule order of spec 6.3 to one map: keys ascending, for
+// each key D15, D16, D18, D19, then recursion; D17 after the map.
+func checkMap(n *node, schema []field, path string) error {
+	seen := make(map[uint64]*node, len(n.entries))
+	for _, e := range n.entries {
+		var f *field
+		for i := range schema {
+			if schema[i].key == e.key {
+				f = &schema[i]
+				break
+			}
+		}
+		if f != nil && f.onlyIf != nil && !f.onlyIf(seen) {
+			f = nil
+		}
+		if f == nil {
+			return fmt.Errorf("%w: %s key %d", ErrUnknownKey, path, e.key)
+		}
+		v := e.val
+		name := path + "." + f.name
+		if v.major != f.kind.major() {
+			return fmt.Errorf("%w: %s has major type %d", ErrWrongType, name, v.major)
+		}
+		switch f.kind {
+		case kBytes, kText:
+			if len(v.b) < f.min || len(v.b) > f.max {
+				return fmt.Errorf("%w: %s length %d", ErrFieldSize, name, len(v.b))
+			}
+			if f.charset != nil {
+				for _, c := range v.b {
+					if !f.charset(c) {
+						return fmt.Errorf("%w: %s byte 0x%02x outside charset", ErrInvalidString, name, c)
+					}
+				}
+			}
+		case kMap:
+			sub := f.sub
+			if f.subFn != nil {
+				var err error
+				if sub, err = f.subFn(seen); err != nil {
+					return err
+				}
+			}
+			if err := checkMap(v, sub, name); err != nil {
+				return err
+			}
+		}
+		seen[e.key] = v
+	}
+	for _, f := range schema {
+		if seen[f.key] == nil && (f.required || f.requiredIf != nil && f.requiredIf(seen)) {
+			return fmt.Errorf("%w: %s.%s", ErrMissingField, path, f.name)
+		}
+	}
+	return nil
+}
