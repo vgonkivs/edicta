@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/vgonkivs/prior/commitment"
-	"github.com/vgonkivs/prior/gate/registry"
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/gate/registry"
 )
 
 // Gate is safe for concurrent use. It starts no goroutines.

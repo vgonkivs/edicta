@@ -1,6 +1,6 @@
 package gate
 
-import "github.com/vgonkivs/prior/commitment"
+import "github.com/vgonkivs/edicta/commitment"
 
 // The crash hooks and the order mutator are unexported fields of Gate that
 // production code never sets. A hook that returns an error makes Admit

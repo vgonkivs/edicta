@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/prior/commitment"
+	"github.com/vgonkivs/edicta/commitment"
 )
 
 const edgeNow = uint64(1791000060)

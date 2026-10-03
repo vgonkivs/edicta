@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from prior_v0 import COMMITMENT, IBKR_ORDER_V0, PARAMS_BY_KIND, RECEIPT, Params
+from edicta_v0 import COMMITMENT, IBKR_ORDER_V0, PARAMS_BY_KIND, RECEIPT, Params
 
 
 def _conv(obj: dict, schema: dict, to_json: bool) -> dict:

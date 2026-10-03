@@ -1,5 +1,5 @@
 {
-  "format": "prior-vectors/v0",
+  "format": "edicta-vectors/v0",
   "keys": {
     "agent1": {
       "source": "RFC 8032 section 7.1 TEST 1",

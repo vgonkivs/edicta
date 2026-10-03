@@ -31,7 +31,7 @@ func HashOf(c *Commitment) (Hash, error) {
 	return HashCanonical(canon), nil
 }
 
-// SigningMessage is the exact 45 bytes that get signed.
+// SigningMessage is the exact 46 bytes that get signed.
 func SigningMessage(h Hash) []byte {
 	return tagged(TagSig, h[:])
 }

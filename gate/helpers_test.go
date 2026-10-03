@@ -3,10 +3,10 @@ package gate_test
 import (
 	"crypto/sha256"
 
-	"github.com/vgonkivs/prior/gate/registry/memreg"
+	"github.com/vgonkivs/edicta/gate/registry/memreg"
 
-	"github.com/vgonkivs/prior/commitment"
-	"github.com/vgonkivs/prior/test/gatefix"
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/test/gatefix"
 )
 
 func sha256sum(b []byte) [32]byte { return sha256.Sum256(b) }

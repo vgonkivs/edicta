@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/vgonkivs/prior/commitment"
-	"github.com/vgonkivs/prior/gate/registry"
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/gate/registry"
 )
 
 type ManualOutcome uint8

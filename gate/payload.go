@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/vgonkivs/prior/commitment"
-	"github.com/vgonkivs/prior/gate/registry"
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/gate/registry"
 )
 
 // acquirePayload fetches and verifies the payload. The DA path is tried first when the retention

@@ -3,7 +3,7 @@ package gate
 import (
 	"time"
 
-	"github.com/vgonkivs/prior/commitment"
+	"github.com/vgonkivs/edicta/commitment"
 )
 
 const maxSkewS = 300

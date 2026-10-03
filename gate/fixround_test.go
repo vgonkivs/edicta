@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/prior/commitment"
-	"github.com/vgonkivs/prior/gate"
-	"github.com/vgonkivs/prior/gate/registry"
-	"github.com/vgonkivs/prior/gate/registry/boltreg"
-	"github.com/vgonkivs/prior/test/gatefix"
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/gate/registry"
+	"github.com/vgonkivs/edicta/gate/registry/boltreg"
+	"github.com/vgonkivs/edicta/test/gatefix"
 )
 
 // A replay that is already past the nonce peek must not execute a second time

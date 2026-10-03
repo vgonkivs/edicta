@@ -7,10 +7,10 @@
 package commitment
 
 const (
-	TagCommitment = "prior/v0/decision-commitment"
-	TagSig        = "prior/v0/sig"
-	TagReceipt    = "prior/v0/receipt"
-	TagReceiptSig = "prior/v0/receipt-sig"
+	TagCommitment = "edicta/v0/decision-commitment"
+	TagSig        = "edicta/v0/sig"
+	TagReceipt    = "edicta/v0/receipt"
+	TagReceiptSig = "edicta/v0/receipt-sig"
 
 	MaxSignedSize     = 2176
 	MaxCommitmentSize = 2048

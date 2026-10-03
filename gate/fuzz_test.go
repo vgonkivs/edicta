@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/prior/commitment"
-	"github.com/vgonkivs/prior/test/gatefix"
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/test/gatefix"
 )
 
 // FuzzAdmit: Admit never panics, rejects only with known sentinels, calls the

@@ -31,7 +31,7 @@ except ImportError:
 
 import ed25519_point as ed
 from cbor_strict import Raw, decode_strict, encode, to_plain
-from prior_v0 import (ED25519_L, MAX_RECEIPT_SIZE, RECEIPT, TAG_RECEIPT_SIG, TAG_SIG, Params,
+from edicta_v0 import (ED25519_L, MAX_RECEIPT_SIZE, RECEIPT, TAG_RECEIPT_SIG, TAG_SIG, Params,
                       Reject, check_action, check_anchor_time, check_payload,
                       check_registry_epoch, client_order_id, commitment_hash,
                       decode_signed, decode_signed_receipt, plaintext_hash,
@@ -44,7 +44,7 @@ from vecjson import (commitment_from_json, gate_from_json, order_from_json,
 DIR = Path(__file__).resolve().parent.parent / "v0"
 if "--dir" in sys.argv:
     DIR = Path(sys.argv[sys.argv.index("--dir") + 1]).resolve()
-FORMAT = "prior-vectors/v0"
+FORMAT = "edicta-vectors/v0"
 
 STAGE_OF = {
     "ErrTooLarge": "D", "ErrMalformed": "D", "ErrTrailingData": "D", "ErrFloat": "D",
@@ -118,7 +118,7 @@ def check_valid(top: dict, pubs: dict):
         h = commitment_hash(canon)
         expect(h.hex() == case["commitment_hash_hex"], f"{cid}: commitment_hash mismatch")
         msg = tagged(TAG_SIG) + h
-        expect(len(msg) == 45 and msg.hex() == case["signed_message_hex"], f"{cid}: signed message mismatch")
+        expect(len(msg) == 46 and msg.hex() == case["signed_message_hex"], f"{cid}: signed message mismatch")
         priv, pub = pubs[case["signer"]]
         expect(c["agent_pubkey"] == pub, f"{cid}: agent_pubkey is not the signer's key")
         sig = bytes.fromhex(case["signature_hex"])
@@ -233,7 +233,7 @@ def check_receipts(rf: dict, pubs: dict, valid: dict) -> set:
         rh = receipt_hash(canon)
         expect(rh.hex() == case["receipt_hash_hex"], f"{cid}: receipt_hash mismatch")
         msg = signing_message(rh, TAG_RECEIPT_SIG)
-        expect(len(msg) == 53 and msg.hex() == case["signed_message_hex"], f"{cid}: signed message mismatch")
+        expect(len(msg) == 54 and msg.hex() == case["signed_message_hex"], f"{cid}: signed message mismatch")
         priv, pub = pubs[case["signer"]]
         expect(r["gate_pubkey"] == pub, f"{cid}: gate_pubkey is not the signer's key")
         sig = bytes.fromhex(case["signature_hex"])

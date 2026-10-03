@@ -84,7 +84,7 @@ func HashReceipt(canon []byte) Hash {
 	return sha256.Sum256(tagged(TagReceipt, canon))
 }
 
-// ReceiptSigningMessage is the exact 53 bytes the gate signs.
+// ReceiptSigningMessage is the exact 54 bytes the gate signs.
 func ReceiptSigningMessage(h Hash) []byte {
 	return tagged(TagReceiptSig, h[:])
 }

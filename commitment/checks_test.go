@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/prior/commitment"
+	"github.com/vgonkivs/edicta/commitment"
 )
 
 // baseCommitment is the minimal_lmt vector input: issued_at 1791000000,

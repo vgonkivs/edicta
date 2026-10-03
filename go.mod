@@ -1,4 +1,4 @@
-module github.com/vgonkivs/prior
+module github.com/vgonkivs/edicta
 
 go 1.26.0
 

@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/prior/commitment"
-	"github.com/vgonkivs/prior/gate/registry"
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/gate/registry"
 )
 
 const (

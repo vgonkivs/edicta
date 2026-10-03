@@ -1,8 +1,8 @@
 package gatefix
 
 import (
-	"github.com/vgonkivs/prior/commitment"
-	"github.com/vgonkivs/prior/gate"
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/gate"
 )
 
 // Sentinel maps a spec sentinel name to the Go error.

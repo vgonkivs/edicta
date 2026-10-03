@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/prior/commitment"
+	"github.com/vgonkivs/edicta/commitment"
 )
 
 // Every domain tag is written with a one-byte length, so it must be 1..255
@@ -24,12 +24,12 @@ func TestTagConstants(t *testing.T) {
 	for name, v := range tags {
 		assert.GreaterOrEqualf(t, len(v), 1, "%s has %d bytes", name, len(v))
 		assert.LessOrEqualf(t, len(v), 255, "%s has %d bytes", name, len(v))
-		assert.Truef(t, strings.HasPrefix(v, "prior/v0/"), "%s = %q", name, v)
+		assert.Truef(t, strings.HasPrefix(v, "edicta/v0/"), "%s = %q", name, v)
 		other, dup := seen[v]
 		assert.Falsef(t, dup, "%s and %s are equal", name, other)
 		seen[v] = name
 	}
-	require.Equalf(t, "prior/v0/receipt-sig", commitment.TagReceiptSig, "TagReceiptSig = %q", commitment.TagReceiptSig)
+	require.Equalf(t, "edicta/v0/receipt-sig", commitment.TagReceiptSig, "TagReceiptSig = %q", commitment.TagReceiptSig)
 }
 
 func TestCheckPublicKeyExported(t *testing.T) {

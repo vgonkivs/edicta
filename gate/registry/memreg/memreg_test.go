@@ -5,9 +5,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/prior/gate/registry"
-	"github.com/vgonkivs/prior/gate/registry/memreg"
-	"github.com/vgonkivs/prior/gate/registry/regtest"
+	"github.com/vgonkivs/edicta/gate/registry"
+	"github.com/vgonkivs/edicta/gate/registry/memreg"
+	"github.com/vgonkivs/edicta/gate/registry/regtest"
 )
 
 func TestConformance(t *testing.T) {

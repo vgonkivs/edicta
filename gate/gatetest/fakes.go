@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vgonkivs/prior/commitment"
-	"github.com/vgonkivs/prior/gate"
-	"github.com/vgonkivs/prior/gate/registry"
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/gate/registry"
 )
 
 // Clock is a settable clock.

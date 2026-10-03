@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/vgonkivs/prior/gate/registry"
+	"github.com/vgonkivs/edicta/gate/registry"
 )
 
 type Registry struct {

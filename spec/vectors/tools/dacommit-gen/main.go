@@ -2,7 +2,7 @@
 // (da_blob.json) using only upstream code: go-square for blob framing and
 // the commitment, and the celestia-core RFC 6962 root the app itself passes
 // to CreateCommitment. It lives in its own module so the main module never
-// depends on celestia-core, and so that no Prior code can leak into the
+// depends on celestia-core, and so that no Edicta code can leak into the
 // expected values.
 //
 // Usage (from this directory):
@@ -178,7 +178,7 @@ func readJSON(path string, v any) error {
 
 func build(in inputs) (*file, error) {
 	f := &file{
-		Format:    "prior-vectors/v0",
+		Format:    "edicta-vectors/v0",
 		Generator: "spec/vectors/tools/dacommit-gen",
 		Upstream: map[string]string{
 			"go-square":              "github.com/celestiaorg/go-square/v4 v4.0.1 (share.NewV1Blob, share.NewV0Blob, inclusion.CreateCommitment)",
@@ -253,7 +253,7 @@ func build(in inputs) (*file, error) {
 	if err != nil {
 		return nil, err
 	}
-	otherNS := share.MustNewV0Namespace([]byte("prior/dc02"))
+	otherNS := share.MustNewV0Namespace([]byte("edicta/d02"))
 	payloadOtherNS, _, err := commit(otherNS, in.payload, share.ShareVersionOne, in.signer)
 	if err != nil {
 		return nil, err
@@ -266,7 +266,7 @@ func build(in inputs) (*file, error) {
 		"Commitment of the same bytes posted by another account (signer 0x11 * 20); the locator names the minimal_lmt signer.",
 		in.ns, in.signer, in.payload, payloadOtherSigner)
 	rej("commitment_other_namespace",
-		"Commitment of the same bytes in namespace prior/dc02; the locator names prior/dc01.",
+		"Commitment of the same bytes in namespace edicta/d02; the locator names edicta/d01.",
 		in.ns, in.signer, in.payload, payloadOtherNS)
 	flipped := bytes.Clone(in.payload)
 	flipped[len(flipped)-1] ^= 0x01

@@ -24,7 +24,7 @@ except ImportError:
 
 import ed25519_point as ed
 from cbor_strict import Pairs, Raw, encode, head
-from prior_v0 import (DA_CELESTIA_BLOB, DA_FIBRE, ED25519_L, MAX_RECEIPT_SIZE,
+from edicta_v0 import (DA_CELESTIA_BLOB, DA_FIBRE, ED25519_L, MAX_RECEIPT_SIZE,
                       RECEIPT, TAG_COMMITMENT, TAG_RECEIPT, TAG_RECEIPT_SIG,
                       TAG_SIG, U64_MAX,
                       Params, Reject, check_anchor_time, check_registry_epoch,
@@ -37,7 +37,7 @@ from vecjson import (commitment_to_json, gate_to_json, order_to_json,
 OUT = Path(__file__).resolve().parent.parent / "v0"
 if "--out" in sys.argv:
     OUT = Path(sys.argv[sys.argv.index("--out") + 1]).resolve()
-FORMAT = "prior-vectors/v0"
+FORMAT = "edicta-vectors/v0"
 
 KEYS = {
     "agent1": {
@@ -77,9 +77,9 @@ def sk(name: str) -> Ed25519PrivateKey:
     return Ed25519PrivateKey.from_private_bytes(bytes.fromhex(KEYS[name]["seed_hex"]))
 
 
-NAMESPACE = bytes(19) + b"prior/dc01"  # version 0, 18 zero bytes, 10-byte sub-id
+NAMESPACE = bytes(19) + b"edicta/d01"  # version 0, 18 zero bytes, 10-byte sub-id
 # Recorder account: raw 20-byte address (bech32-decoded MsgPayForBlobs.signer).
-SIGNER = h("prior/v0 test recorder account")[:20]
+SIGNER = h("edicta/v0 test recorder account")[:20]
 
 
 def payload_blob() -> bytes:
@@ -94,7 +94,7 @@ def payload_blob() -> bytes:
     })
 
 
-SALT = h("prior/v0 test salt")
+SALT = h("edicta/v0 test salt")
 PLAINTEXT = b'{"decision":"buy","policy":"dca-weekly","model":"example-model"}'
 BLOB = payload_blob()
 
@@ -389,7 +389,7 @@ def reject_cases() -> list:
     m[10][5] = SIGNER[:19]
     out.append(d_case("signer_19_bytes", "D18", "da=celestia_blob with a 19-byte signer.", resigned(encode(m)), "ErrFieldSize"))
     m = to_cbor(b)
-    m[10][5] = h("prior/v0 test 32-byte account")
+    m[10][5] = h("edicta/v0 test 32-byte account")
     out.append(d_case("signer_32_bytes", "D18", "da=celestia_blob with a 32-byte address (for example a module or ICA account); share version 1 requires exactly 20 bytes.",
                       resigned(encode(m)), "ErrFieldSize"))
     out.append(d_case("agent_id_empty", "D18", "agent_id is the empty string.", resigned(commitment_with(b, {2: ""})), "ErrFieldSize"))
@@ -498,9 +498,9 @@ def reject_cases() -> list:
                     "commitment_cbor_hex": canon_c.hex(), "commitment_hash_hex": hh.hex(),
                     "envelope_hex": envelope(canon_c, s).hex(), "now": str(NOW), "expect_error": "ErrSignatureInvalid"})
 
-    g_case("wrong_sig_tag", "G1", "Signed message uses the receipt tag: 0x10 || \"prior/v0/receipt\" || commitment_hash.",
+    g_case("wrong_sig_tag", "G1", "Signed message uses the receipt tag: 0x11 || \"edicta/v0/receipt\" || commitment_hash.",
            b, lambda cc, hh: tagged(TAG_RECEIPT) + hh)
-    g_case("sig_tag_no_length_prefix", "G1", "Signed message omits the tag length byte: \"prior/v0/sig\" || commitment_hash.",
+    g_case("sig_tag_no_length_prefix", "G1", "Signed message omits the tag length byte: \"edicta/v0/sig\" || commitment_hash.",
            b, lambda cc, hh: TAG_SIG + hh)
     g_case("wrong_hash_tag", "G1", "commitment hash computed with the receipt tag instead of the commitment tag.",
            b, lambda cc, hh: tagged(TAG_SIG) + hashlib.sha256(tagged(TAG_RECEIPT) + cc).digest())
@@ -632,7 +632,7 @@ def torsion_r_signature(msg: bytes, signer: str = "agent1") -> bytes:
     assert ed.encode(ed.mul(a, ed.BASE)) == a_enc
     t = ed.torsion_points()[1]
     assert ed.order(t) == 8
-    r = int.from_bytes(hashlib.sha512(b"prior/v0 test torsion-R nonce" + msg).digest(), "little") % ed.L
+    r = int.from_bytes(hashlib.sha512(b"edicta/v0 test torsion-R nonce" + msg).digest(), "little") % ed.L
     r_enc = ed.encode(ed.add(ed.mul(r, ed.BASE), t))
     k = ed.challenge(r_enc, a_enc, msg)
     sig = r_enc + ((r + k * a) % ed.L).to_bytes(32, "little")
@@ -824,8 +824,8 @@ def receipt_vectors(valid: list) -> dict:
     assert forged
     g_rj("receipt_gate_pubkey_identity", "G0", "gate_pubkey is the identity point; R = identity, S = 0 satisfies the cofactorless equation, so only G0 rejects it.", r_id, sig_id)
     wrong_tag = sk(GATE_KEY).sign(signing_message(hashlib.sha256(tagged(TAG_COMMITMENT) + base_canon).digest(), TAG_RECEIPT_SIG))
-    g_rj("receipt_wrong_hash_tag", "G1", "Signed over the receipt bytes hashed with the commitment tag instead of prior/v0/receipt.", base_r, wrong_tag)
-    g_rj("receipt_signed_under_commitment_sig_tag", "G1", "Signed over prior/v0/sig || receipt_hash (the agent signature tag) instead of prior/v0/receipt-sig || receipt_hash.",
+    g_rj("receipt_wrong_hash_tag", "G1", "Signed over the receipt bytes hashed with the commitment tag instead of edicta/v0/receipt.", base_r, wrong_tag)
+    g_rj("receipt_signed_under_commitment_sig_tag", "G1", "Signed over edicta/v0/sig || receipt_hash (the agent signature tag) instead of edicta/v0/receipt-sig || receipt_hash.",
          base_r, sk(GATE_KEY).sign(signing_message(receipt_hash(base_canon), TAG_SIG)))
     g_rj("receipt_sig_raw_cbor", "G1", "Signature over the raw receipt CBOR instead of the tagged message.", base_r, sk(GATE_KEY).sign(base_canon))
     g_rj("receipt_sig_wrong_key", "G1", "Signed by agent1 while gate_pubkey is gate1.", base_r, sign_receipt_bytes(base_canon, "agent1")[2])
@@ -843,7 +843,7 @@ def receipt_vectors(valid: list) -> dict:
 
 def anchor_vectors() -> dict:
     """Signed-after-anchor, within-retention and registry-epoch checks. Expected values are written out
-    from the boundary arithmetic and then cross-checked against prior_v0."""
+    from the boundary arithmetic and then cross-checked against edicta_v0."""
     b = T0 - 3000
     skew = PARAMS.skew_s
     k1 = [

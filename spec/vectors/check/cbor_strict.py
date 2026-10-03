@@ -1,4 +1,4 @@
-"""Strict CBOR subset for Prior v0 (RFC 8949 section 4.2.1 core deterministic).
+"""Strict CBOR subset for Edicta v0 (RFC 8949 section 4.2.1 core deterministic).
 
 Hand-written on purpose: general-purpose libraries are too lenient to report
 the specific sentinel each malformed input must produce. Only the subset the
@@ -57,7 +57,7 @@ def encode(v) -> bytes:
     if isinstance(v, Raw):
         return v.data
     if isinstance(v, bool) or v is None or isinstance(v, float):
-        raise TypeError(f"type not allowed in Prior CBOR: {type(v).__name__}")
+        raise TypeError(f"type not allowed in Edicta CBOR: {type(v).__name__}")
     if isinstance(v, int):
         return head(0, v) if v >= 0 else head(1, -1 - v)
     if isinstance(v, (bytes, bytearray)):

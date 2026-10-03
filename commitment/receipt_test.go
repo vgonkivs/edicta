@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/prior/commitment"
+	"github.com/vgonkivs/edicta/commitment"
 )
 
 type receiptInput struct {
@@ -80,9 +80,9 @@ func TestReceiptValidVectors(t *testing.T) {
 			require.Equal(t, hex.EncodeToString(wantHash), hex.EncodeToString(h[:]))
 			msg := commitment.ReceiptSigningMessage(h)
 			require.Equal(t, hex.EncodeToString(wantMsg), hex.EncodeToString(msg))
-			require.Len(t, msg, 53)
-			require.EqualValues(t, 20, msg[0])
-			require.EqualValues(t, "prior/v0/receipt-sig", string(msg[1:21]))
+			require.Len(t, msg, 54)
+			require.EqualValues(t, 21, msg[0])
+			require.EqualValues(t, "edicta/v0/receipt-sig", string(msg[1:22]))
 			sig := ed25519.Sign(gate1, msg)
 			require.Equal(t, hex.EncodeToString(wantSig), hex.EncodeToString(sig))
 			signed, err := commitment.EncodeSignedReceipt(&commitment.SignedReceipt{Receipt: *r, Signature: wantSig})

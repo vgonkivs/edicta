@@ -7,10 +7,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/prior/commitment"
-	"github.com/vgonkivs/prior/gate"
-	"github.com/vgonkivs/prior/gate/registry"
-	"github.com/vgonkivs/prior/test/gatefix"
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/gate/registry"
+	"github.com/vgonkivs/edicta/test/gatefix"
 )
 
 type vParams struct {

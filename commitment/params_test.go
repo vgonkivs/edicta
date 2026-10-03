@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/prior/commitment"
+	"github.com/vgonkivs/edicta/commitment"
 )
 
 func TestParamsValidate(t *testing.T) {
@@ -99,9 +99,9 @@ func TestVerifyForGateRejectsInvalidParamsFirst(t *testing.T) {
 }
 
 func TestConstantsAndTags(t *testing.T) {
-	assert.Equalf(t, "prior/v0/decision-commitment", commitment.TagCommitment, "TagCommitment = %q", commitment.TagCommitment)
-	assert.Equalf(t, "prior/v0/sig", commitment.TagSig, "TagSig = %q", commitment.TagSig)
-	assert.Equalf(t, "prior/v0/receipt", commitment.TagReceipt, "TagReceipt = %q", commitment.TagReceipt)
+	assert.Equalf(t, "edicta/v0/decision-commitment", commitment.TagCommitment, "TagCommitment = %q", commitment.TagCommitment)
+	assert.Equalf(t, "edicta/v0/sig", commitment.TagSig, "TagSig = %q", commitment.TagSig)
+	assert.Equalf(t, "edicta/v0/receipt", commitment.TagReceipt, "TagReceipt = %q", commitment.TagReceipt)
 	assert.EqualValuesf(t, 2176, commitment.MaxSignedSize, "size limits: %d %d %d", commitment.MaxSignedSize, commitment.MaxCommitmentSize, commitment.MaxPayloadSize)
 	assert.EqualValuesf(t, 2048, commitment.MaxCommitmentSize, "size limits: %d %d %d", commitment.MaxSignedSize, commitment.MaxCommitmentSize, commitment.MaxPayloadSize)
 	assert.EqualValues(t, 1<<27, commitment.MaxPayloadSize, "payload size limit")
@@ -115,15 +115,15 @@ func TestConstantsAndTags(t *testing.T) {
 // independently of the vector files.
 func TestHashAndSigningMessageLayout(t *testing.T) {
 	canon := []byte{0xa0, 0x01, 0x02}
-	pre := append([]byte{0x1c}, "prior/v0/decision-commitment"...)
+	pre := append([]byte{0x1d}, "edicta/v0/decision-commitment"...)
 	pre = append(pre, canon...)
 	want := sha256.Sum256(pre)
 	got := commitment.HashCanonical(canon)
 	require.EqualValues(t, want, [32]byte(got))
 
 	msg := commitment.SigningMessage(got)
-	wantMsg := append([]byte{0x0c}, "prior/v0/sig"...)
+	wantMsg := append([]byte{0x0d}, "edicta/v0/sig"...)
 	wantMsg = append(wantMsg, got[:]...)
-	require.Len(t, msg, 45)
+	require.Len(t, msg, 46)
 	require.Equal(t, string(wantMsg), string(msg))
 }

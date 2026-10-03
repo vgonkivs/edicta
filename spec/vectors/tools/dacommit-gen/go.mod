@@ -1,4 +1,4 @@
-module github.com/vgonkivs/prior/spec/vectors/tools/dacommit-gen
+module github.com/vgonkivs/edicta/spec/vectors/tools/dacommit-gen
 
 go 1.26.6
 

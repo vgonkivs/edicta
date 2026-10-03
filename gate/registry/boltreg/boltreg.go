@@ -14,7 +14,7 @@ import (
 	"github.com/fxamacker/cbor/v2"
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/vgonkivs/prior/gate/registry"
+	"github.com/vgonkivs/edicta/gate/registry"
 )
 
 var (

@@ -147,7 +147,7 @@ def cofactorless_ok(a_enc: bytes, msg: bytes, sig: bytes) -> bool:
 
 def cofactored_ok(a_enc: bytes, msg: bytes, sig: bytes) -> bool:
     """[8][S]B == [8]R + [8][k]A (RFC 8032 5.1.7 step 3, cofactored form).
-    Not used by any Prior rule; only to show that a vector separates the two."""
+    Not used by any Edicta rule; only to show that a vector separates the two."""
     a = decode(a_enc, strict=True)
     r = decode(sig[:32], strict=True)
     if a is None or r is None or len(sig) != 64:

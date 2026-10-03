@@ -5,8 +5,8 @@ import (
 	"crypto/ed25519"
 	"time"
 
-	"github.com/vgonkivs/prior/commitment"
-	"github.com/vgonkivs/prior/gate/registry"
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/gate/registry"
 )
 
 type Clock interface{ Now() time.Time }

@@ -13,10 +13,10 @@ from dataclasses import dataclass
 from cbor_strict import CBORError, Item, decode_strict, encode
 from ed25519_point import cofactorless_ok, public_key_problem
 
-TAG_COMMITMENT = b"prior/v0/decision-commitment"
-TAG_SIG = b"prior/v0/sig"
-TAG_RECEIPT = b"prior/v0/receipt"
-TAG_RECEIPT_SIG = b"prior/v0/receipt-sig"
+TAG_COMMITMENT = b"edicta/v0/decision-commitment"
+TAG_SIG = b"edicta/v0/sig"
+TAG_RECEIPT = b"edicta/v0/receipt"
+TAG_RECEIPT_SIG = b"edicta/v0/receipt-sig"
 
 MAX_SIGNED_SIZE = 2176
 MAX_COMMITMENT_SIZE = 2048
