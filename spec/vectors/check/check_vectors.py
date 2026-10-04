@@ -2,7 +2,9 @@
 """Verifies every vector in spec/vectors/v0 against an independent implementation of the v0 rules.
 
 da_blob.json share commitments are upstream go-square output and are checked
-by Go only; this script checks their blob descriptions.
+by Go only; this script checks their blob descriptions. payload_blob.json is
+checked by check_payload_blob.py, which runs the RFC 9180 known-answer tests of
+the hand-written HPKE first.
 
 Usage: python3 spec/vectors/check/check_vectors.py [--dir DIR]
 Exit status 0 when all vectors pass. Requires Python 3.11+ and 'cryptography'
@@ -40,6 +42,8 @@ from edicta_v0 import (ED25519_L, MAX_RECEIPT_SIZE, RECEIPT, TAG_RECEIPT_SIG, TA
                       verify_receipt, verify_signature, within_retention)
 from vecjson import (commitment_from_json, gate_from_json, order_from_json,
                      params_from_json, receipt_from_json)
+import check_payload_blob
+import hpke_base
 
 DIR = Path(__file__).resolve().parent.parent / "v0"
 if "--dir" in sys.argv:
@@ -369,15 +373,16 @@ def main() -> int:
         seen |= check_client_order_ids(coids, valid)
         da_blob = load("da_blob.json")
         check_da_blob_inputs(da_blob)
+        blob_summary, blob_ids = check_payload_blob.check(DIR)
         ids = [c["id"] for c in valid["cases"] + reject["cases"] + payload["cases"] + payload["reject"]
                + receipts["cases"] + receipts["reject"] + anchor["k1"] + anchor["k2"] + anchor["epoch"]
-               + coids["cases"] + coids["reject"] + da_blob["cases"] + da_blob["reject"]]
+               + coids["cases"] + coids["reject"] + da_blob["cases"] + da_blob["reject"]] + blob_ids
         expect(len(ids) == len(set(ids)), "duplicate vector ids")
         expect("sig_torsion_r" in ids, "missing vector sig_torsion_r (cofactorless G1)")
         missing = set(STAGE_OF) - NOT_VECTORED - seen
         expect(not missing, f"sentinels without a must-reject vector: {sorted(missing)}")
         expect(gate_seen == GATE_VECTORED, f"anchor.json sentinels: {sorted(gate_seen)}")
-    except (Failure, Reject) as e:
+    except (Failure, Reject, check_payload_blob.Failure, hpke_base.HPKEError) as e:
         print(f"FAIL: {e}", file=sys.stderr)
         return 1
     print(f"OK: {len(valid['cases'])} valid, {len(reject['cases'])} reject, "
@@ -386,6 +391,7 @@ def main() -> int:
           f"{len(anchor['k1'])} K1, {len(anchor['k2'])} K2, {len(anchor['epoch'])} epoch, "
           f"{len(coids['cases'])} client order id, {len(coids['reject'])} client order id reject, "
           f"{len(da_blob['cases'])} da_blob inputs, {len(da_blob['reject'])} da_blob reject inputs")
+    print(f"OK: {blob_summary}")
     return 0
 
 

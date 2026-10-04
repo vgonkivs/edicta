@@ -33,6 +33,7 @@ from edicta_v0 import (DA_CELESTIA_BLOB, DA_FIBRE, ED25519_L, MAX_RECEIPT_SIZE,
                       signing_message, tagged, to_cbor, within_retention)
 from vecjson import (commitment_to_json, gate_to_json, order_to_json,
                      params_to_json, receipt_to_json)
+import gen_payload_blob
 
 OUT = Path(__file__).resolve().parent.parent / "v0"
 if "--out" in sys.argv:
@@ -990,6 +991,7 @@ def main():
     write("receipt.json", receipt_vectors(valid))
     write("anchor.json", anchor_vectors())
     write("client_order_id.json", client_order_id_vectors(valid))
+    write("payload_blob.json", gen_payload_blob.build())
 
 
 if __name__ == "__main__":
