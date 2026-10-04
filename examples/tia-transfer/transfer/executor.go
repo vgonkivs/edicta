@@ -78,8 +78,9 @@ type Rail interface {
 	// Head returns the current height, its time in Unix seconds, and the
 	// block interval estimated from recent headers.
 	Head(ctx context.Context) (height, headTime uint64, blockInterval time.Duration, err error)
-	// Sign returns the TxRaw for body; body_bytes must be body unchanged.
-	Sign(ctx context.Context, body []byte, chainID string) (txRaw []byte, err error)
+	// Sign returns the TxRaw for body; body_bytes must be body unchanged. The
+	// signer must not attach a fee above maxFee base units.
+	Sign(ctx context.Context, body []byte, chainID string, maxFee uint64) (txRaw []byte, err error)
 	Broadcast(ctx context.Context, txRaw []byte) error
 	Status(ctx context.Context, hash [32]byte) (TxStatus, error)
 }
@@ -92,8 +93,7 @@ type Config struct {
 	SkewS uint64
 	// MaxAmount in base units; 0 disables the check.
 	MaxAmount uint64
-	// MaxFee is the operator's fee bound for the Rail's signer; the executor
-	// itself never reads it.
+	// MaxFee is the fee cap handed to the Rail's signer, which enforces it.
 	MaxFee       uint64
 	Destinations []string
 	// MaxTimeoutBlocks caps timeout_height - head; zero means 200.
@@ -249,7 +249,7 @@ func (e *Executor) prepare(ctx context.Context, h commitment.Hash, a bankaction.
 	if err != nil {
 		return Prepared{}, e.abandon(ctx, h, err)
 	}
-	raw, err := e.rail.Sign(ctx, body, a.ChainID)
+	raw, err := e.rail.Sign(ctx, body, a.ChainID, e.cfg.MaxFee)
 	if err != nil {
 		return Prepared{}, e.abandon(ctx, h, fmt.Errorf("transfer: sign: %w", err))
 	}

@@ -35,9 +35,16 @@ func TestCoinGeckoParsesWithoutFloats(t *testing.T) {
 	assert.GreaterOrEqual(t, got.FetchedAt, before)
 }
 
+func krakenObserve(t *testing.T, s *httptest.Server) (pricefeed.Observation, error) {
+	t.Helper()
+	f, err := pricefeed.NewKraken(s.URL, "TIAUSD", "celestia", "USD", s.Client())
+	require.NoError(t, err)
+	return f.Observe(bg)
+}
+
 func TestKrakenParsesWithoutFloats(t *testing.T) {
 	s := serve(t, `{"error":[],"result":{"TIAUSD":{"c":["4.1234","1.0"]}}}`)
-	got, err := pricefeed.NewKraken(s.URL, "TIAUSD", s.Client()).Observe(bg)
+	got, err := krakenObserve(t, s)
 	require.NoError(t, err)
 	assert.Equal(t, uint64(4_12340000), got.Price)
 	assert.NotEmpty(t, got.Source)
@@ -48,7 +55,7 @@ func TestFeedsRefuseBadAnswers(t *testing.T) {
 		s := serve(t, body)
 		_, err := pricefeed.NewCoinGecko(s.URL, "celestia", "USD", s.Client()).Observe(bg)
 		assert.Error(t, err, body)
-		_, err = pricefeed.NewKraken(s.URL, "TIAUSD", s.Client()).Observe(bg)
+		_, err = krakenObserve(t, s)
 		assert.Error(t, err, body)
 	}
 }

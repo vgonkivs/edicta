@@ -622,3 +622,12 @@ func TestNewExecutorValidation(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
+func TestMaxFeeIsHandedToTheSigner(t *testing.T) {
+	r := newRig(t, func(c *transfer.Config) { c.MaxFee = 7777 })
+	r.rail.includeAt = headH + 1
+	action := actionBytes(t, chainID, validMsg())
+	_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{7777}, r.rail.maxFees, "Rail.Sign(ctx, body, chainID, maxFee) enforces the cap")
+}

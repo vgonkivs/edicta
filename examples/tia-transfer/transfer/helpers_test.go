@@ -97,6 +97,7 @@ type fakeRail struct {
 
 	bodies       [][]byte
 	chainIDs     []string
+	maxFees      []uint64
 	signed       [][]byte
 	broadcasts   [][]byte
 	bcastHeights []uint64
@@ -131,7 +132,7 @@ func (r *fakeRail) Head(context.Context) (uint64, uint64, time.Duration, error) 
 
 func uv(v int) []byte { return binary.AppendUvarint(nil, uint64(v)) }
 
-func (r *fakeRail) Sign(_ context.Context, body []byte, cid string) ([]byte, error) {
+func (r *fakeRail) Sign(_ context.Context, body []byte, cid string, maxFee uint64) ([]byte, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.signErr != nil {
@@ -139,6 +140,7 @@ func (r *fakeRail) Sign(_ context.Context, body []byte, cid string) ([]byte, err
 	}
 	r.bodies = append(r.bodies, append([]byte(nil), body...))
 	r.chainIDs = append(r.chainIDs, cid)
+	r.maxFees = append(r.maxFees, maxFee)
 	n := len(r.bodies)
 	b := append([]byte(nil), body...)
 	if r.badBody {

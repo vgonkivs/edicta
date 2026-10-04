@@ -75,7 +75,7 @@ func (c *chain) Head(context.Context) (uint64, uint64, time.Duration, error) {
 	return c.height(), uint64(c.clock.Now().Unix()), time.Duration(blockS) * time.Second, nil
 }
 
-func (c *chain) Sign(_ context.Context, body []byte, _ string) ([]byte, error) {
+func (c *chain) Sign(_ context.Context, body []byte, _ string, _ uint64) ([]byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	auth := []byte{0x0a, 0x02, 0x08, byte(len(c.signed) + 1)}

@@ -22,6 +22,9 @@ const (
 // ErrFeed means the source answered with something unusable.
 var ErrFeed = errors.New("pricefeed: unusable answer")
 
+// ErrInvalidConfig means a feed constructor refused its arguments.
+var ErrInvalidConfig = errors.New("pricefeed: invalid configuration")
+
 func get(ctx context.Context, c *http.Client, u string) ([]byte, error) {
 	if c == nil {
 		c = &http.Client{Timeout: requestTimeout}
@@ -109,13 +112,13 @@ func (g *coinGecko) Observe(ctx context.Context) (Observation, error) {
 	if err != nil {
 		return Observation{}, err
 	}
-	observed := fetched
-	if lu, ok := row["last_updated_at"]; ok {
-		u, err := strconv.ParseUint(lu.String(), 10, 63)
-		if err != nil || u == 0 {
-			return Observation{}, fmt.Errorf("%w: last_updated_at", ErrFeed)
-		}
-		observed = u
+	lu, ok := row["last_updated_at"]
+	if !ok {
+		return Observation{}, fmt.Errorf("%w: no last_updated_at", ErrFeed)
+	}
+	observed, err := strconv.ParseUint(lu.String(), 10, 63)
+	if err != nil || observed == 0 {
+		return Observation{}, fmt.Errorf("%w: last_updated_at", ErrFeed)
 	}
 	return Observation{
 		Source: "coingecko:" + g.asset, AssetID: g.asset, Quote: g.quote,
@@ -124,22 +127,22 @@ func (g *coinGecko) Observe(ctx context.Context) (Observation, error) {
 }
 
 type kraken struct {
-	base, pair string
-	c          *http.Client
+	base, pair, asset, quote string
+	c                        *http.Client
 }
 
 // NewKraken reads the last trade price of pair, for example "TIAUSD", from
-// the ticker endpoint under baseURL ("https://api.kraken.com"). The pair
-// ends in a three-letter quote currency. A nil client gets a 10 second
-// timeout.
-func NewKraken(baseURL, pair string, c *http.Client) Feed {
-	return &kraken{base: strings.TrimRight(baseURL, "/"), pair: pair, c: c}
+// the ticker endpoint under baseURL ("https://api.kraken.com"). assetID and
+// quote name the asset in the payload exactly as given; quote is an upper-case
+// currency. A nil client gets a 10 second timeout.
+func NewKraken(baseURL, pair, assetID, quote string, c *http.Client) (Feed, error) {
+	if pair == "" || assetID == "" || quote == "" || quote != strings.ToUpper(quote) {
+		return nil, fmt.Errorf("%w: kraken pair, asset id and upper-case quote are required", ErrInvalidConfig)
+	}
+	return &kraken{base: strings.TrimRight(baseURL, "/"), pair: pair, asset: assetID, quote: quote, c: c}, nil
 }
 
 func (k *kraken) Observe(ctx context.Context) (Observation, error) {
-	if len(k.pair) < 4 {
-		return Observation{}, fmt.Errorf("%w: pair %q", ErrFeed, k.pair)
-	}
 	b, err := get(ctx, k.c, k.base+"/0/public/Ticker?pair="+url.QueryEscape(k.pair))
 	if err != nil {
 		return Observation{}, err
@@ -168,9 +171,8 @@ func (k *kraken) Observe(ctx context.Context) (Observation, error) {
 		if err != nil {
 			return Observation{}, err
 		}
-		n := len(k.pair) - 3
 		return Observation{
-			Source: "kraken:" + k.pair, AssetID: k.pair[:n], Quote: k.pair[n:],
+			Source: "kraken:" + k.pair, AssetID: k.asset, Quote: k.quote,
 			Price: price, ObservedAt: fetched, FetchedAt: fetched,
 		}, nil
 	}
