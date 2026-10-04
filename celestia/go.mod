@@ -4,7 +4,7 @@ go 1.26.8
 
 require (
 	github.com/celestiaorg/celestia-node v0.34.2-mocha
-	github.com/celestiaorg/go-square/v4 v4.0.0
+	github.com/celestiaorg/go-square/v4 v4.0.1
 	github.com/stretchr/testify v1.12.1
 )
 
@@ -95,8 +95,8 @@ require (
 	github.com/cockroachdb/redact v1.1.6 // indirect
 	github.com/cockroachdb/swiss v0.0.0-20260820225851-333444432258 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20250429170803-42689b6311bb // indirect
-	github.com/cometbft/cometbft v1.0.1 // indirect
-	github.com/cometbft/cometbft-db v1.0.4 // indirect
+	github.com/cometbft/cometbft v1.0.1
+	github.com/cometbft/cometbft-db v1.0.4
 	github.com/consensys/gnark v0.16.3 // indirect
 	github.com/consensys/gnark-crypto v0.21.0 // indirect
 	github.com/cosmos/btcutil v1.0.5 // indirect
@@ -134,7 +134,7 @@ require (
 	github.com/filecoin-project/go-jsonrpc v0.10.2 // indirect
 	github.com/flynn/noise v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
-	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.4 // indirect
 	github.com/gammazero/chanqueue v1.1.1 // indirect
 	github.com/gammazero/deque v1.2.1 // indirect
 	github.com/gammazero/workerpool v1.2.1 // indirect
@@ -308,13 +308,14 @@ require (
 	github.com/tendermint/go-amino v0.16.0 // indirect
 	github.com/tidwall/btree v1.7.0 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
+	github.com/vgonkivs/edicta v0.0.0
 	github.com/whyrusleeping/go-keyspace v0.0.0-20160322163242-5b898ac5add1 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/zondax/golem v0.27.0 // indirect
 	github.com/zondax/hid v0.9.2 // indirect
 	github.com/zondax/ledger-go v1.0.1 // indirect
-	go.etcd.io/bbolt v1.4.0 // indirect
+	go.etcd.io/bbolt v1.5.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.44.0 // indirect
