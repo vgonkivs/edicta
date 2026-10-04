@@ -2,7 +2,7 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v0-draft.12` (2026-10-04). Working draft, subject to change.
+Status: revision `v0-draft.13` (2026-10-04). Working draft, subject to change.
 Wire version: `version = 0`. Domain tags: `edicta/v0/...`.
 
 The core knows no rail, broker or chain. An action is an opaque byte string
@@ -44,6 +44,7 @@ signature even if the byte layout were identical.
 | `v0-draft.10` | 2026-10-04 | Publication through an untrusted submitter, additive. (1) Section 1: threat-model rows for the blob submitter, the inclusion check and its trust levels, the publish request, the DA allowlist and byte-identical resends. (2) Section 9.5: producer rules W5 (independent inclusion check; mandatory when the submitter is a different party) and W6 (bounded publication wait; a retry is a new payload with a new nonce). (3) Section 8.3: gate rule C3 (`payload_ref.da` is in the gate's configured DA set, `ErrDANotAllowed`), evaluated right after stage C; with the set unset (`{1, 2}`) every existing outcome is unchanged. (4) Section 10.5: `signer` names the submitter's account, not who decided. (5) Section 16.1: rule I5 amended for byte-identical resends of one signed rail request inside a profile-bounded window, then hand-off to the operator. (6) New section 17: the agent-signed publish request, tag `edicta/v0/publish-request` (25 bytes, `0x19`), its wrapper, response and checks PR1..PR6. (7) Section 12: new sentinels. (8) New profile `spec/profiles/bank-send-v0.md`. | Unchanged: commitment, envelope, Authorization, receipt and record-request bytes; every existing tag; every existing check outcome. New: the publish-request message and wrapper | Every existing file byte-identical (SHA-256 unchanged), including the `"revision": "v0-draft.9"` field of the files that carry one: their bytes and meaning did not change. New: `spec/vectors/api/publish_request.json` (`v0-draft.10`); profile set `spec/vectors/profiles/bank-send/`; generator module `spec/vectors/tools/banksend-gen`; checker files `edicta_publish_v0.py`, `gen_api_vectors.py`, `check_api_vectors.py`, `profile_bank_send.py`, `gen_profile_bank_send.py`, `check_profile_bank_send.py`. |
 | `v0-draft.11` | 2026-10-04 | Publish request review. (1) `publish_message` gains the Recorder's `gate_id` with a one-byte length, right after the tag: a request is valid at one server only. The wire request is unchanged; the server fills in its own `gate_id`, as for record requests. (2) New rule PR6: dedupe by `SHA-256(blob)`; the same blob inside its window is published once and every accepted retry gets the same response. Quotas move to PR7 and are not charged for a deduplicated request. (3) Threat rows and section 17 notes updated: cross-Recorder replay is closed. Bank-send profile `bank-send-v0-draft.2` (timeout budget, resend stop) at the same time. | Changed: `publish_message` (70..196 bytes) and so every publish signature. Unchanged: everything else | Regenerated: `spec/vectors/api/publish_request.json` (`v0-draft.11`; 2 new rejects). Every other core and dca-agent file byte-identical. |
 | `v0-draft.12` | 2026-10-04 | HTTP API, additive. (1) New section 18: endpoints `POST /v0/publish`, `POST /v0/authorize`, `POST /v0/record`, `GET /v0/health`; `application/cbor` bodies; request, response and error body shapes reusing the canonical encodings; status and retry semantics; the error table (first match wins), with 409 carrying the stored Authorization only under the retry rule of section 8.7 and the stored receipt for `ErrReceiptExists`. (2) Section 12: the operational and HTTP-layer sentinels that cross the API get stable names (`gate.ErrChainUnavailable` and others, `recorder.*`, `edictaapi.*`). | Unchanged: every existing message, tag and check outcome. New: HTTP wrapper shapes and the error body | New: `spec/vectors/api/errors.json` (`v0-draft.12`), generator `gen_api_errors.py`, checker `check_api_errors.py`. Every existing file byte-identical. |
+| `v0-draft.13` | 2026-10-04 | Single DA per instance. Section 7: the 256 KiB Recorder split between `celestia_blob` and `fibre` is replaced by a normative deployment rule: one DA per gate/Recorder instance, chosen by configuration; a payload that does not fit it is refused; switching DA is a restart with another configuration, after which commitments for the other DA fail C3. "Routing" wording for the gate's K2 choice between the DA and archive paths is renamed "path selection" (no change in meaning). | Unchanged | Every file byte-identical. |
 
 ## 1. Threat model in one table
 
@@ -533,10 +534,18 @@ S2 keeps every value representable as a signed 64-bit integer, so SQL
 stores, JSON consumers and languages without unsigned types handle them
 without loss.
 
-There is deliberately no rule comparing `payload_size` with `da`. The
-256 KiB split between `celestia_blob` and `fibre` is a Recorder routing
-rule. Vectors `fibre_small_payload` (fibre, 1024 bytes) and
-`blob_large_payload` (celestia_blob, 262144 bytes) are valid and pin this.
+There is deliberately no rule comparing `payload_size` with `da`: any size
+up to the limits is valid for either `da` (vectors `fibre_small_payload`,
+fibre, 1024 bytes, and `blob_large_payload`, celestia_blob, 262144 bytes).
+
+Single DA per instance (normative for deployments). A gate/Recorder
+instance runs exactly one DA, chosen by configuration: its Recorder
+publishes only through that DA, and its gate's allowed DA set (rule C3) is
+exactly that one `da`. A payload that does not fit the chosen DA is refused;
+the Recorder never falls back to the other DA. Switching DA means restarting
+with another configuration; the nonce registry is DA-independent and is
+kept, and commitments made for the other DA are then refused by C3
+(`ErrDANotAllowed`, fail closed).
 
 ## 8. Signature, time, scope, action, payload checks
 
@@ -700,7 +709,7 @@ a later stage's sentinel when an earlier stage fails.
 | 5 | N0 | N1 | No registry entry exists for `(agent_pubkey, nonce)`. Advisory; stage 12 is authoritative. If one exists, the retry rule below applies | `ErrNonceUsed` | 5 |
 | 6 | K | K0 | The anchor tx exists at `payload_ref.height` (section 10.4 for `da = 1`, 10.5 for `da = 2`), and the header time `T_H` is readable | `ErrAnchorNotFound` | 2 |
 | 7 | K1 | K1 | Section 11.2 | `ErrIssuedBeforeAnchor` | 4 |
-| 8 | K2 | K2 | Section 11.2. Routing only, never a rejection by itself | none | 2, 4 |
+| 8 | K2 | K2 | Section 11.2. Selects the DA or archive path only, never a rejection by itself | none | 2, 4 |
 | 9 | P | P1, P2, P3 | Section 8.5, per path | P sentinels, precedence in 8.5 | 2 |
 | 10 | T' | T1, T2 | `CheckTime` again with a fresh clock reading `authorized_at`, because fetches take time | `ErrNotYetValid`, `ErrExpired` | 4 |
 | 11 | Z | Z1 | Build the Authorization (section 15.1): `commitment_hash`, `action_hash = c.action.hash`, the gate's `gate_id`, `expires = min(valid_until, authorized_at + MaxAuthorizationTTL)`, `path` of stage 9. Sign it with the gate key under `TagAuthorizationSig` and verify the signature before use. Nothing is stored yet | (operational: signer error, timeout) | 7 |
@@ -1420,7 +1429,7 @@ Unreadable inputs:
 - `creation_timestamp` unknown (`da = 1`): K2 is false. For `da = 1` that
   means `ErrArchiveRecomputeUnsupported` in v0, so it is also fail-closed.
 
-Routing (normative):
+Path selection (normative):
 
 | K2 | `da` | DA path (`path = 1`) | Archive path (`path = 2`) |
 |---|---|---|---|
@@ -1560,7 +1569,7 @@ Package is where the Go sentinel lives.
 | K1 | `ErrIssuedBeforeAnchor` | `commitment` | K1 | `anchor.json` `k1` |
 | K2 | `ErrRetentionUnavailable` | `gate` | K2: `fibre_retention_s` at `height` unreadable (`da = 1`) | `anchor.json` `k2_fibre_at_height_unreadable` |
 | P | `ErrDACommitmentMismatch` | `gate` | P3 | `da_blob.json` `reject` (Go only) |
-| P | `ErrArchiveRecomputeUnsupported` | `gate` | P3, K2 routing: the archive path is needed and no DA commitment recompute exists for this `da` (v0: `da = 1`) | `anchor.json` `k2` (`da = 1`, K2 false) |
+| P | `ErrArchiveRecomputeUnsupported` | `gate` | P3, K2 path selection: the archive path is needed and no DA commitment recompute exists for this `da` (v0: `da = 1`) | `anchor.json` `k2` (`da = 1`, K2 false) |
 | P | `ErrAnchorTooOld` | `gate` | K2 failed and the archive did not return the blob; also matches `ErrPayloadUnavailable` | none (stateful) |
 | P | `ErrPayloadUnavailable` | `gate` | No path returned the blob | none (stateful) |
 | Record | `ErrExecutorNotAllowed` | `gate` | Section 14.3 RQ3: the request's executor key is not in the executor allowlist | `record_request.json` |
@@ -1740,7 +1749,7 @@ How an implementation uses them:
   `expect_error`.
 - anchor: `CheckAnchorTime` (K1), `RetentionMargin` and `WithinRetention`
   (K2, with `r` and `start` from section 11.2) and the epoch rule give the
-  stated verdicts; for K2 the gate's routing gives `route` or `expect_error`.
+  stated verdicts; for K2 the gate's path selection gives `route` or `expect_error`.
 - `payload_blob.json`: `payload.Encode(payload) == plaintext_cbor_hex`;
   blob encoding of the listed components equals `blob_hex`; every recipient
   key opens the blob (with and without its kid) to `salt || plaintext`;
