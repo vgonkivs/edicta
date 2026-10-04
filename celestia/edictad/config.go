@@ -30,7 +30,9 @@ type Config struct {
 // the compatibility check.
 type NetworkConfig struct {
 	// ChainID is an optional cross-check; empty means discover.
-	ChainID       string         `toml:"chain_id"`
+	ChainID string `toml:"chain_id"`
+	// DA is the one data availability mode of this instance: blob or fibre.
+	DA            string         `toml:"da"`
 	MinAppVersion uint64         `toml:"min_app_version"`
 	MaxAppVersion uint64         `toml:"max_app_version"`
 	Bridge        EndpointConfig `toml:"bridge"`
@@ -70,7 +72,6 @@ type GateConfig struct {
 	KeyFile        string   `toml:"key_file"` // 32-byte raw seed
 	RegistryPath   string   `toml:"registry_path"`
 	ActionTypes    []string `toml:"action_types"`
-	AllowedDA      []uint64 `toml:"allowed_da"`
 	AllowlistFile  string   `toml:"allowlist_file"`
 	ExecutorKeys   []string `toml:"executor_keys"` // hex Ed25519 public keys
 	AnchorVerifier string   `toml:"anchor_verifier"`
@@ -143,6 +144,10 @@ func (c Config) validate() error {
 		return cfgErr("network.min_app_version above network.max_app_version")
 	}
 
+	if n.DA != "blob" && n.DA != "fibre" {
+		return cfgErr(`network.da must be "blob" or "fibre"`)
+	}
+
 	g := c.Gate
 	switch {
 	case !validID(g.GateID, 64):
@@ -155,8 +160,6 @@ func (c Config) validate() error {
 		return cfgErr("gate.allowlist_file is required")
 	case len(g.ActionTypes) == 0:
 		return cfgErr("gate.action_types is empty")
-	case len(g.AllowedDA) == 0:
-		return cfgErr("gate.allowed_da is empty")
 	}
 	for i, t := range g.ActionTypes {
 		if !commitment.ValidMediaType(t, 128) {
@@ -164,14 +167,6 @@ func (c Config) validate() error {
 		}
 		if slices.Contains(g.ActionTypes[:i], t) {
 			return cfgErr("gate.action_types[%d] is a duplicate", i)
-		}
-	}
-	for i, da := range g.AllowedDA {
-		if da != uint64(commitment.DAFibre) && da != uint64(commitment.DACelestiaBlob) {
-			return cfgErr("gate.allowed_da[%d] is not a known DA mode", i)
-		}
-		if slices.Contains(g.AllowedDA[:i], da) {
-			return cfgErr("gate.allowed_da[%d] is a duplicate", i)
 		}
 	}
 	if _, err := c.executorKeys(); err != nil {

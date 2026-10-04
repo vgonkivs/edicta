@@ -3,6 +3,7 @@
 # the paths of files that hold them. Unknown keys are refused.
 
 [network]
+da = "blob"                         # one data availability mode per instance: "blob" ("fibre" is not supported yet)
 chain_id = ""                      # optional cross-check; empty = discover from the node
 min_app_version = 3
 max_app_version = 10
@@ -35,7 +36,6 @@ gate_id = "my-gate-1"
 key_file = "/etc/edictad/gate.ed25519"        # 32 raw bytes, mode 0600
 registry_path = "/var/lib/edictad/registry.db"
 action_types = ["application/vnd.edicta.cosmos.bank-send.v0+cbor"]
-allowed_da = [2]
 allowlist_file = "/etc/edictad/agents.toml"   # [[agents]] agent_id, pubkey (hex)
 executor_keys = ["<64 hex characters>"]       # the executor's Ed25519 public key
 anchor_verifier = "self"

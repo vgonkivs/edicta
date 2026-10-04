@@ -28,6 +28,10 @@ import (
 	"github.com/vgonkivs/edicta/sdk"
 )
 
+// ErrDANotSupported means the configured data availability mode is not
+// implemented yet.
+var ErrDANotSupported = errors.New("edictad: data availability mode not supported yet")
+
 // Deps are the daemon's external systems.
 type Deps struct {
 	Reader    node.Reader
@@ -94,6 +98,9 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 	if d.Reader == nil || d.Consensus == nil {
 		return nil, cfgErr("a node reader and a consensus client are required")
 	}
+	if cfg.Network.DA == "fibre" {
+		return nil, fmt.Errorf("%w: da = fibre", ErrDANotSupported)
+	}
 	log := d.Logger
 	if log == nil {
 		log = slog.Default()
@@ -140,9 +147,7 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 	gcfg := gate.DefaultConfig()
 	gcfg.Scope = commitment.GateScope{GateID: cfg.Gate.GateID, ActionTypes: slices.Clone(cfg.Gate.ActionTypes)}
 	gcfg.ExecutorKeys = execKeys
-	for _, da := range cfg.Gate.AllowedDA {
-		gcfg.AllowedDA = append(gcfg.AllowedDA, commitment.DA(da))
-	}
+	gcfg.AllowedDA = []commitment.DA{commitment.DACelestiaBlob}
 	params := gatechain.NewParams(d.Consensus)
 	if err := gate.Preflight(ctx, gcfg, gate.Deps{Params: params}); err != nil {
 		return nil, fmt.Errorf("edictad: gate preflight: %w", err)
@@ -189,7 +194,7 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 		RequestTimeout: 2 * time.Minute,
 	}
 	hl := &health{rd: d.Reader, clock: clock, log: log, gateID: cfg.Gate.GateID, gatePub: signer.PublicKey(),
-		allowedDA: sortedDA(cfg.Gate.AllowedDA), last: head, lastOK: true, lastAt: clock.Now()}
+		allowedDA: []uint64{uint64(commitment.DACelestiaBlob)}, last: head, lastOK: true, lastAt: clock.Now()}
 	var pub sdk.Publisher
 	var quota edictaapi.Quota
 	if cfg.Recorder.Enabled {
@@ -259,12 +264,6 @@ var recorderErrors = []edictaapi.ErrorRule{
 	{Code: "recorder.ErrOutcomeUnknown", Err: recorder.ErrOutcomeUnknown, Status: 503, Retryable: true},
 	{Code: "recorder.ErrNotVisible", Err: recorder.ErrNotVisible, Status: 503, Retryable: true},
 	{Code: "recorder.ErrSignerMismatch", Err: recorder.ErrSignerMismatch, Status: 502},
-}
-
-func sortedDA(in []uint64) []uint64 {
-	out := slices.Clone(in)
-	slices.Sort(out)
-	return out
 }
 
 // gateAPI adapts *gate.Gate to the API's interface, which takes the executor

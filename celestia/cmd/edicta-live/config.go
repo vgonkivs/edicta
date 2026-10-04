@@ -43,6 +43,7 @@ type Config struct {
 	GRPCTokenFile   string
 	GRPCTLS         bool
 	ChainID         string // optional cross-check
+	DA              string // blob or fibre; must equal edictad's
 	MinAppVersion   uint64
 	MaxAppVersion   uint64
 
@@ -124,6 +125,7 @@ func parseFlags(args []string, usage io.Writer) (Config, error) {
 	fs.StringVar(&c.GRPCAddr, "grpc-addr", "", "consensus node gRPC address (account, broadcast, tx lookup)")
 	fs.StringVar(&c.GRPCTokenFile, "grpc-token-file", "", "file with the consensus gRPC token")
 	fs.BoolVar(&c.GRPCTLS, "grpc-tls", false, "use TLS to the consensus gRPC endpoint")
+	fs.StringVar(&c.DA, "da", "blob", "data availability mode edictad runs: blob or fibre")
 	fs.StringVar(&c.ChainID, "chain-id", "", "optional: refuse a node on another chain id")
 	fs.Uint64Var(&c.MinAppVersion, "min-app-version", 0, "compatibility check lower bound (0 = default)")
 	fs.Uint64Var(&c.MaxAppVersion, "max-app-version", 0, "compatibility check upper bound (0 = default)")
@@ -226,6 +228,9 @@ func (c Config) Validate() error {
 	}
 	if c.GRPCTokenFile != "" && !c.GRPCTLS && !loopbackAddr(c.GRPCAddr) {
 		return cfgErr("--grpc-token-file over plain gRPC to a non-loopback address is refused; set --grpc-tls")
+	}
+	if c.DA != "" && c.DA != "blob" && c.DA != "fibre" {
+		return cfgErr("--da must be blob or fibre")
 	}
 	if c.MinAppVersion != 0 && c.MaxAppVersion != 0 && c.MinAppVersion > c.MaxAppVersion {
 		return cfgErr("--min-app-version above --max-app-version")

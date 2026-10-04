@@ -124,7 +124,7 @@ go run ./cmd/edicta-live \
 Amounts are in base units (`utia`). `--gen-recipient-key` creates the key that
 opens the published payload; keep that file. Use `--recipient kid=<64 hex X25519 public key>` instead
 to seal to a key you already have. Drop `--bridge-tls`, `--grpc-tls` for a
-local plaintext endpoint. `--chain-id` and `--namespace` optionally pin what
+local plaintext endpoint. `--da` (blob by default) must equal the `da` of edictad's config. `--chain-id` and `--namespace` optionally pin what
 the nodes and edictad report.
 
 The default inclusion check is `self`: it trusts your own bridge node, which is

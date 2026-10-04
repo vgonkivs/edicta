@@ -5,7 +5,7 @@ package edictad_test
 //	var ErrConfig error                       // every config refusal wraps it
 //	type Config struct{ Network{ChainID string; MinAppVersion, MaxAppVersion uint64};
 //	    Recorder{Enabled bool; Quota{BlobsPerHour, BytesPerDay uint64}};
-//	    Gate{GateID string; AllowedDA []uint64}; HTTP{Listen string} }
+//	    Gate{GateID string}; Network.DA string ("blob"|"fibre"); HTTP{Listen string} }
 //	func ParseConfig(data []byte) (Config, error)   // strict TOML, no file access
 //	type Deps struct {
 //	    Reader node.Reader; Consensus node.Consensus
@@ -16,6 +16,7 @@ package edictad_test
 //	}
 //	func Start(ctx context.Context, cfg Config, d Deps) (*Server, error)
 //	func (*Server) Addr() string; Shutdown(ctx context.Context) error
+//	var ErrDANotSupported error  // da = "fibre" at Start (007l2); health.AllowedDA = [2] for blob
 //
 // Start order: secret files (mode) -> node.Check -> gate.Preflight -> open
 // registry -> recorder -> Listen. Secret files: gate key = 32-byte raw seed;
@@ -226,6 +227,7 @@ func (e *env) tomlOf(edits ...[2]string) string {
 chain_id = ""
 min_app_version = 3
 max_app_version = 10
+da = "blob"
 
 [network.bridge]
 addr = "bn.invalid:26658"
@@ -255,7 +257,6 @@ gate_id = "gate-test-1"
 key_file = %q
 registry_path = %q
 action_types = ["application/vnd.edicta.test.v0+cbor"]
-allowed_da = [2]
 allowlist_file = %q
 executor_keys = [%q]
 anchor_verifier = "self"

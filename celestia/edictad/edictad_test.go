@@ -1,7 +1,9 @@
 package edictad_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -21,6 +23,7 @@ import (
 	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/gate/registry/boltreg"
+	"github.com/vgonkivs/edicta/test/gatefix"
 )
 
 // ---------------- config ----------------
@@ -29,7 +32,7 @@ func TestParseConfigValid(t *testing.T) {
 	e := newEnv(t)
 	c := e.cfg()
 	require.Equal(t, "gate-test-1", c.Gate.GateID)
-	require.Equal(t, []uint64{2}, c.Gate.AllowedDA)
+	require.Equal(t, "blob", c.Network.DA)
 	require.True(t, c.Recorder.Enabled)
 	require.EqualValues(t, 60, c.Recorder.Quota.BlobsPerHour)
 	require.EqualValues(t, 67108864, c.Recorder.Quota.BytesPerDay)
@@ -55,9 +58,15 @@ func TestParseConfigRefusals(t *testing.T) {
 		{"no action types", [][2]string{rep(`action_types = ["application/vnd.edicta.test.v0+cbor"]`, `action_types = []`)}},
 		{"action type not a media type", [][2]string{rep(`"application/vnd.edicta.test.v0+cbor"]`, `"not a media type"]`)}},
 		{"duplicate action type", [][2]string{rep(`action_types = ["application/vnd.edicta.test.v0+cbor"]`, `action_types = ["a/b", "a/b"]`)}},
-		{"allowed_da empty", [][2]string{rep(`allowed_da = [2]`, `allowed_da = []`)}},
-		{"allowed_da unknown value", [][2]string{rep(`allowed_da = [2]`, `allowed_da = [3]`)}},
-		{"allowed_da zero", [][2]string{rep(`allowed_da = [2]`, `allowed_da = [0]`)}},
+		{"da missing", [][2]string{rep("da = \"blob\"\n", "")}},
+		{"da empty", [][2]string{rep(`da = "blob"`, `da = ""`)}},
+		{"da unknown", [][2]string{rep(`da = "blob"`, `da = "archive"`)}},
+		{"da wrong case", [][2]string{rep(`da = "blob"`, `da = "Blob"`)}},
+		{"da list", [][2]string{rep(`da = "blob"`, `da = ["blob"]`)}},
+		{"da both as list", [][2]string{rep(`da = "blob"`, `da = ["blob", "fibre"]`)}},
+		{"da number", [][2]string{rep(`da = "blob"`, `da = 2`)}},
+		{"old allowed_da key is unknown", [][2]string{rep("[gate]\n", "[gate]\nallowed_da = [2]\n")}},
+		{"da under gate is unknown", [][2]string{rep("[gate]\n", "[gate]\nda = \"blob\"\n")}},
 		{"missing key_file", [][2]string{rep(`key_file = "`+good+`"`, `key_file = ""`)}},
 		{"missing registry_path", [][2]string{rep(`registry_path = "`+e.path("registry.db")+`"`, `registry_path = ""`)}},
 		{"missing allowlist_file", [][2]string{rep(`allowlist_file = "`+e.path("agents.toml")+`"`, `allowlist_file = ""`)}},
@@ -92,10 +101,10 @@ func TestParseConfigRefusals(t *testing.T) {
 	}
 }
 
-func TestParseConfigAcceptsBothDAAndInsecureOptIn(t *testing.T) {
+func TestParseConfigAcceptsFibreAndInsecureOptIn(t *testing.T) {
 	e := newEnv(t)
-	c := e.cfg(rep(`allowed_da = [2]`, `allowed_da = [1, 2]`))
-	require.Equal(t, []uint64{1, 2}, c.Gate.AllowedDA)
+	c := e.cfg(rep(`da = "blob"`, `da = "fibre"`))
+	require.Equal(t, "fibre", c.Network.DA)
 	_, err := edictad.ParseConfig([]byte(e.tomlOf(
 		rep(`listen = "127.0.0.1:0"`, `listen = "0.0.0.0:8080"`),
 		rep(`authorize_token_file = ""`, `authorize_token_file = "`+e.path("auth.token")+`"`),
@@ -207,7 +216,7 @@ func TestStartRefusesAndBindsNoListener(t *testing.T) {
 		{"head stale", func(e *env) { e.deps.Clock = clock{t0.AddDate(0, 0, 1)} }, nil, node.ErrUnsupported, false},
 		{"bridge node down", func(e *env) { e.chain.Fail = node.ErrUnavailable }, nil, node.ErrUnsupported, false},
 		{"consensus down", func(e *env) { e.cons.Fail = node.ErrUnavailable }, nil, node.ErrUnsupported, false},
-		{"da=1 allowed, chain has no x/fibre", nil, [][2]string{rep(`allowed_da = [2]`, `allowed_da = [1, 2]`)}, gate.ErrInvalidConfig, false},
+		{"da fibre not supported yet", nil, [][2]string{rep(`da = "blob"`, `da = "fibre"`)}, edictad.ErrDANotSupported, false},
 		{"gate key file group-readable", func(e *env) { writeFile(t, e.path("gate.ed25519"), e.seed, 0o640) }, nil, secret.ErrPermissions, false},
 		{"gate key file wrong size", func(e *env) { writeFile(t, e.path("gate.ed25519"), e.seed[:31], 0o600) }, nil, nil, false},
 		{"gate key file missing", func(e *env) { _ = os.Remove(e.path("gate.ed25519")) }, nil, nil, false},
@@ -264,11 +273,8 @@ func hexOf(b []byte) string {
 
 func TestStartOrder(t *testing.T) {
 	e := newEnv(t)
-	fib := node.FibreParams{RetentionS: 14400}
-	e.cons.Fibre = &fib
 	var order []string
-	e.deps.Reader = &orderReader{Reader: e.chain, log: &order}
-	e.deps.Consensus = &orderCons{Consensus: e.cons, log: &order, regExists: e.registryExists}
+	e.deps.Reader = &orderReader{Reader: e.chain, log: &order, regExists: e.registryExists}
 	e.deps.Listen = func(n, a string) (net.Listener, error) {
 		order = append(order, "listen")
 		if e.registryExists() {
@@ -276,11 +282,11 @@ func TestStartOrder(t *testing.T) {
 		}
 		return net.Listen(n, a)
 	}
-	srv, err := edictad.Start(bg, e.cfg(rep(`allowed_da = [2]`, `allowed_da = [1, 2]`)), e.deps)
+	srv, err := edictad.Start(bg, e.cfg(), e.deps)
 	require.NoError(t, err)
 	e.srv = srv
 	t.Cleanup(func() { _ = srv.Shutdown(bg) })
-	require.Equal(t, []string{"check", "preflight(registry absent)", "listen", "registry-open-before-listen"}, firstOf(order))
+	require.Equal(t, []string{"check(registry absent)", "listen", "registry-open-before-listen"}, firstOf(order))
 }
 
 // firstOf collapses repeated entries.
@@ -298,27 +304,17 @@ func firstOf(in []string) []string {
 
 type orderReader struct {
 	node.Reader
-	log *[]string
-}
-
-func (r *orderReader) Head(ctx context.Context) (node.Header, error) {
-	*r.log = append(*r.log, "check")
-	return r.Reader.Head(ctx)
-}
-
-type orderCons struct {
-	node.Consensus
 	log       *[]string
 	regExists func() bool
 }
 
-func (c *orderCons) FibreParams(ctx context.Context) (node.FibreParams, error) {
-	if !c.regExists() {
-		*c.log = append(*c.log, "preflight(registry absent)")
+func (r *orderReader) Head(ctx context.Context) (node.Header, error) {
+	if !r.regExists() {
+		*r.log = append(*r.log, "check(registry absent)")
 	} else {
-		*c.log = append(*c.log, "preflight(registry PRESENT)")
+		*r.log = append(*r.log, "check(registry PRESENT)")
 	}
-	return c.Consensus.FibreParams(ctx)
+	return r.Reader.Head(ctx)
 }
 
 func TestStartRefusesBusyListenAddress(t *testing.T) {
@@ -416,17 +412,46 @@ func TestHealthReportsEverything(t *testing.T) {
 	require.Equal(t, []byte(e.gatePub), h.GatePubKey)
 	require.Equal(t, recAddr, h.RecorderSigner)
 	require.Equal(t, nsBytes, h.Namespace)
-	require.Equal(t, []uint64{2}, h.AllowedDA)
+	require.Equal(t, []uint64{2}, h.AllowedDA, "da = blob is the single allowed DA")
 }
 
-func TestHealthAllowedDABoth(t *testing.T) {
+func TestDABlobRejectsDA1OverHTTP(t *testing.T) {
 	e := newEnv(t)
-	fib := node.FibreParams{RetentionS: 14400}
-	e.cons.Fibre = &fib
-	e.start(rep(`allowed_da = [2]`, `allowed_da = [1, 2]`))
-	h, err := e.client("").Health(bg)
+	e.deps.WrapGate = nil
+	e.start()
+	c := gatefix.Clone(gatefix.FibreTemplate(t))
+	action := []byte("act")
+	sum := sha256.Sum256(action)
+	c.AgentID, c.AgentPubKey = "agent-1", bytes.Clone(e.agentPub)
+	c.Scope.GateID = "gate-test-1"
+	c.Action.Type, c.Action.Hash = "application/vnd.edicta.test.v0+cbor", sum[:]
+	c.IssuedAt, c.ValidUntil = uint64(t0.Unix())-5, uint64(t0.Unix())+600
+	require.EqualValues(t, 1, c.PayloadRef.DA)
+	env, _ := gatefix.SignWith(t, e.agentPrv, c)
+	_, err := e.client("").Authorize(bg, env, action)
+	require.ErrorIs(t, err, gate.ErrDANotAllowed)
+}
+
+// Restart: the registry file survives and is reused by the next instance.
+// The fibre half of the 007l2 switch (a registry created by a fibre instance,
+// nonces consumed, then reused by a blob instance) cannot be tested until the
+// Fibre DA task lands: Start refuses da = "fibre", and Deps has no committer
+// seam (the design keeps exactly one committer entry filled by edictad). The
+// refusal of the OLD DA after a switch is covered by TestDABlobRejectsDA1OverHTTP.
+func TestRegistryFileReusedAcrossRestarts(t *testing.T) {
+	e := newEnv(t)
+	e.start()
+	require.NoError(t, e.srv.Shutdown(bg))
+	before, err := os.Stat(e.path("registry.db"))
 	require.NoError(t, err)
-	require.Equal(t, []uint64{1, 2}, h.AllowedDA)
+	require.NotZero(t, before.Size())
+
+	srv, err := edictad.Start(bg, e.cfg(), e.deps)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = srv.Shutdown(bg) })
+	after, err := os.Stat(e.path("registry.db"))
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, after.Size(), before.Size(), "registry must not be recreated")
 }
 
 // ---------------- bearer tokens ----------------

@@ -313,12 +313,12 @@ func checkHealth(cfg Config, h edictaapi.HealthInfo, chainID string) (gatePins, 
 	case len(h.RecorderSigner) != 20 || len(h.Namespace) != 29:
 		return gatePins{}, errors.New("edictad has no Recorder enabled; it cannot publish")
 	}
-	da2 := false
-	for _, d := range h.AllowedDA {
-		da2 = da2 || d == uint64(commitment.DACelestiaBlob)
+	want := uint64(commitment.DACelestiaBlob)
+	if cfg.DA == "fibre" {
+		want = uint64(commitment.DAFibre)
 	}
-	if !da2 {
-		return gatePins{}, errors.New("edictad does not allow da=2 (celestia blob)")
+	if len(h.AllowedDA) != 1 || h.AllowedDA[0] != want {
+		return gatePins{}, fmt.Errorf("edictad runs data availability %v, this run is configured for %q", h.AllowedDA, cfg.DA)
 	}
 	p := gatePins{gateKey: bytes.Clone(h.GatePubKey)}
 	if cfg.GateID != "" && cfg.GateID != h.GateID {

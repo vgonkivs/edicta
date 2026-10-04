@@ -174,3 +174,35 @@ func TestFmtPrice(t *testing.T) {
 	assert.Equal(t, "0.00000001", fmtPrice(1))
 	assert.Equal(t, "100.00000000", fmtPrice(100_00000000))
 }
+
+// 007l2: edictad reports its single da in health (AllowedDA has one entry);
+// edicta-live refuses when it differs from its own configured Config.DA
+// ("blob" | "fibre", assumed field).
+func TestCheckHealthDA(t *testing.T) {
+	blob, fibre := []uint64{uint64(commitment.DACelestiaBlob)}, []uint64{uint64(commitment.DAFibre)}
+	cases := []struct {
+		name    string
+		cfgDA   string
+		healthD []uint64
+		ok      bool
+	}{
+		{"blob matches blob", "blob", blob, true},
+		{"fibre matches fibre", "fibre", fibre, true},
+		{"blob client, fibre server", "blob", fibre, false},
+		{"fibre client, blob server", "fibre", blob, false},
+		{"server lists both", "blob", []uint64{1, 2}, false},
+		{"server lists none", "blob", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := goodHealth()
+			h.AllowedDA = tc.healthD
+			_, err := checkHealth(Config{DA: tc.cfgDA}, h, "test-1")
+			if tc.ok {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
