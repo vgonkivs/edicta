@@ -83,7 +83,9 @@ func (*authSvc) Bech32Prefix(context.Context, *authtypes.Bech32PrefixRequest) (*
 	return &authtypes.Bech32PrefixResponse{Bech32Prefix: "celestia"}, nil
 }
 
-type stakingSvc struct{ stakingtypes.UnimplementedQueryServer }
+type stakingSvc struct {
+	stakingtypes.UnimplementedQueryServer
+}
 
 func (*stakingSvc) Params(context.Context, *stakingtypes.QueryParamsRequest) (*stakingtypes.QueryParamsResponse, error) {
 	return &stakingtypes.QueryParamsResponse{Params: stakingtypes.Params{BondDenom: "utia"}}, nil
