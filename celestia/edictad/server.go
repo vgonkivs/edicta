@@ -94,9 +94,6 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 	if d.Reader == nil || d.Consensus == nil {
 		return nil, cfgErr("a node reader and a consensus client are required")
 	}
-	if cfg.Gate.AnchorVerifier != "self" {
-		return nil, cfgErr("gate.anchor_verifier %s is not wired in this build", cfg.Gate.AnchorVerifier)
-	}
 	log := d.Logger
 	if log == nil {
 		log = slog.Default()

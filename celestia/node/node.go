@@ -21,6 +21,9 @@ var (
 	// ErrSequenceMismatch means the node refused a transaction because the
 	// signer's account sequence differs from the one signed.
 	ErrSequenceMismatch = errors.New("node: account sequence mismatch")
+	// ErrRejected means the node checked a broadcast transaction and refused
+	// it for a reason other than the two above; resending will not help.
+	ErrRejected = errors.New("node: tx rejected")
 )
 
 // Header is the part of a block header Edicta reads.

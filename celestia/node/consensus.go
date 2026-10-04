@@ -1,0 +1,218 @@
+package node
+
+import (
+	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/cosmos/cosmos-sdk/client/grpc/cmtservice"
+	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+
+	fibretypes "github.com/celestiaorg/celestia-app/v10/x/fibre/types"
+)
+
+// GRPCConfig is one consensus gRPC endpoint.
+type GRPCConfig struct {
+	Addr string
+	TLS  bool
+	// Token is sent as the x-token header; empty sends none. It is refused
+	// without TLS unless the address is passed through AllowInsecureToken.
+	Token string
+	// AllowInsecureToken permits a token over plain gRPC (a local devnet).
+	AllowInsecureToken bool
+}
+
+const maxGRPCMessage = 64 << 20
+
+// DialGRPC opens a lazy connection; nothing is sent until the first call.
+func DialGRPC(c GRPCConfig) (*grpc.ClientConn, error) {
+	if c.Addr == "" {
+		return nil, errors.New("node: no consensus gRPC address")
+	}
+	if c.Token != "" && !c.TLS && !c.AllowInsecureToken {
+		return nil, errors.New("node: consensus token over plain gRPC refused")
+	}
+	creds := insecure.NewCredentials()
+	if c.TLS {
+		creds = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
+	}
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxGRPCMessage), grpc.MaxCallSendMsgSize(maxGRPCMessage)),
+	}
+	if c.Token != "" {
+		tok := c.Token
+		opts = append(opts, grpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, req, reply any,
+			cc *grpc.ClientConn, inv grpc.UnaryInvoker, o ...grpc.CallOption) error {
+			return inv(metadata.AppendToOutgoingContext(ctx, "x-token", tok), method, req, reply, cc, o...)
+		}))
+	}
+	return grpc.NewClient(c.Addr, opts...)
+}
+
+// ConsensusClient implements Consensus over a consensus node's gRPC.
+type ConsensusClient struct {
+	conn    *grpc.ClientConn
+	cmt     cmtservice.ServiceClient
+	auth    authtypes.QueryClient
+	staking stakingtypes.QueryClient
+	tx      txtypes.ServiceClient
+	fibre   fibretypes.QueryClient
+}
+
+var _ Consensus = (*ConsensusClient)(nil)
+
+// NewConsensus dials c. Close releases the connection.
+func NewConsensus(c GRPCConfig) (*ConsensusClient, error) {
+	conn, err := DialGRPC(c)
+	if err != nil {
+		return nil, err
+	}
+	return NewConsensusConn(conn), nil
+}
+
+// NewConsensusConn wraps an existing connection, which Close will close.
+func NewConsensusConn(conn *grpc.ClientConn) *ConsensusClient {
+	return &ConsensusClient{
+		conn: conn, cmt: cmtservice.NewServiceClient(conn), auth: authtypes.NewQueryClient(conn),
+		staking: stakingtypes.NewQueryClient(conn), tx: txtypes.NewServiceClient(conn),
+		fibre: fibretypes.NewQueryClient(conn),
+	}
+}
+
+// Close closes the connection.
+func (c *ConsensusClient) Close() error { return c.conn.Close() }
+
+func (c *ConsensusClient) Network(ctx context.Context) (string, error) {
+	r, err := c.cmt.GetNodeInfo(ctx, &cmtservice.GetNodeInfoRequest{})
+	if err != nil {
+		return "", classifyGRPC(ctx, err)
+	}
+	if r.DefaultNodeInfo == nil || r.DefaultNodeInfo.Network == "" {
+		return "", fmt.Errorf("%w: node info has no network", ErrUnsupported)
+	}
+	return r.DefaultNodeInfo.Network, nil
+}
+
+// ProviderChainIDs is empty: this build has no separate consensus RPC
+// providers, only the gRPC endpoint Network already reports on.
+func (c *ConsensusClient) ProviderChainIDs(context.Context) ([]string, error) { return nil, nil }
+
+// FibreParams returns ErrNotFound when the chain has no x/fibre module.
+func (c *ConsensusClient) FibreParams(ctx context.Context) (FibreParams, error) {
+	r, err := c.fibre.Params(ctx, &fibretypes.QueryParamsRequest{})
+	if err != nil {
+		err = classifyGRPC(ctx, err)
+		if errors.Is(err, ErrUnsupported) { // unknown service: the module is absent
+			return FibreParams{}, fmt.Errorf("%w: %w", ErrNotFound, err)
+		}
+		return FibreParams{}, err
+	}
+	d := r.Params.ShardRetention
+	if d <= 0 {
+		return FibreParams{}, fmt.Errorf("%w: x/fibre shard retention is not positive", ErrUnsupported)
+	}
+	return FibreParams{RetentionS: uint64(d.Seconds())}, nil
+}
+
+func (c *ConsensusClient) BondDenom(ctx context.Context) (string, error) {
+	r, err := c.staking.Params(ctx, &stakingtypes.QueryParamsRequest{})
+	if err != nil {
+		return "", classifyGRPC(ctx, err)
+	}
+	if r.Params.BondDenom == "" {
+		return "", fmt.Errorf("%w: empty bond denom", ErrUnsupported)
+	}
+	return r.Params.BondDenom, nil
+}
+
+func (c *ConsensusClient) Bech32Prefix(ctx context.Context) (string, error) {
+	r, err := c.auth.Bech32Prefix(ctx, &authtypes.Bech32PrefixRequest{})
+	if err != nil {
+		return "", classifyGRPC(ctx, err)
+	}
+	if r.Bech32Prefix == "" {
+		return "", fmt.Errorf("%w: empty bech32 prefix", ErrUnsupported)
+	}
+	return r.Bech32Prefix, nil
+}
+
+func (c *ConsensusClient) Account(ctx context.Context, address string) (AccountInfo, error) {
+	r, err := c.auth.AccountInfo(ctx, &authtypes.QueryAccountInfoRequest{Address: address})
+	if err != nil {
+		return AccountInfo{}, classifyGRPC(ctx, err)
+	}
+	if r.Info == nil {
+		return AccountInfo{}, fmt.Errorf("%w: account %s", ErrNotFound, address)
+	}
+	return AccountInfo{Number: r.Info.AccountNumber, Sequence: r.Info.Sequence}, nil
+}
+
+// Cosmos SDK error codes in the "sdk" codespace.
+const (
+	sdkCodespace         = "sdk"
+	codeWrongSequence    = 32
+	codeTxInMempoolCache = 19
+)
+
+// Broadcast sends txRaw unchanged in sync mode and returns its hash, the
+// SHA-256 of the bytes, which it checks against the node's answer.
+func (c *ConsensusClient) Broadcast(ctx context.Context, txRaw []byte) ([32]byte, error) {
+	want := sha256.Sum256(txRaw)
+	r, err := c.tx.BroadcastTx(ctx, &txtypes.BroadcastTxRequest{TxBytes: txRaw, Mode: txtypes.BroadcastMode_BROADCAST_MODE_SYNC})
+	if err != nil {
+		err = classifyGRPC(ctx, err)
+		if strings.Contains(err.Error(), "account sequence mismatch") {
+			return [32]byte{}, fmt.Errorf("%w: %w", ErrSequenceMismatch, err)
+		}
+		if strings.Contains(err.Error(), "tx already exists in cache") {
+			return want, fmt.Errorf("%w: %w", ErrAlreadyInMempool, err)
+		}
+		return [32]byte{}, err
+	}
+	tr := r.GetTxResponse()
+	if tr == nil {
+		return [32]byte{}, fmt.Errorf("%w: empty broadcast response", ErrUnavailable)
+	}
+	if tr.Code != 0 {
+		switch {
+		case tr.Codespace == sdkCodespace && tr.Code == codeTxInMempoolCache:
+			return want, fmt.Errorf("%w: %s", ErrAlreadyInMempool, tr.RawLog)
+		case tr.Codespace == sdkCodespace && tr.Code == codeWrongSequence:
+			return [32]byte{}, fmt.Errorf("%w: %s", ErrSequenceMismatch, tr.RawLog)
+		}
+		return [32]byte{}, fmt.Errorf("%w: codespace %q code %d: %s", ErrRejected, tr.Codespace, tr.Code, tr.RawLog)
+	}
+	if !strings.EqualFold(tr.TxHash, hex.EncodeToString(want[:])) {
+		return [32]byte{}, fmt.Errorf("%w: node returned tx hash %q for a different transaction", ErrUnavailable, tr.TxHash)
+	}
+	return want, nil
+}
+
+// Tx reports a committed transaction; an unknown hash is Found false, not an
+// error.
+func (c *ConsensusClient) Tx(ctx context.Context, hash [32]byte) (TxStatus, error) {
+	r, err := c.tx.GetTx(ctx, &txtypes.GetTxRequest{Hash: strings.ToUpper(hex.EncodeToString(hash[:]))})
+	if err != nil {
+		err = classifyGRPC(ctx, err)
+		if errors.Is(err, ErrNotFound) {
+			return TxStatus{}, nil
+		}
+		return TxStatus{}, err
+	}
+	tr := r.GetTxResponse()
+	if tr == nil {
+		return TxStatus{}, nil
+	}
+	return TxStatus{Found: true, Height: uint64(tr.Height), Code: tr.Code}, nil
+}

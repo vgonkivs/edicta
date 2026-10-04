@@ -26,7 +26,7 @@ func NewReader(rc *client.ReadClient) (Reader, error) {
 func (b bridge) Head(ctx context.Context) (Header, error) {
 	h, err := b.rc.Header.NetworkHead(ctx)
 	if err != nil {
-		return Header{}, wrap(err)
+		return Header{}, wrapCtx(ctx, err)
 	}
 	return Header{
 		ChainID: h.ChainID(), Height: uint64(h.Height()), Time: h.Time(),
@@ -37,7 +37,7 @@ func (b bridge) Head(ctx context.Context) (Header, error) {
 func (b bridge) HeaderAt(ctx context.Context, height uint64) (Header, error) {
 	h, err := b.rc.Header.GetByHeight(ctx, height)
 	if err != nil {
-		return Header{}, wrap(err)
+		return Header{}, wrapCtx(ctx, err)
 	}
 	return Header{
 		ChainID: h.ChainID(), Height: uint64(h.Height()), Time: h.Time(),
@@ -52,7 +52,7 @@ func (b bridge) Blob(ctx context.Context, height uint64, namespace, commitment [
 	}
 	bl, err := b.rc.Blob.Get(ctx, height, ns, commitment)
 	if err != nil {
-		return Blob{}, wrap(err)
+		return Blob{}, wrapCtx(ctx, err)
 	}
 	if bl == nil || bl.Blob == nil {
 		return Blob{}, ErrNotFound
@@ -70,7 +70,7 @@ func (b bridge) CommitmentProof(ctx context.Context, height uint64, namespace, c
 	}
 	p, err := b.rc.Blob.GetCommitmentProof(ctx, height, ns, commitment)
 	if err != nil {
-		return nil, wrap(err)
+		return nil, wrapCtx(ctx, err)
 	}
 	if p == nil {
 		return nil, ErrNotFound
@@ -81,6 +81,15 @@ func (b bridge) CommitmentProof(ctx context.Context, height uint64, namespace, c
 type proof struct{ p *blob.CommitmentProof }
 
 func (p proof) Verify(dataRoot, commitment []byte) error { return p.p.Verify(dataRoot, commitment) }
+
+// wrapCtx classifies err, but a finished context always wins: a cancelled
+// call whose error text happens to say "not found" is unavailable, never absent.
+func wrapCtx(ctx context.Context, err error) error {
+	if cerr := ctx.Err(); cerr != nil {
+		return fmt.Errorf("%w: %w", ErrUnavailable, errors.Join(cerr, err))
+	}
+	return wrap(err)
+}
 
 // wrap classifies a library error by its text, since the JSON-RPC client
 // returns plain errors, and never lets the original text hide the class.

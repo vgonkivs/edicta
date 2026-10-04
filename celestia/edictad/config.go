@@ -35,7 +35,6 @@ type NetworkConfig struct {
 	MaxAppVersion uint64         `toml:"max_app_version"`
 	Bridge        EndpointConfig `toml:"bridge"`
 	ConsensusGRPC EndpointConfig `toml:"consensus_grpc"`
-	ConsensusRPC  RPCConfig      `toml:"consensus_rpc"`
 }
 
 // EndpointConfig is one node endpoint.
@@ -43,16 +42,6 @@ type EndpointConfig struct {
 	Addr      string `toml:"addr"`
 	TokenFile string `toml:"token_file"`
 	TLS       bool   `toml:"tls"`
-}
-
-// RPCConfig lists CometBFT RPC providers for header verification.
-type RPCConfig struct {
-	Primary     string   `toml:"primary"`
-	Witnesses   []string `toml:"witnesses"`
-	Verifier    string   `toml:"verifier"`
-	TrustHeight uint64   `toml:"trust_height"`
-	TrustHash   string   `toml:"trust_hash"`
-	TrustPeriod string   `toml:"trust_period"`
 }
 
 // RecorderConfig configures the optional Recorder. Disabled, no key is opened
@@ -188,14 +177,10 @@ func (c Config) validate() error {
 	if _, err := c.executorKeys(); err != nil {
 		return err
 	}
-	switch g.AnchorVerifier {
-	case "self":
-	case "light":
-		if n.ConsensusRPC.Primary == "" || len(n.ConsensusRPC.Witnesses) == 0 {
-			return cfgErr("gate.anchor_verifier light needs network.consensus_rpc primary and witnesses")
-		}
-	default:
-		return cfgErr("gate.anchor_verifier must be self or light")
+	// The gate's own anchor lookup on the bridge node is the operator's
+	// self-check; independent header verification lives on the SDK side.
+	if g.AnchorVerifier != "self" {
+		return cfgErr("gate.anchor_verifier must be self")
 	}
 
 	if err := c.Recorder.validate(); err != nil {
