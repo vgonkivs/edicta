@@ -1,2 +1,2 @@
-// Package gatechain holds the gate's chain-client adapters (design C.1). Skeleton only.
+// Package gatechain implements the gate's chain interfaces over the node seam.
 package gatechain
