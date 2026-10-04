@@ -57,6 +57,8 @@ func newWorld(t *testing.T) *world {
 		GatePubKey: ed25519.PublicKey(gatefix.Pub(t, "gate1")),
 		GateID:     gatefix.GateID,
 		SkewS:      30,
+		SettleS:    60,
+		SignKey:    gatefix.ExecutorKey(t, "executor1"),
 		Check:      ibkr.CheckConfig{Account: account, MaxNotional: 5000_00000000},
 	}, broker, ibkr.NewMemStore(), env.Clock)
 	require.NoError(t, err)
@@ -119,10 +121,19 @@ func TestEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ibkr.RequestFromOrder(decoded, ibkr.ClientOrderID(res.CommitmentHash)), w.broker.Placed()[0])
 
-	receipt, err := w.env.Gate.Record(bg, res.Envelope, railRef)
+	execPub, execSig, err := w.exec.RecordRequest(res.CommitmentHash, railRef)
+	require.NoError(t, err, "the executor signs the record request")
+	assert.Equal(t, gatefix.ExecutorPub(t, "executor1"), execPub)
+	receipt, err := w.env.Gate.Record(bg, res.Envelope, railRef, execPub, execSig)
 	require.NoError(t, err)
 	gatefix.CheckReceipt(t, receipt, res.CommitmentHash, railRef, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
 
+	t.Run("the receipt carries the executor claim, checkable without the gate", func(t *testing.T) {
+		sr, _, err := commitment.VerifyReceipt(receipt)
+		require.NoError(t, err)
+		assert.Equal(t, []byte(execPub), sr.Receipt.ExecutorPubKey)
+		require.NoError(t, commitment.VerifyRecordRequest(res.CommitmentHash, sr.Receipt.GateID, railRef, sr.Receipt.ExecutorPubKey, sr.Receipt.ExecutorSignature))
+	})
 	t.Run("a verifier checks the authorization and replays the decision", func(t *testing.T) {
 		sa, _, err := commitment.VerifyAuthorization(gres.Authorization, commitment.AuthorizationCheck{
 			GatePubKey: gatefix.Pub(t, "gate1"), GateID: gatefix.GateID, ActionType: ibkrorder.ActionType,

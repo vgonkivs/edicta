@@ -160,9 +160,8 @@ func TestVectorClientOrderID(t *testing.T) {
 			assert.Equal(t, c.COID, got)
 			assert.Regexp(t, lower64, got)
 			assert.Equal(t, got, ibkr.ClientOrderID(h), "deterministic")
-			if prev, dup := seen[got]; dup {
-				t.Fatalf("%s and %s share a client order id", prev, c.ID)
-			}
+			prev, dup := seen[got]
+			require.Falsef(t, dup, "%s and %s share a client order id", prev, c.ID)
 			seen[got] = c.ID
 		})
 	}

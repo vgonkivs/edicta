@@ -34,6 +34,8 @@ var (
 	ErrRegistryInUse        = errors.New("gate: registry already used by another gate")
 	ErrClockRegression      = errors.New("gate: clock before the registry watermark")
 
+	// ErrExecutorNotAllowed is returned by Record for a key outside the executor allowlist.
+	ErrExecutorNotAllowed = errors.New("gate: executor key not allowed")
 	// ErrNotAuthorized is returned by Record when no Authorization of this commitment is stored.
 	ErrNotAuthorized = errors.New("gate: no authorization for this commitment")
 	// ErrReceiptExists is returned by Record when the receipt was already recorded; the stored receipt is returned with it.

@@ -31,6 +31,10 @@ type Receipt struct {
 	GatePubKey     []byte `cbor:"4,keyasint"`
 	RailRef        string `cbor:"6,keyasint"`
 	RecordedAt     uint64 `cbor:"8,keyasint"`
+	// ExecutorPubKey and ExecutorSignature are the executor's claim of
+	// RailRef, signed over RecordRequestMessage.
+	ExecutorPubKey    []byte `cbor:"9,keyasint"`
+	ExecutorSignature []byte `cbor:"10,keyasint"`
 }
 
 type SignedReceipt struct {
@@ -45,6 +49,8 @@ var receiptSchema = []field{
 	{key: 4, name: "gate_pubkey", kind: kBytes, min: 32, max: 32, required: true},
 	{key: 6, name: "rail_ref", kind: kText, min: 1, max: 128, charset: isID, required: true},
 	{key: 8, name: "recorded_at", kind: kUint, required: true},
+	{key: 9, name: "executor_pubkey", kind: kBytes, min: 32, max: 32, required: true},
+	{key: 10, name: "executor_signature", kind: kBytes, min: 64, max: 64, required: true},
 }
 
 // EncodeReceipt returns the canonical CBOR of r. It does not validate values.
@@ -136,6 +142,9 @@ func DecodeSignedReceipt(b []byte) (*SignedReceipt, Hash, error) {
 			GatePubKey:     bytes.Clone(m[4].b),
 			RailRef:        string(m[6].b),
 			RecordedAt:     m[8].u,
+
+			ExecutorPubKey:    bytes.Clone(m[9].b),
+			ExecutorSignature: bytes.Clone(m[10].b),
 		},
 		Signature: bytes.Clone(sn.b),
 	}
@@ -173,11 +182,58 @@ func VerifyReceipt(b []byte) (*SignedReceipt, Hash, error) {
 	if r.RecordedAt == 0 {
 		return nil, Hash{}, fmt.Errorf("%w: recorded_at", ErrZeroValue)
 	}
+	if bytes.Equal(r.ExecutorPubKey, r.GatePubKey) {
+		return nil, Hash{}, fmt.Errorf("%w: executor key is the gate key", ErrKeyRole)
+	}
 	if err := CheckPublicKey(r.GatePubKey); err != nil {
 		return nil, Hash{}, err
 	}
 	if !ed25519.Verify(r.GatePubKey, ReceiptSigningMessage(h), s.Signature) {
 		return nil, Hash{}, ErrSignatureInvalid
 	}
+	var ch Hash
+	copy(ch[:], r.CommitmentHash)
+	if err := VerifyRecordRequest(ch, r.GateID, r.RailRef, r.ExecutorPubKey, r.ExecutorSignature); err != nil {
+		return nil, Hash{}, err
+	}
 	return s, h, nil
+}
+
+// RecordRequestMessage is the message an executor signs, directly, to claim
+// railRef for one decision: tag, commitment hash, length-prefixed gate id and reference.
+func RecordRequestMessage(h Hash, gateID, railRef string) ([]byte, error) {
+	if n := len(gateID); n < 1 || n > 64 {
+		return nil, fmt.Errorf("%w: gate_id length %d", ErrFieldSize, n)
+	}
+	for i := 0; i < len(gateID); i++ {
+		if !isID(gateID[i]) {
+			return nil, fmt.Errorf("%w: gate_id byte 0x%02x outside charset", ErrInvalidString, gateID[i])
+		}
+	}
+	if n := len(railRef); n < 1 || n > 128 {
+		return nil, fmt.Errorf("%w: rail_ref length %d", ErrFieldSize, n)
+	}
+	for i := 0; i < len(railRef); i++ {
+		if !isID(railRef[i]) {
+			return nil, fmt.Errorf("%w: rail_ref byte 0x%02x outside charset", ErrInvalidString, railRef[i])
+		}
+	}
+	return tagged(TagRecordRequest, h[:], []byte{byte(len(gateID))}, []byte(gateID), []byte{byte(len(railRef))}, []byte(railRef)), nil
+}
+
+// VerifyRecordRequest checks the reference, the executor key (G0) and the
+// executor's signature. Whether the key is an allowed executor is the
+// caller's business.
+func VerifyRecordRequest(h Hash, gateID, railRef string, executorPub ed25519.PublicKey, sig []byte) error {
+	msg, err := RecordRequestMessage(h, gateID, railRef)
+	if err != nil {
+		return err
+	}
+	if err := CheckPublicKey(executorPub); err != nil {
+		return err
+	}
+	if !ed25519.Verify(executorPub, msg, sig) {
+		return ErrSignatureInvalid
+	}
+	return nil
 }

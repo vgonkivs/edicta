@@ -15,6 +15,7 @@ const (
 	TagAction           = "edicta/v0/action"
 	TagAuthorization    = "edicta/v0/authorization"
 	TagAuthorizationSig = "edicta/v0/authorization-sig"
+	TagRecordRequest    = "edicta/v0/record-request"
 
 	MaxSignedSize     = 2176
 	MaxCommitmentSize = 2048

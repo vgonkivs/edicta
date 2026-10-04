@@ -52,6 +52,7 @@ var sentinels = map[string]error{
 	"ErrNotYetValid":          commitment.ErrNotYetValid,
 	"ErrExpired":              commitment.ErrExpired,
 	"ErrScopeMismatch":        commitment.ErrScopeMismatch,
+	"ErrKeyRole":              commitment.ErrKeyRole,
 	"ErrActionTypeNotAllowed": commitment.ErrActionTypeNotAllowed,
 	"ErrActionSize":           commitment.ErrActionSize,
 	"ErrActionMismatch":       commitment.ErrActionMismatch,

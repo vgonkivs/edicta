@@ -35,6 +35,7 @@ except ImportError:
     )
 
 import ed25519_point as ed
+import edicta_v0 as core
 from cbor_strict import Raw, decode_strict, encode, to_plain
 from edicta_v0 import (ACTION, AUTHORIZATION, COMMITMENT, ED25519_L, MAX_ACTION_SIZE, MAX_AUTHORIZATION_SIZE,
                       MAX_RECEIPT_SIZE, RECEIPT, SCOPE, TAG_ACTION, TAG_AUTHORIZATION,
@@ -45,7 +46,7 @@ from edicta_v0 import (ACTION, AUTHORIZATION, COMMITMENT, ED25519_L, MAX_ACTION_
                       decode_signed_authorization, decode_signed_receipt, plaintext_hash,
                       receipt_hash, retention_margin, retention_window, route, signing_message,
                       tagged, to_cbor, verify_authorization, verify_for_gate, verify_receipt,
-                      verify_signature, within_retention)
+                      verify_record_request, verify_signature, within_retention)
 from vecjson import (action_from_case, authorization_from_json, commitment_from_json, gate_from_json,
                      params_from_json, pattern_bytes, receipt_from_json)
 import check_payload_blob
@@ -64,7 +65,7 @@ STAGE_OF = {
     "ErrNestingTooDeep": "D", "ErrNonCanonical": "D",
     "ErrUnsupportedVersion": "S", "ErrIntRange": "S", "ErrInvalidEnum": "S", "ErrZeroValue": "S",
     "ErrPayloadTooLarge": "S", "ErrInvalidNamespace": "S", "ErrTimeOrder": "S",
-    "ErrTTLTooLong": "S", "ErrInvalidParams": "S",
+    "ErrTTLTooLong": "S", "ErrInvalidParams": "S", "ErrKeyRole": "S",
     "ErrInvalidPublicKey": "G", "ErrSignatureInvalid": "G", "ErrNotYetValid": "T", "ErrExpired": "T",
     "ErrScopeMismatch": "C", "ErrActionTypeNotAllowed": "C", "ErrActionSize": "A", "ErrActionMismatch": "A",
     "ErrPayloadSizeMismatch": "P", "ErrPayloadHashMismatch": "P",
@@ -76,6 +77,9 @@ X_SENTINELS = {"ErrScopeMismatch", "ErrActionSize", "ErrActionMismatch", "ErrExp
 # anchor lookup, availability) have none.
 GATE_VECTORED = {"ErrIssuedBeforeAnchor", "ErrBeforeRegistryEpoch", "ErrArchiveRecomputeUnsupported",
                  "ErrRetentionUnavailable"}
+# Sentinels of the gate's stateless Record checks, by stage.
+RECORD_STAGES = {"D": {"ErrFieldSize", "ErrInvalidString"}, "G": {"ErrInvalidPublicKey", "ErrSignatureInvalid"},
+                 "R": {"ErrExecutorNotAllowed", "ErrKeyRole"}}
 RETIRED = {"commitment": (COMMITMENT, {9}), "action": (ACTION, {1, 2}), "scope": (SCOPE, {2, 3, 4}),
            "receipt": (RECEIPT, {5, 7})}
 
@@ -104,6 +108,7 @@ def check_constants():
         TAG_RECEIPT: b"\x11edicta/v0/receipt", TAG_RECEIPT_SIG: b"\x15edicta/v0/receipt-sig",
         TAG_ACTION: b"\x10edicta/v0/action", TAG_AUTHORIZATION: b"\x17edicta/v0/authorization",
         TAG_AUTHORIZATION_SIG: b"\x1bedicta/v0/authorization-sig",
+        core.TAG_RECORD_REQUEST: b"\x18edicta/v0/record-request",
     }
     for t, enc in want.items():
         expect(tagged(t) == enc, f"tag {t!r}")
@@ -111,6 +116,10 @@ def check_constants():
     for t, n in signed.items():
         expect(len(signing_message(bytes(32), t)) == n, f"signed message length under {t!r}")
     expect(len(set(signed.values())) == len(signed), "signed message lengths must differ")
+    # Every hashed or signed preimage starts with its tag's length byte. The record message is
+    # signed without hashing, so distinct first bytes keep it apart from every other preimage.
+    firsts = [tagged(t)[0] for t in want]
+    expect(len(set(firsts)) == len(firsts), "hashed and signed tags must have distinct lengths")
     hashed = [TAG_COMMITMENT, TAG_RECEIPT, TAG_ACTION, TAG_AUTHORIZATION]
     expect(len({tagged(t) for t in hashed}) == len(hashed), "hash tags must differ")
     for name, (schema, keys) in RETIRED.items():
@@ -375,7 +384,58 @@ def check_authorizations(af: dict, pubs: dict, valid: dict) -> set:
     return seen
 
 
-def check_receipts(rf: dict, pubs: dict, valid: dict, af: dict) -> set:
+def literal_record_message(chash: bytes, gate_id: str, rail_ref: str) -> bytes:
+    g, r = gate_id.encode("ascii"), rail_ref.encode("ascii")
+    return b"\x18edicta/v0/record-request" + chash + bytes([len(g)]) + g + bytes([len(r)]) + r
+
+
+def check_record_requests(rq: dict, valid: dict) -> set:
+    hashes = {c["id"]: c["commitment_hash_hex"] for c in valid["cases"]}
+    gate = rq["gate"]
+    executors = [bytes.fromhex(k) for k in gate["executor_keys"]]
+    gate_keys = [bytes.fromhex(gate["gate_pubkey_hex"])]
+    privs = {}
+    for name, k in rq["keys"].items():
+        priv = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(k["seed_hex"]))
+        pub = priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        expect(pub.hex() == k["public_key_hex"], f"{name}: public key does not match seed")
+        if "kat_signature_hex" in k:
+            expect(priv.sign(bytes.fromhex(k["kat_message_hex"])).hex() == k["kat_signature_hex"], f"{name}: RFC 8032 KAT")
+        expect(ed.public_key_problem(pub) is None and pub in executors and pub not in gate_keys, f"{name}: executor key role")
+        privs[pub] = priv
+    for c in rq["cases"]:
+        cid = c["id"]
+        ch = bytes.fromhex(c["commitment_hash_hex"])
+        expect(c["commitment_hash_hex"] == hashes[c["commitment_ref"]], f"{cid}: commitment_hash")
+        msg = literal_record_message(ch, gate["gate_id"], c["rail_ref"])
+        expect(msg.hex() == c["record_message_hex"] and len(msg) == 59 + len(gate["gate_id"]) + len(c["rail_ref"]),
+               f"{cid}: record message")
+        pub, sig = bytes.fromhex(c["executor_pubkey_hex"]), bytes.fromhex(c["signature_hex"])
+        expect(privs[pub].sign(msg) == sig, f"{cid}: not the deterministic signature")
+        try:
+            verify_record_request(ch, bytes.fromhex(c["agent_pubkey_hex"]), gate["gate_id"], c["rail_ref"], pub, sig,
+                                  executors, gate_keys)
+        except Reject as e:
+            raise Failure(f"{cid}: valid record request rejected with {e}")
+    seen = set()
+    for c in rq["reject"]:
+        cid, want = c["id"], c["expect_error"]
+        expect(want in RECORD_STAGES.get(c["stage"], ()), f"{cid}: {want} is not a stage {c['stage']} Record error")
+        ek = [bytes.fromhex(k) for k in c["executor_keys"]] if "executor_keys" in c else executors
+        try:
+            verify_record_request(bytes.fromhex(c["commitment_hash_hex"]), bytes.fromhex(c["agent_pubkey_hex"]),
+                                  gate["gate_id"], c["rail_ref"],
+                                  bytes.fromhex(c["executor_pubkey_hex"]), bytes.fromhex(c["signature_hex"]), ek, gate_keys)
+        except Reject as e:
+            expect(e.sentinel == want, f"{cid}: got {e.sentinel}, want {want}")
+        else:
+            raise Failure(f"{cid}: accepted, want {want}")
+        seen.add(want)
+    expect(seen == set().union(*RECORD_STAGES.values()), f"record_request.json sentinels: {sorted(seen)}")
+    return seen
+
+
+def check_receipts(rf: dict, pubs: dict, valid: dict, af: dict, rq: dict) -> set:
     hashes = {c["id"]: c["commitment_hash_hex"] for c in valid["cases"]}
     authorized = {c["commitment_ref"] for c in af["cases"]}
     gate = gate_from_json(rf["gate"])
@@ -385,6 +445,10 @@ def check_receipts(rf: dict, pubs: dict, valid: dict, af: dict) -> set:
         expect(r["commitment_hash"].hex() == hashes[case["commitment_ref"]], f"{cid}: commitment_hash is not {case['commitment_ref']}")
         expect(case["commitment_ref"] in authorized, f"{cid}: receipt for a commitment with no Authorization vector")
         expect(r["gate_id"] == gate["gate_id"], f"{cid}: gate_id differs from the gate")
+        expect(r["executor_pubkey"].hex() in rq["gate"]["executor_keys"], f"{cid}: executor is not allowlisted")
+        expect(Ed25519PublicKey.from_public_bytes(r["executor_pubkey"]).verify(
+            r["executor_signature"], literal_record_message(r["commitment_hash"], r["gate_id"], r["rail_ref"])) is None,
+            f"{cid}: executor signature")
         canon = encode(to_cbor(r, RECEIPT))
         expect(canon.hex() == case["receipt_cbor_hex"], f"{cid}: canonical encoding mismatch")
         rh = receipt_hash(canon)
@@ -508,8 +572,10 @@ def check_set(d: Path) -> int:
         seen |= check_payload_vectors(payload, valid)
         auth = load(d, "authorization.json")
         seen |= check_authorizations(auth, pubs, valid)
+        rq = load(d, "record_request.json")
+        seen |= check_record_requests(rq, valid)
         receipts = load(d, "receipt.json")
-        seen |= check_receipts(receipts, pubs, valid, auth)
+        seen |= check_receipts(receipts, pubs, valid, auth, rq)
         anchor = load(d, "anchor.json", revision=False)
         gate_seen = check_anchor(anchor)
         da_blob = load(d, "da_blob.json", revision=False)
@@ -517,7 +583,7 @@ def check_set(d: Path) -> int:
         expect(not (d / "client_order_id.json").exists(), "client_order_id.json belongs to the dca-agent profile now")
         blob_summary, blob_ids = check_payload_blob.check(d)
         ids = [c["id"] for c in valid["cases"] + reject["cases"] + payload["cases"] + payload["reject"]
-               + auth["cases"] + auth["reject"] + receipts["cases"] + receipts["reject"] + anchor["k1"]
+               + auth["cases"] + auth["reject"] + rq["cases"] + rq["reject"] + receipts["cases"] + receipts["reject"] + anchor["k1"]
                + anchor["k2"] + anchor["epoch"] + da_blob["cases"] + da_blob["reject"]] + blob_ids
         expect(len(ids) == len(set(ids)), "duplicate vector ids")
         expect("sig_torsion_r" in ids, "missing vector sig_torsion_r (cofactorless G1)")
@@ -530,6 +596,7 @@ def check_set(d: Path) -> int:
     print(f"OK ({d.name}, {REVISION}): {len(valid['cases'])} valid, {len(reject['cases'])} reject, "
           f"{len(payload['cases'])} payload, {len(payload['reject'])} payload reject, "
           f"{len(auth['cases'])} authorization, {len(auth['reject'])} authorization reject, "
+          f"{len(rq['cases'])} record request, {len(rq['reject'])} record request reject, "
           f"{len(receipts['cases'])} receipt, {len(receipts['reject'])} receipt reject, "
           f"{len(anchor['k1'])} K1, {len(anchor['k2'])} K2, {len(anchor['epoch'])} epoch, "
           f"{len(da_blob['cases'])} da_blob inputs, {len(da_blob['reject'])} da_blob reject inputs")

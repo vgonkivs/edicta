@@ -86,6 +86,46 @@ func Key(t testing.TB, name string) ed25519.PrivateKey {
 	return ed25519.NewKeyFromSeed(MustHex(t, k.SeedHex))
 }
 
+// ExecutorKey returns an executor key of record_request.json (executor1, executor2).
+func ExecutorKey(t testing.TB, name string) ed25519.PrivateKey {
+	t.Helper()
+	var kf struct {
+		Keys map[string]struct {
+			SeedHex string `json:"seed_hex"`
+		} `json:"keys"`
+	}
+	ReadVector(t, "record_request.json", &kf)
+	k, ok := kf.Keys[name]
+	require.Truef(t, ok, "no executor key %q", name)
+	return ed25519.NewKeyFromSeed(MustHex(t, k.SeedHex))
+}
+
+// ExecutorPub returns the public key of an executor vector key.
+func ExecutorPub(t testing.TB, name string) ed25519.PublicKey {
+	t.Helper()
+	return ExecutorKey(t, name).Public().(ed25519.PublicKey)
+}
+
+// RecordSig signs the record request of the commitment in envelope b.
+func RecordSig(t testing.TB, key ed25519.PrivateKey, b []byte, railRef string) []byte {
+	t.Helper()
+	return RecordSigFor(t, key, GateID, b, railRef)
+}
+
+// RecordSigFor signs the record request for the named gate.
+func RecordSigFor(t testing.TB, key ed25519.PrivateKey, gateID string, b []byte, railRef string) []byte {
+	t.Helper()
+	s, err := commitment.DecodeSigned(b)
+	require.NoError(t, err)
+	h, err := commitment.HashOf(&s.Commitment)
+	require.NoError(t, err)
+	msg, err := commitment.RecordRequestMessage(h, gateID, railRef)
+	if err != nil {
+		return make([]byte, ed25519.SignatureSize) // an invalid reference has no valid request
+	}
+	return ed25519.Sign(key, msg)
+}
+
 // Pub returns the public key of a vector key.
 func Pub(t testing.TB, name string) []byte {
 	t.Helper()
@@ -380,6 +420,9 @@ func TryNew(t testing.TB, opts ...Option) (*Env, error) {
 	e.Cfg.Scope = commitment.GateScope{GateID: GateID, ActionTypes: []string{ActionType}}
 	e.Cfg.SkewS = 30
 	e.Cfg.BlobRetentionS = 14400
+	for _, n := range []string{"executor1", "executor2"} {
+		e.Cfg.ExecutorKeys = append(e.Cfg.ExecutorKeys, [32]byte(ExecutorPub(t, n)))
+	}
 	for _, o := range opts {
 		o(e)
 	}
@@ -423,6 +466,17 @@ func (e *Env) Restart() error {
 	}
 	e.Gate = g
 	return nil
+}
+
+// Record records railRef as claimed by executor1.
+func (e *Env) Record(b []byte, railRef string) ([]byte, error) {
+	return e.RecordAs("executor1", b, railRef)
+}
+
+// RecordAs records railRef as claimed by the named executor key.
+func (e *Env) RecordAs(executor string, b []byte, railRef string) ([]byte, error) {
+	k := ExecutorKey(e.T, executor)
+	return e.Gate.Record(context.Background(), b, railRef, k.Public().(ed25519.PublicKey), RecordSigFor(e.T, k, e.Cfg.Scope.GateID, b, railRef))
 }
 
 // Authorize calls the gate with a background context and the template action,
@@ -503,6 +557,9 @@ func CheckReceipt(t testing.TB, receipt []byte, h commitment.Hash, wantRef strin
 	require.Equalf(t, gateID, r.GateID, "receipt fields %+v", r)
 	require.Equalf(t, string(gatePub), string(r.GatePubKey), "receipt fields %+v", r)
 	require.EqualValuesf(t, 0, r.Version, "receipt version %+v", r)
+	// Anyone can check the executor's claim without trusting the gate.
+	require.NoError(t, commitment.VerifyRecordRequest(h, r.GateID, r.RailRef, r.ExecutorPubKey, r.ExecutorSignature), "executor signature in the receipt")
+	require.NotEqual(t, string(gatePub), string(r.ExecutorPubKey), "executor key is the gate key")
 	if wantAt != 0 {
 		require.Equal(t, wantAt, r.RecordedAt)
 	}
@@ -554,7 +611,7 @@ func KnownSentinels() []error {
 		gate.ErrBeforeRegistryEpoch, gate.ErrAnchorNotFound, gate.ErrRetentionUnavailable, gate.ErrAnchorTooOld,
 		gate.ErrDACommitmentMismatch, gate.ErrArchiveRecomputeUnsupported, gate.ErrPayloadUnavailable,
 		gate.ErrChainUnavailable, gate.ErrRegistryUnavailable, gate.ErrAllowlistUnavailable, gate.ErrClosed, gate.ErrRegistryInUse, gate.ErrClockRegression,
-		gate.ErrNotAuthorized, gate.ErrReceiptExists,
+		gate.ErrNotAuthorized, gate.ErrReceiptExists, gate.ErrExecutorNotAllowed, commitment.ErrKeyRole,
 		context.Canceled, context.DeadlineExceeded,
 	}
 }

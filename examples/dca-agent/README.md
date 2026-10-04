@@ -19,10 +19,12 @@ agent -> SDK -> gate Authorize -> executor -> gate Record
 3. The executor (`ibkr`) verifies that Authorization for exactly those bytes,
    parses them as they are (never re-encoding), checks the account and the
    operator's risk limit, dedupes by commitment hash, and places the order once.
-4. The gate's `Record` notarizes `commitment_hash -> order id` in a receipt.
+4. The gate's `Record` signs a receipt for `commitment_hash -> order id`. The
+   receipt is the gate's attestation of what the integrator reported, not
+   proof that the order was executed.
 
 A verifier can later open the payload and check that the reasoning matches the
-order that was executed.
+order that was authorized and sent.
 
 ## Offline only
 

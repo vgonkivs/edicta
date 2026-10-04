@@ -40,6 +40,7 @@ var (
 // Stages G, T, C, A, P.
 var (
 	ErrInvalidPublicKey     = errors.New("commitment: invalid agent public key")
+	ErrKeyRole              = errors.New("commitment: key used in two roles")
 	ErrSignatureInvalid     = errors.New("commitment: signature invalid")
 	ErrNotYetValid          = errors.New("commitment: not yet valid")
 	ErrExpired              = errors.New("commitment: expired")

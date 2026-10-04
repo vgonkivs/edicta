@@ -5,10 +5,6 @@ CLAUDE.md
 # Internal planning: tasks, decisions, designs, ADRs, audits, status
 docs/
 
-# Spec drafts; the public spec and README are written at the end.
-# Vectors stay tracked: tests and the Python checker depend on them.
-spec/*
-!spec/vectors/
 
 # Archives
 *.zip

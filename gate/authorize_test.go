@@ -307,7 +307,7 @@ func TestRetryRule(t *testing.T) {
 	})
 	t.Run("a lost consume race is answered under the same rule", func(t *testing.T) {
 		e, c, b, h := happy(t, gatefix.WithFaultyRegistry())
-		stored := []byte("stored authorization")
+		stored := signedToken(t, h[:], c.Action.Hash, c.ValidUntil)
 		e.Faulty.Before("Consume", func() {
 			require.NoError(t, e.Reg.Consume(context.Background(), registry.Entry{
 				Key: gatefix.KeyOf(c), CommitmentHash: h, ActionHash: commitment.Hash(c.Action.Hash),
@@ -344,6 +344,13 @@ func TestStoredActionHashMismatch(t *testing.T) {
 		bad[0] ^= 0xff
 		return registry.Entry{
 			Key: gatefix.KeyOf(c), CommitmentHash: h, ActionHash: bad, Path: registry.PathDA,
+			AuthorizedAt: gatefix.Now, ValidUntil: c.ValidUntil,
+			Authorization: signedToken(t, h[:], bad[:], c.ValidUntil),
+		}
+	}
+	undecodable := func(c *commitment.Commitment, h commitment.Hash) registry.Entry {
+		return registry.Entry{
+			Key: gatefix.KeyOf(c), CommitmentHash: h, ActionHash: commitment.Hash(c.Action.Hash), Path: registry.PathDA,
 			AuthorizedAt: gatefix.Now, ValidUntil: c.ValidUntil, Authorization: []byte("older gate output"),
 		}
 	}
@@ -370,6 +377,25 @@ func TestStoredActionHashMismatch(t *testing.T) {
 		res, err := e.Authorize(b)
 		check(t, e, h, res, err)
 	})
+	t.Run("undecodable stored token fails closed", func(t *testing.T) {
+		for name, tok := range map[string][]byte{
+			"text":      []byte("older gate output"),
+			"truncated": signedToken(t, make([]byte, 32), make([]byte, 32), 1)[:20],
+		} {
+			t.Run(name, func(t *testing.T) {
+				e, c, b, h := happy(t)
+				en := undecodable(c, h)
+				en.Authorization = tok
+				require.NoError(t, e.Reg.Consume(context.Background(), en, 60))
+				res, err := e.Authorize(b)
+				require.Error(t, err)
+				require.NotErrorIs(t, err, gate.ErrNonceUsed)
+				require.Nil(t, res.Authorization)
+				require.Zero(t, res.Path)
+				require.NotEmpty(t, e.Logs.Records(slog.LevelError))
+			})
+		}
+	})
 	t.Run("a healthy entry logs nothing at error level", func(t *testing.T) {
 		e, _, b, _ := happy(t)
 		_, err := e.Authorize(b)
@@ -382,7 +408,7 @@ func TestStoredActionHashMismatch(t *testing.T) {
 	t.Run("Record does not hand out the entry either", func(t *testing.T) {
 		e, c, b, h := happy(t)
 		require.NoError(t, e.Reg.Consume(context.Background(), corrupt(c, h), 60))
-		_, err := e.Gate.Record(context.Background(), b, "ref-1")
+		_, err := e.Record(b, "ref-1")
 		require.NoError(t, err, "the receipt depends on the commitment hash only")
 	})
 }
@@ -683,7 +709,7 @@ func TestExecutionSurfaceIsGone(t *testing.T) {
 	})
 	require.True(t, ok, "Authorize")
 	_, ok = g.(interface {
-		Record(context.Context, []byte, string) ([]byte, error)
+		Record(context.Context, []byte, string, ed25519.PublicKey, []byte) ([]byte, error)
 	})
 	require.True(t, ok, "Record")
 }

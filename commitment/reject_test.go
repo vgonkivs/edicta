@@ -91,7 +91,15 @@ func TestRejectVectorsCoverSentinels(t *testing.T) {
 	var rcf receiptFile
 	loadJSON(t, "receipt.json", &rcf)
 
+	var rrf recordFile
+	loadJSON(t, "record_request.json", &rrf)
+
 	seen := map[string]bool{}
+	for _, c := range rrf.Reject {
+		if c.Stage != "R" {
+			seen[c.ExpectError] = true
+		}
+	}
 	for _, c := range rf.Cases {
 		seen[c.ExpectError] = true
 	}

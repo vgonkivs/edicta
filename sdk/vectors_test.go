@@ -59,7 +59,7 @@ func TestOpenPayloadValidVectors(t *testing.T) {
 }
 
 // The plaintext-stage rejects. The envelope is a real signed commitment bound
-// to the blob, carrying the vector's plaintext_hash, action and constraints, so
+// to the blob, carrying the vector's plaintext_hash and action, so
 // only the rule under test can fail.
 func TestOpenPayloadPlaintextVectors(t *testing.T) {
 	v := sdkfix.Load(t)

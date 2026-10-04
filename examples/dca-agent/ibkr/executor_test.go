@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -105,6 +106,8 @@ func newRig(t *testing.T, mods ...func(*ibkr.ExecutorConfig)) *rig {
 		GatePubKey: gateKey(7).Public().(ed25519.PublicKey),
 		GateID:     gateID,
 		SkewS:      skew,
+		SettleS:    settle,
+		SignKey:    gateKey(5),
 		Check:      ibkr.CheckConfig{Account: account, MaxNotional: 5000_00000000},
 	}
 	for _, m := range mods {
@@ -429,7 +432,8 @@ func TestNewExecutorRejectsBadConfig(t *testing.T) {
 	b, s, c := brokerfake.New(), ibkr.NewMemStore(), &fixedClock{}
 	good := ibkr.ExecutorConfig{
 		GatePubKey: gateKey(7).Public().(ed25519.PublicKey), GateID: gateID,
-		Check: ibkr.CheckConfig{Account: account},
+		SettleS: settle,
+		Check:   ibkr.CheckConfig{Account: account},
 	}
 	_, err := ibkr.NewExecutor(good, b, s, c)
 	require.NoError(t, err)
@@ -439,13 +443,14 @@ func TestNewExecutorRejectsBadConfig(t *testing.T) {
 		"short gate key": func(x *ibkr.ExecutorConfig) { x.GatePubKey = []byte{1, 2, 3} },
 		"no gate id":     func(x *ibkr.ExecutorConfig) { x.GateID = "" },
 		"no account":     func(x *ibkr.ExecutorConfig) { x.Check.Account = "" },
+		"no settle time": func(x *ibkr.ExecutorConfig) { x.SettleS = 0 },
 		"skew above 300": func(x *ibkr.ExecutorConfig) { x.SkewS = 301 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := good
 			f(&cfg)
 			_, err := ibkr.NewExecutor(cfg, b, s, c)
-			require.Error(t, err)
+			require.ErrorIs(t, err, ibkr.ErrInvalidConfig)
 		})
 	}
 	_, err = ibkr.NewExecutor(good, nil, s, c)
@@ -465,4 +470,20 @@ func FuzzExecuteNeverPlacesUnauthorized(f *testing.F) {
 		require.Error(t, err)
 		require.Zero(t, r.broker.PlaceCalls())
 	})
+}
+
+func TestRecordRequestIsSignedByTheExecutorKey(t *testing.T) {
+	r := newRig(t)
+	h := chash(0x21)
+	pub, sig, err := r.exec.RecordRequest(h, "order-9")
+	require.NoError(t, err)
+	assert.Equal(t, gateKey(5).Public().(ed25519.PublicKey), pub)
+	require.NoError(t, commitment.VerifyRecordRequest(h, gateID, "order-9", pub, sig))
+	assert.Error(t, commitment.VerifyRecordRequest(h, "gate-other", "order-9", pub, sig), "the request names the executor's gate")
+	assert.Error(t, commitment.VerifyRecordRequest(h, gateID, "order-8", pub, sig))
+
+	_, _, err = r.exec.RecordRequest(h, "")
+	require.Error(t, err, "an empty reference has no request")
+	_, _, err = r.exec.RecordRequest(h, strings.Repeat("a", 129))
+	require.Error(t, err)
 }

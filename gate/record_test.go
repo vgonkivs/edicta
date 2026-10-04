@@ -30,7 +30,7 @@ func authorized(t *testing.T, opts ...gatefix.Option) (*gatefix.Env, *commitment
 func TestRecordSignsAndStoresTheReceipt(t *testing.T) {
 	e, c, b, h := authorized(t)
 	e.Clock.Advance(7 * time.Second)
-	r, err := e.Gate.Record(context.Background(), b, "order-42")
+	r, err := e.Record(b, "order-42")
 	require.NoError(t, err)
 	gatefix.CheckReceipt(t, r, h, "order-42", gatefix.GateID, gatefix.Pub(t, "gate1"), gatefix.Now+7)
 	ent, err := e.Entry(c)
@@ -54,7 +54,7 @@ func verifyUnder(sr *commitment.SignedReceipt, msg []byte) bool {
 func TestRecordRequiresAPriorAuthorization(t *testing.T) {
 	t.Run("never authorized", func(t *testing.T) {
 		e, c, b, _ := happy(t)
-		r, err := e.Gate.Record(context.Background(), b, "ref-1")
+		r, err := e.Record(b, "ref-1")
 		require.ErrorIs(t, err, gate.ErrNotAuthorized)
 		require.Nil(t, r)
 		_, gerr := e.Entry(c)
@@ -64,7 +64,7 @@ func TestRecordRequiresAPriorAuthorization(t *testing.T) {
 		e, _, _, _ := authorized(t)
 		c2 := gatefix.Variant(t, gatefix.Template(t), 1)
 		b2, _ := gatefix.Sign(t, "agent1", c2)
-		r, err := e.Gate.Record(context.Background(), b2, "ref-1")
+		r, err := e.Record(b2, "ref-1")
 		require.ErrorIs(t, err, gate.ErrNotAuthorized)
 		require.Nil(t, r)
 	})
@@ -80,14 +80,16 @@ func TestRecordRequiresAPriorAuthorization(t *testing.T) {
 		n, err := e.Gate.Prune(context.Background())
 		require.NoError(t, err)
 		require.EqualValues(t, 1, n)
-		_, err = e.Gate.Record(context.Background(), b, "ref-1")
+		_, err = e.Record(b, "ref-1")
 		require.ErrorIs(t, err, gate.ErrNotAuthorized)
 	})
 	t.Run("not an envelope", func(t *testing.T) {
 		e, _, _, _ := authorized(t)
 		for _, b := range [][]byte{nil, {}, {0xa0}, []byte("junk")} {
-			_, err := e.Gate.Record(context.Background(), b, "ref-1")
+			r, err := e.Gate.Record(context.Background(), b, "ref-1", gatefix.ExecutorPub(t, "executor1"), make([]byte, 64))
 			require.Error(t, err)
+			require.NotErrorIs(t, err, gate.ErrNotAuthorized)
+			require.Nil(t, r)
 		}
 	})
 }
@@ -96,17 +98,17 @@ func TestRecordNeedsNoTimeOrChainChecks(t *testing.T) {
 	e, _, b, h := authorized(t)
 	e.Clock.Set(gatefix.Now + 1000) // past valid_until
 	e.Anchors.Fail(errors.New("down"))
-	r, err := e.Gate.Record(context.Background(), b, "late-ref")
+	r, err := e.Record(b, "late-ref")
 	require.NoError(t, err)
 	gatefix.CheckReceipt(t, r, h, "late-ref", gatefix.GateID, gatefix.Pub(t, "gate1"), gatefix.Now+1000)
 }
 
 func TestRecordAtMostOneReceipt(t *testing.T) {
 	e, c, b, _ := authorized(t)
-	first, err := e.Gate.Record(context.Background(), b, "ref-1")
+	first, err := e.Record(b, "ref-1")
 	require.NoError(t, err)
 	e.Clock.Advance(time.Minute)
-	again, err := e.Gate.Record(context.Background(), b, "ref-2")
+	again, err := e.Record(b, "ref-2")
 	require.ErrorIs(t, err, gate.ErrReceiptExists)
 	require.Equal(t, first, again, "the stored receipt is returned")
 	ent, err := e.Entry(c)
@@ -129,7 +131,7 @@ func TestRecordConcurrently(t *testing.T) {
 				go func() {
 					defer wg.Done()
 					start.Wait()
-					r, err := e.Gate.Record(context.Background(), b, "ref-"+strings.Repeat("x", i%5+1))
+					r, err := e.Record(b, "ref-"+strings.Repeat("x", i%5+1))
 					out[i] = r
 					switch {
 					case err == nil:
@@ -165,26 +167,26 @@ func TestRecordRailRefValidation(t *testing.T) {
 	for name, ref := range bad {
 		t.Run(name, func(t *testing.T) {
 			e, c, b, _ := authorized(t)
-			r, err := e.Gate.Record(context.Background(), b, ref)
+			r, err := e.Record(b, ref)
 			require.Error(t, err)
 			require.True(t, errors.Is(err, commitment.ErrFieldSize) || errors.Is(err, commitment.ErrInvalidString), "%v", err)
 			require.Nil(t, r)
 			ent, gerr := e.Entry(c)
 			require.NoError(t, gerr)
 			require.Nil(t, ent.Receipt, "an invalid reference was stored")
-			_, err = e.Gate.Record(context.Background(), b, "ok-ref")
+			_, err = e.Record(b, "ok-ref")
 			require.NoError(t, err, "a refused Record must not use up the receipt")
 		})
 	}
 	t.Run("longest valid reference", func(t *testing.T) {
 		e, _, b, _ := authorized(t)
-		_, err := e.Gate.Record(context.Background(), b, strings.Repeat("a", 128))
+		_, err := e.Record(b, strings.Repeat("a", 128))
 		require.NoError(t, err)
 	})
 	t.Run("the reference is opaque", func(t *testing.T) {
 		e, _, b, h := authorized(t)
 		ref := "0x" + strings.Repeat("ab", 20)
-		r, err := e.Gate.Record(context.Background(), b, ref)
+		r, err := e.Record(b, ref)
 		require.NoError(t, err)
 		gatefix.CheckReceipt(t, r, h, ref, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
 	})
@@ -197,13 +199,13 @@ func TestRecordFailures(t *testing.T) {
 		s := &flakySigner{inner: inner}
 		e, c, b, _ := authorized(t, gatefix.WithSigner(s))
 		s.fail.Store(true)
-		r, err := e.Gate.Record(context.Background(), b, "ref-1")
+		r, err := e.Record(b, "ref-1")
 		require.Error(t, err)
 		require.Nil(t, r)
 		ent, _ := e.Entry(c)
 		require.Nil(t, ent.Receipt)
 		s.fail.Store(false)
-		_, err = e.Gate.Record(context.Background(), b, "ref-1")
+		_, err = e.Record(b, "ref-1")
 		require.NoError(t, err)
 	})
 	t.Run("broken signers", func(t *testing.T) {
@@ -212,7 +214,7 @@ func TestRecordFailures(t *testing.T) {
 			e, c, b, _ := authorized(t, gatefix.WithSigner(s))
 			s.mode.Store(int32(mode))
 			require.NotPanics(t, func() {
-				r, err := e.Gate.Record(context.Background(), b, "ref-1")
+				r, err := e.Record(b, "ref-1")
 				require.Errorf(t, err, name)
 				require.Nil(t, r)
 			})
@@ -223,12 +225,12 @@ func TestRecordFailures(t *testing.T) {
 	t.Run("attach fails: a retry signs again and only the stored receipt is returned", func(t *testing.T) {
 		e, c, b, _ := authorized(t, gatefix.WithFaultyRegistry())
 		e.Faulty.FailNext("AttachReceipt", errors.New("disk full"))
-		r, err := e.Gate.Record(context.Background(), b, "ref-1")
+		r, err := e.Record(b, "ref-1")
 		require.ErrorIs(t, err, gate.ErrRegistryUnavailable)
 		require.Nil(t, r)
 		ent, _ := e.Entry(c)
 		require.Nil(t, ent.Receipt)
-		got, err := e.Gate.Record(context.Background(), b, "ref-1")
+		got, err := e.Record(b, "ref-1")
 		require.NoError(t, err)
 		ent, _ = e.Entry(c)
 		require.Equal(t, got, ent.Receipt)
@@ -236,7 +238,7 @@ func TestRecordFailures(t *testing.T) {
 	t.Run("lookup fails", func(t *testing.T) {
 		e, _, b, _ := authorized(t, gatefix.WithFaultyRegistry())
 		e.Faulty.FailNext("Get", errors.New("io"))
-		_, err := e.Gate.Record(context.Background(), b, "ref-1")
+		_, err := e.Record(b, "ref-1")
 		require.ErrorIs(t, err, gate.ErrRegistryUnavailable)
 	})
 }

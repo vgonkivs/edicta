@@ -28,10 +28,11 @@ from cbor_strict import Pairs, Raw, encode, head
 from edicta_v0 import (AUTHORIZATION, DA_CELESTIA_BLOB, DA_FIBRE, ED25519_L, MAX_ACTION_SIZE,
                       MAX_AUTHORIZATION_SIZE, MAX_RECEIPT_SIZE, RECEIPT, TAG_ACTION,
                       TAG_AUTHORIZATION_SIG, TAG_COMMITMENT, TAG_RECEIPT,
-                      TAG_RECEIPT_SIG, TAG_SIG, U64_MAX, AuthorizationCheck, Params, Reject,
+                      TAG_RECEIPT_SIG, TAG_RECORD_REQUEST, TAG_SIG, U64_MAX, AuthorizationCheck, Params, Reject,
                       action_hash, action_preimage_prefix, authorization_expires,
                       authorization_hash, check_anchor_time, check_registry_epoch,
-                      commitment_hash, receipt_hash, retention_margin, retention_window, route,
+                      commitment_hash, receipt_hash, record_message, retention_margin, retention_window, route,
+                      verify_record_request,
                       signing_message, tagged, to_cbor, verify_authorization, within_retention)
 from vecjson import (PATTERNS, authorization_to_json, commitment_to_json, gate_to_json,
                      params_to_json, pattern_bytes, receipt_to_json)
@@ -68,6 +69,24 @@ KEYS = {
     },
 }
 
+# Executor keys live in record_request.json, so keys.json stays as it was.
+EXECUTOR_KEYS = {
+    "executor1": {
+        "source": "RFC 8032 section 7.1 TEST SHA(abc)",
+        "seed_hex": "833fe62409237b9d62ec77587520911e9a759cec1d19755b7da901b96dca3d42",
+        "public_key_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+        "kat_message_hex": hashlib.sha512(b"abc").hexdigest(),
+        "kat_signature_hex": "dc2a4459e7369633a52b1bf277839a00201009a3efbf3ecb69bea2186c26b58909351fc9ac90b3ecfdfbc7c66431e0303dca179c138ac17ad9bef1177331a704",
+    },
+    "executor2": {
+        "source": "seed = SHA-256(\"edicta/v0 test executor2\")",
+        "seed_hex": hashlib.sha256(b"edicta/v0 test executor2").hexdigest(),
+    },
+}
+EXECUTOR_KEYS["executor2"]["public_key_hex"] = Ed25519PrivateKey.from_private_bytes(
+    bytes.fromhex(EXECUTOR_KEYS["executor2"]["seed_hex"])).public_key().public_bytes_raw().hex()
+KEYS_ALL = dict(KEYS, **EXECUTOR_KEYS)
+
 PARAMS = Params()
 T0 = 1791000000
 NOW = T0 + 60
@@ -77,7 +96,8 @@ TYPE_OCTETS = "application/octet-stream"
 TYPE_128 = "application/vnd.edicta.test." + "a" * 95 + "+cbor"
 assert len(TYPE_128) == 128
 TYPE_NOT_ALLOWED = "application/vnd.example.evm.tx.v0+rlp"
-GATE = {"gate_id": "gate-paper-1", "action_types": [IBKR, TYPE_JSON, TYPE_OCTETS, TYPE_128]}
+GID = "gate-paper-1"
+GATE = {"gate_id": GID, "action_types": [IBKR, TYPE_JSON, TYPE_OCTETS, TYPE_128]}
 PATTERN = "affine-7-3"
 
 
@@ -86,7 +106,7 @@ def h(label: str) -> bytes:
 
 
 def sk(name: str) -> Ed25519PrivateKey:
-    return Ed25519PrivateKey.from_private_bytes(bytes.fromhex(KEYS[name]["seed_hex"]))
+    return Ed25519PrivateKey.from_private_bytes(bytes.fromhex(KEYS_ALL[name]["seed_hex"]))
 
 
 NAMESPACE = bytes(19) + b"edicta/d01"  # version 0, 18 zero bytes, 10-byte sub-id
@@ -757,7 +777,10 @@ ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:
 
 
 def gate_pub(name: str = GATE_KEY) -> bytes:
-    return bytes.fromhex(KEYS[name]["public_key_hex"])
+    return bytes.fromhex(KEYS_ALL[name]["public_key_hex"])
+
+
+EXECUTOR = "executor1"
 
 
 def check_block(action_type: str, action: bytes, now: int = NOW, gate_id: str = "gate-paper-1",
@@ -973,7 +996,8 @@ def authorization_vectors(valid: list) -> dict:
             "gate": gate_to_json(GATE), "patterns": PATTERNS, "cases": cases, "reject": rejects}
 
 
-def receipt_for(chash: bytes, rail_ref: str = IBKR_ORDER_ID, recorded_at: int = RECORDED_AT) -> dict:
+def receipt_for(chash: bytes, rail_ref: str = IBKR_ORDER_ID, recorded_at: int = RECORDED_AT,
+                executor: str = EXECUTOR) -> dict:
     return {
         "version": 0,
         "commitment_hash": chash,
@@ -981,6 +1005,8 @@ def receipt_for(chash: bytes, rail_ref: str = IBKR_ORDER_ID, recorded_at: int = 
         "gate_pubkey": gate_pub(),
         "rail_ref": rail_ref,
         "recorded_at": recorded_at,
+        "executor_pubkey": gate_pub(executor),
+        "executor_signature": sk(executor).sign(record_message(chash, GID, rail_ref)),
     }
 
 
@@ -1008,6 +1034,8 @@ def receipt_vectors(valid: list) -> dict:
         "action_json_bytes", receipt_for(hashes["action_json_bytes"], rail_ref=h("example tx").hex()))
     add("receipt_recorded_at_max", "recorded_at = 2^63-1, the largest allowed uint.", "minimal_lmt",
         receipt_for(m, recorded_at=(1 << 63) - 1))
+    add("receipt_executor2", "The claim came from executor2, the other allowlisted executor.", "minimal_lmt",
+        receipt_for(m, executor="executor2"))
     for c in cases:
         assert len(bytes.fromhex(c["signed_receipt_hex"])) <= MAX_RECEIPT_SIZE
 
@@ -1045,7 +1073,7 @@ def receipt_vectors(valid: list) -> dict:
     big = base_signed + bytes(MAX_RECEIPT_SIZE + 1 - len(base_signed))
     rj("receipt_too_large", "D", "D0", f"{MAX_RECEIPT_SIZE + 1} bytes: a valid receipt followed by zero bytes. Size is checked before parsing, so this is not ErrTrailingData.", big, "ErrTooLarge")
     rj("receipt_trailing_byte", "D", "D2", "A valid signed receipt followed by one zero byte.", base_signed + b"\x00", "ErrTrailingData")
-    rj("receipt_unknown_key", "D", "D15", "Receipt key 9 (undefined) added.", resign(raw_receipt({9: 1})), "ErrUnknownKey")
+    rj("receipt_unknown_key", "D", "D15", "Receipt key 11 (undefined) added.", resign(raw_receipt({11: 1})), "ErrUnknownKey")
     rj("receipt_retired_rail_key", "D", "D15", "Receipt carries key 5 (rail, retired in draft.9) = 1.", resign(raw_receipt({5: 1})), "ErrUnknownKey")
     rj("receipt_retired_path_key", "D", "D15", "Receipt carries key 7 (path, retired in draft.9; now in the Authorization) = 1.",
        resign(raw_receipt({7: 1})), "ErrUnknownKey")
@@ -1053,6 +1081,10 @@ def receipt_vectors(valid: list) -> dict:
     rj("receipt_missing_rail_ref", "D", "D17", "Key 6 rail_ref absent.", resign(raw_receipt({}, drop=(6,))), "ErrMissingField")
     rj("receipt_missing_recorded_at", "D", "D17", "Key 8 recorded_at absent.", resign(raw_receipt({}, drop=(8,))), "ErrMissingField")
     rj("receipt_missing_signature", "D", "D17", "SignedReceipt without key 2.", encode({1: Raw(base_canon)}), "ErrMissingField")
+    rj("receipt_missing_executor_pubkey", "D", "D17", "Key 9 executor_pubkey absent.", resign(raw_receipt({}, drop=(9,))), "ErrMissingField")
+    rj("receipt_missing_executor_signature", "D", "D17", "Key 10 executor_signature absent.", resign(raw_receipt({}, drop=(10,))), "ErrMissingField")
+    rj("receipt_executor_pubkey_31_bytes", "D", "D18", "executor_pubkey of 31 bytes.", resign(raw_receipt({9: base_r["executor_pubkey"][:31]})), "ErrFieldSize")
+    rj("receipt_executor_signature_63_bytes", "D", "D18", "executor_signature of 63 bytes.", resign(raw_receipt({10: base_r["executor_signature"][:63]})), "ErrFieldSize")
     rj("receipt_rail_ref_bad_charset", "D", "D19", "rail_ref contains '#', outside the ID charset.", resign(raw_receipt({6: "1370093239#1"})), "ErrInvalidString")
     rj("receipt_rail_ref_empty", "D", "D18", "rail_ref is the empty string.", resign(raw_receipt({6: ""})), "ErrFieldSize")
     rj("receipt_rail_ref_129_chars", "D", "D18", "rail_ref of 129 characters.", resign(raw_receipt({6: "1" * 129})), "ErrFieldSize")
@@ -1082,6 +1114,9 @@ def receipt_vectors(valid: list) -> dict:
     s_rj("receipt_version_1", "R1", "version = 1.", dict(base_r, version=1), "ErrUnsupportedVersion")
     s_rj("receipt_recorded_at_2pow63", "R2", "recorded_at = 2^63.", dict(base_r, recorded_at=1 << 63), "ErrIntRange")
     s_rj("receipt_recorded_at_0", "R5", "recorded_at = 0.", dict(base_r, recorded_at=0), "ErrZeroValue")
+    gate_as_exec = dict(base_r, executor_pubkey=gate_pub(), executor_signature=sk(GATE_KEY).sign(record_message(m, GID, IBKR_ORDER_ID)))
+    s_rj("receipt_executor_is_gate_key", "R6", "executor_pubkey equals gate_pubkey; both signatures are valid. One key in two roles.",
+         gate_as_exec, "ErrKeyRole")
 
     # Signature checks.
     def g_rj(cid, rule, desc, r, sig):
@@ -1111,7 +1146,132 @@ def receipt_vectors(valid: list) -> dict:
     s_int = int.from_bytes(base_sig[32:], "little") + ED25519_L
     g_rj("receipt_sig_noncanonical_s", "G2", "S + L in place of S.", base_r, base_sig[:32] + s_int.to_bytes(32, "little"))
 
+    # The executor's signature, checked after the gate's.
+    def ge_rj(cid, rule, desc, r):
+        canon = encode(to_cbor(r, RECEIPT))
+        _, _, sig = sign_tagged(canon, receipt_hash, TAG_RECEIPT_SIG)
+        rj(cid, "G", rule, desc, signed_pair(canon, sig), "ErrInvalidPublicKey" if rule == "G0" else "ErrSignatureInvalid", r)
+
+    msg_m = record_message(m, GID, IBKR_ORDER_ID)
+    r_ei = dict(base_r, executor_pubkey=ident)
+    r_ei["executor_signature"], forged = small_order_forgery(ident, msg_m)
+    assert forged
+    ge_rj("receipt_executor_pubkey_identity", "G0", "executor_pubkey is the identity point with a forged R = identity, S = 0 claim; the gate signature is valid.", r_ei)
+    ge_rj("receipt_executor_signature_other_key", "G1", "executor_signature made by executor2 while executor_pubkey is executor1.",
+          dict(base_r, executor_signature=sk("executor2").sign(msg_m)))
+    ge_rj("receipt_executor_signature_other_rail_ref", "G1", "The executor signed rail_ref 1370093238; the receipt says 1370093239 and the gate signed that.",
+          dict(base_r, executor_signature=sk(EXECUTOR).sign(record_message(m, GID, "1370093238"))))
+    ge_rj("receipt_executor_signature_unprefixed_rail_ref", "G1", "The executor signed the message with the rail_ref length byte missing.",
+          dict(base_r, executor_signature=sk(EXECUTOR).sign(tagged(TAG_RECORD_REQUEST) + m + bytes([len(GID)]) + GID.encode() + IBKR_ORDER_ID.encode())))
+    ge_rj("receipt_executor_signature_other_gate", "G1", "The executor signed the same claim for gate-paper-2; the receipt is from gate-paper-1.",
+          dict(base_r, executor_signature=sk(EXECUTOR).sign(record_message(m, "gate-paper-2", IBKR_ORDER_ID))))
+    es = base_r["executor_signature"]
+    es_int = int.from_bytes(es[32:], "little") + ED25519_L
+    ge_rj("receipt_executor_signature_noncanonical_s", "G2", "executor_signature with S + L in place of S.",
+          dict(base_r, executor_signature=es[:32] + es_int.to_bytes(32, "little")))
+
     return {"format": FORMAT, "revision": REVISION, "gate": gate_to_json(GATE), "cases": cases, "reject": rejects}
+
+
+def record_request_vectors(valid: list) -> dict:
+    by_id = {v["id"]: v for v in valid}
+    executors = [gate_pub("executor1"), gate_pub("executor2")]
+    gate_keys = [gate_pub()]
+    agent = gate_pub("agent1")
+
+    def ctx(ref):
+        return bytes.fromhex(by_id[ref]["commitment_hash_hex"])
+
+    cases = []
+
+    def add(cid, desc, ref, rail_ref, signer=EXECUTOR):
+        ch = ctx(ref)
+        msg = record_message(ch, GID, rail_ref)
+        sig = sk(signer).sign(msg)
+        verify_record_request(ch, agent, GID, rail_ref, gate_pub(signer), sig, executors, gate_keys)
+        cases.append({"id": cid, "description": desc, "commitment_ref": ref, "commitment_hash_hex": ch.hex(),
+                      "agent_pubkey_hex": agent.hex(), "rail_ref": rail_ref, "signer": signer,
+                      "executor_pubkey_hex": gate_pub(signer).hex(), "record_message_hex": msg.hex(),
+                      "signature_hex": sig.hex()})
+
+    add("rec_minimal_lmt", "executor1 claims IBKR order id 1370093239 for minimal_lmt.", "minimal_lmt", IBKR_ORDER_ID)
+    add("rec_executor2", "executor2, the other allowlisted executor.", "minimal_lmt", IBKR_ORDER_ID, "executor2")
+    add("rec_rail_ref_one_char", "rail_ref of 1 character (length byte 0x01).", "minimal_lmt", "7")
+    add("rec_rail_ref_max", "rail_ref of 128 characters covering the whole ID charset (length byte 0x80).",
+        "minimal_lmt", (ID_ALPHABET * 2)[:128])
+    add("rec_rail_ref_tx_hash", "A 64-character hex transaction hash for the JSON action.", "action_json_bytes", h("example tx").hex())
+
+    m = ctx("minimal_lmt")
+    good_msg = record_message(m, GID, IBKR_ORDER_ID)
+    good_sig = sk(EXECUTOR).sign(good_msg)
+    rejects = []
+
+    def rj(cid, stage, rule, desc, expect, rail_ref=IBKR_ORDER_ID, key=gate_pub(EXECUTOR), sig=good_sig,
+           executor_keys=None, chash=m):
+        ek = executors if executor_keys is None else executor_keys
+        case = {"id": cid, "stage": stage, "rule": rule, "description": desc, "commitment_hash_hex": chash.hex(),
+                "agent_pubkey_hex": agent.hex(), "rail_ref": rail_ref, "executor_pubkey_hex": key.hex(),
+                "signature_hex": sig.hex()}
+        if executor_keys is not None:
+            case["executor_keys"] = [k.hex() for k in executor_keys]
+        case["expect_error"] = expect
+        try:
+            verify_record_request(chash, agent, GID, rail_ref, key, sig, ek, gate_keys)
+        except Reject as e:
+            assert e.sentinel == expect, (cid, e)
+        else:
+            raise AssertionError(f"{cid} accepted")
+        rejects.append(case)
+
+    def raw_msg(rail: bytes, chash: bytes = m) -> bytes:
+        return tagged(TAG_RECORD_REQUEST) + chash + bytes([len(GID)]) + GID.encode() + bytes([len(rail)]) + rail
+
+    for cid, rr, exp, desc in [
+        ("rec_rail_ref_empty", "", "ErrFieldSize", "rail_ref is empty."),
+        ("rec_rail_ref_129_chars", "1" * 129, "ErrFieldSize", "rail_ref of 129 characters."),
+        ("rec_rail_ref_bad_charset", "1370093239#1", "ErrInvalidString", "rail_ref contains '#'."),
+        ("rec_rail_ref_unicode", "13700932\u03bf9", "ErrInvalidString", "rail_ref contains U+03BF (Greek small omicron)."),
+    ]:
+        b = rr.encode("utf-8")
+        sig = sk(EXECUTOR).sign(raw_msg(b)) if len(b) <= 255 else sk(EXECUTOR).sign(tagged(TAG_RECORD_REQUEST) + m + bytes([len(GID)]) + GID.encode() + b)
+        rj(cid, "D", "RQ1", desc + " Signed by executor1 over the raw bytes, so only the rail_ref rule fails.", exp, rail_ref=rr, sig=sig)
+    ident = ed.encode(ed.IDENTITY)
+    fsig, forged = small_order_forgery(ident, good_msg)
+    assert forged
+    rj("rec_executor_key_identity", "G", "G0", "Presented executor key is the identity point; R = identity, S = 0 satisfies the cofactorless equation, so only G0 rejects it.",
+       "ErrInvalidPublicKey", key=ident, sig=fsig, executor_keys=executors + [ident])
+    rj("rec_sig_wrong_key", "G", "G1", "Signed by executor2, presented as executor1.", "ErrSignatureInvalid", sig=sk("executor2").sign(good_msg))
+    rj("rec_sig_other_rail_ref", "G", "G1", "Signed over rail_ref 1370093238, presented with 1370093239.", "ErrSignatureInvalid",
+       sig=sk(EXECUTOR).sign(record_message(m, GID, "1370093238")))
+    rj("rec_sig_other_commitment", "G", "G1", "Signed over the commitment_hash of ttl_exactly_max, presented for minimal_lmt.", "ErrSignatureInvalid",
+       sig=sk(EXECUTOR).sign(record_message(ctx("ttl_exactly_max"), GID, IBKR_ORDER_ID)))
+    rj("rec_sig_other_gate", "G", "G1", "Signed for gate-paper-2, presented to gate-paper-1: the gate binds its own gate_id into the message.",
+       "ErrSignatureInvalid", sig=sk(EXECUTOR).sign(record_message(m, "gate-paper-2", IBKR_ORDER_ID)))
+    rj("rec_sig_gate_id_unprefixed", "G", "G1", "Signed over the gate_id without its length byte.", "ErrSignatureInvalid",
+       sig=sk(EXECUTOR).sign(tagged(TAG_RECORD_REQUEST) + m + GID.encode() + bytes([10]) + IBKR_ORDER_ID.encode()))
+    rj("rec_sig_rail_ref_unprefixed", "G", "G1", "Signed with the rail_ref length byte missing.", "ErrSignatureInvalid",
+       sig=sk(EXECUTOR).sign(tagged(TAG_RECORD_REQUEST) + m + bytes([len(GID)]) + GID.encode() + IBKR_ORDER_ID.encode()))
+    rj("rec_sig_tag_unprefixed", "G", "G1", "Signed over the tag without its length byte.", "ErrSignatureInvalid",
+       sig=sk(EXECUTOR).sign(TAG_RECORD_REQUEST + m + bytes([len(GID)]) + GID.encode() + bytes([10]) + IBKR_ORDER_ID.encode()))
+    rj("rec_sig_under_receipt_sig_tag", "G", "G1", "Signed with edicta/v0/receipt-sig in place of edicta/v0/record-request.", "ErrSignatureInvalid",
+       sig=sk(EXECUTOR).sign(tagged(TAG_RECEIPT_SIG) + m + bytes([len(GID)]) + GID.encode() + bytes([10]) + IBKR_ORDER_ID.encode()))
+    rj("rec_sig_over_hash", "G", "G1", "Signed over SHA-256(record message) instead of the message itself.", "ErrSignatureInvalid",
+       sig=sk(EXECUTOR).sign(hashlib.sha256(good_msg).digest()))
+    s_int = int.from_bytes(good_sig[32:], "little") + ED25519_L
+    rj("rec_sig_noncanonical_s", "G", "G2", "S + L in place of S.", "ErrSignatureInvalid", sig=good_sig[:32] + s_int.to_bytes(32, "little"))
+    rj("rec_executor_not_allowed", "R", "RQ3", "A valid request signed by agent2, which is not in the executor allowlist.", "ErrExecutorNotAllowed",
+       key=gate_pub("agent2"), sig=sk("agent2").sign(good_msg))
+    rj("rec_gate_key_not_executor", "R", "RQ3", "A valid request signed by the gate's own key, which is not in the executor allowlist.", "ErrExecutorNotAllowed",
+       key=gate_pub(), sig=sk(GATE_KEY).sign(good_msg))
+    rj("rec_gate_key_in_allowlist", "R", "RQ4", "Misconfigured allowlist that contains the gate key; the request is signed by the gate key.", "ErrKeyRole",
+       key=gate_pub(), sig=sk(GATE_KEY).sign(good_msg), executor_keys=executors + [gate_pub()])
+    rj("rec_agent_key_in_allowlist", "R", "RQ4", "Misconfigured allowlist that contains agent1, the commitment's own agent key; signed by agent1.", "ErrKeyRole",
+       key=agent, sig=sk("agent1").sign(good_msg), executor_keys=executors + [agent])
+
+    return {"format": FORMAT, "revision": REVISION,
+            "gate": {"gate_id": GATE["gate_id"], "gate_pubkey_hex": gate_pub().hex(),
+                     "executor_keys": [k.hex() for k in executors]},
+            "keys": EXECUTOR_KEYS, "cases": cases, "reject": rejects}
 
 
 def anchor_vectors() -> dict:
@@ -1248,6 +1408,7 @@ def main():
     auth = authorization_vectors(valid)
     write("authorization.json", auth)
     write("receipt.json", receipt_vectors(valid))
+    write("record_request.json", record_request_vectors(valid))
     write("anchor.json", anchor_vectors())
     write("payload_blob.json", gen_payload_blob.build())
 

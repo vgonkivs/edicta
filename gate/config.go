@@ -23,6 +23,9 @@ type Config struct {
 	// it is signed, in seconds; above SkewS.
 	MaxAuthorizationTTL uint64
 	OtherGateKeys       [][32]byte // gate keys besides the signer, refused as agent keys
+	// ExecutorKeys is the executor allowlist: the keys whose signed record
+	// requests Record accepts. Disjoint from gate and agent keys.
+	ExecutorKeys [][32]byte
 }
 
 // DefaultConfig holds the defaults; the zero value of Config is not usable.

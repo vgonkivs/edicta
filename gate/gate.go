@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"math"
 	"math/bits"
+	"slices"
 	"sync/atomic"
 
 	"github.com/vgonkivs/edicta/commitment"
@@ -23,6 +24,7 @@ type Gate struct {
 	d         Deps
 	log       *slog.Logger
 	gateKeys  map[[32]byte]struct{}
+	executors map[[32]byte]struct{}
 	signerPub []byte
 	epoch     uint64
 	watermark atomic.Uint64
@@ -39,6 +41,34 @@ type Result struct {
 	// success, and with ErrNonceUsed when the same commitment is presented
 	// again with the committed action bytes.
 	Authorization []byte
+}
+
+// checkScope validates the gate id and the action type allowlist.
+func checkScope(sc commitment.GateScope) error {
+	if n := len(sc.GateID); n < 1 || n > 64 {
+		return fmt.Errorf("gate id length %d", n)
+	}
+	for i := 0; i < len(sc.GateID); i++ {
+		c := sc.GateID[i]
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' ||
+			c == '.' || c == '_' || c == ':' || c == '/' || c == '-') {
+			return errors.New("gate id has a character outside the id charset")
+		}
+	}
+	if len(sc.ActionTypes) == 0 {
+		return errors.New("no action types")
+	}
+	seen := make(map[string]struct{}, len(sc.ActionTypes))
+	for _, t := range sc.ActionTypes {
+		if !commitment.ValidMediaType(t, 128) {
+			return fmt.Errorf("action type %q is not a media type", t)
+		}
+		if _, dup := seen[t]; dup {
+			return fmt.Errorf("duplicate action type %q", t)
+		}
+		seen[t] = struct{}{}
+	}
+	return nil
 }
 
 // hasKey is implemented by allowlists that can say whether a key is listed.
@@ -69,6 +99,10 @@ func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
 	if d.Committers[commitment.DACelestiaBlob] == nil {
 		return nil, bad("a committer for da = 2 is required")
 	}
+	if err := checkScope(cfg.Scope); err != nil {
+		return nil, bad("%v", err)
+	}
+	cfg.Scope.ActionTypes = slices.Clone(cfg.Scope.ActionTypes)
 
 	g := &Gate{cfg: cfg, d: d, log: d.Logger, gateKeys: make(map[[32]byte]struct{}), sem: newWeightedSem(cfg.MaxFetchBytes)}
 	if g.log == nil {
@@ -94,6 +128,21 @@ func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
 			}
 		}
 	}
+	g.executors = make(map[[32]byte]struct{}, len(cfg.ExecutorKeys))
+	for i, k := range cfg.ExecutorKeys {
+		if err := commitment.CheckPublicKey(k[:]); err != nil {
+			return nil, fmt.Errorf("gate: executor key %d: %w", i, err)
+		}
+		if _, ok := g.gateKeys[k]; ok {
+			return nil, fmt.Errorf("%w: executor key %d is a gate key", commitment.ErrKeyRole, i)
+		}
+		if hk, ok := d.Allowlist.(hasKey); ok && hk.HasKey(k) {
+			return nil, fmt.Errorf("%w: executor key %d is an agent key", commitment.ErrKeyRole, i)
+		}
+		g.executors[k] = struct{}{}
+	}
+	cfg.ExecutorKeys = slices.Clone(cfg.ExecutorKeys)
+	g.cfg = cfg
 
 	now := g.now()
 	if now == 0 {
@@ -325,25 +374,29 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	return res, nil
 }
 
-// replay answers a presentation whose nonce is already used. It reports the
-// stored entry only if it belongs to the same commitment and its action hash
-// equals the presented one. Otherwise it reports the used nonce and nothing
-// of the entry.
+// replay answers a presentation whose nonce is already used. The signed
+// Authorization stored with the entry is the source of truth: it is handed
+// out only if it names this commitment and the presented action hash.
+// Otherwise it reports the used nonce and nothing of the entry, or a mismatch
+// if the stored token disagrees with the commitment.
 func (g *Gate) replay(h, actionHash commitment.Hash, old registry.Entry) (Result, error) {
 	res := Result{CommitmentHash: h}
 	if old.CommitmentHash != h {
 		return res, ErrNonceUsed
 	}
 	res.ActionHash = actionHash
-	if subtle.ConstantTimeCompare(old.ActionHash[:], actionHash[:]) != 1 {
-		g.log.Error("stored action hash differs from the commitment's own",
+	sa, ah, err := commitment.DecodeSignedAuthorization(old.Authorization)
+	if err != nil ||
+		!ed25519.Verify(g.signerPub, commitment.AuthorizationSigningMessage(ah), sa.Signature) ||
+		subtle.ConstantTimeCompare(sa.Authorization.CommitmentHash, h[:]) != 1 ||
+		subtle.ConstantTimeCompare(sa.Authorization.ActionHash, actionHash[:]) != 1 {
+		g.log.Error("stored authorization disagrees with the commitment",
 			"commitment_hash", hex.EncodeToString(h[:]),
-			"stored_action_hash", hex.EncodeToString(old.ActionHash[:]),
 			"action_hash", hex.EncodeToString(actionHash[:]))
 		if g.d.Metrics != nil {
 			g.d.Metrics.StoredActionMismatch(h)
 		}
-		return res, fmt.Errorf("%w: stored entry disagrees", commitment.ErrActionMismatch)
+		return res, fmt.Errorf("%w: stored authorization disagrees", commitment.ErrActionMismatch)
 	}
 	res.Path = old.Path
 	res.Authorization = bytes.Clone(old.Authorization)
@@ -386,7 +439,7 @@ func (g *Gate) signAuthorization(ctx context.Context, h, actionHash commitment.H
 // is the gate's record of the claim, not proof of execution. At most one
 // receipt is stored per decision; a second call returns it with
 // ErrReceiptExists.
-func (g *Gate) Record(ctx context.Context, envelope []byte, railRef string) ([]byte, error) {
+func (g *Gate) Record(ctx context.Context, envelope []byte, railRef string, executorPub ed25519.PublicKey, executorSig []byte) ([]byte, error) {
 	if g.closed.Load() {
 		return nil, ErrClosed
 	}
@@ -400,6 +453,17 @@ func (g *Gate) Record(ctx context.Context, envelope []byte, railRef string) ([]b
 	h, err := commitment.HashOf(&s.Commitment)
 	if err != nil {
 		return nil, err
+	}
+	if err := commitment.VerifyRecordRequest(h, g.cfg.Scope.GateID, railRef, executorPub, executorSig); err != nil {
+		return nil, err
+	}
+	var ek [32]byte
+	copy(ek[:], executorPub)
+	if _, ok := g.executors[ek]; !ok {
+		return nil, ErrExecutorNotAllowed
+	}
+	if _, isGate := g.gateKeys[ek]; isGate || bytes.Equal(executorPub, s.Commitment.AgentPubKey) {
+		return nil, fmt.Errorf("%w: executor key", commitment.ErrKeyRole)
 	}
 	var key registry.Key
 	copy(key.PubKey[:], s.Commitment.AgentPubKey)
@@ -421,7 +485,7 @@ func (g *Gate) Record(ctx context.Context, envelope []byte, railRef string) ([]b
 	if at == 0 {
 		return nil, fmt.Errorf("%w: now %d", ErrClockRegression, at)
 	}
-	receipt, err := g.signReceipt(ctx, h, railRef, at)
+	receipt, err := g.signReceipt(ctx, h, railRef, executorPub, executorSig, at)
 	if err != nil {
 		return nil, err
 	}
@@ -519,13 +583,16 @@ func (g *Gate) sign(ctx context.Context, msg []byte) (sig []byte, err error) {
 	return g.d.Signer.Sign(ctx, msg)
 }
 
-func (g *Gate) signReceipt(ctx context.Context, h commitment.Hash, ref string, recordedAt uint64) ([]byte, error) {
+func (g *Gate) signReceipt(ctx context.Context, h commitment.Hash, ref string, executorPub, executorSig []byte, recordedAt uint64) ([]byte, error) {
 	r := commitment.Receipt{
 		CommitmentHash: h[:],
 		GateID:         g.cfg.Scope.GateID,
 		GatePubKey:     g.signerPub,
 		RailRef:        ref,
 		RecordedAt:     recordedAt,
+
+		ExecutorPubKey:    bytes.Clone(executorPub),
+		ExecutorSignature: bytes.Clone(executorSig),
 	}
 	canon, err := commitment.EncodeReceipt(&r)
 	if err != nil {

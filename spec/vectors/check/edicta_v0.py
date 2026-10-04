@@ -25,6 +25,7 @@ TAG_RECEIPT_SIG = b"edicta/v0/receipt-sig"
 TAG_ACTION = b"edicta/v0/action"
 TAG_AUTHORIZATION = b"edicta/v0/authorization"
 TAG_AUTHORIZATION_SIG = b"edicta/v0/authorization-sig"
+TAG_RECORD_REQUEST = b"edicta/v0/record-request"
 
 MAX_SIGNED_SIZE = 2176
 MAX_COMMITMENT_SIZE = 2048
@@ -442,7 +443,64 @@ def authorization_expires(valid_until: int, authorized_at: int, max_ttl: int) ->
     return min(valid_until, authorized_at + max_ttl)
 
 
-# Receipt (gate notarization of an integrator-supplied rail reference).
+# Record request: an allowlisted executor's signed claim of a rail reference
+# for one decision at one gate. Both variable fields carry a length byte, so
+# gate_id || rail_ref splits one way only.
+
+RAIL_REF_CHARS = ID_CHARS
+MAX_RAIL_REF = 128
+
+
+def check_rail_ref(rail_ref: str):
+    if not 1 <= len(rail_ref.encode("utf-8")) <= MAX_RAIL_REF:
+        raise Reject("ErrFieldSize", f"rail_ref of {len(rail_ref.encode('utf-8'))} bytes")
+    if any(c not in RAIL_REF_CHARS for c in rail_ref):
+        raise Reject("ErrInvalidString", "rail_ref character outside the ID charset")
+
+
+def record_message(commitment_hash_: bytes, gate_id: str, rail_ref: str) -> bytes:
+    assert len(commitment_hash_) == 32
+    g = gate_id.encode("ascii")
+    r = rail_ref.encode("ascii")
+    assert 1 <= len(g) <= 64 and 1 <= len(r) <= MAX_RAIL_REF
+    return tagged(TAG_RECORD_REQUEST) + commitment_hash_ + bytes([len(g)]) + g + bytes([len(r)]) + r
+
+
+def verify_record_signature(executor_pubkey: bytes, msg: bytes, sig: bytes):
+    """Key validity, S < L, then the cofactorless equation, over the record message itself."""
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    problem = public_key_problem(executor_pubkey)
+    if problem:
+        raise Reject("ErrInvalidPublicKey", problem)
+    if len(sig) != 64 or int.from_bytes(sig[32:], "little") >= ED25519_L:
+        raise Reject("ErrSignatureInvalid", "S >= L")
+    ours = cofactorless_ok(executor_pubkey, msg, sig)
+    try:
+        Ed25519PublicKey.from_public_bytes(executor_pubkey).verify(sig, msg)
+        lib = True
+    except (InvalidSignature, ValueError):
+        lib = False
+    if ours != lib:
+        raise RuntimeError(f"G1 disagreement: cofactorless={ours}, OpenSSL={lib}")
+    if not ours:
+        raise Reject("ErrSignatureInvalid", "cofactorless equation fails")
+
+
+def verify_record_request(commitment_hash_: bytes, agent_pubkey: bytes, gate_id: str, rail_ref: str,
+                          executor_pubkey: bytes, sig: bytes, executor_keys: list, gate_keys: list):
+    """The stateless part of the gate's Record, in this fixed order: rail_ref,
+    signature under the presented executor key, allowlist, key roles."""
+    check_rail_ref(rail_ref)
+    verify_record_signature(executor_pubkey, record_message(commitment_hash_, gate_id, rail_ref), sig)
+    if executor_pubkey not in executor_keys:
+        raise Reject("ErrExecutorNotAllowed")
+    if executor_pubkey == agent_pubkey or executor_pubkey in gate_keys:
+        raise Reject("ErrKeyRole", "executor key is also an agent or gate key")
+
+
+# Receipt (gate notarization of an allowlisted executor's claim).
 
 RECEIPT = {
     1: ("version", "uint", True, None),
@@ -451,6 +509,8 @@ RECEIPT = {
     4: ("gate_pubkey", "bstr", True, (32, 32)),
     6: ("rail_ref", "tstr", True, (1, 128, ID_CHARS)),
     8: ("recorded_at", "uint", True, None),
+    9: ("executor_pubkey", "bstr", True, (32, 32)),
+    10: ("executor_signature", "bstr", True, (64, 64)),
 }
 
 SIGNED_RECEIPT = {
@@ -476,6 +536,8 @@ def validate_receipt_static(r: dict):
         raise Reject("ErrIntRange")
     if r["recorded_at"] == 0:
         raise Reject("ErrZeroValue", "recorded_at")
+    if r["executor_pubkey"] == r["gate_pubkey"]:
+        raise Reject("ErrKeyRole", "executor key equals the gate key")
 
 
 def verify_receipt(data: bytes):
@@ -484,7 +546,10 @@ def verify_receipt(data: bytes):
     signed, canon = decode_signed_receipt(data)
     validate_receipt_static(signed["receipt"])
     h = receipt_hash(canon)
-    _verify_tagged_hash(signed["receipt"]["gate_pubkey"], h, signed["signature"], TAG_RECEIPT_SIG)
+    r = signed["receipt"]
+    _verify_tagged_hash(r["gate_pubkey"], h, signed["signature"], TAG_RECEIPT_SIG)
+    verify_record_signature(r["executor_pubkey"], record_message(r["commitment_hash"], r["gate_id"], r["rail_ref"]),
+                            r["executor_signature"])
     return signed, h
 
 

@@ -19,6 +19,8 @@ type receiptInput struct {
 	GatePubKey     string `json:"gate_pubkey"`
 	RailRef        string `json:"rail_ref"`
 	RecordedAt     string `json:"recorded_at"`
+	ExecutorPubKey string `json:"executor_pubkey"`
+	ExecutorSig    string `json:"executor_signature"`
 }
 
 type receiptFile struct {
@@ -49,6 +51,9 @@ func toReceipt(t *testing.T, in receiptInput) *commitment.Receipt {
 		GatePubKey:     mustHex(t, in.GatePubKey),
 		RailRef:        in.RailRef,
 		RecordedAt:     u64(t, in.RecordedAt),
+
+		ExecutorPubKey:    mustHex(t, in.ExecutorPubKey),
+		ExecutorSignature: mustHex(t, in.ExecutorSig),
 	}
 }
 
@@ -57,7 +62,7 @@ func TestReceiptValidVectors(t *testing.T) {
 	loadJSON(t, "receipt.json", &rf)
 	vf := loadValid(t)
 	gate1 := loadKey(t, "gate1")
-	require.GreaterOrEqualf(t, len(rf.Cases), 5, "%d receipt vectors", len(rf.Cases))
+	require.GreaterOrEqualf(t, len(rf.Cases), 6, "%d receipt vectors", len(rf.Cases))
 	for _, rc := range rf.Cases {
 		t.Run(rc.ID, func(t *testing.T) {
 			r := toReceipt(t, rc.Input)
@@ -85,7 +90,7 @@ func TestReceiptValidVectors(t *testing.T) {
 			signed, err := commitment.EncodeSignedReceipt(&commitment.SignedReceipt{Receipt: *r, Signature: wantSig})
 			require.NoErrorf(t, err, "EncodeSignedReceipt: %v\n got %x\nwant %x", err, signed, wantSigned)
 			require.Equalf(t, hex.EncodeToString(wantSigned), hex.EncodeToString(signed), "EncodeSignedReceipt: %v\n got %x\nwant %x", err, signed, wantSigned)
-			require.LessOrEqualf(t, len(signed), 350, "signed receipt of %d bytes", len(signed))
+			require.LessOrEqualf(t, len(signed), 452, "signed receipt of %d bytes", len(signed))
 			require.LessOrEqualf(t, len(signed), commitment.MaxReceiptSize, "signed receipt of %d bytes", len(signed))
 
 			sr, dh, err := commitment.DecodeSignedReceipt(wantSigned)
@@ -104,7 +109,7 @@ func TestReceiptValidVectors(t *testing.T) {
 func TestReceiptRejectVectors(t *testing.T) {
 	var rf receiptFile
 	loadJSON(t, "receipt.json", &rf)
-	require.GreaterOrEqualf(t, len(rf.Reject), 36, "%d reject vectors", len(rf.Reject))
+	require.GreaterOrEqualf(t, len(rf.Reject), 47, "%d reject vectors", len(rf.Reject))
 	for _, rc := range rf.Reject {
 		t.Run(rc.ID, func(t *testing.T) {
 			b := mustHex(t, rc.SignedReceiptHex)
@@ -176,6 +181,7 @@ func TestReceiptRailRefIsOpaque(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			r := *base
 			r.RailRef = ref
+			r.ExecutorSignature = signRecord(t, "executor1", base.GateID, base.CommitmentHash, ref)
 			canon, err := commitment.EncodeReceipt(&r)
 			require.NoError(t, err)
 			h := commitment.HashReceipt(canon)
@@ -199,5 +205,24 @@ func TestReceiptVectorsReferenceValidCommitments(t *testing.T) {
 		vc := validCaseByID(t, vf, rc.CommitmentRef)
 		assert.Equal(t, vc.CommitmentHashHex, rc.Input.CommitmentHash, rc.ID)
 		assert.Equal(t, vf.Gate.GateID, rc.Input.GateID, rc.ID)
+	}
+}
+
+// The executor's claim inside a receipt verifies on its own, without the
+// gate's key, and does not survive a change of rail_ref or commitment.
+func TestReceiptExecutorClaimVerifiesWithoutTheGate(t *testing.T) {
+	var rf receiptFile
+	loadJSON(t, "receipt.json", &rf)
+	for _, rc := range rf.Cases {
+		t.Run(rc.ID, func(t *testing.T) {
+			sr, _, err := commitment.VerifyReceipt(mustHex(t, rc.SignedReceiptHex))
+			require.NoError(t, err)
+			r := sr.Receipt
+			require.NoError(t, commitment.VerifyRecordRequest(commitment.Hash(r.CommitmentHash), r.GateID, r.RailRef, r.ExecutorPubKey, r.ExecutorSignature))
+			assert.NotEqual(t, r.GatePubKey, r.ExecutorPubKey)
+			assert.Error(t, commitment.VerifyRecordRequest(commitment.Hash(r.CommitmentHash), r.GateID, r.RailRef+"x", r.ExecutorPubKey, r.ExecutorSignature))
+			assert.Error(t, commitment.VerifyRecordRequest(commitment.Hash(r.CommitmentHash), "gate-other", r.RailRef, r.ExecutorPubKey, r.ExecutorSignature))
+			assert.Error(t, commitment.VerifyRecordRequest(commitment.Hash{}, r.GateID, r.RailRef, r.ExecutorPubKey, r.ExecutorSignature))
+		})
 	}
 }

@@ -191,7 +191,7 @@ func TestSchemaShape(t *testing.T) {
 	assert.ElementsMatch(t, []string{"GateID"}, names(commitment.Scope{}))
 	assert.ElementsMatch(t, []string{"Type", "Hash"}, names(commitment.Action{}))
 	assert.ElementsMatch(t, []string{"GateID", "ActionTypes"}, names(commitment.GateScope{}))
-	assert.ElementsMatch(t, []string{"Version", "CommitmentHash", "GateID", "GatePubKey", "RailRef", "RecordedAt"}, names(commitment.Receipt{}))
+	assert.ElementsMatch(t, []string{"Version", "CommitmentHash", "GateID", "GatePubKey", "RailRef", "RecordedAt", "ExecutorPubKey", "ExecutorSignature"}, names(commitment.Receipt{}))
 	assert.ElementsMatch(t, []string{"Version", "CommitmentHash", "ActionHash", "GateID", "Expires", "Path"}, names(commitment.Authorization{}))
 }
 

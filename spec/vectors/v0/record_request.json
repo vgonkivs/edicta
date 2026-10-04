@@ -1,0 +1,333 @@
+{
+  "format": "edicta-vectors/v0",
+  "revision": "v0-draft.9",
+  "gate": {
+    "gate_id": "gate-paper-1",
+    "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+    "executor_keys": [
+      "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "0dabfd18f99c312bb448530e77f485d8312a70e00dfed4440a7f3286426aeaaf"
+    ]
+  },
+  "keys": {
+    "executor1": {
+      "source": "RFC 8032 section 7.1 TEST SHA(abc)",
+      "seed_hex": "833fe62409237b9d62ec77587520911e9a759cec1d19755b7da901b96dca3d42",
+      "public_key_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "kat_message_hex": "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+      "kat_signature_hex": "dc2a4459e7369633a52b1bf277839a00201009a3efbf3ecb69bea2186c26b58909351fc9ac90b3ecfdfbc7c66431e0303dca179c138ac17ad9bef1177331a704"
+    },
+    "executor2": {
+      "source": "seed = SHA-256(\"edicta/v0 test executor2\")",
+      "seed_hex": "3aec42b29d0320b2123b3bad11fd7d5168e052f593b80b7dbf0d6316d3b6d6c8",
+      "public_key_hex": "0dabfd18f99c312bb448530e77f485d8312a70e00dfed4440a7f3286426aeaaf"
+    }
+  },
+  "cases": [
+    {
+      "id": "rec_minimal_lmt",
+      "description": "executor1 claims IBKR order id 1370093239 for minimal_lmt.",
+      "commitment_ref": "minimal_lmt",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "signer": "executor1",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "record_message_hex": "186564696374612f76302f7265636f72642d72657175657374e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d0c676174652d70617065722d310a31333730303933323339",
+      "signature_hex": "c209bec78ec15ce9783f54b680fa3cdd83f2886761292e1dc3383f316ff20e3960b89295a2d3e0941b2f204f5f4028d3028b0e4b700ba073b594da463bed2003"
+    },
+    {
+      "id": "rec_executor2",
+      "description": "executor2, the other allowlisted executor.",
+      "commitment_ref": "minimal_lmt",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "signer": "executor2",
+      "executor_pubkey_hex": "0dabfd18f99c312bb448530e77f485d8312a70e00dfed4440a7f3286426aeaaf",
+      "record_message_hex": "186564696374612f76302f7265636f72642d72657175657374e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d0c676174652d70617065722d310a31333730303933323339",
+      "signature_hex": "c95a7f8a5f53d4be148114acb0fff1c87d9d001ca849926fce143a2e6530c6f9e87de493ce1d9a21eb81629828c4f6b1bda9e6110779107ad3f29a3376a54102"
+    },
+    {
+      "id": "rec_rail_ref_one_char",
+      "description": "rail_ref of 1 character (length byte 0x01).",
+      "commitment_ref": "minimal_lmt",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "7",
+      "signer": "executor1",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "record_message_hex": "186564696374612f76302f7265636f72642d72657175657374e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d0c676174652d70617065722d310137",
+      "signature_hex": "2ecfca5fcb7e3522775a78c5b3f550f886fac7656b49b3593ec45eb15d1f1bbfe2d55d8104420b154e88464ec928a67cc50a15480249770fc119dff5a060c802"
+    },
+    {
+      "id": "rec_rail_ref_max",
+      "description": "rail_ref of 128 characters covering the whole ID charset (length byte 0x80).",
+      "commitment_ref": "minimal_lmt",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678",
+      "signer": "executor1",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "record_message_hex": "186564696374612f76302f7265636f72642d72657175657374e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d0c676174652d70617065722d31804142434445464748494a4b4c4d4e4f505152535455565758595a6162636465666768696a6b6c6d6e6f707172737475767778797a303132333435363738392e5f3a2f2d4142434445464748494a4b4c4d4e4f505152535455565758595a6162636465666768696a6b6c6d6e6f707172737475767778797a303132333435363738",
+      "signature_hex": "66ad19079865ff74fc51e36a6412ee2605c64e4f394fc059fabfcc24fcab0508097022e05726fbaaf0fdbafc839afca86500a0a8a73521b68eae95718204e102"
+    },
+    {
+      "id": "rec_rail_ref_tx_hash",
+      "description": "A 64-character hex transaction hash for the JSON action.",
+      "commitment_ref": "action_json_bytes",
+      "commitment_hash_hex": "48834b7710c23b6c8b550ae505b1577198ddabe13914ef8a2a64ba9f49682a2d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "68c215810c8dfb9018be9d8a37ff37979074fc567502149fae4f5c00e4c17848",
+      "signer": "executor1",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "record_message_hex": "186564696374612f76302f7265636f72642d7265717565737448834b7710c23b6c8b550ae505b1577198ddabe13914ef8a2a64ba9f49682a2d0c676174652d70617065722d314036386332313538313063386466623930313862653964386133376666333739373930373466633536373530323134396661653466356330306534633137383438",
+      "signature_hex": "7e61f20789324eaf7b978df52208368a16e3adf888fecd08fa17c39074db89cead2c0eeea4b931782fff104580da0e3d8d42a1c689a8272e2c06b8f67c270507"
+    }
+  ],
+  "reject": [
+    {
+      "id": "rec_rail_ref_empty",
+      "stage": "D",
+      "rule": "RQ1",
+      "description": "rail_ref is empty. Signed by executor1 over the raw bytes, so only the rail_ref rule fails.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "signature_hex": "d8b778c0b84f5623986e94e969b702a2ade9f68893bd87041d4e30574317d397b7c80a29612ea88a937b5d8dda0d15189cc4ed4f60e29eadc6ec9828ea47dd01",
+      "expect_error": "ErrFieldSize"
+    },
+    {
+      "id": "rec_rail_ref_129_chars",
+      "stage": "D",
+      "rule": "RQ1",
+      "description": "rail_ref of 129 characters. Signed by executor1 over the raw bytes, so only the rail_ref rule fails.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "signature_hex": "e83edc1e0c8aca57abdb2644e096f14f032ff6614057c4dba8185b9707986d21695ee99a7c52b14b0f749438dddf8cc7c5982cc9b41d4f63b7da2d743eef6a09",
+      "expect_error": "ErrFieldSize"
+    },
+    {
+      "id": "rec_rail_ref_bad_charset",
+      "stage": "D",
+      "rule": "RQ1",
+      "description": "rail_ref contains '#'. Signed by executor1 over the raw bytes, so only the rail_ref rule fails.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239#1",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "signature_hex": "c2a5da098b1cfa012477d5f6c33a90ea8a3dc2f277915f95998f0c46c8779768ff2be733bfcf4feb5603492deba79b0686fe6d16df9daab6e57772a3d6742008",
+      "expect_error": "ErrInvalidString"
+    },
+    {
+      "id": "rec_rail_ref_unicode",
+      "stage": "D",
+      "rule": "RQ1",
+      "description": "rail_ref contains U+03BF (Greek small omicron). Signed by executor1 over the raw bytes, so only the rail_ref rule fails.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "13700932\u03bf9",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "signature_hex": "643a745452c48d3804e2598d6b949960392c342c8832bbb1e8ff2599e16c9648f40854588557079af92d15a4859f10ef81324607470892a12e828ac6c086000b",
+      "expect_error": "ErrInvalidString"
+    },
+    {
+      "id": "rec_executor_key_identity",
+      "stage": "G",
+      "rule": "G0",
+      "description": "Presented executor key is the identity point; R = identity, S = 0 satisfies the cofactorless equation, so only G0 rejects it.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "0100000000000000000000000000000000000000000000000000000000000000",
+      "signature_hex": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "executor_keys": [
+        "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+        "0dabfd18f99c312bb448530e77f485d8312a70e00dfed4440a7f3286426aeaaf",
+        "0100000000000000000000000000000000000000000000000000000000000000"
+      ],
+      "expect_error": "ErrInvalidPublicKey"
+    },
+    {
+      "id": "rec_sig_wrong_key",
+      "stage": "G",
+      "rule": "G1",
+      "description": "Signed by executor2, presented as executor1.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "signature_hex": "c95a7f8a5f53d4be148114acb0fff1c87d9d001ca849926fce143a2e6530c6f9e87de493ce1d9a21eb81629828c4f6b1bda9e6110779107ad3f29a3376a54102",
+      "expect_error": "ErrSignatureInvalid"
+    },
+    {
+      "id": "rec_sig_other_rail_ref",
+      "stage": "G",
+      "rule": "G1",
+      "description": "Signed over rail_ref 1370093238, presented with 1370093239.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "signature_hex": "5ea1744de5e6b5a1cd5a7dd10a914215cd4650f726188f918382b005ebaf08d3890ad3f139efeb7ec0d4ae671e127b710e5d7f24414d609a9dc7f0179b79ff05",
+      "expect_error": "ErrSignatureInvalid"
+    },
+    {
+      "id": "rec_sig_other_commitment",
+      "stage": "G",
+      "rule": "G1",
+      "description": "Signed over the commitment_hash of ttl_exactly_max, presented for minimal_lmt.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "signature_hex": "5e2b21193076cad7328450ea14c8e5bc6c2715e42fcba8f59ed8bf7ae0d894135fc81769d34f251feb0e2d5e9133d5ade0d4202867c086661ea9e378653cc907",
+      "expect_error": "ErrSignatureInvalid"
+    },
+    {
+      "id": "rec_sig_other_gate",
+      "stage": "G",
+      "rule": "G1",
+      "description": "Signed for gate-paper-2, presented to gate-paper-1: the gate binds its own gate_id into the message.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "signature_hex": "6b0b2d91b5130a0bf1e115c0e14dc81c873e4ac5cd25907e838dfc09a3bf61a319fba2c4574c7a7d844e8b2f5fb563fea9a64f5939e4459cae1763709f378a01",
+      "expect_error": "ErrSignatureInvalid"
+    },
+    {
+      "id": "rec_sig_gate_id_unprefixed",
+      "stage": "G",
+      "rule": "G1",
+      "description": "Signed over the gate_id without its length byte.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "signature_hex": "b4b5297bee3d08b27752eb2d44dd177a16b0c677bfeedef62d89dabdd7d8688687f1f9e8e8945ab5e22f30427aafaf37e877f5221170469fba8b73c15341d309",
+      "expect_error": "ErrSignatureInvalid"
+    },
+    {
+      "id": "rec_sig_rail_ref_unprefixed",
+      "stage": "G",
+      "rule": "G1",
+      "description": "Signed with the rail_ref length byte missing.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "signature_hex": "4455f2a3ae913c812c85bd921bab8ef16c1793ec42a2cc445621393ff9a5ad0e0f03fcd5c9e60a9ca9f7281da94c771cb4367cfe2a60a773d69609f33551ed0f",
+      "expect_error": "ErrSignatureInvalid"
+    },
+    {
+      "id": "rec_sig_tag_unprefixed",
+      "stage": "G",
+      "rule": "G1",
+      "description": "Signed over the tag without its length byte.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "signature_hex": "8bbab885d63a82e472ea8c0939524803097760d6268a15f4082bcd4b74ef2240320430e1bab4baeb0ddb76ae9ff8b4d65bcc9ba73bb026f1e9f0eb74aa34850c",
+      "expect_error": "ErrSignatureInvalid"
+    },
+    {
+      "id": "rec_sig_under_receipt_sig_tag",
+      "stage": "G",
+      "rule": "G1",
+      "description": "Signed with edicta/v0/receipt-sig in place of edicta/v0/record-request.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "signature_hex": "f3075162d0159f63ca5c9b2cb9453dd5305b353bf93e46fde2c4847fbcf6df844fc07b9fb91d0bf07e140e5d2c3cd975d638aae6b0c0ef0924ef549b48d13b0d",
+      "expect_error": "ErrSignatureInvalid"
+    },
+    {
+      "id": "rec_sig_over_hash",
+      "stage": "G",
+      "rule": "G1",
+      "description": "Signed over SHA-256(record message) instead of the message itself.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "signature_hex": "2b8898217b874591a4c512a6c9adb9a896da438f6795e4e5a2c64f45523b82596767244664cd616fb5f5e3d50ea7bdf7a57f87442a7482ff644b0551059d0003",
+      "expect_error": "ErrSignatureInvalid"
+    },
+    {
+      "id": "rec_sig_noncanonical_s",
+      "stage": "G",
+      "rule": "G2",
+      "description": "S + L in place of S.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "signature_hex": "c209bec78ec15ce9783f54b680fa3cdd83f2886761292e1dc3383f316ff20e394d8c88f2bc36f3ecf1cb17f23d3a07e8028b0e4b700ba073b594da463bed2013",
+      "expect_error": "ErrSignatureInvalid"
+    },
+    {
+      "id": "rec_executor_not_allowed",
+      "stage": "R",
+      "rule": "RQ3",
+      "description": "A valid request signed by agent2, which is not in the executor allowlist.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "signature_hex": "10b58d86eb2d295925796dd34d75ddd3c410979c8a88606e0fa5eb06c67e8a81a0bc628cb996c78e9fc360f3b7359b44d009a1e3fd54496f28ae2fb8b44d510a",
+      "expect_error": "ErrExecutorNotAllowed"
+    },
+    {
+      "id": "rec_gate_key_not_executor",
+      "stage": "R",
+      "rule": "RQ3",
+      "description": "A valid request signed by the gate's own key, which is not in the executor allowlist.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+      "signature_hex": "0542af852047e8834f0627d09cde5827ef69823a0d85989da4c047c7e7efe175ba2992231494a5e24575c1c8253b239833f0a55d82532eb5094380df5c4d4c01",
+      "expect_error": "ErrExecutorNotAllowed"
+    },
+    {
+      "id": "rec_gate_key_in_allowlist",
+      "stage": "R",
+      "rule": "RQ4",
+      "description": "Misconfigured allowlist that contains the gate key; the request is signed by the gate key.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+      "signature_hex": "0542af852047e8834f0627d09cde5827ef69823a0d85989da4c047c7e7efe175ba2992231494a5e24575c1c8253b239833f0a55d82532eb5094380df5c4d4c01",
+      "executor_keys": [
+        "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+        "0dabfd18f99c312bb448530e77f485d8312a70e00dfed4440a7f3286426aeaaf",
+        "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025"
+      ],
+      "expect_error": "ErrKeyRole"
+    },
+    {
+      "id": "rec_agent_key_in_allowlist",
+      "stage": "R",
+      "rule": "RQ4",
+      "description": "Misconfigured allowlist that contains agent1, the commitment's own agent key; signed by agent1.",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "rail_ref": "1370093239",
+      "executor_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "signature_hex": "7648b8ff7f1bb63e44d9573aa2a3ef4734314ee3835380a2942a81870eda6f074f813bf9c3a3e7914e90b9964d99cf92a41d94638b8b8a9f4c837861cc9bfa0c",
+      "executor_keys": [
+        "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+        "0dabfd18f99c312bb448530e77f485d8312a70e00dfed4440a7f3286426aeaaf",
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+      ],
+      "expect_error": "ErrKeyRole"
+    }
+  ]
+}

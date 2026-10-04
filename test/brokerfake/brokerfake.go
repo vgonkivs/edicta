@@ -23,6 +23,7 @@ type Broker struct {
 	orders   map[string]string
 	failPlan []error // consumed per accepted order: place, then report this error
 	lookErr  error
+	refuse   []error // consumed per Place: refuse without storing anything
 }
 
 func New() *Broker { return &Broker{orders: map[string]string{}} }
@@ -35,6 +36,14 @@ func (b *Broker) FailAfterPlace(err error) {
 	b.mu.Unlock()
 }
 
+// FailBeforePlace makes the next Place return err without storing an order,
+// as a refused connection or a definitive reject does.
+func (b *Broker) FailBeforePlace(err error) {
+	b.mu.Lock()
+	b.refuse = append(b.refuse, err)
+	b.mu.Unlock()
+}
+
 // FailLookup makes every lookup return err.
 func (b *Broker) FailLookup(err error) { b.mu.Lock(); b.lookErr = err; b.mu.Unlock() }
 
@@ -42,6 +51,11 @@ func (b *Broker) Place(_ context.Context, req ibkr.PlaceRequest) (string, error)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.calls++
+	if len(b.refuse) > 0 {
+		err := b.refuse[0]
+		b.refuse = b.refuse[1:]
+		return "", err
+	}
 	if _, ok := b.orders[req.ClientOrderID]; ok {
 		return "", ErrDuplicate
 	}

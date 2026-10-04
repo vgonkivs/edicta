@@ -167,13 +167,6 @@ func TestInvariantRejections(t *testing.T) {
 			b, _ := gatefix.Sign(t, "agent1", c)
 			return e, c, b
 		}},
-		{"inv3 gate has no action types", commitment.ErrActionTypeNotAllowed, func(t *testing.T) (*gatefix.Env, *commitment.Commitment, []byte) {
-			e := gatefix.New(t, gatefix.WithScope(commitment.GateScope{GateID: gatefix.GateID}))
-			c := gatefix.Template(t)
-			e.StageDA(c, gatefix.Blob(t))
-			b, _ := gatefix.Sign(t, "agent1", c)
-			return e, c, b
-		}},
 		// Validity window and retention.
 		{"inv4 expired", commitment.ErrExpired, func(t *testing.T) (*gatefix.Env, *commitment.Commitment, []byte) {
 			e, c, b, _ := happy(t, gatefix.WithNow(1791000900))
@@ -475,4 +468,9 @@ func TestNewValidation(t *testing.T) {
 		_, err := gatefix.TryNew(t, gatefix.WithConfig(func(c *gate.Config) { c.PruneGrace = c.ClockTolerance }))
 		require.Error(t, err, "accepted prune grace equal to clock tolerance")
 	})
+}
+
+func TestGateWithoutActionTypesIsRefusedAtNew(t *testing.T) {
+	_, err := gatefix.TryNew(t, gatefix.WithScope(commitment.GateScope{GateID: gatefix.GateID}))
+	require.ErrorIs(t, err, gate.ErrInvalidConfig)
 }

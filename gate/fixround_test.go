@@ -482,7 +482,7 @@ func TestClosedGateRefusesEverything(t *testing.T) {
 	res, err := e.Gate.Authorize(ctx, b, gatefix.Action(t))
 	require.ErrorIs(t, err, gate.ErrClosed)
 	require.Nil(t, res.Authorization)
-	_, err = e.Gate.Record(ctx, b, "ref-1")
+	_, err = e.Record(b, "ref-1")
 	require.ErrorIs(t, err, gate.ErrClosed)
 	_, err = e.Gate.Prune(ctx)
 	require.ErrorIs(t, err, gate.ErrClosed)

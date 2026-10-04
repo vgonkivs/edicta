@@ -450,7 +450,6 @@ func TestGateAttack8CrossDomainReplay(t *testing.T) {
 		"other gate":        {commitment.GateScope{GateID: "gate-paper-2", ActionTypes: []string{gatefix.ActionType}}, commitment.ErrScopeMismatch},
 		"gate id case":      {commitment.GateScope{GateID: "GATE-PAPER-1", ActionTypes: []string{gatefix.ActionType}}, commitment.ErrScopeMismatch},
 		"other action type": {commitment.GateScope{GateID: gatefix.GateID, ActionTypes: []string{"application/json"}}, commitment.ErrActionTypeNotAllowed},
-		"no action types":   {commitment.GateScope{GateID: gatefix.GateID}, commitment.ErrActionTypeNotAllowed},
 	}
 	for name, tt := range scopes {
 		t.Run(name, func(t *testing.T) {
@@ -465,6 +464,10 @@ func TestGateAttack8CrossDomainReplay(t *testing.T) {
 			other.RequireRejected(c, err, tt.want)
 		})
 	}
+	t.Run("no action types cannot start a gate", func(t *testing.T) {
+		_, err := gatefix.TryNew(t, gatefix.WithScope(commitment.GateScope{GateID: gatefix.GateID}))
+		require.ErrorIs(t, err, gate.ErrInvalidConfig)
+	})
 	t.Run("same bytes presented as another allowed type", func(t *testing.T) {
 		e := gatefix.New(t, gatefix.WithScope(commitment.GateScope{
 			GateID: gatefix.GateID, ActionTypes: []string{gatefix.ActionType, "application/octet-stream"},
@@ -556,7 +559,7 @@ func TestGateAttack9AuthorizationAbuse(t *testing.T) {
 		}
 	})
 	t.Run("a receipt is not an Authorization", func(t *testing.T) {
-		r, err := e.Gate.Record(context.Background(), b, "ref-1")
+		r, err := e.Record(b, "ref-1")
 		require.NoError(t, err)
 		_, _, err = commitment.VerifyAuthorization(r, commitment.AuthorizationCheck{
 			GatePubKey: gatefix.Pub(t, "gate1"), GateID: gatefix.GateID, ActionType: c.Action.Type,
