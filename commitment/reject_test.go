@@ -71,8 +71,7 @@ func TestRejectVectors(t *testing.T) {
 				assertSentinel(t, pipeErr, rc.ExpectError)
 			case "A":
 				require.NoError(t, pipeErr, "pipeline must pass for a stage A vector")
-				require.NotNil(t, rc.Request, "stage A vector without request")
-				err := commitment.CheckAction(&s.Commitment, toOrder(t, *rc.Request))
+				err := commitment.CheckAction(&s.Commitment, actionBytes(t, rc.actionSpec))
 				assertSentinel(t, err, rc.ExpectError)
 			default:
 				require.FailNow(t, fmt.Sprintf("unknown stage %q", rc.Stage))
@@ -87,12 +86,22 @@ func TestRejectVectorsCoverSentinels(t *testing.T) {
 	rf := loadReject(t)
 	var pf payloadFile
 	loadJSON(t, "payload.json", &pf)
+	var af authorizationFile
+	loadJSON(t, "authorization.json", &af)
+	var rcf receiptFile
+	loadJSON(t, "receipt.json", &rcf)
 
 	seen := map[string]bool{}
 	for _, c := range rf.Cases {
 		seen[c.ExpectError] = true
 	}
 	for _, c := range pf.Reject {
+		seen[c.ExpectError] = true
+	}
+	for _, c := range af.Reject {
+		seen[c.ExpectError] = true
+	}
+	for _, c := range rcf.Reject {
 		seen[c.ExpectError] = true
 	}
 	// The signed-before-anchor sentinel is covered by anchor.json, which
@@ -130,13 +139,23 @@ func TestVerifyForGateStageOrder(t *testing.T) {
 		{"public key before time", "pubkey_identity", 1791009999, "ErrInvalidPublicKey"},
 		{"public key before signature", "pubkey_noncanonical_y", 1791000060, "ErrInvalidPublicKey"},
 		{"signature before time", "sig_wrong_key", 1791009999, "ErrSignatureInvalid"},
-		{"time before scope", "foreign_account", 1791009999, "ErrExpired"},
-		{"scope when time is fine", "foreign_account", 1791000060, "ErrScopeMismatch"},
+		{"time before scope", "foreign_gate_id", 1791009999, "ErrExpired"},
+		{"scope when time is fine", "foreign_gate_id", 1791000060, "ErrScopeMismatch"},
+		{"time before action type", "action_type_not_allowed", 1791009999, "ErrExpired"},
+		{"action type when time is fine", "action_type_not_allowed", 1791000060, "ErrActionTypeNotAllowed"},
+		{"gate id before action type", "action_type_not_allowed", 1791000060, "ErrScopeMismatch"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rc := byID[tt.id]
-			_, _, err := commitment.VerifyForGate(mustHex(t, rc.EnvelopeHex), tt.now, gate, params)
+			g := gate
+			if rc.Gate != nil {
+				g = toGate(t, *rc.Gate)
+			}
+			if tt.want == "ErrScopeMismatch" && tt.id == "action_type_not_allowed" {
+				g.GateID = "gate-paper-2"
+			}
+			_, _, err := commitment.VerifyForGate(mustHex(t, rc.EnvelopeHex), tt.now, g, params)
 			assertSentinel(t, err, tt.want)
 		})
 	}

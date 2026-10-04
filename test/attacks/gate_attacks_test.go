@@ -14,13 +14,13 @@ import (
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
-	"github.com/vgonkivs/edicta/gate/gatetest"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
 
-// The gate attack suite: each test drives the full gate (Admit) with fakes
-// and requires a rejection with the right sentinel, no executor call and, for
-// the stages before the nonce is consumed, an untouched nonce.
+// The gate attack suite: each test drives the full gate with fakes and
+// requires a rejection with the right sentinel, no executor call and, for the
+// stages before the nonce is consumed, an untouched nonce. The entry point is
+// still the admit-and-execute path; the authorizer replaces it.
 
 func armed(t *testing.T, opts ...gatefix.Option) (*gatefix.Env, *commitment.Commitment, []byte) {
 	t.Helper()
@@ -46,7 +46,7 @@ func TestGateAttack1ActionWithoutCommitment(t *testing.T) {
 		"nil":                nil,
 		"empty":              {},
 		"empty map":          {0xa0},
-		"bare order":         {0xa1, 0x01, 0xa0},
+		"bare action":        {0xa1, 0x01, 0xa0},
 		"unsigned":           unsigned,
 		"zero signature":     zeroSig,
 		"garbage":            []byte("not cbor at all"),
@@ -62,70 +62,93 @@ func TestGateAttack1ActionWithoutCommitment(t *testing.T) {
 	require.Error(t, err, "a nonce was consumed by rejected input")
 }
 
-// 2. Amount, recipient or asset outside the committed action or constraints.
-func TestGateAttack2ParamsOutsideCommitment(t *testing.T) {
-	// The gate builds the order from the signed action itself, so an order
-	// that differs from it can only come from a tampered envelope. Each field
-	// the order carries is tampered here; the gate-level test with the order
-	// mutation hook covers the action check on its own.
-	mut := map[string]func(o *commitment.IBKROrderV0){
-		"qty plus one unit": func(o *commitment.IBKROrderV0) { o.Qty++ },
-		"qty doubled":       func(o *commitment.IBKROrderV0) { o.Qty *= 2 },
-		"price plus one":    func(o *commitment.IBKROrderV0) { p := *o.LimitPrice + 1; o.LimitPrice = &p },
-		"no limit price":    func(o *commitment.IBKROrderV0) { o.LimitPrice = nil },
-		"other account":     func(o *commitment.IBKROrderV0) { o.Account = "DU7654321" },
-		"other asset":       func(o *commitment.IBKROrderV0) { o.ConID++ },
-		"other currency":    func(o *commitment.IBKROrderV0) { o.Currency = "EUR" },
-		"other side":        func(o *commitment.IBKROrderV0) { o.Side = commitment.SideSell },
-		"other tif":         func(o *commitment.IBKROrderV0) { o.TIF++ },
+// 2. Amount, recipient or asset outside the committed action. The core does
+// not parse actions: it compares the presented bytes with the committed hash,
+// so every field of any format is covered by the same rule.
+func TestGateAttack2ActionOutsideCommitment(t *testing.T) {
+	const jsonType = "application/json"
+	both := gatefix.WithScope(commitment.GateScope{GateID: gatefix.GateID, ActionTypes: []string{gatefix.ActionType, jsonType}})
+	committed := []byte(`{"to":"0xA1","asset":"TIA","amount":"100"}`)
+	armedJSON := func(t *testing.T) (*gatefix.Env, *commitment.Commitment, []byte) {
+		e := gatefix.New(t, both)
+		c := gatefix.WithAction(t, gatefix.Template(t), jsonType, committed)
+		e.StageDA(c, gatefix.Blob(t))
+		b, _ := gatefix.Sign(t, "agent1", c)
+		return e, c, b
 	}
-	for name, m := range mut {
+	t.Run("control", func(t *testing.T) {
+		e, _, b := armedJSON(t)
+		_, err := e.AdmitWith(b, committed)
+		require.NoError(t, err)
+	})
+	variants := map[string]string{
+		"amount raised":         `{"to":"0xA1","asset":"TIA","amount":"101"}`,
+		"amount with extra 0":   `{"to":"0xA1","asset":"TIA","amount":"1000"}`,
+		"recipient changed":     `{"to":"0xA2","asset":"TIA","amount":"100"}`,
+		"asset changed":         `{"to":"0xA1","asset":"ETH","amount":"100"}`,
+		"extra field":           `{"to":"0xA1","asset":"TIA","amount":"100","memo":"x"}`,
+		"whitespace only":       `{"to": "0xA1","asset":"TIA","amount":"100"}`,
+		"field order only":      `{"asset":"TIA","to":"0xA1","amount":"100"}`,
+		"a second action added": `{"to":"0xA1","asset":"TIA","amount":"100"}{"to":"0xA2","asset":"TIA","amount":"1"}`,
+	}
+	for name, changed := range variants {
 		t.Run(name, func(t *testing.T) {
-			e, c, _ := armed(t)
-			s, _, _ := commitment.Sign(gatefix.Key(t, "agent1"), c)
-			m(s.Commitment.Action.IBKROrder)
-			b, _ := commitment.EncodeSigned(s)
-			_, err := e.Admit(b)
-			require.Errorf(t, err, "tampered order admitted or executed: %v", err)
-			require.EqualValuesf(t, 0, e.Exec.Calls(), "tampered order admitted or executed: %v", err)
-			_, gerr := e.Entry(c)
-			require.Error(t, gerr, "nonce consumed")
+			e, c, b := armedJSON(t)
+			_, err := e.AdmitWith(b, []byte(changed))
+			e.RequireRejected(c, err, commitment.ErrActionMismatch)
 		})
 	}
-	t.Run("committed notional above max_notional", func(t *testing.T) {
-		c := gatefix.Template(t)
-		c.Constraints.MaxNotional--
-		c.Action.IBKROrder.Qty *= 2
+	t.Run("every single byte flip of the committed action", func(t *testing.T) {
+		e, c, b := armedJSON(t)
+		for i := range committed {
+			bad := append([]byte(nil), committed...)
+			bad[i] ^= 1
+			_, err := e.AdmitWith(b, bad)
+			e.RequireRejected(c, err, commitment.ErrActionMismatch)
+		}
+	})
+	t.Run("every truncation of the committed action", func(t *testing.T) {
+		e, c, b := armedJSON(t)
+		for i := 1; i < len(committed); i++ {
+			_, err := e.AdmitWith(b, committed[:i])
+			e.RequireRejected(c, err, commitment.ErrActionMismatch)
+		}
+	})
+	t.Run("no bytes and too many bytes", func(t *testing.T) {
+		e, c, b := armedJSON(t)
+		for _, bad := range [][]byte{nil, {}, make([]byte, commitment.MaxActionSize+1)} {
+			_, err := e.AdmitWith(b, bad)
+			e.RequireRejected(c, err, commitment.ErrActionSize)
+		}
+	})
+	t.Run("the template order against the json commitment", func(t *testing.T) {
+		e, c, b := armedJSON(t)
+		_, err := e.AdmitWith(b, gatefix.Action(t))
+		e.RequireRejected(c, err, commitment.ErrActionMismatch)
+	})
+	t.Run("committed bytes under a type the gate does not serve", func(t *testing.T) {
 		e := gatefix.New(t)
+		c := gatefix.WithAction(t, gatefix.Template(t), jsonType, committed)
 		e.StageDA(c, gatefix.Blob(t))
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
-		e.RequireRejected(c, err, commitment.ErrNotionalExceeded)
+		_, err := e.AdmitWith(b, committed)
+		e.RequireRejected(c, err, commitment.ErrActionTypeNotAllowed)
 	})
-	t.Run("committed price breaks price_bound", func(t *testing.T) {
-		c := gatefix.Template(t)
-		c.Constraints.PriceBound = ptr(*c.Action.IBKROrder.LimitPrice - 1)
-		e := gatefix.New(t)
-		e.StageDA(c, gatefix.Blob(t))
-		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
-		e.RequireRejected(c, err, commitment.ErrPriceBound)
-	})
-	t.Run("order tampered after signing", func(t *testing.T) {
-		e, c, _ := armed(t)
+	t.Run("hash rewritten after signing", func(t *testing.T) {
+		e, c, _ := armedJSON(t)
+		other := []byte(`{"to":"0xBAD","asset":"TIA","amount":"100"}`)
+		oh, err := commitment.ActionHash(jsonType, other)
+		require.NoError(t, err)
 		s, _, _ := commitment.Sign(gatefix.Key(t, "agent1"), c)
-		s.Commitment.Action.IBKROrder.Qty--
+		s.Commitment.Action.Hash = oh[:]
 		b, _ := commitment.EncodeSigned(s)
-		_, err := e.Admit(b)
+		_, err = e.AdmitWith(b, other)
 		e.RequireRejected(c, err, commitment.ErrSignatureInvalid)
 	})
-	t.Run("order inflated after signing breaks the notional bound first", func(t *testing.T) {
-		e, c, _ := armed(t)
-		s, _, _ := commitment.Sign(gatefix.Key(t, "agent1"), c)
-		s.Commitment.Action.IBKROrder.Qty *= 10
-		b, _ := commitment.EncodeSigned(s)
-		_, err := e.Admit(b)
-		e.RequireRejected(c, err, commitment.ErrNotionalExceeded)
+	t.Run("template action, other bytes", func(t *testing.T) {
+		e, c, b := armed(t)
+		_, err := e.AdmitWith(b, gatefix.OtherAction(t, 1))
+		e.RequireRejected(c, err, commitment.ErrActionMismatch)
 	})
 }
 
@@ -143,15 +166,6 @@ func TestGateAttack3Expired(t *testing.T) {
 			e.RequireRejected(c, err, commitment.ErrExpired)
 		})
 	}
-	t.Run("deadline before valid_until", func(t *testing.T) {
-		c := gatefix.Template(t)
-		c.Constraints.Deadline = ptr(uint64(1791000100))
-		e := gatefix.New(t, gatefix.WithNow(1791000100))
-		e.StageDA(c, gatefix.Blob(t))
-		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
-		e.RequireRejected(c, err, commitment.ErrExpired)
-	})
 	t.Run("expires while the payload is fetched", func(t *testing.T) {
 		e, c, b := armed(t)
 		e.DA.OnFetch(func() { e.Clock.Advance(time.Hour) })
@@ -201,15 +215,14 @@ func TestGateAttack4ReusedNonce(t *testing.T) {
 		}
 		require.EqualValuesf(t, 1, e.Exec.Calls(), "executor calls %d", e.Exec.Calls())
 	})
-	t.Run("same nonce, different order", func(t *testing.T) {
+	t.Run("same nonce, different action", func(t *testing.T) {
 		e, _, b := armed(t)
 		_, err := e.Admit(b)
 		require.NoError(t, err)
-		c2 := gatefix.Template(t)
-		c2.Action.IBKROrder.Qty--
+		c2 := gatefix.Variant(t, gatefix.Template(t), 1)
 		e.StageDA(c2, gatefix.Blob(t))
 		b2, _ := gatefix.Sign(t, "agent1", c2)
-		_, err = e.Admit(b2)
+		_, err = e.AdmitWith(b2, gatefix.OtherAction(t, 1))
 		require.ErrorIs(t, err, gate.ErrNonceUsed)
 		require.EqualValuesf(t, 1, e.Exec.Calls(), "executor calls %d", e.Exec.Calls())
 	})
@@ -424,39 +437,51 @@ func TestGateAttack7PayloadSwapped(t *testing.T) {
 	})
 }
 
-// 8. Cross-domain replay.
+// 8. Cross-domain replay. The core binds the gate id and the action type
+// allowlist; account and chain binding is the action format's job.
 func TestGateAttack8CrossDomainReplay(t *testing.T) {
-	chain := "celestia-1"
-	scopes := map[string]commitment.GateScope{
-		"other gate":    {GateID: "gate-paper-2", Rail: commitment.RailIBKR, Account: gatefix.Account},
-		"other account": {GateID: gatefix.GateID, Rail: commitment.RailIBKR, Account: "DU7654321"},
-		"chain gate":    {GateID: gatefix.GateID, Rail: commitment.RailIBKR, Account: gatefix.Account, ChainID: &chain},
+	scopes := map[string]struct {
+		scope commitment.GateScope
+		want  error
+	}{
+		"other gate":        {commitment.GateScope{GateID: "gate-paper-2", ActionTypes: []string{gatefix.ActionType}}, commitment.ErrScopeMismatch},
+		"gate id case":      {commitment.GateScope{GateID: "GATE-PAPER-1", ActionTypes: []string{gatefix.ActionType}}, commitment.ErrScopeMismatch},
+		"other action type": {commitment.GateScope{GateID: gatefix.GateID, ActionTypes: []string{"application/json"}}, commitment.ErrActionTypeNotAllowed},
+		"no action types":   {commitment.GateScope{GateID: gatefix.GateID}, commitment.ErrActionTypeNotAllowed},
 	}
-	for name, sc := range scopes {
+	for name, tt := range scopes {
 		t.Run(name, func(t *testing.T) {
 			// The envelope was executed on the home gate; a second gate with
 			// its own registry must still refuse it.
 			home, c, b := armed(t)
 			_, err := home.Admit(b)
 			require.NoError(t, err)
-			other := gatefix.New(t, gatefix.WithScope(sc))
+			other := gatefix.New(t, gatefix.WithScope(tt.scope))
 			other.StageDA(c, gatefix.Blob(t))
 			_, err = other.Admit(b)
-			other.RequireRejected(c, err, commitment.ErrScopeMismatch)
+			other.RequireRejected(c, err, tt.want)
 		})
 	}
-	t.Run("other rail", func(t *testing.T) {
-		e := gatefix.New(t, gatefix.WithScope(commitment.GateScope{GateID: gatefix.GateID, Rail: 2, Account: gatefix.Account}),
-			gatefix.WithDeps(func(d *gate.Deps) { d.Executor = gatetest.NewExecutor(2) }))
+	t.Run("same bytes presented as another allowed type", func(t *testing.T) {
+		e := gatefix.New(t, gatefix.WithScope(commitment.GateScope{
+			GateID: gatefix.GateID, ActionTypes: []string{gatefix.ActionType, "application/octet-stream"},
+		}))
 		c := gatefix.Template(t)
+		c.Action.Type = "application/octet-stream" // hash was computed under the ibkr type
 		e.StageDA(c, gatefix.Blob(t))
 		b, _ := gatefix.Sign(t, "agent1", c)
 		_, err := e.Admit(b)
-		require.Errorf(t, err, "got %v", err)
-		require.Error(t, err)
-		if !errors.Is(err, commitment.ErrScopeMismatch) {
-			require.ErrorIs(t, err, commitment.ErrUnsupportedRail)
-		}
+		e.RequireRejected(c, err, commitment.ErrActionMismatch)
+	})
+	t.Run("commitment of another gate rewritten to this one", func(t *testing.T) {
+		e, c, _ := armed(t)
+		other := gatefix.Clone(c)
+		other.Scope.GateID = "gate-paper-2"
+		s, _, _ := commitment.Sign(gatefix.Key(t, "agent1"), other)
+		s.Commitment.Scope.GateID = gatefix.GateID
+		b, _ := commitment.EncodeSigned(s)
+		_, err := e.Admit(b)
+		e.RequireRejected(c, err, commitment.ErrSignatureInvalid)
 	})
 }
 

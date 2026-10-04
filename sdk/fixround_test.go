@@ -208,9 +208,9 @@ func TestFinalizeRetryReusesTheNonceAtTheGate(t *testing.T) {
 			if order == "leaked first" {
 				a, b = b, a
 			}
-			_, err = e.env.Admit(a)
+			_, err = e.env.AdmitWith(a, res.Action)
 			require.NoError(t, err)
-			_, err = e.env.Admit(b)
+			_, err = e.env.AdmitWith(b, res.Action)
 			require.ErrorIs(t, err, gate.ErrNonceUsed)
 			assert.Equal(t, 1, e.env.Exec.Calls(), "one execution for one decision")
 		})
@@ -352,43 +352,6 @@ func TestDACheckedReflectsARealCheck(t *testing.T) {
 		assert.EqualValues(t, 1, noop.calls.Load())
 		assert.True(t, res.DAChecked)
 	})
-}
-
-// A deadline that is already in the past, or too close to leave the floor, is
-// refused when the payload is sealed, before any fee is paid.
-func TestSealRefusesADeadlineThatCannotBeMet(t *testing.T) {
-	for _, tt := range []struct {
-		name     string
-		deadline uint64
-		ok       bool
-	}{
-		{"long past", now - 3600, false},
-		{"just past", now - 1, false},
-		{"now", now, false},
-		{"under the floor", now + 59, false},
-		{"at the floor", now + 60, true},
-		{"comfortably ahead", now + 600, true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			r := newRig(t)
-			p := r.payload()
-			p.Constraints.Deadline = u64p(tt.deadline)
-			s, err := r.builder().Seal(bg, p)
-			if tt.ok {
-				require.NoError(t, err)
-				assert.NotNil(t, s)
-				return
-			}
-			require.ErrorIs(t, err, sdk.ErrValidityWindow)
-			assert.Nil(t, s)
-			assert.Zero(t, r.rec.calls())
-
-			res, err := r.builder().Commit(bg, p)
-			require.ErrorIs(t, err, sdk.ErrValidityWindow)
-			assert.Nil(t, res)
-			assert.Zero(t, r.rec.calls(), "nothing is published")
-		})
-	}
 }
 
 // Timeouts of the SDK's own around every dependency call.

@@ -2,6 +2,7 @@ package commitment_test
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/hex"
 	"testing"
 
@@ -82,12 +83,29 @@ func TestValidVectors(t *testing.T) {
 				require.Equal(t, hex.EncodeToString(wantHash), hex.EncodeToString(h[:]))
 			})
 
+			t.Run("action hash", func(t *testing.T) {
+				action := actionBytes(t, vc.actionSpec)
+				h, err := commitment.ActionHash(vc.ActionType, action)
+				require.NoError(t, err, "ActionHash")
+				require.Equal(t, vc.ActionHashHex, hex.EncodeToString(h[:]))
+				require.Equal(t, vc.ActionType, c.Action.Type)
+				require.Equal(t, vc.ActionHashHex, hex.EncodeToString(c.Action.Hash))
+
+				prefix := mustHex(t, vc.PrefixHex)
+				require.Equal(t, append(append([]byte{byte(len(commitment.TagAction))}, commitment.TagAction...), byte(len(vc.ActionType))), prefix[:len(commitment.TagAction)+2], "preimage prefix head")
+				require.Equal(t, vc.ActionType, string(prefix[len(commitment.TagAction)+2:]), "preimage prefix type")
+				sum := sha256.New()
+				sum.Write(prefix)
+				sum.Write(action)
+				require.Equal(t, vc.ActionHashHex, hex.EncodeToString(sum.Sum(nil)), "independent action hash")
+			})
+
 			t.Run("pipeline", func(t *testing.T) {
 				s, h, err := commitment.VerifyForGate(wantEnv, now, gate, params)
 				require.NoError(t, err, "VerifyForGate")
 				require.Equal(t, hex.EncodeToString(wantHash), hex.EncodeToString(h[:]), "VerifyForGate result differs from vector")
 				require.Equal(t, c, &s.Commitment, "VerifyForGate result differs from vector")
-				err = commitment.CheckAction(&s.Commitment, toOrder(t, vc.Request))
+				err = commitment.CheckAction(&s.Commitment, actionBytes(t, vc.actionSpec))
 				require.NoError(t, err, "CheckAction")
 			})
 		})
@@ -101,10 +119,9 @@ func TestValidVectorsPinRequiredCases(t *testing.T) {
 		have[c.ID] = true
 	}
 	for _, id := range []string{
-		"minimal_lmt", "full_ibkr_order", "sell_with_bound", "notional_exact_equal",
-		"ttl_exactly_max", "deadline_eq_valid_until", "fibre_small_payload",
-		"blob_large_payload", "issued_at_within_skew", "symbol_ignored_in_action_match",
-		"int_head_widths", "max_int_values", "ttl_max_at_601s_retention",
+		"minimal_lmt", "ttl_exactly_max", "fibre_small_payload", "blob_large_payload",
+		"issued_at_within_skew", "int_head_widths", "max_int_values", "ttl_max_at_601s_retention",
+		"action_type_128_chars", "action_one_byte", "action_max_size", "action_json_bytes",
 	} {
 		assert.Truef(t, have[id], "valid vector %q missing", id)
 	}
@@ -123,7 +140,9 @@ func TestVerifyDetectsTamperedCommitment(t *testing.T) {
 		mutate func(s *commitment.SignedCommitment)
 	}{
 		{"nonce", func(s *commitment.SignedCommitment) { s.Commitment.Nonce[0] ^= 1 }},
-		{"qty", func(s *commitment.SignedCommitment) { s.Commitment.Action.IBKROrder.Qty++ }},
+		{"action hash", func(s *commitment.SignedCommitment) { s.Commitment.Action.Hash[0] ^= 1 }},
+		{"action type", func(s *commitment.SignedCommitment) { s.Commitment.Action.Type = "application/json" }},
+		{"gate id", func(s *commitment.SignedCommitment) { s.Commitment.Scope.GateID = "gate-paper-2" }},
 		{"valid_until", func(s *commitment.SignedCommitment) { s.Commitment.ValidUntil++ }},
 		{"ciphertext_hash", func(s *commitment.SignedCommitment) { s.Commitment.CiphertextHash[31] ^= 1 }},
 		{"signature", func(s *commitment.SignedCommitment) { s.Signature[0] ^= 1 }},

@@ -41,7 +41,7 @@ func (s State) String() string {
 }
 
 // Path is where the payload was accepted from; the values equal
-// commitment.ReceiptPath.
+// commitment.PayloadPath.
 type Path uint8
 
 const (

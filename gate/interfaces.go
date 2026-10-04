@@ -73,15 +73,15 @@ type Outcome uint8
 
 const (
 	OutcomeUnknown  Outcome = iota // may or may not have been placed
-	OutcomeExecuted                // the rail acknowledged the order
+	OutcomeExecuted                // the rail acknowledged the action
 	OutcomeRejected                // the rail guarantees it was not and will not be placed
-	OutcomeNotFound                // Lookup only: no order with this client order id
+	OutcomeNotFound                // Lookup only: nothing with this client order id
 )
 
 type ExecRequest struct {
 	CommitmentHash commitment.Hash
 	ClientOrderID  string
-	Order          commitment.IBKROrderV0
+	Action         []byte    // the committed bytes, exactly as presented
 	NotAfter       time.Time // must not be sent after this instant
 }
 
@@ -90,11 +90,10 @@ type ExecResult struct {
 	RailRef string // required for OutcomeExecuted
 }
 
-// Executor places orders. A non-nil error means OutcomeUnknown whatever the
-// result says. It must send ClientOrderID with every order and be safe for
-// concurrent use.
+// Executor acts on the committed action bytes. A non-nil error means
+// OutcomeUnknown whatever the result says. It must send ClientOrderID with
+// every request and be safe for concurrent use.
 type Executor interface {
-	Rail() commitment.Rail
 	Execute(ctx context.Context, req ExecRequest) (ExecResult, error)
 	Lookup(ctx context.Context, clientOrderID string) (ExecResult, error)
 }

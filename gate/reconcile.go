@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate/registry"
 )
 
@@ -80,11 +79,7 @@ func (g *Gate) reconcileOne(ctx context.Context, e registry.Entry, rep *Reconcil
 		rep.StillUnknown++
 		return fmt.Errorf("%w: now %d", ErrClockRegression, now)
 	}
-	coid, err := commitment.ClientOrderID(g.cfg.Scope.Rail, e.CommitmentHash)
-	if err != nil {
-		rep.StillUnknown++
-		return err
-	}
+	coid := clientOrderID(e.CommitmentHash)
 	res, err := g.lookup(ctx, coid)
 	if err != nil {
 		rep.StillUnknown++
@@ -97,7 +92,7 @@ func (g *Gate) reconcileOne(ctx context.Context, e registry.Entry, rep *Reconcil
 	case res.Outcome == OutcomeExecuted && validID(res.RailRef, 128):
 		upd.State, upd.RailRef, upd.ExecutedAt = registry.StateExecuted, res.RailRef, now
 		// A signing failure leaves Executed without a receipt; resign retries.
-		upd.Receipt, _ = g.signReceipt(ctx, e.CommitmentHash, e.Path, res.RailRef, now)
+		upd.Receipt, _ = g.signReceipt(ctx, e.CommitmentHash, res.RailRef, now)
 		if err := g.d.Registry.Resolve(ctx, e.Key, registry.StateUnknown, upd); err != nil {
 			return err
 		}
@@ -128,7 +123,7 @@ func (g *Gate) lookup(ctx context.Context, coid string) (res ExecResult, err err
 // resign signs the receipt of an Executed entry that has none.
 func (g *Gate) resign(ctx context.Context, e registry.Entry) error {
 	now := g.now()
-	receipt, err := g.signReceipt(ctx, e.CommitmentHash, e.Path, e.RailRef, e.ExecutedAt)
+	receipt, err := g.signReceipt(ctx, e.CommitmentHash, e.RailRef, e.ExecutedAt)
 	if err != nil {
 		return fmt.Errorf("gate: sign receipt: %w", err)
 	}
@@ -170,7 +165,7 @@ func (g *Gate) ResolveManually(ctx context.Context, k registry.Key, r ManualReso
 	var signErr error
 	if r.Outcome == ManualExecuted {
 		upd.State, upd.RailRef, upd.ExecutedAt = registry.StateExecuted, r.RailRef, now
-		upd.Receipt, signErr = g.signReceipt(ctx, e.CommitmentHash, e.Path, r.RailRef, now)
+		upd.Receipt, signErr = g.signReceipt(ctx, e.CommitmentHash, r.RailRef, now)
 	} else {
 		upd.State = registry.StateRejected
 	}

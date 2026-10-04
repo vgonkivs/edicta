@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/commitment"
@@ -22,18 +21,6 @@ import (
 )
 
 const file = "payload_blob.json"
-
-type jsonOrder struct {
-	Account    string  `json:"account"`
-	ConID      string  `json:"conid"`
-	Symbol     *string `json:"symbol"`
-	Side       string  `json:"side"`
-	Qty        string  `json:"qty"`
-	OrderType  string  `json:"order_type"`
-	LimitPrice *string `json:"limit_price"`
-	Currency   string  `json:"currency"`
-	TIF        string  `json:"tif"`
-}
 
 type jsonData struct {
 	MediaType string `json:"media_type"`
@@ -55,14 +42,9 @@ type jsonPayload struct {
 	} `json:"policy"`
 	Context jsonData `json:"context"`
 	Action  struct {
-		Kind   string    `json:"kind"`
-		Params jsonOrder `json:"params"`
+		Type string `json:"type"`
+		Data string `json:"data"`
 	} `json:"action"`
-	Constraints struct {
-		MaxNotional string  `json:"max_notional"`
-		PriceBound  *string `json:"price_bound"`
-		Deadline    *string `json:"deadline"`
-	} `json:"constraints"`
 	Metadata *jsonData `json:"metadata"`
 }
 
@@ -86,8 +68,9 @@ type jsonCase struct {
 	BlobHex           string          `json:"blob_hex"`
 	PayloadSize       string          `json:"payload_size"`
 	CiphertextHashHex string          `json:"ciphertext_hash_hex"`
-	ActionCBORHex     string          `json:"action_cbor_hex"`
-	ConstraintsHex    string          `json:"constraints_cbor_hex"`
+	ActionType        string          `json:"action_type"`
+	ActionHex         string          `json:"action_hex"`
+	ActionHashHex     string          `json:"action_hash_hex"`
 	Commitment        struct {
 		CommitmentHashHex string `json:"commitment_hash_hex"`
 		EnvelopeHex       string `json:"envelope_hex"`
@@ -103,24 +86,12 @@ type jsonReject struct {
 	Key              string `json:"key"`
 	KIDHex           string `json:"kid_hex"`
 	PlaintextHashHex string `json:"plaintext_hash_hex"`
-	ActionCBORHex    string `json:"action_cbor_hex"`
-	ConstraintsHex   string `json:"constraints_cbor_hex"`
+	ActionType       string `json:"action_type"`
+	ActionHashHex    string `json:"action_hash_hex"`
 	Expect           string `json:"expect_error"`
 	HonestKey        string `json:"honest_key"`
 	HonestKIDHex     string `json:"honest_kid_hex"`
 	AuditorPTHex     string `json:"auditor_aead_plaintext_hex"`
-}
-
-type jsonDCA struct {
-	Cases []struct {
-		ID      string `json:"id"`
-		CBORHex string `json:"cbor_hex"`
-	} `json:"cases"`
-	Reject []struct {
-		ID      string `json:"id"`
-		CBORHex string `json:"cbor_hex"`
-		Expect  string `json:"expect_error"`
-	} `json:"reject"`
 }
 
 type jsonFile struct {
@@ -148,7 +119,6 @@ type jsonFile struct {
 	} `json:"recipient_keys"`
 	Cases  []jsonCase   `json:"cases"`
 	Reject []jsonReject `json:"reject"`
-	DCA    jsonDCA      `json:"dca"`
 }
 
 // Key is a vector recipient.
@@ -184,45 +154,39 @@ type CaseRecipient struct {
 
 // Case is a valid vector with the full seal trace.
 type Case struct {
-	ID              string
-	Payload         *payload.Payload
-	Plaintext       []byte
-	Salt            [32]byte
-	PlaintextHash   commitment.Hash
-	DEK             []byte
-	Nonce           []byte
-	Recipients      []CaseRecipient
-	Ciphertext      []byte
-	Blob            []byte
-	PayloadSize     uint64
-	CiphertextHash  commitment.Hash
-	ActionCBOR      []byte
-	ConstraintsCBOR []byte
-	Envelope        []byte
-	CommitmentHash  commitment.Hash
+	ID             string
+	Payload        *payload.Payload
+	Plaintext      []byte
+	Salt           [32]byte
+	PlaintextHash  commitment.Hash
+	DEK            []byte
+	Nonce          []byte
+	Recipients     []CaseRecipient
+	Ciphertext     []byte
+	Blob           []byte
+	PayloadSize    uint64
+	CiphertextHash commitment.Hash
+	ActionType     string
+	Action         []byte
+	ActionHash     commitment.Hash
+	Envelope       []byte
+	CommitmentHash commitment.Hash
 }
 
 // Reject is a must-reject vector of stage decode, open or plaintext.
 type Reject struct {
-	ID              string
-	Stage           string
-	Blob            []byte
-	Key             string
-	KID             []byte
-	PlaintextHash   []byte
-	ActionCBOR      []byte
-	ConstraintsCBOR []byte
-	Expect          string
-	HonestKey       string
-	HonestKID       []byte
-	AuditorAEADPT   []byte
-}
-
-// DCACase is one structured DCA context body.
-type DCACase struct {
-	ID     string
-	CBOR   []byte
-	Expect string
+	ID            string
+	Stage         string
+	Blob          []byte
+	Key           string
+	KID           []byte
+	PlaintextHash []byte
+	ActionType    string
+	ActionHash    []byte
+	Expect        string
+	HonestKey     string
+	HonestKID     []byte
+	AuditorAEADPT []byte
 }
 
 // KAT is the RFC 9180 Appendix A.2.1 base mode record.
@@ -239,8 +203,6 @@ type Vectors struct {
 	Keys       map[string]Key
 	Cases      []Case
 	Rejects    []Reject
-	DCAValid   []DCACase
-	DCARejects []DCACase
 }
 
 func hexb(t testing.TB, s string) []byte {
@@ -259,14 +221,6 @@ func hash32(t testing.TB, s string) (h commitment.Hash) {
 	return h
 }
 
-func optU64(t testing.TB, s *string) *uint64 {
-	if s == nil {
-		return nil
-	}
-	v := gatefix.U64(t, *s)
-	return &v
-}
-
 func atoi(t testing.TB, s string) int {
 	t.Helper()
 	v, err := strconv.Atoi(s)
@@ -276,7 +230,6 @@ func atoi(t testing.TB, s string) int {
 
 func toPayload(t testing.TB, j jsonPayload) *payload.Payload {
 	t.Helper()
-	o := j.Action.Params
 	p := &payload.Payload{
 		Version: gatefix.U64(t, j.Version),
 		Model:   payload.Model{ID: j.Model.ID, Version: j.Model.Version, Digest: hexb(t, j.Model.Digest)},
@@ -285,22 +238,7 @@ func toPayload(t testing.TB, j jsonPayload) *payload.Payload {
 			Digest: hexb(t, j.Policy.Digest), Text: hexb(t, j.Policy.Text),
 		},
 		Context: payload.Data{MediaType: j.Context.MediaType, Bytes: hexb(t, j.Context.Data)},
-		Action: commitment.Action{Kind: j.Action.Kind, IBKROrder: &commitment.IBKROrderV0{
-			Account:    o.Account,
-			ConID:      gatefix.U64(t, o.ConID),
-			Symbol:     o.Symbol,
-			Side:       commitment.Side(gatefix.U64(t, o.Side)),
-			Qty:        gatefix.U64(t, o.Qty),
-			OrderType:  commitment.OrderType(gatefix.U64(t, o.OrderType)),
-			LimitPrice: optU64(t, o.LimitPrice),
-			Currency:   o.Currency,
-			TIF:        commitment.TIF(gatefix.U64(t, o.TIF)),
-		}},
-		Constraints: commitment.Constraints{
-			MaxNotional: gatefix.U64(t, j.Constraints.MaxNotional),
-			PriceBound:  optU64(t, j.Constraints.PriceBound),
-			Deadline:    optU64(t, j.Constraints.Deadline),
-		},
+		Action:  payload.Action{Type: j.Action.Type, Data: hexb(t, j.Action.Data)},
 	}
 	if j.Metadata != nil {
 		p.Metadata = &payload.Data{MediaType: j.Metadata.MediaType, Bytes: hexb(t, j.Metadata.Data)}
@@ -335,20 +273,21 @@ func Load(t testing.TB) *Vectors {
 	}
 	for _, c := range f.Cases {
 		out := Case{
-			ID:              c.ID,
-			Payload:         toPayload(t, c.Payload),
-			Plaintext:       hexb(t, c.PlaintextCBORHex),
-			PlaintextHash:   hash32(t, c.PlaintextHashHex),
-			DEK:             hexb(t, c.DEKHex),
-			Nonce:           hexb(t, c.AEADNonceHex),
-			Ciphertext:      hexb(t, c.CiphertextHex),
-			Blob:            hexb(t, c.BlobHex),
-			PayloadSize:     gatefix.U64(t, c.PayloadSize),
-			CiphertextHash:  hash32(t, c.CiphertextHashHex),
-			ActionCBOR:      hexb(t, c.ActionCBORHex),
-			ConstraintsCBOR: hexb(t, c.ConstraintsHex),
-			Envelope:        hexb(t, c.Commitment.EnvelopeHex),
-			CommitmentHash:  hash32(t, c.Commitment.CommitmentHashHex),
+			ID:             c.ID,
+			Payload:        toPayload(t, c.Payload),
+			Plaintext:      hexb(t, c.PlaintextCBORHex),
+			PlaintextHash:  hash32(t, c.PlaintextHashHex),
+			DEK:            hexb(t, c.DEKHex),
+			Nonce:          hexb(t, c.AEADNonceHex),
+			Ciphertext:     hexb(t, c.CiphertextHex),
+			Blob:           hexb(t, c.BlobHex),
+			PayloadSize:    gatefix.U64(t, c.PayloadSize),
+			CiphertextHash: hash32(t, c.CiphertextHashHex),
+			ActionType:     c.ActionType,
+			Action:         hexb(t, c.ActionHex),
+			ActionHash:     hash32(t, c.ActionHashHex),
+			Envelope:       hexb(t, c.Commitment.EnvelopeHex),
+			CommitmentHash: hash32(t, c.Commitment.CommitmentHashHex),
 		}
 		copy(out.Salt[:], hexb(t, c.SaltHex))
 		for _, r := range c.Recipients {
@@ -361,16 +300,10 @@ func Load(t testing.TB) *Vectors {
 	for _, r := range f.Reject {
 		v.Rejects = append(v.Rejects, Reject{
 			ID: r.ID, Stage: r.Stage, Blob: hexb(t, r.BlobHex), Key: r.Key, KID: hexb(t, r.KIDHex),
-			PlaintextHash: hexb(t, r.PlaintextHashHex), ActionCBOR: hexb(t, r.ActionCBORHex),
-			ConstraintsCBOR: hexb(t, r.ConstraintsHex), Expect: r.Expect,
+			PlaintextHash: hexb(t, r.PlaintextHashHex), ActionType: r.ActionType,
+			ActionHash: hexb(t, r.ActionHashHex), Expect: r.Expect,
 			HonestKey: r.HonestKey, HonestKID: hexb(t, r.HonestKIDHex), AuditorAEADPT: hexb(t, r.AuditorPTHex),
 		})
-	}
-	for _, c := range f.DCA.Cases {
-		v.DCAValid = append(v.DCAValid, DCACase{ID: c.ID, CBOR: hexb(t, c.CBORHex)})
-	}
-	for _, c := range f.DCA.Reject {
-		v.DCARejects = append(v.DCARejects, DCACase{ID: c.ID, CBOR: hexb(t, c.CBORHex), Expect: c.Expect})
 	}
 	return v
 }
@@ -416,19 +349,14 @@ func (v *Vectors) OpenPlaintext(t testing.TB, r Reject) (salt [32]byte, plaintex
 }
 
 // EnvelopeFor signs, with agent1, a commitment shaped like case 0 but bound to
-// raw: ciphertext_hash and payload_size come from the blob, plaintext_hash,
-// action and constraints from the arguments. Action and constraints are the
-// canonical CBOR of commitment keys 8 and 9.
-func (v *Vectors) EnvelopeFor(t testing.TB, raw, plaintextHash, actionCBOR, constraintsCBOR []byte) []byte {
+// raw: ciphertext_hash and payload_size come from the blob, plaintext_hash and
+// the action type and hash from the arguments.
+func (v *Vectors) EnvelopeFor(t testing.TB, raw, plaintextHash []byte, actionType string, actionHash []byte) []byte {
 	t.Helper()
 	s, err := commitment.DecodeSigned(v.Case0(t).Envelope)
 	require.NoError(t, err)
 	c := gatefix.Clone(&s.Commitment)
-	var act commitment.Action
-	require.NoError(t, cbor.Unmarshal(actionCBOR, &act))
-	var con commitment.Constraints
-	require.NoError(t, cbor.Unmarshal(constraintsCBOR, &con))
-	c.Action, c.Constraints = act, con
+	c.Action = commitment.Action{Type: actionType, Hash: append([]byte(nil), actionHash...)}
 	sum := sha256.Sum256(raw)
 	c.CiphertextHash = sum[:]
 	c.PayloadSize = uint64(len(raw))
@@ -508,20 +436,12 @@ type rejectJSON struct {
 			IssuedAt    string `json:"issued_at"`
 			ValidUntil  string `json:"valid_until"`
 			Scope       struct {
-				GateID  string  `json:"gate_id"`
-				Rail    string  `json:"rail"`
-				Account string  `json:"account"`
-				ChainID *string `json:"chain_id"`
+				GateID string `json:"gate_id"`
 			} `json:"scope"`
 			Action struct {
-				Kind   string    `json:"kind"`
-				Params jsonOrder `json:"params"`
+				Type string `json:"type"`
+				Hash string `json:"hash"`
 			} `json:"action"`
-			Constraints struct {
-				MaxNotional string  `json:"max_notional"`
-				PriceBound  *string `json:"price_bound"`
-				Deadline    *string `json:"deadline"`
-			} `json:"constraints"`
 			PayloadRef struct {
 				DA         string `json:"da"`
 				Namespace  string `json:"namespace"`
@@ -559,29 +479,14 @@ func RejectInputs(t testing.TB) []RejectInput {
 			continue
 		}
 		in := c.Input
-		o := in.Action.Params
 		com := &commitment.Commitment{
 			AgentID:     in.AgentID,
 			AgentPubKey: hexb(t, in.AgentPubKey),
 			Nonce:       hexb(t, in.Nonce),
 			IssuedAt:    gatefix.U64(t, in.IssuedAt),
 			ValidUntil:  gatefix.U64(t, in.ValidUntil),
-			Scope: commitment.Scope{
-				GateID: in.Scope.GateID, Rail: commitment.Rail(gatefix.U64(t, in.Scope.Rail)),
-				Account: in.Scope.Account, ChainID: in.Scope.ChainID,
-			},
-			Action: commitment.Action{Kind: in.Action.Kind, IBKROrder: &commitment.IBKROrderV0{
-				Account: o.Account, ConID: gatefix.U64(t, o.ConID), Symbol: o.Symbol,
-				Side: commitment.Side(gatefix.U64(t, o.Side)), Qty: gatefix.U64(t, o.Qty),
-				OrderType:  commitment.OrderType(gatefix.U64(t, o.OrderType)),
-				LimitPrice: optU64(t, o.LimitPrice), Currency: o.Currency,
-				TIF: commitment.TIF(gatefix.U64(t, o.TIF)),
-			}},
-			Constraints: commitment.Constraints{
-				MaxNotional: gatefix.U64(t, in.Constraints.MaxNotional),
-				PriceBound:  optU64(t, in.Constraints.PriceBound),
-				Deadline:    optU64(t, in.Constraints.Deadline),
-			},
+			Scope:       commitment.Scope{GateID: in.Scope.GateID},
+			Action:      commitment.Action{Type: in.Action.Type, Hash: hexb(t, in.Action.Hash)},
 			PayloadRef: commitment.PayloadRef{
 				DA:         commitment.DA(gatefix.U64(t, in.PayloadRef.DA)),
 				Namespace:  hexb(t, in.PayloadRef.Namespace),
@@ -623,23 +528,11 @@ func ClonePayload(p *payload.Payload) *payload.Payload {
 		v := *s
 		return &v
 	}
-	u := func(x *uint64) *uint64 {
-		if x == nil {
-			return nil
-		}
-		v := *x
-		return &v
-	}
 	out := *p
 	out.Model.Version, out.Model.Digest = str(p.Model.Version), cp(p.Model.Digest)
 	out.Policy.Version, out.Policy.Digest, out.Policy.Text = str(p.Policy.Version), cp(p.Policy.Digest), cp(p.Policy.Text)
 	out.Context.Bytes = cp(p.Context.Bytes)
-	if o := p.Action.IBKROrder; o != nil {
-		c := *o
-		c.Symbol, c.LimitPrice = str(o.Symbol), u(o.LimitPrice)
-		out.Action.IBKROrder = &c
-	}
-	out.Constraints.PriceBound, out.Constraints.Deadline = u(p.Constraints.PriceBound), u(p.Constraints.Deadline)
+	out.Action.Data = cp(p.Action.Data)
 	if p.Metadata != nil {
 		m := *p.Metadata
 		m.Bytes = cp(p.Metadata.Bytes)

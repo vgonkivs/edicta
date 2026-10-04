@@ -2,6 +2,7 @@ package commitment_test
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -19,51 +20,44 @@ import (
 const vectorDir = "../spec/vectors/v0"
 
 var sentinels = map[string]error{
-	"ErrTooLarge":              commitment.ErrTooLarge,
-	"ErrMalformed":             commitment.ErrMalformed,
-	"ErrTrailingData":          commitment.ErrTrailingData,
-	"ErrFloat":                 commitment.ErrFloat,
-	"ErrSimpleValue":           commitment.ErrSimpleValue,
-	"ErrTag":                   commitment.ErrTag,
-	"ErrIndefiniteLength":      commitment.ErrIndefiniteLength,
-	"ErrNonMinimalInt":         commitment.ErrNonMinimalInt,
-	"ErrNestingTooDeep":        commitment.ErrNestingTooDeep,
-	"ErrUnsortedMap":           commitment.ErrUnsortedMap,
-	"ErrDuplicateKey":          commitment.ErrDuplicateKey,
-	"ErrKeyType":               commitment.ErrKeyType,
-	"ErrInvalidString":         commitment.ErrInvalidString,
-	"ErrUnknownKey":            commitment.ErrUnknownKey,
-	"ErrWrongType":             commitment.ErrWrongType,
-	"ErrMissingField":          commitment.ErrMissingField,
-	"ErrFieldSize":             commitment.ErrFieldSize,
-	"ErrUnsupportedActionKind": commitment.ErrUnsupportedActionKind,
-	"ErrNonCanonical":          commitment.ErrNonCanonical,
-	"ErrUnsupportedVersion":    commitment.ErrUnsupportedVersion,
-	"ErrIntRange":              commitment.ErrIntRange,
-	"ErrInvalidEnum":           commitment.ErrInvalidEnum,
-	"ErrUnsupportedRail":       commitment.ErrUnsupportedRail,
-	"ErrUnsupportedOrderType":  commitment.ErrUnsupportedOrderType,
-	"ErrZeroValue":             commitment.ErrZeroValue,
-	"ErrPayloadTooLarge":       commitment.ErrPayloadTooLarge,
-	"ErrInvalidNamespace":      commitment.ErrInvalidNamespace,
-	"ErrLimitPrice":            commitment.ErrLimitPrice,
-	"ErrAccountMismatch":       commitment.ErrAccountMismatch,
-	"ErrChainIDRule":           commitment.ErrChainIDRule,
-	"ErrTimeOrder":             commitment.ErrTimeOrder,
-	"ErrDeadlineRange":         commitment.ErrDeadlineRange,
-	"ErrTTLTooLong":            commitment.ErrTTLTooLong,
-	"ErrPriceBound":            commitment.ErrPriceBound,
-	"ErrNotionalExceeded":      commitment.ErrNotionalExceeded,
-	"ErrInvalidParams":         commitment.ErrInvalidParams,
-	"ErrInvalidPublicKey":      commitment.ErrInvalidPublicKey,
-	"ErrSignatureInvalid":      commitment.ErrSignatureInvalid,
-	"ErrNotYetValid":           commitment.ErrNotYetValid,
-	"ErrExpired":               commitment.ErrExpired,
-	"ErrScopeMismatch":         commitment.ErrScopeMismatch,
-	"ErrActionMismatch":        commitment.ErrActionMismatch,
-	"ErrPayloadSizeMismatch":   commitment.ErrPayloadSizeMismatch,
-	"ErrPayloadHashMismatch":   commitment.ErrPayloadHashMismatch,
-	"ErrIssuedBeforeAnchor":    commitment.ErrIssuedBeforeAnchor,
+	"ErrTooLarge":             commitment.ErrTooLarge,
+	"ErrMalformed":            commitment.ErrMalformed,
+	"ErrTrailingData":         commitment.ErrTrailingData,
+	"ErrFloat":                commitment.ErrFloat,
+	"ErrSimpleValue":          commitment.ErrSimpleValue,
+	"ErrTag":                  commitment.ErrTag,
+	"ErrIndefiniteLength":     commitment.ErrIndefiniteLength,
+	"ErrNonMinimalInt":        commitment.ErrNonMinimalInt,
+	"ErrNestingTooDeep":       commitment.ErrNestingTooDeep,
+	"ErrUnsortedMap":          commitment.ErrUnsortedMap,
+	"ErrDuplicateKey":         commitment.ErrDuplicateKey,
+	"ErrKeyType":              commitment.ErrKeyType,
+	"ErrInvalidString":        commitment.ErrInvalidString,
+	"ErrUnknownKey":           commitment.ErrUnknownKey,
+	"ErrWrongType":            commitment.ErrWrongType,
+	"ErrMissingField":         commitment.ErrMissingField,
+	"ErrFieldSize":            commitment.ErrFieldSize,
+	"ErrNonCanonical":         commitment.ErrNonCanonical,
+	"ErrUnsupportedVersion":   commitment.ErrUnsupportedVersion,
+	"ErrIntRange":             commitment.ErrIntRange,
+	"ErrInvalidEnum":          commitment.ErrInvalidEnum,
+	"ErrZeroValue":            commitment.ErrZeroValue,
+	"ErrPayloadTooLarge":      commitment.ErrPayloadTooLarge,
+	"ErrInvalidNamespace":     commitment.ErrInvalidNamespace,
+	"ErrTimeOrder":            commitment.ErrTimeOrder,
+	"ErrTTLTooLong":           commitment.ErrTTLTooLong,
+	"ErrInvalidParams":        commitment.ErrInvalidParams,
+	"ErrInvalidPublicKey":     commitment.ErrInvalidPublicKey,
+	"ErrSignatureInvalid":     commitment.ErrSignatureInvalid,
+	"ErrNotYetValid":          commitment.ErrNotYetValid,
+	"ErrExpired":              commitment.ErrExpired,
+	"ErrScopeMismatch":        commitment.ErrScopeMismatch,
+	"ErrActionTypeNotAllowed": commitment.ErrActionTypeNotAllowed,
+	"ErrActionSize":           commitment.ErrActionSize,
+	"ErrActionMismatch":       commitment.ErrActionMismatch,
+	"ErrPayloadSizeMismatch":  commitment.ErrPayloadSizeMismatch,
+	"ErrPayloadHashMismatch":  commitment.ErrPayloadHashMismatch,
+	"ErrIssuedBeforeAnchor":   commitment.ErrIssuedBeforeAnchor,
 }
 
 // assertSentinel requires err to match the named sentinel and no other one.
@@ -111,14 +105,6 @@ func u64(t testing.TB, s string) uint64 {
 	return v
 }
 
-func optU64(t testing.TB, s *string) *uint64 {
-	if s == nil {
-		return nil
-	}
-	v := u64(t, *s)
-	return &v
-}
-
 func loadJSON(t testing.TB, name string, v any) {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(vectorDir, name))
@@ -128,22 +114,26 @@ func loadJSON(t testing.TB, name string, v any) {
 }
 
 type jsonScope struct {
-	GateID  string  `json:"gate_id"`
-	Rail    string  `json:"rail"`
-	Account string  `json:"account"`
-	ChainID *string `json:"chain_id"`
+	GateID string `json:"gate_id"`
 }
 
-type jsonOrder struct {
-	Account    string  `json:"account"`
-	ConID      string  `json:"conid"`
-	Symbol     *string `json:"symbol"`
-	Side       string  `json:"side"`
-	Qty        string  `json:"qty"`
-	OrderType  string  `json:"order_type"`
-	LimitPrice *string `json:"limit_price"`
-	Currency   string  `json:"currency"`
-	TIF        string  `json:"tif"`
+type jsonAction struct {
+	Type string `json:"type"`
+	Hash string `json:"hash"`
+}
+
+type jsonGate struct {
+	GateID      string   `json:"gate_id"`
+	ActionTypes []string `json:"action_types"`
+}
+
+// actionSpec is how vectors describe action bytes: literal hex, or a
+// pattern plus size and SHA-256 for actions too large to inline.
+type actionSpec struct {
+	ActionHex       string `json:"action_hex"`
+	ActionPattern   string `json:"action_pattern"`
+	ActionSize      string `json:"action_size"`
+	ActionSHA256Hex string `json:"action_sha256_hex"`
 }
 
 type jsonParams struct {
@@ -153,23 +143,15 @@ type jsonParams struct {
 }
 
 type jsonInput struct {
-	Version     string    `json:"version"`
-	AgentID     string    `json:"agent_id"`
-	AgentPubKey string    `json:"agent_pubkey"`
-	Nonce       string    `json:"nonce"`
-	IssuedAt    string    `json:"issued_at"`
-	ValidUntil  string    `json:"valid_until"`
-	Scope       jsonScope `json:"scope"`
-	Action      struct {
-		Kind   string    `json:"kind"`
-		Params jsonOrder `json:"params"`
-	} `json:"action"`
-	Constraints struct {
-		MaxNotional string  `json:"max_notional"`
-		PriceBound  *string `json:"price_bound"`
-		Deadline    *string `json:"deadline"`
-	} `json:"constraints"`
-	PayloadRef struct {
+	Version     string     `json:"version"`
+	AgentID     string     `json:"agent_id"`
+	AgentPubKey string     `json:"agent_pubkey"`
+	Nonce       string     `json:"nonce"`
+	IssuedAt    string     `json:"issued_at"`
+	ValidUntil  string     `json:"valid_until"`
+	Scope       jsonScope  `json:"scope"`
+	Action      jsonAction `json:"action"`
+	PayloadRef  struct {
 		DA         string `json:"da"`
 		Namespace  string `json:"namespace"`
 		Commitment string `json:"commitment"`
@@ -192,12 +174,15 @@ type validCase struct {
 	EnvelopeHex       string      `json:"envelope_hex"`
 	Now               string      `json:"now"`
 	Params            *jsonParams `json:"params"`
-	Request           jsonOrder   `json:"request"`
+	ActionType        string      `json:"action_type"`
+	ActionHashHex     string      `json:"action_hash_hex"`
+	PrefixHex         string      `json:"action_preimage_prefix_hex"`
+	actionSpec
 }
 
 type validFile struct {
 	Params jsonParams  `json:"params"`
-	Gate   jsonScope   `json:"gate"`
+	Gate   jsonGate    `json:"gate"`
 	Cases  []validCase `json:"cases"`
 }
 
@@ -208,15 +193,16 @@ type rejectCase struct {
 	EnvelopeHex       string      `json:"envelope_hex"`
 	Now               string      `json:"now"`
 	Params            *jsonParams `json:"params"`
-	Gate              *jsonScope  `json:"gate"`
-	Request           *jsonOrder  `json:"request"`
+	Gate              *jsonGate   `json:"gate"`
+	ActionType        string      `json:"action_type"`
 	ExpectError       string      `json:"expect_error"`
 	CommitmentHashHex string      `json:"commitment_hash_hex"`
+	actionSpec
 }
 
 type rejectFile struct {
 	Params jsonParams   `json:"params"`
-	Gate   jsonScope    `json:"gate"`
+	Gate   jsonGate     `json:"gate"`
 	Cases  []rejectCase `json:"cases"`
 }
 
@@ -253,31 +239,31 @@ func toParams(t testing.TB, p jsonParams) commitment.Params {
 	}
 }
 
-func toGate(t testing.TB, g jsonScope) commitment.GateScope {
-	return commitment.GateScope{
-		GateID:  g.GateID,
-		Rail:    commitment.Rail(u64(t, g.Rail)),
-		Account: g.Account,
-		ChainID: g.ChainID,
-	}
+func toGate(t testing.TB, g jsonGate) commitment.GateScope {
+	return commitment.GateScope{GateID: g.GateID, ActionTypes: g.ActionTypes}
 }
 
-func toOrder(t testing.TB, o jsonOrder) commitment.IBKROrderV0 {
-	return commitment.IBKROrderV0{
-		Account:    o.Account,
-		ConID:      u64(t, o.ConID),
-		Symbol:     o.Symbol,
-		Side:       commitment.Side(u64(t, o.Side)),
-		Qty:        u64(t, o.Qty),
-		OrderType:  commitment.OrderType(u64(t, o.OrderType)),
-		LimitPrice: optU64(t, o.LimitPrice),
-		Currency:   o.Currency,
-		TIF:        commitment.TIF(u64(t, o.TIF)),
+// actionBytes materializes the action of a vector. Patterns are defined as
+// byte i = (7*i + 3) mod 256, and the digest pins the generated bytes.
+func actionBytes(t testing.TB, a actionSpec) []byte {
+	t.Helper()
+	if a.ActionPattern == "" {
+		return mustHex(t, a.ActionHex)
 	}
+	require.Equal(t, "affine-7-3", a.ActionPattern, "unknown action pattern")
+	n := u64(t, a.ActionSize)
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = byte(7*i + 3)
+	}
+	if a.ActionSHA256Hex != "" {
+		sum := sha256.Sum256(b)
+		require.Equal(t, a.ActionSHA256Hex, hex.EncodeToString(sum[:]), "pattern digest")
+	}
+	return b
 }
 
 func toCommitment(t testing.TB, in jsonInput) *commitment.Commitment {
-	order := toOrder(t, in.Action.Params)
 	return &commitment.Commitment{
 		Version:     u64(t, in.Version),
 		AgentID:     in.AgentID,
@@ -285,18 +271,8 @@ func toCommitment(t testing.TB, in jsonInput) *commitment.Commitment {
 		Nonce:       mustHex(t, in.Nonce),
 		IssuedAt:    u64(t, in.IssuedAt),
 		ValidUntil:  u64(t, in.ValidUntil),
-		Scope: commitment.Scope{
-			GateID:  in.Scope.GateID,
-			Rail:    commitment.Rail(u64(t, in.Scope.Rail)),
-			Account: in.Scope.Account,
-			ChainID: in.Scope.ChainID,
-		},
-		Action: commitment.Action{Kind: in.Action.Kind, IBKROrder: &order},
-		Constraints: commitment.Constraints{
-			MaxNotional: u64(t, in.Constraints.MaxNotional),
-			PriceBound:  optU64(t, in.Constraints.PriceBound),
-			Deadline:    optU64(t, in.Constraints.Deadline),
-		},
+		Scope:       commitment.Scope{GateID: in.Scope.GateID},
+		Action:      commitment.Action{Type: in.Action.Type, Hash: mustHex(t, in.Action.Hash)},
 		PayloadRef: commitment.PayloadRef{
 			DA:         commitment.DA(u64(t, in.PayloadRef.DA)),
 			Namespace:  mustHex(t, in.PayloadRef.Namespace),
@@ -338,5 +314,3 @@ func validCaseByID(t testing.TB, vf validFile, id string) validCase {
 	require.FailNow(t, fmt.Sprintf("no valid vector %q", id))
 	return validCase{}
 }
-
-func ptr[T any](v T) *T { return &v }

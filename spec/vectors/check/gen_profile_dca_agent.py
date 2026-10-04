@@ -6,8 +6,7 @@ commitment hashes are read from the core vector set, so run gen_vectors.py
 first.
 
 Usage: python3 spec/vectors/check/gen_profile_dca_agent.py [--core DIR] [--out DIR]
-Defaults: --core spec/vectors/v0-next if present, else spec/vectors/v0 (it
-must be a draft.9 set); --out spec/vectors/profiles/dca-agent.
+Defaults: --core spec/vectors/v0; --out spec/vectors/profiles/dca-agent.
 """
 
 from __future__ import annotations
@@ -35,7 +34,7 @@ def arg(name: str, default: Path) -> Path:
     return default
 
 
-CORE = arg("--core", VECTORS / "v0-next" if (VECTORS / "v0-next").is_dir() else VECTORS / "v0")
+CORE = arg("--core", VECTORS / "v0")
 OUT = arg("--out", VECTORS / "profiles" / "dca-agent")
 FORMAT = "edicta-vectors/v0"
 PROFILE = "dca-agent"

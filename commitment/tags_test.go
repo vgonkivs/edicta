@@ -15,10 +15,13 @@ import (
 // bytes, and no two tags may be equal.
 func TestTagConstants(t *testing.T) {
 	tags := map[string]string{
-		"TagCommitment": commitment.TagCommitment,
-		"TagSig":        commitment.TagSig,
-		"TagReceipt":    commitment.TagReceipt,
-		"TagReceiptSig": commitment.TagReceiptSig,
+		"TagCommitment":       commitment.TagCommitment,
+		"TagSig":              commitment.TagSig,
+		"TagReceipt":          commitment.TagReceipt,
+		"TagReceiptSig":       commitment.TagReceiptSig,
+		"TagAction":           commitment.TagAction,
+		"TagAuthorization":    commitment.TagAuthorization,
+		"TagAuthorizationSig": commitment.TagAuthorizationSig,
 	}
 	seen := map[string]string{}
 	for name, v := range tags {
@@ -30,6 +33,20 @@ func TestTagConstants(t *testing.T) {
 		seen[v] = name
 	}
 	require.Equalf(t, "edicta/v0/receipt-sig", commitment.TagReceiptSig, "TagReceiptSig = %q", commitment.TagReceiptSig)
+}
+
+// Signed messages of the three signing roles differ in length and in tag, so
+// a signature made for one role cannot be replayed as another.
+func TestSignedMessageLengths(t *testing.T) {
+	var h commitment.Hash
+	agent := commitment.SigningMessage(h)
+	receipt := commitment.ReceiptSigningMessage(h)
+	auth := commitment.AuthorizationSigningMessage(h)
+	assert.Len(t, agent, 46)
+	assert.Len(t, receipt, 54)
+	assert.Len(t, auth, 60)
+	assert.EqualValues(t, 0x1b, auth[0])
+	assert.Equal(t, "edicta/v0/authorization-sig", string(auth[1:28]))
 }
 
 func TestCheckPublicKeyExported(t *testing.T) {

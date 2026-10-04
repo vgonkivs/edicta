@@ -16,8 +16,6 @@ var encMode, encModeErr = func() (cbor.EncMode, error) {
 
 var errNilCommitment = errors.New("commitment: nil commitment")
 
-var errNoOrder = errors.New("commitment: action has no ibkr order params")
-
 // Encode returns the canonical CBOR of c. A nil and an empty byte slice
 // encode identically; the decoder rejects empty values, so the wire
 // form stays unique. It does not validate values;
@@ -25,9 +23,6 @@ var errNoOrder = errors.New("commitment: action has no ibkr order params")
 func Encode(c *Commitment) ([]byte, error) {
 	if c == nil {
 		return nil, errNilCommitment
-	}
-	if c.Action.IBKROrder == nil {
-		return nil, errNoOrder
 	}
 	if encModeErr != nil {
 		return nil, encModeErr
@@ -42,9 +37,6 @@ func Encode(c *Commitment) ([]byte, error) {
 func EncodeSigned(s *SignedCommitment) ([]byte, error) {
 	if s == nil {
 		return nil, errNilCommitment
-	}
-	if s.Commitment.Action.IBKROrder == nil {
-		return nil, errNoOrder
 	}
 	if encModeErr != nil {
 		return nil, encModeErr

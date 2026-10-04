@@ -29,7 +29,7 @@ var (
 	ErrAlreadyFinalized      = errors.New("sdk: sealed payload already finalized")
 	ErrSignerClosed          = errors.New("sdk: signer closed")
 	ErrPlaintextHashMismatch = errors.New("sdk: plaintext_hash mismatch")
-	ErrPayloadMismatch       = errors.New("sdk: payload action or constraints differ from the commitment")
+	ErrPayloadMismatch       = errors.New("sdk: payload action differs from the commitment")
 )
 
 type Publisher interface {

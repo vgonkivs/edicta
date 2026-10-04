@@ -1,5 +1,5 @@
 // Package payload defines the plaintext a decision is committed to: model,
-// policy, free-form context and the exact action and constraints.
+// policy, free-form context and the exact action bytes.
 package payload
 
 import (
@@ -14,9 +14,6 @@ import (
 
 const (
 	Version = 0
-
-	// MediaTypeDCAv0 is the context type of the dollar-cost-averaging agent.
-	MediaTypeDCAv0 = "application/vnd.edicta.dca.v0+cbor"
 
 	maxMediaType = 64
 	maxID        = 128
@@ -49,14 +46,21 @@ type Policy struct {
 	Text    []byte  `cbor:"4,keyasint,omitempty"`
 }
 
+// Action is the cleartext action: its type and the exact bytes whose hash the
+// commitment carries.
+type Action struct {
+	Type string `cbor:"3,keyasint"`
+	Data []byte `cbor:"4,keyasint"`
+}
+
+// Payload keys 1..5 and 7 are in use; key 6 is retired and never reused.
 type Payload struct {
-	Version     uint64                 `cbor:"1,keyasint"`
-	Model       Model                  `cbor:"2,keyasint"`
-	Policy      Policy                 `cbor:"3,keyasint"`
-	Context     Data                   `cbor:"4,keyasint"`
-	Action      commitment.Action      `cbor:"5,keyasint"`
-	Constraints commitment.Constraints `cbor:"6,keyasint"`
-	Metadata    *Data                  `cbor:"7,keyasint,omitempty"`
+	Version  uint64 `cbor:"1,keyasint"`
+	Model    Model  `cbor:"2,keyasint"`
+	Policy   Policy `cbor:"3,keyasint"`
+	Context  Data   `cbor:"4,keyasint"`
+	Action   Action `cbor:"5,keyasint"`
+	Metadata *Data  `cbor:"7,keyasint,omitempty"`
 }
 
 var encMode, encModeErr = func() (cbor.EncMode, error) {
@@ -146,18 +150,24 @@ func validate(p *Payload) error {
 	if p.Policy.Text != nil && len(p.Policy.Text) == 0 {
 		return fmt.Errorf("%w: policy.text is empty", ErrMalformed)
 	}
-	if !validMediaType(p.Context.MediaType) {
+	if !commitment.ValidMediaType(p.Context.MediaType, maxMediaType) {
 		return fmt.Errorf("%w: context media type", ErrMalformed)
 	}
 	if p.Metadata != nil {
-		if !validMediaType(p.Metadata.MediaType) {
+		if !commitment.ValidMediaType(p.Metadata.MediaType, maxMediaType) {
 			return fmt.Errorf("%w: metadata media type", ErrMalformed)
 		}
 		if len(p.Metadata.Bytes) == 0 {
 			return fmt.Errorf("%w: metadata is empty", ErrMalformed)
 		}
 	}
-	return checkActionConstraints(p.Action, p.Constraints)
+	if !commitment.ValidMediaType(p.Action.Type, commitment.MaxActionTypeSize) {
+		return fmt.Errorf("%w: action type", ErrMalformed)
+	}
+	if n := len(p.Action.Data); n < 1 || n > commitment.MaxActionSize {
+		return fmt.Errorf("%w: action data of %d bytes", ErrMalformed, n)
+	}
+	return nil
 }
 
 func checkLabel(name, s string, max int) error {
@@ -182,64 +192,6 @@ func checkOptLabel(name string, s *string) error {
 func checkDigest(name string, d []byte) error {
 	if d != nil && len(d) != digestSize {
 		return fmt.Errorf("%w: %s length %d", ErrMalformed, name, len(d))
-	}
-	return nil
-}
-
-// validMediaType accepts lower-case "name/name" with RFC 6838 restricted-name
-// characters, 1..64 bytes, no parameters.
-func validMediaType(s string) bool {
-	if len(s) < 3 || len(s) > maxMediaType {
-		return false
-	}
-	slash := -1
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case c == '/':
-			if slash >= 0 {
-				return false
-			}
-			slash = i
-		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
-		case i == 0 || i == slash+1:
-			return false
-		default:
-			switch c {
-			case '!', '#', '$', '&', '^', '_', '.', '+', '-':
-			default:
-				return false
-			}
-		}
-	}
-	return slash > 0 && slash < len(s)-1
-}
-
-// checkActionConstraints applies the commitment's own decoder to the action
-// and constraints by wrapping them in a throwaway commitment.
-func checkActionConstraints(a commitment.Action, c commitment.Constraints) error {
-	probe := &commitment.Commitment{
-		AgentID:     "a",
-		AgentPubKey: make([]byte, 32),
-		Nonce:       make([]byte, 16),
-		Scope:       commitment.Scope{GateID: "g", Rail: commitment.RailIBKR, Account: "a"},
-		Action:      a,
-		Constraints: c,
-		PayloadRef: commitment.PayloadRef{
-			DA:         commitment.DACelestiaBlob,
-			Namespace:  make([]byte, 29),
-			Commitment: make([]byte, 32),
-			Signer:     make([]byte, 20),
-		},
-		CiphertextHash: make([]byte, 32),
-		PlaintextHash:  make([]byte, 32),
-	}
-	raw, err := commitment.Encode(probe)
-	if err == nil {
-		_, err = commitment.Decode(raw)
-	}
-	if err != nil {
-		return fmt.Errorf("%w: action or constraints: %v", ErrMalformed, err)
 	}
 	return nil
 }

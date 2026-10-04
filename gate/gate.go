@@ -3,6 +3,7 @@ package gate
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -31,7 +32,6 @@ type Gate struct {
 	afterReserve  func() error
 	afterExecute  func() error
 	beforeResolve func() error
-	mutateOrder   func(*commitment.IBKROrderV0)
 }
 
 type Result struct {
@@ -69,9 +69,6 @@ func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
 	}
 	if d.Committers[commitment.DACelestiaBlob] == nil {
 		return nil, bad("a committer for da = 2 is required")
-	}
-	if d.Executor.Rail() != cfg.Scope.Rail {
-		return nil, bad("executor rail %d differs from scope rail %d", d.Executor.Rail(), cfg.Scope.Rail)
 	}
 
 	g := &Gate{cfg: cfg, d: d, gateKeys: make(map[[32]byte]struct{}), sem: newWeightedSem(cfg.MaxFetchBytes)}
@@ -164,9 +161,9 @@ func (g *Gate) bumpWatermark(v uint64) {
 }
 
 // Admit verifies the envelope and, if every stage passes, executes the
-// committed order at most once and returns a signed receipt. Result.State is
+// committed action at most once and returns a signed receipt. Result.State is
 // authoritative; the error explains it.
-func (g *Gate) Admit(ctx context.Context, envelope []byte) (res Result, err error) {
+func (g *Gate) Admit(ctx context.Context, envelope, action []byte) (res Result, err error) {
 	var ev AdmissionEvent
 	defer func() {
 		if g.d.Metrics != nil {
@@ -174,10 +171,10 @@ func (g *Gate) Admit(ctx context.Context, envelope []byte) (res Result, err erro
 			g.d.Metrics.Admission(ev)
 		}
 	}()
-	return g.admit(ctx, envelope, &ev)
+	return g.admit(ctx, envelope, action, &ev)
 }
 
-func (g *Gate) admit(ctx context.Context, envelope []byte, ev *AdmissionEvent) (Result, error) {
+func (g *Gate) admit(ctx context.Context, envelope, action []byte, ev *AdmissionEvent) (Result, error) {
 	if g.closed.Load() {
 		return Result{}, ErrClosed
 	}
@@ -232,24 +229,8 @@ func (g *Gate) admit(ctx context.Context, envelope []byte, ev *AdmissionEvent) (
 		return res, ErrAgentKeyMismatch
 	}
 
-	// The order is built from the committed params and checked.
-	order := *c.Action.IBKROrder
-	if order.LimitPrice != nil {
-		v := *order.LimitPrice
-		order.LimitPrice = &v
-	}
-	if order.Symbol != nil {
-		v := *order.Symbol
-		order.Symbol = &v
-	}
-	if g.mutateOrder != nil {
-		g.mutateOrder(&order)
-	}
-	if err := commitment.CheckAction(c, order); err != nil {
-		return res, err
-	}
-	coid, err := commitment.ClientOrderID(g.cfg.Scope.Rail, h)
-	if err != nil {
+	// The presented bytes must be exactly the committed ones.
+	if err := commitment.CheckAction(c, action); err != nil {
 		return res, err
 	}
 
@@ -332,12 +313,8 @@ func (g *Gate) admit(ctx context.Context, envelope []byte, ev *AdmissionEvent) (
 
 	// Execute, detached from the caller's cancellation.
 	dctx := context.WithoutCancel(ctx)
-	expiry := c.ValidUntil
-	if c.Constraints.Deadline != nil {
-		expiry = *c.Constraints.Deadline
-	}
-	notAfter := time.Unix(int64(expiry-min(expiry, g.cfg.SkewS)), 0)
-	er, eerr := g.execute(dctx, ExecRequest{CommitmentHash: h, ClientOrderID: coid, Order: order, NotAfter: notAfter})
+	notAfter := time.Unix(int64(c.ValidUntil-min(c.ValidUntil, g.cfg.SkewS)), 0)
+	er, eerr := g.execute(dctx, ExecRequest{CommitmentHash: h, ClientOrderID: clientOrderID(h), Action: bytes.Clone(action), NotAfter: notAfter})
 	if g.afterExecute != nil {
 		if err := g.afterExecute(); err != nil {
 			return res, fmt.Errorf("gate: after execute: %w", err)
@@ -372,7 +349,7 @@ func (g *Gate) admit(ctx context.Context, envelope []byte, ev *AdmissionEvent) (
 	var signErr error
 	if outcome == registry.StateExecuted {
 		upd.RailRef, upd.ExecutedAt = ref, at
-		upd.Receipt, signErr = g.signReceipt(dctx, h, path, ref, at)
+		upd.Receipt, signErr = g.signReceipt(dctx, h, ref, at)
 	}
 	if err := g.d.Registry.Resolve(dctx, key, registry.StateReserved, upd); err != nil {
 		cause := fmt.Errorf("resolve: %w", err)
@@ -413,6 +390,10 @@ func replay(h commitment.Hash, old registry.Entry) (Result, error) {
 	}
 	return r, ErrNonceUsed
 }
+
+// clientOrderID is the idempotency key sent to the executor: the lowercase
+// hex of the commitment hash.
+func clientOrderID(h commitment.Hash) string { return hex.EncodeToString(h[:]) }
 
 func (g *Gate) chainErr(ctx context.Context, what string, err error) error {
 	if cerr := ctx.Err(); cerr != nil {
@@ -502,15 +483,13 @@ func (g *Gate) sign(ctx context.Context, msg []byte) (sig []byte, err error) {
 	return g.d.Signer.Sign(ctx, msg)
 }
 
-func (g *Gate) signReceipt(ctx context.Context, h commitment.Hash, path registry.Path, ref string, executedAt uint64) ([]byte, error) {
+func (g *Gate) signReceipt(ctx context.Context, h commitment.Hash, ref string, recordedAt uint64) ([]byte, error) {
 	r := commitment.Receipt{
 		CommitmentHash: h[:],
 		GateID:         g.cfg.Scope.GateID,
 		GatePubKey:     g.signerPub,
-		Rail:           g.cfg.Scope.Rail,
 		RailRef:        ref,
-		Path:           commitment.ReceiptPath(path),
-		ExecutedAt:     executedAt,
+		RecordedAt:     recordedAt,
 	}
 	canon, err := commitment.EncodeReceipt(&r)
 	if err != nil {

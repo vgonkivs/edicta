@@ -108,21 +108,8 @@ func buildCommitment(root *node) (*Commitment, error) {
 	m := byKey(root)
 	scope := byKey(m[7])
 	action := byKey(m[8])
-	order := byKey(action[2])
-	cons := byKey(m[9])
 	ref := byKey(m[10])
 
-	o := &IBKROrderV0{
-		Account:    string(order[1].b),
-		ConID:      order[2].u,
-		Symbol:     optText(order[3]),
-		Side:       Side(order[4].u),
-		Qty:        order[5].u,
-		OrderType:  OrderType(order[6].u),
-		LimitPrice: optUint(order[7]),
-		Currency:   string(order[8].b),
-		TIF:        TIF(order[9].u),
-	}
 	return &Commitment{
 		Version:     m[1].u,
 		AgentID:     string(m[2].b),
@@ -130,18 +117,8 @@ func buildCommitment(root *node) (*Commitment, error) {
 		Nonce:       bytes.Clone(m[4].b),
 		IssuedAt:    m[5].u,
 		ValidUntil:  m[6].u,
-		Scope: Scope{
-			GateID:  string(scope[1].b),
-			Rail:    Rail(scope[2].u),
-			Account: string(scope[3].b),
-			ChainID: optText(scope[4]),
-		},
-		Action: Action{Kind: string(action[1].b), IBKROrder: o},
-		Constraints: Constraints{
-			MaxNotional: cons[1].u,
-			PriceBound:  optUint(cons[2]),
-			Deadline:    optUint(cons[3]),
-		},
+		Scope:       Scope{GateID: string(scope[1].b)},
+		Action:      Action{Type: string(action[3].b), Hash: bytes.Clone(action[4].b)},
 		PayloadRef: PayloadRef{
 			DA:         DA(ref[1].u),
 			Namespace:  bytes.Clone(ref[2].b),
@@ -168,20 +145,4 @@ func optBytes(n *node) []byte {
 		return nil
 	}
 	return bytes.Clone(n.b)
-}
-
-func optText(n *node) *string {
-	if n == nil {
-		return nil
-	}
-	s := string(n.b)
-	return &s
-}
-
-func optUint(n *node) *uint64 {
-	if n == nil {
-		return nil
-	}
-	v := n.u
-	return &v
 }

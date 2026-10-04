@@ -52,7 +52,7 @@ func TestEndToEndAdmitAndExecuteOnce(t *testing.T) {
 	require.True(t, res.DAChecked)
 	e.stage(res)
 
-	gres, err := e.env.Admit(res.Envelope)
+	gres, err := e.env.AdmitWith(res.Envelope, res.Action)
 	require.NoError(t, err, "the gate admits what the SDK signed")
 	assert.Equal(t, res.CommitmentHash, gres.CommitmentHash)
 	assert.Equal(t, registry.StateExecuted, gres.State)
@@ -61,15 +61,12 @@ func TestEndToEndAdmitAndExecuteOnce(t *testing.T) {
 	require.Equal(t, 1, e.env.Exec.Calls())
 	req := e.env.Exec.Requests()[0]
 	assert.Equal(t, res.CommitmentHash, req.CommitmentHash)
-	wantOID, err := commitment.ClientOrderID(commitment.RailIBKR, res.CommitmentHash)
-	require.NoError(t, err)
-	assert.Equal(t, wantOID, req.ClientOrderID)
-	assert.Equal(t, *res.Commitment.Action.IBKROrder, req.Order, "the order is the committed one")
-	gatefix.CheckReceipt(t, gres, res.CommitmentHash, gatefix.RailRef, commitment.ReceiptPathDA,
+	assert.Equal(t, res.Action, req.Action, "the bytes handed on are the committed ones")
+	gatefix.CheckReceipt(t, gres, res.CommitmentHash, gatefix.RailRef,
 		gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
 
 	t.Run("a second submission is refused and nothing executes again", func(t *testing.T) {
-		_, err := e.env.Admit(res.Envelope)
+		_, err := e.env.AdmitWith(res.Envelope, res.Action)
 		require.ErrorIs(t, err, gate.ErrNonceUsed)
 		assert.Equal(t, 1, e.env.Exec.Calls())
 	})
@@ -84,19 +81,7 @@ func TestEndToEndAdmitAndExecuteOnce(t *testing.T) {
 	})
 }
 
-func TestEndToEndDeadlineAndRetentionClamp(t *testing.T) {
-	t.Run("deadline in the payload", func(t *testing.T) {
-		e := newE2E(t)
-		p := e.rig.payload()
-		p.Constraints.Deadline = u64p(now + 600)
-		res, err := e.b.Commit(bg, p)
-		require.NoError(t, err)
-		assert.EqualValues(t, now+600, res.Validity.Expiry)
-		e.stage(res)
-		_, err = e.env.Admit(res.Envelope)
-		require.NoError(t, err)
-		assert.Equal(t, 1, e.env.Exec.Calls())
-	})
+func TestEndToEndRetentionClamp(t *testing.T) {
 	t.Run("an old anchor is clamped and still admitted", func(t *testing.T) {
 		e := newE2E(t)
 		e.pub.SetBlockTime(now - 12000) // 3h20m old: 1800 s of retention left after the margin
@@ -108,7 +93,7 @@ func TestEndToEndDeadlineAndRetentionClamp(t *testing.T) {
 		assert.Equal(t, "retention", res.Validity.ClampedBy)
 		assert.EqualValues(t, now+1800, res.Validity.ValidUntil)
 		e.stage(res)
-		gres, err := e.env.Admit(res.Envelope)
+		gres, err := e.env.AdmitWith(res.Envelope, res.Action)
 		require.NoError(t, err)
 		assert.Equal(t, registry.PathDA, gres.Path)
 	})
@@ -147,7 +132,7 @@ func TestEndToEndFibreWithOptOut(t *testing.T) {
 	env.DA.Put(res.Published.Ref, res.Blob)
 	dac.Bind(res.Published.Ref.Commitment, res.Blob)
 
-	gres, err := env.Admit(res.Envelope)
+	gres, err := env.AdmitWith(res.Envelope, res.Action)
 	require.NoError(t, err)
 	assert.Equal(t, registry.PathDA, gres.Path)
 	assert.Equal(t, 1, env.Exec.Calls())

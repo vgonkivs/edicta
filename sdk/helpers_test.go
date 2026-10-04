@@ -29,7 +29,7 @@ const (
 
 var (
 	params = commitment.Params{FibreRetentionS: 14400, BlobRetentionS: 14400, SkewS: 30}
-	scope  = commitment.GateScope{GateID: gatefix.GateID, Rail: commitment.RailIBKR, Account: gatefix.Account}
+	scope  = commitment.GateScope{GateID: gatefix.GateID, ActionTypes: []string{gatefix.ActionType}}
 	// testNS is a valid version-0 namespace.
 	testNS = append(make([]byte, 19), []byte("edicta/d01")...)
 )
@@ -160,7 +160,7 @@ func newRig(t *testing.T, mods ...func(*rig)) *rig {
 	}
 	r.deps = sdk.Deps{Chain: r.chain}
 	r.cfg.AgentID = "dca-agent-1"
-	r.cfg.Scope = commitment.Scope{GateID: gatefix.GateID, Rail: commitment.RailIBKR, Account: gatefix.Account}
+	r.cfg.Scope = commitment.Scope{GateID: gatefix.GateID}
 	r.cfg.Recipients = v.Recipients(t, "gate-paper-1", "auditor-1")
 	for _, m := range mods {
 		m(r)
@@ -208,11 +208,11 @@ func requireValidAtGate(t testing.TB, res *sdk.Result, at uint64) {
 	require.NoError(t, err)
 	require.Equal(t, res.CommitmentHash, h)
 	require.Equal(t, res.Commitment, s.Commitment)
+	require.NoError(t, commitment.CheckScope(&s.Commitment, scope))
+	require.NoError(t, commitment.CheckAction(&s.Commitment, res.Action))
 	require.NoError(t, commitment.CheckPayload(&s.Commitment, res.Blob))
 	require.NoError(t, commitment.CheckAnchorTime(&s.Commitment, res.Published.BlockTime, params))
 }
-
-func u64p(v uint64) *uint64 { return &v }
 
 func isAny(err error, targets ...error) bool {
 	for _, t := range targets {

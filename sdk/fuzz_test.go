@@ -44,25 +44,21 @@ func FuzzOpenPayload(f *testing.F) {
 // asked for, never reaches past the retention bound and always leaves the
 // minimum validity.
 func FuzzChooseValidity(f *testing.F) {
-	f.Add(uint64(1_000_000), uint64(999_900), uint64(0), uint8(2), uint64(14400), uint64(14400), uint64(14400), uint64(30), uint64(900), uint64(60), uint64(0), false)
-	f.Add(uint64(1_000_000), uint64(988_000), uint64(0), uint8(2), uint64(14400), uint64(14400), uint64(14400), uint64(30), uint64(3600), uint64(60), uint64(0), false)
-	f.Add(uint64(1_000_000), uint64(999_990), uint64(999_800), uint8(1), uint64(14400), uint64(600), uint64(14400), uint64(30), uint64(900), uint64(60), uint64(0), false)
-	f.Add(uint64(1_000_000), uint64(999_900), uint64(0), uint8(2), uint64(14400), uint64(14400), uint64(14400), uint64(30), uint64(900), uint64(60), uint64(1_000_600), true)
-	f.Add(^uint64(0)-5, ^uint64(0)-10, uint64(0), uint8(2), ^uint64(0), ^uint64(0), ^uint64(0), uint64(30), ^uint64(0), uint64(60), ^uint64(0), true)
-	f.Add(uint64(0), uint64(0), uint64(0), uint8(2), uint64(0), uint64(0), uint64(0), uint64(0), uint64(0), uint64(0), uint64(0), false)
-	f.Fuzz(func(t *testing.T, nowS, blockTime, retStart uint64, da uint8, latest, atHeight, blobRet, skew, ttl, minV, deadline uint64, hasDeadline bool) {
+	f.Add(uint64(1_000_000), uint64(999_900), uint64(0), uint8(2), uint64(14400), uint64(14400), uint64(14400), uint64(30), uint64(900), uint64(60))
+	f.Add(uint64(1_000_000), uint64(988_000), uint64(0), uint8(2), uint64(14400), uint64(14400), uint64(14400), uint64(30), uint64(3600), uint64(60))
+	f.Add(uint64(1_000_000), uint64(999_990), uint64(999_800), uint8(1), uint64(14400), uint64(600), uint64(14400), uint64(30), uint64(900), uint64(60))
+	f.Add(^uint64(0)-5, ^uint64(0)-10, uint64(0), uint8(2), ^uint64(0), ^uint64(0), ^uint64(0), uint64(30), ^uint64(0), uint64(60))
+	f.Add(uint64(0), uint64(0), uint64(0), uint8(2), uint64(0), uint64(0), uint64(0), uint64(0), uint64(0), uint64(0))
+	f.Fuzz(func(t *testing.T, nowS, blockTime, retStart uint64, da uint8, latest, atHeight, blobRet, skew, ttl, minV uint64) {
 		// Keep every sum below 2^64 so the properties themselves cannot overflow;
 		// the saturating arithmetic has its own test.
 		const m = 1<<62 - 1
-		nowS, blockTime, retStart, latest, atHeight, blobRet, ttl, minV, deadline = nowS&m, blockTime&m, retStart&m,
-			latest&m, atHeight&m, blobRet&m, ttl&m, minV&m, deadline&m
+		nowS, blockTime, retStart, latest, atHeight, blobRet, ttl, minV = nowS&m, blockTime&m, retStart&m,
+			latest&m, atHeight&m, blobRet&m, ttl&m, minV&m
 		skew &= 0xffff
 		w := sdk.Window{
 			Now: nowS, BlockTime: blockTime, RetentionStart: retStart, DA: commitment.DA(1 + da%2),
 			FibreLatestS: latest, FibreAtHeightS: atHeight, BlobRetentionS: blobRet, SkewS: skew, TTLS: ttl, MinValidityS: minV,
-		}
-		if hasDeadline {
-			w.Deadline = &deadline
 		}
 		var v sdk.Validity
 		var err error
@@ -74,7 +70,7 @@ func FuzzChooseValidity(f *testing.F) {
 		require.LessOrEqual(t, v.ValidUntil, v.RequestedUntil, "valid_until is never above what was requested")
 		require.Greater(t, v.ValidUntil, v.IssuedAt)
 		require.Equal(t, max(w.Now, w.BlockTime), v.IssuedAt)
-		require.GreaterOrEqual(t, v.Expiry, w.Now+w.MinValidityS)
+		require.GreaterOrEqual(t, v.ValidUntil, w.Now+w.MinValidityS)
 		p := commitment.Params{FibreRetentionS: w.FibreLatestS, BlobRetentionS: w.BlobRetentionS, SkewS: w.SkewS}
 		require.LessOrEqual(t, v.ValidUntil-v.IssuedAt, p.MaxTTL(w.DA), "within the maximum ttl")
 		c := &commitment.Commitment{ValidUntil: v.ValidUntil}

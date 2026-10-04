@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies the Edicta v0 vectors against an independent implementation of the rules.
-
-Two vector sets exist while the Go code moves from v0-draft.8 to v0-draft.9:
-  spec/vectors/v0       draft.8, read by Go today; checked by draft8/check_vectors.py
-  spec/vectors/v0-next  draft.9 (has authorization.json); checked here
-A directory is treated as draft.9 when it contains authorization.json.
+"""Verifies the Edicta v0 vectors (v0-draft.9) against an independent implementation of the rules.
 
 da_blob.json share commitments are upstream go-square output and are checked
 by Go only; this script checks their blob descriptions. payload_blob.json is
@@ -13,9 +8,9 @@ the hand-written HPKE first. The dca-agent profile vectors are checked by
 check_profile_dca_agent.py.
 
 Usage: python3 spec/vectors/check/check_vectors.py [--dir DIR]
-Without --dir every set present is checked: v0, v0-next and the profile
-vectors. Exit status 0 when all vectors pass. Requires Python 3.11+ and
-'cryptography' (see requirements.txt next to this file).
+Without --dir, spec/vectors/v0 and the profile vectors are checked; with
+--dir, only that core set. Exit status 0 when all vectors pass. Requires
+Python 3.11+ and 'cryptography' (see requirements.txt next to this file).
 """
 
 from __future__ import annotations
@@ -501,7 +496,7 @@ def check_da_blob_inputs(df: dict, valid: dict):
            "da_blob.json blob_v1_minimal_lmt_payload no longer describes the minimal_lmt payload")
 
 
-def check_draft9(d: Path) -> int:
+def check_set(d: Path) -> int:
     try:
         check_constants()
         pubs = check_keys(load(d, "keys.json", revision=False))
@@ -546,25 +541,14 @@ def run_script(script: Path, *args: str) -> int:
     return subprocess.run([sys.executable, str(script), *args]).returncode
 
 
-def check_dir(d: Path) -> int:
-    if (d / "authorization.json").exists():
-        return check_draft9(d)
-    print(f"== {d.name}: v0-draft.8 set, checked by draft8/check_vectors.py", flush=True)
-    return run_script(HERE / "draft8" / "check_vectors.py", "--dir", str(d))
-
-
 def main() -> int:
     if sys.version_info < (3, 11):
         print("Python 3.11 or later is required", file=sys.stderr)
         return 2
     if "--dir" in sys.argv:
-        return check_dir(Path(sys.argv[sys.argv.index("--dir") + 1]).resolve())
-    rc = 0
-    for name in ("v0", "v0-next"):
-        if (VECTORS / name).is_dir():
-            rc |= check_dir(VECTORS / name)
-    if (VECTORS / "profiles" / "dca-agent").is_dir():
-        rc |= run_script(HERE / "check_profile_dca_agent.py")
+        return check_set(Path(sys.argv[sys.argv.index("--dir") + 1]).resolve())
+    rc = check_set(VECTORS / "v0")
+    rc |= run_script(HERE / "check_profile_dca_agent.py")
     return rc
 
 

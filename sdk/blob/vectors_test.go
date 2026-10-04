@@ -168,7 +168,7 @@ func TestVectorPlaintextRejectsOpenAtTheBlobLayer(t *testing.T) {
 			assert.NotEmpty(t, pt)
 		})
 	}
-	require.Equal(t, 21, n)
+	require.Equal(t, 24, n)
 }
 
 // Both recipients of the two-DEK blob open it without any blob-level error,

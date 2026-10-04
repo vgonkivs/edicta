@@ -209,7 +209,7 @@ func TestLateRetryAfterPruneNeverExecutesTwice(t *testing.T) {
 	e.stage(res)
 
 	e.env.Clock.Set(t0 + 5)
-	_, err = e.env.Admit(leaked)
+	_, err = e.env.AdmitWith(leaked, res.Action)
 	require.NoError(t, err, "the leaked signature executes")
 
 	e.env.Clock.Set(t0 + 5000)
@@ -221,12 +221,12 @@ func TestLateRetryAfterPruneNeverExecutesTwice(t *testing.T) {
 	res2, err := e.b.Finalize(bg, s2, pub2)
 	require.NoError(t, err)
 	e.stage(res2)
-	_, err = e.env.Admit(res2.Envelope)
+	_, err = e.env.AdmitWith(res2.Envelope, res2.Action)
 	require.NoError(t, err)
 	_, err = e.env.Gate.Prune(bg)
 	require.NoError(t, err)
 
-	_, err = e.env.Admit(res.Envelope)
+	_, err = e.env.AdmitWith(res.Envelope, res.Action)
 	require.Truef(t, errors.Is(err, gate.ErrNonceUsed) || errors.Is(err, commitment.ErrExpired), "the retry was admitted or failed oddly: %v", err)
 	assert.Equal(t, 2, e.env.Exec.Calls(), "the leaked order and the unrelated order, never the retry")
 }

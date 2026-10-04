@@ -156,36 +156,32 @@ func TestEdgeCrossDomainSignatures(t *testing.T) {
 	require.NoError(t, err, "control")
 }
 
-func TestEdgeForeignGateRailAccount(t *testing.T) {
+func TestEdgeForeignGateAndActionType(t *testing.T) {
 	env := signedEnv(t, nil)
 	g, p := edgeGate(t)
-	chain := "celestia-1"
 	tests := []struct {
 		name   string
 		mutate func(g *commitment.GateScope)
+		want   string
 	}{
-		{"other gate id", func(g *commitment.GateScope) { g.GateID = "gate-paper-2" }},
-		{"gate id prefix", func(g *commitment.GateScope) { g.GateID = g.GateID[:len(g.GateID)-1] }},
-		{"gate id case", func(g *commitment.GateScope) { g.GateID = "GATE-PAPER-1" }},
-		{"other rail", func(g *commitment.GateScope) { g.Rail = 2 }},
-		{"zero rail", func(g *commitment.GateScope) { g.Rail = 0 }},
-		{"other account", func(g *commitment.GateScope) { g.Account = "DU7654321" }},
-		{"empty account", func(g *commitment.GateScope) { g.Account = "" }},
-		{"gate has chain id", func(g *commitment.GateScope) { g.ChainID = &chain }},
+		{"other gate id", func(g *commitment.GateScope) { g.GateID = "gate-paper-2" }, "ErrScopeMismatch"},
+		{"gate id prefix", func(g *commitment.GateScope) { g.GateID = g.GateID[:len(g.GateID)-1] }, "ErrScopeMismatch"},
+		{"gate id case", func(g *commitment.GateScope) { g.GateID = "GATE-PAPER-1" }, "ErrScopeMismatch"},
+		{"empty gate id", func(g *commitment.GateScope) { g.GateID = "" }, "ErrScopeMismatch"},
+		{"other action type", func(g *commitment.GateScope) { g.ActionTypes = []string{"application/json"} }, "ErrActionTypeNotAllowed"},
+		{"no action types", func(g *commitment.GateScope) { g.ActionTypes = nil }, "ErrActionTypeNotAllowed"},
+		{"action type with suffix", func(g *commitment.GateScope) {
+			g.ActionTypes = []string{"application/vnd.edicta.ibkr.order.v0+cbor2"}
+		}, "ErrActionTypeNotAllowed"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gg := g
 			tt.mutate(&gg)
 			_, _, err := commitment.VerifyForGate(env, edgeNow, gg, p)
-			assertSentinel(t, err, "ErrScopeMismatch")
+			assertSentinel(t, err, tt.want)
 		})
 	}
-	t.Run("commitment has chain id", func(t *testing.T) {
-		withChain := signedEnv(t, func(c *commitment.Commitment) { c.Scope.ChainID = &chain })
-		_, _, err := commitment.VerifyForGate(withChain, edgeNow, g, p)
-		assertSentinel(t, err, "ErrChainIDRule")
-	})
 }
 
 func TestEdgeTimeBoundaries(t *testing.T) {
@@ -223,22 +219,6 @@ func TestEdgeTimeBoundaries(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) { run(t, tt.iss, tt.vu, tt.now, tt.want) })
 	}
-
-	t.Run("deadline equals issued_at", func(t *testing.T) {
-		env := signedEnv(t, func(c *commitment.Commitment) { c.Constraints.Deadline = ptr(issued) })
-		_, _, err := commitment.VerifyForGate(env, issued, g, p)
-		assertSentinel(t, err, "ErrDeadlineRange")
-	})
-	t.Run("deadline one past valid_until", func(t *testing.T) {
-		env := signedEnv(t, func(c *commitment.Commitment) { c.Constraints.Deadline = ptr(issued + 901) })
-		_, _, err := commitment.VerifyForGate(env, issued, g, p)
-		assertSentinel(t, err, "ErrDeadlineRange")
-	})
-	t.Run("deadline wins over valid_until", func(t *testing.T) {
-		env := signedEnv(t, func(c *commitment.Commitment) { c.Constraints.Deadline = ptr(issued + 100) })
-		_, _, err := commitment.VerifyForGate(env, issued+70, g, p)
-		assertSentinel(t, err, "ErrExpired")
-	})
 }
 
 func TestEdgeMaxTTLRetention(t *testing.T) {
@@ -257,49 +237,18 @@ func TestEdgeMaxTTLRetention(t *testing.T) {
 	}
 }
 
-func TestEdgeNotionalBoundaries(t *testing.T) {
-	g, p := edgeGate(t)
-	_ = g
-	// qty 10.0000 x price 190.50000000 = 1905.00000000 = 190_500_000_000 units
-	const exact = uint64(190_500_000_000)
+func TestEdgeStaticIntegerBoundaries(t *testing.T) {
+	_, p := edgeGate(t)
 	tests := []struct {
 		name   string
 		mutate func(c *commitment.Commitment)
 		want   string
 	}{
-		{"max_notional exact", func(c *commitment.Commitment) { c.Constraints.MaxNotional = exact }, ""},
-		{"max_notional minus 1 unit", func(c *commitment.Commitment) { c.Constraints.MaxNotional = exact - 1 }, "ErrNotionalExceeded"},
-		{"qty plus 1 unit", func(c *commitment.Commitment) {
-			c.Constraints.MaxNotional = exact
-			c.Action.IBKROrder.Qty++
-		}, "ErrNotionalExceeded"},
-		{"price plus 1 unit", func(c *commitment.Commitment) {
-			c.Constraints.MaxNotional = exact
-			c.Action.IBKROrder.LimitPrice = ptr(*c.Action.IBKROrder.LimitPrice + 1)
-		}, "ErrNotionalExceeded"},
-		{"fractional notional rounds up against agent", func(c *commitment.Commitment) {
-			c.Action.IBKROrder.Qty = 1
-			c.Action.IBKROrder.LimitPrice = ptr(uint64(10_001))
-			c.Constraints.MaxNotional = 1
-		}, "ErrNotionalExceeded"},
-		{"qty*price exactly 10^4 x max_notional", func(c *commitment.Commitment) {
-			c.Action.IBKROrder.Qty = 1
-			c.Action.IBKROrder.LimitPrice = ptr(uint64(10_000))
-			c.Constraints.MaxNotional = 1
-		}, ""},
-		{"2^63-1 qty and price, max_notional 2^63-1 (128-bit)", func(c *commitment.Commitment) {
-			c.Action.IBKROrder.Qty = math.MaxInt64
-			c.Action.IBKROrder.LimitPrice = ptr(uint64(math.MaxInt64))
-			c.Constraints.MaxNotional = math.MaxInt64
-		}, "ErrNotionalExceeded"},
-		{"qty 2^63", func(c *commitment.Commitment) { c.Action.IBKROrder.Qty = 1 << 63 }, "ErrIntRange"},
-		{"qty max uint64", func(c *commitment.Commitment) { c.Action.IBKROrder.Qty = math.MaxUint64 }, "ErrIntRange"},
-		{"limit_price max uint64", func(c *commitment.Commitment) { c.Action.IBKROrder.LimitPrice = ptr(uint64(math.MaxUint64)) }, "ErrIntRange"},
-		{"max_notional max uint64", func(c *commitment.Commitment) { c.Constraints.MaxNotional = math.MaxUint64 }, "ErrIntRange"},
 		{"height max uint64", func(c *commitment.Commitment) { c.PayloadRef.Height = math.MaxUint64 }, "ErrIntRange"},
-		{"qty 0", func(c *commitment.Commitment) { c.Action.IBKROrder.Qty = 0 }, "ErrZeroValue"},
-		{"max_notional 0", func(c *commitment.Commitment) { c.Constraints.MaxNotional = 0 }, "ErrZeroValue"},
-		{"limit_price 0", func(c *commitment.Commitment) { c.Action.IBKROrder.LimitPrice = ptr(uint64(0)) }, "ErrZeroValue"},
+		{"height 2^63-1", func(c *commitment.Commitment) { c.PayloadRef.Height = math.MaxInt64 }, ""},
+		{"height 0", func(c *commitment.Commitment) { c.PayloadRef.Height = 0 }, "ErrZeroValue"},
+		{"issued_at max uint64", func(c *commitment.Commitment) { c.IssuedAt = math.MaxUint64 }, "ErrIntRange"},
+		{"payload_size max uint64", func(c *commitment.Commitment) { c.PayloadSize = math.MaxUint64 }, "ErrIntRange"},
 		{"payload_size 2^27", func(c *commitment.Commitment) { c.PayloadSize = commitment.MaxPayloadSize }, ""},
 		{"payload_size 2^27+1", func(c *commitment.Commitment) { c.PayloadSize = commitment.MaxPayloadSize + 1 }, "ErrPayloadTooLarge"},
 	}
@@ -320,13 +269,11 @@ func TestEdgeNotionalBoundaries(t *testing.T) {
 func TestEdgeUint64WireRoundTrip(t *testing.T) {
 	c, _, _ := baseCommitment(t)
 	c.PayloadSize = math.MaxUint64
-	c.Constraints.MaxNotional = math.MaxUint64
 	b, err := commitment.Encode(c)
 	require.NoError(t, err)
 	d, err := commitment.Decode(b)
 	require.NoError(t, err, "decode of 2^64-1 must succeed at stage D")
 	require.Equal(t, uint64(math.MaxUint64), d.PayloadSize, "uint64 lost")
-	require.Equal(t, uint64(math.MaxUint64), d.Constraints.MaxNotional, "uint64 lost")
 	_, p := edgeGate(t)
 	assertSentinel(t, commitment.ValidateStatic(d, p), "ErrIntRange")
 }
@@ -384,7 +331,7 @@ func TestEdgeNestingDepth(t *testing.T) {
 
 // Documents impl-notes behaviour for hand-built inputs.
 func TestEdgeImplNotesAmbiguities(t *testing.T) {
-	c, _, p := baseCommitment(t)
+	c, _, _ := baseCommitment(t)
 
 	t.Run("Sign with mismatched key fails", func(t *testing.T) {
 		s, _, err := commitment.Sign(loadKey(t, "agent2"), c)
@@ -398,22 +345,17 @@ func TestEdgeImplNotesAmbiguities(t *testing.T) {
 		_, _, err = commitment.Sign(nil, c)
 		require.Error(t, err, "accepted nil key")
 	})
-	t.Run("nil order", func(t *testing.T) {
-		d := *c
-		d.Action.IBKROrder = nil
-		assertSentinel(t, commitment.ValidateStatic(&d, p), "ErrUnsupportedActionKind")
-		assertSentinel(t, verifyErr(&commitment.SignedCommitment{Commitment: d, Signature: make([]byte, 64)}), "ErrSignatureInvalid")
-		assertSentinel(t, commitment.CheckAction(&d, commitment.IBKROrderV0{}), "ErrActionMismatch")
-		_, err := commitment.Encode(&d)
-		require.Error(t, err, "encode of nil order succeeded")
+	t.Run("nil commitment in CheckAction", func(t *testing.T) {
+		assertSentinel(t, commitment.CheckAction(nil, []byte{1}), "ErrActionMismatch")
 	})
 	t.Run("nil envelope", func(t *testing.T) {
 		assertSentinel(t, verifyErr(nil), "ErrSignatureInvalid")
 	})
-	t.Run("unknown kind", func(t *testing.T) {
+	t.Run("encode does not interpret the action type", func(t *testing.T) {
 		d := *c
-		d.Action.Kind = "ibkr.order.v1"
-		assertSentinel(t, commitment.ValidateStatic(&d, p), "ErrUnsupportedActionKind")
+		d.Action.Type = "not a media type"
+		_, err := commitment.Encode(&d)
+		require.NoError(t, err, "Encode validates the action type")
 	})
 	t.Run("encode does not validate", func(t *testing.T) {
 		d := *c
@@ -431,17 +373,6 @@ func TestEdgeImplNotesAmbiguities(t *testing.T) {
 		require.Equal(t, hex.EncodeToString(b2), hex.EncodeToString(b1), "nil and empty differ")
 		_, err = commitment.Decode(b1)
 		assertSentinel(t, err, "ErrFieldSize")
-	})
-	t.Run("symbol ignored by CheckAction", func(t *testing.T) {
-		req := *c.Action.IBKROrder
-		req.Symbol = ptr("OTHER")
-		err := commitment.CheckAction(c, req)
-		require.NoError(t, err)
-	})
-	t.Run("CheckAction limit_price presence", func(t *testing.T) {
-		req := *c.Action.IBKROrder
-		req.LimitPrice = nil
-		assertSentinel(t, commitment.CheckAction(c, req), "ErrActionMismatch")
 	})
 	t.Run("Verify hashes the struct, DecodeSigned guarantees bytes equal", func(t *testing.T) {
 		env := signedEnv(t, nil)

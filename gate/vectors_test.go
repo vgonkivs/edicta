@@ -20,10 +20,8 @@ type vParams struct {
 }
 
 type vScope struct {
-	GateID  string  `json:"gate_id"`
-	Rail    string  `json:"rail"`
-	Account string  `json:"account"`
-	ChainID *string `json:"chain_id"`
+	GateID      string   `json:"gate_id"`
+	ActionTypes []string `json:"action_types"`
 }
 
 func (p vParams) params(t *testing.T) commitment.Params {
@@ -35,14 +33,15 @@ func (p vParams) params(t *testing.T) commitment.Params {
 }
 
 func (s vScope) scope(t *testing.T) commitment.GateScope {
-	return commitment.GateScope{GateID: s.GateID, Rail: commitment.Rail(gatefix.U64(t, s.Rail)), Account: s.Account, ChainID: s.ChainID}
+	return commitment.GateScope{GateID: s.GateID, ActionTypes: s.ActionTypes}
 }
 
 // TestRejectVectorsThroughAdmit feeds every spec reject vector to Admit.
-// Stages D to C must give the vector's sentinel with the executor and the
-// registry untouched. Stage A vectors pass the stateless checks; Admit builds
-// the order from the commitment itself, so it must not report an action
-// mismatch for them.
+// Every stage, including the action stage with the vector's own action
+// bytes, must give the vector's sentinel with the executor and the registry
+// untouched. The other stages get the template action: their defect is
+// earlier in the order.
+// INTERIM: ported to the authorizer entry point.
 func TestRejectVectorsThroughAdmit(t *testing.T) {
 	var rf struct {
 		Params vParams `json:"params"`
@@ -56,6 +55,9 @@ func TestRejectVectorsThroughAdmit(t *testing.T) {
 			Gate        *vScope  `json:"gate"`
 			ExpectError string   `json:"expect_error"`
 			Signer      string   `json:"signer"`
+			ActionHex   string   `json:"action_hex"`
+			Pattern     string   `json:"action_pattern"`
+			ActionSize  string   `json:"action_size"`
 		} `json:"cases"`
 	}
 	gatefix.ReadVector(t, "reject.json", &rf)
@@ -76,11 +78,11 @@ func TestRejectVectorsThroughAdmit(t *testing.T) {
 				gatefix.WithAllowlist(map[string][]byte{"dca-agent-1": gatefix.Pub(t, "agent1")}))
 			want, ok := gatefix.Sentinel(rc.ExpectError)
 			require.Truef(t, ok, "unknown sentinel %s", rc.ExpectError)
-			_, err := e.Admit(gatefix.MustHex(t, rc.EnvelopeHex))
+			action := gatefix.Action(t)
 			if rc.Stage == "A" {
-				require.NotErrorIsf(t, err, commitment.ErrActionMismatch, "Admit reported an action mismatch for an order it built itself: %v", err)
-				return
+				action = gatefix.ActionOf(t, rc.ActionHex, rc.Pattern, rc.ActionSize)
 			}
+			_, err := e.AdmitWith(gatefix.MustHex(t, rc.EnvelopeHex), action)
 			require.ErrorIs(t, err, want)
 			require.EqualValues(t, 0, e.Exec.Calls(), "executor called")
 		})
@@ -88,8 +90,9 @@ func TestRejectVectorsThroughAdmit(t *testing.T) {
 }
 
 // TestValidVectorsReachChainStage: every valid vector passes all stateless
-// stages, the registry epoch, the key roles and the allowlist, and stops at
+// stages, including the action check on its own bytes, the registry epoch, the key roles and the allowlist, and stops at
 // the anchor lookup because no anchor exists in the fake.
+// INTERIM: ported to the authorizer entry point.
 func TestValidVectorsReachChainStage(t *testing.T) {
 	var vf struct {
 		Params vParams `json:"params"`
@@ -102,6 +105,9 @@ func TestValidVectorsReachChainStage(t *testing.T) {
 			Input       struct {
 				AgentID string `json:"agent_id"`
 			} `json:"input"`
+			ActionHex  string `json:"action_hex"`
+			Pattern    string `json:"action_pattern"`
+			ActionSize string `json:"action_size"`
 		} `json:"cases"`
 	}
 	gatefix.ReadVector(t, "valid.json", &vf)
@@ -116,7 +122,7 @@ func TestValidVectorsReachChainStage(t *testing.T) {
 				gatefix.WithParams(p.params(t)),
 				gatefix.WithNow(gatefix.U64(t, vc.Now)),
 				gatefix.WithAllowlist(map[string][]byte{vc.Input.AgentID: gatefix.Pub(t, "agent1")}))
-			_, err := e.Admit(gatefix.MustHex(t, vc.EnvelopeHex))
+			_, err := e.AdmitWith(gatefix.MustHex(t, vc.EnvelopeHex), gatefix.ActionOf(t, vc.ActionHex, vc.Pattern, vc.ActionSize))
 			require.ErrorIs(t, err, gate.ErrAnchorNotFound)
 			require.EqualValues(t, 0, e.Exec.Calls(), "executor called")
 		})

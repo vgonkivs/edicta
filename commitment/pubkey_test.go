@@ -121,10 +121,10 @@ func TestStageOrderAroundG0(t *testing.T) {
 		want string
 	}{
 		{"decode before G0", append(env(nil), 0), edgeNow, g, "ErrTrailingData"},
-		{"static before G0", env(func(c *commitment.Commitment) { c.Action.IBKROrder.Qty = 0 }), edgeNow, g, "ErrZeroValue"},
+		{"static before G0", env(func(c *commitment.Commitment) { c.PayloadSize = 0 }), edgeNow, g, "ErrZeroValue"},
 		{"G0 before time", env(nil), 1791009999, g, "ErrInvalidPublicKey"},
 		{"G0 before not-yet-valid", env(nil), 1, g, "ErrInvalidPublicKey"},
-		{"G0 before scope", env(nil), edgeNow, commitment.GateScope{GateID: "other", Rail: g.Rail, Account: g.Account}, "ErrInvalidPublicKey"},
+		{"G0 before scope", env(nil), edgeNow, commitment.GateScope{GateID: "other", ActionTypes: g.ActionTypes}, "ErrInvalidPublicKey"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

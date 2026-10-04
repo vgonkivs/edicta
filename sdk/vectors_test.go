@@ -11,6 +11,7 @@ import (
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/blob"
 	"github.com/vgonkivs/edicta/sdk/payload"
+	"github.com/vgonkivs/edicta/test/gatefix"
 	"github.com/vgonkivs/edicta/test/sdkfix"
 )
 
@@ -27,6 +28,13 @@ func pkgSentinel(t testing.TB, name string) error {
 	e, ok := sdkfix.Sentinel(name)
 	require.Truef(t, ok, "unknown sentinel %s", name)
 	return e
+}
+
+// vectorGate also allows the second action type that one reject vector commits
+// to, so the fixture envelope stays a valid commitment.
+var vectorGate = commitment.GateScope{
+	GateID:      gatefix.GateID,
+	ActionTypes: []string{gatefix.ActionType, "application/octet-stream"},
 }
 
 var openOutcomes = []error{payload.ErrMalformed, payload.ErrVersion, sdk.ErrPlaintextHashMismatch, sdk.ErrPayloadMismatch}
@@ -63,8 +71,8 @@ func TestOpenPayloadPlaintextVectors(t *testing.T) {
 		n++
 		t.Run(r.ID, func(t *testing.T) {
 			want := pkgSentinel(t, r.Expect)
-			env := v.EnvelopeFor(t, r.Blob, r.PlaintextHash, r.ActionCBOR, r.ConstraintsCBOR)
-			_, _, err := commitment.VerifyForGate(env, 1791000060, scope, params)
+			env := v.EnvelopeFor(t, r.Blob, r.PlaintextHash, r.ActionType, r.ActionHash)
+			_, _, err := commitment.VerifyForGate(env, 1791000060, vectorGate, params)
 			require.NoError(t, err, "the fixture envelope must be a valid commitment")
 
 			k := v.Key(t, r.Key)
@@ -79,7 +87,7 @@ func TestOpenPayloadPlaintextVectors(t *testing.T) {
 			assert.Nil(t, o)
 		})
 	}
-	require.Equal(t, 21, n)
+	require.Equal(t, 24, n)
 }
 
 func blobKey(k sdkfix.Key, kid []byte) blob.RecipientKey {
@@ -101,7 +109,7 @@ func TestTwoDEKBlobIsRejectedByThePlaintextHash(t *testing.T) {
 		}
 	}
 	require.NotEmpty(t, r.ID)
-	env := v.EnvelopeFor(t, r.Blob, r.PlaintextHash, r.ActionCBOR, r.ConstraintsCBOR)
+	env := v.EnvelopeFor(t, r.Blob, r.PlaintextHash, r.ActionType, r.ActionHash)
 
 	t.Run("honest recipient reads the committed decision", func(t *testing.T) {
 		k := v.Key(t, r.HonestKey)
@@ -137,7 +145,7 @@ func TestPlaintextHashIsCheckedBeforeParsing(t *testing.T) {
 	require.NotEmpty(t, r.ID)
 	wrong := append([]byte{}, r.PlaintextHash...)
 	wrong[0] ^= 1
-	env := v.EnvelopeFor(t, r.Blob, wrong, r.ActionCBOR, r.ConstraintsCBOR)
+	env := v.EnvelopeFor(t, r.Blob, wrong, r.ActionType, r.ActionHash)
 	_, err := sdk.OpenPayload(env, r.Blob, blobKey(v.Key(t, r.Key), r.KID))
 	require.ErrorIs(t, err, sdk.ErrPlaintextHashMismatch)
 	require.NotErrorIs(t, err, payload.ErrMalformed)

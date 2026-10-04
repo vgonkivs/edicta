@@ -1,7 +1,6 @@
 package sdk
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"crypto/subtle"
 
@@ -57,11 +56,7 @@ func OpenPayload(envelope, blobBytes []byte, k blob.RecipientKey) (*Opened, erro
 	if err != nil {
 		return nil, err
 	}
-	other := s.Commitment
-	other.Action, other.Constraints = p.Action, p.Constraints
-	want, err1 := commitment.Encode(&s.Commitment)
-	got, err2 := commitment.Encode(&other)
-	if err1 != nil || err2 != nil || !bytes.Equal(want, got) {
+	if p.Action.Type != s.Commitment.Action.Type || commitment.CheckAction(&s.Commitment, p.Action.Data) != nil {
 		return nil, ErrPayloadMismatch
 	}
 	return &Opened{CommitmentHash: h, Commitment: s.Commitment, Payload: p}, nil

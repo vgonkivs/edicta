@@ -23,7 +23,6 @@ func requireOnly(t *testing.T, err, want error) {
 
 func TestConstants(t *testing.T) {
 	assert.EqualValues(t, 0, payload.Version)
-	assert.Equal(t, "application/vnd.edicta.dca.v0+cbor", payload.MediaTypeDCAv0)
 }
 
 // Every valid vector: Encode gives the spec plaintext byte for byte, Decode
@@ -40,9 +39,7 @@ func TestVectorCases(t *testing.T) {
 			p, err := payload.Decode(c.Plaintext)
 			require.NoError(t, err)
 			assert.Equal(t, c.Payload.Context.MediaType, p.Context.MediaType)
-			assert.Equal(t, c.Payload.Action.Kind, p.Action.Kind)
-			assert.Equal(t, c.Payload.Constraints, p.Constraints)
-			assert.Equal(t, c.Payload.Action.IBKROrder, p.Action.IBKROrder)
+			assert.Equal(t, c.Payload.Action, p.Action)
 			assert.Equal(t, c.Payload.Metadata != nil, p.Metadata != nil)
 
 			back, err := payload.Encode(p)
@@ -52,18 +49,45 @@ func TestVectorCases(t *testing.T) {
 	}
 }
 
-// The committed action and constraints bytes of a vector are the payload's
-// own encoding of the same fields.
-func TestActionAndConstraintsEncodeLikeTheCommitment(t *testing.T) {
+// The action sits at payload key 5 as {3: type, 4: data}, and the retired
+// constraints key 6 is absent. The data is the cleartext action bytes whose
+// hash the commitment carries.
+func TestActionEncodesAsTypeAndData(t *testing.T) {
 	v := sdkfix.Load(t)
 	for _, c := range v.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			var m map[uint64]cbor.RawMessage
 			require.NoError(t, cbor.Unmarshal(c.Plaintext, &m))
-			assert.Equal(t, c.ActionCBOR, []byte(m[5]))
-			assert.Equal(t, c.ConstraintsCBOR, []byte(m[6]))
+			assert.NotContains(t, m, uint64(6), "retired constraints key present")
+
+			var act map[uint64]any
+			require.NoError(t, cbor.Unmarshal(m[5], &act))
+			assert.Len(t, act, 2)
+			assert.Equal(t, c.ActionType, act[3])
+			assert.Equal(t, c.Action, act[4])
+			assert.Equal(t, c.ActionType, c.Payload.Action.Type)
+			assert.Equal(t, c.Action, c.Payload.Action.Data)
+
+			h, err := commitment.ActionHash(c.Payload.Action.Type, c.Payload.Action.Data)
+			require.NoError(t, err)
+			assert.Equal(t, c.ActionHash, h)
 		})
 	}
+}
+
+// The payload carries no constraints and the action has exactly a type and
+// the bytes.
+func TestPayloadShape(t *testing.T) {
+	names := func(v any) []string {
+		rt := reflect.TypeOf(v)
+		out := make([]string, 0, rt.NumField())
+		for i := 0; i < rt.NumField(); i++ {
+			out = append(out, rt.Field(i).Name)
+		}
+		return out
+	}
+	assert.ElementsMatch(t, []string{"Version", "Model", "Policy", "Context", "Action", "Metadata"}, names(payload.Payload{}))
+	assert.ElementsMatch(t, []string{"Type", "Data"}, names(payload.Action{}))
 }
 
 // The plaintext-stage vectors that name a payload sentinel, decoded after the
@@ -103,6 +127,8 @@ func TestEmptyContextBytes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, d.Context.Bytes)
 }
+
+func longType(n int) string { return "application/" + strings.Repeat("a", n-len("application/")) }
 
 func mediaTypes() (valid, invalid []string) {
 	valid = []string{
@@ -205,7 +231,7 @@ func TestDecodeRejects(t *testing.T) {
 		{"missing policy", mut(func(m map[uint64]any) { delete(m, 3) }), payload.ErrMalformed},
 		{"missing context", mut(func(m map[uint64]any) { delete(m, 4) }), payload.ErrMalformed},
 		{"missing action", mut(func(m map[uint64]any) { delete(m, 5) }), payload.ErrMalformed},
-		{"missing constraints", mut(func(m map[uint64]any) { delete(m, 6) }), payload.ErrMalformed},
+		{"retired constraints key", mut(func(m map[uint64]any) { m[6] = map[uint64]any{1: uint64(1)} }), payload.ErrMalformed},
 		{"model id empty", mut(func(m map[uint64]any) { sub(m, 2)[1] = "" }), payload.ErrMalformed},
 		{"model id 129", mut(func(m map[uint64]any) { sub(m, 2)[1] = strings.Repeat("a", 129) }), payload.ErrMalformed},
 		{"model id 128 ok shape", mut(func(m map[uint64]any) { sub(m, 2)[1] = strings.Repeat("a", 128) }), nil},
@@ -229,11 +255,23 @@ func TestDecodeRejects(t *testing.T) {
 		{"metadata missing media type", mut(func(m map[uint64]any) { delete(sub(m, 7), 1) }), payload.ErrMalformed},
 		{"metadata empty data", mut(func(m map[uint64]any) { sub(m, 7)[2] = []byte{} }), payload.ErrMalformed},
 		{"metadata null", mut(func(m map[uint64]any) { m[7] = nil }), payload.ErrMalformed},
-		{"action unknown kind", mut(func(m map[uint64]any) { sub(m, 5)[1] = "other.v0" }), payload.ErrMalformed},
-		{"action params unknown key", mut(func(m map[uint64]any) { sub(sub(m, 5), 2)[99] = uint64(1) }), payload.ErrMalformed},
-		{"action params currency lowercase", mut(func(m map[uint64]any) { sub(sub(m, 5), 2)[8] = "usd" }), payload.ErrMalformed},
-		{"constraints missing max_notional", mut(func(m map[uint64]any) { delete(sub(m, 6), 1) }), payload.ErrMalformed},
-		{"constraints unknown key", mut(func(m map[uint64]any) { sub(m, 6)[4] = uint64(1) }), payload.ErrMalformed},
+		{"action retired kind key", mut(func(m map[uint64]any) { sub(m, 5)[1] = "ibkr.order.v0" }), payload.ErrMalformed},
+		{"action retired params key", mut(func(m map[uint64]any) { sub(m, 5)[2] = map[uint64]any{} }), payload.ErrMalformed},
+		{"action unknown key", mut(func(m map[uint64]any) { sub(m, 5)[5] = uint64(1) }), payload.ErrMalformed},
+		{"action missing type", mut(func(m map[uint64]any) { delete(sub(m, 5), 3) }), payload.ErrMalformed},
+		{"action missing data", mut(func(m map[uint64]any) { delete(sub(m, 5), 4) }), payload.ErrMalformed},
+		{"action type uppercase", mut(func(m map[uint64]any) { sub(m, 5)[3] = "Application/json" }), payload.ErrMalformed},
+		{"action type empty", mut(func(m map[uint64]any) { sub(m, 5)[3] = "" }), payload.ErrMalformed},
+		{"action type no slash", mut(func(m map[uint64]any) { sub(m, 5)[3] = "applicationjson" }), payload.ErrMalformed},
+		{"action type parameter", mut(func(m map[uint64]any) { sub(m, 5)[3] = "application/json; charset=utf-8" }), payload.ErrMalformed},
+		{"action type 129", mut(func(m map[uint64]any) { sub(m, 5)[3] = longType(129) }), payload.ErrMalformed},
+		{"action type 128", mut(func(m map[uint64]any) { sub(m, 5)[3] = longType(128) }), nil},
+		{"action type is bytes", mut(func(m map[uint64]any) { sub(m, 5)[3] = []byte("a/b") }), payload.ErrMalformed},
+		{"action data empty", mut(func(m map[uint64]any) { sub(m, 5)[4] = []byte{} }), payload.ErrMalformed},
+		{"action data is text", mut(func(m map[uint64]any) { sub(m, 5)[4] = "x" }), payload.ErrMalformed},
+		{"action data one byte ok", mut(func(m map[uint64]any) { sub(m, 5)[4] = []byte{0} }), nil},
+		{"action data max ok", mut(func(m map[uint64]any) { sub(m, 5)[4] = make([]byte, commitment.MaxActionSize) }), nil},
+		{"action data over max", mut(func(m map[uint64]any) { sub(m, 5)[4] = make([]byte, commitment.MaxActionSize+1) }), payload.ErrMalformed},
 	}
 	for _, mt := range valid {
 		tests = append(tests, struct {
@@ -306,10 +344,13 @@ func TestEncodeRejects(t *testing.T) {
 		{"context media type empty", func(p *payload.Payload) { p.Context.MediaType = "" }, payload.ErrMalformed},
 		{"metadata empty data", func(p *payload.Payload) { p.Metadata = &payload.Data{MediaType: "text/plain"} }, payload.ErrMalformed},
 		{"metadata without media type", func(p *payload.Payload) { p.Metadata = &payload.Data{Bytes: []byte("x")} }, payload.ErrMalformed},
-		{"action unknown kind", func(p *payload.Payload) { p.Action.Kind = "other.v0" }, payload.ErrMalformed},
-		{"action without params", func(p *payload.Payload) { p.Action.IBKROrder = nil }, payload.ErrMalformed},
-		{"action currency lowercase", func(p *payload.Payload) { p.Action.IBKROrder.Currency = "usd" }, payload.ErrMalformed},
-		{"action account empty", func(p *payload.Payload) { p.Action.IBKROrder.Account = "" }, payload.ErrMalformed},
+		{"action type empty", func(p *payload.Payload) { p.Action.Type = "" }, payload.ErrMalformed},
+		{"action type uppercase", func(p *payload.Payload) { p.Action.Type = "Application/json" }, payload.ErrMalformed},
+		{"action type parameter", func(p *payload.Payload) { p.Action.Type = "text/plain; charset=utf-8" }, payload.ErrMalformed},
+		{"action type 129", func(p *payload.Payload) { p.Action.Type = longType(129) }, payload.ErrMalformed},
+		{"action data nil", func(p *payload.Payload) { p.Action.Data = nil }, payload.ErrMalformed},
+		{"action data empty", func(p *payload.Payload) { p.Action.Data = []byte{} }, payload.ErrMalformed},
+		{"action data over max", func(p *payload.Payload) { p.Action.Data = make([]byte, commitment.MaxActionSize+1) }, payload.ErrMalformed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -326,6 +367,31 @@ func TestEncodeRejects(t *testing.T) {
 	})
 }
 
+func TestEncodeAcceptsActionLimits(t *testing.T) {
+	v := sdkfix.Load(t)
+	tests := []struct {
+		name string
+		typ  string
+		data []byte
+	}{
+		{"one byte", "a/b", []byte{0}},
+		{"128 byte type", longType(128), []byte{1}},
+		{"max data", "application/octet-stream", make([]byte, commitment.MaxActionSize)},
+		{"json bytes", "application/json", []byte(`{"to":"0x01"}`)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := sdkfix.ClonePayload(v.Cases[0].Payload)
+			p.Action = payload.Action{Type: tt.typ, Data: tt.data}
+			b, err := payload.Encode(p)
+			require.NoError(t, err)
+			d, err := payload.Decode(b)
+			require.NoError(t, err)
+			assert.Equal(t, p.Action, d.Action)
+		})
+	}
+}
+
 // Encode never changes its input and is deterministic.
 func TestEncodeIsPureAndDeterministic(t *testing.T) {
 	v := sdkfix.Load(t)
@@ -335,15 +401,7 @@ func TestEncodeIsPureAndDeterministic(t *testing.T) {
 	b, err := payload.Encode(p)
 	require.NoError(t, err)
 	require.Equal(t, a, b)
-	require.Equal(t, v.Cases[1].Payload.Action.IBKROrder, p.Action.IBKROrder)
-}
-
-// Action and constraints reuse the commitment types, so the payload cannot
-// carry a field the commitment lacks.
-func TestActionTypeIsTheCommitments(t *testing.T) {
-	var p payload.Payload
-	var _ commitment.Action = p.Action
-	var _ commitment.Constraints = p.Constraints
+	require.Equal(t, v.Cases[1].Payload.Action, p.Action)
 }
 
 // The decoded payload owns its bytes: a caller that wipes the decrypted input
@@ -356,6 +414,7 @@ func TestDecodeDoesNotAliasItsInput(t *testing.T) {
 			p, err := payload.Decode(in)
 			require.NoError(t, err)
 			clear(in)
+			assert.Equal(t, c.Action, p.Action.Data)
 			back, err := payload.Encode(p)
 			require.NoError(t, err)
 			assert.Equal(t, c.Plaintext, back)

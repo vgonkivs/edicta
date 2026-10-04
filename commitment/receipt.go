@@ -11,27 +11,26 @@ import (
 // MaxReceiptSize bounds a SignedReceipt, checked before parsing.
 const MaxReceiptSize = 512
 
-// ReceiptPath says where the gate accepted the payload from.
-type ReceiptPath uint64
+// PayloadPath says where the gate accepted the payload from.
+type PayloadPath uint64
 
 const (
-	ReceiptPathDA      ReceiptPath = 1
-	ReceiptPathArchive ReceiptPath = 2
+	PathDA      PayloadPath = 1
+	PathArchive PayloadPath = 2
 )
 
 var errNilReceipt = errors.New("commitment: nil receipt")
 
-// Receipt maps one executed decision to the rail's reference. All fields are
-// required.
+// Receipt is the gate's attestation of the rail reference the integrator
+// reported for one authorized decision. It is not proof of execution. All
+// fields are required; keys 5 and 7 are retired.
 type Receipt struct {
-	Version        uint64      `cbor:"1,keyasint"`
-	CommitmentHash []byte      `cbor:"2,keyasint"`
-	GateID         string      `cbor:"3,keyasint"`
-	GatePubKey     []byte      `cbor:"4,keyasint"`
-	Rail           Rail        `cbor:"5,keyasint"`
-	RailRef        string      `cbor:"6,keyasint"`
-	Path           ReceiptPath `cbor:"7,keyasint"`
-	ExecutedAt     uint64      `cbor:"8,keyasint"`
+	Version        uint64 `cbor:"1,keyasint"`
+	CommitmentHash []byte `cbor:"2,keyasint"`
+	GateID         string `cbor:"3,keyasint"`
+	GatePubKey     []byte `cbor:"4,keyasint"`
+	RailRef        string `cbor:"6,keyasint"`
+	RecordedAt     uint64 `cbor:"8,keyasint"`
 }
 
 type SignedReceipt struct {
@@ -44,10 +43,8 @@ var receiptSchema = []field{
 	{key: 2, name: "commitment_hash", kind: kBytes, min: 32, max: 32, required: true},
 	{key: 3, name: "gate_id", kind: kText, min: 1, max: 64, charset: isID, required: true},
 	{key: 4, name: "gate_pubkey", kind: kBytes, min: 32, max: 32, required: true},
-	{key: 5, name: "rail", kind: kUint, required: true},
 	{key: 6, name: "rail_ref", kind: kText, min: 1, max: 128, charset: isID, required: true},
-	{key: 7, name: "path", kind: kUint, required: true},
-	{key: 8, name: "executed_at", kind: kUint, required: true},
+	{key: 8, name: "recorded_at", kind: kUint, required: true},
 }
 
 // EncodeReceipt returns the canonical CBOR of r. It does not validate values.
@@ -137,10 +134,8 @@ func DecodeSignedReceipt(b []byte) (*SignedReceipt, Hash, error) {
 			CommitmentHash: bytes.Clone(m[2].b),
 			GateID:         string(m[3].b),
 			GatePubKey:     bytes.Clone(m[4].b),
-			Rail:           Rail(m[5].u),
 			RailRef:        string(m[6].b),
-			Path:           ReceiptPath(m[7].u),
-			ExecutedAt:     m[8].u,
+			RecordedAt:     m[8].u,
 		},
 		Signature: bytes.Clone(sn.b),
 	}
@@ -170,22 +165,13 @@ func VerifyReceipt(b []byte) (*SignedReceipt, Hash, error) {
 	for _, u := range []struct {
 		name string
 		v    uint64
-	}{{"version", r.Version}, {"rail", uint64(r.Rail)}, {"path", uint64(r.Path)}, {"executed_at", r.ExecutedAt}} {
+	}{{"version", r.Version}, {"recorded_at", r.RecordedAt}} {
 		if u.v > maxUint63 {
 			return nil, Hash{}, fmt.Errorf("%w: %s", ErrIntRange, u.name)
 		}
 	}
-	if r.Rail == 0 {
-		return nil, Hash{}, fmt.Errorf("%w: rail 0", ErrInvalidEnum)
-	}
-	if r.Path != ReceiptPathDA && r.Path != ReceiptPathArchive {
-		return nil, Hash{}, fmt.Errorf("%w: path %d", ErrInvalidEnum, r.Path)
-	}
-	if r.Rail != RailIBKR {
-		return nil, Hash{}, fmt.Errorf("%w: %d", ErrUnsupportedRail, r.Rail)
-	}
-	if r.ExecutedAt == 0 {
-		return nil, Hash{}, fmt.Errorf("%w: executed_at", ErrZeroValue)
+	if r.RecordedAt == 0 {
+		return nil, Hash{}, fmt.Errorf("%w: recorded_at", ErrZeroValue)
 	}
 	if err := CheckPublicKey(r.GatePubKey); err != nil {
 		return nil, Hash{}, err

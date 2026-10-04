@@ -18,10 +18,10 @@ func TestNilCommitment(t *testing.T) {
 		call func() error
 		want error
 	}{
-		{"ValidateStatic", func() error { return commitment.ValidateStatic(nil, p) }, commitment.ErrUnsupportedActionKind},
+		{"ValidateStatic", func() error { return commitment.ValidateStatic(nil, p) }, nil},
 		{"CheckTime", func() error { return commitment.CheckTime(nil, edgeNow, p) }, commitment.ErrExpired},
 		{"CheckScope", func() error { return commitment.CheckScope(nil, commitment.GateScope{}) }, commitment.ErrScopeMismatch},
-		{"CheckAction", func() error { return commitment.CheckAction(nil, commitment.IBKROrderV0{}) }, commitment.ErrActionMismatch},
+		{"CheckAction", func() error { return commitment.CheckAction(nil, []byte{1}) }, commitment.ErrActionMismatch},
 		{"CheckPayload", func() error { return commitment.CheckPayload(nil, []byte("x")) }, commitment.ErrPayloadSizeMismatch},
 	}
 	for _, r := range rows {
@@ -35,7 +35,9 @@ func TestNilCommitment(t *testing.T) {
 				err = r.call()
 			}()
 			require.Error(t, err, "nil error")
-			require.ErrorIsf(t, err, r.want, "want %v, got", r.want)
+			if r.want != nil {
+				require.ErrorIsf(t, err, r.want, "want %v, got", r.want)
+			}
 			require.ErrorContains(t, err, "nil commitment")
 		})
 	}
@@ -46,6 +48,9 @@ func TestTagLengths(t *testing.T) {
 		"TagCommitment": commitment.TagCommitment,
 		"TagSig":        commitment.TagSig,
 		"TagReceipt":    commitment.TagReceipt,
+		"TagAction":     commitment.TagAction,
+		"TagAuth":       commitment.TagAuthorization,
+		"TagAuthSig":    commitment.TagAuthorizationSig,
 	}
 	for name, v := range tags {
 		n := len(v)

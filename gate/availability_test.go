@@ -35,7 +35,7 @@ func TestAvailabilityDAFirst(t *testing.T) {
 	require.NoErrorf(t, err, "res %+v err", res)
 	require.Equalf(t, registry.PathDA, res.Path, "res %+v err %v", res, err)
 	require.EqualValues(t, 0, e.Archive.Fetches(), "archive read although the DA layer served the blob")
-	gatefix.CheckReceipt(t, res, h, gatefix.RailRef, commitment.ReceiptPathDA, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
+	gatefix.CheckReceipt(t, res, h, gatefix.RailRef, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
 }
 
 func TestAvailabilityArchiveFallback(t *testing.T) {
@@ -62,7 +62,7 @@ func TestAvailabilityArchiveFallback(t *testing.T) {
 			require.NoError(t, err, "Admit")
 			require.Equalf(t, registry.PathArchive, res.Path, "result %+v", res)
 			require.Equalf(t, registry.StateExecuted, res.State, "result %+v", res)
-			gatefix.CheckReceipt(t, res, h, gatefix.RailRef, commitment.ReceiptPathArchive, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
+			gatefix.CheckReceipt(t, res, h, gatefix.RailRef, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
 			ent, _ := e.Entry(c)
 			require.Equalf(t, registry.PathArchive, ent.Path, "entry path %v", ent.Path)
 			ev := e.Metrics.Events()

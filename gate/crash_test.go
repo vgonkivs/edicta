@@ -23,6 +23,7 @@ const (
 
 // TestCrashChild runs only inside the re-executed test binary. It admits one
 // commitment on a bbolt file and kills the process at the chosen point.
+// INTERIM: ported to the authorizer entry point.
 func TestCrashChild(t *testing.T) {
 	path := os.Getenv(crashDBEnv)
 	if path == "" {
@@ -48,6 +49,7 @@ func TestCrashChild(t *testing.T) {
 
 // TestCrashReexec kills a real process after the nonce was reserved (and,
 // in the second case, after the executor was called), then reopens the file.
+// INTERIM: ported to the authorizer entry point.
 func TestCrashReexec(t *testing.T) {
 	for _, at := range []string{"reserve", "execute", "resolve"} {
 		t.Run(at, func(t *testing.T) {

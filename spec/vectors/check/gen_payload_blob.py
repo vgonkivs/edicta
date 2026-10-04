@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates payload_blob.json (v0-draft.9; default directory spec/vectors/v0-next). Deterministic: rerunning yields an identical file.
+"""Generates payload_blob.json (v0-draft.9; default directory spec/vectors/v0). Deterministic: rerunning yields an identical file.
 
 Every value that is random in production is derived from a fixed label here:
   recipient key   (sk, pk) = DeriveKeyPair(SHA-256("edicta/v0 test recipient|" + name))
@@ -39,7 +39,7 @@ from profile_dca_agent import (ACTION_TYPE_IBKR_ORDER_V0 as IBKR, MEDIA_TYPE_DCA
                                dca_decode, dca_encode, order_decode, order_encode)
 from vecjson import _conv, commitment_to_json, gate_to_json, params_to_json
 
-OUT = Path(__file__).resolve().parent.parent / "v0-next"
+OUT = Path(__file__).resolve().parent.parent / "v0"
 if "--out" in sys.argv:
     OUT = Path(sys.argv[sys.argv.index("--out") + 1]).resolve()
 FORMAT = "edicta-vectors/v0"

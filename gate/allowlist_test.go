@@ -81,6 +81,7 @@ func TestEd25519Signer(t *testing.T) {
 
 // TestReceiptBinding: the receipt is the only artefact that carries the
 // order reference, it is signed under its own tag, and it names this gate.
+// INTERIM: ported to the authorizer entry point.
 func TestReceiptBinding(t *testing.T) {
 	e, _, b, h := happy(t)
 	res, err := e.Admit(b)

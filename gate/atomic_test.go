@@ -3,6 +3,7 @@ package gate_test
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -35,6 +36,7 @@ func registries() map[string]func(t *testing.T) registry.Registry {
 	}
 }
 
+// INTERIM: ported to the authorizer entry point.
 func TestConcurrentReplayExecutesOnce(t *testing.T) {
 	for name, open := range registries() {
 		t.Run(name, func(t *testing.T) {
@@ -85,6 +87,7 @@ func TestConcurrentReplayExecutesOnce(t *testing.T) {
 	}
 }
 
+// INTERIM: ported to the authorizer entry point.
 func TestConcurrentDistinctNoncesAllExecute(t *testing.T) {
 	e, _, _, _ := happy(t)
 	const n = 16
@@ -104,6 +107,7 @@ func TestConcurrentDistinctNoncesAllExecute(t *testing.T) {
 	require.Equal(t, n, e.Exec.Calls())
 }
 
+// INTERIM: removed together with the executor path.
 func TestExecutorOutcomes(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -152,6 +156,7 @@ func TestExecutorOutcomes(t *testing.T) {
 	}
 }
 
+// INTERIM: removed together with the executor path.
 func TestExecutionSurvivesCallerCancel(t *testing.T) {
 	e, c, b, _ := happy(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -160,7 +165,7 @@ func TestExecutionSurvivesCallerCancel(t *testing.T) {
 		cancel()
 		ctxErr = ctx.Err()
 	})
-	res, err := e.Gate.Admit(ctx, b)
+	res, err := e.Gate.Admit(ctx, b, gatefix.Action(t))
 	require.NoErrorf(t, err, "res %+v err", res)
 	require.Equalf(t, registry.StateExecuted, res.State, "res %+v err %v", res, err)
 	require.NoError(t, ctxErr, "executor context was cancelled with the caller's")
@@ -168,6 +173,7 @@ func TestExecutionSurvivesCallerCancel(t *testing.T) {
 	require.Equalf(t, registry.StateExecuted, ent.State, "entry %+v", ent)
 }
 
+// INTERIM: ported to the authorizer entry point.
 func TestRegistryFailures(t *testing.T) {
 	t.Run("reserve fails: nothing sent, nonce free", func(t *testing.T) {
 		e, c, b, _ := happy(t, gatefix.WithFaultyRegistry())
@@ -219,7 +225,7 @@ func TestRegistryFailures(t *testing.T) {
 		require.NoError(t, err)
 		ent, _ = e.Entry(c)
 		require.NotNil(t, ent.Receipt, "receipt not re-signed")
-		gatefix.CheckReceipt(t, gate.Result{Receipt: ent.Receipt}, h, gatefix.RailRef, commitment.ReceiptPathDA, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
+		gatefix.CheckReceipt(t, gate.Result{Receipt: ent.Receipt}, h, gatefix.RailRef, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
 		require.EqualValuesf(t, 1, e.Exec.Calls(), "executor calls %d", e.Exec.Calls())
 	})
 }
@@ -239,6 +245,7 @@ func (s *flakySigner) Sign(ctx context.Context, msg []byte) ([]byte, error) {
 
 // TestCrashHooks: a crash at each point leaves the nonce used and never
 // leads to a second Execute.
+// INTERIM: ported to the authorizer entry point.
 func TestCrashHooks(t *testing.T) {
 	type hook struct {
 		name      string
@@ -278,6 +285,7 @@ func TestCrashHooks(t *testing.T) {
 
 // TestRecoverNeverExecutes: crash after reserve, restart, reconcile. The rail
 // has no order, so the entry turns Rejected only after the settle window.
+// INTERIM: removed together with the executor path.
 func TestRecoverNeverExecutes(t *testing.T) {
 	e, c, b, _ := happy(t)
 	e.Gate.SetAfterReserve(func() error { return errCrash })
@@ -306,11 +314,12 @@ func TestRecoverNeverExecutes(t *testing.T) {
 	require.EqualValuesf(t, registry.SourceLookup, ent.History[1].Source, "entry %+v", ent)
 	require.EqualValuesf(t, 0, e.Exec.Calls(), "executor called %d times", e.Exec.Calls())
 	ids := e.Exec.LookupIDs()
-	want, _ := commitment.ClientOrderID(commitment.RailIBKR, ent.CommitmentHash)
+	want := hex.EncodeToString(ent.CommitmentHash[:])
 	require.NotEmpty(t, ids)
 	require.EqualValues(t, want, ids[0])
 }
 
+// INTERIM: removed together with the executor path.
 func TestReconcileFromUnknown(t *testing.T) {
 	setup := func(t *testing.T) (*gatefix.Env, *commitment.Commitment, commitment.Hash) {
 		e, c, b, h := happy(t)
@@ -334,7 +343,7 @@ func TestReconcileFromUnknown(t *testing.T) {
 		require.Equalf(t, registry.SourceLookup, last.Source, "history %+v", ent.History)
 		require.Equalf(t, "gate", last.By, "history %+v", ent.History)
 		require.Equalf(t, registry.StateUnknown, last.PrevState, "history %+v", ent.History)
-		gatefix.CheckReceipt(t, gate.Result{Receipt: ent.Receipt}, h, "5550001", commitment.ReceiptPathDA, gatefix.GateID, gatefix.Pub(t, "gate1"), gatefix.Now+10)
+		gatefix.CheckReceipt(t, gate.Result{Receipt: ent.Receipt}, h, "5550001", gatefix.GateID, gatefix.Pub(t, "gate1"), gatefix.Now+10)
 		require.EqualValues(t, 1, e.Exec.Calls(), "re-executed")
 	})
 	for name, lk := range map[string]struct {
@@ -367,6 +376,7 @@ func unknownEntry(t *testing.T, opts ...gatefix.Option) (*gatefix.Env, *commitme
 	return e, c, h
 }
 
+// INTERIM: removed together with the executor path.
 func TestResolveManually(t *testing.T) {
 	ctx := context.Background()
 	t.Run("executed", func(t *testing.T) {
@@ -382,7 +392,7 @@ func TestResolveManually(t *testing.T) {
 		require.Len(t, ent.History, 2)
 		require.Equal(t, registry.Resolution{Source: registry.SourceManual, By: "op-1", At: gatefix.Now + 7,
 			Note: "found in the TWS order log", PrevState: registry.StateUnknown}, last)
-		gatefix.CheckReceipt(t, gate.Result{Receipt: ent.Receipt}, h, "424242", commitment.ReceiptPathDA, gatefix.GateID, gatefix.Pub(t, "gate1"), gatefix.Now+7)
+		gatefix.CheckReceipt(t, gate.Result{Receipt: ent.Receipt}, h, "424242", gatefix.GateID, gatefix.Pub(t, "gate1"), gatefix.Now+7)
 		stored, _ := e.Entry(c)
 		require.Equal(t, ent, stored, "returned entry differs from the stored one")
 		require.EqualValuesf(t, 1, e.Exec.Calls(), "executor %d lookups %d", e.Exec.Calls(), e.Exec.LookupCalls())
@@ -491,6 +501,7 @@ func TestResolveManually(t *testing.T) {
 
 // TestManualAndAutomaticRace: whichever resolves first wins; the other sees
 // the entry as no longer Unknown and changes nothing.
+// INTERIM: removed together with the executor path.
 func TestManualAndAutomaticRace(t *testing.T) {
 	ctx := context.Background()
 	manual := gate.ManualResolution{Outcome: gate.ManualRejected, Operator: "op-1", Note: "no order"}
@@ -533,6 +544,7 @@ func TestManualAndAutomaticRace(t *testing.T) {
 	})
 }
 
+// INTERIM: removed together with the executor path.
 func TestSettleWindowUsesValidUntil(t *testing.T) {
 	e, c, _ := unknownEntry(t)
 	e.Exec.SetLookup(gate.ExecResult{Outcome: gate.OutcomeNotFound}, nil)

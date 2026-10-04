@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/commitment"
@@ -16,10 +17,8 @@ type receiptInput struct {
 	CommitmentHash string `json:"commitment_hash"`
 	GateID         string `json:"gate_id"`
 	GatePubKey     string `json:"gate_pubkey"`
-	Rail           string `json:"rail"`
 	RailRef        string `json:"rail_ref"`
-	Path           string `json:"path"`
-	ExecutedAt     string `json:"executed_at"`
+	RecordedAt     string `json:"recorded_at"`
 }
 
 type receiptFile struct {
@@ -48,10 +47,8 @@ func toReceipt(t *testing.T, in receiptInput) *commitment.Receipt {
 		CommitmentHash: mustHex(t, in.CommitmentHash),
 		GateID:         in.GateID,
 		GatePubKey:     mustHex(t, in.GatePubKey),
-		Rail:           commitment.Rail(u64(t, in.Rail)),
 		RailRef:        in.RailRef,
-		Path:           commitment.ReceiptPath(u64(t, in.Path)),
-		ExecutedAt:     u64(t, in.ExecutedAt),
+		RecordedAt:     u64(t, in.RecordedAt),
 	}
 }
 
@@ -60,7 +57,7 @@ func TestReceiptValidVectors(t *testing.T) {
 	loadJSON(t, "receipt.json", &rf)
 	vf := loadValid(t)
 	gate1 := loadKey(t, "gate1")
-	require.GreaterOrEqualf(t, len(rf.Cases), 6, "%d receipt vectors", len(rf.Cases))
+	require.GreaterOrEqualf(t, len(rf.Cases), 5, "%d receipt vectors", len(rf.Cases))
 	for _, rc := range rf.Cases {
 		t.Run(rc.ID, func(t *testing.T) {
 			r := toReceipt(t, rc.Input)
@@ -88,7 +85,7 @@ func TestReceiptValidVectors(t *testing.T) {
 			signed, err := commitment.EncodeSignedReceipt(&commitment.SignedReceipt{Receipt: *r, Signature: wantSig})
 			require.NoErrorf(t, err, "EncodeSignedReceipt: %v\n got %x\nwant %x", err, signed, wantSigned)
 			require.Equalf(t, hex.EncodeToString(wantSigned), hex.EncodeToString(signed), "EncodeSignedReceipt: %v\n got %x\nwant %x", err, signed, wantSigned)
-			require.LessOrEqualf(t, len(signed), 354, "signed receipt of %d bytes", len(signed))
+			require.LessOrEqualf(t, len(signed), 350, "signed receipt of %d bytes", len(signed))
 			require.LessOrEqualf(t, len(signed), commitment.MaxReceiptSize, "signed receipt of %d bytes", len(signed))
 
 			sr, dh, err := commitment.DecodeSignedReceipt(wantSigned)
@@ -107,7 +104,7 @@ func TestReceiptValidVectors(t *testing.T) {
 func TestReceiptRejectVectors(t *testing.T) {
 	var rf receiptFile
 	loadJSON(t, "receipt.json", &rf)
-	require.GreaterOrEqualf(t, len(rf.Reject), 35, "%d reject vectors", len(rf.Reject))
+	require.GreaterOrEqualf(t, len(rf.Reject), 36, "%d reject vectors", len(rf.Reject))
 	for _, rc := range rf.Reject {
 		t.Run(rc.ID, func(t *testing.T) {
 			b := mustHex(t, rc.SignedReceiptHex)
@@ -158,5 +155,49 @@ func TestEveryBitFlipOfAReceiptIsRejected(t *testing.T) {
 			_, _, err := commitment.VerifyReceipt(b)
 			require.Errorf(t, err, "flip of byte %d bit %d accepted", i, bit)
 		}
+	}
+}
+
+// rail_ref is opaque: any ID-charset string of 1..128 characters is carried
+// as is, whatever shape a rail uses for its references.
+func TestReceiptRailRefIsOpaque(t *testing.T) {
+	var rf receiptFile
+	loadJSON(t, "receipt.json", &rf)
+	base := toReceipt(t, rf.Cases[0].Input)
+	for name, ref := range map[string]string{
+		"ibkr order id":  "1370093239",
+		"evm tx hash":    "0x9f2c1d7e5b8a4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d",
+		"opaque token":   "ref-0001",
+		"longest":        string(bytes.Repeat([]byte("a"), 128)),
+		"single char":    "x",
+		"not a number":   "pending",
+		"looks like cid": "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := *base
+			r.RailRef = ref
+			canon, err := commitment.EncodeReceipt(&r)
+			require.NoError(t, err)
+			h := commitment.HashReceipt(canon)
+			sig := ed25519.Sign(loadKey(t, "gate1"), commitment.ReceiptSigningMessage(h))
+			b, err := commitment.EncodeSignedReceipt(&commitment.SignedReceipt{Receipt: r, Signature: sig})
+			require.NoError(t, err)
+			got, _, err := commitment.VerifyReceipt(b)
+			require.NoError(t, err)
+			assert.Equal(t, ref, got.Receipt.RailRef)
+		})
+	}
+}
+
+// The receipt vectors cover every rail_ref and recorded_at extreme the
+// schema allows, and every receipt names an authorized commitment.
+func TestReceiptVectorsReferenceValidCommitments(t *testing.T) {
+	var rf receiptFile
+	loadJSON(t, "receipt.json", &rf)
+	vf := loadValid(t)
+	for _, rc := range rf.Cases {
+		vc := validCaseByID(t, vf, rc.CommitmentRef)
+		assert.Equal(t, vc.CommitmentHashHex, rc.Input.CommitmentHash, rc.ID)
+		assert.Equal(t, vf.Gate.GateID, rc.Input.GateID, rc.ID)
 	}
 }

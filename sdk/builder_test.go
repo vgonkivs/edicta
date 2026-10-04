@@ -105,16 +105,20 @@ func TestCommitHappyPath(t *testing.T) {
 	assert.Equal(t, gatefix.Pub(t, "agent1"), c.AgentPubKey)
 	assert.Len(t, c.Nonce, 16)
 	assert.Equal(t, r.cfg.Scope, c.Scope)
-	assert.Nil(t, c.Scope.ChainID)
 
 	p := r.payload()
-	assert.Equal(t, p.Action, c.Action, "the committed action is the payload's")
-	assert.Equal(t, p.Constraints, c.Constraints)
+	wantHash, err := commitment.ActionHash(p.Action.Type, p.Action.Data)
+	require.NoError(t, err)
+	assert.Equal(t, p.Action.Type, c.Action.Type, "the committed type is the payload's")
+	assert.Equal(t, wantHash[:], c.Action.Hash, "the committed hash is over the payload's bytes")
+	assert.Equal(t, p.Action.Data, res.Action, "the result hands the caller the exact bytes to present to the gate")
+	assert.Equal(t, wantHash, res.ActionHash)
 
 	h, err := commitment.HashOf(&c)
 	require.NoError(t, err)
 	assert.Equal(t, h, res.CommitmentHash)
 	assert.True(t, res.DAChecked)
+	require.NoError(t, commitment.CheckAction(&c, res.Action), "the gate's action check passes on the result")
 
 	pub := res.Published
 	assert.Equal(t, pub.Ref, c.PayloadRef)
@@ -129,7 +133,6 @@ func TestCommitHappyPath(t *testing.T) {
 	assert.EqualValues(t, now+900, v.RequestedUntil)
 	assert.False(t, v.Clamped)
 	assert.Empty(t, v.ClampedBy)
-	assert.EqualValues(t, now+900, v.Expiry)
 	assert.Equal(t, v.IssuedAt, c.IssuedAt)
 	assert.Equal(t, v.ValidUntil, c.ValidUntil)
 }
@@ -191,45 +194,30 @@ func TestCommitTimeBoundaries(t *testing.T) {
 		name        string
 		ttl         uint64
 		blockTime   uint64
-		deadline    *uint64
 		want        error // nil: success
 		wantAny     []error
 		wantUntil   uint64
 		wantClamped string
-		wantExpiry  uint64
 	}{
-		{name: "default ttl", ttl: 900, blockTime: now - 100, wantUntil: now + 900, wantExpiry: now + 900},
-		{name: "ttl equal to the maximum", ttl: 3600, blockTime: now - 100, wantUntil: now + 3600, wantExpiry: now + 3600},
+		{name: "default ttl", ttl: 900, blockTime: now - 100, wantUntil: now + 900},
+		{name: "ttl equal to the maximum", ttl: 3600, blockTime: now - 100, wantUntil: now + 3600},
 		{name: "ttl above the maximum is cut", ttl: 7200, blockTime: now - 100,
-			wantUntil: now + 3600, wantClamped: "max_ttl", wantExpiry: now + 3600},
+			wantUntil: now + 3600, wantClamped: "max_ttl"},
 		{name: "old anchor cuts to the retention bound", ttl: 3600, blockTime: now - 12000,
-			wantUntil: now + 1800, wantClamped: "retention", wantExpiry: now + 1800},
+			wantUntil: now + 1800, wantClamped: "retention"},
 		{name: "retention leaves exactly the minimum", ttl: 900, blockTime: now - 13740,
-			wantUntil: now + 60, wantClamped: "retention", wantExpiry: now + 60},
+			wantUntil: now + 60, wantClamped: "retention"},
 		{name: "retention leaves one second less than the minimum", ttl: 900, blockTime: now - 13741, want: sdk.ErrValidityWindow},
 		{name: "retention already used up", ttl: 900, blockTime: now - 14400, want: sdk.ErrValidityWindow},
-		{name: "ttl exactly the minimum", ttl: 60, blockTime: now - 100, wantUntil: now + 60, wantExpiry: now + 60},
+		{name: "ttl exactly the minimum", ttl: 60, blockTime: now - 100, wantUntil: now + 60},
 		{name: "ttl one below the minimum", ttl: 59, blockTime: now - 100, want: sdk.ErrValidityWindow},
 		{name: "ttl inside the skew", ttl: 10, blockTime: now - 100, want: sdk.ErrValidityWindow},
-		{name: "deadline sets the expiry", ttl: 900, blockTime: now - 100, deadline: u64p(now + 600),
-			wantUntil: now + 600, wantExpiry: now + 600},
-		{name: "deadline at the minimum", ttl: 900, blockTime: now - 100, deadline: u64p(now + 60),
-			wantUntil: now + 60, wantExpiry: now + 60},
-		{name: "deadline one below the minimum", ttl: 900, blockTime: now - 100, deadline: u64p(now + 59),
-			wantAny: []error{sdk.ErrValidityWindow, commitment.ErrDeadlineRange}},
-		{name: "deadline beyond what validity may reach", ttl: 900, blockTime: now - 100, deadline: u64p(now + 3601),
-			wantAny: []error{sdk.ErrValidityWindow, commitment.ErrDeadlineRange}},
-		{name: "deadline already past", ttl: 900, blockTime: now - 100, deadline: u64p(now - 5),
-			wantAny: []error{sdk.ErrValidityWindow, commitment.ErrDeadlineRange}},
-		{name: "deadline beyond the retention bound", ttl: 3600, blockTime: now - 12000, deadline: u64p(now + 1900),
-			wantAny: []error{sdk.ErrValidityWindow, commitment.ErrDeadlineRange}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := newRig(t, func(r *rig) { r.cfg.TTLS = tt.ttl })
 			r.rec.blockTime = tt.blockTime
 			p := r.payload()
-			p.Constraints.Deadline = tt.deadline
 			res, err := r.builder().Commit(bg, p)
 			if tt.want != nil || tt.wantAny != nil {
 				require.Error(t, err)
@@ -246,16 +234,10 @@ func TestCommitTimeBoundaries(t *testing.T) {
 			v := res.Validity
 			assert.Equal(t, tt.wantUntil, v.ValidUntil)
 			assert.Equal(t, tt.wantUntil, res.Commitment.ValidUntil)
-			assert.Equal(t, tt.wantExpiry, v.Expiry)
 			assert.Equal(t, tt.wantClamped, v.ClampedBy)
 			assert.Equal(t, tt.wantClamped != "", v.Clamped)
 			assert.LessOrEqual(t, v.ValidUntil, v.RequestedUntil, "never extended")
-			if tt.deadline != nil {
-				assert.Equal(t, *tt.deadline, *res.Commitment.Constraints.Deadline)
-				assert.EqualValues(t, *tt.deadline, v.RequestedUntil)
-			} else {
-				assert.EqualValues(t, now+tt.ttl, v.RequestedUntil)
-			}
+			assert.EqualValues(t, now+tt.ttl, v.RequestedUntil)
 			requireValidAtGate(t, res, now)
 		})
 	}
@@ -529,18 +511,12 @@ func TestStaticRefusalHappensBeforePublishing(t *testing.T) {
 		mod  func(p *payload.Payload)
 		want error
 	}{
-		{"side 0", func(p *payload.Payload) { p.Action.IBKROrder.Side = 0 }, commitment.ErrInvalidEnum},
-		{"tif 9", func(p *payload.Payload) { p.Action.IBKROrder.TIF = 9 }, commitment.ErrInvalidEnum},
-		{"zero qty", func(p *payload.Payload) { p.Action.IBKROrder.Qty = 0 }, commitment.ErrZeroValue},
-		{"market order", func(p *payload.Payload) {
-			p.Action.IBKROrder.OrderType = commitment.OrderMarket
-			p.Action.IBKROrder.LimitPrice = nil
-		}, commitment.ErrUnsupportedOrderType},
-		{"limit order without price", func(p *payload.Payload) { p.Action.IBKROrder.LimitPrice = nil }, commitment.ErrLimitPrice},
-		{"notional above max_notional", func(p *payload.Payload) { p.Constraints.MaxNotional = 1 }, commitment.ErrNotionalExceeded},
-		{"buy above price bound", func(p *payload.Payload) { p.Constraints.PriceBound = u64p(1) }, commitment.ErrPriceBound},
-		{"account differs from scope", func(p *payload.Payload) { p.Action.IBKROrder.Account = "DU7654321" }, commitment.ErrAccountMismatch},
-		{"qty above 2^63-1", func(p *payload.Payload) { p.Action.IBKROrder.Qty = 1 << 63 }, commitment.ErrIntRange},
+		{"action type in upper case", func(p *payload.Payload) { p.Action.Type = "Application/json" }, payload.ErrMalformed},
+		{"action type with a parameter", func(p *payload.Payload) { p.Action.Type = "application/json; charset=utf-8" }, payload.ErrMalformed},
+		{"action type without a slash", func(p *payload.Payload) { p.Action.Type = "applicationjson" }, payload.ErrMalformed},
+		{"action type empty", func(p *payload.Payload) { p.Action.Type = "" }, payload.ErrMalformed},
+		{"action bytes empty", func(p *payload.Payload) { p.Action.Data = nil }, payload.ErrMalformed},
+		{"action bytes above the limit", func(p *payload.Payload) { p.Action.Data = make([]byte, commitment.MaxActionSize+1) }, payload.ErrMalformed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -603,12 +579,16 @@ func TestSealedKeepsItsOwnCopyOfTheDecision(t *testing.T) {
 	p := r.payload()
 	s, err := b.Seal(bg, p)
 	require.NoError(t, err)
-	p.Action.IBKROrder.Qty *= 2 // the caller changes the order after sealing
+	p.Action.Data[0] ^= 1 // the caller changes the action bytes after sealing
 	pub, err := b.Publish(bg, s)
 	require.NoError(t, err)
 	res, err := b.Finalize(bg, s, pub)
 	require.NoError(t, err)
-	assert.Equal(t, r.payload().Action, res.Commitment.Action, "the commitment follows what was sealed")
+	want := r.payload().Action
+	h, err := commitment.ActionHash(want.Type, want.Data)
+	require.NoError(t, err)
+	assert.Equal(t, h[:], res.Commitment.Action.Hash, "the commitment follows what was sealed")
+	assert.Equal(t, want.Data, res.Action, "the result carries what was sealed")
 }
 
 func TestConcurrentCommits(t *testing.T) {
@@ -681,7 +661,7 @@ func TestErrorsDoNotLeakSecrets(t *testing.T) {
 	run(func(r *rig) {
 		r.signer.override = func(commitment.Hash) ([]byte, error) { return make([]byte, 64), nil }
 	}, nil)
-	run(nil, func(p *payload.Payload) { p.Action.IBKROrder.Qty = 0 })
+	run(nil, func(p *payload.Payload) { p.Action.Data = nil })
 	run(func(r *rig) { r.cfg.Recipients = nil }, nil)
 
 	for _, err := range errs {

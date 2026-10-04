@@ -34,7 +34,7 @@ func sdkArmed(t *testing.T, key string, stage bool, opts ...gatefix.Option) *sdk
 	require.NoError(t, err)
 	cfg := sdk.DefaultConfig()
 	cfg.AgentID = "dca-agent-1"
-	cfg.Scope = commitment.Scope{GateID: gatefix.GateID, Rail: commitment.RailIBKR, Account: gatefix.Account}
+	cfg.Scope = commitment.Scope{GateID: gatefix.GateID}
 	cfg.Recipients = v.Recipients(t, "gate-paper-1", "auditor-1")
 	p := sdktest.NewPublisher(commitment.DACelestiaBlob)
 	p.SetBlockTime(gatefix.Now - 1000)
@@ -50,38 +50,66 @@ func sdkArmed(t *testing.T, key string, stage bool, opts ...gatefix.Option) *sdk
 	return &sdkRun{env: env, res: res, vec: v}
 }
 
+// admit presents the envelope with the exact action bytes the SDK returned.
+func (r *sdkRun) admit(envelope []byte) (gate.Result, error) {
+	return r.env.AdmitWith(envelope, r.res.Action)
+}
+
 func TestSDKAttack0Control(t *testing.T) {
 	r := sdkArmed(t, "agent1", true)
-	_, err := r.env.Admit(r.res.Envelope)
+	_, err := r.admit(r.res.Envelope)
 	require.NoError(t, err)
 	require.Equal(t, 1, r.env.Exec.Calls())
+	require.Equal(t, r.res.Action, r.env.Exec.Requests()[0].Action, "the executor gets the bytes the agent committed to")
 }
 
 // 2. Amount, recipient or asset outside the committed action: the SDK
-// signature covers the action, so any edit of the envelope breaks it.
-func TestSDKAttack2ParamsOutsideCommitment(t *testing.T) {
-	muts := map[string]func(o *commitment.IBKROrderV0){
-		"qty plus one unit": func(o *commitment.IBKROrderV0) { o.Qty++ },
-		"other account":     func(o *commitment.IBKROrderV0) { o.Account = "DU7654321" },
-		"other asset":       func(o *commitment.IBKROrderV0) { o.ConID++ },
-		"other currency":    func(o *commitment.IBKROrderV0) { o.Currency = "EUR" },
-		"other side":        func(o *commitment.IBKROrderV0) { o.Side = commitment.SideSell },
-		"price plus one":    func(o *commitment.IBKROrderV0) { p := *o.LimitPrice + 1; o.LimitPrice = &p },
-	}
-	for name, m := range muts {
-		t.Run(name, func(t *testing.T) {
-			r := sdkArmed(t, "agent1", true)
-			s, err := commitment.DecodeSigned(r.res.Envelope)
-			require.NoError(t, err)
-			m(s.Commitment.Action.IBKROrder)
-			b, err := commitment.EncodeSigned(s)
-			require.NoError(t, err)
-			_, err = r.env.Admit(b)
-			require.Error(t, err)
-			require.Zero(t, r.env.Exec.Calls())
-			r.env.RequireUntouched(&r.res.Commitment)
-		})
-	}
+// signature covers the action hash, so an edited envelope breaks it, and other
+// action bytes than the committed ones do not match the hash.
+func TestSDKAttack2ActionOutsideCommitment(t *testing.T) {
+	t.Run("hash edited in the envelope", func(t *testing.T) {
+		r := sdkArmed(t, "agent1", true)
+		s, err := commitment.DecodeSigned(r.res.Envelope)
+		require.NoError(t, err)
+		s.Commitment.Action.Hash[0] ^= 1
+		b, err := commitment.EncodeSigned(s)
+		require.NoError(t, err)
+		_, err = r.admit(b)
+		r.env.RequireRejected(&r.res.Commitment, err, commitment.ErrSignatureInvalid)
+	})
+	t.Run("type edited in the envelope", func(t *testing.T) {
+		r := sdkArmed(t, "agent1", true, gatefix.WithScope(commitment.GateScope{
+			GateID: gatefix.GateID, ActionTypes: []string{gatefix.ActionType, "application/json"},
+		}))
+		s, err := commitment.DecodeSigned(r.res.Envelope)
+		require.NoError(t, err)
+		s.Commitment.Action.Type = "application/json"
+		b, err := commitment.EncodeSigned(s)
+		require.NoError(t, err)
+		_, err = r.admit(b)
+		r.env.RequireRejected(&r.res.Commitment, err, commitment.ErrSignatureInvalid)
+	})
+	t.Run("every single byte flip of the committed action", func(t *testing.T) {
+		r := sdkArmed(t, "agent1", true)
+		for i := range r.res.Action {
+			bad := append([]byte(nil), r.res.Action...)
+			bad[i] ^= 1
+			_, err := r.env.AdmitWith(r.res.Envelope, bad)
+			r.env.RequireRejected(&r.res.Commitment, err, commitment.ErrActionMismatch)
+		}
+	})
+	t.Run("the template order instead of the committed one", func(t *testing.T) {
+		r := sdkArmed(t, "agent1", true)
+		_, err := r.env.AdmitWith(r.res.Envelope, gatefix.Action(t))
+		r.env.RequireRejected(&r.res.Commitment, err, commitment.ErrActionMismatch)
+	})
+	t.Run("the payload carries the committed bytes", func(t *testing.T) {
+		r := sdkArmed(t, "agent1", true)
+		o, err := sdk.OpenPayload(r.res.Envelope, r.res.Blob, r.vec.Key(t, "gate-paper-1").OpenKey(true))
+		require.NoError(t, err)
+		require.Equal(t, r.res.Action, o.Payload.Action.Data)
+		require.NoError(t, commitment.CheckAction(&o.Commitment, o.Payload.Action.Data))
+	})
 }
 
 // 3. Expired validity window.
@@ -102,7 +130,7 @@ func TestSDKAttack3Expired(t *testing.T) {
 			default:
 				r.env.Clock.Set(until + at)
 			}
-			_, err := r.env.Admit(r.res.Envelope)
+			_, err := r.admit(r.res.Envelope)
 			r.env.RequireRejected(&r.res.Commitment, err, commitment.ErrExpired)
 		})
 	}
@@ -112,9 +140,9 @@ func TestSDKAttack3Expired(t *testing.T) {
 func TestSDKAttack4NonceReuse(t *testing.T) {
 	t.Run("sequential", func(t *testing.T) {
 		r := sdkArmed(t, "agent1", true)
-		_, err := r.env.Admit(r.res.Envelope)
+		_, err := r.admit(r.res.Envelope)
 		require.NoError(t, err)
-		_, err = r.env.Admit(r.res.Envelope)
+		_, err = r.admit(r.res.Envelope)
 		require.ErrorIs(t, err, gate.ErrNonceUsed)
 		require.Equal(t, 1, r.env.Exec.Calls())
 	})
@@ -129,7 +157,7 @@ func TestSDKAttack4NonceReuse(t *testing.T) {
 			go func() {
 				defer done.Done()
 				start.Wait()
-				_, err := r.env.Admit(r.res.Envelope)
+				_, err := r.admit(r.res.Envelope)
 				switch {
 				case err == nil:
 					ok.Add(1)
@@ -154,7 +182,7 @@ func TestSDKAttack4NonceReuse(t *testing.T) {
 func TestSDKAttack5PayloadUnavailable(t *testing.T) {
 	r := sdkArmed(t, "agent1", false)
 	r.env.StageChain(&r.res.Commitment, r.res.Published.BlockTime, r.res.Published.BlockTime)
-	_, err := r.env.Admit(r.res.Envelope)
+	_, err := r.admit(r.res.Envelope)
 	r.env.RequireRejected(&r.res.Commitment, err, gate.ErrPayloadUnavailable)
 }
 
@@ -162,7 +190,7 @@ func TestSDKAttack5PayloadUnavailable(t *testing.T) {
 func TestSDKAttack6WrongKey(t *testing.T) {
 	t.Run("agent id registered to another key", func(t *testing.T) {
 		r := sdkArmed(t, "agent2", true)
-		_, err := r.env.Admit(r.res.Envelope)
+		_, err := r.admit(r.res.Envelope)
 		r.env.RequireRejected(&r.res.Commitment, err, gate.ErrAgentKeyMismatch)
 	})
 	t.Run("signature of another key under the right agent key", func(t *testing.T) {
@@ -172,7 +200,7 @@ func TestSDKAttack6WrongKey(t *testing.T) {
 		s.Signature = ed25519.Sign(gatefix.Key(t, "agent2"), commitment.SigningMessage(r.res.CommitmentHash))
 		b, err := commitment.EncodeSigned(s)
 		require.NoError(t, err)
-		_, err = r.env.Admit(b)
+		_, err = r.admit(b)
 		r.env.RequireRejected(&r.res.Commitment, err, commitment.ErrSignatureInvalid)
 	})
 }
@@ -186,7 +214,7 @@ func TestSDKAttack7PayloadSwapped(t *testing.T) {
 	r.env.StageChain(&r.res.Commitment, r.res.Published.BlockTime, r.res.Published.BlockTime)
 	r.env.DA.Put(r.res.Published.Ref, swapped)
 
-	_, err := r.env.Admit(r.res.Envelope)
+	_, err := r.admit(r.res.Envelope)
 	require.Error(t, err)
 	require.Zero(t, r.env.Exec.Calls())
 
@@ -198,36 +226,20 @@ func TestSDKAttack7PayloadSwapped(t *testing.T) {
 	require.Error(t, err)
 }
 
-// 8. Cross-domain replay: the same SDK commitment against another gate, rail
-// scope or account.
+// 8. Cross-domain replay: the same SDK commitment against another gate or a
+// gate that serves other action types.
 func TestSDKAttack8CrossDomain(t *testing.T) {
-	for name, g := range map[string]commitment.GateScope{
-		"other gate":    {GateID: "gate-other", Rail: commitment.RailIBKR, Account: gatefix.Account},
-		"other account": {GateID: gatefix.GateID, Rail: commitment.RailIBKR, Account: "DU7654321"},
+	for name, tt := range map[string]struct {
+		scope commitment.GateScope
+		want  error
+	}{
+		"other gate":        {commitment.GateScope{GateID: "gate-other", ActionTypes: []string{gatefix.ActionType}}, commitment.ErrScopeMismatch},
+		"other action type": {commitment.GateScope{GateID: gatefix.GateID, ActionTypes: []string{"application/json"}}, commitment.ErrActionTypeNotAllowed},
 	} {
 		t.Run(name, func(t *testing.T) {
-			r := sdkArmed(t, "agent1", true, gatefix.WithScope(g))
-			_, err := r.env.Admit(r.res.Envelope)
-			r.env.RequireRejected(&r.res.Commitment, err, commitment.ErrScopeMismatch)
+			r := sdkArmed(t, "agent1", true, gatefix.WithScope(tt.scope))
+			_, err := r.admit(r.res.Envelope)
+			r.env.RequireRejected(&r.res.Commitment, err, tt.want)
 		})
 	}
-	t.Run("a chain id cannot be put into an IBKR scope", func(t *testing.T) {
-		v := sdkfix.Load(t)
-		signer, err := sdk.NewEd25519Signer(gatefix.Key(t, "agent1"))
-		require.NoError(t, err)
-		chain := "eip155:1"
-		cfg := sdk.DefaultConfig()
-		cfg.AgentID = "dca-agent-1"
-		cfg.Scope = commitment.Scope{GateID: gatefix.GateID, Rail: commitment.RailIBKR, Account: gatefix.Account, ChainID: &chain}
-		cfg.Recipients = v.Recipients(t, "gate-paper-1")
-		env := gatefix.New(t)
-		p := sdktest.NewPublisher(commitment.DACelestiaBlob)
-		p.SetBlockTime(gatefix.Now - 1000)
-		p.SetHeight(4_200_000)
-		b, err := sdk.New(cfg, sdk.Deps{Publisher: p, Signer: signer, Clock: env.Clock, Chain: env.Chain})
-		if err == nil {
-			_, err = b.Commit(t.Context(), sdkfix.ClonePayload(v.Case0(t).Payload))
-		}
-		require.Error(t, err)
-	})
 }

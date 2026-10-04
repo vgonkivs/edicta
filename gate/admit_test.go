@@ -1,6 +1,7 @@
 package gate_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"errors"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
-	"github.com/vgonkivs/edicta/gate/gatetest"
 	"github.com/vgonkivs/edicta/gate/registry"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
@@ -27,6 +27,7 @@ func happy(t *testing.T, opts ...gatefix.Option) (*gatefix.Env, *commitment.Comm
 	return e, c, b, h
 }
 
+// INTERIM: ported to the authorizer entry point.
 func TestAdmitHappyPathDA(t *testing.T) {
 	e, c, b, h := happy(t)
 	res, err := e.Admit(b)
@@ -34,7 +35,7 @@ func TestAdmitHappyPathDA(t *testing.T) {
 	require.Equalf(t, registry.StateExecuted, res.State, "result %+v", res)
 	require.Equalf(t, registry.PathDA, res.Path, "result %+v", res)
 	require.Equalf(t, h, res.CommitmentHash, "result %+v", res)
-	gatefix.CheckReceipt(t, res, h, gatefix.RailRef, commitment.ReceiptPathDA, gatefix.GateID, gatefix.Pub(t, "gate1"), gatefix.Now)
+	gatefix.CheckReceipt(t, res, h, gatefix.RailRef, gatefix.GateID, gatefix.Pub(t, "gate1"), gatefix.Now)
 	require.EqualValuesf(t, 1, e.Exec.Calls(), "calls exec=%d da=%d archive=%d", e.Exec.Calls(), e.DA.Fetches(), e.Archive.Fetches())
 	require.EqualValuesf(t, 1, e.DA.Fetches(), "calls exec=%d da=%d archive=%d", e.Exec.Calls(), e.DA.Fetches(), e.Archive.Fetches())
 	require.EqualValuesf(t, 0, e.Archive.Fetches(), "calls exec=%d da=%d archive=%d", e.Exec.Calls(), e.DA.Fetches(), e.Archive.Fetches())
@@ -57,6 +58,7 @@ func TestAdmitHappyPathDA(t *testing.T) {
 	require.Equal(t, commitment.DACelestiaBlob, ev[0].DA)
 }
 
+// INTERIM: ported to the authorizer entry point.
 func TestAdmitHappyPathFibre(t *testing.T) {
 	e := gatefix.New(t)
 	c := gatefix.FibreTemplate(t)
@@ -66,40 +68,21 @@ func TestAdmitHappyPathFibre(t *testing.T) {
 	require.NoError(t, err, "Admit")
 	require.Equalf(t, registry.StateExecuted, res.State, "result %+v", res)
 	require.Equalf(t, registry.PathDA, res.Path, "result %+v", res)
-	gatefix.CheckReceipt(t, res, h, gatefix.RailRef, commitment.ReceiptPathDA, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
+	gatefix.CheckReceipt(t, res, h, gatefix.RailRef, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
 }
 
+// INTERIM: removed together with the executor path.
 func TestExecRequestFields(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		deadline *uint64
-		notAfter uint64
-	}{
-		{"valid_until", nil, 1791000900 - 30},
-		{"deadline", ptr(uint64(1791000600)), 1791000600 - 30},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			e := gatefix.New(t)
-			c := gatefix.Template(t)
-			c.Constraints.Deadline = tc.deadline
-			e.StageDA(c, gatefix.Blob(t))
-			b, h := gatefix.Sign(t, "agent1", c)
-			_, err := e.Admit(b)
-			require.NoError(t, err)
-			reqs := e.Exec.Requests()
-			require.Lenf(t, reqs, 1, "%d requests", len(reqs))
-			r := reqs[0]
-			wantID, err := commitment.ClientOrderID(commitment.RailIBKR, h)
-			require.NoError(t, err)
-			require.Equalf(t, h, r.CommitmentHash, "hash/client order id: %x %q", r.CommitmentHash, r.ClientOrderID)
-			require.Equalf(t, wantID, r.ClientOrderID, "hash/client order id: %x %q", r.CommitmentHash, r.ClientOrderID)
-			require.Equal(t, *c.Action.IBKROrder, r.Order)
-			require.True(t, r.NotAfter.Equal(time.Unix(int64(tc.notAfter), 0)))
-		})
-	}
+	e, _, b, h := happy(t)
+	_, err := e.Admit(b)
+	require.NoError(t, err)
+	reqs := e.Exec.Requests()
+	require.Lenf(t, reqs, 1, "%d requests", len(reqs))
+	r := reqs[0]
+	require.Equal(t, h, r.CommitmentHash)
+	require.Equal(t, gatefix.Action(t), r.Action, "the executor gets the committed bytes")
+	require.True(t, r.NotAfter.Equal(time.Unix(int64(1791000900-30), 0)))
 }
-
-func ptr[T any](v T) *T { return &v }
 
 // TestInvariantRejections: every row breaks exactly one check and must give
 // its sentinel, with zero executor calls and an untouched nonce.
@@ -116,13 +99,6 @@ func TestInvariantRejections(t *testing.T) {
 		name  string
 		want  error
 		build func(t *testing.T) (*gatefix.Env, *commitment.Commitment, []byte)
-	}
-	mutateOrder := func(f func(o *commitment.IBKROrderV0)) func(t *testing.T) (*gatefix.Env, *commitment.Commitment, []byte) {
-		return func(t *testing.T) (*gatefix.Env, *commitment.Commitment, []byte) {
-			e, c, b, _ := happy(t)
-			e.Gate.SetMutateOrder(f)
-			return e, c, b
-		}
 	}
 	signedVariant := func(f func(c *commitment.Commitment)) func(t *testing.T) (*gatefix.Env, *commitment.Commitment, []byte) {
 		return func(t *testing.T) (*gatefix.Env, *commitment.Commitment, []byte) {
@@ -240,19 +216,21 @@ func TestInvariantRejections(t *testing.T) {
 			b, _ := gatefix.Sign(t, "agent1", c)
 			return e, c, b
 		}},
-		// Action within the committed action and constraints.
-		{"inv3 qty differs", commitment.ErrActionMismatch, mutateOrder(func(o *commitment.IBKROrderV0) { o.Qty++ })},
-		{"inv3 price differs", commitment.ErrActionMismatch, mutateOrder(func(o *commitment.IBKROrderV0) { p := *o.LimitPrice + 1; o.LimitPrice = &p })},
-		{"inv3 side differs", commitment.ErrActionMismatch, mutateOrder(func(o *commitment.IBKROrderV0) { o.Side = commitment.SideSell })},
-		{"inv3 account differs", commitment.ErrActionMismatch, mutateOrder(func(o *commitment.IBKROrderV0) { o.Account = "DU7654321" })},
-		{"inv3 asset differs", commitment.ErrActionMismatch, mutateOrder(func(o *commitment.IBKROrderV0) { o.ConID++ })},
-		{"inv3 currency differs", commitment.ErrActionMismatch, mutateOrder(func(o *commitment.IBKROrderV0) { o.Currency = "EUR" })},
-		{"inv3 market instead of limit", commitment.ErrActionMismatch, mutateOrder(func(o *commitment.IBKROrderV0) { o.OrderType = commitment.OrderMarket; o.LimitPrice = nil })},
-		{"inv3 notional above max_notional", commitment.ErrNotionalExceeded, signedVariant(func(c *commitment.Commitment) { c.Action.IBKROrder.Qty *= 2 })},
-		{"inv3 price outside price_bound", commitment.ErrPriceBound, signedVariant(func(c *commitment.Commitment) {
-			c.Constraints.PriceBound = ptr(*c.Action.IBKROrder.LimitPrice - 1)
-		})},
-		{"inv3 order account differs from scope account", commitment.ErrAccountMismatch, signedVariant(func(c *commitment.Commitment) { c.Action.IBKROrder.Account = "DU7654321" })},
+		// The committed action type must be one the gate is configured for.
+		{"inv3 action type not configured", commitment.ErrActionTypeNotAllowed, func(t *testing.T) (*gatefix.Env, *commitment.Commitment, []byte) {
+			e := gatefix.New(t)
+			c := gatefix.WithAction(t, gatefix.Template(t), "application/json", gatefix.Action(t))
+			e.StageDA(c, gatefix.Blob(t))
+			b, _ := gatefix.Sign(t, "agent1", c)
+			return e, c, b
+		}},
+		{"inv3 gate has no action types", commitment.ErrActionTypeNotAllowed, func(t *testing.T) (*gatefix.Env, *commitment.Commitment, []byte) {
+			e := gatefix.New(t, gatefix.WithScope(commitment.GateScope{GateID: gatefix.GateID}))
+			c := gatefix.Template(t)
+			e.StageDA(c, gatefix.Blob(t))
+			b, _ := gatefix.Sign(t, "agent1", c)
+			return e, c, b
+		}},
 		// Validity window and retention.
 		{"inv4 expired", commitment.ErrExpired, func(t *testing.T) (*gatefix.Env, *commitment.Commitment, []byte) {
 			e, c, b, _ := happy(t, gatefix.WithNow(1791000900))
@@ -264,14 +242,6 @@ func TestInvariantRejections(t *testing.T) {
 		}},
 		{"inv4 not yet valid", commitment.ErrNotYetValid, func(t *testing.T) (*gatefix.Env, *commitment.Commitment, []byte) {
 			e, c, b, _ := happy(t, gatefix.WithNow(1791000000-31))
-			return e, c, b
-		}},
-		{"inv4 deadline passed", commitment.ErrExpired, func(t *testing.T) (*gatefix.Env, *commitment.Commitment, []byte) {
-			c := gatefix.Template(t)
-			c.Constraints.Deadline = ptr(uint64(1791000100))
-			e := gatefix.New(t, gatefix.WithNow(1791000100))
-			e.StageDA(c, gatefix.Blob(t))
-			b, _ := gatefix.Sign(t, "agent1", c)
 			return e, c, b
 		}},
 		{"inv4 ttl above maximum", commitment.ErrTTLTooLong, signedVariant(func(c *commitment.Commitment) { c.ValidUntil = c.IssuedAt + 3601 })},
@@ -311,7 +281,7 @@ func TestInvariantRejections(t *testing.T) {
 			return e, c, []byte{0xff, 0xff}
 		}},
 		{"inv6 foreign gate", commitment.ErrScopeMismatch, func(t *testing.T) (*gatefix.Env, *commitment.Commitment, []byte) {
-			e := gatefix.New(t, gatefix.WithScope(commitment.GateScope{GateID: "gate-paper-2", Rail: commitment.RailIBKR, Account: gatefix.Account}))
+			e := gatefix.New(t, gatefix.WithScope(commitment.GateScope{GateID: "gate-paper-2", ActionTypes: []string{gatefix.ActionType}}))
 			c := gatefix.Template(t)
 			e.StageDA(c, gatefix.Blob(t))
 			b, _ := gatefix.Sign(t, "agent1", c)
@@ -325,6 +295,69 @@ func TestInvariantRejections(t *testing.T) {
 			e.RequireRejected(c, err, r.want)
 		})
 	}
+}
+
+// TestActionBytesRejections: the bytes presented with the envelope must be
+// exactly the committed ones. Each row presents other bytes for a commitment
+// that is otherwise valid; nothing is executed and the nonce stays free.
+func TestActionBytesRejections(t *testing.T) {
+	flip := func(i int) func([]byte) []byte {
+		return func(a []byte) []byte {
+			b := bytes.Clone(a)
+			if i < 0 {
+				i = len(b) + i
+			}
+			b[i] ^= 1
+			return b
+		}
+	}
+	rows := []struct {
+		name   string
+		want   error
+		action func(committed []byte) []byte
+	}{
+		{"first byte flipped", commitment.ErrActionMismatch, flip(0)},
+		{"last byte flipped", commitment.ErrActionMismatch, flip(-1)},
+		{"truncated by one byte", commitment.ErrActionMismatch, func(a []byte) []byte { return a[:len(a)-1] }},
+		{"one byte appended", commitment.ErrActionMismatch, func(a []byte) []byte { return append(bytes.Clone(a), 0) }},
+		{"a single zero byte", commitment.ErrActionMismatch, func([]byte) []byte { return []byte{0} }},
+		{"empty", commitment.ErrActionSize, func([]byte) []byte { return nil }},
+		{"empty non-nil", commitment.ErrActionSize, func([]byte) []byte { return []byte{} }},
+		{"above the size limit", commitment.ErrActionSize, func([]byte) []byte { return make([]byte, commitment.MaxActionSize+1) }},
+	}
+	for _, r := range rows {
+		t.Run(r.name, func(t *testing.T) {
+			e, c, b, _ := happy(t)
+			_, err := e.AdmitWith(b, r.action(gatefix.Action(t)))
+			e.RequireRejected(c, err, r.want)
+		})
+	}
+	t.Run("the committed bytes are admitted", func(t *testing.T) {
+		e, _, b, _ := happy(t)
+		_, err := e.AdmitWith(b, gatefix.Action(t))
+		require.NoError(t, err)
+	})
+	t.Run("the same bytes committed under another allowed type", func(t *testing.T) {
+		e := gatefix.New(t, gatefix.WithScope(commitment.GateScope{
+			GateID: gatefix.GateID, ActionTypes: []string{gatefix.ActionType, "application/json"},
+		}))
+		c := gatefix.WithAction(t, gatefix.Template(t), "application/json", gatefix.Action(t))
+		e.StageDA(c, gatefix.Blob(t))
+		b, _ := gatefix.Sign(t, "agent1", c)
+		_, err := e.AdmitWith(b, gatefix.Action(t))
+		require.NoError(t, err, "the type is part of the commitment, and it matches")
+	})
+	t.Run("bytes committed under the other type are another action", func(t *testing.T) {
+		e := gatefix.New(t, gatefix.WithScope(commitment.GateScope{
+			GateID: gatefix.GateID, ActionTypes: []string{gatefix.ActionType, "application/json"},
+		}))
+		c := gatefix.Template(t)
+		c.Action.Type = "application/json" // hash was computed under the ibkr type
+		e.StageDA(c, gatefix.Blob(t))
+		b, _ := gatefix.Sign(t, "agent1", c)
+		_, err := e.AdmitWith(b, gatefix.Action(t))
+		e.RequireRejected(c, err, commitment.ErrActionMismatch)
+	})
 }
 
 // TestStageOrder: an earlier stage's sentinel must win over a later one.
@@ -384,12 +417,13 @@ func TestStageOrder(t *testing.T) {
 		e.RequireRejected(c, err, commitment.ErrIssuedBeforeAnchor)
 		require.EqualValues(t, 0, e.DA.Fetches()+e.Archive.Fetches(), "payload fetched after the anchor time check failed")
 	})
-	t.Run("order check before nonce peek", func(t *testing.T) {
+	t.Run("action check before nonce peek", func(t *testing.T) {
 		e, _, b, _ := happy(t)
 		_, err := e.Admit(b)
 		require.NoError(t, err)
-		e.Gate.SetMutateOrder(func(o *commitment.IBKROrderV0) { o.Qty++ })
-		_, err = e.Admit(b)
+		changed := gatefix.Action(t)
+		changed[0] ^= 1
+		_, err = e.AdmitWith(b, changed)
 		require.ErrorIs(t, err, commitment.ErrActionMismatch)
 	})
 }
@@ -466,11 +500,12 @@ func TestClockAndChainErrors(t *testing.T) {
 		e, c, b, _ := happy(t)
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := e.Gate.Admit(ctx, b)
+		_, err := e.Gate.Admit(ctx, b, gatefix.Action(t))
 		e.RequireRejected(c, err, context.Canceled)
 	})
 }
 
+// INTERIM: ported to the authorizer entry point.
 func TestAdmitEnvelopeBytesOnly(t *testing.T) {
 	// The only admission method takes bytes. Calling it with nil must fail
 	// closed, not panic.
@@ -483,12 +518,6 @@ func TestAdmitEnvelopeBytesOnly(t *testing.T) {
 }
 
 func TestNewValidation(t *testing.T) {
-	t.Run("executor rail differs from scope rail", func(t *testing.T) {
-		_, err := gatefix.TryNew(t, gatefix.WithDeps(func(d *gate.Deps) {
-			d.Executor = gatetest.NewExecutor(2)
-		}))
-		require.Error(t, err, "New accepted a rail mismatch")
-	})
 	t.Run("gate key in the allowlist", func(t *testing.T) {
 		_, err := gatefix.TryNew(t, gatefix.WithAllowlist(map[string][]byte{"gate": gatefix.Pub(t, "gate1")}))
 		require.ErrorIs(t, err, gate.ErrAgentKeyIsGateKey)
@@ -515,6 +544,7 @@ func TestNewValidation(t *testing.T) {
 	})
 }
 
+// INTERIM: ported to the authorizer entry point.
 func TestReplayAcrossAgentsAndNonces(t *testing.T) {
 	t.Run("same nonce, other agent key is a different registry key", func(t *testing.T) {
 		e, _, b, _ := happy(t)
@@ -532,11 +562,12 @@ func TestReplayAcrossAgentsAndNonces(t *testing.T) {
 		e, _, b, _ := happy(t)
 		_, err := e.Admit(b)
 		require.NoError(t, err)
-		c2 := gatefix.Template(t)
-		c2.Action.IBKROrder.Qty--
+		other := gatefix.Action(t)
+		other[0] ^= 1
+		c2 := gatefix.WithAction(t, gatefix.Template(t), gatefix.ActionType, other)
 		e.StageDA(c2, gatefix.Blob(t))
 		b2, h2 := gatefix.Sign(t, "agent1", c2)
-		res, err := e.Admit(b2)
+		res, err := e.AdmitWith(b2, other)
 		require.ErrorIs(t, err, gate.ErrNonceUsed)
 		require.Equal(t, 1, e.Exec.Calls())
 		require.Equal(t, h2, res.CommitmentHash)
@@ -556,6 +587,7 @@ func TestReplayAcrossAgentsAndNonces(t *testing.T) {
 	})
 }
 
+// INTERIM: ported to the authorizer entry point.
 func TestPrune(t *testing.T) {
 	e, a, ba, _ := happy(t)
 	_, err := e.Admit(ba)

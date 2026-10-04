@@ -8,7 +8,7 @@ the authorized bytes pass the executor, and every DCA payload in
 payload_blob.json is consistent with its action.
 
 Usage: python3 spec/vectors/check/check_profile_dca_agent.py [--core DIR] [--dir DIR]
-Defaults: --core spec/vectors/v0-next if present, else spec/vectors/v0;
+Defaults: --core spec/vectors/v0;
 --dir spec/vectors/profiles/dca-agent.
 """
 
@@ -36,7 +36,7 @@ def arg(name: str, default: Path) -> Path:
     return default
 
 
-CORE = arg("--core", VECTORS / "v0-next" if (VECTORS / "v0-next").is_dir() else VECTORS / "v0")
+CORE = arg("--core", VECTORS / "v0")
 DIR = arg("--dir", VECTORS / "profiles" / "dca-agent")
 FORMAT = "edicta-vectors/v0"
 PROFILE_REVISION = "dca-agent-v0-draft.1"

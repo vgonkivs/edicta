@@ -15,7 +15,7 @@ import (
 // The SDK ships inside agent binaries and must not pull the gate in. The
 // shared share-commitment package exists so that it does not have to.
 func TestSDKDoesNotImportTheGate(t *testing.T) {
-	for _, dir := range []string{".", "blob", "payload", "dca"} {
+	for _, dir := range []string{".", "blob", "payload"} {
 		fset := token.NewFileSet()
 		pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
 			return !strings.HasSuffix(fi.Name(), "_test.go")

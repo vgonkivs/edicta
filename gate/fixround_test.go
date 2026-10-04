@@ -76,16 +76,16 @@ func TestClockStepBackDuringFetchIsRefused(t *testing.T) {
 	}
 }
 
+// INTERIM: ported to the authorizer entry point.
 func TestReplayWithAnotherHashReportsNothingOfTheStoredEntry(t *testing.T) {
 	t.Run("stored entry executed", func(t *testing.T) {
 		e, _, b, h := happy(t)
 		first, err := e.Admit(b)
 		require.NoError(t, err)
-		c2 := gatefix.Template(t)
-		c2.Action.IBKROrder.Qty--
+		c2 := gatefix.Variant(t, gatefix.Template(t), 1)
 		e.StageDA(c2, gatefix.Blob(t))
 		b2, h2 := gatefix.Sign(t, "agent1", c2)
-		res, err := e.Admit(b2)
+		res, err := e.AdmitWith(b2, gatefix.OtherAction(t, 1))
 		require.ErrorIs(t, err, gate.ErrNonceUsed)
 		require.NotEqual(t, h, h2)
 		require.Equal(t, h2, res.CommitmentHash)
@@ -102,11 +102,10 @@ func TestReplayWithAnotherHashReportsNothingOfTheStoredEntry(t *testing.T) {
 	t.Run("stored entry unknown", func(t *testing.T) {
 		e, _, h := unknownEntry(t)
 		_ = h
-		c2 := gatefix.Template(t)
-		c2.Action.IBKROrder.Qty--
+		c2 := gatefix.Variant(t, gatefix.Template(t), 1)
 		e.StageDA(c2, gatefix.Blob(t))
 		b2, _ := gatefix.Sign(t, "agent1", c2)
-		res, err := e.Admit(b2)
+		res, err := e.AdmitWith(b2, gatefix.OtherAction(t, 1))
 		require.ErrorIs(t, err, gate.ErrNonceUsed)
 		require.Zero(t, res.State)
 		require.Zero(t, res.Path)
@@ -179,6 +178,7 @@ func newModalSigner(t *testing.T, mode signerMode) *modalSigner {
 
 // A signer that panics, hangs or returns a bad signature after the order was
 // placed leaves an Executed entry without a receipt.
+// INTERIM: removed together with the executor path.
 func TestBrokenSignerLeavesExecutedWithoutReceipt(t *testing.T) {
 	for name, mode := range map[string]signerMode{"panic": signPanic, "hang": signHang, "bad signature": signZero} {
 		t.Run(name, func(t *testing.T) {
@@ -209,6 +209,7 @@ func TestBrokenSignerLeavesExecutedWithoutReceipt(t *testing.T) {
 	}
 }
 
+// INTERIM: removed together with the executor path.
 func TestBrokenSignerDuringReconcileAndManualResolve(t *testing.T) {
 	for name, mode := range map[string]signerMode{"panic": signPanic, "bad signature": signZero} {
 		t.Run(name, func(t *testing.T) {
@@ -297,7 +298,7 @@ func TestStalledDependenciesAreCutByChainTimeout(t *testing.T) {
 			b, _ := gatefix.Sign(t, "agent1", c)
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			_, err := e.Gate.Admit(ctx, b)
+			_, err := e.Gate.Admit(ctx, b, gatefix.Action(t))
 			require.NoError(t, ctx.Err(), "the gate must return before the caller's deadline")
 			matched := false
 			for _, w := range tc.want {
@@ -412,15 +413,17 @@ func archiveUnknown(t *testing.T) (*gatefix.Env, *commitment.Commitment) {
 	return e, c
 }
 
-func TestReceiptPathSurvivesReconcileAndManualResolve(t *testing.T) {
+// INTERIM: removed together with the executor path.
+func TestEntryPathSurvivesReconcileAndManualResolve(t *testing.T) {
 	t.Run("reconcile", func(t *testing.T) {
 		e, c := archiveUnknown(t)
 		e.Exec.SetLookup(gate.ExecResult{Outcome: gate.OutcomeExecuted, RailRef: "555"}, nil)
 		_, err := e.Gate.Reconcile(context.Background())
 		require.NoError(t, err)
 		ent, _ := e.Entry(c)
+		require.Equal(t, registry.PathArchive, ent.Path)
 		h, _ := commitment.HashOf(c)
-		gatefix.CheckReceipt(t, gate.Result{Receipt: ent.Receipt}, h, "555", commitment.ReceiptPathArchive, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
+		gatefix.CheckReceipt(t, gate.Result{Receipt: ent.Receipt}, h, "555", gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
 	})
 	t.Run("manual", func(t *testing.T) {
 		e, c := archiveUnknown(t)
@@ -428,7 +431,7 @@ func TestReceiptPathSurvivesReconcileAndManualResolve(t *testing.T) {
 			Outcome: gate.ManualExecuted, RailRef: "556", Operator: "op", Note: "n"})
 		require.NoError(t, err)
 		h, _ := commitment.HashOf(c)
-		gatefix.CheckReceipt(t, gate.Result{Receipt: ent.Receipt}, h, "556", commitment.ReceiptPathArchive, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
+		gatefix.CheckReceipt(t, gate.Result{Receipt: ent.Receipt}, h, "556", gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
 	})
 	t.Run("resign", func(t *testing.T) {
 		s := newModalSigner(t, signZero)
@@ -443,7 +446,7 @@ func TestReceiptPathSurvivesReconcileAndManualResolve(t *testing.T) {
 		_, err = e.Gate.Reconcile(context.Background())
 		require.NoError(t, err)
 		ent, _ := e.Entry(c)
-		gatefix.CheckReceipt(t, gate.Result{Receipt: ent.Receipt}, h, gatefix.RailRef, commitment.ReceiptPathArchive, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
+		gatefix.CheckReceipt(t, gate.Result{Receipt: ent.Receipt}, h, gatefix.RailRef, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
 		require.Equal(t, registry.SourceResign, ent.History[len(ent.History)-1].Source)
 	})
 }
@@ -501,6 +504,7 @@ func TestFetchBudgetSerialisesFetches(t *testing.T) {
 
 // Smaller items.
 
+// INTERIM: ported to the authorizer entry point.
 func TestLostReserveRaceReportsTheStoredPath(t *testing.T) {
 	e, c, b, h := happy(t, gatefix.WithFaultyRegistry())
 	e.Faulty.Before("Reserve", func() {
@@ -515,6 +519,7 @@ func TestLostReserveRaceReportsTheStoredPath(t *testing.T) {
 	require.Zero(t, e.Exec.Calls())
 }
 
+// INTERIM: removed together with the executor path.
 func TestReconcileReturnsLookupErrors(t *testing.T) {
 	e, _, _ := unknownEntry(t)
 	errLookup := errors.New("rail unreachable")
@@ -524,6 +529,7 @@ func TestReconcileReturnsLookupErrors(t *testing.T) {
 	require.Equal(t, 1, rep.StillUnknown)
 }
 
+// INTERIM: removed together with the executor path.
 func TestRecoverRecordsTheGateClock(t *testing.T) {
 	e, c, b, _ := happy(t)
 	e.Gate.SetAfterReserve(func() error { return errCrash })
@@ -671,7 +677,7 @@ func TestClosedGateRefusesEverything(t *testing.T) {
 	require.NoError(t, e.Gate.Close())
 	ctx := context.Background()
 
-	res, err := e.Gate.Admit(ctx, b)
+	res, err := e.Gate.Admit(ctx, b, gatefix.Action(t))
 	require.ErrorIs(t, err, gate.ErrClosed)
 	require.Zero(t, res.State)
 	_, err = e.Gate.Reconcile(ctx)

@@ -20,6 +20,7 @@ import (
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
 
+// INTERIM: removed together with the executor path.
 func TestExecutorPanicIsAmbiguousNotFatal(t *testing.T) {
 	e, c, b, _ := happy(t)
 	e.Exec.OnExecute(func(context.Context, gate.ExecRequest) { panic("adapter bug") })
@@ -34,6 +35,7 @@ func TestExecutorPanicIsAmbiguousNotFatal(t *testing.T) {
 	require.Equal(t, 1, e.Exec.Calls())
 }
 
+// INTERIM: removed together with the executor path.
 func TestExecutedWithUnusableRailRefStaysUnknown(t *testing.T) {
 	for name, ref := range map[string]string{"empty": "", "space": "a b", "too long": string(make([]byte, 129)), "non-ascii": "café"} {
 		t.Run(name, func(t *testing.T) {
@@ -86,14 +88,14 @@ func TestConcurrentSameNonceDifferentOrders(t *testing.T) {
 			var wg sync.WaitGroup
 			var ok, used atomic.Int32
 			for i := 0; i < n; i++ {
-				c := gatefix.Clone(c0)
-				c.Action.IBKROrder.Qty -= uint64(i)
+				c := gatefix.Variant(t, c0, i)
 				e.StageDA(c, gatefix.Blob(t))
 				b, _ := gatefix.Sign(t, "agent1", c)
+				action := gatefix.OtherAction(t, i)
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					_, err := e.Admit(b)
+					_, err := e.AdmitWith(b, action)
 					switch {
 					case err == nil:
 						ok.Add(1)
@@ -112,6 +114,7 @@ func TestConcurrentSameNonceDifferentOrders(t *testing.T) {
 	}
 }
 
+// INTERIM: removed together with the executor path.
 func TestConcurrentReconcileResolvesOnce(t *testing.T) {
 	e, c, _ := unknownEntry(t)
 	e.Exec.SetLookup(gate.ExecResult{Outcome: gate.OutcomeExecuted, RailRef: "555"}, nil)
@@ -140,6 +143,7 @@ func TestConcurrentReconcileResolvesOnce(t *testing.T) {
 
 // Admit, Reconcile and Prune running together must keep every invariant and
 // pass the race detector.
+// INTERIM: removed together with the executor path.
 func TestAdmitReconcilePruneTogether(t *testing.T) {
 	for name, open := range registries() {
 		t.Run(name, func(t *testing.T) {
@@ -197,7 +201,7 @@ func TestCancelDuringFetchWritesNothing(t *testing.T) {
 	e, c, b, _ := happy(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	e.DA.OnFetch(cancel)
-	_, err := e.Gate.Admit(ctx, b)
+	_, err := e.Gate.Admit(ctx, b, gatefix.Action(t))
 	e.RequireRejected(c, err, context.Canceled)
 }
 
@@ -214,6 +218,7 @@ func TestBothSourcesHangUntilTheirTimeouts(t *testing.T) {
 
 // The durable registry keeps the Executed entry across a reopen: a replay
 // gets the stored receipt and never reaches the executor.
+// INTERIM: ported to the authorizer entry point.
 func TestBoltReplayAfterReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "n.db")
 	reg, err := boltreg.Open(path, gatefix.Epoch)
@@ -237,6 +242,7 @@ func TestBoltReplayAfterReopen(t *testing.T) {
 // The process dies between the two transactions: the reservation is on disk,
 // the resolution is not. The restarted gate finds Unknown and resolves it by
 // lookup without sending again.
+// INTERIM: ported to the authorizer entry point.
 func TestBoltCrashBetweenTransactions(t *testing.T) {
 	for _, point := range []string{"after execute", "before resolve"} {
 		t.Run(point, func(t *testing.T) {
@@ -267,7 +273,7 @@ func TestBoltCrashBetweenTransactions(t *testing.T) {
 			require.Equal(t, 1, rep.Executed)
 			ent, _ = e2.Entry(c)
 			require.Equal(t, registry.StateExecuted, ent.State)
-			gatefix.CheckReceipt(t, gate.Result{Receipt: ent.Receipt}, h, "777", commitment.ReceiptPathDA, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
+			gatefix.CheckReceipt(t, gate.Result{Receipt: ent.Receipt}, h, "777", gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
 			require.Zero(t, e2.Exec.Calls())
 		})
 	}

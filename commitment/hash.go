@@ -108,13 +108,6 @@ func cloneCommitment(c *Commitment) Commitment {
 	out.PayloadRef.Signer = bytes.Clone(c.PayloadRef.Signer)
 	out.CiphertextHash = bytes.Clone(c.CiphertextHash)
 	out.PlaintextHash = bytes.Clone(c.PlaintextHash)
-	if c.Scope.ChainID != nil {
-		v := *c.Scope.ChainID
-		out.Scope.ChainID = &v
-	}
-	if c.Action.IBKROrder != nil {
-		o := *c.Action.IBKROrder
-		out.Action.IBKROrder = &o
-	}
+	out.Action.Hash = bytes.Clone(c.Action.Hash)
 	return out
 }

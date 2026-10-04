@@ -32,9 +32,10 @@ const (
 	Now = uint64(1791000060)
 	// Epoch is the registry creation time used by default; it is far before
 	// every vector.
-	Epoch   = uint64(1_000_000_000)
-	GateID  = "gate-paper-1"
-	Account = "DU1234567"
+	Epoch  = uint64(1_000_000_000)
+	GateID = "gate-paper-1"
+	// ActionType is the type of the action every template commits to.
+	ActionType = "application/vnd.edicta.ibkr.order.v0+cbor"
 	// RailRef is what the default fake executor returns.
 	RailRef = "9876543210"
 )
@@ -130,6 +131,73 @@ func RealCommitment(t testing.TB) []byte {
 	return MustHex(t, daCase(t, "blob_v1_minimal_lmt_payload").CommitmentHx)
 }
 
+type validCase struct {
+	ID          string `json:"id"`
+	EnvelopeHex string `json:"envelope_hex"`
+	ActionHex   string `json:"action_hex"`
+}
+
+func validCaseByID(t testing.TB, id string) validCase {
+	t.Helper()
+	var vf struct {
+		Cases []validCase `json:"cases"`
+	}
+	ReadVector(t, "valid.json", &vf)
+	for _, c := range vf.Cases {
+		if c.ID == id {
+			return c
+		}
+	}
+	require.FailNow(t, fmt.Sprintf("no valid vector %q", id))
+	return validCase{}
+}
+
+// Action returns the action bytes the templates commit to: the minimal order
+// of the minimal_lmt vector. The core never parses them.
+func Action(t testing.TB) []byte {
+	t.Helper()
+	return MustHex(t, validCaseByID(t, "minimal_lmt").ActionHex)
+}
+
+// ActionOf materializes the action bytes of a vector: literal hex, or a
+// pattern ("affine-7-3": byte i is (7*i + 3) mod 256) with its size.
+func ActionOf(t testing.TB, actionHex, pattern, size string) []byte {
+	t.Helper()
+	if pattern == "" {
+		return MustHex(t, actionHex)
+	}
+	require.Equal(t, "affine-7-3", pattern, "unknown action pattern")
+	b := make([]byte, U64(t, size))
+	for i := range b {
+		b[i] = byte(7*i + 3)
+	}
+	return b
+}
+
+// OtherAction returns action bytes that differ from Action(t) and, for
+// distinct i, from each other.
+func OtherAction(t testing.TB, i int) []byte {
+	t.Helper()
+	return append(Action(t), byte(i))
+}
+
+// Variant returns a clone committed to OtherAction(t, i) under ActionType.
+func Variant(t testing.TB, c *commitment.Commitment, i int) *commitment.Commitment {
+	t.Helper()
+	return WithAction(t, c, ActionType, OtherAction(t, i))
+}
+
+// WithAction returns a clone committed to the given type and action bytes.
+// The result is unsigned.
+func WithAction(t testing.TB, c *commitment.Commitment, actionType string, action []byte) *commitment.Commitment {
+	t.Helper()
+	h, err := commitment.ActionHash(actionType, action)
+	require.NoError(t, err, "action hash")
+	d := Clone(c)
+	d.Action = commitment.Action{Type: actionType, Hash: h[:]}
+	return d
+}
+
 func validEnvelope(t testing.TB, id string) *commitment.Commitment {
 	t.Helper()
 	var vf struct {
@@ -150,8 +218,8 @@ func validEnvelope(t testing.TB, id string) *commitment.Commitment {
 	return nil
 }
 
-// Template is the minimal_lmt commitment (da = 2, 100000 units, limit order)
-// with the real commitment of Blob in payload_ref, so a real DA commitment
+// Template is the minimal_lmt commitment (da = 2, action Action(t) of type
+// ActionType) with the real commitment of Blob in payload_ref, so a real DA commitment
 // check accepts Blob. Unsigned; use Sign.
 func Template(t testing.TB) *commitment.Commitment {
 	c := validEnvelope(t, "minimal_lmt")
@@ -168,36 +236,24 @@ func FibreBlob() []byte {
 	return b
 }
 
-// FibreTemplate is the fibre_small_payload commitment bound to FibreBlob,
-// without a deadline. Unsigned.
+// FibreTemplate is the fibre_small_payload commitment bound to FibreBlob.
+// Unsigned.
 func FibreTemplate(t testing.TB) *commitment.Commitment {
 	c := validEnvelope(t, "fibre_small_payload")
 	sum := sha256.Sum256(FibreBlob())
 	c.CiphertextHash = sum[:]
 	c.PayloadSize = uint64(len(FibreBlob()))
-	c.Constraints.Deadline = nil
 	return c
 }
 
 // Clone deep-copies the parts of a commitment that tests mutate.
 func Clone(c *commitment.Commitment) *commitment.Commitment {
 	d := *c
-	if c.Action.IBKROrder != nil {
-		o := *c.Action.IBKROrder
-		if o.LimitPrice != nil {
-			p := *o.LimitPrice
-			o.LimitPrice = &p
-		}
-		d.Action.IBKROrder = &o
-	}
+	d.Action.Hash = append([]byte(nil), c.Action.Hash...)
 	d.AgentPubKey = append([]byte(nil), c.AgentPubKey...)
 	d.Nonce = append([]byte(nil), c.Nonce...)
 	d.CiphertextHash = append([]byte(nil), c.CiphertextHash...)
 	d.PayloadRef.Commitment = append([]byte(nil), c.PayloadRef.Commitment...)
-	if c.Constraints.Deadline != nil {
-		x := *c.Constraints.Deadline
-		d.Constraints.Deadline = &x
-	}
 	return &d
 }
 
@@ -307,7 +363,7 @@ func TryNew(t testing.TB, opts ...Option) (*Env, error) {
 		Anchors: gatetest.NewAnchors(),
 		DA:      gatetest.NewBlobSource(),
 		Archive: gatetest.NewBlobSource(),
-		Exec:    gatetest.NewExecutor(commitment.RailIBKR),
+		Exec:    gatetest.NewExecutor(),
 		Metrics: gatetest.NewMetrics(),
 		Reg:     MemReg(t, Epoch),
 		allow: map[string][]byte{
@@ -320,7 +376,7 @@ func TryNew(t testing.TB, opts ...Option) (*Env, error) {
 	require.NoError(t, err, "signer")
 	e.Signer = s
 	e.Cfg = gate.DefaultConfig()
-	e.Cfg.Scope = commitment.GateScope{GateID: GateID, Rail: commitment.RailIBKR, Account: Account}
+	e.Cfg.Scope = commitment.GateScope{GateID: GateID, ActionTypes: []string{ActionType}}
 	e.Cfg.SkewS = 30
 	e.Cfg.BlobRetentionS = 14400
 	for _, o := range opts {
@@ -368,9 +424,15 @@ func (e *Env) Restart() error {
 	return nil
 }
 
-// Admit calls the gate with a background context.
+// Admit calls the gate with a background context and the template action,
+// which every template and its variants commit to.
 func (e *Env) Admit(b []byte) (gate.Result, error) {
-	return e.Gate.Admit(context.Background(), b)
+	return e.AdmitWith(b, Action(e.T))
+}
+
+// AdmitWith calls the gate with explicit action bytes.
+func (e *Env) AdmitWith(b, action []byte) (gate.Result, error) {
+	return e.Gate.Admit(context.Background(), b, action)
 }
 
 // BlockTime is the header time Stage uses for c: 1000 s before issued_at.
@@ -432,7 +494,7 @@ func (e *Env) RequireRejected(c *commitment.Commitment, err, want error) {
 }
 
 // CheckReceipt verifies a result receipt against the commitment.
-func CheckReceipt(t testing.TB, res gate.Result, h commitment.Hash, wantRef string, wantPath commitment.ReceiptPath, gateID string, gatePub []byte, wantAt uint64) {
+func CheckReceipt(t testing.TB, res gate.Result, h commitment.Hash, wantRef string, gateID string, gatePub []byte, wantAt uint64) {
 	t.Helper()
 	require.NotEmpty(t, res.Receipt, "no receipt")
 	sr, _, err := commitment.VerifyReceipt(res.Receipt)
@@ -440,13 +502,11 @@ func CheckReceipt(t testing.TB, res gate.Result, h commitment.Hash, wantRef stri
 	r := sr.Receipt
 	require.Equal(t, string(h[:]), string(r.CommitmentHash))
 	require.Equalf(t, wantRef, r.RailRef, "receipt fields %+v", r)
-	require.Equalf(t, wantPath, r.Path, "receipt fields %+v", r)
 	require.Equalf(t, gateID, r.GateID, "receipt fields %+v", r)
 	require.Equalf(t, string(gatePub), string(r.GatePubKey), "receipt fields %+v", r)
-	require.Equalf(t, commitment.RailIBKR, r.Rail, "receipt rail/version %+v", r)
-	require.EqualValuesf(t, 0, r.Version, "receipt rail/version %+v", r)
+	require.EqualValuesf(t, 0, r.Version, "receipt version %+v", r)
 	if wantAt != 0 {
-		require.Equal(t, wantAt, r.ExecutedAt)
+		require.Equal(t, wantAt, r.RecordedAt)
 	}
 }
 
@@ -465,15 +525,12 @@ func KnownSentinels() []error {
 		commitment.ErrSimpleValue, commitment.ErrTag, commitment.ErrIndefiniteLength, commitment.ErrNonMinimalInt,
 		commitment.ErrNestingTooDeep, commitment.ErrUnsortedMap, commitment.ErrDuplicateKey, commitment.ErrKeyType,
 		commitment.ErrInvalidString, commitment.ErrUnknownKey, commitment.ErrWrongType, commitment.ErrMissingField,
-		commitment.ErrFieldSize, commitment.ErrUnsupportedActionKind, commitment.ErrNonCanonical,
-		commitment.ErrUnsupportedVersion, commitment.ErrIntRange, commitment.ErrInvalidEnum, commitment.ErrUnsupportedRail,
-		commitment.ErrUnsupportedOrderType, commitment.ErrZeroValue, commitment.ErrPayloadTooLarge,
-		commitment.ErrInvalidNamespace, commitment.ErrLimitPrice, commitment.ErrAccountMismatch, commitment.ErrChainIDRule,
-		commitment.ErrTimeOrder, commitment.ErrDeadlineRange, commitment.ErrTTLTooLong, commitment.ErrPriceBound,
-		commitment.ErrNotionalExceeded, commitment.ErrInvalidParams, commitment.ErrInvalidPublicKey,
+		commitment.ErrFieldSize, commitment.ErrNonCanonical,
+		commitment.ErrUnsupportedVersion, commitment.ErrIntRange, commitment.ErrInvalidEnum, commitment.ErrZeroValue, commitment.ErrPayloadTooLarge,
+		commitment.ErrInvalidNamespace, commitment.ErrTimeOrder, commitment.ErrTTLTooLong, commitment.ErrInvalidParams, commitment.ErrInvalidPublicKey,
 		commitment.ErrSignatureInvalid, commitment.ErrNotYetValid, commitment.ErrExpired, commitment.ErrScopeMismatch,
 		commitment.ErrActionMismatch, commitment.ErrPayloadSizeMismatch, commitment.ErrPayloadHashMismatch,
-		commitment.ErrIssuedBeforeAnchor,
+		commitment.ErrIssuedBeforeAnchor, commitment.ErrActionTypeNotAllowed, commitment.ErrActionSize,
 		gate.ErrAgentNotAllowed, gate.ErrAgentKeyMismatch, gate.ErrAgentKeyIsGateKey, gate.ErrNonceUsed,
 		gate.ErrBeforeRegistryEpoch, gate.ErrAnchorNotFound, gate.ErrRetentionUnavailable, gate.ErrAnchorTooOld,
 		gate.ErrDACommitmentMismatch, gate.ErrArchiveRecomputeUnsupported, gate.ErrPayloadUnavailable,

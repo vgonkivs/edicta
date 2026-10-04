@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies payload_blob.json of a v0-draft.9 vector set (default spec/vectors/v0-next).
+"""Verifies payload_blob.json of a v0-draft.9 vector set (default spec/vectors/v0).
 
 Runs the RFC 9180 known-answer tests of the hand-written HPKE first and
 refuses to go on if they fail. Then re-derives every valid case in the seal
@@ -28,7 +28,7 @@ from edicta_v0 import (Reject, action_hash, check_payload, commitment_hash, deco
                       verify_for_gate)
 from vecjson import _conv, commitment_from_json, gate_from_json, params_from_json
 
-DIR = Path(__file__).resolve().parent.parent / "v0-next"
+DIR = Path(__file__).resolve().parent.parent / "v0"
 if "--dir" in sys.argv:
     DIR = Path(sys.argv[sys.argv.index("--dir") + 1]).resolve()
 

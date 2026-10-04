@@ -234,8 +234,6 @@ func (d *DACommitter) Check(ref commitment.PayloadRef, blob []byte) error {
 // Executor is a fake rail. By default every order is acknowledged with the
 // reference "9876543210" and Lookup reports an unknown outcome.
 type Executor struct {
-	rail commitment.Rail
-
 	mu          sync.Mutex
 	result      gate.ExecResult
 	err         error
@@ -251,11 +249,9 @@ type Executor struct {
 
 var _ gate.Executor = (*Executor)(nil)
 
-func NewExecutor(rail commitment.Rail) *Executor {
-	return &Executor{rail: rail, result: gate.ExecResult{Outcome: gate.OutcomeExecuted, RailRef: "9876543210"}}
+func NewExecutor() *Executor {
+	return &Executor{result: gate.ExecResult{Outcome: gate.OutcomeExecuted, RailRef: "9876543210"}}
 }
-
-func (e *Executor) Rail() commitment.Rail { return e.rail }
 
 // SetResult sets the result of Execute and clears a pending error.
 func (e *Executor) SetResult(r gate.ExecResult) { e.mu.Lock(); e.result, e.err = r, nil; e.mu.Unlock() }

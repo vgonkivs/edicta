@@ -49,6 +49,8 @@ func TestRoundTripEveryRecipient(t *testing.T) {
 					assert.Equal(t, res.CommitmentHash, o.CommitmentHash)
 					assert.Equal(t, res.Commitment, o.Commitment)
 					assert.Equal(t, want, encoded(t, o.Payload), "the recipient reads the decision that was committed")
+					assert.Equal(t, res.Action, o.Payload.Action.Data, "the recipient reads the exact action bytes")
+					assert.NoError(t, commitment.CheckAction(&o.Commitment, o.Payload.Action.Data), "the opened action matches the committed hash")
 				}
 			}
 		})

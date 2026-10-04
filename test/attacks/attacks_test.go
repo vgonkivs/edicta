@@ -42,6 +42,7 @@ func key(t testing.TB, name string) ed25519.PrivateKey {
 
 type env struct {
 	c      *commitment.Commitment
+	action []byte
 	gate   commitment.GateScope
 	params commitment.Params
 }
@@ -50,13 +51,13 @@ func setup(t testing.TB) env {
 	var vf struct {
 		RawParams map[string]string `json:"params"`
 		Gate      struct {
-			GateID  string `json:"gate_id"`
-			Rail    string `json:"rail"`
-			Account string `json:"account"`
+			GateID      string   `json:"gate_id"`
+			ActionTypes []string `json:"action_types"`
 		} `json:"gate"`
 		Cases []struct {
-			ID  string `json:"id"`
-			Hex string `json:"commitment_cbor_hex"`
+			ID        string `json:"id"`
+			Hex       string `json:"commitment_cbor_hex"`
+			ActionHex string `json:"action_hex"`
 		} `json:"cases"`
 	}
 	readJSON(t, "valid.json", &vf)
@@ -72,10 +73,11 @@ func setup(t testing.TB) env {
 			cm, err := commitment.Decode(b)
 			require.NoError(t, err)
 			e.c = cm
+			e.action, _ = hex.DecodeString(c.ActionHex)
 		}
 	}
 	require.NotNil(t, e.c, "vector minimal_lmt missing")
-	e.gate = commitment.GateScope{GateID: vf.Gate.GateID, Rail: commitment.Rail(n(vf.Gate.Rail)), Account: vf.Gate.Account}
+	e.gate = commitment.GateScope{GateID: vf.Gate.GateID, ActionTypes: vf.Gate.ActionTypes}
 	e.params = commitment.Params{FibreRetentionS: n(vf.RawParams["fibre_retention_s"]), BlobRetentionS: n(vf.RawParams["blob_retention_s"]), SkewS: n(vf.RawParams["skew_s"])}
 	return e
 }
@@ -90,8 +92,7 @@ func envelope(t testing.TB, c *commitment.Commitment, priv ed25519.PrivateKey) [
 
 func clone(c *commitment.Commitment) *commitment.Commitment {
 	d := *c
-	o := *c.Action.IBKROrder
-	d.Action.IBKROrder = &o
+	d.Action.Hash = append([]byte(nil), c.Action.Hash...)
 	return &d
 }
 
@@ -101,18 +102,19 @@ func mustReject(t *testing.T, err error, want error) {
 	require.ErrorIs(t, err, want)
 }
 
-// gateAdmit is the stateless part of the gate: verify, then match the order.
-func gateAdmit(e env, b []byte, at uint64, req commitment.IBKROrderV0) error {
+// gateAdmit is the stateless part of the gate: verify, then match the
+// presented action bytes against the committed hash.
+func gateAdmit(e env, b []byte, at uint64, action []byte) error {
 	s, _, err := commitment.VerifyForGate(b, at, e.gate, e.params)
 	if err != nil {
 		return err
 	}
-	return commitment.CheckAction(&s.Commitment, req)
+	return commitment.CheckAction(&s.Commitment, action)
 }
 
 func TestAttack1ActionWithoutCommitment(t *testing.T) {
 	e := setup(t)
-	req := *e.c.Action.IBKROrder
+	req := e.action
 	for name, b := range map[string][]byte{
 		"nil":        nil,
 		"empty":      {},
@@ -141,62 +143,81 @@ func envelopeWithSig(t testing.TB, c *commitment.Commitment, sig []byte) []byte 
 	return b
 }
 
-func TestAttack2ParamsOutsideCommitment(t *testing.T) {
+// Amount, recipient and asset live in the action bytes, which the core never
+// parses: presenting any other bytes than the committed ones is refused. The
+// example is a JSON action; the check is the same for any format.
+func TestAttack2ActionOutsideCommitment(t *testing.T) {
 	e := setup(t)
-	b := envelope(t, e.c, key(t, "agent1"))
-	good := *e.c.Action.IBKROrder
-	err := gateAdmit(e, b, now, good)
+	const typ = "application/json"
+	e.gate.ActionTypes = []string{typ}
+	committed := []byte(`{"to":"0xA1","asset":"TIA","amount":"100"}`)
+	h, err := commitment.ActionHash(typ, committed)
+	require.NoError(t, err)
+	c := clone(e.c)
+	c.Action = commitment.Action{Type: typ, Hash: h[:]}
+	b := envelope(t, c, key(t, "agent1"))
+	err = gateAdmit(e, b, now, committed)
 	require.NoError(t, err, "control")
-	tests := map[string]func(o *commitment.IBKROrderV0){
-		"qty plus 1 unit": func(o *commitment.IBKROrderV0) { o.Qty++ },
-		"qty doubled":     func(o *commitment.IBKROrderV0) { o.Qty *= 2 },
-		"qty smaller":     func(o *commitment.IBKROrderV0) { o.Qty-- },
-		"price plus 1":    func(o *commitment.IBKROrderV0) { o.LimitPrice = ptr(*o.LimitPrice + 1) },
-		"price minus 1":   func(o *commitment.IBKROrderV0) { o.LimitPrice = ptr(*o.LimitPrice - 1) },
-		"no limit price":  func(o *commitment.IBKROrderV0) { o.LimitPrice = nil },
-		"market order":    func(o *commitment.IBKROrderV0) { o.OrderType = commitment.OrderMarket; o.LimitPrice = nil },
-		"other account":   func(o *commitment.IBKROrderV0) { o.Account = "DU7654321" },
-		"other conid":     func(o *commitment.IBKROrderV0) { o.ConID++ },
-		"other currency":  func(o *commitment.IBKROrderV0) { o.Currency = "EUR" },
-		"other side":      func(o *commitment.IBKROrderV0) { o.Side = commitment.SideSell },
-		"other tif":       func(o *commitment.IBKROrderV0) { o.TIF++ },
+
+	tests := map[string]string{
+		"amount raised":           `{"to":"0xA1","asset":"TIA","amount":"101"}`,
+		"amount appended digit":   `{"to":"0xA1","asset":"TIA","amount":"1000"}`,
+		"recipient changed":       `{"to":"0xA2","asset":"TIA","amount":"100"}`,
+		"asset changed":           `{"to":"0xA1","asset":"ETH","amount":"100"}`,
+		"extra field":             `{"to":"0xA1","asset":"TIA","amount":"100","memo":"x"}`,
+		"same meaning other form": `{"to": "0xA1", "asset": "TIA", "amount": "100"}`,
+		"field order changed":     `{"asset":"TIA","to":"0xA1","amount":"100"}`,
 	}
-	for name, m := range tests {
+	for name, changed := range tests {
 		t.Run(name, func(t *testing.T) {
-			req := good
-			m(&req)
-			mustReject(t, gateAdmit(e, b, now, req), commitment.ErrActionMismatch)
+			mustReject(t, gateAdmit(e, b, now, []byte(changed)), commitment.ErrActionMismatch)
 		})
 	}
 
-	t.Run("committed notional above max_notional", func(t *testing.T) {
-		c := clone(e.c)
-		c.Constraints.MaxNotional = 190_500_000_000 - 1
-		bb := envelope(t, c, key(t, "agent1"))
-		_, _, err := commitment.VerifyForGate(bb, now, e.gate, e.params)
-		mustReject(t, err, commitment.ErrNotionalExceeded)
+	t.Run("every single byte flip", func(t *testing.T) {
+		for i := range committed {
+			bad := append([]byte(nil), committed...)
+			bad[i] ^= 1
+			mustReject(t, gateAdmit(e, b, now, bad), commitment.ErrActionMismatch)
+		}
 	})
-	t.Run("committed price breaks price_bound", func(t *testing.T) {
-		c := clone(e.c)
-		c.Action.IBKROrder.Side = commitment.SideBuy
-		c.Constraints.PriceBound = ptr(*c.Action.IBKROrder.LimitPrice - 1)
-		_, _, err := commitment.VerifyForGate(envelope(t, c, key(t, "agent1")), now, e.gate, e.params)
-		mustReject(t, err, commitment.ErrPriceBound)
+	t.Run("every truncation", func(t *testing.T) {
+		for i := 1; i < len(committed); i++ {
+			mustReject(t, gateAdmit(e, b, now, committed[:i]), commitment.ErrActionMismatch)
+		}
 	})
-	t.Run("account differs from scope account", func(t *testing.T) {
-		c := clone(e.c)
-		c.Action.IBKROrder.Account = "DU7654321"
-		_, _, err := commitment.VerifyForGate(envelope(t, c, key(t, "agent1")), now, e.gate, e.params)
-		mustReject(t, err, commitment.ErrAccountMismatch)
+	t.Run("size limits", func(t *testing.T) {
+		mustReject(t, gateAdmit(e, b, now, nil), commitment.ErrActionSize)
+		mustReject(t, gateAdmit(e, b, now, make([]byte, commitment.MaxActionSize+1)), commitment.ErrActionSize)
+	})
+	t.Run("committed bytes under another type", func(t *testing.T) {
+		d := clone(e.c)
+		d.Action.Type = "application/octet-stream" // the hash was computed under the json type
+		bb := envelope(t, d, key(t, "agent1"))
+		e2 := e
+		e2.gate.ActionTypes = []string{"application/octet-stream"}
+		mustReject(t, gateAdmit(e2, bb, now, committed), commitment.ErrActionMismatch)
+	})
+	t.Run("rewriting the committed hash after signing", func(t *testing.T) {
+		other := []byte(`{"to":"0xBAD","asset":"TIA","amount":"100"}`)
+		oh, err := commitment.ActionHash(typ, other)
+		require.NoError(t, err)
+		s, _, err := commitment.Sign(key(t, "agent1"), c)
+		require.NoError(t, err)
+		s.Commitment.Action.Hash = oh[:]
+		bb, err := commitment.EncodeSigned(s)
+		require.NoError(t, err)
+		mustReject(t, gateAdmit(e, bb, now, other), commitment.ErrSignatureInvalid)
+	})
+	t.Run("real minimal order against the json commitment", func(t *testing.T) {
+		mustReject(t, gateAdmit(e, b, now, setup(t).action), commitment.ErrActionMismatch)
 	})
 }
-
-func ptr[T any](v T) *T { return &v }
 
 func TestAttack3Expired(t *testing.T) {
 	e := setup(t)
 	b := envelope(t, e.c, key(t, "agent1"))
-	req := *e.c.Action.IBKROrder
+	req := e.action
 	vu := e.c.ValidUntil
 	for name, at := range map[string]uint64{
 		"now == valid_until - skew": vu - e.params.SkewS,
@@ -207,12 +228,6 @@ func TestAttack3Expired(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) { mustReject(t, gateAdmit(e, b, at, req), commitment.ErrExpired) })
 	}
-	t.Run("deadline before valid_until", func(t *testing.T) {
-		c := clone(e.c)
-		c.Constraints.Deadline = ptr(c.IssuedAt + 100)
-		bb := envelope(t, c, key(t, "agent1"))
-		mustReject(t, gateAdmit(e, bb, c.IssuedAt+100, req), commitment.ErrExpired)
-	})
 	t.Run("ttl stretched beyond MaxTTL", func(t *testing.T) {
 		c := clone(e.c)
 		c.ValidUntil = c.IssuedAt + 3601
@@ -257,8 +272,11 @@ func TestAttack4ConcurrentSameEnvelopeSameKey(t *testing.T) {
 		require.EqualValues(t, hashes[0], h, "different hash for one envelope")
 	}
 	t.Run("same nonce in two commitments gives different hashes", func(t *testing.T) {
+		other := append(append([]byte(nil), e.action...), 0)
+		ah, err := commitment.ActionHash(e.c.Action.Type, other)
+		require.NoError(t, err)
 		c2 := clone(e.c)
-		c2.Action.IBKROrder.Qty++
+		c2.Action.Hash = ah[:]
 		h1, _ := commitment.HashOf(e.c)
 		h2, _ := commitment.HashOf(c2)
 		require.NotEqual(t, h2, h1, "hash collision")
@@ -277,7 +295,7 @@ func TestAttack5PayloadUnavailable(t *testing.T) {
 
 func TestAttack6WrongKey(t *testing.T) {
 	e := setup(t)
-	req := *e.c.Action.IBKROrder
+	req := e.action
 	t.Run("signed by agent2, claims agent1", func(t *testing.T) {
 		a2 := key(t, "agent2")
 		_, _, err := commitment.Sign(a2, e.c)
@@ -341,24 +359,40 @@ func TestAttack7PayloadSwapped(t *testing.T) {
 	})
 }
 
+// Domain binding in the core is the gate id and the action type allowlist.
+// Account and chain binding is the action format's job and is attacked at the
+// executor (see the executor attacks).
 func TestAttack8CrossDomainReplay(t *testing.T) {
 	e := setup(t)
 	b := envelope(t, e.c, key(t, "agent1"))
-	req := *e.c.Action.IBKROrder
-	chain := "celestia-1"
-	tests := map[string]func(g *commitment.GateScope){
-		"other gate":    func(g *commitment.GateScope) { g.GateID = "gate-paper-2" },
-		"other rail":    func(g *commitment.GateScope) { g.Rail = 2 },
-		"other account": func(g *commitment.GateScope) { g.Account = "DU7654321" },
-		"chain gate":    func(g *commitment.GateScope) { g.ChainID = &chain },
+	req := e.action
+	tests := map[string]struct {
+		mutate func(g *commitment.GateScope)
+		want   error
+	}{
+		"other gate":          {func(g *commitment.GateScope) { g.GateID = "gate-paper-2" }, commitment.ErrScopeMismatch},
+		"other action type":   {func(g *commitment.GateScope) { g.ActionTypes = []string{"application/json"} }, commitment.ErrActionTypeNotAllowed},
+		"no action types":     {func(g *commitment.GateScope) { g.ActionTypes = nil }, commitment.ErrActionTypeNotAllowed},
+		"type is a prefix":    {func(g *commitment.GateScope) { g.ActionTypes = []string{e.c.Action.Type[:len(e.c.Action.Type)-1]} }, commitment.ErrActionTypeNotAllowed},
+		"type has a suffix":   {func(g *commitment.GateScope) { g.ActionTypes = []string{e.c.Action.Type + "x"} }, commitment.ErrActionTypeNotAllowed},
+		"other gate and type": {func(g *commitment.GateScope) { g.GateID = "gate-paper-2"; g.ActionTypes = nil }, commitment.ErrScopeMismatch},
 	}
-	for name, m := range tests {
+	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			e2 := e
-			m(&e2.gate)
-			mustReject(t, gateAdmit(e2, b, now, req), commitment.ErrScopeMismatch)
+			e2.gate.ActionTypes = append([]string(nil), e.gate.ActionTypes...)
+			tt.mutate(&e2.gate)
+			mustReject(t, gateAdmit(e2, b, now, req), tt.want)
 		})
 	}
+	t.Run("same bytes presented as another action type", func(t *testing.T) {
+		c := clone(e.c)
+		c.Action.Type = "application/json"
+		bb := envelope(t, c, key(t, "agent1"))
+		e2 := e
+		e2.gate.ActionTypes = []string{"application/json"}
+		mustReject(t, gateAdmit(e2, bb, now, req), commitment.ErrActionMismatch)
+	})
 	t.Run("rewriting scope after signing", func(t *testing.T) {
 		s, _, _ := commitment.Sign(key(t, "agent1"), e.c)
 		s.Commitment.Scope.GateID = "gate-paper-2"
@@ -372,6 +406,11 @@ func TestAttack8CrossDomainReplay(t *testing.T) {
 		msg := append([]byte{byte(len(commitment.TagReceipt))}, commitment.TagReceipt...)
 		msg = append(msg, h[:]...)
 		bb := envelopeWithSig(t, e.c, ed25519.Sign(key(t, "agent1"), msg))
+		mustReject(t, gateAdmit(e, bb, now, req), commitment.ErrSignatureInvalid)
+	})
+	t.Run("authorization-tag signature is not a commitment signature", func(t *testing.T) {
+		h, _ := commitment.HashOf(e.c)
+		bb := envelopeWithSig(t, e.c, ed25519.Sign(key(t, "agent1"), commitment.AuthorizationSigningMessage(h)))
 		mustReject(t, gateAdmit(e, bb, now, req), commitment.ErrSignatureInvalid)
 	})
 }

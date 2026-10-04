@@ -107,8 +107,9 @@ type Sealed struct {
 	window         Validity // issued_at and valid_until of that first attempt
 	ciphertextHash commitment.Hash
 	plaintextHash  commitment.Hash
-	action         commitment.Action
-	constraints    commitment.Constraints
+	actionType     string
+	action         []byte
+	actionHash     commitment.Hash
 
 	mu   sync.Mutex
 	done bool
@@ -123,10 +124,14 @@ type Result struct {
 	Envelope       []byte
 	CommitmentHash commitment.Hash
 	Commitment     commitment.Commitment
-	Blob           []byte
-	Published      Published
-	Validity       Validity
-	DAChecked      bool // false only when the da was in UnsafeSkipDACheck
+	// Action is the exact action bytes the gate and the executor must be
+	// given; ActionHash is the hash the commitment carries for them.
+	Action     []byte
+	ActionHash commitment.Hash
+	Blob       []byte
+	Published  Published
+	Validity   Validity
+	DAChecked  bool // false only when the da was in UnsafeSkipDACheck
 }
 
 // Commit is Seal, Publish and Finalize.
@@ -168,17 +173,12 @@ func (b *Builder) Seal(ctx context.Context, p *payload.Payload) (*Sealed, error)
 	if uint64(len(plaintext))+blob.SaltSize+chacha20poly1305.Overhead > b.cfg.MaxBlobSize {
 		return nil, fmt.Errorf("%w: plaintext of %d bytes", payload.ErrTooLarge, len(plaintext))
 	}
-	action, constraints := cloneAction(p.Action), cloneConstraints(p.Constraints)
-	if d := constraints.Deadline; d != nil {
-		now, err := b.now()
-		if err != nil {
-			return nil, err
-		}
-		if *d < satAdd(now, b.cfg.MinValidityS) {
-			return nil, fmt.Errorf("%w: deadline %d leaves less than %d s", ErrValidityWindow, *d, b.cfg.MinValidityS)
-		}
+	action := bytes.Clone(p.Action.Data)
+	ah, err := commitment.ActionHash(p.Action.Type, action)
+	if err != nil {
+		return nil, err
 	}
-	if err := b.probe(action, constraints); err != nil {
+	if err := b.probe(commitment.Action{Type: p.Action.Type, Hash: ah[:]}); err != nil {
 		return nil, err
 	}
 
@@ -195,7 +195,7 @@ func (b *Builder) Seal(ctx context.Context, p *payload.Payload) (*Sealed, error)
 	}
 	sealed := &Sealed{
 		blob: raw, ciphertextHash: sha256.Sum256(raw), plaintextHash: ph,
-		action: action, constraints: constraints,
+		actionType: p.Action.Type, action: action, actionHash: ah,
 	}
 	rand.Read(sealed.nonce[:])
 	return sealed, nil
@@ -203,7 +203,7 @@ func (b *Builder) Seal(ctx context.Context, p *payload.Payload) (*Sealed, error)
 
 // probe runs the decode and static checks on a commitment with placeholder
 // anchor and times, before any DA fee is paid.
-func (b *Builder) probe(a commitment.Action, c commitment.Constraints) error {
+func (b *Builder) probe(a commitment.Action) error {
 	now, err := b.now()
 	if err != nil {
 		return err
@@ -217,15 +217,11 @@ func (b *Builder) probe(a commitment.Action, c commitment.Constraints) error {
 		ValidUntil:  now + min(b.cfg.TTLS, 3600),
 		Scope:       b.cfg.Scope,
 		Action:      a,
-		Constraints: c,
 		Ref: commitment.PayloadRef{
 			DA: commitment.DACelestiaBlob, Namespace: ns, Commitment: make([]byte, 32),
 			Height: 1, Signer: make([]byte, 20),
 		},
 		PayloadSize: 1,
-	}
-	if d := c.Deadline; d != nil {
-		in.ValidUntil = min(max(*d, now+1), now+3600)
 	}
 	if in.ValidUntil <= in.IssuedAt {
 		in.ValidUntil = in.IssuedAt + 1
@@ -302,7 +298,7 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 	w := Window{
 		Now: now, BlockTime: pub.BlockTime, RetentionStart: pub.RetentionStart, DA: ref.DA,
 		BlobRetentionS: b.cfg.BlobRetentionS, SkewS: b.cfg.SkewS, TTLS: b.cfg.TTLS,
-		MinValidityS: b.cfg.MinValidityS, Deadline: s.constraints.Deadline,
+		MinValidityS: b.cfg.MinValidityS,
 	}
 	params := commitment.Params{FibreRetentionS: b.cfg.BlobRetentionS, BlobRetentionS: b.cfg.BlobRetentionS, SkewS: b.cfg.SkewS}
 	if ref.DA == commitment.DAFibre {
@@ -327,7 +323,7 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 		// A retry signs the same commitment as the attempt that reached the
 		// signer, or none at all.
 		v = s.window
-		if err := b.checkRemaining(v.Expiry, "on retry"); err != nil {
+		if err := b.checkRemaining(v.ValidUntil, "on retry"); err != nil {
 			return nil, err
 		}
 	} else if v, err = ChooseValidity(w); err != nil {
@@ -340,7 +336,7 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 	}
 	in := input{
 		AgentID: b.cfg.AgentID, AgentPubKey: agentPub, IssuedAt: v.IssuedAt, ValidUntil: v.ValidUntil,
-		Scope: b.cfg.Scope, Action: s.action, Constraints: s.constraints, Ref: ref,
+		Scope: b.cfg.Scope, Action: commitment.Action{Type: s.actionType, Hash: s.actionHash[:]}, Ref: ref,
 		CiphertextHash: s.ciphertextHash, PlaintextHash: s.plaintextHash, PayloadSize: uint64(len(s.blob)),
 	}
 	in.Nonce = s.nonce
@@ -366,7 +362,7 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 	}
 
 	// The chain reads may have been slow; do not sign into a closed window.
-	if err := b.checkRemaining(v.Expiry, "before signing"); err != nil {
+	if err := b.checkRemaining(v.ValidUntil, "before signing"); err != nil {
 		return nil, err
 	}
 	h, err := commitment.HashOf(c)
@@ -378,7 +374,7 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 	if err != nil {
 		return nil, err
 	}
-	if err := b.checkRemaining(v.Expiry, "after signing"); err != nil {
+	if err := b.checkRemaining(v.ValidUntil, "after signing"); err != nil {
 		return nil, err
 	}
 	if now, err = b.now(); err != nil {
@@ -388,7 +384,7 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 	if err != nil {
 		return nil, err
 	}
-	gs := commitment.GateScope{GateID: b.cfg.Scope.GateID, Rail: b.cfg.Scope.Rail, Account: b.cfg.Scope.Account, ChainID: b.cfg.Scope.ChainID}
+	gs := commitment.GateScope{GateID: b.cfg.Scope.GateID, ActionTypes: []string{s.actionType}}
 	sc, h2, err := commitment.VerifyForGate(env, now, gs, params)
 	if err != nil {
 		return nil, err
@@ -398,6 +394,7 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 	}
 	return &Result{
 		Envelope: env, CommitmentHash: h, Commitment: sc.Commitment, Blob: bytes.Clone(s.blob),
+		Action: bytes.Clone(s.action), ActionHash: s.actionHash,
 		Published: Published{Ref: ref, BlockTime: pub.BlockTime, RetentionStart: pub.RetentionStart},
 		Validity:  v, DAChecked: checked,
 	}, nil
@@ -430,7 +427,7 @@ func (b *Builder) checkDA(ref commitment.PayloadRef, raw []byte) (bool, error) {
 	return true, nil
 }
 
-// checkRemaining refuses a commitment whose expiry is closer than the floor
+// checkRemaining refuses a commitment whose valid_until is closer than the floor
 // by the current clock.
 func (b *Builder) checkRemaining(expiry uint64, when string) error {
 	now, err := b.now()
