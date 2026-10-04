@@ -5,6 +5,7 @@ go 1.26.8
 require (
 	github.com/celestiaorg/celestia-node v0.34.2-mocha
 	github.com/celestiaorg/go-square/v4 v4.0.0
+	github.com/stretchr/testify v1.12.1
 )
 
 require (
@@ -302,7 +303,6 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/spf13/viper v1.21.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.7.0 // indirect
-	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
 	github.com/tendermint/go-amino v0.16.0 // indirect
