@@ -14,3 +14,7 @@ docs/
 
 # IDE
 .idea/
+
+# Built tool binaries
+spec/vectors/tools/*/banksend-gen
+spec/vectors/tools/*/dacommit-gen

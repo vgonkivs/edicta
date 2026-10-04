@@ -1,0 +1,234 @@
+{
+  "format": "edicta-vectors/v0",
+  "profile": "bank-send",
+  "revision": "bank-send-v0-draft.1",
+  "max_timeout_blocks_limit": "10000",
+  "interval": [
+    {
+      "id": "tau_uniform",
+      "description": "Five headers six seconds apart.",
+      "headers": [
+        {
+          "height": "100",
+          "time_ns": "1790999900000000000"
+        },
+        {
+          "height": "101",
+          "time_ns": "1790999906000000000"
+        },
+        {
+          "height": "102",
+          "time_ns": "1790999912000000000"
+        },
+        {
+          "height": "103",
+          "time_ns": "1790999918000000000"
+        },
+        {
+          "height": "104",
+          "time_ns": "1790999924000000000"
+        }
+      ],
+      "tau_ms": "6000"
+    },
+    {
+      "id": "tau_largest_interval",
+      "description": "Intervals 6.0 s, 11.2 s, 5.9 s: the largest is taken.",
+      "headers": [
+        {
+          "height": "200",
+          "time_ns": "1790999900000000000"
+        },
+        {
+          "height": "201",
+          "time_ns": "1790999906000000000"
+        },
+        {
+          "height": "202",
+          "time_ns": "1790999917200000000"
+        },
+        {
+          "height": "203",
+          "time_ns": "1790999923100000000"
+        }
+      ],
+      "tau_ms": "11200"
+    },
+    {
+      "id": "tau_round_up",
+      "description": "An interval of 6 s plus 1 ns rounds up to 6001 ms.",
+      "headers": [
+        {
+          "height": "300",
+          "time_ns": "1790999900000000000"
+        },
+        {
+          "height": "301",
+          "time_ns": "1790999906000000001"
+        }
+      ],
+      "tau_ms": "6001"
+    },
+    {
+      "id": "tau_floor_one",
+      "description": "An interval of 1 ns gives the floor of 1 ms.",
+      "headers": [
+        {
+          "height": "400",
+          "time_ns": "1790999900000000000"
+        },
+        {
+          "height": "401",
+          "time_ns": "1790999900000000001"
+        }
+      ],
+      "tau_ms": "1"
+    }
+  ],
+  "cases": [
+    {
+      "id": "th_typical",
+      "description": "270 s to expires - skew at 6 s per block: 45 blocks.",
+      "head_height": "1000000",
+      "head_time": "1791000000",
+      "tau_ms": "6000",
+      "expires": "1791000300",
+      "skew_s": "30",
+      "max_timeout_blocks": "200",
+      "now": "1791000005",
+      "timeout_height": "1000045"
+    },
+    {
+      "id": "th_floor",
+      "description": "271 s: floor(271000 / 6000) = 45.",
+      "head_height": "1000000",
+      "head_time": "1791000000",
+      "tau_ms": "6000",
+      "expires": "1791000301",
+      "skew_s": "30",
+      "max_timeout_blocks": "200",
+      "now": "1791000005",
+      "timeout_height": "1000045"
+    },
+    {
+      "id": "th_capped",
+      "description": "2970 s would be 495 blocks; capped at max_timeout_blocks 200.",
+      "head_height": "1000000",
+      "head_time": "1791000000",
+      "tau_ms": "6000",
+      "expires": "1791003000",
+      "skew_s": "30",
+      "max_timeout_blocks": "200",
+      "now": "1791000005",
+      "timeout_height": "1000200"
+    },
+    {
+      "id": "th_one_block",
+      "description": "Exactly one block interval left.",
+      "head_height": "1000000",
+      "head_time": "1791000000",
+      "tau_ms": "6000",
+      "expires": "1791000036",
+      "skew_s": "30",
+      "max_timeout_blocks": "200",
+      "now": "1791000005",
+      "timeout_height": "1000001"
+    },
+    {
+      "id": "th_zero_blocks",
+      "description": "5 s left: no whole block fits, the send does not start.",
+      "head_height": "1000000",
+      "head_time": "1791000000",
+      "tau_ms": "6000",
+      "expires": "1791000035",
+      "skew_s": "30",
+      "max_timeout_blocks": "200",
+      "now": "1791000001",
+      "expect_error": "transfer.ErrExpired"
+    },
+    {
+      "id": "th_head_after_end",
+      "description": "Head time already after expires - skew.",
+      "head_height": "1000000",
+      "head_time": "1791000280",
+      "tau_ms": "6000",
+      "expires": "1791000300",
+      "skew_s": "30",
+      "max_timeout_blocks": "200",
+      "now": "1791000200",
+      "expect_error": "transfer.ErrExpired"
+    },
+    {
+      "id": "th_now_at_expiry",
+      "description": "now + skew == expires: I6 forbids starting the send.",
+      "head_height": "1000000",
+      "head_time": "1791000000",
+      "tau_ms": "6000",
+      "expires": "1791000300",
+      "skew_s": "30",
+      "max_timeout_blocks": "200",
+      "now": "1791000270",
+      "expect_error": "transfer.ErrExpired"
+    },
+    {
+      "id": "th_now_one_before_expiry",
+      "description": "now + skew == expires - 1, head older: still sends.",
+      "head_height": "1000000",
+      "head_time": "1791000200",
+      "tau_ms": "6000",
+      "expires": "1791000300",
+      "skew_s": "30",
+      "max_timeout_blocks": "200",
+      "now": "1791000269",
+      "timeout_height": "1000011"
+    },
+    {
+      "id": "th_tau_rounding",
+      "description": "tau 6001 ms: floor(270000 / 6001) = 44.",
+      "head_height": "1000000",
+      "head_time": "1791000000",
+      "tau_ms": "6001",
+      "expires": "1791000300",
+      "skew_s": "30",
+      "max_timeout_blocks": "200",
+      "now": "1791000005",
+      "timeout_height": "1000044"
+    },
+    {
+      "id": "th_max_blocks_1",
+      "description": "max_timeout_blocks 1.",
+      "head_height": "1000000",
+      "head_time": "1791000000",
+      "tau_ms": "6000",
+      "expires": "1791000300",
+      "skew_s": "30",
+      "max_timeout_blocks": "1",
+      "now": "1791000005",
+      "timeout_height": "1000001"
+    },
+    {
+      "id": "th_skew_zero",
+      "description": "skew_s 0: 300 s, 50 blocks.",
+      "head_height": "1000000",
+      "head_time": "1791000000",
+      "tau_ms": "6000",
+      "expires": "1791000300",
+      "skew_s": "0",
+      "max_timeout_blocks": "200",
+      "now": "1791000005",
+      "timeout_height": "1000050"
+    },
+    {
+      "id": "th_large_height",
+      "description": "Head height 2^62.",
+      "head_height": "4611686018427387904",
+      "head_time": "1791000000",
+      "tau_ms": "6000",
+      "expires": "1791000300",
+      "skew_s": "30",
+      "max_timeout_blocks": "200",
+      "now": "1791000005",
+      "timeout_height": "4611686018427387949"
+    }
+  ]
+}

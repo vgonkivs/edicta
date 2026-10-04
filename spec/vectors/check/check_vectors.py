@@ -5,10 +5,12 @@ da_blob.json share commitments are upstream go-square output and are checked
 by Go only; this script checks their blob descriptions. payload_blob.json is
 checked by check_payload_blob.py, which runs the RFC 9180 known-answer tests of
 the hand-written HPKE first. The dca-agent profile vectors are checked by
-check_profile_dca_agent.py.
+check_profile_dca_agent.py, the bank-send profile vectors by
+check_profile_bank_send.py and the v0-draft.10 API vectors by
+check_api_vectors.py.
 
 Usage: python3 spec/vectors/check/check_vectors.py [--dir DIR]
-Without --dir, spec/vectors/v0 and the profile vectors are checked; with
+Without --dir, spec/vectors/v0, the profile and the API vectors are checked; with
 --dir, only that core set. Exit status 0 when all vectors pass. Requires
 Python 3.11+ and 'cryptography' (see requirements.txt next to this file).
 """
@@ -616,6 +618,8 @@ def main() -> int:
         return check_set(Path(sys.argv[sys.argv.index("--dir") + 1]).resolve())
     rc = check_set(VECTORS / "v0")
     rc |= run_script(HERE / "check_profile_dca_agent.py")
+    rc |= run_script(HERE / "check_profile_bank_send.py")
+    rc |= run_script(HERE / "check_api_vectors.py")
     return rc
 
 

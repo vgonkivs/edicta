@@ -1,0 +1,251 @@
+{
+  "format": "edicta-vectors/v0",
+  "profile": "bank-send",
+  "revision": "bank-send-v0-draft.1",
+  "action_type": "application/vnd.edicta.cosmos.bank-send.v0+cbor",
+  "cases": [
+    {
+      "id": "exec_ok_minimal",
+      "description": "action_minimal_mocha against its own domain.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [],
+      "max_amount": "0",
+      "action_hex": "a201676d6f6368612d3402586d0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131"
+    },
+    {
+      "id": "exec_ok_amount_at_limit",
+      "description": "Amount equal to max_amount is allowed.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [],
+      "max_amount": "1000000",
+      "action_hex": "a201676d6f6368612d340258730a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316e78657530336b33643467647a61307530766371746a7937636b6338656667686467336a34631a0f0a0475746961120731303030303030"
+    },
+    {
+      "id": "exec_risk_limit",
+      "description": "Amount one above max_amount.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [],
+      "max_amount": "999999",
+      "action_hex": "a201676d6f6368612d340258730a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316e78657530336b33643467647a61307530766371746a7937636b6338656667686467336a34631a0f0a0475746961120731303030303030",
+      "expect_error": "transfer.ErrRiskLimit"
+    },
+    {
+      "id": "exec_destination_allowed",
+      "description": "to_address in the allowlist.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [
+        "celestia1nxeu03k3d4gdza0u0vcqtjy7ckc8efghdg3j4c"
+      ],
+      "max_amount": "0",
+      "action_hex": "a201676d6f6368612d340258730a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316e78657530336b33643467647a61307530766371746a7937636b6338656667686467336a34631a0f0a0475746961120731303030303030"
+    },
+    {
+      "id": "exec_destination_refused",
+      "description": "to_address not in the allowlist.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [
+        "celestia1nxeu03k3d4gdza0u0vcqtjy7ckc8efghdg3j4c"
+      ],
+      "max_amount": "0",
+      "action_hex": "a201676d6f6368612d3402586d0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "transfer.ErrDestination"
+    },
+    {
+      "id": "exec_action_malformed",
+      "description": "Action bytes with a trailing byte.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [],
+      "max_amount": "0",
+      "action_hex": "a201676d6f6368612d3402586d0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a047574696112013100",
+      "expect_error": "bankaction.ErrMalformed"
+    },
+    {
+      "id": "exec_chain_mismatch",
+      "description": "Action for chain id celestia at a mocha-4 executor.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [],
+      "max_amount": "0",
+      "action_hex": "a2016863656c657374696102586d0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "transfer.ErrChainMismatch"
+    },
+    {
+      "id": "exec_chain_id_case",
+      "description": "Chain id Mocha-4: comparison is exact, no case folding.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [],
+      "max_amount": "0",
+      "action_hex": "a201674d6f6368612d3402586d0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "transfer.ErrChainMismatch"
+    },
+    {
+      "id": "exec_chain_before_msg",
+      "description": "Wrong chain id and a malformed msg: the chain check comes first.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [],
+      "max_amount": "0",
+      "action_hex": "a2016863656c657374696102589e0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c7774630a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "transfer.ErrChainMismatch"
+    },
+    {
+      "id": "exec_msg_malformed",
+      "description": "msg_duplicate_from inside a valid action.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [],
+      "max_amount": "0",
+      "action_hex": "a201676d6f6368612d3402589e0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c7774630a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed"
+    },
+    {
+      "id": "exec_msg_other_hrp",
+      "description": "msg_other_hrp (prefix cosmos) at a celestia executor.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [],
+      "max_amount": "0",
+      "action_hex": "a201676d6f6368612d3402586b0a2d636f736d6f7331717170307a74797775766e386167716e367a6e72346b33356564613439347676307577373334122d636f736d6f73316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d7773773068751a0b0a057374616b6512023432",
+      "expect_error": "bankmsg.ErrMalformed"
+    },
+    {
+      "id": "exec_msg_opaque_1024",
+      "description": "action_msg_1024_opaque: decodes as an action, fails as a MsgSend.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [],
+      "max_amount": "0",
+      "action_hex": "a201676d6f6368612d3402590400030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc",
+      "expect_error": "bankmsg.ErrMalformed"
+    },
+    {
+      "id": "exec_sender_mismatch",
+      "description": "from_address is not the executor's sender account.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qc2pd7w73nj6fqgsmcv25e47tvs60hkss8nuq4"
+      },
+      "destinations": [],
+      "max_amount": "0",
+      "action_hex": "a201676d6f6368612d3402586d0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "transfer.ErrSenderMismatch"
+    },
+    {
+      "id": "exec_denom_mismatch",
+      "description": "IBC denom at an executor whose denom is utia.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [],
+      "max_amount": "0",
+      "action_hex": "a201676d6f6368612d340258af0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a4b0a446962632f434432373242424630323935314134353142413643433131353636363742463037424135414636333844333845383338313644364544413445454136423234411203323530",
+      "expect_error": "transfer.ErrDenomMismatch"
+    },
+    {
+      "id": "exec_sender_before_denom",
+      "description": "Wrong sender and wrong denom: the sender check comes first.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qc2pd7w73nj6fqgsmcv25e47tvs60hkss8nuq4"
+      },
+      "destinations": [],
+      "max_amount": "0",
+      "action_hex": "a201676d6f6368612d340258af0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a4b0a446962632f434432373242424630323935314134353142413643433131353636363742463037424135414636333844333845383338313644364544413445454136423234411203323530",
+      "expect_error": "transfer.ErrSenderMismatch"
+    },
+    {
+      "id": "exec_denom_before_destination",
+      "description": "Wrong denom and a refused destination: the denom check comes first.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [
+        "celestia1nxeu03k3d4gdza0u0vcqtjy7ckc8efghdg3j4c"
+      ],
+      "max_amount": "0",
+      "action_hex": "a201676d6f6368612d340258af0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a4b0a446962632f434432373242424630323935314134353142413643433131353636363742463037424135414636333844333845383338313644364544413445454136423234411203323530",
+      "expect_error": "transfer.ErrDenomMismatch"
+    },
+    {
+      "id": "exec_destination_before_risk",
+      "description": "Refused destination and over the limit: the destination check comes first.",
+      "domain": {
+        "chain_id": "mocha-4",
+        "hrp": "celestia",
+        "denom": "utia",
+        "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+      },
+      "destinations": [
+        "celestia1nxeu03k3d4gdza0u0vcqtjy7ckc8efghdg3j4c"
+      ],
+      "max_amount": "1",
+      "action_hex": "a201676d6f6368612d3402587f0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a1b0a0475746961121339323233333732303336383534373735383037",
+      "expect_error": "transfer.ErrDestination"
+    }
+  ]
+}

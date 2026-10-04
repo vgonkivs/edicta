@@ -1,0 +1,143 @@
+{
+  "format": "edicta-vectors/v0",
+  "profile": "bank-send",
+  "revision": "bank-send-v0-draft.1",
+  "core_revision": "v0-draft.10",
+  "cases": [
+    {
+      "id": "e2e_minimal_mocha",
+      "description": "agent1 commits to action_minimal_mocha; gate1 authorizes; the executor checks and builds the TxBody.",
+      "gate": {
+        "gate_id": "edictad-mocha-1",
+        "action_types": [
+          "application/vnd.edicta.cosmos.bank-send.v0+cbor"
+        ]
+      },
+      "params": {
+        "fibre_retention_s": "14400",
+        "blob_retention_s": "14400",
+        "skew_s": "30"
+      },
+      "now_gate": "1791000060",
+      "commitment": {
+        "input": {
+          "version": "0",
+          "agent_id": "tia-transfer-agent",
+          "agent_pubkey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+          "nonce": "396ba16b05b7744fa49cfe88dfbcf420",
+          "issued_at": "1791000040",
+          "valid_until": "1791000940",
+          "scope": {
+            "gate_id": "edictad-mocha-1"
+          },
+          "action": {
+            "type": "application/vnd.edicta.cosmos.bank-send.v0+cbor",
+            "hash": "1c0bf5b5010cf380c35b65696e0029bc1cb2d54efd26bf7753bfc56818c6673c"
+          },
+          "payload_ref": {
+            "da": "2",
+            "namespace": "000000000000000000000000000000000000006564696374612f643037",
+            "commitment": "2ff59594f3b427c473851fcfeb0f381ed93e0baacde25702fe8bf0ea765a7b5c",
+            "height": "6543200",
+            "signer": "19b01460add791d1f49cb92cb63dfd64874f9e60"
+          },
+          "ciphertext_hash": "9a59bba538a057096a729ef14980fea6171cb59a86493fed5b828cad6c3fe60f",
+          "plaintext_hash": "f155ed04e9893a207e2d0930e69ed45749e3b7f11ad5148cee819dba1c4cb4c7",
+          "payload_size": "1000"
+        },
+        "commitment_cbor_hex": "ac010002727469612d7472616e736665722d6167656e74035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450396ba16b05b7744fa49cfe88dfbcf420051a6ac07de8061a6ac0816c07a1016f656469637461642d6d6f6368612d3108a203782f6170706c69636174696f6e2f766e642e6564696374612e636f736d6f732e62616e6b2d73656e642e76302b63626f720458201c0bf5b5010cf380c35b65696e0029bc1cb2d54efd26bf7753bfc56818c6673c0aa5010202581d000000000000000000000000000000000000006564696374612f6430370358202ff59594f3b427c473851fcfeb0f381ed93e0baacde25702fe8bf0ea765a7b5c041a0063d760055419b01460add791d1f49cb92cb63dfd64874f9e600b58209a59bba538a057096a729ef14980fea6171cb59a86493fed5b828cad6c3fe60f0c5820f155ed04e9893a207e2d0930e69ed45749e3b7f11ad5148cee819dba1c4cb4c70d1903e8",
+        "commitment_hash_hex": "3725b0684dd7d071bebad2bfd15bd39750a3a80c0c9bcc15819025d3524ce81a",
+        "signer": "agent1",
+        "envelope_hex": "a201ac010002727469612d7472616e736665722d6167656e74035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450396ba16b05b7744fa49cfe88dfbcf420051a6ac07de8061a6ac0816c07a1016f656469637461642d6d6f6368612d3108a203782f6170706c69636174696f6e2f766e642e6564696374612e636f736d6f732e62616e6b2d73656e642e76302b63626f720458201c0bf5b5010cf380c35b65696e0029bc1cb2d54efd26bf7753bfc56818c6673c0aa5010202581d000000000000000000000000000000000000006564696374612f6430370358202ff59594f3b427c473851fcfeb0f381ed93e0baacde25702fe8bf0ea765a7b5c041a0063d760055419b01460add791d1f49cb92cb63dfd64874f9e600b58209a59bba538a057096a729ef14980fea6171cb59a86493fed5b828cad6c3fe60f0c5820f155ed04e9893a207e2d0930e69ed45749e3b7f11ad5148cee819dba1c4cb4c70d1903e8025840c38a560aa742a0edbe067830097af9a8df71894a52102150cad790a6b9fb418a0b5b6538c3182a8153e61576fa8d0c9e6112846e6ad604a84fe7493172ba030c",
+        "placeholders": {
+          "payload_ref.commitment": "SHA-256 of a label, not a real share commitment",
+          "ciphertext_hash": "SHA-256 of a label",
+          "plaintext_hash": "SHA-256 of a label"
+        }
+      },
+      "action_hex": "a201676d6f6368612d3402586d0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "context": {
+        "media_type": "application/vnd.edicta.price-trigger.v0+cbor",
+        "cbor_hex": "a8016e7469612d6d6f76652d313030627002a30169636f696e6765636b6f026863656c657374696103635553440381a40169636f696e6765636b6f021a1e8913e0031a6ac07db6041a6ac07dbb04a2011a1e3b4200021a6ac06fb0051864060107186408a40162757002782f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64330301046475746961",
+        "expect_failed": []
+      },
+      "authorization": {
+        "signer": "gate1",
+        "authorized_at": "1791000060",
+        "max_authorization_ttl_s": "300",
+        "input": {
+          "version": "0",
+          "commitment_hash": "3725b0684dd7d071bebad2bfd15bd39750a3a80c0c9bcc15819025d3524ce81a",
+          "action_hash": "1c0bf5b5010cf380c35b65696e0029bc1cb2d54efd26bf7753bfc56818c6673c",
+          "gate_id": "edictad-mocha-1",
+          "expires": "1791000360",
+          "path": "1"
+        },
+        "signed_authorization_hex": "a201a601000258203725b0684dd7d071bebad2bfd15bd39750a3a80c0c9bcc15819025d3524ce81a0358201c0bf5b5010cf380c35b65696e0029bc1cb2d54efd26bf7753bfc56818c6673c046f656469637461642d6d6f6368612d31051a6ac07f2806010258405949a6b0612051916791ceac8bfb3b41599dbc71846dc48ce7b2a90976bf5149f6e50ac890c429cf9e584fbbd925111b70ff8f0bf58eacc22a3270e4b2f21105"
+      },
+      "executor": {
+        "now": "1791000065",
+        "skew_s": "30",
+        "domain": {
+          "chain_id": "mocha-4",
+          "hrp": "celestia",
+          "denom": "utia",
+          "sender": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc"
+        },
+        "max_timeout_blocks": "200",
+        "headers": [
+          {
+            "height": "6543250",
+            "time_ns": "1791000004000000000"
+          },
+          {
+            "height": "6543251",
+            "time_ns": "1791000010000000000"
+          },
+          {
+            "height": "6543252",
+            "time_ns": "1791000016000000000"
+          },
+          {
+            "height": "6543253",
+            "time_ns": "1791000022000000000"
+          },
+          {
+            "height": "6543254",
+            "time_ns": "1791000028000000000"
+          },
+          {
+            "height": "6543255",
+            "time_ns": "1791000034000000000"
+          },
+          {
+            "height": "6543256",
+            "time_ns": "1791000040000000000"
+          },
+          {
+            "height": "6543257",
+            "time_ns": "1791000046000000000"
+          },
+          {
+            "height": "6543258",
+            "time_ns": "1791000052000000000"
+          },
+          {
+            "height": "6543259",
+            "time_ns": "1791000058000000000"
+          },
+          {
+            "height": "6543260",
+            "time_ns": "1791000064000000000"
+          }
+        ],
+        "tau_ms": "6000",
+        "head_height": "6543260",
+        "head_time": "1791000064",
+        "timeout_height": "6543304",
+        "memo": "3725b0684dd7d071bebad2bfd15bd39750a3a80c0c9bcc15819025d3524ce81a",
+        "body_hex": "0a8d010a1c2f636f736d6f732e62616e6b2e763162657461312e4d736753656e64126d0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a047574696112013112403337323562303638346464376430373162656261643262666431356264333937353061336138306330633962636331353831393032356433353234636538316118c8af8f03"
+      }
+    }
+  ]
+}

@@ -1,0 +1,423 @@
+{
+  "format": "edicta-vectors/v0",
+  "profile": "bank-send",
+  "revision": "bank-send-v0-draft.1",
+  "generator": "spec/vectors/tools/banksend-gen",
+  "upstream": {
+    "celestia-app": "v10.4.0-mocha (5187d2fb5eb8bc4b534c74724882943c54253ae9), source of the replace block",
+    "cosmos-sdk": "github.com/celestiaorg/cosmos-sdk v0.52.12 (replace of github.com/cosmos/cosmos-sdk, as in celestia-app v10.4.0-mocha go.mod)"
+  },
+  "type_url": "/cosmos.bank.v1beta1.MsgSend",
+  "cases": [
+    {
+      "id": "msg_minimal",
+      "description": "1 utia from the test sender to receiver 1.",
+      "hrp": "celestia",
+      "input": {
+        "from_address": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc",
+        "to_address": "celestia1mzkhlmxtluk4gmet2kja0yv8kxc2n07ml6lld3",
+        "amount": {
+          "denom": "utia",
+          "amount": "1"
+        }
+      },
+      "from_hex": "0002f12c8ee3267ea013d0a63ada34cb7b52d58c",
+      "to_hex": "d8ad7feccbff2d546f2b55a5d79187b1b0a9bfdb",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131"
+    },
+    {
+      "id": "msg_typical",
+      "description": "1 TIA (1000000 utia) to receiver 2.",
+      "hrp": "celestia",
+      "input": {
+        "from_address": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc",
+        "to_address": "celestia1nxeu03k3d4gdza0u0vcqtjy7ckc8efghdg3j4c",
+        "amount": {
+          "denom": "utia",
+          "amount": "1000000"
+        }
+      },
+      "from_hex": "0002f12c8ee3267ea013d0a63ada34cb7b52d58c",
+      "to_hex": "99b3c7c6d16d50d175fc7b3005c89ec5b07ca517",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316e78657530336b33643467647a61307530766371746a7937636b6338656667686467336a34631a0f0a0475746961120731303030303030"
+    },
+    {
+      "id": "msg_max_amount",
+      "description": "Amount 2^63-1, the largest the profile accepts.",
+      "hrp": "celestia",
+      "input": {
+        "from_address": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc",
+        "to_address": "celestia1mzkhlmxtluk4gmet2kja0yv8kxc2n07ml6lld3",
+        "amount": {
+          "denom": "utia",
+          "amount": "9223372036854775807"
+        }
+      },
+      "from_hex": "0002f12c8ee3267ea013d0a63ada34cb7b52d58c",
+      "to_hex": "d8ad7feccbff2d546f2b55a5d79187b1b0a9bfdb",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a1b0a0475746961121339323233333732303336383534373735383037"
+    },
+    {
+      "id": "msg_ibc_denom",
+      "description": "An IBC denom (ibc/ + 64 upper-case hex): upper case is legal in the Cosmos denom grammar.",
+      "hrp": "celestia",
+      "input": {
+        "from_address": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc",
+        "to_address": "celestia1mzkhlmxtluk4gmet2kja0yv8kxc2n07ml6lld3",
+        "amount": {
+          "denom": "ibc/CD272BBF02951A451BA6CC1156667BF07BA5AF638D38E83816D6EDA4EEA6B24A",
+          "amount": "250"
+        }
+      },
+      "from_hex": "0002f12c8ee3267ea013d0a63ada34cb7b52d58c",
+      "to_hex": "d8ad7feccbff2d546f2b55a5d79187b1b0a9bfdb",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a4b0a446962632f434432373242424630323935314134353142413643433131353636363742463037424135414636333844333845383338313644364544413445454136423234411203323530"
+    },
+    {
+      "id": "msg_denom_128",
+      "description": "A 128-character denom; the message is longer than 127 bytes, so its length varints take two bytes.",
+      "hrp": "celestia",
+      "input": {
+        "from_address": "celestia1qqp0ztywuvn8agqn6znr4k35eda494vv7klwtc",
+        "to_address": "celestia1mzkhlmxtluk4gmet2kja0yv8kxc2n07ml6lld3",
+        "amount": {
+          "denom": "uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "amount": "7"
+        }
+      },
+      "from_hex": "0002f12c8ee3267ea013d0a63ada34cb7b52d58c",
+      "to_hex": "d8ad7feccbff2d546f2b55a5d79187b1b0a9bfdb",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a86010a80017561616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161120137"
+    },
+    {
+      "id": "msg_other_hrp",
+      "description": "Prefix cosmos: the prefix is the chain's, taken from the node, never assumed.",
+      "hrp": "cosmos",
+      "input": {
+        "from_address": "cosmos1qqp0ztywuvn8agqn6znr4k35eda494vv0uw734",
+        "to_address": "cosmos1mzkhlmxtluk4gmet2kja0yv8kxc2n07mwsw0hu",
+        "amount": {
+          "denom": "stake",
+          "amount": "42"
+        }
+      },
+      "from_hex": "0002f12c8ee3267ea013d0a63ada34cb7b52d58c",
+      "to_hex": "d8ad7feccbff2d546f2b55a5d79187b1b0a9bfdb",
+      "msg_hex": "0a2d636f736d6f7331717170307a74797775766e386167716e367a6e72346b33356564613439347676307577373334122d636f736d6f73316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d7773773068751a0b0a057374616b6512023432"
+    }
+  ],
+  "reject": [
+    {
+      "id": "msg_empty",
+      "description": "Zero bytes.",
+      "hrp": "celestia",
+      "msg_hex": "",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_missing_amount",
+      "description": "Fields 1 and 2 only.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c6433",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_missing_to",
+      "description": "Fields 1 and 3 only.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c7774631a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_missing_from",
+      "description": "Fields 2 and 3 only.",
+      "hrp": "celestia",
+      "msg_hex": "122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_fields_out_of_order",
+      "description": "to_address before from_address.",
+      "hrp": "celestia",
+      "msg_hex": "122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64330a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c7774631a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_amount_first",
+      "description": "amount before the addresses.",
+      "hrp": "celestia",
+      "msg_hex": "1a090a04757469611201310a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c6433",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_duplicate_from",
+      "description": "from_address twice (protobuf keeps the last; the profile refuses).",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c7774630a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_unknown_field_varint",
+      "description": "Unknown field 4, wire type 0, after amount.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a04757469611201312001",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_unknown_field_bytes",
+      "description": "Unknown field 15, wire type 2.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a04757469611201317a0178",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_trailing_byte",
+      "description": "One zero byte after the message.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a047574696112013100",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": false
+    },
+    {
+      "id": "msg_truncated",
+      "description": "Last byte of amount missing.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a04757469611201",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": false
+    },
+    {
+      "id": "msg_nonminimal_length",
+      "description": "from_address length as a two-byte varint (0xaf 0x00).",
+      "hrp": "celestia",
+      "msg_hex": "0aaf0063656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_nonminimal_tag",
+      "description": "Tag of field 1 as a two-byte varint (0x8a 0x00).",
+      "hrp": "celestia",
+      "msg_hex": "8a002f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_wrong_wire_type",
+      "description": "from_address with wire type 0.",
+      "hrp": "celestia",
+      "msg_hex": "0801122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": false
+    },
+    {
+      "id": "msg_two_coins",
+      "description": "Two Coin entries.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a04757469611201311a090a0475746961120132",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_coin_missing_amount",
+      "description": "Coin with denom only.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a060a0475746961",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_coin_missing_denom",
+      "description": "Coin with amount only.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a03120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_coin_fields_reversed",
+      "description": "Coin amount before denom.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a091201310a0475746961",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_coin_empty_amount_present",
+      "description": "Coin amount present as an empty string.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a080a04757469611200",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_coin_unknown_field",
+      "description": "Coin with an unknown field 3.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a0c0a04757469611201311a0178",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_amount_zero",
+      "description": "Amount 0.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120130",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_amount_leading_zero",
+      "description": "Amount 01.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a0a0a047574696112023031",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_amount_2pow63",
+      "description": "Amount 2^63.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a1b0a0475746961121339323233333732303336383534373735383038",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_amount_negative",
+      "description": "Amount -1.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a0a0a047574696112022d31",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_amount_plus",
+      "description": "Amount +1.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a0a0a047574696112022b31",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_amount_decimal",
+      "description": "Amount 1.5.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a0b0a04757469611203312e35",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": false
+    },
+    {
+      "id": "msg_amount_space",
+      "description": "Amount with a leading space.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a0a0a047574696112022031",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": false
+    },
+    {
+      "id": "msg_denom_2_chars",
+      "description": "Denom ut (below 3).",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a070a027574120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_denom_129_chars",
+      "description": "Denom of 129 characters.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a87010a8101756161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_denom_digit_first",
+      "description": "Denom 1tia.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0431746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_denom_space",
+      "description": "Denom u tia.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a0a0a057520746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_from_uppercase",
+      "description": "from_address in upper-case bech32 (valid bech32, refused: lower case only).",
+      "hrp": "celestia",
+      "msg_hex": "0a2f43454c455354494131515150305a54595755564e384147514e365a4e52344b33354544413439345656374b4c575443122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_from_mixed_case",
+      "description": "from_address with one upper-case letter (invalid bech32).",
+      "hrp": "celestia",
+      "msg_hex": "0a2f43656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_from_bad_checksum",
+      "description": "from_address with its last character changed.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777471122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_from_bech32m",
+      "description": "from_address with a bech32m checksum.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b333565646134393476767432307a7736122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_from_other_hrp",
+      "description": "from_address with prefix cosmos while the chain's is celestia.",
+      "hrp": "celestia",
+      "msg_hex": "0a2d636f736d6f7331717170307a74797775766e386167716e367a6e72346b33356564613439347676307577373334122f63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30376d6c366c6c64331a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_to_32_bytes",
+      "description": "to_address encoding 32 bytes (a module or ICA style address).",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463124363656c65737469613171333867667964756c6b6d6c3066706b66307266716d717064616e7373706e746e337274616d34336a6d306430706a7067363573766d7935306a1a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_to_19_bytes",
+      "description": "to_address encoding 19 bytes.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122e63656c6573746961316d7a6b686c6d78746c756b34676d6574326b6a61307976386b7863326e30636461676c766b1a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    },
+    {
+      "id": "msg_from_equals_to",
+      "description": "from_address equals to_address.",
+      "hrp": "celestia",
+      "msg_hex": "0a2f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c777463122f63656c657374696131717170307a74797775766e386167716e367a6e72346b33356564613439347676376b6c7774631a090a0475746961120131",
+      "expect_error": "bankmsg.ErrMalformed",
+      "sdk_unmarshal_ok": true
+    }
+  ]
+}
