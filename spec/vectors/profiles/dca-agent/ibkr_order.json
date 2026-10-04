@@ -1,0 +1,398 @@
+{
+  "format": "edicta-vectors/v0",
+  "profile": "dca-agent",
+  "revision": "dca-agent-v0-draft.1",
+  "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+  "cases": [
+    {
+      "id": "order_minimal_lmt",
+      "description": "The action bytes of core vector minimal_lmt: BUY 10 shares at 190.50 USD, DAY.",
+      "input": {
+        "account": "DU1234567",
+        "conid": "265598",
+        "side": "1",
+        "qty": "100000",
+        "order_type": "1",
+        "limit_price": "19050000000",
+        "currency": "USD",
+        "tif": "1"
+      },
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "action_hash_hex": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+      "qty_decimal": "10",
+      "limit_price_decimal": "190.5",
+      "core_commitment_ref": "minimal_lmt"
+    },
+    {
+      "id": "order_with_symbol",
+      "description": "Optional symbol present (informational; never used to route the order).",
+      "input": {
+        "account": "DU1234567",
+        "conid": "756733",
+        "side": "1",
+        "qty": "20000",
+        "order_type": "1",
+        "limit_price": "57250000000",
+        "currency": "USD",
+        "tif": "1",
+        "symbol": "SPY"
+      },
+      "cbor_hex": "a90169445531323334353637021a000b8bfd0363535059040105194e200601071b0000000d545dac8008635553440901",
+      "action_hash_hex": "1c0ed0f95bd15fbec1bad90c78a6bd6bab854a3b56ff423e1e6561cecdd57a25",
+      "qty_decimal": "2",
+      "limit_price_decimal": "572.5"
+    },
+    {
+      "id": "order_sell_ioc",
+      "description": "SELL 1 share at 571.00, IOC.",
+      "input": {
+        "account": "DU1234567",
+        "conid": "756733",
+        "side": "2",
+        "qty": "10000",
+        "order_type": "1",
+        "limit_price": "57100000000",
+        "currency": "USD",
+        "tif": "3"
+      },
+      "cbor_hex": "a80169445531323334353637021a000b8bfd0402051927100601071b0000000d4b6cdb0008635553440903",
+      "action_hash_hex": "211e28418ad41b389c1d9d0d40079f8c4fbba68b494ffede899d1e637a266a43",
+      "qty_decimal": "1",
+      "limit_price_decimal": "571"
+    },
+    {
+      "id": "order_gtc",
+      "description": "GTC limit order.",
+      "input": {
+        "account": "DU1234567",
+        "conid": "265598",
+        "side": "1",
+        "qty": "100000",
+        "order_type": "1",
+        "limit_price": "19050000000",
+        "currency": "USD",
+        "tif": "2"
+      },
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440902",
+      "action_hash_hex": "89a327367fcaec36d4ccfcc55cf26773b7a5cadfbb858cf625e686060145d984",
+      "qty_decimal": "10",
+      "limit_price_decimal": "190.5"
+    },
+    {
+      "id": "order_fractional",
+      "description": "qty 1 = 0.0001 share, limit_price 1 = 0.00000001: smallest units.",
+      "input": {
+        "account": "DU1234567",
+        "conid": "265598",
+        "side": "1",
+        "qty": "1",
+        "order_type": "1",
+        "limit_price": "1",
+        "currency": "USD",
+        "tif": "1"
+      },
+      "cbor_hex": "a80169445531323334353637021a00040d7e040105010601070108635553440901",
+      "action_hash_hex": "dca2359b609a44a1899da49de41e141fb39b4122d8bf8c4aa90f64070aa77591",
+      "qty_decimal": "0.0001",
+      "limit_price_decimal": "0.00000001"
+    },
+    {
+      "id": "order_max_ints",
+      "description": "conid, qty and limit_price at 2^63-1 (9-byte heads).",
+      "input": {
+        "account": "DU1234567",
+        "conid": "9223372036854775807",
+        "side": "1",
+        "qty": "9223372036854775807",
+        "order_type": "1",
+        "limit_price": "9223372036854775807",
+        "currency": "USD",
+        "tif": "1"
+      },
+      "cbor_hex": "a80169445531323334353637021b7fffffffffffffff0401051b7fffffffffffffff0601071b7fffffffffffffff08635553440901",
+      "action_hash_hex": "946503829affe31788a6cd1118ed219c86479ddc509c09cf8afe713d21099aac",
+      "qty_decimal": "922337203685477.5807",
+      "limit_price_decimal": "92233720368.54775807"
+    }
+  ],
+  "malformed": [
+    {
+      "id": "order_unknown_key",
+      "description": "Extra key 10.",
+      "cbor_hex": "a90169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee80086355534409010a00",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_missing_account",
+      "description": "Key 1 (account, the domain field) absent.",
+      "cbor_hex": "a7021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_missing_conid",
+      "description": "Key 2 (conid) absent.",
+      "cbor_hex": "a701694455313233343536370401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_unsorted_keys",
+      "description": "Keys 1 and 2 swapped.",
+      "cbor_hex": "a8021a00040d7e01694455313233343536370401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_dup_key",
+      "description": "Key 9 twice.",
+      "cbor_hex": "a90169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee80086355534409010901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_float_qty",
+      "description": "qty as float64 10.0.",
+      "cbor_hex": "a80169445531323334353637021a00040d7e040105fb40240000000000000601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_nint_qty",
+      "description": "qty as the negative integer -100000.",
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401053a0001869f0601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_tag_bignum_qty",
+      "description": "qty as tag 2 bignum h'0186a0'.",
+      "cbor_hex": "a80169445531323334353637021a00040d7e040105c2430186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_null_symbol",
+      "description": "Optional symbol encoded as null instead of being absent.",
+      "cbor_hex": "a90169445531323334353637021a00040d7e03f60401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_nonminimal_conid",
+      "description": "conid in a 9-byte head; a lenient decoder reads the same order.",
+      "cbor_hex": "a80169445531323334353637021b0000000000040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_indefinite_map",
+      "description": "Order map with indefinite length.",
+      "cbor_hex": "bf0169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901ff",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_trailing_byte",
+      "description": "One zero byte after the order map.",
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090100",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_array",
+      "description": "The order as an array.",
+      "cbor_hex": "82694455313233343536371a00040d7e",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_deep_nesting",
+      "description": "symbol replaced by nested maps reaching depth 5.",
+      "cbor_hex": "a90169445531323334353637021a00040d7e03a101a101a101a101000401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_account_empty",
+      "description": "account is the empty string.",
+      "cbor_hex": "a80160021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_account_33_chars",
+      "description": "account of 33 characters.",
+      "cbor_hex": "a8017821444444444444444444444444444444444444444444444444444444444444444444021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_account_unicode",
+      "description": "account contains U+03BF (Greek small omicron).",
+      "cbor_hex": "a8016a44553132333435cebf37021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_currency_4_chars",
+      "description": "currency \"USDT\".",
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800864555344540901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_currency_lowercase",
+      "description": "currency \"usd\".",
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008637573640901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_symbol_control_char",
+      "description": "symbol \"AAPL\\n\".",
+      "cbor_hex": "a90169445531323334353637021a00040d7e03654141504c0a0401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    },
+    {
+      "id": "order_account_bstr",
+      "description": "account as a byte string.",
+      "cbor_hex": "a80149445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrMalformed"
+    }
+  ],
+  "invalid": [
+    {
+      "id": "order_side_0",
+      "description": "side 0.",
+      "cbor_hex": "a80169445531323334353637021a00040d7e0400051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrInvalid"
+    },
+    {
+      "id": "order_side_256",
+      "description": "side 256 (decodes at uint64 width, fails validation).",
+      "cbor_hex": "a80169445531323334353637021a00040d7e04190100051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrInvalid"
+    },
+    {
+      "id": "order_tif_9",
+      "description": "tif 9.",
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440909",
+      "expect_error": "ibkrorder.ErrInvalid"
+    },
+    {
+      "id": "order_type_3",
+      "description": "order_type 3.",
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00603071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrInvalid"
+    },
+    {
+      "id": "order_mkt",
+      "description": "order_type MKT (2) without limit_price: market orders are refused by the profile.",
+      "cbor_hex": "a70169445531323334353637021a00040d7e0401051a000186a0060208635553440901",
+      "expect_error": "ibkrorder.ErrInvalid"
+    },
+    {
+      "id": "order_qty_0",
+      "description": "qty 0.",
+      "cbor_hex": "a80169445531323334353637021a00040d7e040105000601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrInvalid"
+    },
+    {
+      "id": "order_conid_0",
+      "description": "conid 0.",
+      "cbor_hex": "a8016944553132333435363702000401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrInvalid"
+    },
+    {
+      "id": "order_limit_price_0",
+      "description": "limit_price 0.",
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601070008635553440901",
+      "expect_error": "ibkrorder.ErrInvalid"
+    },
+    {
+      "id": "order_lmt_no_price",
+      "description": "LMT order without limit_price.",
+      "cbor_hex": "a70169445531323334353637021a00040d7e0401051a000186a0060108635553440901",
+      "expect_error": "ibkrorder.ErrInvalid"
+    },
+    {
+      "id": "order_qty_2pow63",
+      "description": "qty = 2^63.",
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051b80000000000000000601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkrorder.ErrInvalid"
+    }
+  ],
+  "executor": [
+    {
+      "id": "exec_minimal_from_authorization",
+      "description": "The bytes authorized by core vector auth_minimal_lmt_da, for the account they name.",
+      "config": {
+        "account": "DU1234567",
+        "max_notional": "200000000000"
+      },
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "authorization_ref": "auth_minimal_lmt_da"
+    },
+    {
+      "id": "exec_notional_exact_equal",
+      "description": "qty * limit_price == max_notional * 10^4: accepted.",
+      "config": {
+        "account": "DU1234567",
+        "max_notional": "190500000000"
+      },
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901"
+    },
+    {
+      "id": "exec_notional_over",
+      "description": "qty * limit_price == max_notional * 10^4 + 10^4.",
+      "config": {
+        "account": "DU1234567",
+        "max_notional": "190499999999"
+      },
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkr.ErrRiskLimit"
+    },
+    {
+      "id": "exec_notional_uint64_wrap",
+      "description": "qty = limit_price = 2^32: the product 2^64 wraps to 0 in uint64 arithmetic and MUST still be refused.",
+      "config": {
+        "account": "DU1234567",
+        "max_notional": "1"
+      },
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051b00000001000000000601071b000000010000000008635553440901",
+      "expect_error": "ibkr.ErrRiskLimit"
+    },
+    {
+      "id": "exec_risk_limit_disabled",
+      "description": "max_notional 0 disables the limit.",
+      "config": {
+        "account": "DU1234567",
+        "max_notional": "0"
+      },
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051b00000001000000000601071b000000010000000008635553440901"
+    },
+    {
+      "id": "exec_account_mismatch",
+      "description": "The order names DU1234567; this executor serves DU7654321.",
+      "config": {
+        "account": "DU7654321",
+        "max_notional": "0"
+      },
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkr.ErrAccountMismatch"
+    },
+    {
+      "id": "exec_account_before_risk",
+      "description": "Both the account and the risk limit fail; the account check comes first.",
+      "config": {
+        "account": "DU7654321",
+        "max_notional": "1"
+      },
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "expect_error": "ibkr.ErrAccountMismatch"
+    },
+    {
+      "id": "exec_invalid_before_account",
+      "description": "A MKT order for another account: validation comes before the account check.",
+      "config": {
+        "account": "DU7654321",
+        "max_notional": "0"
+      },
+      "cbor_hex": "a70169445531323334353637021a00040d7e0401051a000186a0060208635553440901",
+      "expect_error": "ibkrorder.ErrInvalid"
+    },
+    {
+      "id": "exec_malformed",
+      "description": "Bytes that are not a canonical order.",
+      "config": {
+        "account": "DU1234567",
+        "max_notional": "0"
+      },
+      "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090100",
+      "expect_error": "ibkrorder.ErrMalformed"
+    }
+  ]
+}

@@ -1,0 +1,1133 @@
+{
+  "format": "edicta-vectors/v0",
+  "revision": "v0-draft.9",
+  "max_authorization_ttl_s": "300",
+  "gate": {
+    "gate_id": "gate-paper-1",
+    "action_types": [
+      "application/vnd.edicta.ibkr.order.v0+cbor",
+      "application/json",
+      "application/octet-stream",
+      "application/vnd.edicta.test.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+cbor"
+    ]
+  },
+  "patterns": {
+    "affine-7-3": "byte i of the action is (7*i + 3) mod 256, for i from 0"
+  },
+  "cases": [
+    {
+      "id": "auth_minimal_lmt_da",
+      "description": "minimal_lmt authorized at now; payload accepted from the DA layer (path 1). expires = min(valid_until, authorized_at + 300) = authorized_at + 300.",
+      "commitment_ref": "minimal_lmt",
+      "authorized_at": "1791000060",
+      "signer": "gate1",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f",
+      "signed_message_hex": "1b6564696374612f76302f617574686f72697a6174696f6e2d7369679925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f",
+      "signature_hex": "c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      }
+    },
+    {
+      "id": "auth_minimal_lmt_archive",
+      "description": "As auth_minimal_lmt_da with path 2 (archive). Differs only in key 6.",
+      "commitment_ref": "minimal_lmt",
+      "authorized_at": "1791000060",
+      "signer": "gate1",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "2"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280602",
+      "authorization_hash_hex": "3c727a517e2315f41dfcb32a59b73a13976998be0fc4f6552312d5220051e7b0",
+      "signed_message_hex": "1b6564696374612f76302f617574686f72697a6174696f6e2d7369673c727a517e2315f41dfcb32a59b73a13976998be0fc4f6552312d5220051e7b0",
+      "signature_hex": "a7c750881b2d799da79c59eb6f9962021db4be6143d7b939c67cacf4a730b9f7dcd32092e927332f072e8fd21447bd05d8e427bdb0fab6b97b15457743fad10b",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280602025840a7c750881b2d799da79c59eb6f9962021db4be6143d7b939c67cacf4a730b9f7dcd32092e927332f072e8fd21447bd05d8e427bdb0fab6b97b15457743fad10b",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      }
+    },
+    {
+      "id": "auth_expires_is_valid_until",
+      "description": "ttl_max_at_601s_retention: valid_until is 90 s after authorized_at, so expires = valid_until.",
+      "commitment_ref": "ttl_max_at_601s_retention",
+      "authorized_at": "1791000060",
+      "signer": "gate1",
+      "input": {
+        "version": "0",
+        "commitment_hash": "5af3c1f022ad6820a7f8f8304dab62c719f839a92bc6486ed4314a6a8bd53b38",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000150",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a601000258205af3c1f022ad6820a7f8f8304dab62c719f839a92bc6486ed4314a6a8bd53b38035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07e560601",
+      "authorization_hash_hex": "2aff7837f78f07a7625d9d8d3e8e1c10af5d415e703055269e8b7865d6ec1cfe",
+      "signed_message_hex": "1b6564696374612f76302f617574686f72697a6174696f6e2d7369672aff7837f78f07a7625d9d8d3e8e1c10af5d415e703055269e8b7865d6ec1cfe",
+      "signature_hex": "ff8f43b3e89eaa864d38a3c223da7662c42f5675203a3fc96fc0039456f75eb5760779ce8c0f258ec222ad800c604e5878f82128476e24334c9f5016576a230a",
+      "signed_authorization_hex": "a201a601000258205af3c1f022ad6820a7f8f8304dab62c719f839a92bc6486ed4314a6a8bd53b38035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07e560601025840ff8f43b3e89eaa864d38a3c223da7662c42f5675203a3fc96fc0039456f75eb5760779ce8c0f258ec222ad800c604e5878f82128476e24334c9f5016576a230a",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      }
+    },
+    {
+      "id": "auth_fibre_small_payload",
+      "description": "fibre_small_payload (da = fibre), DA path.",
+      "commitment_ref": "fibre_small_payload",
+      "authorized_at": "1791000060",
+      "signer": "gate1",
+      "input": {
+        "version": "0",
+        "commitment_hash": "476a1b65952e00d9cd36df2547b9c4404cb5f4b3606671f8e3c30cef5ec3249a",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820476a1b65952e00d9cd36df2547b9c4404cb5f4b3606671f8e3c30cef5ec3249a035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "72462f3fbb39d045cc31bf6f8135a4ab0ba03e37b667a0ab338c87366302866c",
+      "signed_message_hex": "1b6564696374612f76302f617574686f72697a6174696f6e2d73696772462f3fbb39d045cc31bf6f8135a4ab0ba03e37b667a0ab338c87366302866c",
+      "signature_hex": "a9a9d36455da7ad81fb1036ea767fa0b08cc8d2c0ee8a2620f0b2b49a77c560b2b385d62f406880fff278c7c8e13931c0c5a49d8e448a4a998cdb86316530504",
+      "signed_authorization_hex": "a201a60100025820476a1b65952e00d9cd36df2547b9c4404cb5f4b3606671f8e3c30cef5ec3249a035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840a9a9d36455da7ad81fb1036ea767fa0b08cc8d2c0ee8a2620f0b2b49a77c560b2b385d62f406880fff278c7c8e13931c0c5a49d8e448a4a998cdb86316530504",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      }
+    },
+    {
+      "id": "auth_action_json_bytes",
+      "description": "action_json_bytes: the executor recomputes the action hash with type application/json over the JSON bytes.",
+      "commitment_ref": "action_json_bytes",
+      "authorized_at": "1791000060",
+      "signer": "gate1",
+      "input": {
+        "version": "0",
+        "commitment_hash": "48834b7710c23b6c8b550ae505b1577198ddabe13914ef8a2a64ba9f49682a2d",
+        "action_hash": "bba53f5424d0aa443caa9b75a37725d48adb73767c505eae944f2c716b82683f",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a6010002582048834b7710c23b6c8b550ae505b1577198ddabe13914ef8a2a64ba9f49682a2d035820bba53f5424d0aa443caa9b75a37725d48adb73767c505eae944f2c716b82683f046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "a324f900c9be13f312d5cd63f56c64672571360e0aabc4a72ce64ed7231eef18",
+      "signed_message_hex": "1b6564696374612f76302f617574686f72697a6174696f6e2d736967a324f900c9be13f312d5cd63f56c64672571360e0aabc4a72ce64ed7231eef18",
+      "signature_hex": "6b40d2c4608bc910b619a63e35d55514833dc2854f8a8715abc7e52854b5459351e2300c754a0b580a7fda17d81c7df1094c521d3fa29a7e5831f91ad84c5a0d",
+      "signed_authorization_hex": "a201a6010002582048834b7710c23b6c8b550ae505b1577198ddabe13914ef8a2a64ba9f49682a2d035820bba53f5424d0aa443caa9b75a37725d48adb73767c505eae944f2c716b82683f046c676174652d70617065722d31051a6ac07f2806010258406b40d2c4608bc910b619a63e35d55514833dc2854f8a8715abc7e52854b5459351e2300c754a0b580a7fda17d81c7df1094c521d3fa29a7e5831f91ad84c5a0d",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/json",
+        "action_hex": "7b226f70223a227472616e73666572222c22746f223a22616363742d3432222c22616d6f756e74223a2231302e3030222c2263757272656e6379223a22555344227d",
+        "now": "1791000060",
+        "skew_s": "30"
+      }
+    },
+    {
+      "id": "auth_action_max_size",
+      "description": "action_max_size: 65536 action bytes (pattern affine-7-3).",
+      "commitment_ref": "action_max_size",
+      "authorized_at": "1791000060",
+      "signer": "gate1",
+      "input": {
+        "version": "0",
+        "commitment_hash": "aec1abfde27483c54144d6d6d084a2405e08607bafe72a5e5f4ab93d4768f8f3",
+        "action_hash": "38ca1f3761b6028b72d5e13b48a3682cee43aa74f2343d9ee45495afc1fe402b",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820aec1abfde27483c54144d6d6d084a2405e08607bafe72a5e5f4ab93d4768f8f303582038ca1f3761b6028b72d5e13b48a3682cee43aa74f2343d9ee45495afc1fe402b046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "76a03f7edffbc42474182e581ad7849879ba5f76955a6adf288b4206cebff659",
+      "signed_message_hex": "1b6564696374612f76302f617574686f72697a6174696f6e2d73696776a03f7edffbc42474182e581ad7849879ba5f76955a6adf288b4206cebff659",
+      "signature_hex": "c4a50c80ee2e0e22a4d034d4b2dd11eb94736b58bfb34906f8d826963a2d1a82bf0f7c91ed2c76ae1c245132589de7d99ae214e450dac0a1a0b877401b8f2509",
+      "signed_authorization_hex": "a201a60100025820aec1abfde27483c54144d6d6d084a2405e08607bafe72a5e5f4ab93d4768f8f303582038ca1f3761b6028b72d5e13b48a3682cee43aa74f2343d9ee45495afc1fe402b046c676174652d70617065722d31051a6ac07f280601025840c4a50c80ee2e0e22a4d034d4b2dd11eb94736b58bfb34906f8d826963a2d1a82bf0f7c91ed2c76ae1c245132589de7d99ae214e450dac0a1a0b877401b8f2509",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/octet-stream",
+        "action_pattern": "affine-7-3",
+        "action_size": "65536",
+        "action_sha256_hex": "510b126e1d4ced49107fe4ab03ee54cb1c8e4caf6064e1dd29c48d4a3e74c38b",
+        "now": "1791000060",
+        "skew_s": "30"
+      }
+    },
+    {
+      "id": "auth_action_type_128_chars",
+      "description": "action_type_128_chars: a 128-byte action type inside the action hash preimage.",
+      "commitment_ref": "action_type_128_chars",
+      "authorized_at": "1791000060",
+      "signer": "gate1",
+      "input": {
+        "version": "0",
+        "commitment_hash": "173e64766eb31860ce8998101224f39128303d620761ecd24e944c71de0fae71",
+        "action_hash": "9bb2b9c6f29f175c4772070c1660d1d0c2e5da84d1275ac63a459f46ca5f461f",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820173e64766eb31860ce8998101224f39128303d620761ecd24e944c71de0fae710358209bb2b9c6f29f175c4772070c1660d1d0c2e5da84d1275ac63a459f46ca5f461f046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "8e853b0d1649a595a8d1b76b3a0e933b7a1540c235798d34ff0a773f1c3bf8dc",
+      "signed_message_hex": "1b6564696374612f76302f617574686f72697a6174696f6e2d7369678e853b0d1649a595a8d1b76b3a0e933b7a1540c235798d34ff0a773f1c3bf8dc",
+      "signature_hex": "3469a697d826e09a560f8441bd8045771ff49d0f2c1b10fcbaebb75aa40d2a54985928c90b4f56b02dedfde7e2a670af7dcfc53ecba2f6bdc61320c5e10bf708",
+      "signed_authorization_hex": "a201a60100025820173e64766eb31860ce8998101224f39128303d620761ecd24e944c71de0fae710358209bb2b9c6f29f175c4772070c1660d1d0c2e5da84d1275ac63a459f46ca5f461f046c676174652d70617065722d31051a6ac07f2806010258403469a697d826e09a560f8441bd8045771ff49d0f2c1b10fcbaebb75aa40d2a54985928c90b4f56b02dedfde7e2a670af7dcfc53ecba2f6bdc61320c5e10bf708",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.test.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+cbor",
+        "action_hex": "656469637461207465737420616374696f6e",
+        "now": "1791000060",
+        "skew_s": "30"
+      }
+    }
+  ],
+  "reject": [
+    {
+      "id": "authorization_too_large",
+      "stage": "D",
+      "rule": "D0",
+      "description": "257 bytes: a valid Authorization followed by zero bytes. Size is checked before parsing.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrTooLarge"
+    },
+    {
+      "id": "authorization_trailing_byte",
+      "stage": "D",
+      "rule": "D2",
+      "description": "A valid SignedAuthorization followed by one zero byte.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f0000",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrTrailingData"
+    },
+    {
+      "id": "authorization_unknown_key",
+      "stage": "D",
+      "rule": "D15",
+      "description": "Authorization key 7 (undefined) added.",
+      "signed_authorization_hex": "a201a70100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f28060107010258401408ccbc3c26a07d6e866360fc72ebcfdfd442a2947e05e6609e3a9136e5d687a0fb576b6fafa3141ee2f74e48eb78dc454961029abb3f7a80204619be35f106",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrUnknownKey"
+    },
+    {
+      "id": "signed_authorization_unknown_key",
+      "stage": "D",
+      "rule": "D15",
+      "description": "SignedAuthorization key 3 (undefined) added.",
+      "signed_authorization_hex": "a301a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f000300",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrUnknownKey"
+    },
+    {
+      "id": "authorization_missing_path",
+      "stage": "D",
+      "rule": "D17",
+      "description": "Key 6 path absent.",
+      "signed_authorization_hex": "a201a50100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f2802584062f4eb7ef97f58577874230b8422d7f25031ec8b504d359c878bbd3c836582de562cd87734085dbd11032e40e20c9757688354f7e7defbe06b9577647f411d0e",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrMissingField"
+    },
+    {
+      "id": "authorization_missing_expires",
+      "stage": "D",
+      "rule": "D17",
+      "description": "Key 5 expires absent.",
+      "signed_authorization_hex": "a201a50100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d310601025840c9737ee8b6c74ef9e463bbcfa3a5f502050e37ff7d75c7ae94bf0e85f61af9bbf686256669a2c4b1a551a94d6580a858dee84f1ac97e48c82eb3c70ccce40b00",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrMissingField"
+    },
+    {
+      "id": "authorization_missing_signature",
+      "stage": "D",
+      "rule": "D17",
+      "description": "SignedAuthorization without key 2.",
+      "signed_authorization_hex": "a101a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrMissingField"
+    },
+    {
+      "id": "authorization_commitment_hash_31_bytes",
+      "stage": "D",
+      "rule": "D18",
+      "description": "commitment_hash of 31 bytes.",
+      "signed_authorization_hex": "a201a6010002581fe2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f28060102584058d3385e7bf9111d3178ef2059cc8db0f1f5e308f0fb45cf8004fdbfa0f39ea608d207aaa1dd0364edd981748014163b98acfb7299edb2fbf4f2bb474643e903",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrFieldSize"
+    },
+    {
+      "id": "authorization_action_hash_33_bytes",
+      "stage": "D",
+      "rule": "D18",
+      "description": "action_hash of 33 bytes.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035821f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb00046c676174652d70617065722d31051a6ac07f280601025840cdd43ae71df3bea9ce818c1edea4782953b3d40d556350474b5edd10601c38a8a37a5d006edd8fb37cb8039ae08c3eccdc4bf3c6b8712f4859813d8c46c5d703",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrFieldSize"
+    },
+    {
+      "id": "authorization_gate_id_empty",
+      "stage": "D",
+      "rule": "D18",
+      "description": "gate_id is the empty string.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0460051a6ac07f280601025840252c6695f77e6b37b7ae3acaf7f00450d750e4e1d353f5f18745b4cbf4814002944ff3c6454d40982148cbdb118ab3bc1f3527f798c79306e2728c3032181e07",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrFieldSize"
+    },
+    {
+      "id": "authorization_gate_id_65_chars",
+      "stage": "D",
+      "rule": "D18",
+      "description": "gate_id of 65 characters.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0478416767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767051a6ac07f28060102584091d3d3d462b801a0542af96cfe6391fc3a87fd682279d2ec87ca9090a813398ccbe310af5fe96b5a008b4e946e436cb3e2cc93cd2d9ae657e21a89d528daf004",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrFieldSize"
+    },
+    {
+      "id": "authorization_sig_63_bytes",
+      "stage": "D",
+      "rule": "D18",
+      "description": "Signature of 63 bytes.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f28060102583fc23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrFieldSize"
+    },
+    {
+      "id": "authorization_gate_id_unicode",
+      "stage": "D",
+      "rule": "D19",
+      "description": "gate_id contains U+03BF (Greek small omicron), a look-alike of 'o'.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046e676174652d70617065722dcebf31051a6ac07f280601025840f6c5ef458332118445b171c430d74873ae4b806c94e26261d5a9d9e8249df7dc0457ad2e5258f47e8ca9e5956fc09ea3968f9048619ef993cd7ff9ccc01b3f02",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrInvalidString"
+    },
+    {
+      "id": "authorization_path_tstr",
+      "stage": "D",
+      "rule": "D16",
+      "description": "path encoded as the text string \"1\".",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f28066131025840d0466c7165e75f9920894bc968aa46249d2c5672cb4c4c47078b5368b29a610841412d9c989237d85ce982e0821f393be46af2fd37ae4b256585fe81263bd205",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrWrongType"
+    },
+    {
+      "id": "authorization_action_hash_tstr",
+      "stage": "D",
+      "rule": "D16",
+      "description": "action_hash as 64 hex characters.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d03784066363632396332333438386166646430383862303335313534653265353436633165636365643935643937363434336231633862396239616434333336316662046c676174652d70617065722d31051a6ac07f280601025840da75b5d86762e554200754e422add772c349f88850266e52653b5aa0c329966d4e671bb4043cb63181ef460bcb42beef246af52097755a5b271c73950ccc3d09",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrWrongType"
+    },
+    {
+      "id": "authorization_expires_nonminimal",
+      "stage": "D",
+      "rule": "D7",
+      "description": "expires in a 9-byte head although it fits in 5.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051b000000006ac07f2806010258409a87202353b9da3dbac42595b3c02f1c20309b0f5441180d3a3938297f9455f1be6c2d5cdd45c6e5734137299b26741f11b9ee047e433e204723164f1e615b01",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrNonMinimalInt"
+    },
+    {
+      "id": "authorization_expires_float",
+      "stage": "D",
+      "rule": "D3",
+      "description": "expires as a float64.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d3105fb41dab01fca0000000601025840c4c09cf38f4b54b1ef640db51940a6cd136dd4d84bc65b0297cd6273fcadb08e6fd6cc8e384f4d6ebed44339271bf0abb31c751cc29e162d5f82dde69a28d903",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrFloat"
+    },
+    {
+      "id": "authorization_unsorted_map",
+      "stage": "D",
+      "rule": "D10",
+      "description": "Keys 5 and 6 swapped.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d310601051a6ac07f280258405e472a8d6703c74b664124fe5c350201a1d6ade29ca591fb833d8920b4f00c6baa6cde1556dc8dffd6f9beea35abb38396bbc69e8ba1101d742e75b9df493104",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrUnsortedMap"
+    },
+    {
+      "id": "authorization_version_1",
+      "stage": "S",
+      "rule": "Q1",
+      "description": "version = 1.",
+      "signed_authorization_hex": "a201a60101025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f28060102584056dc9cc7b7d8fb96c74cb093a7ed28005e63e7a616329d76e3acd5b45fb9fe673f96863712de34d7f596eebae6cfa3c2fd8b2170b19a1513c759c513bcf31901",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrUnsupportedVersion",
+      "input": {
+        "version": "1",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60101025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "0e8037ee876760270bfe3cf9537f25bbd4d6ee85297ed371ef10652522a78704"
+    },
+    {
+      "id": "authorization_expires_2pow63",
+      "stage": "S",
+      "rule": "Q2",
+      "description": "expires = 2^63.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051b8000000000000000060102584098fae4b92b7f6dd078bddd306469f76727d5a441340627cc672526bdc1a68e91c17ad5dcdb203461091495d9f5041ae84758c05dcdaa7446008f314cf2268102",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrIntRange",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "9223372036854775808",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051b80000000000000000601",
+      "authorization_hash_hex": "c80d07105810c566ba63f06e22d813171354d387c25803c092223fad090993d7"
+    },
+    {
+      "id": "authorization_path_0",
+      "stage": "S",
+      "rule": "Q3",
+      "description": "path = 0.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280600025840e9d3b922be15c58b38871693b472f0e69a5dfbfc623477a7ec15b663867a5e3e17616ee1c1714d057ae03a992c24275457ac33e90de0ddfb3d41e10ffec31409",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrInvalidEnum",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "0"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280600",
+      "authorization_hash_hex": "cd5476a005c89eb9aff67058de67bb181feafb8d1b511987f47b8d9e2ef26d5d"
+    },
+    {
+      "id": "authorization_path_3",
+      "stage": "S",
+      "rule": "Q3",
+      "description": "path = 3.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280603025840c1f211e25307ed9295744afbbdd3651e61e13654771009520c88aed5e4d36a1d047e0df3599d6b3d2d55f8ebd490a39a029a8d256f23525d85d49f2a03c4850f",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrInvalidEnum",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "3"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280603",
+      "authorization_hash_hex": "9446ae88f85db79ec563b2ddbfb0509461f96a75445a1948a8bdc63372188f21"
+    },
+    {
+      "id": "authorization_expires_0",
+      "stage": "S",
+      "rule": "Q4",
+      "description": "expires = 0.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d3105000601025840c1ee0266c8c4d7d02bd08c715a95b2d0e571fdfec4c92112a9cfb60a02b10ba37804f1fc4b43f005fb7102f6c0fba45dde0aefdd2f27c7c5cf9dde6e19af3b00",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrZeroValue",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "0",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d3105000601",
+      "authorization_hash_hex": "5b09f14363f032a6bc226f2522e97dc8444ac697b0f6b6cb9d2b50d5df7a38eb"
+    },
+    {
+      "id": "authorization_pinned_key_identity",
+      "stage": "G",
+      "rule": "G0",
+      "description": "The executor pinned the identity point as the gate key; R = identity, S = 0 satisfies the cofactorless equation, so only G0 rejects it.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f28060102584001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "check": {
+        "gate_pubkey_hex": "0100000000000000000000000000000000000000000000000000000000000000",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrInvalidPublicKey",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_signed_by_agent_key",
+      "stage": "G",
+      "rule": "G1",
+      "description": "Signed by agent1 (an agent key) under the Authorization tags; the executor pins gate1.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840721a9695d2a7cffc3e4b0cfddcd4c5b7c5837f090c9c189ef4623ab0278f73065201eaa75656d33b15f3454d33a83c8ad6eb98d512618e0303b28f814dc9ab09",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrSignatureInvalid",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_signed_by_other_gate",
+      "stage": "G",
+      "rule": "G1",
+      "description": "Signed by agent2's key standing in for another gate's key; the executor pins gate1.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f28060102584011c18087023e3f47fec1b3289f820aa65ea8dba50efd489a34f6dd7ad7fe2388c3cbde9a11fd333441c75a075b1558dd67f8f2525cb26cf2735773981273ec0d",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrSignatureInvalid",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_signed_under_commitment_sig_tag",
+      "stage": "G",
+      "rule": "G1",
+      "description": "gate1 signed edicta/v0/sig || authorization_hash (the agent signature tag).",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f2806010258407af335e0b32853179e2fc3f26f1e5726c21ccf6109a1d0f608a4ae16810970aa0c0970f844bd479764860c16a0122c9be2e8a6634827eef545426e256934c700",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrSignatureInvalid",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_signed_under_receipt_sig_tag",
+      "stage": "G",
+      "rule": "G1",
+      "description": "gate1 signed edicta/v0/receipt-sig || authorization_hash (the receipt signature tag).",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f2806010258404e1de72c3a804b19cc9b8c23b61ac8804b097d6c4b06b96add3148853686f354b311ad1884ae46d935d71b551b702a1d9ca56eb21045e9c06521c32e10f4c404",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrSignatureInvalid",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_wrong_hash_tag",
+      "stage": "G",
+      "rule": "G1",
+      "description": "The Authorization bytes hashed under edicta/v0/receipt instead of edicta/v0/authorization.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840686a8ed6a05dec154424606f1e0df9054e429ba8669cc4f2a25b311d054fe168a9e2745c701e167525a60b4e9767becd4ccb32a0f7a2c76c8d9191299b21a00d",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrSignatureInvalid",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_sig_raw_cbor",
+      "stage": "G",
+      "rule": "G1",
+      "description": "Signature over the raw Authorization CBOR instead of the tagged message.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f28060102584024c56de31c392a0cd35c24b5c5fe5225c6034b6b3c229fd5ee66c77efe21ee05bcc9a07eeb8e094844c55b8605c932ebfcc45365b146d8dd3264dd373006560f",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrSignatureInvalid",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_flipped_expires",
+      "stage": "G",
+      "rule": "G1",
+      "description": "expires raised by one second after signing.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f290601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrSignatureInvalid",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000361",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f290601",
+      "authorization_hash_hex": "2cef42db1da086bd54bd94b99668fe957b02bd1da4968b5382df3d86244f3862"
+    },
+    {
+      "id": "authorization_reuses_commitment_signature",
+      "stage": "G",
+      "rule": "G1",
+      "description": "The executor pins agent1 and the signature is agent1's signature over the minimal_lmt commitment. Different tags and hashes, so it must not verify.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f28060102584037a1f97bfc37eb4988a05b6ac66582939032f2d83c722eaab0d17bfe7e1f0c99ed8bc1677d820ca8eafac46c488646ce5945f972745790c340c40ffcac1ce307",
+      "check": {
+        "gate_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrSignatureInvalid",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_sig_noncanonical_s",
+      "stage": "G",
+      "rule": "G2",
+      "description": "S + L in place of S.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b06f2c48a638f2582d24a908dad6904267e20bf33d88a27999c92ecd1e7cc87f10",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrSignatureInvalid",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_foreign_gate_id",
+      "stage": "X",
+      "rule": "X1",
+      "description": "The executor expects gate_id gate-paper-2.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-2",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrScopeMismatch",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_action_empty",
+      "stage": "X",
+      "rule": "X2",
+      "description": "The executor presents no action bytes.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrActionSize",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_action_too_large",
+      "stage": "X",
+      "rule": "X2",
+      "description": "The executor presents 65537 bytes (pattern affine-7-3).",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_pattern": "affine-7-3",
+        "action_size": "65537",
+        "action_sha256_hex": "ad8b370d36508e55e3c9cd44667a6e36e35955d0ff9f8fe59805bb18c2db5dd8",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrActionSize",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_action_byte_flipped",
+      "stage": "X",
+      "rule": "X3",
+      "description": "The bytes the executor is about to send differ in the last byte.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440900",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrActionMismatch",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_action_other_order",
+      "stage": "X",
+      "rule": "X3",
+      "description": "The executor holds another order (qty 100001) than the one authorized.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a10601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrActionMismatch",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_action_other_type",
+      "stage": "X",
+      "rule": "X3",
+      "description": "Right bytes, but the executor recomputes the hash under application/octet-stream.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/octet-stream",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000060",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrActionMismatch",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_expired",
+      "stage": "X",
+      "rule": "X4",
+      "description": "now + skew == expires.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000330",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrExpired",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_expired_after",
+      "stage": "X",
+      "rule": "X4",
+      "description": "now past expires.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000361",
+        "skew_s": "30"
+      },
+      "expect_error": "ErrExpired",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    },
+    {
+      "id": "authorization_expired_skew_0",
+      "stage": "X",
+      "rule": "X4",
+      "description": "skew 0, now == expires.",
+      "signed_authorization_hex": "a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00",
+      "check": {
+        "gate_pubkey_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "gate_id": "gate-paper-1",
+        "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+        "action_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+        "now": "1791000360",
+        "skew_s": "0"
+      },
+      "expect_error": "ErrExpired",
+      "input": {
+        "version": "0",
+        "commitment_hash": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+        "action_hash": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+        "gate_id": "gate-paper-1",
+        "expires": "1791000360",
+        "path": "1"
+      },
+      "authorization_cbor_hex": "a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601",
+      "authorization_hash_hex": "9925e8e1cef21cd8b6899ceffd065a5210733a13d1efce1101c69bcefbf2282f"
+    }
+  ]
+}

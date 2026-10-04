@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Generates payload_blob.json (v0-draft.9; default directory spec/vectors/v0-next). Deterministic: rerunning yields an identical file.
+"""Frozen copy of the v0-draft.8 rules. It checks spec/vectors/v0, which the Go
+code reads until it switches to the draft.9 vectors; delete this directory then.
+
+Generates spec/vectors/v0/payload_blob.json. Deterministic: rerunning yields an identical file.
 
 Every value that is random in production is derived from a fixed label here:
   recipient key   (sk, pk) = DeriveKeyPair(SHA-256("edicta/v0 test recipient|" + name))
@@ -9,7 +12,7 @@ Every value that is random in production is derived from a fixed label here:
   salt                     = SHA-256("edicta/v0 test payload salt|" + case_id)
 DeriveKeyPair is the RFC 9180 key derivation of DHKEM(X25519, HKDF-SHA256).
 
-Usage: python3 spec/vectors/check/gen_payload_blob.py [--out DIR]
+Usage: python3 spec/vectors/check/draft8/gen_payload_blob.py [--out DIR]
 """
 
 from __future__ import annotations
@@ -17,6 +20,9 @@ from __future__ import annotations
 import sys
 
 sys.dont_write_bytecode = True
+
+from pathlib import Path as _Path
+sys.path.append(str(_Path(__file__).resolve().parent.parent))  # shared, unchanged modules
 
 import copy
 import hashlib
@@ -32,22 +38,20 @@ except ImportError:
 
 import edicta_payload_v0 as pv
 import hpke_base as hpke
-from cbor_strict import Pairs, Raw, encode
-from edicta_v0 import (TAG_RECEIPT, Params, action_hash, commitment_hash, signing_message, tagged, to_cbor,
-                      verify_for_gate)
-from profile_dca_agent import (ACTION_TYPE_IBKR_ORDER_V0 as IBKR, MEDIA_TYPE_DCA_V0, dca_consistency,
-                               dca_decode, dca_encode, order_decode, order_encode)
+from cbor_strict import Pairs, Raw, encode, head
+from edicta_v0 import (ACTION, CONSTRAINTS, TAG_RECEIPT, Params, commitment_hash, signing_message,
+                      tagged, to_cbor, verify_for_gate)
 from vecjson import _conv, commitment_to_json, gate_to_json, params_to_json
 
-OUT = Path(__file__).resolve().parent.parent / "v0-next"
+OUT = Path(__file__).resolve().parent.parent.parent / "v0"
 if "--out" in sys.argv:
     OUT = Path(sys.argv[sys.argv.index("--out") + 1]).resolve()
 FORMAT = "edicta-vectors/v0"
-KAT_RFC_TEXT = Path(__file__).resolve().parent / "hpke_rfc9180_a2_1.json"
+KAT_RFC_TEXT = Path(__file__).resolve().parent.parent / "hpke_rfc9180_a2_1.json"
 
 AGENT1_SEED = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
 PARAMS = Params()
-GATE = {"gate_id": "gate-paper-1", "action_types": [IBKR]}
+GATE = {"gate_id": "gate-paper-1", "rail": 1, "account": "DU1234567"}
 T0 = 1791000000
 NOW = T0 + 60
 
@@ -90,14 +94,25 @@ def payload_to_json(p: dict) -> dict:
     return _conv(p, pv.PAYLOAD, True)
 
 
+def dca_to_json(d: dict) -> dict:
+    out = {}
+    for name, val in d.items():
+        if name == "last_fills":
+            out[name] = [{k: str(v) for k, v in f.items()} for f in val]
+        elif name == "strategy_id":
+            out[name] = val
+        else:
+            out[name] = {k: (v if isinstance(v, str) else str(v)) for k, v in val.items()}
+    return out
+
+
 # ---------------------------------------------------------------- decisions
 
-# Actions are IBKR orders in the dca-agent profile encoding; the core sees type and bytes only.
-ORDER_BUY = {"account": "DU1234567", "conid": 756733, "symbol": "SPY", "side": 1, "qty": 20000,
-             "order_type": 1, "limit_price": 57250000000, "currency": "USD", "tif": 1}
-ORDER_SELL = {"account": "DU1234567", "conid": 756733, "side": 2, "qty": 10000,
-              "order_type": 1, "limit_price": 57100000000, "currency": "USD", "tif": 3}
-ACTION_BUY = {"type": IBKR, "data": order_encode(ORDER_BUY)}
+ACTION_BUY = {
+    "kind": "ibkr.order.v0",
+    "params": {"account": "DU1234567", "conid": 756733, "symbol": "SPY", "side": 1, "qty": 20000,
+               "order_type": 1, "limit_price": 57250000000, "currency": "USD", "tif": 1},
+}
 
 DCA_MINIMAL = {
     "strategy_id": "dca-spy-weekly",
@@ -121,8 +136,9 @@ def payload_dca_minimal() -> dict:
         "version": 0,
         "model": {"id": "example-model"},
         "policy": {"id": "dca-weekly"},
-        "context": {"media_type": MEDIA_TYPE_DCA_V0, "data": dca_encode(DCA_MINIMAL)},
+        "context": {"media_type": pv.MEDIA_TYPE_DCA_V0, "data": pv.dca_encode(DCA_MINIMAL)},
         "action": copy.deepcopy(ACTION_BUY),
+        "constraints": {"max_notional": 120000000000},
     }
 
 
@@ -132,8 +148,9 @@ def payload_dca_full() -> dict:
         "model": {"id": "example-model", "version": "2026-06", "digest": h("edicta/v0 test model weights")},
         "policy": {"id": "dca-weekly", "version": "3", "digest": hashlib.sha256(POLICY_TEXT).digest(),
                    "text": POLICY_TEXT},
-        "context": {"media_type": MEDIA_TYPE_DCA_V0, "data": dca_encode(DCA_WITH_FILLS)},
+        "context": {"media_type": pv.MEDIA_TYPE_DCA_V0, "data": pv.dca_encode(DCA_WITH_FILLS)},
         "action": copy.deepcopy(ACTION_BUY),
+        "constraints": {"max_notional": 120000000000, "price_bound": 57300000000, "deadline": T0 + 600},
         "metadata": {"media_type": "application/json",
                      "data": b'{"run_id":"2026-10-03T00:00:00Z","host":"dca-agent-1"}'},
     }
@@ -146,7 +163,10 @@ def payload_json_sell() -> dict:
         "policy": {"id": "rebalance-monthly"},
         "context": {"media_type": "application/json",
                     "data": b'{"signal":"rebalance","target_weight_spy":"0.60","current_weight_spy":"0.64"}'},
-        "action": {"type": IBKR, "data": order_encode(ORDER_SELL)},
+        "action": {"kind": "ibkr.order.v0",
+                   "params": {"account": "DU1234567", "conid": 756733, "side": 2, "qty": 10000,
+                              "order_type": 1, "limit_price": 57100000000, "currency": "USD", "tif": 3}},
+        "constraints": {"max_notional": 60000000000, "price_bound": 57000000000},
         "metadata": {"media_type": "text/plain", "data": b"monthly rebalance, SPY overweight by 4 points"},
     }
 
@@ -158,6 +178,7 @@ def payload_empty_context() -> dict:
         "policy": {"id": "fixed-order"},
         "context": {"media_type": "application/octet-stream", "data": b""},
         "action": copy.deepcopy(ACTION_BUY),
+        "constraints": {"max_notional": 120000000000},
     }
 
 
@@ -193,8 +214,9 @@ def commitment_for(case_id: str, p: dict, s: dict) -> dict:
         "nonce": h(f"nonce-{case_id}")[:16],
         "issued_at": T0,
         "valid_until": T0 + 900,
-        "scope": {"gate_id": GATE["gate_id"]},
-        "action": {"type": p["action"]["type"], "hash": action_hash(p["action"]["type"], p["action"]["data"])},
+        "scope": dict(GATE),
+        "action": copy.deepcopy(p["action"]),
+        "constraints": copy.deepcopy(p["constraints"]),
         "payload_ref": {"da": 2, "namespace": NAMESPACE, "commitment": h(f"share-commitment-{case_id}"),
                         "height": 4200000, "signer": SIGNER},
         "ciphertext_hash": hashlib.sha256(s["blob"]).digest(),
@@ -221,15 +243,17 @@ def valid_case(case_id: str, desc: str, p: dict, names: list) -> tuple[dict, dic
     pt = pv.payload_encode(p)
     assert pv.payload_decode(pt) == p
     s = seal_case(case_id, pt, names)
-    at = p["action"]["type"]
-    ah = action_hash(at, p["action"]["data"])
+    action_cbor = encode(to_cbor(p["action"], ACTION))
+    constraints_cbor = encode(to_cbor(p["constraints"], CONSTRAINTS))
     case = {
         "id": case_id,
         "description": desc,
         "payload": payload_to_json(p),
     }
-    if p["context"]["media_type"] == MEDIA_TYPE_DCA_V0:
-        assert not dca_consistency(dca_decode(p["context"]["data"]), order_decode(p["action"]["data"])), case_id
+    if p["context"]["media_type"] == pv.MEDIA_TYPE_DCA_V0:
+        d = pv.dca_decode(p["context"]["data"])
+        assert not pv.dca_consistency(d, p["action"]), case_id
+        case["context_dca"] = dca_to_json(d)
     case.update({
         "plaintext_cbor_hex": pt.hex(),
         "salt_hex": s["salt"].hex(),
@@ -251,14 +275,13 @@ def valid_case(case_id: str, desc: str, p: dict, names: list) -> tuple[dict, dic
         "blob_hex": s["blob"].hex(),
         "payload_size": str(len(s["blob"])),
         "ciphertext_hash_hex": hashlib.sha256(s["blob"]).hexdigest(),
-        "action_type": at,
-        "action_hex": p["action"]["data"].hex(),
-        "action_hash_hex": ah.hex(),
+        "action_cbor_hex": action_cbor.hex(),
+        "constraints_cbor_hex": constraints_cbor.hex(),
         "commitment": commitment_for(case_id, p, s),
     })
     for i, n in enumerate(names):
         assert pv.open_payload(s["blob"], KEYS[n]["sk"], KEYS[n]["kid"],
-                               bytes.fromhex(case["plaintext_hash_hex"]), at, ah) == p
+                               bytes.fromhex(case["plaintext_hash_hex"]), action_cbor, constraints_cbor) == p
     return case, s
 
 
@@ -441,16 +464,16 @@ def open_rejects(s1: dict, s3: dict) -> list:
 
 def plaintext_rejects(p1: dict, s1: dict) -> list:
     out = []
-    at1 = p1["action"]["type"]
-    ah1 = action_hash(at1, p1["action"]["data"])
+    action_cbor = encode(to_cbor(p1["action"], ACTION))
+    constraints_cbor = encode(to_cbor(p1["constraints"], CONSTRAINTS))
 
-    def sealed(cid, desc, rule, pt_bytes, expect, ph=None, at=at1, ah=ah1):
+    def sealed(cid, desc, rule, pt_bytes, expect, ph=None, ac=action_cbor, cc=constraints_cbor):
         s = seal_case(cid, pt_bytes, ["gate-paper-1"])
         if ph is None:
             ph = hashlib.sha256(s["salt"] + pt_bytes).digest()
         return rj(cid, "plaintext", rule, desc, s["blob"], expect, key="gate-paper-1",
-                  kid_hex=KEYS["gate-paper-1"]["kid"], plaintext_hash_hex=ph, action_type=at,
-                  action_hash_hex=ah)
+                  kid_hex=KEYS["gate-paper-1"]["kid"], plaintext_hash_hex=ph, action_cbor_hex=ac,
+                  constraints_cbor_hex=cc)
 
     pt1 = pv.payload_encode(p1)
     out.append(sealed("pb_plaintext_hash_unsalted", "The commitment carries SHA-256(plaintext) without the salt.",
@@ -460,16 +483,16 @@ def plaintext_rejects(p1: dict, s1: dict) -> list:
                       ph=hashlib.sha256(h("edicta/v0 test other salt") + pt1).digest()))
     p = to_cbor(p1, pv.PAYLOAD)
     unsorted = encode(Pairs(tuple(sorted(p.items(), key=lambda kv: {5: 0}.get(kv[0], kv[0])))))
-    out.append(sealed("pb_payload_unsorted_keys", "Payload keys in the order 5, 1, 2, 3, 4; the hash matches the bytes.",
+    out.append(sealed("pb_payload_unsorted_keys", "Payload keys in the order 5, 1, 2, 3, 4, 6; the hash matches the bytes.",
                       "O8", unsorted, "payload.ErrMalformed"))
-    nonmin = b"\xa5\x01\x18\x00" + pt1[3:]
-    assert pt1[:3] == b"\xa5\x01\x00"
+    nonmin = b"\xa6\x01\x18\x00" + pt1[3:]
+    assert pt1[:3] == b"\xa6\x01\x00"
     out.append(sealed("pb_payload_nonminimal_version", "Payload version 0 encoded as 0x18 0x00.", "O8", nonmin,
                       "payload.ErrMalformed"))
     out.append(sealed("pb_payload_unknown_key", "Payload with an extra key 8.", "O8",
                       encode(w(p, 8, b"x")), "payload.ErrMalformed"))
     out.append(sealed("pb_payload_float_version", "Payload version as half-precision float 0.0.", "O8",
-                      b"\xa5\x01\xf9\x00\x00" + pt1[3:], "payload.ErrMalformed"))
+                      b"\xa6\x01\xf9\x00\x00" + pt1[3:], "payload.ErrMalformed"))
     out.append(sealed("pb_payload_trailing_byte", "One zero byte after the payload map.", "O8", pt1 + b"\x00",
                       "payload.ErrMalformed"))
     out.append(sealed("pb_payload_version_1", "Payload version 1, otherwise valid.", "O8",
@@ -491,20 +514,14 @@ def plaintext_rejects(p1: dict, s1: dict) -> list:
         out.append(sealed(cid, desc, "O8", encode(w(p, 4, {1: mt, 2: p[4][2]})), "payload.ErrMalformed"))
     out.append(sealed("pb_payload_metadata_empty_data", "metadata with an empty data byte string.", "O8",
                       encode(w(p, 7, {1: "application/json", 2: b""})), "payload.ErrMalformed"))
-    out.append(sealed("pb_payload_action_type_uppercase", "Payload action.type with an upper-case letter.", "O8",
-                      encode(w(p, 5, {3: "Application/vnd.edicta.ibkr.order.v0+cbor", 4: p[5][4]})), "payload.ErrMalformed"))
-    out.append(sealed("pb_payload_action_data_empty", "Payload action.data is the empty byte string; actions are 1..65536 bytes.",
-                      "O8", encode(w(p, 5, {3: p[5][3], 4: b""})), "payload.ErrMalformed"))
-    out.append(sealed("pb_payload_retired_action_kind_key", "Payload action carries key 1 (kind, retired in draft.9).",
-                      "O8", encode(w(p, 5, w(p[5], 1, "ibkr.order.v0"))), "payload.ErrMalformed"))
-    out.append(sealed("pb_payload_retired_constraints_key", "Payload carries key 6 (constraints, retired in draft.9).",
-                      "O8", encode(w(p, 6, {1: 120000000000})), "payload.ErrMalformed"))
-    other = order_encode(dict(ORDER_BUY, qty=10000))
-    out.append(sealed("pb_payload_action_differs", "The commitment's action.hash is over the same order with qty 10000; the payload carries qty 20000.",
-                      "O8", pt1, "sdk.ErrPayloadMismatch", ah=action_hash(IBKR, other)))
-    out.append(sealed("pb_payload_action_type_differs", "The commitment's action.type is application/octet-stream and its hash is over the payload's bytes under that type; the payload's type is the IBKR order type.",
-                      "O8", pt1, "sdk.ErrPayloadMismatch", at="application/octet-stream",
-                      ah=action_hash("application/octet-stream", p1["action"]["data"])))
+    out.append(sealed("pb_payload_unknown_action_kind", "action.kind is ibkr.order.v1.", "O8",
+                      encode(w(p, 5, {1: "ibkr.order.v1", 2: p[5][2]})), "payload.ErrMalformed"))
+    other_action = encode(to_cbor(dict(p1["action"], params=dict(p1["action"]["params"], qty=10000)), ACTION))
+    out.append(sealed("pb_payload_action_differs", "The commitment's action has qty 10000 (statically valid: notional 572.50 <= max_notional 1200.00); the payload has 20000.",
+                      "O8", pt1, "sdk.ErrPayloadMismatch", ac=other_action))
+    other_constraints = encode(to_cbor({"max_notional": 120000000001}, CONSTRAINTS))
+    out.append(sealed("pb_payload_constraints_differs", "The commitment's max_notional is one unit higher.",
+                      "O8", pt1, "sdk.ErrPayloadMismatch", cc=other_constraints))
     return out
 
 
@@ -591,6 +608,47 @@ def key_commitment_blob(p1: dict) -> dict:
     raise RuntimeError("no key-commitment solution found")
 
 
+# ---------------------------------------------------------------- DCA body vectors
+
+def dca_vectors() -> dict:
+    cases = []
+    for cid, d, desc in [("dca_minimal", DCA_MINIMAL, "No last_fills."),
+                         ("dca_with_fills", DCA_WITH_FILLS, "Two fills from the previous periods.")]:
+        b = pv.dca_encode(d)
+        assert pv.dca_decode(b) == d
+        cases.append({"id": cid, "description": desc, "input": dca_to_json(d), "cbor_hex": b.hex(),
+                      "action_ref": "pb_one_recipient_dca"})
+    base = pv.dca_to_cbor(DCA_MINIMAL)
+    rejects = []
+
+    def r(cid, desc, b):
+        try:
+            pv.dca_decode(b)
+        except Exception as e:  # noqa: BLE001
+            assert getattr(e, "sentinel", "") == "dca.ErrMalformed", (cid, e)
+        else:
+            raise AssertionError(f"{cid} decodes")
+        rejects.append({"id": cid, "description": desc, "cbor_hex": b.hex(), "expect_error": "dca.ErrMalformed"})
+
+    r("dca_unknown_key", "Extra key 7.", encode(w(base, 7, 0)))
+    r("dca_missing_order", "Key 6 (order) absent.", encode({k: v for k, v in base.items() if k != 6}))
+    r("dca_unsorted_keys", "Keys 2 and 1 swapped.",
+      encode(Pairs(tuple([(2, base[2]), (1, base[1])] + [(k, base[k]) for k in (3, 4, 6)]))))
+    r("dca_float_price", "price.price as a double.",
+      encode(w(base, 4, Pairs(((1, "ibkr.snapshot"), (2, 756733), (3, Raw(b"\xfb\x40\x81\xe0\x00\x00\x00\x00\x00")),
+                                (4, T0 - 30))))))
+    r("dca_last_fills_empty", "last_fills present with 0 entries; an optional field is absent, never empty.",
+      encode(w(base, 5, [])))
+    r("dca_last_fills_9", "last_fills with 9 entries.",
+      encode(w(base, 5, [{1: T0 - i, 2: 1, 3: 1, 4: 1} for i in range(1, 10)])))
+    r("dca_currency_lowercase", "budget.currency usd.",
+      encode(w(base, 3, w(base[3], 1, "usd"))))
+    r("dca_order_side_3", "order.side 3.", encode(w(base, 6, w(base[6], 1, 3))))
+    r("dca_period_zero", "schedule.period_s 0.", encode(w(base, 2, w(base[2], 1, 0))))
+    r("dca_strategy_id_space", "strategy_id with a space.", encode(w(base, 1, "dca spy")))
+    return {"cases": cases, "reject": rejects}
+
+
 # ---------------------------------------------------------------- main
 
 def rfc_text_kat() -> dict:
@@ -616,7 +674,7 @@ def build() -> dict:
                        "16 recipients; DCA context with fills; every optional payload field present; JSON metadata.",
                        payload_dca_full(), names16)
     c3, s3 = valid_case("pb_two_recipients_json_context",
-                        "Two recipients; JSON context, text/plain metadata; a SELL order.",
+                        "Two recipients; JSON context, text/plain metadata; SELL with a price bound.",
                         payload_json_sell(), ["gate-paper-1", "auditor-1"])
     c4, _ = valid_case("pb_opaque_kid_empty_context",
                        "One recipient with a 32-byte binary kid; application/octet-stream context with empty data.",
@@ -624,15 +682,15 @@ def build() -> dict:
     kc = key_commitment_blob(p1)
     g = KEYS["gate-paper-1"]
     ph = hashlib.sha256(kc["m1"]).digest()
-    at1 = p1["action"]["type"]
-    ah1 = action_hash(at1, p1["action"]["data"])
-    assert pv.open_payload(kc["blob"], g["sk"], g["kid"], ph, at1, ah1) == p1
+    action_cbor = encode(to_cbor(p1["action"], ACTION))
+    constraints_cbor = encode(to_cbor(p1["constraints"], CONSTRAINTS))
+    assert pv.open_payload(kc["blob"], g["sk"], g["kid"], ph, action_cbor, constraints_cbor) == p1
     kc_case = rj("pb_key_commitment_two_deks", "plaintext", "O7",
                  "One ciphertext that ChaCha20-Poly1305 accepts under two DEKs. gate-paper-1 unwraps DEK1 and opens "
                  "the committed payload; auditor-1 unwraps DEK2, the AEAD check passes, and the bytes differ. Only "
                  "the plaintext_hash comparison, made before parsing, rejects them.",
                  kc["blob"], "sdk.ErrPlaintextHashMismatch", key="auditor-1", kid_hex=KEYS["auditor-1"]["kid"],
-                 plaintext_hash_hex=ph, action_type=at1, action_hash_hex=ah1,
+                 plaintext_hash_hex=ph, action_cbor_hex=action_cbor, constraints_cbor_hex=constraints_cbor,
                  honest_key="gate-paper-1", honest_kid_hex=g["kid"], dek1_hex=kc["dek1"], dek2_hex=kc["dek2"],
                  auditor_aead_plaintext_hex=kc["m2"])
     rejects = decode_rejects(s1) + open_rejects(s1, s3) + plaintext_rejects(p1, s1) + [kc_case]
@@ -662,6 +720,7 @@ def build() -> dict:
                                "pk_hex": k["pk"].hex()} for n, k in KEYS.items()},
         "cases": [c1, c2, c3, c4],
         "reject": rejects,
+        "dca": dca_vectors(),
     }
 
 

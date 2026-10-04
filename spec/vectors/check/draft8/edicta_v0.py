@@ -1,18 +1,16 @@
-"""DecisionCommitment v0 rules (v0-draft.9).
+"""Frozen copy of the v0-draft.8 rules. It checks spec/vectors/v0, which the Go
+code reads until it switches to the draft.9 vectors; delete this directory then.
+
+DecisionCommitment v0 rules.
 
 This module is the Python side of the cross-language check. It must not be
 ported from, or to, the Go implementation: agreement between two independent
 implementations of the same rules is the point.
-
-The core is platform-agnostic: an action is an opaque byte string bound to the
-commitment by its type and a tagged hash. Nothing here knows any rail.
 """
 
 from __future__ import annotations
 
 import hashlib
-import hmac
-import re
 from dataclasses import dataclass
 
 from cbor_strict import CBORError, Item, decode_strict, encode
@@ -22,27 +20,21 @@ TAG_COMMITMENT = b"edicta/v0/decision-commitment"
 TAG_SIG = b"edicta/v0/sig"
 TAG_RECEIPT = b"edicta/v0/receipt"
 TAG_RECEIPT_SIG = b"edicta/v0/receipt-sig"
-TAG_ACTION = b"edicta/v0/action"
-TAG_AUTHORIZATION = b"edicta/v0/authorization"
-TAG_AUTHORIZATION_SIG = b"edicta/v0/authorization-sig"
 
 MAX_SIGNED_SIZE = 2176
 MAX_COMMITMENT_SIZE = 2048
 MAX_PAYLOAD_SIZE = 1 << 27
-MAX_ACTION_SIZE = 1 << 16
-MAX_ACTION_TYPE_SIZE = 128
-MIN_ACTION_TYPE_SIZE = 3
-MAX_AUTHORIZATION_SIZE = 256
-MAX_RECEIPT_SIZE = 512
 MAX_INT = (1 << 63) - 1
+QTY_SCALE = 10_000
+MONEY_SCALE = 100_000_000
 MAX_TTL_CAP = 3600
 ED25519_L = 2**252 + 27742317777372353535851937790883648493
 
+KIND_IBKR_ORDER_V0 = "ibkr.order.v0"
+
 ID_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/-")
 PRINTABLE = frozenset(chr(c) for c in range(0x20, 0x7F))
-MEDIA_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789!#$&^_.+-/")
-_MEDIA_PART = r"[a-z0-9][a-z0-9!#$&^_.+-]*"
-_MEDIA_RE = re.compile(rf"^{_MEDIA_PART}/{_MEDIA_PART}$")
+UPPER = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 
 class Reject(Exception):
@@ -58,34 +50,45 @@ def tagged(tag: bytes) -> bytes:
     return bytes([len(tag)]) + tag
 
 
-def media_type_ok(s: str, lo: int, hi: int) -> bool:
-    """Lower-case type/subtype, one slash, no parameters, no whitespace."""
-    return lo <= len(s) <= hi and all(c in MEDIA_CHARS for c in s) and _MEDIA_RE.match(s) is not None
-
-
 # Field schema: key -> (name, type, required, limit)
-# type: "uint" | "bstr" | "tstr" | "media" | map schema dict
+# type: "uint" | "bstr" | "tstr" | map schema dict | "params"
 # required: True, False, or DA_BLOB_ONLY (payload_ref.signer: required when
 # da == 2, not defined when da == 1, optional for any other da, which the enum check rejects).
-# limit for bstr/tstr/media: (min_len, max_len[, charset]). A "media" string is
-# a tstr checked for length first, then for the media-type grammar.
+# limit for bstr/tstr: (min_len, max_len); tstr also carries a charset.
 
 DA_FIBRE = 1
 DA_CELESTIA_BLOB = 2
 DA_BLOB_ONLY = "da=celestia_blob"
 SIGNER_SIZE = 20
 
-# Retired keys are left out of the schemas, so they decode as ErrUnknownKey:
-# commitment 9 (constraints), action 1 (kind), 2 (params), scope 2 (rail),
-# 3 (account), 4 (chain_id),
-# receipt 5 (rail), 7 (path), payload 6 (constraints).
 SCOPE = {
     1: ("gate_id", "tstr", True, (1, 64, ID_CHARS)),
+    2: ("rail", "uint", True, None),
+    3: ("account", "tstr", True, (1, 32, ID_CHARS)),
+    4: ("chain_id", "tstr", False, (1, 64, ID_CHARS)),
+}
+
+IBKR_ORDER_V0 = {
+    1: ("account", "tstr", True, (1, 32, ID_CHARS)),
+    2: ("conid", "uint", True, None),
+    3: ("symbol", "tstr", False, (1, 32, PRINTABLE)),
+    4: ("side", "uint", True, None),
+    5: ("qty", "uint", True, None),
+    6: ("order_type", "uint", True, None),
+    7: ("limit_price", "uint", False, None),
+    8: ("currency", "tstr", True, (3, 3, UPPER)),
+    9: ("tif", "uint", True, None),
 }
 
 ACTION = {
-    3: ("type", "media", True, (MIN_ACTION_TYPE_SIZE, MAX_ACTION_TYPE_SIZE)),
-    4: ("hash", "bstr", True, (32, 32)),
+    1: ("kind", "tstr", True, (1, 64, ID_CHARS)),
+    2: ("params", "params", True, None),
+}
+
+CONSTRAINTS = {
+    1: ("max_notional", "uint", True, None),
+    2: ("price_bound", "uint", False, None),
+    3: ("deadline", "uint", False, None),
 }
 
 PAYLOAD_REF = {
@@ -105,6 +108,7 @@ COMMITMENT = {
     6: ("valid_until", "uint", True, None),
     7: ("scope", SCOPE, True, None),
     8: ("action", ACTION, True, None),
+    9: ("constraints", CONSTRAINTS, True, None),
     10: ("payload_ref", PAYLOAD_REF, True, None),
     11: ("ciphertext_hash", "bstr", True, (32, 32)),
     12: ("plaintext_hash", "bstr", True, (32, 32)),
@@ -116,10 +120,12 @@ ENVELOPE = {
     2: ("signature", "bstr", True, (64, 64)),
 }
 
-MAJOR = {"uint": 0, "bstr": 2, "tstr": 3, "media": 3}
+PARAMS_BY_KIND = {KIND_IBKR_ORDER_V0: IBKR_ORDER_V0}
+
+MAJOR = {"uint": 0, "bstr": 2, "tstr": 3, "params": 5}
 
 
-def _schema_decode(it: Item, schema: dict, where: str, size_limits: dict | None = None) -> dict:
+def _schema_decode(it: Item, schema: dict, where: str) -> dict:
     if it.major != 5:
         raise Reject("ErrWrongType", f"{where}: expected map")
     out: dict = {}
@@ -146,21 +152,19 @@ def _schema_decode(it: Item, schema: dict, where: str, size_limits: dict | None 
             if any(c not in chars for c in v.value):
                 raise Reject("ErrInvalidString", f"{path}: character outside charset")
             out[name] = v.value
-        elif typ == "media":
-            lo, hi = limit
-            if not lo <= len(v.value.encode("utf-8")) <= hi:
-                raise Reject("ErrFieldSize", f"{path}: {len(v.value.encode('utf-8'))} bytes")
-            if not media_type_ok(v.value, lo, hi):
-                raise Reject("ErrInvalidString", f"{path}: not a lower-case type/subtype")
-            out[name] = v.value
         elif typ == "uint":
             out[name] = v.value
+        elif typ == "params":
+            kind = out.get("kind")
+            if kind is None:
+                raise Reject("ErrMissingField", f"{where}.kind")
+            if kind not in PARAMS_BY_KIND:
+                raise Reject("ErrUnsupportedActionKind", kind)
+            out[name] = _schema_decode(v, PARAMS_BY_KIND[kind], path)
         else:
-            if size_limits and typ is not None and id(typ) in size_limits:
-                limit_bytes, what = size_limits[id(typ)]
-                if v.end - v.start > limit_bytes:
-                    raise Reject("ErrTooLarge", f"{what} is {v.end - v.start} bytes")
-            out[name] = _schema_decode(v, typ, path, size_limits)
+            if typ is COMMITMENT and v.end - v.start > MAX_COMMITMENT_SIZE:
+                raise Reject("ErrTooLarge", f"commitment is {v.end - v.start} bytes")
+            out[name] = _schema_decode(v, typ, path)
     for key, (name, _, required, _) in schema.items():
         if required == DA_BLOB_ONLY:
             required = out.get("da") == DA_CELESTIA_BLOB
@@ -169,27 +173,20 @@ def _schema_decode(it: Item, schema: dict, where: str, size_limits: dict | None 
     return out
 
 
-def _decode_signed(data: bytes, limit: int, schema: dict, inner_schema: dict, where: str,
-                   size_limits: dict | None = None):
-    if len(data) > limit:
-        raise Reject("ErrTooLarge", f"{len(data)} bytes")
-    try:
-        it = decode_strict(data)
-    except CBORError as e:
-        raise Reject(e.sentinel, e.detail)
-    signed = _schema_decode(it, schema, where, size_limits)
-    inner = next(v for k, v in it.value if k.value == 1)
-    canon = data[inner.start:inner.end]
-    inner_name = schema[1][0]
-    if encode(to_cbor(signed[inner_name], inner_schema)) != canon:
-        raise Reject("ErrNonCanonical", "re-encoding differs")
-    return signed, canon
-
-
 def decode_signed(envelope: bytes):
     """Decode and schema-check a signed envelope. Returns (signed dict, canonical commitment bytes)."""
-    return _decode_signed(envelope, MAX_SIGNED_SIZE, ENVELOPE, COMMITMENT, "envelope",
-                          {id(COMMITMENT): (MAX_COMMITMENT_SIZE, "commitment")})
+    if len(envelope) > MAX_SIGNED_SIZE:
+        raise Reject("ErrTooLarge", f"{len(envelope)} bytes")
+    try:
+        it = decode_strict(envelope)
+    except CBORError as e:
+        raise Reject(e.sentinel, e.detail)
+    signed = _schema_decode(it, ENVELOPE, "envelope")
+    inner = next(v for k, v in it.value if k.value == 1)
+    canon = envelope[inner.start:inner.end]
+    if encode(to_cbor(signed["commitment"])) != canon:
+        raise Reject("ErrNonCanonical", "re-encoding differs")
+    return signed, canon
 
 
 def to_cbor(c: dict, schema: dict = COMMITMENT) -> dict:
@@ -198,7 +195,12 @@ def to_cbor(c: dict, schema: dict = COMMITMENT) -> dict:
     out = {}
     for name, val in c.items():
         key, (_, typ, _, _) = by_name[name]
-        out[key] = to_cbor(val, typ) if isinstance(typ, dict) else val
+        if isinstance(typ, dict):
+            out[key] = to_cbor(val, typ)
+        elif typ == "params":
+            out[key] = to_cbor(val, PARAMS_BY_KIND.get(c.get("kind"), IBKR_ORDER_V0))
+        else:
+            out[key] = val
     return out
 
 
@@ -209,27 +211,6 @@ def commitment_hash(canon: bytes) -> bytes:
 def signing_message(h: bytes, tag: bytes = TAG_SIG) -> bytes:
     assert len(h) == 32
     return tagged(tag) + h
-
-
-# Action hash. The type is inside the preimage with a one-byte length prefix,
-# so bytes committed under one type never match under another, and
-# type || bytes splits one way only.
-
-def action_type_ok(t: str) -> bool:
-    return media_type_ok(t, MIN_ACTION_TYPE_SIZE, MAX_ACTION_TYPE_SIZE)
-
-
-def action_preimage_prefix(action_type: str) -> bytes:
-    t = action_type.encode("ascii")
-    return tagged(TAG_ACTION) + bytes([len(t)]) + t
-
-
-def action_hash(action_type: str, action: bytes) -> bytes:
-    if not 1 <= len(action) <= MAX_ACTION_SIZE:
-        raise Reject("ErrActionSize", f"{len(action)} bytes")
-    if not action_type_ok(action_type):
-        raise Reject("ErrInvalidString", f"action type {action_type!r}")
-    return hashlib.sha256(action_preimage_prefix(action_type) + action).digest()
 
 
 @dataclass(frozen=True)
@@ -250,6 +231,18 @@ class Params:
         return min(MAX_TTL_CAP, retention // 4)
 
 
+def _ints(c: dict):
+    p, k, r = c["action"]["params"], c["constraints"], c["payload_ref"]
+    yield from (c["version"], c["issued_at"], c["valid_until"], c["scope"]["rail"], c["payload_size"])
+    for name in ("conid", "side", "qty", "order_type", "limit_price", "tif"):
+        if name in p:
+            yield p[name]
+    for name in ("max_notional", "price_bound", "deadline"):
+        if name in k:
+            yield k[name]
+    yield from (r["da"], r["height"])
+
+
 def namespace_ok(ns: bytes) -> bool:
     # Celestia v0 user namespace: version 0, 18 zero bytes, and the first 9
     # sub-id bytes not all zero, which excludes the primary reserved range.
@@ -259,25 +252,57 @@ def namespace_ok(ns: bytes) -> bool:
 def validate_static(c: dict, p: Params):
     """Static checks in this fixed order, so that every implementation
     reports the same error for an input with several defects."""
+    a = c["action"]["params"]
+    k = c["constraints"]
     r = c["payload_ref"]
     if c["version"] != 0:
         raise Reject("ErrUnsupportedVersion", str(c["version"]))
-    if any(v > MAX_INT for v in (c["version"], c["issued_at"], c["valid_until"], c["payload_size"],
-                                 r["da"], r["height"])):
+    if any(v > MAX_INT for v in _ints(c)):
         raise Reject("ErrIntRange")
-    if r["da"] not in (DA_FIBRE, DA_CELESTIA_BLOB):
-        raise Reject("ErrInvalidEnum", f"da={r['da']}")
-    for name, val in (("issued_at", c["issued_at"]), ("height", r["height"]), ("payload_size", c["payload_size"])):
+    for name, val, allowed in (
+        ("side", a["side"], {1, 2}),
+        ("order_type", a["order_type"], {1, 2}),
+        ("tif", a["tif"], {1, 2, 3}),
+        ("da", r["da"], {1, 2}),
+    ):
+        if val not in allowed:
+            raise Reject("ErrInvalidEnum", f"{name}={val}")
+    if c["scope"]["rail"] == 0:
+        raise Reject("ErrInvalidEnum", "rail=0")
+    if c["scope"]["rail"] != 1:
+        raise Reject("ErrUnsupportedRail", str(c["scope"]["rail"]))
+    if a["order_type"] == 2:
+        raise Reject("ErrUnsupportedOrderType", "MKT")
+    for name, val in (
+        ("issued_at", c["issued_at"]), ("conid", a["conid"]), ("qty", a["qty"]),
+        ("limit_price", a.get("limit_price")), ("max_notional", k["max_notional"]),
+        ("price_bound", k.get("price_bound")), ("height", r["height"]),
+        ("payload_size", c["payload_size"]),
+    ):
         if val == 0:
             raise Reject("ErrZeroValue", name)
     if c["payload_size"] > MAX_PAYLOAD_SIZE:
         raise Reject("ErrPayloadTooLarge")
     if not namespace_ok(r["namespace"]):
         raise Reject("ErrInvalidNamespace")
+    if ("limit_price" in a) != (a["order_type"] == 1):
+        raise Reject("ErrLimitPrice")
+    if c["scope"]["account"] != a["account"]:
+        raise Reject("ErrAccountMismatch")
+    if "chain_id" in c["scope"]:
+        raise Reject("ErrChainIDRule")
     if c["valid_until"] <= c["issued_at"]:
         raise Reject("ErrTimeOrder")
+    if "deadline" in k and not c["issued_at"] < k["deadline"] <= c["valid_until"]:
+        raise Reject("ErrDeadlineRange")
     if c["valid_until"] - c["issued_at"] > p.max_ttl(r["da"]):
         raise Reject("ErrTTLTooLong")
+    if "price_bound" in k:
+        lp, b = a["limit_price"], k["price_bound"]
+        if (a["side"] == 1 and lp > b) or (a["side"] == 2 and lp < b):
+            raise Reject("ErrPriceBound")
+    if a["qty"] * a["limit_price"] > k["max_notional"] * QTY_SCALE:
+        raise Reject("ErrNotionalExceeded")
 
 
 def verify_signature(c: dict, canon: bytes, sig: bytes) -> bytes:
@@ -319,25 +344,23 @@ def _verify_tagged_hash(pub: bytes, h: bytes, sig: bytes, tag: bytes = TAG_SIG):
 def check_time(c: dict, now: int, p: Params):
     if c["issued_at"] > now + p.skew_s:
         raise Reject("ErrNotYetValid")
-    if now + p.skew_s >= c["valid_until"]:
+    expiry = c["constraints"].get("deadline", c["valid_until"])
+    if now + p.skew_s >= expiry:
         raise Reject("ErrExpired")
 
 
 def check_scope(c: dict, gate: dict):
-    """gate: {"gate_id": str, "action_types": [str, ...]}."""
-    if c["scope"]["gate_id"] != gate["gate_id"]:
-        raise Reject("ErrScopeMismatch", "gate_id")
-    if c["action"]["type"] not in gate["action_types"]:
-        raise Reject("ErrActionTypeNotAllowed", c["action"]["type"])
+    s = c["scope"]
+    for name in ("gate_id", "rail", "account", "chain_id"):
+        if s.get(name) != gate.get(name):
+            raise Reject("ErrScopeMismatch", name)
 
 
-def check_action(c: dict, action: bytes):
-    """Exact match: the supplied bytes hash, under the committed type, to the committed hash."""
-    if not 1 <= len(action) <= MAX_ACTION_SIZE:
-        raise Reject("ErrActionSize", f"{len(action)} bytes")
-    got = action_hash(c["action"]["type"], action)
-    if not hmac.compare_digest(got, c["action"]["hash"]):
-        raise Reject("ErrActionMismatch")
+def check_action(c: dict, req: dict):
+    a = c["action"]["params"]
+    for name in ("account", "conid", "side", "qty", "order_type", "limit_price", "currency", "tif"):
+        if a.get(name) != req.get(name):
+            raise Reject("ErrActionMismatch", name)
 
 
 def check_payload(c: dict, blob: bytes):
@@ -366,91 +389,22 @@ def verify_for_gate(envelope: bytes, now: int, gate: dict, p: Params):
     return signed, h
 
 
-# Authorization (gate output, checked by the integrator's executor).
+# Receipt (gate output). Same CBOR profile as the commitment.
 
+MAX_RECEIPT_SIZE = 512
+RAIL_IBKR = 1
 PATH_DA = 1
 PATH_ARCHIVE = 2
-
-AUTHORIZATION = {
-    1: ("version", "uint", True, None),
-    2: ("commitment_hash", "bstr", True, (32, 32)),
-    3: ("action_hash", "bstr", True, (32, 32)),
-    4: ("gate_id", "tstr", True, (1, 64, ID_CHARS)),
-    5: ("expires", "uint", True, None),
-    6: ("path", "uint", True, None),
-}
-
-SIGNED_AUTHORIZATION = {
-    1: ("authorization", AUTHORIZATION, True, None),
-    2: ("signature", "bstr", True, (64, 64)),
-}
-
-
-def authorization_hash(canon: bytes) -> bytes:
-    return hashlib.sha256(tagged(TAG_AUTHORIZATION) + canon).digest()
-
-
-def decode_signed_authorization(data: bytes):
-    """Decode and schema-check a signed Authorization. Returns (signed dict, canonical Authorization bytes)."""
-    return _decode_signed(data, MAX_AUTHORIZATION_SIZE, SIGNED_AUTHORIZATION, AUTHORIZATION,
-                          "signed_authorization")
-
-
-def validate_authorization_static(a: dict):
-    if a["version"] != 0:
-        raise Reject("ErrUnsupportedVersion", str(a["version"]))
-    if any(a[n] > MAX_INT for n in ("version", "expires", "path")):
-        raise Reject("ErrIntRange")
-    if a["path"] not in (PATH_DA, PATH_ARCHIVE):
-        raise Reject("ErrInvalidEnum", f"path={a['path']}")
-    if a["expires"] == 0:
-        raise Reject("ErrZeroValue", "expires")
-
-
-@dataclass(frozen=True)
-class AuthorizationCheck:
-    """What an executor knows on its own: the pinned gate key and id, the
-    action type it executes, the exact bytes it is about to execute, its clock."""
-    gate_pubkey: bytes
-    gate_id: str
-    action_type: str
-    action: bytes
-    now: int
-    skew_s: int
-
-
-def verify_authorization(data: bytes, chk: AuthorizationCheck):
-    """Decoding, static checks, signature under the pinned gate key, then the
-    executor checks in this fixed order. Returns (signed, authorization_hash)."""
-    signed, canon = decode_signed_authorization(data)
-    a = signed["authorization"]
-    validate_authorization_static(a)
-    h = authorization_hash(canon)
-    _verify_tagged_hash(chk.gate_pubkey, h, signed["signature"], TAG_AUTHORIZATION_SIG)
-    if a["gate_id"] != chk.gate_id:
-        raise Reject("ErrScopeMismatch", "gate_id")
-    if not 1 <= len(chk.action) <= MAX_ACTION_SIZE:
-        raise Reject("ErrActionSize", f"{len(chk.action)} bytes")
-    if not hmac.compare_digest(action_hash(chk.action_type, chk.action), a["action_hash"]):
-        raise Reject("ErrActionMismatch")
-    if chk.now + chk.skew_s >= a["expires"]:
-        raise Reject("ErrExpired")
-    return signed, h
-
-
-def authorization_expires(valid_until: int, authorized_at: int, max_ttl: int) -> int:
-    return min(valid_until, authorized_at + max_ttl)
-
-
-# Receipt (gate notarization of an integrator-supplied rail reference).
 
 RECEIPT = {
     1: ("version", "uint", True, None),
     2: ("commitment_hash", "bstr", True, (32, 32)),
     3: ("gate_id", "tstr", True, (1, 64, ID_CHARS)),
     4: ("gate_pubkey", "bstr", True, (32, 32)),
+    5: ("rail", "uint", True, None),
     6: ("rail_ref", "tstr", True, (1, 128, ID_CHARS)),
-    8: ("recorded_at", "uint", True, None),
+    7: ("path", "uint", True, None),
+    8: ("executed_at", "uint", True, None),
 }
 
 SIGNED_RECEIPT = {
@@ -465,17 +419,34 @@ def receipt_hash(canon: bytes) -> bytes:
 
 def decode_signed_receipt(data: bytes):
     """Decode and schema-check a signed receipt. Returns (signed dict, canonical receipt bytes)."""
-    return _decode_signed(data, MAX_RECEIPT_SIZE, SIGNED_RECEIPT, RECEIPT, "signed_receipt")
+    if len(data) > MAX_RECEIPT_SIZE:
+        raise Reject("ErrTooLarge", f"{len(data)} bytes")
+    try:
+        it = decode_strict(data)
+    except CBORError as e:
+        raise Reject(e.sentinel, e.detail)
+    signed = _schema_decode(it, SIGNED_RECEIPT, "signed_receipt")
+    inner = next(v for k, v in it.value if k.value == 1)
+    canon = data[inner.start:inner.end]
+    if encode(to_cbor(signed["receipt"], RECEIPT)) != canon:
+        raise Reject("ErrNonCanonical", "re-encoding differs")
+    return signed, canon
 
 
 def validate_receipt_static(r: dict):
     """Static receipt checks in this fixed order."""
     if r["version"] != 0:
         raise Reject("ErrUnsupportedVersion", str(r["version"]))
-    if any(r[n] > MAX_INT for n in ("version", "recorded_at")):
+    if any(r[n] > MAX_INT for n in ("version", "rail", "path", "executed_at")):
         raise Reject("ErrIntRange")
-    if r["recorded_at"] == 0:
-        raise Reject("ErrZeroValue", "recorded_at")
+    if r["rail"] == 0:
+        raise Reject("ErrInvalidEnum", "rail=0")
+    if r["path"] not in (PATH_DA, PATH_ARCHIVE):
+        raise Reject("ErrInvalidEnum", f"path={r['path']}")
+    if r["rail"] != RAIL_IBKR:
+        raise Reject("ErrUnsupportedRail", str(r["rail"]))
+    if r["executed_at"] == 0:
+        raise Reject("ErrZeroValue", "executed_at")
 
 
 def verify_receipt(data: bytes):
@@ -543,3 +514,15 @@ def check_registry_epoch(issued_at: int, epoch: int, skew: int):
     """Nothing signed before the registry existed (plus skew) is admitted."""
     if issued_at <= sat_add(epoch, skew):
         raise Reject("ErrBeforeRegistryEpoch")
+
+
+# Client order id per rail.
+
+def client_order_id(rail: int, h: bytes) -> str:
+    if len(h) != 32:
+        raise ValueError("commitment_hash must be 32 bytes")
+    if rail == 0:
+        raise Reject("ErrInvalidEnum", "rail=0")
+    if rail != RAIL_IBKR:
+        raise Reject("ErrUnsupportedRail", str(rail))
+    return h.hex()

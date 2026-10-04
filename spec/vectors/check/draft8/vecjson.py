@@ -1,8 +1,11 @@
-"""JSON form of vector inputs: uints as decimal strings, byte strings as lowercase hex."""
+"""Frozen copy of the v0-draft.8 rules. It checks spec/vectors/v0, which the Go
+code reads until it switches to the draft.9 vectors; delete this directory then.
+
+JSON form of vector inputs: uints as decimal strings, byte strings as lowercase hex."""
 
 from __future__ import annotations
 
-from edicta_v0 import AUTHORIZATION, COMMITMENT, RECEIPT, Params
+from edicta_v0 import COMMITMENT, IBKR_ORDER_V0, PARAMS_BY_KIND, RECEIPT, Params
 
 
 def _conv(obj: dict, schema: dict, to_json: bool) -> dict:
@@ -12,6 +15,8 @@ def _conv(obj: dict, schema: dict, to_json: bool) -> dict:
         _, typ, _, _ = by_name[name]
         if isinstance(typ, dict):
             out[name] = _conv(val, typ, to_json)
+        elif typ == "params":
+            out[name] = _conv(val, PARAMS_BY_KIND.get(obj.get("kind"), IBKR_ORDER_V0), to_json)
         elif typ == "uint":
             out[name] = str(val) if to_json else int(val)
         elif typ == "bstr":
@@ -37,20 +42,20 @@ def receipt_from_json(j: dict) -> dict:
     return _conv(j, RECEIPT, False)
 
 
-def authorization_to_json(a: dict) -> dict:
-    return _conv(a, AUTHORIZATION, True)
+def order_to_json(o: dict) -> dict:
+    return _conv(o, IBKR_ORDER_V0, True)
 
 
-def authorization_from_json(j: dict) -> dict:
-    return _conv(j, AUTHORIZATION, False)
+def order_from_json(j: dict) -> dict:
+    return _conv(j, IBKR_ORDER_V0, False)
 
 
 def gate_to_json(g: dict) -> dict:
-    return {"gate_id": g["gate_id"], "action_types": list(g["action_types"])}
+    return {k: (str(v) if k == "rail" else v) for k, v in g.items()}
 
 
 def gate_from_json(j: dict) -> dict:
-    return {"gate_id": j["gate_id"], "action_types": list(j["action_types"])}
+    return {k: (int(v) if k == "rail" else v) for k, v in j.items()}
 
 
 def params_to_json(p: Params) -> dict:
@@ -61,19 +66,3 @@ def params_to_json(p: Params) -> dict:
 
 def params_from_json(j: dict) -> Params:
     return Params(int(j["fibre_retention_s"]), int(j["blob_retention_s"]), int(j["skew_s"]))
-
-
-PATTERNS = {"affine-7-3": "byte i of the action is (7*i + 3) mod 256, for i from 0"}
-
-
-def pattern_bytes(name: str, size: int) -> bytes:
-    if name != "affine-7-3":
-        raise ValueError(f"unknown pattern {name}")
-    return bytes((7 * i + 3) & 0xFF for i in range(size))
-
-
-def action_from_case(case: dict) -> bytes:
-    """Action bytes of a vector case: inline hex, or a pattern for large actions."""
-    if "action_hex" in case:
-        return bytes.fromhex(case["action_hex"])
-    return pattern_bytes(case["action_pattern"], int(case["action_size"]))

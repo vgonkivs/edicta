@@ -1,27 +1,28 @@
-"""Payload blob and payload plaintext rules for Edicta v0 (v0-draft.9).
+"""Frozen copy of the v0-draft.8 rules. It checks spec/vectors/v0, which the Go
+code reads until it switches to the draft.9 vectors; delete this directory then.
+
+Payload blob, payload plaintext and DCA context rules for Edicta v0.
 
 Python side of the cross-language check for the published payload. Like
 edicta_v0.py it must not be ported from, or to, the Go implementation.
 
-Sentinel names carry the Go package that owns them: blob.ErrX, payload.ErrX
-and sdk.ErrX. Context media types (for example the DCA context of the
-dca-agent profile) are not core rules; see profile_dca_agent.py.
+Sentinel names carry the Go package that owns them: blob.ErrX, payload.ErrX,
+sdk.ErrX and dca.ErrX.
 """
 
 from __future__ import annotations
 
 import hashlib
-import hmac
+import re
 from dataclasses import dataclass
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
 import hpke_base as hpke
-from cbor_strict import CBORError, decode_strict, encode
-from edicta_v0 import (MAX_ACTION_SIZE, MAX_ACTION_TYPE_SIZE, MAX_PAYLOAD_SIZE, MIN_ACTION_TYPE_SIZE,
-                      PRINTABLE, Reject, _schema_decode, action_hash, tagged, to_cbor)
-from edicta_v0 import media_type_ok as _media_ok
+from cbor_strict import CBORError, Item, decode_strict, encode
+from edicta_v0 import (ACTION, CONSTRAINTS, ID_CHARS, MAX_INT, MAX_PAYLOAD_SIZE, PRINTABLE, UPPER,
+                      Reject, _schema_decode, tagged, to_cbor)
 
 TAG_PAYLOAD_AEAD = b"edicta/v0/payload"
 TAG_PAYLOAD_DEK = b"edicta/v0/payload-dek"
@@ -41,7 +42,10 @@ MAX_DECODE_SIZE = MAX_PAYLOAD_SIZE
 MAX_SEAL_SIZE = MAX_PAYLOAD_SIZE - 5
 
 PAYLOAD_VERSION = 0
+MEDIA_TYPE_DCA_V0 = "application/vnd.edicta.dca.v0+cbor"
 MEDIA_TYPE_MAX = 64
+_MEDIA_PART = r"[a-z0-9][a-z0-9!#$&^_.+-]*"
+_MEDIA_RE = re.compile(rf"^{_MEDIA_PART}/{_MEDIA_PART}$")
 MEDIA_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789!#$&^_.+-/")
 
 
@@ -60,7 +64,7 @@ def payload_aad() -> bytes:
 
 
 def media_type_ok(s: str) -> bool:
-    return _media_ok(s, 1, MEDIA_TYPE_MAX)
+    return 1 <= len(s) <= MEDIA_TYPE_MAX and all(c in MEDIA_CHARS for c in s) and _MEDIA_RE.match(s) is not None
 
 
 # ---------------------------------------------------------------- blob layout
@@ -248,23 +252,17 @@ def open_blob(raw: bytes, sk_r: bytes, kid: bytes | None = None) -> bytes:
         raise Reject("blob.ErrDecrypt", "")
 
 
-def payload_matches_action(p: dict, action_type: str, committed_hash: bytes) -> bool:
-    """The payload carries the committed action: same type bytes, and its data hashes to action.hash."""
-    a = p["action"]
-    return a["type"] == action_type and hmac.compare_digest(action_hash(a["type"], a["data"]), committed_hash)
-
-
 def open_payload(raw: bytes, sk_r: bytes, kid: bytes | None, plaintext_hash: bytes,
-                 action_type: str, committed_action_hash: bytes) -> dict:
-    """Blob steps of the opening procedure, given the commitment's plaintext_hash, action.type and action.hash."""
+                 action_cbor: bytes, constraints_cbor: bytes) -> dict:
+    """Blob steps of the opening procedure, given the commitment's plaintext_hash and its key 8 and 9 bytes."""
     aead_pt = open_blob(raw, sk_r, kid)
     if hashlib.sha256(aead_pt).digest() != plaintext_hash:
         raise Reject("sdk.ErrPlaintextHashMismatch", "")
     p = payload_decode(aead_pt[SALT_SIZE:])
-    if p["action"]["type"] != action_type:
-        raise Reject("sdk.ErrPayloadMismatch", "action type")
-    if not payload_matches_action(p, action_type, committed_action_hash):
-        raise Reject("sdk.ErrPayloadMismatch", "action hash")
+    if encode(to_cbor(p["action"], ACTION)) != action_cbor:
+        raise Reject("sdk.ErrPayloadMismatch", "action")
+    if encode(to_cbor(p["constraints"], CONSTRAINTS)) != constraints_cbor:
+        raise Reject("sdk.ErrPayloadMismatch", "constraints")
     return p
 
 
@@ -295,19 +293,13 @@ METADATA = {
     2: ("data", "bstr", True, (1, MAX_PAYLOAD_SIZE)),
 }
 
-# Keys 1 and 2 are retired (draft.8 kind and params): never reused.
-PAYLOAD_ACTION = {
-    3: ("type", "media", True, (MIN_ACTION_TYPE_SIZE, MAX_ACTION_TYPE_SIZE)),
-    4: ("data", "bstr", True, (1, MAX_ACTION_SIZE)),
-}
-
-# Key 6 (constraints) is retired: never reused, so a draft.8 payload is malformed.
 PAYLOAD = {
     1: ("version", "uint", True, None),
     2: ("model", MODEL, True, None),
     3: ("policy", POLICY, True, None),
     4: ("context", CONTEXT, True, None),
-    5: ("action", PAYLOAD_ACTION, True, None),
+    5: ("action", ACTION, True, None),
+    6: ("constraints", CONSTRAINTS, True, None),
     7: ("metadata", METADATA, False, None),
 }
 
@@ -331,3 +323,137 @@ def payload_decode(b: bytes) -> dict:
     if p["version"] != PAYLOAD_VERSION:
         raise Reject("payload.ErrVersion", f"version {p['version']}")
     return p
+
+
+# ---------------------------------------------------------------- application/vnd.edicta.dca.v0+cbor
+
+DCA_MAX_FILLS = 8
+
+DCA_SCHEDULE = {
+    1: ("period_s", "uint", True, None),
+    2: ("period_start", "uint", True, None),
+}
+
+DCA_BUDGET = {
+    1: ("currency", "tstr", True, (3, 3, UPPER)),
+    2: ("per_period", "uint", True, None),
+    3: ("spent", "uint", True, None),
+}
+
+DCA_PRICE = {
+    1: ("source", "tstr", True, (1, 64, ID_CHARS)),
+    2: ("conid", "uint", True, None),
+    3: ("price", "uint", True, None),
+    4: ("observed_at", "uint", True, None),
+}
+
+DCA_FILL = {
+    1: ("filled_at", "uint", True, None),
+    2: ("side", "uint", True, None),
+    3: ("qty", "uint", True, None),
+    4: ("price", "uint", True, None),
+}
+
+DCA_ORDER = {
+    1: ("side", "uint", True, None),
+    2: ("qty", "uint", True, None),
+    3: ("limit_price", "uint", True, None),
+}
+
+DCA = {
+    1: ("strategy_id", "tstr", True, (1, 64, ID_CHARS)),
+    2: ("schedule", DCA_SCHEDULE, True, None),
+    3: ("budget", DCA_BUDGET, True, None),
+    4: ("price", DCA_PRICE, True, None),
+    5: ("last_fills", "fills", False, None),
+    6: ("order", DCA_ORDER, True, None),
+}
+
+DCA_NONZERO = {
+    ("schedule", "period_s"), ("schedule", "period_start"), ("budget", "per_period"),
+    ("price", "conid"), ("price", "price"), ("price", "observed_at"),
+    ("order", "qty"), ("order", "limit_price"),
+}
+
+
+def dca_to_cbor(d: dict) -> dict:
+    out = {}
+    for key, (name, typ, _, _) in DCA.items():
+        if name not in d:
+            continue
+        if typ == "fills":
+            out[key] = [to_cbor(f, DCA_FILL) for f in d[name]]
+        elif isinstance(typ, dict):
+            out[key] = to_cbor(d[name], typ)
+        else:
+            out[key] = d[name]
+    return out
+
+
+def dca_encode(d: dict) -> bytes:
+    return encode(dca_to_cbor(d))
+
+
+def dca_decode(b: bytes) -> dict:
+    """Strict decoding of an application/vnd.edicta.dca.v0+cbor body. Every failure is dca.ErrMalformed."""
+    def bad(detail: str):
+        raise Reject("dca.ErrMalformed", detail)
+
+    try:
+        it = decode_strict(b)
+    except CBORError as e:
+        bad(str(e))
+    if it.major != 5:
+        bad("top level is not a map")
+    fills = [v for k, v in it.value if k.value == 5]
+    rest = [(k, v) for k, v in it.value if k.value != 5]
+    try:
+        out = _schema_decode(Item(5, rest, it.start, it.end), {k: f for k, f in DCA.items() if k != 5}, "dca")
+    except Reject as e:
+        bad(str(e))
+    if fills:
+        v = fills[0]
+        if v.major != 4 or not 1 <= len(v.value) <= DCA_MAX_FILLS:
+            bad("last_fills must be an array of 1..8 fills")
+        try:
+            out["last_fills"] = [_schema_decode(f, DCA_FILL, "last_fills[]") for f in v.value]
+        except Reject as e:
+            bad(str(e))
+
+    def uints(x):
+        for val in (x.values() if isinstance(x, dict) else x):
+            if isinstance(val, (dict, list)):
+                yield from uints(val)
+            elif isinstance(val, int):
+                yield val
+
+    if any(u > MAX_INT for u in uints(out)):
+        bad("uint above 2^63-1")
+    for m, f in DCA_NONZERO:
+        if out[m][f] == 0:
+            bad(f"{m}.{f} is zero")
+    for f in out.get("last_fills", []):
+        if f["side"] not in (1, 2) or f["qty"] == 0 or f["price"] == 0 or f["filled_at"] == 0:
+            bad("fill: side, qty, price or filled_at out of range")
+    if out["order"]["side"] not in (1, 2):
+        bad("order.side out of range")
+    if dca_encode(out) != b:
+        bad("re-encoding differs")
+    return out
+
+
+def dca_consistency(d: dict, action: dict) -> list:
+    """Replay checks between a DCA context and the committed action. Returns the failed check names."""
+    p = action["params"]
+    failed = []
+    if (d["order"]["side"], d["order"]["qty"], d["order"]["limit_price"]) != (p["side"], p["qty"], p.get("limit_price")):
+        failed.append("order equals action")
+    if d["price"]["conid"] != p["conid"]:
+        failed.append("price.conid equals action conid")
+    if d["budget"]["currency"] != p["currency"]:
+        failed.append("budget.currency equals action currency")
+    if d["budget"]["spent"] > d["budget"]["per_period"]:
+        failed.append("spent within budget")
+    elif d["order"]["qty"] * d["order"]["limit_price"] > (d["budget"]["per_period"] - d["budget"]["spent"]) * 10_000:
+        failed.append("order notional within remaining budget")
+    return failed

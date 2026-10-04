@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
-"""Verifies the Edicta v0 vectors against an independent implementation of the rules.
+"""Frozen copy of the v0-draft.8 rules. It checks spec/vectors/v0, which the Go
+code reads until it switches to the draft.9 vectors; delete this directory then.
 
-Two vector sets exist while the Go code moves from v0-draft.8 to v0-draft.9:
-  spec/vectors/v0       draft.8, read by Go today; checked by draft8/check_vectors.py
-  spec/vectors/v0-next  draft.9 (has authorization.json); checked here
-A directory is treated as draft.9 when it contains authorization.json.
+Verifies every vector in spec/vectors/v0 against an independent implementation of the v0 rules.
 
 da_blob.json share commitments are upstream go-square output and are checked
 by Go only; this script checks their blob descriptions. payload_blob.json is
 checked by check_payload_blob.py, which runs the RFC 9180 known-answer tests of
-the hand-written HPKE first. The dca-agent profile vectors are checked by
-check_profile_dca_agent.py.
+the hand-written HPKE first.
 
-Usage: python3 spec/vectors/check/check_vectors.py [--dir DIR]
-Without --dir every set present is checked: v0, v0-next and the profile
-vectors. Exit status 0 when all vectors pass. Requires Python 3.11+ and
-'cryptography' (see requirements.txt next to this file).
+Usage: python3 spec/vectors/check/draft8/check_vectors.py [--dir DIR]
+Exit status 0 when all vectors pass. Requires Python 3.11+ and 'cryptography'
+(see requirements.txt next to this file).
 """
 
 from __future__ import annotations
@@ -24,9 +20,11 @@ import sys
 
 sys.dont_write_bytecode = True
 
+from pathlib import Path as _Path
+sys.path.append(str(_Path(__file__).resolve().parent.parent))  # shared, unchanged modules
+
 import hashlib
 import json
-import subprocess
 from pathlib import Path
 
 try:
@@ -41,48 +39,44 @@ except ImportError:
 
 import ed25519_point as ed
 from cbor_strict import Raw, decode_strict, encode, to_plain
-from edicta_v0 import (ACTION, AUTHORIZATION, COMMITMENT, ED25519_L, MAX_ACTION_SIZE, MAX_AUTHORIZATION_SIZE,
-                      MAX_RECEIPT_SIZE, RECEIPT, SCOPE, TAG_ACTION, TAG_AUTHORIZATION,
-                      TAG_AUTHORIZATION_SIG, TAG_COMMITMENT, TAG_RECEIPT, TAG_RECEIPT_SIG, TAG_SIG,
-                      AuthorizationCheck, Params, Reject, action_hash, authorization_expires,
-                      authorization_hash, check_action, check_anchor_time, check_payload,
-                      check_registry_epoch, commitment_hash, decode_signed,
-                      decode_signed_authorization, decode_signed_receipt, plaintext_hash,
-                      receipt_hash, retention_margin, retention_window, route, signing_message,
-                      tagged, to_cbor, verify_authorization, verify_for_gate, verify_receipt,
-                      verify_signature, within_retention)
-from vecjson import (action_from_case, authorization_from_json, commitment_from_json, gate_from_json,
-                     params_from_json, pattern_bytes, receipt_from_json)
+from edicta_v0 import (ED25519_L, MAX_RECEIPT_SIZE, RECEIPT, TAG_RECEIPT_SIG, TAG_SIG, Params,
+                      Reject, check_action, check_anchor_time, check_payload,
+                      check_registry_epoch, client_order_id, commitment_hash,
+                      decode_signed, decode_signed_receipt, plaintext_hash,
+                      receipt_hash, retention_margin, retention_window, route,
+                      signing_message, tagged, to_cbor, verify_for_gate,
+                      verify_receipt, verify_signature, within_retention)
+from vecjson import (commitment_from_json, gate_from_json, order_from_json,
+                     params_from_json, receipt_from_json)
 import check_payload_blob
 import hpke_base
 
-HERE = Path(__file__).resolve().parent
-VECTORS = HERE.parent
+DIR = Path(__file__).resolve().parent.parent.parent / "v0"
+if "--dir" in sys.argv:
+    DIR = Path(sys.argv[sys.argv.index("--dir") + 1]).resolve()
 FORMAT = "edicta-vectors/v0"
-REVISION = "v0-draft.9"
 
 STAGE_OF = {
     "ErrTooLarge": "D", "ErrMalformed": "D", "ErrTrailingData": "D", "ErrFloat": "D",
     "ErrSimpleValue": "D", "ErrTag": "D", "ErrIndefiniteLength": "D", "ErrNonMinimalInt": "D",
     "ErrUnsortedMap": "D", "ErrDuplicateKey": "D", "ErrKeyType": "D", "ErrUnknownKey": "D",
     "ErrWrongType": "D", "ErrMissingField": "D", "ErrFieldSize": "D", "ErrInvalidString": "D",
-    "ErrNestingTooDeep": "D", "ErrNonCanonical": "D",
-    "ErrUnsupportedVersion": "S", "ErrIntRange": "S", "ErrInvalidEnum": "S", "ErrZeroValue": "S",
-    "ErrPayloadTooLarge": "S", "ErrInvalidNamespace": "S", "ErrTimeOrder": "S",
-    "ErrTTLTooLong": "S", "ErrInvalidParams": "S",
+    "ErrNestingTooDeep": "D", "ErrNonCanonical": "D", "ErrUnsupportedActionKind": "D",
+    "ErrUnsupportedVersion": "S", "ErrIntRange": "S", "ErrInvalidEnum": "S",
+    "ErrUnsupportedRail": "S", "ErrUnsupportedOrderType": "S", "ErrZeroValue": "S",
+    "ErrPayloadTooLarge": "S", "ErrInvalidNamespace": "S", "ErrLimitPrice": "S",
+    "ErrAccountMismatch": "S", "ErrChainIDRule": "S", "ErrTimeOrder": "S",
+    "ErrDeadlineRange": "S", "ErrTTLTooLong": "S", "ErrPriceBound": "S",
+    "ErrNotionalExceeded": "S", "ErrInvalidParams": "S",
     "ErrInvalidPublicKey": "G", "ErrSignatureInvalid": "G", "ErrNotYetValid": "T", "ErrExpired": "T",
-    "ErrScopeMismatch": "C", "ErrActionTypeNotAllowed": "C", "ErrActionSize": "A", "ErrActionMismatch": "A",
+    "ErrScopeMismatch": "C", "ErrActionMismatch": "A",
     "ErrPayloadSizeMismatch": "P", "ErrPayloadHashMismatch": "P",
 }
 NOT_VECTORED = {"ErrNonCanonical", "ErrInvalidParams"}
-# Sentinels the executor-side Authorization check (stage X) may return.
-X_SENTINELS = {"ErrScopeMismatch", "ErrActionSize", "ErrActionMismatch", "ErrExpired"}
 # Gate sentinels with stateless vectors; the stateful ones (allowlist, nonce,
 # anchor lookup, availability) have none.
 GATE_VECTORED = {"ErrIssuedBeforeAnchor", "ErrBeforeRegistryEpoch", "ErrArchiveRecomputeUnsupported",
                  "ErrRetentionUnavailable"}
-RETIRED = {"commitment": (COMMITMENT, {9}), "action": (ACTION, {1, 2}), "scope": (SCOPE, {2, 3, 4}),
-           "receipt": (RECEIPT, {5, 7})}
 
 
 class Failure(Exception):
@@ -94,33 +88,10 @@ def expect(cond: bool, msg: str):
         raise Failure(msg)
 
 
-def load(d: Path, name: str, revision: bool = True) -> dict:
-    obj = json.loads((d / name).read_text())
+def load(name: str) -> dict:
+    obj = json.loads((DIR / name).read_text())
     expect(obj.get("format") == FORMAT, f"{name}: unexpected format {obj.get('format')!r}")
-    if revision:
-        expect(obj.get("revision") == REVISION, f"{name}: unexpected revision {obj.get('revision')!r}")
     return obj
-
-
-def check_constants():
-    """Tag bytes and lengths, written out literally so a typo in one place cannot hide."""
-    want = {
-        TAG_COMMITMENT: b"\x1dedicta/v0/decision-commitment", TAG_SIG: b"\x0dedicta/v0/sig",
-        TAG_RECEIPT: b"\x11edicta/v0/receipt", TAG_RECEIPT_SIG: b"\x15edicta/v0/receipt-sig",
-        TAG_ACTION: b"\x10edicta/v0/action", TAG_AUTHORIZATION: b"\x17edicta/v0/authorization",
-        TAG_AUTHORIZATION_SIG: b"\x1bedicta/v0/authorization-sig",
-    }
-    for t, enc in want.items():
-        expect(tagged(t) == enc, f"tag {t!r}")
-    signed = {TAG_SIG: 46, TAG_RECEIPT_SIG: 54, TAG_AUTHORIZATION_SIG: 60}
-    for t, n in signed.items():
-        expect(len(signing_message(bytes(32), t)) == n, f"signed message length under {t!r}")
-    expect(len(set(signed.values())) == len(signed), "signed message lengths must differ")
-    hashed = [TAG_COMMITMENT, TAG_RECEIPT, TAG_ACTION, TAG_AUTHORIZATION]
-    expect(len({tagged(t) for t in hashed}) == len(hashed), "hash tags must differ")
-    for name, (schema, keys) in RETIRED.items():
-        expect(not keys & set(schema), f"{name}: a retired key is defined again")
-    expect(set(AUTHORIZATION) == {1, 2, 3, 4, 5, 6}, "Authorization keys")
 
 
 def check_keys(keys: dict) -> dict:
@@ -137,41 +108,18 @@ def check_keys(keys: dict) -> dict:
     return pubs
 
 
-def supplied_action(case: dict) -> bytes:
-    """Action bytes of a case; a pattern-described action must match its stated SHA-256."""
-    a = action_from_case(case)
-    if "action_pattern" in case:
-        expect(len(a) == int(case["action_size"]), f"{case.get('id', 'check')}: action size")
-        expect(hashlib.sha256(a).hexdigest() == case["action_sha256_hex"], f"{case.get('id', 'check')}: action sha256")
-    return a
-
-
-def check_action_hash(case: dict, cid: str, committed: bytes):
-    """The action hash rebuilt byte by byte from its definition, not through action_hash()."""
-    t = case["action_type"].encode("ascii")
-    a = supplied_action(case)
-    prefix = b"\x10" + b"edicta/v0/action" + bytes([len(t)]) + t
-    expect(prefix.hex() == case["action_preimage_prefix_hex"], f"{cid}: action preimage prefix")
-    h = hashlib.sha256(prefix + a).digest()
-    expect(h.hex() == case["action_hash_hex"] and h == committed, f"{cid}: action hash")
-    expect(action_hash(case["action_type"], a) == h, f"{cid}: action_hash() disagrees with the definition")
-    expect(1 <= len(a) <= MAX_ACTION_SIZE, f"{cid}: action size out of range")
-
-
 def run_pipeline(case: dict, top: dict):
     env = bytes.fromhex(case["envelope_hex"])
     now = int(case["now"])
     gate = gate_from_json(case.get("gate", top["gate"]))
     params = params_from_json(case.get("params", top["params"]))
     signed, h = verify_for_gate(env, now, gate, params)
-    if "action_type" in case:
-        expect(case["action_type"] == signed["commitment"]["action"]["type"], f"{case['id']}: action_type differs from the commitment")
-        check_action(signed["commitment"], supplied_action(case))
+    if "request" in case:
+        check_action(signed["commitment"], order_from_json(case["request"]))
     return signed, h
 
 
 def check_valid(top: dict, pubs: dict):
-    expect(top["patterns"] == {"affine-7-3": "byte i of the action is (7*i + 3) mod 256, for i from 0"}, "patterns")
     for case in top["cases"]:
         cid = case["id"]
         c = commitment_from_json(case["input"])
@@ -189,20 +137,19 @@ def check_valid(top: dict, pubs: dict):
         expect(env.hex() == case["envelope_hex"], f"{cid}: envelope mismatch")
         signed, canon2 = decode_signed(env)
         expect(signed["commitment"] == c and canon2 == canon, f"{cid}: decode round-trip mismatch")
-        expect(case["action_type"] == c["action"]["type"], f"{cid}: action_type is not the committed type")
-        check_action_hash(case, cid, c["action"]["hash"])
         try:
             _, h2 = run_pipeline(case, top)
         except Reject as e:
             raise Failure(f"{cid}: valid vector rejected with {e}")
         expect(h2 == h, f"{cid}: pipeline hash mismatch")
-        expect(len(canon) <= 559, f"{cid}: commitment above the 559-byte schema maximum")
+        expect("request" in case, f"{cid}: valid case lacks a request")
 
 
 def check_torsion_r(c: dict, canon: bytes, sig: bytes):
     """sig_torsion_r must fail the signature equation for the right reason:
     the public key is valid, S < L, the cofactored equation holds, R has an
-    order-8 component, and only the cofactorless equation rejects it."""
+    order-8 component, and only the
+    cofactorless equation rejects it."""
     msg = signing_message(commitment_hash(canon))
     expect(ed.public_key_problem(c["agent_pubkey"]) is None, "sig_torsion_r: agent_pubkey fails G0")
     expect(int.from_bytes(sig[32:], "little") < ED25519_L, "sig_torsion_r: S >= L")
@@ -219,24 +166,6 @@ def check_torsion_r(c: dict, canon: bytes, sig: bytes):
         raise Failure("sig_torsion_r: accepted")
 
 
-def check_single_action_defect(case: dict, c: dict):
-    """A stage A vector has exactly one defect: either the supplied bytes differ
-    from the committed ones (correct hash construction), or the bytes are the
-    committed ones and only the hash construction is wrong."""
-    cid = case["id"]
-    pre = bytes.fromhex(case["committed_preimage_hex"])
-    expect(hashlib.sha256(pre).digest() == c["action"]["hash"], f"{cid}: committed preimage does not hash to action.hash")
-    supplied = supplied_action(case)
-    t = c["action"]["type"].encode("ascii")
-    correct = b"\x10edicta/v0/action" + bytes([len(t)]) + t
-    if case["rule"] == "A0":
-        expect(pre.startswith(correct) and not 1 <= len(supplied) <= MAX_ACTION_SIZE, f"{cid}: not a size defect")
-    elif pre.startswith(correct):
-        expect(pre[len(correct):] != supplied, f"{cid}: supplied bytes equal the committed bytes")
-    else:
-        expect(pre.endswith(supplied) and 1 <= len(supplied) <= MAX_ACTION_SIZE, f"{cid}: supplied bytes are not the committed bytes")
-
-
 def check_reject(top: dict) -> set:
     seen = set()
     for case in top["cases"]:
@@ -244,8 +173,6 @@ def check_reject(top: dict) -> set:
         want = case["expect_error"]
         expect(want in STAGE_OF, f"{cid}: unknown sentinel {want}")
         expect(STAGE_OF[want] == case["stage"], f"{cid}: sentinel {want} is not a stage {case['stage']} error")
-        expect(("action_type" in case) == (case["stage"] == "A") == ("committed_preimage_hex" in case),
-               f"{cid}: action bytes belong to stage A cases only")
         if "input" in case:
             c = commitment_from_json(case["input"])
             canon = encode(to_cbor(c))
@@ -255,8 +182,6 @@ def check_reject(top: dict) -> set:
             expect(canon2 == canon and signed["commitment"] == c, f"{cid}: envelope does not carry the input")
             if case["stage"] in ("S", "T", "C", "A"):
                 verify_signature(c, canon, signed["signature"])
-            if case["stage"] == "A":
-                check_single_action_defect(case, c)
         if cid == "sig_torsion_r":
             check_torsion_r(c, canon, signed["signature"])
         try:
@@ -305,91 +230,14 @@ def check_payload_vectors(p: dict, valid: dict) -> set:
     return seen
 
 
-def chk_of(blk: dict) -> AuthorizationCheck:
-    return AuthorizationCheck(bytes.fromhex(blk["gate_pubkey_hex"]), blk["gate_id"], blk["action_type"],
-                              supplied_action(blk), int(blk["now"]), int(blk["skew_s"]))
-
-
-def check_authorizations(af: dict, pubs: dict, valid: dict) -> set:
-    by_id = {c["id"]: c for c in valid["cases"]}
-    ttl = int(af["max_authorization_ttl_s"])
-    gate = gate_from_json(af["gate"])
-    skew = Params().skew_s
-    expect(ttl > skew, "MaxAuthorizationTTL must exceed skew_s")
-    for case in af["cases"]:
-        cid = case["id"]
-        a = authorization_from_json(case["input"])
-        ref = by_id[case["commitment_ref"]]
-        rc = commitment_from_json(ref["input"])
-        # The gate's statement: this commitment, this action, this gate, never past valid_until.
-        expect(a["commitment_hash"].hex() == ref["commitment_hash_hex"], f"{cid}: commitment_hash is not {case['commitment_ref']}")
-        expect(a["action_hash"] == rc["action"]["hash"], f"{cid}: action_hash is not the committed one")
-        expect(a["gate_id"] == rc["scope"]["gate_id"] == gate["gate_id"], f"{cid}: gate_id")
-        expect(a["expires"] == authorization_expires(rc["valid_until"], int(case["authorized_at"]), ttl), f"{cid}: expires formula")
-        expect(a["expires"] <= rc["valid_until"], f"{cid}: expires after valid_until")
-        expect(int(case["authorized_at"]) + skew < rc["valid_until"], f"{cid}: authorized too late")
-        canon = encode(to_cbor(a, AUTHORIZATION))
-        expect(canon.hex() == case["authorization_cbor_hex"], f"{cid}: canonical encoding mismatch")
-        ah = hashlib.sha256(b"\x17edicta/v0/authorization" + canon).digest()
-        expect(ah.hex() == case["authorization_hash_hex"] and ah == authorization_hash(canon), f"{cid}: authorization_hash mismatch")
-        msg = b"\x1bedicta/v0/authorization-sig" + ah
-        expect(len(msg) == 60 and msg.hex() == case["signed_message_hex"], f"{cid}: signed message mismatch")
-        priv, pub = pubs[case["signer"]]
-        sig = bytes.fromhex(case["signature_hex"])
-        expect(priv.sign(msg) == sig, f"{cid}: signature is not the deterministic Ed25519 signature")
-        data = encode({1: Raw(canon), 2: sig})
-        expect(data.hex() == case["signed_authorization_hex"] and len(data) <= MAX_AUTHORIZATION_SIZE,
-               f"{cid}: signed Authorization mismatch")
-        blk = case["check"]
-        expect(bytes.fromhex(blk["gate_pubkey_hex"]) == pub, f"{cid}: check pins another key")
-        expect(blk["action_type"] == rc["action"]["type"], f"{cid}: check type is not the committed type")
-        expect(action_hash(blk["action_type"], supplied_action(blk)) == a["action_hash"], f"{cid}: check bytes")
-        try:
-            signed, h2 = verify_authorization(data, chk_of(blk))
-        except Reject as e:
-            raise Failure(f"{cid}: valid Authorization rejected with {e}")
-        expect(signed["authorization"] == a and h2 == ah, f"{cid}: decode round-trip mismatch")
-        expect(case["signer"] == "gate1", f"{cid}: signed by a non-gate key")
-    seen = set()
-    for case in af["reject"]:
-        cid = case["id"]
-        want = case["expect_error"]
-        stage = case["stage"]
-        if stage == "X":
-            expect(want in X_SENTINELS, f"{cid}: {want} is not an executor-check error")
-        else:
-            expect(STAGE_OF.get(want) == stage, f"{cid}: sentinel {want} is not a stage {stage} error")
-        data = bytes.fromhex(case["signed_authorization_hex"])
-        if "input" in case:
-            a = authorization_from_json(case["input"])
-            canon = encode(to_cbor(a, AUTHORIZATION))
-            expect(canon.hex() == case["authorization_cbor_hex"], f"{cid}: canonical encoding mismatch")
-            expect(authorization_hash(canon).hex() == case["authorization_hash_hex"], f"{cid}: authorization_hash mismatch")
-            signed, canon2 = decode_signed_authorization(data)
-            expect(canon2 == canon and signed["authorization"] == a, f"{cid}: bytes do not carry the input")
-        try:
-            verify_authorization(data, chk_of(case["check"]))
-        except Reject as e:
-            expect(e.sentinel == want, f"{cid}: got {e.sentinel}, want {want}")
-        else:
-            raise Failure(f"{cid}: accepted, want {want}")
-        seen.add(want)
-    for s in ("ErrUnsupportedVersion", "ErrIntRange", "ErrInvalidEnum", "ErrZeroValue", "ErrInvalidPublicKey",
-              "ErrSignatureInvalid", "ErrTooLarge") + tuple(X_SENTINELS):
-        expect(s in seen, f"authorization.json: no must-reject vector for {s}")
-    return seen
-
-
-def check_receipts(rf: dict, pubs: dict, valid: dict, af: dict) -> set:
+def check_receipts(rf: dict, pubs: dict, valid: dict) -> set:
     hashes = {c["id"]: c["commitment_hash_hex"] for c in valid["cases"]}
-    authorized = {c["commitment_ref"] for c in af["cases"]}
     gate = gate_from_json(rf["gate"])
     for case in rf["cases"]:
         cid = case["id"]
         r = receipt_from_json(case["input"])
         expect(r["commitment_hash"].hex() == hashes[case["commitment_ref"]], f"{cid}: commitment_hash is not {case['commitment_ref']}")
-        expect(case["commitment_ref"] in authorized, f"{cid}: receipt for a commitment with no Authorization vector")
-        expect(r["gate_id"] == gate["gate_id"], f"{cid}: gate_id differs from the gate")
+        expect(r["gate_id"] == gate["gate_id"] and r["rail"] == gate["rail"], f"{cid}: gate_id or rail differs from the gate")
         canon = encode(to_cbor(r, RECEIPT))
         expect(canon.hex() == case["receipt_cbor_hex"], f"{cid}: canonical encoding mismatch")
         rh = receipt_hash(canon)
@@ -479,93 +327,78 @@ def check_anchor(af: dict) -> set:
     return seen
 
 
-def check_da_blob_inputs(df: dict, valid: dict):
+def check_client_order_ids(cf: dict, valid: dict) -> set:
+    hashes = {c["id"]: c["commitment_hash_hex"] for c in valid["cases"]}
+    expect(len(cf["cases"]) == len(valid["cases"]), "client_order_id.json: one case per valid commitment expected")
+    for c in cf["cases"]:
+        expect(c["commitment_hash_hex"] == hashes[c["commitment_ref"]], f"{c['id']}: hash is not {c['commitment_ref']}")
+        got = client_order_id(int(c["rail"]), bytes.fromhex(c["commitment_hash_hex"]))
+        expect(got == c["client_order_id"], f"{c['id']}: client order id mismatch")
+        expect(len(got) == 64 and set(got) <= set("0123456789abcdef"), f"{c['id']}: not 64 lowercase hex characters")
+    seen = set()
+    for c in cf["reject"]:
+        got = outcome(client_order_id, int(c["rail"]), bytes.fromhex(c["commitment_hash_hex"]))
+        expect(got == c["expect_error"], f"{c['id']}: got {got}, want {c['expect_error']}")
+        seen.add(got)
+    return seen
+
+
+def check_da_blob_inputs(df: dict):
     """The share commitments come from upstream go-square and are checked by Go
     only. Here only the blob descriptions are checked, so a pattern or hex
     mistake shows up in both languages."""
-    minimal = commitment_from_json(next(c for c in valid["cases"] if c["id"] == "minimal_lmt")["input"])
     for c in df["cases"] + df["reject"]:
         if "blob_hex" in c:
             blob = bytes.fromhex(c["blob_hex"])
         else:
             expect(c["blob_pattern"] in df["patterns"], f"{c['id']}: unknown pattern")
-            blob = pattern_bytes("affine-7-3", int(c["size"]))
+            blob = bytes((7 * i + 3) & 0xFF for i in range(int(c["size"])))
         expect(len(blob) == int(c["size"]), f"{c['id']}: size mismatch")
         expect(hashlib.sha256(blob).hexdigest() == c["blob_sha256_hex"], f"{c['id']}: blob sha256 mismatch")
         expect(len(bytes.fromhex(c["namespace_hex"])) == 29 and len(bytes.fromhex(c["signer_hex"])) == 20
                and len(bytes.fromhex(c["commitment_hex"])) == 32, f"{c['id']}: field size")
-    ref = next(c for c in df["cases"] if c["id"] == "blob_v1_minimal_lmt_payload")
-    expect(bytes.fromhex(ref["namespace_hex"]) == minimal["payload_ref"]["namespace"]
-           and bytes.fromhex(ref["signer_hex"]) == minimal["payload_ref"]["signer"]
-           and ref["blob_sha256_hex"] == minimal["ciphertext_hash"].hex(),
-           "da_blob.json blob_v1_minimal_lmt_payload no longer describes the minimal_lmt payload")
-
-
-def check_draft9(d: Path) -> int:
-    try:
-        check_constants()
-        pubs = check_keys(load(d, "keys.json", revision=False))
-        valid = load(d, "valid.json")
-        check_valid(valid, pubs)
-        reject = load(d, "reject.json")
-        seen = check_reject(reject)
-        payload = load(d, "payload.json", revision=False)
-        seen |= check_payload_vectors(payload, valid)
-        auth = load(d, "authorization.json")
-        seen |= check_authorizations(auth, pubs, valid)
-        receipts = load(d, "receipt.json")
-        seen |= check_receipts(receipts, pubs, valid, auth)
-        anchor = load(d, "anchor.json", revision=False)
-        gate_seen = check_anchor(anchor)
-        da_blob = load(d, "da_blob.json", revision=False)
-        check_da_blob_inputs(da_blob, valid)
-        expect(not (d / "client_order_id.json").exists(), "client_order_id.json belongs to the dca-agent profile now")
-        blob_summary, blob_ids = check_payload_blob.check(d)
-        ids = [c["id"] for c in valid["cases"] + reject["cases"] + payload["cases"] + payload["reject"]
-               + auth["cases"] + auth["reject"] + receipts["cases"] + receipts["reject"] + anchor["k1"]
-               + anchor["k2"] + anchor["epoch"] + da_blob["cases"] + da_blob["reject"]] + blob_ids
-        expect(len(ids) == len(set(ids)), "duplicate vector ids")
-        expect("sig_torsion_r" in ids, "missing vector sig_torsion_r (cofactorless G1)")
-        missing = set(STAGE_OF) - NOT_VECTORED - seen
-        expect(not missing, f"sentinels without a must-reject vector: {sorted(missing)}")
-        expect(gate_seen == GATE_VECTORED, f"anchor.json sentinels: {sorted(gate_seen)}")
-    except (Failure, Reject, check_payload_blob.Failure, hpke_base.HPKEError) as e:
-        print(f"FAIL ({d.name}): {e}", file=sys.stderr)
-        return 1
-    print(f"OK ({d.name}, {REVISION}): {len(valid['cases'])} valid, {len(reject['cases'])} reject, "
-          f"{len(payload['cases'])} payload, {len(payload['reject'])} payload reject, "
-          f"{len(auth['cases'])} authorization, {len(auth['reject'])} authorization reject, "
-          f"{len(receipts['cases'])} receipt, {len(receipts['reject'])} receipt reject, "
-          f"{len(anchor['k1'])} K1, {len(anchor['k2'])} K2, {len(anchor['epoch'])} epoch, "
-          f"{len(da_blob['cases'])} da_blob inputs, {len(da_blob['reject'])} da_blob reject inputs")
-    print(f"OK ({d.name}): {blob_summary}", flush=True)
-    return 0
-
-
-def run_script(script: Path, *args: str) -> int:
-    return subprocess.run([sys.executable, str(script), *args]).returncode
-
-
-def check_dir(d: Path) -> int:
-    if (d / "authorization.json").exists():
-        return check_draft9(d)
-    print(f"== {d.name}: v0-draft.8 set, checked by draft8/check_vectors.py", flush=True)
-    return run_script(HERE / "draft8" / "check_vectors.py", "--dir", str(d))
 
 
 def main() -> int:
     if sys.version_info < (3, 11):
         print("Python 3.11 or later is required", file=sys.stderr)
         return 2
-    if "--dir" in sys.argv:
-        return check_dir(Path(sys.argv[sys.argv.index("--dir") + 1]).resolve())
-    rc = 0
-    for name in ("v0", "v0-next"):
-        if (VECTORS / name).is_dir():
-            rc |= check_dir(VECTORS / name)
-    if (VECTORS / "profiles" / "dca-agent").is_dir():
-        rc |= run_script(HERE / "check_profile_dca_agent.py")
-    return rc
+    try:
+        pubs = check_keys(load("keys.json"))
+        valid = load("valid.json")
+        check_valid(valid, pubs)
+        reject = load("reject.json")
+        seen = check_reject(reject)
+        payload = load("payload.json")
+        seen |= check_payload_vectors(payload, valid)
+        receipts = load("receipt.json")
+        seen |= check_receipts(receipts, pubs, valid)
+        anchor = load("anchor.json")
+        gate_seen = check_anchor(anchor)
+        coids = load("client_order_id.json")
+        seen |= check_client_order_ids(coids, valid)
+        da_blob = load("da_blob.json")
+        check_da_blob_inputs(da_blob)
+        blob_summary, blob_ids = check_payload_blob.check(DIR)
+        ids = [c["id"] for c in valid["cases"] + reject["cases"] + payload["cases"] + payload["reject"]
+               + receipts["cases"] + receipts["reject"] + anchor["k1"] + anchor["k2"] + anchor["epoch"]
+               + coids["cases"] + coids["reject"] + da_blob["cases"] + da_blob["reject"]] + blob_ids
+        expect(len(ids) == len(set(ids)), "duplicate vector ids")
+        expect("sig_torsion_r" in ids, "missing vector sig_torsion_r (cofactorless G1)")
+        missing = set(STAGE_OF) - NOT_VECTORED - seen
+        expect(not missing, f"sentinels without a must-reject vector: {sorted(missing)}")
+        expect(gate_seen == GATE_VECTORED, f"anchor.json sentinels: {sorted(gate_seen)}")
+    except (Failure, Reject, check_payload_blob.Failure, hpke_base.HPKEError) as e:
+        print(f"FAIL: {e}", file=sys.stderr)
+        return 1
+    print(f"OK: {len(valid['cases'])} valid, {len(reject['cases'])} reject, "
+          f"{len(payload['cases'])} payload, {len(payload['reject'])} payload reject, "
+          f"{len(receipts['cases'])} receipt, {len(receipts['reject'])} receipt reject, "
+          f"{len(anchor['k1'])} K1, {len(anchor['k2'])} K2, {len(anchor['epoch'])} epoch, "
+          f"{len(coids['cases'])} client order id, {len(coids['reject'])} client order id reject, "
+          f"{len(da_blob['cases'])} da_blob inputs, {len(da_blob['reject'])} da_blob reject inputs")
+    print(f"OK: {blob_summary}")
+    return 0
 
 
 if __name__ == "__main__":

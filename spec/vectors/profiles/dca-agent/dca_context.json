@@ -1,0 +1,203 @@
+{
+  "format": "edicta-vectors/v0",
+  "profile": "dca-agent",
+  "revision": "dca-agent-v0-draft.1",
+  "media_type": "application/vnd.edicta.dca.v0+cbor",
+  "cases": [
+    {
+      "id": "dca_minimal",
+      "description": "No last_fills.",
+      "input": {
+        "strategy_id": "dca-spy-weekly",
+        "schedule": {
+          "period_s": "604800",
+          "period_start": "1790726400"
+        },
+        "budget": {
+          "currency": "USD",
+          "per_period": "120000000000",
+          "spent": "0"
+        },
+        "price": {
+          "source": "ibkr.snapshot",
+          "conid": "756733",
+          "price": "57200000000",
+          "observed_at": "1790999970"
+        },
+        "order": {
+          "side": "1",
+          "qty": "20000",
+          "limit_price": "57250000000"
+        }
+      },
+      "cbor_hex": "a5016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da206a3010102194e20031b0000000d545dac80",
+      "action_ref": "pb_one_recipient_dca"
+    },
+    {
+      "id": "dca_with_fills",
+      "description": "Two fills from the previous periods.",
+      "input": {
+        "strategy_id": "dca-spy-weekly",
+        "schedule": {
+          "period_s": "604800",
+          "period_start": "1790726400"
+        },
+        "budget": {
+          "currency": "USD",
+          "per_period": "120000000000",
+          "spent": "0"
+        },
+        "price": {
+          "source": "ibkr.snapshot",
+          "conid": "756733",
+          "price": "57200000000",
+          "observed_at": "1790999970"
+        },
+        "order": {
+          "side": "1",
+          "qty": "20000",
+          "limit_price": "57250000000"
+        },
+        "last_fills": [
+          {
+            "filled_at": "1790395295",
+            "side": "1",
+            "qty": "20000",
+            "price": "56810000000"
+          },
+          {
+            "filled_at": "1789790520",
+            "side": "1",
+            "qty": "20000",
+            "price": "55990000000"
+          }
+        ]
+      },
+      "cbor_hex": "a6016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da20582a4011a6ab7439f020103194e20041b0000000d3a23ce80a4011a6aae0938020103194e20041b0000000d0943998006a3010102194e20031b0000000d545dac80",
+      "action_ref": "pb_one_recipient_dca"
+    }
+  ],
+  "reject": [
+    {
+      "id": "dca_unknown_key",
+      "description": "Extra key 7.",
+      "cbor_hex": "a6016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da206a3010102194e20031b0000000d545dac800700",
+      "expect_error": "dca.ErrMalformed"
+    },
+    {
+      "id": "dca_missing_order",
+      "description": "Key 6 (order) absent.",
+      "cbor_hex": "a4016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da2",
+      "expect_error": "dca.ErrMalformed"
+    },
+    {
+      "id": "dca_unsorted_keys",
+      "description": "Keys 2 and 1 swapped.",
+      "cbor_hex": "a502a2011a00093a80021a6abc5100016e6463612d7370792d7765656b6c7903a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da206a3010102194e20031b0000000d545dac80",
+      "expect_error": "dca.ErrMalformed"
+    },
+    {
+      "id": "dca_float_price",
+      "description": "price.price as a double.",
+      "cbor_hex": "a5016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd03fb4081e00000000000041a6ac07da206a3010102194e20031b0000000d545dac80",
+      "expect_error": "dca.ErrMalformed"
+    },
+    {
+      "id": "dca_last_fills_empty",
+      "description": "last_fills present with 0 entries; an optional field is absent, never empty.",
+      "cbor_hex": "a6016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da2058006a3010102194e20031b0000000d545dac80",
+      "expect_error": "dca.ErrMalformed"
+    },
+    {
+      "id": "dca_last_fills_9",
+      "description": "last_fills with 9 entries.",
+      "cbor_hex": "a6016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da20589a4011a6ac07dbf020103010401a4011a6ac07dbe020103010401a4011a6ac07dbd020103010401a4011a6ac07dbc020103010401a4011a6ac07dbb020103010401a4011a6ac07dba020103010401a4011a6ac07db9020103010401a4011a6ac07db8020103010401a4011a6ac07db702010301040106a3010102194e20031b0000000d545dac80",
+      "expect_error": "dca.ErrMalformed"
+    },
+    {
+      "id": "dca_currency_lowercase",
+      "description": "budget.currency usd.",
+      "cbor_hex": "a5016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163757364021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da206a3010102194e20031b0000000d545dac80",
+      "expect_error": "dca.ErrMalformed"
+    },
+    {
+      "id": "dca_order_side_3",
+      "description": "order.side 3.",
+      "cbor_hex": "a5016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da206a3010302194e20031b0000000d545dac80",
+      "expect_error": "dca.ErrMalformed"
+    },
+    {
+      "id": "dca_period_zero",
+      "description": "schedule.period_s 0.",
+      "cbor_hex": "a5016e6463612d7370792d7765656b6c7902a20100021a6abc510003a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da206a3010102194e20031b0000000d545dac80",
+      "expect_error": "dca.ErrMalformed"
+    },
+    {
+      "id": "dca_strategy_id_space",
+      "description": "strategy_id with a space.",
+      "cbor_hex": "a501676463612073707902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da206a3010102194e20031b0000000d545dac80",
+      "expect_error": "dca.ErrMalformed"
+    }
+  ],
+  "consistency": [
+    {
+      "id": "dca_consistent",
+      "description": "dca_minimal and the order of pb_one_recipient_dca: every check holds.",
+      "dca_cbor_hex": "a5016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da206a3010102194e20031b0000000d545dac80",
+      "order_cbor_hex": "a90169445531323334353637021a000b8bfd0363535059040105194e200601071b0000000d545dac8008635553440901",
+      "expect_failed": []
+    },
+    {
+      "id": "dca1_qty_differs",
+      "description": "The order buys 3 shares; the context says 2.",
+      "dca_cbor_hex": "a5016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da206a3010102194e20031b0000000d545dac80",
+      "order_cbor_hex": "a90169445531323334353637021a000b8bfd03635350590401051975300601071b0000000d545dac8008635553440901",
+      "expect_failed": [
+        "DCA1"
+      ]
+    },
+    {
+      "id": "dca2_conid_differs",
+      "description": "The order is for conid 265598; the snapshot is for 756733.",
+      "dca_cbor_hex": "a5016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da206a3010102194e20031b0000000d545dac80",
+      "order_cbor_hex": "a90169445531323334353637021a00040d7e0363535059040105194e200601071b0000000d545dac8008635553440901",
+      "expect_failed": [
+        "DCA2"
+      ]
+    },
+    {
+      "id": "dca3_currency_differs",
+      "description": "The order is in EUR; the budget in USD.",
+      "dca_cbor_hex": "a5016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000030004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da206a3010102194e20031b0000000d545dac80",
+      "order_cbor_hex": "a90169445531323334353637021a000b8bfd0363535059040105194e200601071b0000000d545dac8008634555520901",
+      "expect_failed": [
+        "DCA3"
+      ]
+    },
+    {
+      "id": "dca4_spent_over_budget",
+      "description": "spent > per_period; DCA5 is not evaluated then.",
+      "dca_cbor_hex": "a5016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000031b0000001bf08eb00104a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da206a3010102194e20031b0000000d545dac80",
+      "order_cbor_hex": "a90169445531323334353637021a000b8bfd0363535059040105194e200601071b0000000d545dac8008635553440901",
+      "expect_failed": [
+        "DCA4"
+      ]
+    },
+    {
+      "id": "dca5_notional_over_remaining",
+      "description": "order notional 1145.00 exceeds the remaining budget by 10^-8.",
+      "dca_cbor_hex": "a5016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000031b0000000147d3570104a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da206a3010102194e20031b0000000d545dac80",
+      "order_cbor_hex": "a90169445531323334353637021a000b8bfd0363535059040105194e200601071b0000000d545dac8008635553440901",
+      "expect_failed": [
+        "DCA5"
+      ]
+    },
+    {
+      "id": "dca5_notional_equal_remaining",
+      "description": "order notional equals the remaining budget exactly.",
+      "dca_cbor_hex": "a5016e6463612d7370792d7765656b6c7902a2011a00093a80021a6abc510003a30163555344021b0000001bf08eb000031b0000000147d3570004a4016d69626b722e736e617073686f74021a000b8bfd031b0000000d5162bc00041a6ac07da206a3010102194e20031b0000000d545dac80",
+      "order_cbor_hex": "a90169445531323334353637021a000b8bfd0363535059040105194e200601071b0000000d545dac8008635553440901",
+      "expect_failed": []
+    }
+  ]
+}

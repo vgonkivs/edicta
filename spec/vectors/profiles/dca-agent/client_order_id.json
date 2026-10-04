@@ -1,0 +1,92 @@
+{
+  "format": "edicta-vectors/v0",
+  "profile": "dca-agent",
+  "revision": "dca-agent-v0-draft.1",
+  "core_revision": "v0-draft.9",
+  "cases": [
+    {
+      "id": "coid_minimal_lmt",
+      "commitment_ref": "minimal_lmt",
+      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+      "client_order_id": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d"
+    },
+    {
+      "id": "coid_ttl_exactly_max",
+      "commitment_ref": "ttl_exactly_max",
+      "commitment_hash_hex": "fb01a68758599a7fff154d811d957743a8b7a0d5da539f2e9ba5bbc97ccf2f95",
+      "client_order_id": "fb01a68758599a7fff154d811d957743a8b7a0d5da539f2e9ba5bbc97ccf2f95"
+    },
+    {
+      "id": "coid_fibre_small_payload",
+      "commitment_ref": "fibre_small_payload",
+      "commitment_hash_hex": "476a1b65952e00d9cd36df2547b9c4404cb5f4b3606671f8e3c30cef5ec3249a",
+      "client_order_id": "476a1b65952e00d9cd36df2547b9c4404cb5f4b3606671f8e3c30cef5ec3249a"
+    },
+    {
+      "id": "coid_blob_large_payload",
+      "commitment_ref": "blob_large_payload",
+      "commitment_hash_hex": "c7fcd1e90bcfdebd6fbbcff52c2b5396286ee30ddb27a26ee6fbb4761b002f06",
+      "client_order_id": "c7fcd1e90bcfdebd6fbbcff52c2b5396286ee30ddb27a26ee6fbb4761b002f06"
+    },
+    {
+      "id": "coid_issued_at_within_skew",
+      "commitment_ref": "issued_at_within_skew",
+      "commitment_hash_hex": "05ed769054e928f73065401f878e8b7ae560189df9f18ee5f19633893f7fb988",
+      "client_order_id": "05ed769054e928f73065401f878e8b7ae560189df9f18ee5f19633893f7fb988"
+    },
+    {
+      "id": "coid_int_head_widths",
+      "commitment_ref": "int_head_widths",
+      "commitment_hash_hex": "e8d05098f9a5861184d24183498ed2090ef15ede5fb7babb391707c00dd109c0",
+      "client_order_id": "e8d05098f9a5861184d24183498ed2090ef15ede5fb7babb391707c00dd109c0"
+    },
+    {
+      "id": "coid_int_head_widths_1_2",
+      "commitment_ref": "int_head_widths_1_2",
+      "commitment_hash_hex": "dd7335246c58e7a3c84e688f1e127b1fcff09ed3b2d453b3088b806f66d3da9f",
+      "client_order_id": "dd7335246c58e7a3c84e688f1e127b1fcff09ed3b2d453b3088b806f66d3da9f"
+    },
+    {
+      "id": "coid_int_head_widths_2_3",
+      "commitment_ref": "int_head_widths_2_3",
+      "commitment_hash_hex": "935d53290b9908deee832974da984388d4a8590341e5b98320992c56f7578e7c",
+      "client_order_id": "935d53290b9908deee832974da984388d4a8590341e5b98320992c56f7578e7c"
+    },
+    {
+      "id": "coid_max_int_values",
+      "commitment_ref": "max_int_values",
+      "commitment_hash_hex": "fa77770d413a881845a3e23512cf72dba125324c85d576f9de84672ec681f3f9",
+      "client_order_id": "fa77770d413a881845a3e23512cf72dba125324c85d576f9de84672ec681f3f9"
+    },
+    {
+      "id": "coid_ttl_max_at_601s_retention",
+      "commitment_ref": "ttl_max_at_601s_retention",
+      "commitment_hash_hex": "5af3c1f022ad6820a7f8f8304dab62c719f839a92bc6486ed4314a6a8bd53b38",
+      "client_order_id": "5af3c1f022ad6820a7f8f8304dab62c719f839a92bc6486ed4314a6a8bd53b38"
+    },
+    {
+      "id": "coid_action_type_128_chars",
+      "commitment_ref": "action_type_128_chars",
+      "commitment_hash_hex": "173e64766eb31860ce8998101224f39128303d620761ecd24e944c71de0fae71",
+      "client_order_id": "173e64766eb31860ce8998101224f39128303d620761ecd24e944c71de0fae71"
+    },
+    {
+      "id": "coid_action_one_byte",
+      "commitment_ref": "action_one_byte",
+      "commitment_hash_hex": "33e5b1e17af0cc2600a5836092e1131c5060a9a68225d99801f20427e413577a",
+      "client_order_id": "33e5b1e17af0cc2600a5836092e1131c5060a9a68225d99801f20427e413577a"
+    },
+    {
+      "id": "coid_action_max_size",
+      "commitment_ref": "action_max_size",
+      "commitment_hash_hex": "aec1abfde27483c54144d6d6d084a2405e08607bafe72a5e5f4ab93d4768f8f3",
+      "client_order_id": "aec1abfde27483c54144d6d6d084a2405e08607bafe72a5e5f4ab93d4768f8f3"
+    },
+    {
+      "id": "coid_action_json_bytes",
+      "commitment_ref": "action_json_bytes",
+      "commitment_hash_hex": "48834b7710c23b6c8b550ae505b1577198ddabe13914ef8a2a64ba9f49682a2d",
+      "client_order_id": "48834b7710c23b6c8b550ae505b1577198ddabe13914ef8a2a64ba9f49682a2d"
+    }
+  ]
+}

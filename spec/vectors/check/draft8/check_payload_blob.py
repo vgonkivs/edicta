@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Verifies payload_blob.json of a v0-draft.9 vector set (default spec/vectors/v0-next).
+"""Frozen copy of the v0-draft.8 rules. It checks spec/vectors/v0, which the Go
+code reads until it switches to the draft.9 vectors; delete this directory then.
+
+Verifies spec/vectors/v0/payload_blob.json.
 
 Runs the RFC 9180 known-answer tests of the hand-written HPKE first and
 refuses to go on if they fail. Then re-derives every valid case in the seal
@@ -7,7 +10,7 @@ direction from its inputs (payload, salt, DEK, nonce, ephemeral keys), opens it
 with every recipient key, verifies its signed envelope, and runs every
 must-reject case through the opening procedure.
 
-Usage: python3 spec/vectors/check/check_payload_blob.py [--dir DIR]
+Usage: python3 spec/vectors/check/draft8/check_payload_blob.py [--dir DIR]
 """
 
 from __future__ import annotations
@@ -15,6 +18,9 @@ from __future__ import annotations
 import sys
 
 sys.dont_write_bytecode = True
+
+from pathlib import Path as _Path
+sys.path.append(str(_Path(__file__).resolve().parent.parent))  # shared, unchanged modules
 
 import hashlib
 import json
@@ -24,11 +30,11 @@ from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
 import edicta_payload_v0 as pv
 import hpke_base as hpke
-from edicta_v0 import (Reject, action_hash, check_payload, commitment_hash, decode_signed, tagged,
-                      verify_for_gate)
+from cbor_strict import decode_strict
+from edicta_v0 import (Reject, check_payload, commitment_hash, decode_signed, tagged, verify_for_gate)
 from vecjson import _conv, commitment_from_json, gate_from_json, params_from_json
 
-DIR = Path(__file__).resolve().parent.parent / "v0-next"
+DIR = Path(__file__).resolve().parent.parent.parent / "v0"
 if "--dir" in sys.argv:
     DIR = Path(sys.argv[sys.argv.index("--dir") + 1]).resolve()
 
@@ -98,7 +104,11 @@ def check_valid(v: dict, keys: dict) -> int:
         expect(pt.hex() == c["plaintext_cbor_hex"], f"{cid}: payload encoding")
         expect(pv.payload_decode(pt) == p, f"{cid}: payload round trip")
         expect(pv.media_type_ok(p["context"]["media_type"]), f"{cid}: context media type")
-        expect("context_dca" not in c, f"{cid}: context bodies are profile data, not core vectors")
+        if p["context"]["media_type"] == pv.MEDIA_TYPE_DCA_V0:
+            d = pv.dca_decode(p["context"]["data"])
+            expect(json.dumps(c["context_dca"], sort_keys=True) == json.dumps(_dca_json(d), sort_keys=True),
+                   f"{cid}: context_dca")
+            expect(not pv.dca_consistency(d, p["action"]), f"{cid}: DCA consistency")
         salt, dek, nonce = hx(c["salt_hex"]), hx(c["dek_hex"]), hx(c["aead_nonce_hex"])
         expect(salt == hashlib.sha256(f"edicta/v0 test payload salt|{cid}".encode()).digest(), f"{cid}: salt label")
         expect(dek == hashlib.sha256(f"edicta/v0 test dek|{cid}".encode()).digest(), f"{cid}: dek label")
@@ -134,13 +144,11 @@ def check_valid(v: dict, keys: dict) -> int:
         expect(pv.blob_encode(pv.blob_decode(blob)) == blob, f"{cid}: blob round trip")
         expect(str(len(blob)) == c["payload_size"], f"{cid}: payload_size")
         expect(hashlib.sha256(blob).hexdigest() == c["ciphertext_hash_hex"], f"{cid}: ciphertext_hash")
-        at, ah = c["action_type"], hx(c["action_hash_hex"])
-        expect(at == p["action"]["type"] and hx(c["action_hex"]) == p["action"]["data"], f"{cid}: action fields")
-        expect(action_hash(at, p["action"]["data"]) == ah, f"{cid}: action hash")
+        ac, cc = hx(c["action_cbor_hex"]), hx(c["constraints_cbor_hex"])
         for r in c["recipients"]:
             sk = hx(keys[r["key"]]["sk_hex"])
-            expect(pv.open_payload(blob, sk, hx(r["kid_hex"]), ph, at, ah) == p, f"{cid}: open by {r['key']}")
-            expect(pv.open_payload(blob, sk, None, ph, at, ah) == p, f"{cid}: open by {r['key']}, no kid")
+            expect(pv.open_payload(blob, sk, hx(r["kid_hex"]), ph, ac, cc) == p, f"{cid}: open by {r['key']}")
+            expect(pv.open_payload(blob, sk, None, ph, ac, cc) == p, f"{cid}: open by {r['key']}, no kid")
         cm = c["commitment"]
         env = hx(cm["envelope_hex"])
         signed, canon = decode_signed(env)
@@ -151,13 +159,26 @@ def check_valid(v: dict, keys: dict) -> int:
         verify_for_gate(env, int(cm["now"]), gate, params)
         check_payload(com, blob)
         expect(com["plaintext_hash"] == ph, f"{cid}: commitment plaintext_hash")
-        expect(com["action"] == {"type": at, "hash": ah}, f"{cid}: commitment action")
+        top = dict((k.value, v) for k, v in decode_strict(canon).value)
+        expect(canon[top[8].start:top[8].end] == ac, f"{cid}: commitment key 8 bytes")
+        expect(canon[top[9].start:top[9].end] == cc, f"{cid}: commitment key 9 bytes")
     return openssl_checks
+
+
+def _dca_json(d: dict) -> dict:
+    out = {}
+    for name, val in d.items():
+        if name == "last_fills":
+            out[name] = [{k: str(x) for k, x in f.items()} for f in val]
+        elif isinstance(val, dict):
+            out[name] = {k: (x if isinstance(x, str) else str(x)) for k, x in val.items()}
+        else:
+            out[name] = val
+    return out
 
 
 def check_rejects(v: dict, keys: dict) -> set:
     seen = set()
-    expect(not {1, 2} & set(pv.PAYLOAD_ACTION) and 6 not in pv.PAYLOAD, "payload: a retired key is defined again")
     for r in v["reject"]:
         rid, blob, want = r["id"], hx(r["blob_hex"]), r["expect_error"]
         expect(want in SENTINELS, f"{rid}: unknown sentinel {want}")
@@ -173,14 +194,14 @@ def check_rejects(v: dict, keys: dict) -> set:
             raises(lambda: pv.open_blob(blob, sk, kid), want, rid)
             continue
         expect(stage == "plaintext", f"{rid}: unknown stage {stage}")
-        ph, at, ah = hx(r["plaintext_hash_hex"]), r["action_type"], hx(r["action_hash_hex"])
+        ph, ac, cc = hx(r["plaintext_hash_hex"]), hx(r["action_cbor_hex"]), hx(r["constraints_cbor_hex"])
         pv.open_blob(blob, sk, kid)
-        raises(lambda: pv.open_payload(blob, sk, kid, ph, at, ah), want, rid)
+        raises(lambda: pv.open_payload(blob, sk, kid, ph, ac, cc), want, rid)
         if "honest_key" in r:
             hsk = hx(keys[r["honest_key"]]["sk_hex"])
             honest = pv.open_blob(blob, hsk, hx(r["honest_kid_hex"]))
             expect(hashlib.sha256(honest).digest() == ph, f"{rid}: honest recipient must match plaintext_hash")
-            pv.open_payload(blob, hsk, hx(r["honest_kid_hex"]), ph, at, ah)
+            pv.open_payload(blob, hsk, hx(r["honest_kid_hex"]), ph, ac, cc)
             other = pv.open_blob(blob, sk, kid)
             expect(other.hex() == r["auditor_aead_plaintext_hex"] and other != honest, f"{rid}: second plaintext")
             b = pv.blob_decode(blob)
@@ -190,6 +211,16 @@ def check_rejects(v: dict, keys: dict) -> set:
     missing = SENTINELS - NOT_VECTORED - seen
     expect(not missing, f"sentinels without a must-reject vector: {sorted(missing)}")
     return seen
+
+
+def check_dca(v: dict):
+    for c in v["dca"]["cases"]:
+        b = hx(c["cbor_hex"])
+        d = pv.dca_decode(b)
+        expect(pv.dca_encode(d) == b, f"{c['id']}: DCA round trip")
+        expect(json.dumps(_dca_json(d), sort_keys=True) == json.dumps(c["input"], sort_keys=True), f"{c['id']}: input")
+    for r in v["dca"]["reject"]:
+        raises(lambda: pv.dca_decode(hx(r["cbor_hex"])), r["expect_error"], r["id"])
 
 
 def check_existing_blob(directory: Path):
@@ -208,15 +239,16 @@ def check(directory: Path = DIR) -> tuple[str, list]:
     keys = v["recipient_keys"]
     n_openssl = check_valid(v, keys)
     seen = check_rejects(v, keys)
-    expect("dca" not in v, "payload_blob.json: the DCA body vectors belong to the dca-agent profile")
+    check_dca(v)
     check_existing_blob(directory)
-    ids = [c["id"] for c in v["cases"] + v["reject"]]
+    ids = [c["id"] for c in v["cases"] + v["reject"] + v["dca"]["cases"] + v["dca"]["reject"]]
     expect(len(ids) == len(set(ids)), "payload_blob.json: duplicate ids")
     by_stage = {}
     for r in v["reject"]:
         by_stage[r["stage"]] = by_stage.get(r["stage"], 0) + 1
     summary = (f"{kat}; payload_blob: {len(v['cases'])} valid, {len(v['reject'])} reject "
-               f"({', '.join(f'{n} {s}' for s, n in by_stage.items())}), {len(seen)} sentinels; "
+               f"({', '.join(f'{n} {s}' for s, n in by_stage.items())}), {len(v['dca']['cases'])} dca, "
+               f"{len(v['dca']['reject'])} dca reject, {len(seen)} sentinels; "
                + (f"{n_openssl} wrapped DEKs also opened by OpenSSL HPKE" if n_openssl
                   else "OpenSSL HPKE cross-check not available in this 'cryptography'"))
     return summary, ids
