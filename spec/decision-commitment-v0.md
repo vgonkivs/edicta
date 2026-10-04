@@ -2,7 +2,7 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v0-draft.10` (2026-10-04). Working draft, subject to change.
+Status: revision `v0-draft.11` (2026-10-04). Working draft, subject to change.
 Wire version: `version = 0`. Domain tags: `edicta/v0/...`.
 
 The core knows no rail, broker or chain. An action is an opaque byte string
@@ -42,6 +42,7 @@ signature even if the byte layout were identical.
 | `v0-draft.8` | 2026-10-03 | Payload blob details, additive. (1) Section 9.1: payload AEAD aad `tag("edicta/v0/payload")`, HPKE base mode with `info = tag("edicta/v0/payload-dek")` and `aad = uint8(len(kid)) \|\| kid`, 1..16 recipients with unique kids. (2) Section 9.2: strict blob decoding, rules B0..B7. (3) Section 9.3: payload plaintext schema; `media_type` REQUIRED in `context` and `metadata`, lower-case RFC 6838 `type/subtype` without parameters. (4) Section 9.4: opening procedure O1..O8; `plaintext_hash` is compared before parsing. (5) Section 9.5: producer checks before signing, including the local DA commitment recompute (default on). (6) Appendix A: media type `application/vnd.edicta.dca.v0+cbor`. (7) Section 12: SDK sentinels. (8) Threat model rows for kids, key commitment and the producer-side recompute. | Commitment, signed envelope and receipt bytes unchanged; existing tags unchanged; two new tags for the blob only | Existing files byte-identical (SHA-256 unchanged). New: `payload_blob.json`; checker files `hpke_base.py`, `hpke_rfc9180_a2_1.json`, `edicta_payload_v0.py`, `gen_payload_blob.py`, `check_payload_blob.py`. |
 | `v0-draft.9` | 2026-10-04 | Platform-agnostic core, made before the v0 freeze. (1) Commitment key 8 `action` becomes opaque: `{3: type, 4: hash}` (action keys 1 `kind` and 2 `params` retired), `hash = H(tag("edicta/v0/action") \|\| uint8(len(type)) \|\| type \|\| action_bytes)` (sections 4.3, 5.1); `type` is a lower-case media type of 3..128 bytes. The `ibkr.order.v0` kind and its params, rule D20 and `ErrUnsupportedActionKind` are removed; the IBKR order moves to the dca-agent profile. (2) Commitment key 9 `constraints` (`max_notional`, `price_bound`, `deadline`) is retired; `valid_until` is the only expiry. (3) Scope keeps only key 1 `gate_id`; keys 2 `rail`, 3 `account`, 4 `chain_id` are retired. Retired keys are never reused, without exception. (4) Stage S keeps S1, S2, S3 (`da` only), S6, S7, S8, S12, S14; S4, S5, S9, S10, S11, S13, S15, S16 are retired. (5) New rule C2 (`ErrActionTypeNotAllowed`): the action type is one the gate is configured for. Rule A1 is redefined as hash equality over the supplied action bytes; new rule A0 (`ErrActionSize`, 1..65536 bytes). (6) New: the gate-signed Authorization (section 15), tags `edicta/v0/authorization` and `edicta/v0/authorization-sig`, 60-byte signed message, at most 256 bytes. The gate authorizes and never executes; stages 11..13 of section 8.7 are rewritten (sign, then consume the nonce with the signed Authorization, then return), with the retry rule. (7) Receipt (section 14): keys 5 `rail` and 7 `path` retired; key 8 keeps its number, field renamed `recorded_at`; new keys 9 `executor_pubkey` and 10 `executor_signature`; `rail_ref` is opaque. `Record` requires a request signed by an allowlisted executor key (tag `edicta/v0/record-request`, `record_message = tag || commitment_hash || uint8(len(gate_id)) || gate_id || uint8(len(rail_ref)) || rail_ref`, 61..251 bytes, rules RQ1..RQ6, R6); executor keys never equal gate or agent keys (`ErrKeyRole`, gate `ErrExecutorNotAllowed`). The receipt attests that a known executor claimed `rail_ref`, not execution. (8) New section 16, the integrator contract (executor MUSTs; non-normative: `commitment_hash` as the idempotency key). (9) Payload plaintext (section 9.3): key 5 `action` is `{3: type, 4: data}` (its keys 1 and 2 retired), key 6 retired; O8 and W1 compare type and hash. (10) Removed to the dca-agent profile: the client order id (old section 15), the DCA media type (old Appendix A), scales and notional arithmetic (old section 4.7). (11) Threat model rows for the action hash, the Authorization, executor dedupe and the integrator enforcement gap. | Changed by design: every commitment, envelope, commitment hash and agent signature; receipt bytes, hashes and signatures; payload plaintext, blob and hashes in `payload_blob.json`. Unchanged: tags of draft.7 and draft.8, signed-envelope layout, limits `MaxSignedSize`/`MaxCommitmentSize`/depth/entries, payload blob format, anchor rules | Regenerated: `valid.json`, `reject.json`, `receipt.json`, `payload_blob.json`. New: `authorization.json`, `record_request.json`. Removed: `client_order_id.json` (now profile data). Byte-identical: `keys.json`, `payload.json`, `anchor.json`, `da_blob.json`. Profile vectors in `spec/vectors/profiles/dca-agent/`. |
 | `v0-draft.10` | 2026-10-04 | Publication through an untrusted submitter, additive. (1) Section 1: threat-model rows for the blob submitter, the inclusion check and its trust levels, the publish request, the DA allowlist and byte-identical resends. (2) Section 9.5: producer rules W5 (independent inclusion check; mandatory when the submitter is a different party) and W6 (bounded publication wait; a retry is a new payload with a new nonce). (3) Section 8.3: gate rule C3 (`payload_ref.da` is in the gate's configured DA set, `ErrDANotAllowed`), evaluated right after stage C; with the set unset (`{1, 2}`) every existing outcome is unchanged. (4) Section 10.5: `signer` names the submitter's account, not who decided. (5) Section 16.1: rule I5 amended for byte-identical resends of one signed rail request inside a profile-bounded window, then hand-off to the operator. (6) New section 17: the agent-signed publish request, tag `edicta/v0/publish-request` (25 bytes, `0x19`), its wrapper, response and checks PR1..PR6. (7) Section 12: new sentinels. (8) New profile `spec/profiles/bank-send-v0.md`. | Unchanged: commitment, envelope, Authorization, receipt and record-request bytes; every existing tag; every existing check outcome. New: the publish-request message and wrapper | Every existing file byte-identical (SHA-256 unchanged), including the `"revision": "v0-draft.9"` field of the files that carry one: their bytes and meaning did not change. New: `spec/vectors/api/publish_request.json` (`v0-draft.10`); profile set `spec/vectors/profiles/bank-send/`; generator module `spec/vectors/tools/banksend-gen`; checker files `edicta_publish_v0.py`, `gen_api_vectors.py`, `check_api_vectors.py`, `profile_bank_send.py`, `gen_profile_bank_send.py`, `check_profile_bank_send.py`. |
+| `v0-draft.11` | 2026-10-04 | Publish request review. (1) `publish_message` gains the Recorder's `gate_id` with a one-byte length, right after the tag: a request is valid at one server only. The wire request is unchanged; the server fills in its own `gate_id`, as for record requests. (2) New rule PR6: dedupe by `SHA-256(blob)`; the same blob inside its window is published once and every accepted retry gets the same response. Quotas move to PR7 and are not charged for a deduplicated request. (3) Threat rows and section 17 notes updated: cross-Recorder replay is closed. Bank-send profile `bank-send-v0-draft.2` (timeout budget, resend stop) at the same time. | Changed: `publish_message` (70..196 bytes) and so every publish signature. Unchanged: everything else | Regenerated: `spec/vectors/api/publish_request.json` (`v0-draft.11`; 2 new rejects). Every other core and dca-agent file byte-identical. |
 
 ## 1. Threat model in one table
 
@@ -78,7 +79,7 @@ Each mechanism below names what it defends against and what it assumes.
 | Nothing (out of core scope) | Action bytes that are malformed, unsafe or semantically wrong for the rail (notional, price, instrument): the core authorizes exactly what the agent committed and checks no semantics | The profile's strict decoder and the executor's own limits (for example the dca-agent profile's account check and operator risk limit). A malicious caller can obtain an Authorization only for bytes the agent committed to |
 | Blob submitter (Recorder, relay) trusted for liveness only; rules W4, W5, W6 (section 9.5) | A submitter that anchors other bytes, anchors under an unexpected account or namespace, or reports a false height or block time, getting the agent to sign a false "public at H" | The submitter is untrusted for integrity: it can refuse, delay, or anchor under its own account, and nothing else. The producer recomputes the DA commitment from its own bytes (W4), verifies inclusion of that commitment under a header it verified itself from sources the submitter does not control (W5), and only then signs; the gate re-checks K0, K1, P1 to P3. Worst case: censorship or delay, visible as a missing or late decision, bounded by W6 |
 | Independent inclusion check, rule W5, three trust levels (section 9.5) | A lying submitter or a lying proof-serving node | `Light` (cryptographic): a trust anchor, more than 2/3 of voting power honest at H, and at least one honest header provider among primary and witnesses. `CrossCheck` (weaker interim substitute, MUST be identified as such): at least one of two or more independent header providers is honest and they do not collude; no signature is checked. `SelfCheck`: the operator's own node, allowed only when submitter and producer are one operator. A commitment proof can come from any node: it is checked against the verified header's data root |
-| Agent-signed publish request (section 17) | A party without an allowlisted agent key spending the Recorder operator's fees; probing the allowlist; reusing an agent signature of another kind as a publish request | Agent keys are secret. Domain separation (tag length 25, unique) keeps publish requests apart from commitment signatures. **Replayable** inside its window: a captured request republishes identical bytes, at this Recorder or at any other Recorder that allowlists the same key under the same `agent_id`; it costs fees and quota only, never a decision. Quotas are per `agent_id` and checked before any fee is spent |
+| Agent-signed publish request (section 17) | A party without an allowlisted agent key spending the Recorder operator's fees; probing the allowlist; reusing an agent signature of another kind as a publish request; replaying a request at another Recorder | Agent keys are secret; each server's `gate_id` is unique (it is signed into the message). Domain separation (tag length 25, unique) keeps publish requests apart from commitment signatures. A replay at the same server inside the window is answered from the dedupe record (PR6) and spends no fee; it never creates a decision. Quotas are per `agent_id` and checked before any fee is spent |
 | DA allowlist, rule C3 (section 8.3) | A gate authorizing a `da` it cannot check on its chain (for example `da = 1` where `x/fibre` is absent) | The operator configures the set; a gate that allows `da = 1` refuses to start if it cannot read Fibre parameters |
 | Byte-identical resend, amended rule I5 (section 16.1) | A transfer lost in a mempool never landing, and a "fix" that builds a second transaction and executes twice | The rail includes the same signed bytes at most once (an account sequence) and the profile bounds the window (a timeout height). The bound is in blocks, not seconds: a slower chain moves the last possible inclusion later in wall-clock time (bank-send profile, section 4) |
 
@@ -1600,10 +1601,10 @@ S sentinels of the request wrapper are the core ones above.
 
 | Sentinel | Rules | Vectors |
 |---|---|---|
-| `edictaapi.ErrPublishSignature` | PR3: unknown `agent_id`, key check, `S < L` or signature equation | `publish_request.json` stage G |
+| `edictaapi.ErrPublishSignature` | PR3: unknown `agent_id`, key check, `S < L` or signature equation (including a message signed for another `gate_id`) | `publish_request.json` stage G |
 | `ErrAgentKeyIsGateKey` (package `gate`) | PR4 | `pr_gate_key` |
 | `edictaapi.ErrPublishStale` | PR5 | `pr_stale_past`, `pr_stale_future` |
-| `edictaapi.ErrQuotaExceeded` | PR6 | none (stateful) |
+| `edictaapi.ErrQuotaExceeded` | PR7 | none (stateful) |
 | `edictaapi.ErrPublishDisabled` | the Recorder is disabled on this server | none (configuration) |
 
 Operational errors that a second implementation may name differently (chain
@@ -1659,12 +1660,12 @@ byte-identical ones carries `"revision": "v0-draft.9"`. Actions longer than
 | `payload_blob.json` | Section 9. `suite` (ids, HPKE `info`, payload `aad`); `derivation` (how every value that is random in production is fixed, below); `params`, `gate`; `hpke_kat` (RFC 9180 Appendix A.2.1 as printed in the RFC: setup values, encryptions with sequence numbers 0, 1, 2, 4, 255, 256, and 3 exports); `recipient_keys` (name -> `kid_hex`, `ikm_hex`, `sk_hex`, `pk_hex`). `cases`: `payload` (section 9.3 names; `context.data` and `action.data` hex), `plaintext_cbor_hex`, `salt_hex`, `plaintext_hash_hex`, `dek_hex`, `aead_nonce_hex`, `recipients` (`key`, `kid_hex`, `ikme_hex`, `ske_hex`, `enc_hex`, `shared_secret_hex`, `hpke_key_hex`, `hpke_base_nonce_hex`, `wrapped_dek_hex`), `ciphertext_hex`, `blob_hex`, `payload_size`, `ciphertext_hash_hex`, `action_type`, `action_hex`, `action_hash_hex`, and `commitment` (a signed envelope over this blob, same fields as `valid.json`). `reject`: `id`, `stage` (`decode`, `open` or `plaintext`), `rule`, `description`, `blob_hex`, for `open` and `plaintext` the recipient `key` and optional `kid_hex` (absent: try every entry), for `plaintext` `plaintext_hash_hex`, `action_type`, `action_hash_hex` (the commitment's), and one `expect_error`. The DCA body vectors of draft.8 (`dca`) moved unchanged to the profile set. |
 | `da_blob.json` | `da = 2` share commitments computed by upstream code only (go-square `v4.0.1` and the celestia-core RFC 6962 root the app uses), by the separate module `spec/vectors/tools/dacommit-gen` (`go run .`). `cases`: `namespace_hex`, `signer_hex`, `size`, the blob as `blob_hex` or `blob_pattern` (defined in `patterns`), `blob_sha256_hex`, `share_count`, `commitment_hex`. `reject`: same fields with a commitment that must not match, and `expect_error` = `ErrDACommitmentMismatch`. Checked by Go only (Python has no NMT); the Python checker checks the blob descriptions and that `blob_v1_minimal_lmt_payload` still describes the `minimal_lmt` payload. Byte-identical to draft.8. |
 
-Added in `v0-draft.10`, without changing any existing file (every core file
+Added in `v0-draft.10` (the API file regenerated in `v0-draft.11`), without changing any existing file (every core file
 keeps its bytes and its `"revision": "v0-draft.9"` field):
 
 | File | Contents |
 |---|---|
-| `spec/vectors/api/publish_request.json` | Section 17. `tag`, `publish_window_s`, `request_overhead`, `patterns`, `server` (`now`, `skew_s`, `max_blob_bytes`, `allowlist` of `agent_id` -> public key, `gate_keys`). `cases`: `signer`, `agent_id`, `requested_at`, the blob as `blob_hex` or `blob_pattern` + `blob_size`, `blob_sha256_hex`, `publish_message_hex`, `signature_hex`, and `request_cbor_hex` (or `request_size` + `request_sha256_hex` for a pattern blob). `reject`: `id`, `stage`, `rule`, `description`, `request_cbor_hex`, optional `server` overrides, one `expect_error`. `response`: `commitment_ref` (a `valid.json` id), `payload_ref_cbor_hex`, `block_time`, `retention_start`, `response_cbor_hex`. 7 cases, 28 rejects, 1 response. Generated by `gen_api_vectors.py`, checked by `check_api_vectors.py`. |
+| `spec/vectors/api/publish_request.json` | Section 17 (`"revision": "v0-draft.11"`). `tag`, `publish_window_s`, `request_overhead`, `patterns`, `server` (`gate_id`, `now`, `skew_s`, `max_blob_bytes`, `allowlist` of `agent_id` -> public key, `gate_keys`). `cases`: `signer`, `agent_id`, `requested_at`, the blob as `blob_hex` or `blob_pattern` + `blob_size`, `blob_sha256_hex`, `publish_message_hex`, `signature_hex`, and `request_cbor_hex` (or `request_size` + `request_sha256_hex` for a pattern blob). `reject`: `id`, `stage`, `rule`, `description`, `request_cbor_hex`, optional `server` overrides, one `expect_error`. `response`: `commitment_ref` (a `valid.json` id), `payload_ref_cbor_hex`, `block_time`, `retention_start`, `response_cbor_hex`. 7 cases, 30 rejects, 1 response. PR6 and PR7 are stateful and have no vectors. Generated by `gen_api_vectors.py`, checked by `check_api_vectors.py`. |
 
 Bank-send profile vectors are in `spec/vectors/profiles/bank-send/` (profile
 document, section "Vectors"). `check_vectors.py` without `--dir` runs the
@@ -2206,24 +2207,32 @@ commitment, Authorization or receipt refers to it.
 ```
 TagPublishRequest = "edicta/v0/publish-request"            ; 25 bytes, tag(t) = 0x19 || ASCII
 publish_message   = 0x19 || "edicta/v0/publish-request"    ; 26 bytes
+                    || uint8(len(gate_id)) || gate_id       ; 1 + 1..64 bytes, ID charset, the server's own id
                     || uint8(len(agent_id)) || agent_id     ; 1 + 1..64 bytes, ID charset
                     || u64be(requested_at)                  ; 8 bytes, Unix seconds, 1..2^63-1
                     || SHA-256(blob)                        ; 32 bytes
 signature         = Ed25519-Sign(agent_sk, publish_message) ; 64 bytes
 ```
 
-`publish_message` is 68 to 131 bytes. It is signed directly, as the record
-request is (section 14.3). Layout reasoning:
+`publish_message` is 70 to 196 bytes. It is signed directly, as the record
+request is (section 14.3). `gate_id` is the id of the server that runs the
+Recorder (`edictad` runs gate and Recorder under one `gate_id`); the agent
+learns it out of band (configuration, or the server's health endpoint) and
+the server fills in its own when it verifies, so it is not on the wire.
+Layout reasoning:
 - The tag first, with its length byte; length 25 is unique among hashed and
   signed tags, so the first byte separates a publish request from every
   other Edicta preimage and signed message (H3). An agent key signs only two
   kinds of message, `TagSig || commitment_hash` (46 bytes, first byte
   `0x0d`) and this one (first byte `0x19`), so neither verifies as the other
   (vector `pr_sig_under_commitment_tag`).
-- `agent_id` is variable and carries a one-byte length, so `agent_id ||
-  requested_at` splits one way only. It names the allowlist entry whose key
-  must verify.
-- `requested_at` is fixed-width big-endian; it bounds replay (PR5).
+- `gate_id` binds the request to one server, so a captured request cannot
+  spend another operator's fees. It is variable and carries a one-byte
+  length, as `agent_id` does, so `gate_id || agent_id || requested_at`
+  splits one way only.
+- `agent_id` names the allowlist entry whose key must verify.
+- `requested_at` is fixed-width big-endian; it gives the request a short
+  life (PR5: `skew_s + 300` seconds either side of the server clock).
 - The blob is bound by its SHA-256, which is the commitment's
   `ciphertext_hash` of the blob the agent will later sign, so the Recorder
   can log which decision a fee paid for without reading the blob.
@@ -2257,22 +2266,28 @@ In this order; the first failing rule decides:
 | PR3 | `agent_id` is in the agent allowlist, and its key passes G0, G2 and G1 (cofactorless) for `signature` over `publish_message`. An unknown `agent_id` and a bad signature give the same sentinel, so the endpoint is no allowlist oracle | `edictaapi.ErrPublishSignature` |
 | PR4 | The allowlisted key is not a gate key (L0) | `ErrAgentKeyIsGateKey` |
 | PR5 | `abs(now - requested_at) <= skew_s + 300` | `edictaapi.ErrPublishStale` |
-| PR6 | Per-`agent_id` quotas (blobs per hour, bytes per day) allow the blob; checked before any fee is spent | `edictaapi.ErrQuotaExceeded` |
+| PR6 | Dedupe by `SHA-256(blob)`: if this server already published, or is publishing, the same blob, it does not submit again. A completed entry is answered with the stored PublishResponse (same `payload_ref`, `block_time`, `retention_start`); an in-flight one makes the request wait for it, or answers retryable `recorder.ErrOutcomeUnknown`. Entries are kept at least `2 * (skew_s + 300)` seconds after the publication, so every request that can still pass PR5 for that blob finds them | (none: answered from the record) |
+| PR7 | Per-`agent_id` quotas (blobs per hour, bytes per day) allow the blob; checked before any fee is spent. A request answered by PR6 spends no fee and is not charged | `edictaapi.ErrQuotaExceeded` |
 
-Then the Recorder publishes the blob unchanged and answers with the
-response. Signature before staleness and quota, as for agents at the gate (L
+Then the Recorder publishes the blob unchanged, records the response under
+`SHA-256(blob)` and answers with it. Signature before staleness and quota, as for agents at the gate (L
 after G): an unsigned request learns nothing about the allowlist or the
 quotas.
 
 Threat notes:
-- Replay. A captured request replays inside its 600 s (plus skew) window.
-  At the same Recorder it republishes identical bytes, which the Recorder
-  deduplicates by share commitment where it can (the commitment depends only
-  on namespace, signer and bytes); the quota counts it. At another Recorder
-  that allowlists the same key under the same `agent_id`, it spends that
-  operator's fees. Either way it publishes only bytes the agent chose, and
-  creates no decision. The message does not name the Recorder; binding it
-  to one would need a new field, which v0 does not have.
+- Replay. A captured request is valid only at the server whose `gate_id` it
+  names (PR3), and only for `skew_s + 300` seconds either side of
+  `requested_at` (PR5). Inside that window PR6 answers it from the dedupe
+  record: no second submission, no fee, the same `payload_ref`. It publishes
+  only bytes the agent chose and creates no decision.
+- Dedupe key. `SHA-256(blob)` per server: the server has one namespace and
+  one signer account, so the share commitment of a given blob is fixed and
+  returning the stored `payload_ref` is exact. Two agents that publish the
+  same bytes get the same `payload_ref`; that is harmless, because each
+  signs its own commitment. A re-issued decision (W6) is a new blob with a
+  new hash and is never deduplicated against the late one.
+- A dedupe record lost in a restart costs at most one extra submission of the
+  same bytes, which gives the same commitment (and one extra fee).
 - The Recorder is untrusted for integrity (section 1): the request protects
   the operator's fees, not the agent. The agent's protection is W4 to W6.
 - Quotas held in memory reset on restart; a restart therefore restores a

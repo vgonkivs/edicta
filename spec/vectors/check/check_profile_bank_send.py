@@ -45,7 +45,10 @@ def arg(name: str, default: Path) -> Path:
 
 DIR = arg("--dir", VECTORS / "profiles" / "bank-send")
 FORMAT = "edicta-vectors/v0"
-PROFILE_REVISION = "bank-send-v0-draft.1"
+REVISIONS = {"msg_send.json": "bank-send-v0-draft.1", "tx.json": "bank-send-v0-draft.1",
+             "action.json": "bank-send-v0-draft.1", "executor.json": "bank-send-v0-draft.1",
+             "timeout_height.json": "bank-send-v0-draft.2", "price_trigger.json": "bank-send-v0-draft.1",
+             "e2e.json": "bank-send-v0-draft.2"}
 FILES = ("msg_send.json", "tx.json", "action.json", "executor.json", "timeout_height.json", "price_trigger.json", "e2e.json")
 
 
@@ -145,6 +148,7 @@ def check_executor(f: dict):
 
 def check_timeouts(f: dict):
     expect(int(f["max_timeout_blocks_limit"]) == pf.MAX_TIMEOUT_BLOCKS_LIMIT, "max_timeout_blocks_limit")
+    expect(int(f["slowdown_factor"]) == pf.SLOWDOWN_FACTOR == 2, "slowdown_factor")
     for c in f["interval"]:
         hs = [(int(h["height"]), int(h["time_ns"])) for h in c["headers"]]
         expect(pf.block_interval_ms(hs) == int(c["tau_ms"]), f"{c['id']}: tau_ms")
@@ -231,7 +235,7 @@ def main() -> int:
         files = {}
         for name in FILES:
             f = json.loads((DIR / name).read_text())
-            expect(f["format"] == FORMAT and f["profile"] == "bank-send" and f["revision"] == PROFILE_REVISION,
+            expect(f["format"] == FORMAT and f["profile"] == "bank-send" and f["revision"] == REVISIONS[name],
                    f"{name}: header")
             files[name] = f
         msgs = check_msgs(files["msg_send.json"])

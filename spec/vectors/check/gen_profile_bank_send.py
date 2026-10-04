@@ -44,7 +44,9 @@ OUT = arg("--out", VECTORS / "profiles" / "bank-send")
 FORMAT = "edicta-vectors/v0"
 PROFILE = "bank-send"
 PROFILE_REVISION = "bank-send-v0-draft.1"
-CORE_REVISION = "v0-draft.10"
+# Files whose bytes or meaning changed in draft.2 carry it; the others keep draft.1.
+PROFILE_REVISION_2 = "bank-send-v0-draft.2"
+CORE_REVISION = "v0-draft.11"
 T0 = 1791000000
 
 
@@ -52,8 +54,8 @@ def lab(s: str) -> bytes:
     return hashlib.sha256(s.encode()).digest()
 
 
-def header() -> dict:
-    return {"format": FORMAT, "profile": PROFILE, "revision": PROFILE_REVISION}
+def header(revision: str = PROFILE_REVISION) -> dict:
+    return {"format": FORMAT, "profile": PROFILE, "revision": revision}
 
 
 def write(name: str, obj: dict):
@@ -239,23 +241,23 @@ def timeout_vectors() -> dict:
             c["timeout_height"] = str(th)
         cases.append(c)
 
-    tc("th_typical", "270 s to expires - skew at 6 s per block: 45 blocks.")
-    tc("th_floor", "271 s: floor(271000 / 6000) = 45.", expires=T0 + 301)
-    tc("th_capped", "2970 s would be 495 blocks; capped at max_timeout_blocks 200.", expires=T0 + 3000)
-    tc("th_one_block", "Exactly one block interval left.", expires=T0 + 36)
-    tc("th_zero_blocks", "5 s left: no whole block fits, the send does not start.", expires=T0 + 35, now=T0 + 1,
+    tc("th_typical", "270 s to expires - skew, budgeted at 2 x 6 s per block: 22 blocks.")
+    tc("th_floor", "271 s: floor(271000 / 12000) = 22.", expires=T0 + 301)
+    tc("th_capped", "2970 s would be 247 blocks; capped at max_timeout_blocks 200.", expires=T0 + 3000)
+    tc("th_one_block", "Exactly 12 s left: one block.", expires=T0 + 42)
+    tc("th_zero_blocks", "11 s left: no whole budgeted block fits, the send does not start.", expires=T0 + 41, now=T0 + 1,
        expect="transfer.ErrExpired")
     tc("th_head_after_end", "Head time already after expires - skew.", T=T0 + 280, expires=T0 + 300, now=T0 + 200,
        expect="transfer.ErrExpired")
     tc("th_now_at_expiry", "now + skew == expires: I6 forbids starting the send.", now=T0 + 270,
        expect="transfer.ErrExpired")
-    tc("th_now_one_before_expiry", "now + skew == expires - 1, head older: still sends.", now=T0 + 269,
+    tc("th_now_one_before_expiry", "now + skew == expires - 1, head older: still sends (70 s, 5 blocks).", now=T0 + 269,
        T=T0 + 200, expires=T0 + 300)
-    tc("th_tau_rounding", "tau 6001 ms: floor(270000 / 6001) = 44.", tau=6001)
+    tc("th_tau_rounding", "264 s: 22 blocks at tau 6000 ms, 21 at 6001 ms.", tau=6001, expires=T0 + 294)
     tc("th_max_blocks_1", "max_timeout_blocks 1.", maxb=1)
-    tc("th_skew_zero", "skew_s 0: 300 s, 50 blocks.", skew=0)
+    tc("th_skew_zero", "skew_s 0: 300 s, 25 blocks.", skew=0)
     tc("th_large_height", "Head height 2^62.", H0=1 << 62)
-    return dict(header(), max_timeout_blocks_limit=str(pf.MAX_TIMEOUT_BLOCKS_LIMIT), interval=intervals, cases=cases)
+    return dict(header(PROFILE_REVISION_2), slowdown_factor=str(pf.SLOWDOWN_FACTOR), max_timeout_blocks_limit=str(pf.MAX_TIMEOUT_BLOCKS_LIMIT), interval=intervals, cases=cases)
 
 
 # price_trigger.json
@@ -443,7 +445,7 @@ def e2e_vectors() -> dict:
                      "head_height": str(H0), "head_time": str(Th), "timeout_height": str(th),
                      "memo": ch.hex(), "body_hex": body.hex()},
     }
-    return dict(header(), core_revision=CORE_REVISION, cases=[case])
+    return dict(header(PROFILE_REVISION_2), core_revision=CORE_REVISION, cases=[case])
 
 
 def main():

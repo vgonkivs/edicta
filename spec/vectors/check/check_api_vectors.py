@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/api/publish_request.json (v0-draft.10).
+"""Verifies spec/vectors/api/publish_request.json (v0-draft.11).
 
 Rebuilds every publish message from literal tag bytes, checks the agent
 signatures, the request and response encodings, and runs the stateless
@@ -50,7 +50,7 @@ def expect(cond: bool, msg: str):
 def main() -> int:
     try:
         f = json.loads((DIR / "publish_request.json").read_text())
-        expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v0-draft.10", "header")
+        expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v0-draft.11", "header")
         expect(f["tag"]["tagged_hex"] == TAG_HEX and f["tag"]["ascii"] == "edicta/v0/publish-request", "tag")
         expect(int(f["publish_window_s"]) == pr.PUBLISH_WINDOW_S and int(f["request_overhead"]) == pr.REQUEST_OVERHEAD,
                "constants")
@@ -58,7 +58,7 @@ def main() -> int:
 
         def run(req: bytes, override: dict | None):
             s = dict(srv, **(override or {}))
-            return pr.verify_request(req, int(s["now"]), int(s["skew_s"]), int(s["max_blob_bytes"]),
+            return pr.verify_request(req, s["gate_id"], int(s["now"]), int(s["skew_s"]), int(s["max_blob_bytes"]),
                                      {k: bytes.fromhex(v) for k, v in s["allowlist"].items()},
                                      [bytes.fromhex(k) for k in s["gate_keys"]])
 
@@ -66,10 +66,11 @@ def main() -> int:
             blob = bytes.fromhex(c["blob_hex"]) if "blob_hex" in c else pattern_bytes(c["blob_pattern"], int(c["blob_size"]))
             expect(hashlib.sha256(blob).hexdigest() == c["blob_sha256_hex"], f"{c['id']}: blob")
             aid = c["agent_id"].encode("ascii")
-            msg = (bytes.fromhex(TAG_HEX) + bytes([len(aid)]) + aid + struct.pack(">Q", int(c["requested_at"]))
+            gid = srv["gate_id"].encode("ascii")
+            msg = (bytes.fromhex(TAG_HEX) + bytes([len(gid)]) + gid + bytes([len(aid)]) + aid + struct.pack(">Q", int(c["requested_at"]))
                    + hashlib.sha256(blob).digest())
             expect(msg.hex() == c["publish_message_hex"], f"{c['id']}: publish message")
-            expect(68 <= len(msg) <= 131, f"{c['id']}: message length")
+            expect(70 <= len(msg) <= 196, f"{c['id']}: message length")
             sig = bytes.fromhex(c["signature_hex"])
             req = pr.encode_request(blob, c["agent_id"], int(c["requested_at"]), sig)
             if "request_cbor_hex" in c:
@@ -100,7 +101,7 @@ def main() -> int:
     except (Failure, Reject) as e:
         print(f"FAIL (api): {e}", file=sys.stderr)
         return 1
-    print(f"OK (api, v0-draft.10): {len(f['cases'])} publish request, {len(f['reject'])} publish reject, "
+    print(f"OK (api, v0-draft.11): {len(f['cases'])} publish request, {len(f['reject'])} publish reject, "
           f"{len(f['response'])} publish response")
     return 0
 

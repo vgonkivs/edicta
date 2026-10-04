@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates spec/vectors/api/publish_request.json (v0-draft.10). Deterministic.
+"""Generates spec/vectors/api/publish_request.json (v0-draft.11). Deterministic.
 
 Usage: python3 spec/vectors/check/gen_api_vectors.py [--core DIR] [--out DIR]
 Defaults: --core spec/vectors/v0; --out spec/vectors/api.
@@ -35,13 +35,14 @@ def arg(name: str, default: Path) -> Path:
 CORE = arg("--core", VECTORS / "v0")
 OUT = arg("--out", VECTORS / "api")
 FORMAT = "edicta-vectors/v0"
-REVISION = "v0-draft.10"
+REVISION = "v0-draft.11"
 T0 = 1791000000
 NOW = T0 + 60
 SKEW = 30
 MAX_BLOB = 1 << 20
 PATTERN = "affine-7-3"
 ID64 = "agent-" + "x" * 58
+GID = "edictad-1"
 
 
 def main():
@@ -55,7 +56,7 @@ def main():
 
     allowlist = {"dca-agent-1": pk("agent1"), "tia-transfer-agent": pk("agent2"), ID64: pk("agent1")}
     gate_keys = [pk("gate1")]
-    server = {"now": str(NOW), "skew_s": str(SKEW), "max_blob_bytes": str(MAX_BLOB),
+    server = {"gate_id": GID, "now": str(NOW), "skew_s": str(SKEW), "max_blob_bytes": str(MAX_BLOB),
               "allowlist": {k: v.hex() for k, v in allowlist.items()}, "gate_keys": [k.hex() for k in gate_keys]}
     payload = json.loads((CORE / "payload.json").read_text())
     small_blob = bytes.fromhex(next(c for c in payload["cases"] if c["id"] == "ciphertext_hash_small_blob")["blob_hex"])
@@ -63,10 +64,10 @@ def main():
     cases = []
 
     def add(cid, desc, signer, agent_id, requested_at, blob):
-        msg = pr.publish_message(agent_id, requested_at, blob)
+        msg = pr.publish_message(GID, agent_id, requested_at, blob)
         sig = sk(signer).sign(msg)
         req = pr.encode_request(blob, agent_id, requested_at, sig)
-        pr.verify_request(req, NOW, SKEW, MAX_BLOB, allowlist, gate_keys)
+        pr.verify_request(req, GID, NOW, SKEW, MAX_BLOB, allowlist, gate_keys)
         c = {"id": cid, "description": desc, "signer": signer, "agent_id": agent_id, "requested_at": str(requested_at)}
         if len(blob) > 1024:
             assert pattern_bytes(PATTERN, len(blob)) == blob
@@ -99,7 +100,7 @@ def main():
         srv = dict(server, **(override or {}))
         al = {k: bytes.fromhex(v) for k, v in srv["allowlist"].items()}
         try:
-            pr.verify_request(req, int(srv["now"]), int(srv["skew_s"]), int(srv["max_blob_bytes"]), al,
+            pr.verify_request(req, srv["gate_id"], int(srv["now"]), int(srv["skew_s"]), int(srv["max_blob_bytes"]), al,
                               [bytes.fromhex(k) for k in srv["gate_keys"]])
             raise AssertionError(cid)
         except Reject as e:
@@ -114,7 +115,7 @@ def main():
     aid = "dca-agent-1"
 
     def signed(agent_id=aid, at=NOW, b=blob, signer="agent1", msg=None):
-        m = msg if msg is not None else pr.publish_message(agent_id, at, b)
+        m = msg if msg is not None else pr.publish_message(GID, agent_id, at, b)
         return pr.encode_request(b, agent_id, at, sk(signer).sign(m))
 
     good = signed()
@@ -141,20 +142,25 @@ def main():
       "signature, so the endpoint is no allowlist oracle.", signed(agent_id="unknown-agent"), "edictaapi.ErrPublishSignature")
     r("pr_wrong_key", "G", "PR3", "agent1's id, signed by agent2.", signed(signer="agent2"), "edictaapi.ErrPublishSignature")
     r("pr_other_blob", "G", "PR3", "Signature over another blob.",
-      pr.encode_request(blob, aid, NOW, sk("agent1").sign(pr.publish_message(aid, NOW, b"\x00"))), "edictaapi.ErrPublishSignature")
+      pr.encode_request(blob, aid, NOW, sk("agent1").sign(pr.publish_message(GID, aid, NOW, b"\x00"))), "edictaapi.ErrPublishSignature")
     r("pr_other_requested_at", "G", "PR3", "Signature over requested_at - 1.",
-      pr.encode_request(blob, aid, NOW, sk("agent1").sign(pr.publish_message(aid, NOW - 1, blob))), "edictaapi.ErrPublishSignature")
+      pr.encode_request(blob, aid, NOW, sk("agent1").sign(pr.publish_message(GID, aid, NOW - 1, blob))), "edictaapi.ErrPublishSignature")
     r("pr_other_agent_id", "G", "PR3", "agent2 signs for its own id, request names agent1's id with agent2 allowlisted there.",
-      pr.encode_request(blob, aid, NOW, sk("agent2").sign(pr.publish_message("tia-transfer-agent", NOW, blob))),
+      pr.encode_request(blob, aid, NOW, sk("agent2").sign(pr.publish_message(GID, "tia-transfer-agent", NOW, blob))),
       "edictaapi.ErrPublishSignature", {"allowlist": {aid: pk("agent2").hex()}})
+    r("pr_other_gate_id", "G", "PR3", "Signed for gate_id other-edictad; this server's gate_id is edictad-1.",
+      signed(msg=pr.publish_message("other-edictad", aid, NOW, blob)), "edictaapi.ErrPublishSignature")
+    r("pr_no_gate_id", "G", "PR3", "Signed over the message without the gate_id field (the draft.10 layout).",
+      signed(msg=tagged(pr.TAG_PUBLISH_REQUEST) + pr.publish_message(GID, aid, NOW, blob)[27 + len(GID):]),
+      "edictaapi.ErrPublishSignature")
     r("pr_sig_untagged", "G", "PR3", "Signed without the tag.",
-      signed(msg=pr.publish_message(aid, NOW, blob)[26:]), "edictaapi.ErrPublishSignature")
+      signed(msg=pr.publish_message(GID, aid, NOW, blob)[26:]), "edictaapi.ErrPublishSignature")
     r("pr_sig_under_commitment_tag", "G", "PR3", "Signed under edicta/v0/sig over SHA-256 of the publish message.",
-      signed(msg=signing_message(hashlib.sha256(pr.publish_message(aid, NOW, blob)).digest())), "edictaapi.ErrPublishSignature")
+      signed(msg=signing_message(hashlib.sha256(pr.publish_message(GID, aid, NOW, blob)).digest())), "edictaapi.ErrPublishSignature")
     r("pr_sig_hashed_message", "G", "PR3", "Signed over SHA-256 of the publish message.",
-      signed(msg=hashlib.sha256(pr.publish_message(aid, NOW, blob)).digest()), "edictaapi.ErrPublishSignature")
+      signed(msg=hashlib.sha256(pr.publish_message(GID, aid, NOW, blob)).digest()), "edictaapi.ErrPublishSignature")
     r("pr_sig_record_request_tag", "G", "PR3", "The same layout under edicta/v0/record-request.",
-      signed(msg=tagged(b"edicta/v0/record-request") + pr.publish_message(aid, NOW, blob)[26:]), "edictaapi.ErrPublishSignature")
+      signed(msg=tagged(b"edicta/v0/record-request") + pr.publish_message(GID, aid, NOW, blob)[26:]), "edictaapi.ErrPublishSignature")
     s_bad = sig[:32] + (int.from_bytes(sig[32:], "little") + 2**252 + 27742317777372353535851937790883648493).to_bytes(32, "little")
     r("pr_sig_noncanonical_s", "G", "PR3", "S + L in place of S.", encode({1: blob, 2: aid, 3: NOW, 4: s_bad}),
       "edictaapi.ErrPublishSignature")

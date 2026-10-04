@@ -3,9 +3,9 @@
 Edicta profile for a bank transfer on a Cosmos SDK chain, used by the demo in
 `examples/tia-transfer`.
 
-Status: revision `bank-send-v0-draft.1` (2026-10-04). Working draft, subject
+Status: revision `bank-send-v0-draft.2` (2026-10-04). Working draft, subject
 to change. Built on the core spec `spec/decision-commitment-v0.md`, revision
-`v0-draft.10`; section numbers prefixed "core" refer to it.
+`v0-draft.11`; section numbers prefixed "core" refer to it.
 
 Keywords MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Items marked
 `UNVERIFIED` are facts about Celestia or the Cosmos SDK that a Celestia
@@ -24,6 +24,13 @@ vectors use `mocha-4`, `celestia` and others only as examples.
 | Any change to an encoding, a check or its outcome, while in draft | Bump `bank-send-v0-draft.N`, regenerate the profile vectors, record the change. |
 | Any such change after freeze | New types (`...cosmos.bank-send.v1+cbor`, `...price-trigger.v1+cbor`). The version is in the type name, so the bodies carry no version field. |
 
+Changes:
+
+| Revision | Change | Vectors |
+|---|---|---|
+| `bank-send-v0-draft.1` | First draft. | Initial set. |
+| `bank-send-v0-draft.2` | (1) The pinned chain has no transaction timeout timestamp (section 6), so the chain-side bound stays `timeout_height`, now budgeted at twice the observed block interval (4.3, `slowdown_factor = 2`). (2) T10: rebroadcasting stops at `expires` by the executor's wall clock, whatever the height. (3) Section 4.3 states why a halt that delays inclusion past `expires` is still safe. | Regenerated: `timeout_height.json`, `e2e.json` (both now `bank-send-v0-draft.2`). Byte-identical, keeping `bank-send-v0-draft.1`: `msg_send.json`, `tx.json`, `action.json`, `executor.json`, `price_trigger.json`. |
+
 The profile depends on the core only through `ActionHash`,
 `VerifyAuthorization`, `commitment_hash` and rule I5 as amended in
 `v0-draft.10`.
@@ -37,7 +44,7 @@ The profile depends on the core only through `ActionHash`,
 | `chain_id` in the action bytes and in the SignDoc (rule T3, section 3) | Bytes authorized for one chain executed on another (testnet versus mainnet, a fork) | The executor's chain id comes from its node and is cross-checked at startup; SIGN_MODE_DIRECT signs the chain id, so the signature is invalid elsewhere |
 | Sender, denom, destination, amount checks (rule T5) | An agent committing to a transfer from another account, in another denom, to an unexpected address or above the operator's limit | The operator configures them; the agent cannot change them |
 | Memo = `hex(commitment_hash)` by a byte-exact rule (section 3) | A transfer whose link to its decision is lost or forged | Anyone can recompute the body from the authorized `msg` and the commitment hash and compare bytes (section 3.3) |
-| Persist before broadcast, resend identical bytes, `timeout_height` (section 4) | A double transfer after a crash, a timeout or a lost mempool entry | The chain includes one signed transaction at most once (account sequence); the bound is in blocks (section 4.3 says which way time can slip) |
+| Persist before broadcast, resend identical bytes, `timeout_height`, resend stop at `expires` (section 4) | A double transfer after a crash, a timeout or a lost mempool entry; a transfer started long after its Authorization expired | The chain includes one signed transaction at most once (account sequence); the executor signs only while the Authorization is valid. The chain-side bound is in blocks only: a halt can delay inclusion past `expires` (4.3) |
 | Price-trigger context with PT1..PT5 (section 5) | The agent's stated observations and branch diverging from the transfer it made, unnoticed | Detection after the fact by a reader of the payload. These checks never say whether the prices were true or the decision good: Edicta does not evaluate the agent |
 | Nothing (open gap) | Whether the transfer is economically sensible; the price source's honesty | The operator and auditors judge that from the published payload |
 
@@ -187,7 +194,7 @@ the transfer to the exact authorized message.
 | T7 | `now + skew_s < expires` (core I6); otherwise abandon | `transfer.ErrExpired` |
 | T8 | `timeout_height` by 4.3; no block fits: abandon | `transfer.ErrExpired` |
 | T9 | `body = Body(msg, commitment_hash, timeout_height)`; sign (3.2) with `chain_id` from the action; check `body_bytes`; `Store.Prepare(commitment_hash, TxRaw, SHA-256(TxRaw), timeout_height, expires)`, durable **before the first broadcast** | signer error: abandon (nothing was sent) |
-| T10 | Broadcast the stored `TxRaw`; every resend is the same bytes. Resend every `rebroadcast_every` while `now + skew_s < expires` and the chain height is `<= timeout_height`; query the status by the transaction hash | - |
+| T10 | Broadcast the stored `TxRaw`; every resend is the same bytes. Resend every `rebroadcast_every` only while `now + skew_s < expires` by the executor's wall clock and the chain height is `<= timeout_height`; rebroadcasting stops at the latest at `expires`, whatever the height. Status queries by the transaction hash continue until T11 or T12 | - |
 | T11 | Committed: `Store.Finish(height, code)`. Code 0: optional record request with `rail_ref` (3.2). Code != 0: terminal | `transfer.ErrFailedOnChain` |
 | T12 | Chain height `> timeout_height` and not committed (one final status query after `timeout_height + 1`): `Store.HandOff(commitment_hash, "not included by timeout_height")`. No new transaction is ever built for this decision | `transfer.ErrHandedOff` |
 
@@ -211,11 +218,18 @@ seconds), the block interval `tau_ms`, the Authorization's `expires`, `skew_s`,
 if now + skew_s >= expires:                 ErrExpired          ; T7, I6
 end = expires - skew_s
 n   = 0                                      if end <= T0
-      floor((end - T0) * 1000 / tau_ms)      otherwise
+      floor((end - T0) * 1000 / (2 * tau_ms)) otherwise         ; slowdown_factor = 2
 n   = min(n, max_timeout_blocks)
 if n == 0:                                   ErrExpired          ; no whole block fits
 timeout_height = H0 + n                                          ; must be <= 2^63-1
 ```
+
+The factor 2 is normative (`slowdown_factor` in the vectors): the budget
+assumes blocks twice as slow as the slowest recent one, so it gives fewer
+blocks than the observed block time suggests. Block `timeout_height` then
+falls before `expires - skew_s` unless the chain slows down to more than
+twice its largest recent interval. The cost is a shorter inclusion window
+(about 22 blocks for 270 s at 6 s blocks).
 
 `tau_ms`: from the last `N >= 2` headers with consecutive heights (default
 `N = 11`), the largest interval between neighbours, rounded up to whole
@@ -226,16 +240,31 @@ The chain rejects a transaction when `block_height > timeout_height`
 (cosmos-sdk `TxTimeoutHeightDecorator`), so `timeout_height` is the last block
 that can include it.
 
-Threat note (direction of the bound). `timeout_height` bounds inclusion in
-blocks. Block `timeout_height` is reached at about `T0 + n * tau_actual`. If
-the chain produces blocks faster than `tau`, that moment is earlier than
-`expires - skew_s` (safe). If it slows down after `T0` (or halts and
-resumes), the last possible inclusion moves later in wall-clock time, past
-`expires`. Taking the largest recent interval as `tau` and capping `n` limit
-this; they cannot remove it. A late inclusion is still the one send started
-before `expires` (core I6 and the I5 amendment): never a second transfer.
-A verifier that wants the wall-clock time of the transfer reads the block
-time of its inclusion height.
+Why not a timestamp. The pinned chain has no transaction timeout by time:
+`TxBody` has no `timeout_timestamp` field and the ante chain has no
+decorator for one (section 6). A wall-clock bound enforced by the chain is
+therefore not available; the executor enforces one on its own side (T10:
+no rebroadcast at or after `expires`).
+
+Threat note (halt). `timeout_height` bounds inclusion in blocks, not in
+seconds. Block `timeout_height` is reached at about `T0 + n * tau_actual`.
+If the chain slows down beyond the budget, or halts and resumes, a
+transaction already in a mempool can be included after `expires` in
+wall-clock time (up to block `timeout_height`). Safety still holds:
+- the transaction was signed only after `VerifyAuthorization` passed and
+  T7 held, so it is the action the gate authorized, signed while the
+  Authorization was valid; a late inclusion is that one send completing
+  (core I6, I5 amendment), not a new execution;
+- it cannot execute twice: the gate issues one Authorization per nonce,
+  the executor's store refuses a second execution of the same
+  `commitment_hash`, it never builds a second transaction, and the account
+  sequence lets the chain include the signed bytes at most once;
+- no transaction is included after `timeout_height`, and the executor stops
+  rebroadcasting at `expires`, so the late window is bounded by the halt
+  itself plus `n` blocks.
+What is lost is the wall-clock promise "executed before `expires`". A
+verifier that wants the time of the transfer reads the block time of its
+inclusion height.
 
 Threat note (resend). Every resend is byte-identical: same hash, same account
 sequence. The chain includes it at most once, and not after
@@ -296,7 +325,8 @@ recipient of the payload (core 9.1); it is never public in clear text.
 | Fact | Status | Source |
 |---|---|---|
 | celestia-app v10 replaces cosmos-sdk with `github.com/celestiaorg/cosmos-sdk v0.52.12` | VERIFIED | celestia-app `v10.4.0-mocha` `go.mod` |
-| `TxBody` fields at that fork: `messages = 1`, `memo = 2`, `timeout_height = 3`, `extension_options = 1023`, `non_critical_extension_options = 2047`; no timeout timestamp | VERIFIED | `proto/cosmos/tx/v1beta1/tx.proto` at the fork |
+| `TxBody` fields at that fork: `messages = 1`, `memo = 2`, `timeout_height = 3`, `extension_options = 1023`, `non_critical_extension_options = 2047`; no `timeout_timestamp` and no `unordered` | VERIFIED | `proto/cosmos/tx/v1beta1/tx.proto` and `types/tx/tx.pb.go` at the fork (`celestiaorg/cosmos-sdk v0.52.12`; neither name occurs) |
+| The celestia-app ante chain bounds transactions by height only: `ante.NewTxTimeoutHeightDecorator()`, no timestamp decorator | VERIFIED | celestia-app `v10.4.0-mocha` `app/ante/ante.go` (line 46); no `TimeoutTimestamp` in `app/ante` (the only occurrence in `app/app.go` is the IBC packet-forward timeout) |
 | The ante handler rejects a transaction when `block_height > timeout_height` (nonzero) | VERIFIED | `x/auth/ante/basic.go` `TxTimeoutHeightDecorator` at the fork |
 | Default `MaxMemoCharacters` 256; a 64-character memo fits | VERIFIED default; the value on each network is `UNVERIFIED` and read from auth params at startup | `x/auth/types/params.go` at the fork |
 | Denom grammar `[a-zA-Z][a-zA-Z0-9/:._-]{2,127}` | VERIFIED | `types/coin.go` at the fork |
@@ -331,8 +361,8 @@ sentinels of T1 keep their core names.
 ## 8. Vectors
 
 Location `spec/vectors/profiles/bank-send/`. Every file has `format`
-`edicta-vectors/v0`, `profile` `bank-send` and `revision`
-`bank-send-v0-draft.1`; uints are decimal strings, bytes lowercase hex.
+`edicta-vectors/v0`, `profile` `bank-send` and the `revision` that last
+changed it (section 0); uints are decimal strings, bytes lowercase hex.
 
 | File | Written by | Contents |
 |---|---|---|
@@ -340,9 +370,9 @@ Location `spec/vectors/profiles/bank-send/`. Every file has `format`
 | `tx.json` | `banksend-gen` | `body`: `msg_ref`, `commitment_hash_hex`, `timeout_height`, `memo`, `body_hex` (gogoproto `TxBody.Marshal`). `body_reject`: bodies a 3.3 check refuses, `expect_error` `bankaction.ErrBodyMismatch`. `signed`: `body_ref`, `chain_id`, `account_number`, `sequence`, `fee`, `gas_limit`, `key` (label, private key, compressed public key, address), `auth_info_hex`, `sign_doc_hex`, `signature_hex`, `tx_raw_hex`, `tx_hash_hex`, `rail_ref`. 7 bodies, 12 body rejects, 2 signed. |
 | `action.json` | `gen_profile_bank_send.py` | `action_type`. `cases`: `msg_ref` (absent for an opaque msg), `input{chain_id, msg_hex}`, `cbor_hex`, `action_hash_hex`. `reject`: `cbor_hex`, `expect_error` `bankaction.ErrMalformed`. 6 cases, 22 rejects. |
 | `executor.json` | `gen_profile_bank_send.py` | `cases`: `domain`, `destinations`, `max_amount`, `action_hex`, optional `expect_error`: rules T2 to T5 and their order. 17 cases. |
-| `timeout_height.json` | `gen_profile_bank_send.py` | `interval`: `headers[{height, time_ns}]`, `tau_ms`. `cases`: `head_height`, `head_time`, `tau_ms`, `expires`, `skew_s`, `max_timeout_blocks`, `now`, and `timeout_height` or `expect_error` `transfer.ErrExpired`. 4 intervals, 12 cases. |
+| `timeout_height.json` | `gen_profile_bank_send.py` | `bank-send-v0-draft.2`. `slowdown_factor`, `max_timeout_blocks_limit`. `interval`: `headers[{height, time_ns}]`, `tau_ms`. `cases`: `head_height`, `head_time`, `tau_ms`, `expires`, `skew_s`, `max_timeout_blocks`, `now`, and `timeout_height` or `expect_error` `transfer.ErrExpired`. 4 intervals, 12 cases. |
 | `price_trigger.json` | `gen_profile_bank_send.py` | `media_type`. `cases`: `input`, `cbor_hex`. `reject`: `cbor_hex`, `expect_error`. `consistency`: `context_cbor_hex`, `msg_ref`, `hrp`, `issued_at`, `expect_failed` (PT ids). 4 cases, 25 rejects, 9 consistency. |
-| `e2e.json` | `gen_profile_bank_send.py` | One decision end to end: the gate and params; a commitment by `agent1` (core `keys.json`) with this action type, its envelope and hash (payload fields are placeholders, listed); the action bytes; a price-trigger context consistent with the transfer; the Authorization by `gate1`; the executor's clock, domain, headers, `tau_ms`, `timeout_height`, memo and body. 1 case. |
+| `e2e.json` | `gen_profile_bank_send.py` | `bank-send-v0-draft.2`. One decision end to end: the gate and params; a commitment by `agent1` (core `keys.json`) with this action type, its envelope and hash (payload fields are placeholders, listed); the action bytes; a price-trigger context consistent with the transfer; the Authorization by `gate1`; the executor's clock, domain, headers, `tau_ms`, `timeout_height`, memo and body. 1 case. |
 
 Generation order: `cd spec/vectors/tools/banksend-gen && go run .` (needs
 network access the first time to download modules; never run by `go test`
@@ -364,6 +394,6 @@ the signature bytes are the RFC 6979 ones (it verifies them instead).
 Example, end to end (`e2e_minimal_mocha`): `commitment_hash =
 3725b068...4ce81a`; Authorization `expires = 1791000360`; executor `now =
 1791000065`, `skew_s = 30`, head `H0 = 6543260` at `T0 = 1791000064`, `tau_ms
-= 6000`: `n = floor((1791000330 - 1791000064) * 1000 / 6000) = 44`, so
-`timeout_height = 6543304`, and the memo is the full commitment hash in
+= 6000`: `n = floor((1791000330 - 1791000064) * 1000 / (2 * 6000)) = 22`, so
+`timeout_height = 6543282`, and the memo is the full commitment hash in
 lower-case hex.

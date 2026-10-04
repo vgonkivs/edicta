@@ -1,7 +1,8 @@
 {
   "format": "edicta-vectors/v0",
   "profile": "bank-send",
-  "revision": "bank-send-v0-draft.1",
+  "revision": "bank-send-v0-draft.2",
+  "slowdown_factor": "2",
   "max_timeout_blocks_limit": "10000",
   "interval": [
     {
@@ -88,7 +89,7 @@
   "cases": [
     {
       "id": "th_typical",
-      "description": "270 s to expires - skew at 6 s per block: 45 blocks.",
+      "description": "270 s to expires - skew, budgeted at 2 x 6 s per block: 22 blocks.",
       "head_height": "1000000",
       "head_time": "1791000000",
       "tau_ms": "6000",
@@ -96,11 +97,11 @@
       "skew_s": "30",
       "max_timeout_blocks": "200",
       "now": "1791000005",
-      "timeout_height": "1000045"
+      "timeout_height": "1000022"
     },
     {
       "id": "th_floor",
-      "description": "271 s: floor(271000 / 6000) = 45.",
+      "description": "271 s: floor(271000 / 12000) = 22.",
       "head_height": "1000000",
       "head_time": "1791000000",
       "tau_ms": "6000",
@@ -108,11 +109,11 @@
       "skew_s": "30",
       "max_timeout_blocks": "200",
       "now": "1791000005",
-      "timeout_height": "1000045"
+      "timeout_height": "1000022"
     },
     {
       "id": "th_capped",
-      "description": "2970 s would be 495 blocks; capped at max_timeout_blocks 200.",
+      "description": "2970 s would be 247 blocks; capped at max_timeout_blocks 200.",
       "head_height": "1000000",
       "head_time": "1791000000",
       "tau_ms": "6000",
@@ -124,11 +125,11 @@
     },
     {
       "id": "th_one_block",
-      "description": "Exactly one block interval left.",
+      "description": "Exactly 12 s left: one block.",
       "head_height": "1000000",
       "head_time": "1791000000",
       "tau_ms": "6000",
-      "expires": "1791000036",
+      "expires": "1791000042",
       "skew_s": "30",
       "max_timeout_blocks": "200",
       "now": "1791000005",
@@ -136,11 +137,11 @@
     },
     {
       "id": "th_zero_blocks",
-      "description": "5 s left: no whole block fits, the send does not start.",
+      "description": "11 s left: no whole budgeted block fits, the send does not start.",
       "head_height": "1000000",
       "head_time": "1791000000",
       "tau_ms": "6000",
-      "expires": "1791000035",
+      "expires": "1791000041",
       "skew_s": "30",
       "max_timeout_blocks": "200",
       "now": "1791000001",
@@ -172,7 +173,7 @@
     },
     {
       "id": "th_now_one_before_expiry",
-      "description": "now + skew == expires - 1, head older: still sends.",
+      "description": "now + skew == expires - 1, head older: still sends (70 s, 5 blocks).",
       "head_height": "1000000",
       "head_time": "1791000200",
       "tau_ms": "6000",
@@ -180,19 +181,19 @@
       "skew_s": "30",
       "max_timeout_blocks": "200",
       "now": "1791000269",
-      "timeout_height": "1000011"
+      "timeout_height": "1000005"
     },
     {
       "id": "th_tau_rounding",
-      "description": "tau 6001 ms: floor(270000 / 6001) = 44.",
+      "description": "264 s: 22 blocks at tau 6000 ms, 21 at 6001 ms.",
       "head_height": "1000000",
       "head_time": "1791000000",
       "tau_ms": "6001",
-      "expires": "1791000300",
+      "expires": "1791000294",
       "skew_s": "30",
       "max_timeout_blocks": "200",
       "now": "1791000005",
-      "timeout_height": "1000044"
+      "timeout_height": "1000021"
     },
     {
       "id": "th_max_blocks_1",
@@ -208,7 +209,7 @@
     },
     {
       "id": "th_skew_zero",
-      "description": "skew_s 0: 300 s, 50 blocks.",
+      "description": "skew_s 0: 300 s, 25 blocks.",
       "head_height": "1000000",
       "head_time": "1791000000",
       "tau_ms": "6000",
@@ -216,7 +217,7 @@
       "skew_s": "0",
       "max_timeout_blocks": "200",
       "now": "1791000005",
-      "timeout_height": "1000050"
+      "timeout_height": "1000025"
     },
     {
       "id": "th_large_height",
@@ -228,7 +229,7 @@
       "skew_s": "30",
       "max_timeout_blocks": "200",
       "now": "1791000005",
-      "timeout_height": "4611686018427387949"
+      "timeout_height": "4611686018427387926"
     }
   ]
 }

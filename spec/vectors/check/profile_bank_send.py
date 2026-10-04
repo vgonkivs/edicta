@@ -30,6 +30,7 @@ CHAIN_ID_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 DENOM_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9/:._-]{2,127}$")
 AMOUNT_RE = re.compile(r"^[1-9][0-9]*$")
 MAX_TIMEOUT_BLOCKS_LIMIT = 10_000
+SLOWDOWN_FACTOR = 2
 
 
 # bech32 (BIP-173). bech32m and mixed case are refused.
@@ -276,14 +277,14 @@ def block_interval_ms(headers: list) -> int:
 
 def timeout_height(head_height: int, head_time: int, tau_ms: int, expires: int, skew_s: int,
                    max_timeout_blocks: int, now: int) -> int:
-    """th = H0 + min(floor((expires - skew - T0) * 1000 / tau_ms), max_timeout_blocks), all exact.
-    transfer.ErrExpired when the send may not start (I6) or no block fits."""
+    """th = H0 + min(floor((expires - skew - T0) * 1000 / (SLOWDOWN_FACTOR * tau_ms)), max_timeout_blocks),
+    all exact. transfer.ErrExpired when the send may not start (I6) or no block fits."""
     if not 1 <= tau_ms or not 1 <= max_timeout_blocks <= MAX_TIMEOUT_BLOCKS_LIMIT:
         raise ValueError("configuration out of range")
     if now + skew_s >= expires:
         raise Reject("transfer.ErrExpired", "now + skew_s >= expires")
     end = expires - skew_s
-    n = 0 if end <= head_time else (end - head_time) * 1000 // tau_ms
+    n = 0 if end <= head_time else (end - head_time) * 1000 // (SLOWDOWN_FACTOR * tau_ms)
     n = min(n, max_timeout_blocks)
     if n == 0:
         raise Reject("transfer.ErrExpired", "no block fits before expires - skew_s")

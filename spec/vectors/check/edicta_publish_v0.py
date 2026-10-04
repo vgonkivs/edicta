@@ -1,4 +1,4 @@
-"""Publish request rules for Edicta v0 (v0-draft.10): the agent-signed request a
+"""Publish request rules for Edicta v0 (v0-draft.11): the agent-signed request a
 Recorder accepts before it spends fees on a blob.
 
 Python side of the cross-language check for the publish endpoint. Reuses the
@@ -34,10 +34,12 @@ PUBLISH_RESPONSE = {
 }
 
 
-def publish_message(agent_id: str, requested_at: int, blob: bytes) -> bytes:
+def publish_message(gate_id: str, agent_id: str, requested_at: int, blob: bytes) -> bytes:
+    g = gate_id.encode("ascii")
     a = agent_id.encode("ascii")
-    assert 1 <= len(a) <= 64 and 1 <= requested_at <= MAX_INT
-    return tagged(TAG_PUBLISH_REQUEST) + bytes([len(a)]) + a + struct.pack(">Q", requested_at) + hashlib.sha256(blob).digest()
+    assert 1 <= len(g) <= 64 and 1 <= len(a) <= 64 and 1 <= requested_at <= MAX_INT
+    return (tagged(TAG_PUBLISH_REQUEST) + bytes([len(g)]) + g + bytes([len(a)]) + a + struct.pack(">Q", requested_at)
+            + hashlib.sha256(blob).digest())
 
 
 def encode_request(blob: bytes, agent_id: str, requested_at: int, signature: bytes) -> bytes:
@@ -76,16 +78,17 @@ def _signature_ok(pub: bytes | None, msg: bytes, sig: bytes) -> bool:
     return ours
 
 
-def verify_request(data: bytes, now: int, skew_s: int, max_blob_bytes: int, allowlist: dict,
+def verify_request(data: bytes, gate_id: str, now: int, skew_s: int, max_blob_bytes: int, allowlist: dict,
                    gate_keys: list) -> dict:
-    """The stateless publish checks PR1..PR5 in this fixed order. Quotas (PR6) are stateful."""
+    """The stateless publish checks PR1..PR5 in this fixed order, with the server's own gate_id.
+    Dedupe (PR6) and quotas (PR7) are stateful."""
     r = decode_request(data, max_blob_bytes)
     if r["requested_at"] > MAX_INT:
         raise Reject("ErrIntRange", "requested_at")
     if r["requested_at"] == 0:
         raise Reject("ErrZeroValue", "requested_at")
     pub = allowlist.get(r["agent_id"])
-    msg = publish_message(r["agent_id"], r["requested_at"], r["blob"])
+    msg = publish_message(gate_id, r["agent_id"], r["requested_at"], r["blob"])
     if not _signature_ok(pub, msg, r["signature"]):
         raise Reject("edictaapi.ErrPublishSignature")
     if pub in gate_keys:
