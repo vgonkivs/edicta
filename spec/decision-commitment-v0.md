@@ -2,7 +2,7 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v0-draft.11` (2026-10-04). Working draft, subject to change.
+Status: revision `v0-draft.12` (2026-10-04). Working draft, subject to change.
 Wire version: `version = 0`. Domain tags: `edicta/v0/...`.
 
 The core knows no rail, broker or chain. An action is an opaque byte string
@@ -43,6 +43,7 @@ signature even if the byte layout were identical.
 | `v0-draft.9` | 2026-10-04 | Platform-agnostic core, made before the v0 freeze. (1) Commitment key 8 `action` becomes opaque: `{3: type, 4: hash}` (action keys 1 `kind` and 2 `params` retired), `hash = H(tag("edicta/v0/action") \|\| uint8(len(type)) \|\| type \|\| action_bytes)` (sections 4.3, 5.1); `type` is a lower-case media type of 3..128 bytes. The `ibkr.order.v0` kind and its params, rule D20 and `ErrUnsupportedActionKind` are removed; the IBKR order moves to the dca-agent profile. (2) Commitment key 9 `constraints` (`max_notional`, `price_bound`, `deadline`) is retired; `valid_until` is the only expiry. (3) Scope keeps only key 1 `gate_id`; keys 2 `rail`, 3 `account`, 4 `chain_id` are retired. Retired keys are never reused, without exception. (4) Stage S keeps S1, S2, S3 (`da` only), S6, S7, S8, S12, S14; S4, S5, S9, S10, S11, S13, S15, S16 are retired. (5) New rule C2 (`ErrActionTypeNotAllowed`): the action type is one the gate is configured for. Rule A1 is redefined as hash equality over the supplied action bytes; new rule A0 (`ErrActionSize`, 1..65536 bytes). (6) New: the gate-signed Authorization (section 15), tags `edicta/v0/authorization` and `edicta/v0/authorization-sig`, 60-byte signed message, at most 256 bytes. The gate authorizes and never executes; stages 11..13 of section 8.7 are rewritten (sign, then consume the nonce with the signed Authorization, then return), with the retry rule. (7) Receipt (section 14): keys 5 `rail` and 7 `path` retired; key 8 keeps its number, field renamed `recorded_at`; new keys 9 `executor_pubkey` and 10 `executor_signature`; `rail_ref` is opaque. `Record` requires a request signed by an allowlisted executor key (tag `edicta/v0/record-request`, `record_message = tag || commitment_hash || uint8(len(gate_id)) || gate_id || uint8(len(rail_ref)) || rail_ref`, 61..251 bytes, rules RQ1..RQ6, R6); executor keys never equal gate or agent keys (`ErrKeyRole`, gate `ErrExecutorNotAllowed`). The receipt attests that a known executor claimed `rail_ref`, not execution. (8) New section 16, the integrator contract (executor MUSTs; non-normative: `commitment_hash` as the idempotency key). (9) Payload plaintext (section 9.3): key 5 `action` is `{3: type, 4: data}` (its keys 1 and 2 retired), key 6 retired; O8 and W1 compare type and hash. (10) Removed to the dca-agent profile: the client order id (old section 15), the DCA media type (old Appendix A), scales and notional arithmetic (old section 4.7). (11) Threat model rows for the action hash, the Authorization, executor dedupe and the integrator enforcement gap. | Changed by design: every commitment, envelope, commitment hash and agent signature; receipt bytes, hashes and signatures; payload plaintext, blob and hashes in `payload_blob.json`. Unchanged: tags of draft.7 and draft.8, signed-envelope layout, limits `MaxSignedSize`/`MaxCommitmentSize`/depth/entries, payload blob format, anchor rules | Regenerated: `valid.json`, `reject.json`, `receipt.json`, `payload_blob.json`. New: `authorization.json`, `record_request.json`. Removed: `client_order_id.json` (now profile data). Byte-identical: `keys.json`, `payload.json`, `anchor.json`, `da_blob.json`. Profile vectors in `spec/vectors/profiles/dca-agent/`. |
 | `v0-draft.10` | 2026-10-04 | Publication through an untrusted submitter, additive. (1) Section 1: threat-model rows for the blob submitter, the inclusion check and its trust levels, the publish request, the DA allowlist and byte-identical resends. (2) Section 9.5: producer rules W5 (independent inclusion check; mandatory when the submitter is a different party) and W6 (bounded publication wait; a retry is a new payload with a new nonce). (3) Section 8.3: gate rule C3 (`payload_ref.da` is in the gate's configured DA set, `ErrDANotAllowed`), evaluated right after stage C; with the set unset (`{1, 2}`) every existing outcome is unchanged. (4) Section 10.5: `signer` names the submitter's account, not who decided. (5) Section 16.1: rule I5 amended for byte-identical resends of one signed rail request inside a profile-bounded window, then hand-off to the operator. (6) New section 17: the agent-signed publish request, tag `edicta/v0/publish-request` (25 bytes, `0x19`), its wrapper, response and checks PR1..PR6. (7) Section 12: new sentinels. (8) New profile `spec/profiles/bank-send-v0.md`. | Unchanged: commitment, envelope, Authorization, receipt and record-request bytes; every existing tag; every existing check outcome. New: the publish-request message and wrapper | Every existing file byte-identical (SHA-256 unchanged), including the `"revision": "v0-draft.9"` field of the files that carry one: their bytes and meaning did not change. New: `spec/vectors/api/publish_request.json` (`v0-draft.10`); profile set `spec/vectors/profiles/bank-send/`; generator module `spec/vectors/tools/banksend-gen`; checker files `edicta_publish_v0.py`, `gen_api_vectors.py`, `check_api_vectors.py`, `profile_bank_send.py`, `gen_profile_bank_send.py`, `check_profile_bank_send.py`. |
 | `v0-draft.11` | 2026-10-04 | Publish request review. (1) `publish_message` gains the Recorder's `gate_id` with a one-byte length, right after the tag: a request is valid at one server only. The wire request is unchanged; the server fills in its own `gate_id`, as for record requests. (2) New rule PR6: dedupe by `SHA-256(blob)`; the same blob inside its window is published once and every accepted retry gets the same response. Quotas move to PR7 and are not charged for a deduplicated request. (3) Threat rows and section 17 notes updated: cross-Recorder replay is closed. Bank-send profile `bank-send-v0-draft.2` (timeout budget, resend stop) at the same time. | Changed: `publish_message` (70..196 bytes) and so every publish signature. Unchanged: everything else | Regenerated: `spec/vectors/api/publish_request.json` (`v0-draft.11`; 2 new rejects). Every other core and dca-agent file byte-identical. |
+| `v0-draft.12` | 2026-10-04 | HTTP API, additive. (1) New section 18: endpoints `POST /v0/publish`, `POST /v0/authorize`, `POST /v0/record`, `GET /v0/health`; `application/cbor` bodies; request, response and error body shapes reusing the canonical encodings; status and retry semantics; the error table (first match wins), with 409 carrying the stored Authorization only under the retry rule of section 8.7 and the stored receipt for `ErrReceiptExists`. (2) Section 12: the operational and HTTP-layer sentinels that cross the API get stable names (`gate.ErrChainUnavailable` and others, `recorder.*`, `edictaapi.*`). | Unchanged: every existing message, tag and check outcome. New: HTTP wrapper shapes and the error body | New: `spec/vectors/api/errors.json` (`v0-draft.12`), generator `gen_api_errors.py`, checker `check_api_errors.py`. Every existing file byte-identical. |
 
 ## 1. Threat model in one table
 
@@ -1609,7 +1610,26 @@ S sentinels of the request wrapper are the core ones above.
 
 Operational errors that a second implementation may name differently (chain
 or registry unavailable, clock regression, signer failure or timeout) are not
-part of this spec. The draft.8 execution errors (execution rejected or
+part of this spec, except where they cross the HTTP API (section 18). Those
+have stable names, because the API reports them as codes:
+
+| Sentinel | Meaning | Section 18 status |
+|---|---|---|
+| `ErrChainUnavailable` (package `gate`) | Chain data (headers, anchors, parameters) could not be read | 503 |
+| `ErrAllowlistUnavailable` (package `gate`) | The agent allowlist could not be read | 503 |
+| `ErrRegistryUnavailable` (package `gate`) | The nonce registry could not be read or written | 503 |
+| `ErrClockRegression` (package `gate`) | The gate clock is before the registry watermark | 503 |
+| `ErrClosed` (package `gate`) | The gate is shutting down | 503 |
+| `recorder.ErrTooLarge` | The blob is above the Recorder's own limit | 413 |
+| `recorder.ErrOutcomeUnknown` | A submission may or may not have reached the chain; a retry is deduplicated (PR6) | 503 |
+| `recorder.ErrNotVisible` | The anchor was not visible on the read node in time | 503 |
+| `recorder.ErrSignerMismatch` | The node shows the anchored blob under another signer or share version | 502 |
+| `edictaapi.ErrTokenInvalid` | Missing or wrong bearer token on an endpoint that requires one | 401 |
+| `edictaapi.ErrRouteNotFound` | No such path | 404 |
+| `edictaapi.ErrMethodNotAllowed` | Wrong HTTP method for the path | 405 |
+| `edictaapi.ErrMediaType` | Request `Content-Type` is not `application/cbor` | 415 |
+| `edictaapi.ErrDeadline` | The server's handler deadline passed | 504 |
+| `edictaapi.ErrInternal` | Anything unmapped; message redacted | 500 | The draft.8 execution errors (execution rejected or
 unknown, receipt pending) no longer exist: the gate does not execute.
 
 ## 13. Test vectors
@@ -1666,6 +1686,10 @@ keeps its bytes and its `"revision": "v0-draft.9"` field):
 | File | Contents |
 |---|---|
 | `spec/vectors/api/publish_request.json` | Section 17 (`"revision": "v0-draft.11"`). `tag`, `publish_window_s`, `request_overhead`, `patterns`, `server` (`gate_id`, `now`, `skew_s`, `max_blob_bytes`, `allowlist` of `agent_id` -> public key, `gate_keys`). `cases`: `signer`, `agent_id`, `requested_at`, the blob as `blob_hex` or `blob_pattern` + `blob_size`, `blob_sha256_hex`, `publish_message_hex`, `signature_hex`, and `request_cbor_hex` (or `request_size` + `request_sha256_hex` for a pattern blob). `reject`: `id`, `stage`, `rule`, `description`, `request_cbor_hex`, optional `server` overrides, one `expect_error`. `response`: `commitment_ref` (a `valid.json` id), `payload_ref_cbor_hex`, `block_time`, `retention_start`, `response_cbor_hex`. 7 cases, 30 rejects, 1 response. PR6 and PR7 are stateful and have no vectors. Generated by `gen_api_vectors.py`, checked by `check_api_vectors.py`. |
+
+| File (`v0-draft.12`) | Contents |
+|---|---|
+| `spec/vectors/api/errors.json` | Section 18. `statuses` (status -> `retryable`); `errors` in match order: `code`, `status`, `retryable`, `stored` (`none`, `authorization` or `receipt`), `endpoints`, `rules`; `not_api_visible`: every other name in section 12 with the reason it never crosses the API; `examples`: per endpoint, `request_cbor_hex` (or none for `GET /v0/health`), `status`, `response_cbor_hex`, with refs into the core vectors. Generated by `gen_api_errors.py`, checked by `check_api_errors.py`, which also parses section 12 of this document and fails if a sentinel there is neither mapped nor listed as not API-visible. |
 
 Bank-send profile vectors are in `spec/vectors/profiles/bank-send/` (profile
 document, section "Vectors"). `check_vectors.py` without `--dir` runs the
@@ -2294,3 +2318,148 @@ Threat notes:
   quota early. Accepted for v0.
 
 Vectors: `spec/vectors/api/publish_request.json` (section 13).
+
+## 18. HTTP API
+
+`edictad` (gate plus optional Recorder) serves the operations of sections 8.7,
+14.3 and 17 over HTTP, so agents and executors in any language need only an
+HTTP client and the CBOR profile of section 3. The bodies are the existing
+canonical encodings, carried as byte strings and never re-encoded.
+
+### 18.1 Transport rules
+
+| Rule | Value |
+|---|---|
+| Content type | Requests with a body and every response body: `application/cbor`. A request with another `Content-Type` gets 415 `edictaapi.ErrMediaType`. |
+| Encoding | Canonical CBOR, section 3 profile; wrapper maps with uint keys, all listed keys required unless marked optional. Arrays appear only in the health response. Booleans are uint `0`/`1`. An unknown wrapper key is `ErrUnknownKey` (400). |
+| Embedded objects | An envelope, SignedAuthorization, SignedReceipt or PayloadRef travels as a `bstr` holding its exact canonical bytes. Servers and clients splice and parse them with their own decoders; they never re-encode them. |
+| Versioning | Paths start with `/v0/`. An incompatible change gets `/v1/`. |
+| Size | Each endpoint's request limit (18.2) is checked before parsing: `ErrTooLarge` (413). |
+| Authentication | `/v0/publish` by the agent signature (section 17); `/v0/record` by the executor signature (section 14.3); optionally, per endpoint class, a bearer token in `Authorization: Bearer` (`edictaapi.ErrTokenInvalid`, 401). `/v0/health` is unauthenticated and carries no secrets. Tokens over plain HTTP to a non-loopback address are refused by configuration. |
+| Order of checks | Route (404), method (405), media type (415), token (401), size (413), wrapper decoding (400), then the operation's own stage order (sections 8.7, 14.3, 17). |
+
+### 18.2 Endpoints
+
+| Method, path | Request | 200 response | Request limit |
+|---|---|---|---|
+| `POST /v0/publish` | `PublishRequest` (section 17.2) | `PublishResponse` (section 17.2) | `max_blob_bytes + 256` |
+| `POST /v0/authorize` | `{1: envelope bstr, 2: action bstr}` | `{1: signed_authorization bstr}` | `2176 + 65536 + 24 = 67736` bytes |
+| `POST /v0/record` | `{1: envelope bstr, 2: rail_ref tstr, 3: executor_pubkey bstr 32, 4: executor_signature bstr 64}` | `{1: signed_receipt bstr}` | `2560` bytes |
+| `GET /v0/health` | no body | `Health` (below) | - |
+
+`/v0/authorize` runs section 8.7 on the envelope and action bytes as given
+and answers the SignedAuthorization of stage 13. `/v0/record` runs section
+14.3 with the server's own `gate_id`. `/v0/publish` with the Recorder
+disabled answers 404 `edictaapi.ErrPublishDisabled`.
+
+```
+Health = { 1: status          uint (1 ok, 2 degraded),
+           2: chain_id        tstr 1..50,
+           3: head_height     uint,
+           4: head_time       uint, Unix seconds,
+           5: gate_id         tstr 1..64, ID charset,
+           6: gate_pubkey     bstr 32,
+           7: recorder_signer bstr 20      (O, absent when the Recorder is disabled),
+           8: namespace       bstr 29      (O, absent when the Recorder is disabled),
+           9: allowed_da      [ uint ] 1..2 entries, ascending }
+```
+
+Health is informational. An agent or executor MUST NOT take a gate key, a
+signer or a namespace from it as trusted configuration (core I1 pins the
+gate key out of band); it may compare them with its configuration.
+
+### 18.3 Errors
+
+Every non-200 response has the body
+
+```
+Error = { 1: code      tstr,                  ; the sentinel name, exactly as section 12 writes it
+          2: message   tstr,                  ; human-readable, not normative, no secrets
+          3: retryable uint (0 or 1),
+          4: stored    bstr (O) }             ; 409 only, see below
+```
+
+`code` is stable: it is the sentinel's name as written in section 12 (bare
+for packages `commitment` and `gate`, prefixed with the package otherwise,
+for example `edictaapi.ErrPublishStale`). No two sentinels share a code. A
+client maps a code back to its sentinel (Go: `errors.Is` works across the
+API); an unknown code is treated as `edictaapi.ErrInternal`.
+
+Status semantics:
+
+| Status | Meaning | `retryable` |
+|---|---|---|
+| 400 | The request is malformed or fails a static rule; the same bytes always fail | 0 |
+| 401 | Not authenticated (token, or the publish signature) | 0 |
+| 403 | Authenticated but not permitted (key, scope, allowlist, role, type or DA not allowed) | 0 |
+| 404, 405, 415 | Wrong route, method or media type | 0 |
+| 409 | The operation already happened for this nonce or decision; `stored` may carry its result | 0 |
+| 410 | Too late, permanently (expired, anchor too old, stale publish request) | 0 |
+| 413 | Above a size limit | 0 |
+| 422 | Well-formed but inconsistent with the committed or stored data | 0 |
+| 425 | Too early: retry later, the same request may succeed (not yet valid, anchor not yet visible) | 1 |
+| 429 | Quota exceeded; a `Retry-After` header gives the seconds to wait | 1 |
+| 500 | Unmapped server error; `message` redacted | 0 |
+| 502 | The chain shows something the Recorder did not submit | 0 |
+| 503 | A dependency is unavailable or the outcome is unknown; nothing was consumed | 1 |
+| 504 | The server's deadline passed; nothing was consumed, or a retry is deduplicated | 1 |
+
+`retryable = 1` means: the same request, unchanged, may succeed later, and
+retrying is safe (the gate writes nothing before stage 12, the Recorder
+deduplicates by blob hash, `Record` returns the stored receipt). A client
+MUST NOT retry a request answered with `retryable = 0` unchanged.
+
+409 and `stored`:
+- `ErrNonceUsed` carries `stored` = the stored SignedAuthorization **only if**
+  the retry rule of section 8.7 holds (same `commitment_hash`, and the
+  presented action bytes hash to the stored `action_hash`); otherwise key 4
+  is absent. A caller that receives `stored` verifies it with
+  `VerifyAuthorization` like any Authorization; it is the same answer the
+  first request got.
+- `ErrReceiptExists` always carries `stored` = the stored SignedReceipt.
+- No other code carries key 4.
+
+Mapping (normative). The server maps the error returned by the operation to
+the first row below whose sentinel it matches (Go: `errors.Is`, in table
+order). Order matters where one sentinel also matches another:
+`ErrAnchorTooOld` matches `ErrPayloadUnavailable` too (section 8.5), so it is
+listed first.
+
+| Status | Codes, in match order |
+|---|---|
+| 410 | `ErrAnchorTooOld`, `ErrExpired`, `edictaapi.ErrPublishStale` |
+| 400 | `ErrMalformed`, `ErrTrailingData`, `ErrFloat`, `ErrSimpleValue`, `ErrTag`, `ErrIndefiniteLength`, `ErrNonMinimalInt`, `ErrNestingTooDeep`, `ErrUnsortedMap`, `ErrDuplicateKey`, `ErrKeyType`, `ErrInvalidString`, `ErrUnknownKey`, `ErrWrongType`, `ErrMissingField`, `ErrFieldSize`, `ErrNonCanonical`, `ErrUnsupportedVersion`, `ErrIntRange`, `ErrInvalidEnum`, `ErrZeroValue`, `ErrPayloadTooLarge`, `ErrInvalidNamespace`, `ErrTimeOrder`, `ErrActionSize` |
+| 401 | `edictaapi.ErrTokenInvalid`, `edictaapi.ErrPublishSignature` |
+| 403 | `ErrInvalidPublicKey`, `ErrSignatureInvalid`, `ErrScopeMismatch`, `ErrActionTypeNotAllowed`, `ErrDANotAllowed`, `ErrAgentKeyIsGateKey`, `ErrAgentNotAllowed`, `ErrAgentKeyMismatch`, `ErrExecutorNotAllowed`, `ErrKeyRole` |
+| 404 | `edictaapi.ErrRouteNotFound`, `edictaapi.ErrPublishDisabled` |
+| 405 | `edictaapi.ErrMethodNotAllowed` |
+| 409 | `ErrNonceUsed`, `ErrReceiptExists`, `ErrBeforeRegistryEpoch` |
+| 413 | `ErrTooLarge`, `recorder.ErrTooLarge` |
+| 415 | `edictaapi.ErrMediaType` |
+| 422 | `ErrActionMismatch`, `ErrPayloadSizeMismatch`, `ErrPayloadHashMismatch`, `ErrDACommitmentMismatch`, `ErrArchiveRecomputeUnsupported`, `ErrIssuedBeforeAnchor`, `ErrTTLTooLong`, `ErrNotAuthorized` |
+| 425 | `ErrNotYetValid`, `ErrAnchorNotFound` |
+| 429 | `edictaapi.ErrQuotaExceeded` |
+| 502 | `recorder.ErrSignerMismatch` |
+| 503 | `ErrPayloadUnavailable`, `ErrRetentionUnavailable`, `ErrChainUnavailable`, `ErrAllowlistUnavailable`, `ErrRegistryUnavailable`, `ErrClockRegression`, `ErrClosed`, `recorder.ErrOutcomeUnknown`, `recorder.ErrNotVisible` |
+| 504 | `edictaapi.ErrDeadline` |
+| 500 | `edictaapi.ErrInternal` (anything else) |
+
+The mapping is the whole contract: two servers report the same code and
+status for the same failure because the operations' stage orders (sections
+6.5, 8.7, 14.3, 17.3) decide which sentinel occurs, and this table decides
+how it is reported. The full table, and the section 12 names that never
+cross the API (client-side SDK checks, payload opening, profile sentinels,
+removed names), are in `spec/vectors/api/errors.json`.
+
+Threat notes:
+- No oracle: an unknown agent and a bad signature give the same code
+  (`ErrAgentNotAllowed` comes only after a valid signature, section 8.7; at
+  `/v0/publish` both are `edictaapi.ErrPublishSignature`). `stored` is
+  returned only under the retry rule, so a caller without the committed
+  bytes learns nothing about a used nonce.
+- `retryable` is advice the server derives from the sentinel, never from
+  the client. A 503 at `/v0/authorize` means nothing was written (section
+  8.7, sign before consume), so a retry cannot produce a second
+  Authorization.
+- `message` is for operators. It MUST NOT contain tokens, keys or request
+  bodies; for 500 it is a fixed redacted text.
