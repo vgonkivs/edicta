@@ -15,6 +15,12 @@ var (
 	ErrUnsupported = errors.New("node: unsupported")
 	// ErrUnavailable means the node could not be asked or did not answer in time.
 	ErrUnavailable = errors.New("node: unavailable")
+	// ErrAlreadyInMempool means the node already holds this exact transaction
+	// (mempool or cache); resending the same bytes is idempotent.
+	ErrAlreadyInMempool = errors.New("node: tx already in mempool")
+	// ErrSequenceMismatch means the node refused a transaction because the
+	// signer's account sequence differs from the one signed.
+	ErrSequenceMismatch = errors.New("node: account sequence mismatch")
 )
 
 // Header is the part of a block header Edicta reads.
