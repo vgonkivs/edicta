@@ -62,12 +62,12 @@ type ChainParams interface {
 // Committer recomputes the DA commitment of blob and compares it with
 // ref.Commitment.
 type Committer interface {
-	Check(ctx context.Context, ref commitment.PayloadRef, blob []byte) error
+	Check(ref commitment.PayloadRef, blob []byte) error
 }
 
 type shareV1Committer struct{}
 
-func (shareV1Committer) Check(_ context.Context, ref commitment.PayloadRef, b []byte) error {
+func (shareV1Committer) Check(ref commitment.PayloadRef, b []byte) error {
 	return sharev1.Check(ref, b)
 }
 

@@ -313,7 +313,7 @@ func TestCommitterErrorPrefixIsNotRepeated(t *testing.T) {
 	const prefix = "DA commitment check"
 	for name, c := range map[string]sdk.Committer{
 		"panic": panickyCommitter{"boom"},
-		"error": committerFn(func(context.Context, commitment.PayloadRef, []byte) error { return errors.New("refused") }),
+		"error": committerFn(func(commitment.PayloadRef, []byte) error { return errors.New("refused") }),
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newRig(t)

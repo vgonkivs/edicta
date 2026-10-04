@@ -69,12 +69,9 @@ func (g *Gate) tryPath(ctx context.Context, c *commitment.Commitment, path regis
 		return err
 	}
 	if committer != nil {
-		if err := committer.Check(pctx, ref, blob); err != nil {
-			switch {
-			case errors.Is(err, ErrDACommitmentMismatch):
+		if err := committer.Check(ref, blob); err != nil {
+			if errors.Is(err, ErrDACommitmentMismatch) {
 				return err
-			case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
-				return fmt.Errorf("%w: commitment recompute: %w", ErrPayloadUnavailable, err)
 			}
 			return fmt.Errorf("%w: %v", ErrDACommitmentMismatch, err)
 		}

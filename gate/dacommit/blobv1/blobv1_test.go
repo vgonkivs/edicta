@@ -1,7 +1,6 @@
 package blobv1_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -61,13 +60,13 @@ func TestVectors(t *testing.T) {
 	dc := blobv1.New()
 	for _, c := range f.Cases {
 		t.Run(c.ID, func(t *testing.T) {
-			err := dc.Check(context.Background(), ref(t, c), blob(t, c))
+			err := dc.Check(ref(t, c), blob(t, c))
 			require.NoError(t, err, "Check")
 		})
 	}
 	for _, c := range f.Reject {
 		t.Run(c.ID, func(t *testing.T) {
-			err := dc.Check(context.Background(), ref(t, c), blob(t, c))
+			err := dc.Check(ref(t, c), blob(t, c))
 			require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
 		})
 	}
@@ -99,18 +98,18 @@ func TestRejectsMalformedRefs(t *testing.T) {
 			r.Signer = append([]byte(nil), good.Signer...)
 			r.Commitment = append([]byte(nil), good.Commitment...)
 			m(&r)
-			err := dc.Check(context.Background(), r, b)
+			err := dc.Check(r, b)
 			require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
 		})
 	}
 	t.Run("empty blob", func(t *testing.T) {
-		err := dc.Check(context.Background(), good, nil)
+		err := dc.Check(good, nil)
 		require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
 	})
 	t.Run("one flipped byte", func(t *testing.T) {
 		bad := append([]byte(nil), b...)
 		bad[len(bad)/2] ^= 1
-		err := dc.Check(context.Background(), good, bad)
+		err := dc.Check(good, bad)
 		require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
 	})
 }

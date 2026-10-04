@@ -2,7 +2,6 @@ package blobv1_test
 
 import (
 	"bytes"
-	"context"
 	"math/rand/v2"
 	"testing"
 
@@ -19,7 +18,7 @@ import (
 // each with its own sentinel on rejection.
 func same(t *testing.T, ref commitment.PayloadRef, blob []byte) (accepted bool) {
 	t.Helper()
-	gErr := blobv1.New().Check(context.Background(), ref, blob)
+	gErr := blobv1.New().Check(ref, blob)
 	sErr := sharev1.Check(ref, blob)
 	require.Equalf(t, gErr == nil, sErr == nil, "verdicts differ: blobv1 %v, sharev1 %v", gErr, sErr)
 	if gErr != nil {

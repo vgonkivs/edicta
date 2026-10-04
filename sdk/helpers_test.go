@@ -127,10 +127,10 @@ func (s *spySigner) SignCommitment(ctx context.Context, h commitment.Hash) ([]by
 func (s *spySigner) calls() int { s.mu.Lock(); defer s.mu.Unlock(); return len(s.hashes) }
 
 // committerFn adapts a function to sdk.Committer.
-type committerFn func(ctx context.Context, ref commitment.PayloadRef, blob []byte) error
+type committerFn func(ref commitment.PayloadRef, blob []byte) error
 
-func (f committerFn) Check(ctx context.Context, ref commitment.PayloadRef, blob []byte) error {
-	return f(ctx, ref, blob)
+func (f committerFn) Check(ref commitment.PayloadRef, blob []byte) error {
+	return f(ref, blob)
 }
 
 // rig is a Builder on fakes. Fields may be changed before New.

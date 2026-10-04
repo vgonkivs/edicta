@@ -608,23 +608,26 @@ func TestAdmissionEventCarriesTheCommitmentHash(t *testing.T) {
 	})
 }
 
-type ctxCommitter struct{ err error }
+type errCommitter struct{ err error }
 
-func (c ctxCommitter) Check(context.Context, commitment.PayloadRef, []byte) error { return c.err }
+func (c errCommitter) Check(commitment.PayloadRef, []byte) error { return c.err }
 
-func TestCommitterContextErrorIsUnavailableNotMismatch(t *testing.T) {
-	for name, cerr := range map[string]error{"deadline": context.DeadlineExceeded, "canceled": context.Canceled} {
+func TestArbitraryCommitterErrorRefusesAdmission(t *testing.T) {
+	for name, cerr := range map[string]error{
+		"plain":    errors.New("boom"),
+		"deadline": context.DeadlineExceeded,
+		"canceled": context.Canceled,
+	} {
 		t.Run(name, func(t *testing.T) {
 			e := gatefix.New(t, gatefix.WithDeps(func(d *gate.Deps) {
-				d.Committers = map[commitment.DA]gate.DACommitter{commitment.DACelestiaBlob: ctxCommitter{err: cerr}}
+				d.Committers = map[commitment.DA]gate.DACommitter{commitment.DACelestiaBlob: errCommitter{err: cerr}}
 			}))
 			c := gatefix.Template(t)
 			routeArchive(e, c)
 			e.Archive.Put(c.PayloadRef, gatefix.Blob(t))
 			b, _ := gatefix.Sign(t, "agent1", c)
 			_, err := e.Admit(b)
-			e.RequireRejected(c, err, gate.ErrPayloadUnavailable)
-			require.NotErrorIs(t, err, gate.ErrDACommitmentMismatch)
+			e.RequireRejected(c, err, gate.ErrDACommitmentMismatch)
 		})
 	}
 }

@@ -239,7 +239,7 @@ func TestNonceIsDrawnOncePerSealed(t *testing.T) {
 
 type panickyCommitter struct{ v any }
 
-func (p panickyCommitter) Check(context.Context, commitment.PayloadRef, []byte) error { panic(p.v) }
+func (p panickyCommitter) Check(commitment.PayloadRef, []byte) error { panic(p.v) }
 
 func TestPanickingCommitterIsAnErrorNotASignature(t *testing.T) {
 	var nilMap map[string]int
@@ -295,7 +295,7 @@ func TestSignerPanicValueIsNotInTheError(t *testing.T) {
 
 type noopCommitter struct{ calls atomic.Int32 }
 
-func (n *noopCommitter) Check(context.Context, commitment.PayloadRef, []byte) error {
+func (n *noopCommitter) Check(commitment.PayloadRef, []byte) error {
 	n.calls.Add(1)
 	return nil
 }
@@ -325,7 +325,7 @@ func TestDA2CommitterRunsInAdditionToTheBuiltInCheck(t *testing.T) {
 		boom := errors.New("extra check refused")
 		r := newRig(t)
 		r.deps.Committers = map[commitment.DA]sdk.Committer{
-			commitment.DACelestiaBlob: committerFn(func(context.Context, commitment.PayloadRef, []byte) error { return boom }),
+			commitment.DACelestiaBlob: committerFn(func(commitment.PayloadRef, []byte) error { return boom }),
 		}
 		res, err := r.builder().Commit(bg, r.payload())
 		require.ErrorIs(t, err, boom)
@@ -415,13 +415,6 @@ func (hangChain) FibreRetention(ctx context.Context, _ uint64) (uint64, error) {
 	return 0, ctx.Err()
 }
 
-type hangCommitter struct{}
-
-func (hangCommitter) Check(ctx context.Context, _ commitment.PayloadRef, _ []byte) error {
-	<-ctx.Done()
-	return ctx.Err()
-}
-
 type toggleSigner struct {
 	inner sdk.Signer
 	hang  atomic.Bool
@@ -453,16 +446,6 @@ func TestHungDependenciesTimeOut(t *testing.T) {
 	t.Run("chain parameters", func(t *testing.T) {
 		r := fibreRig(t, shortTimeout)
 		r.deps.Chain = hangChain{}
-		res, err := r.builder().Commit(bg, r.payload())
-		require.ErrorIs(t, err, context.DeadlineExceeded)
-		assert.Nil(t, res)
-		assert.Zero(t, r.signer.calls())
-	})
-	t.Run("committer", func(t *testing.T) {
-		r := newRig(t, shortTimeout)
-		r.deps.Committers = map[commitment.DA]sdk.Committer{commitment.DAFibre: hangCommitter{}}
-		r.rec.da = commitment.DAFibre
-		r.rec.retentionStart = now - 150
 		res, err := r.builder().Commit(bg, r.payload())
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		assert.Nil(t, res)

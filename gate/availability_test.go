@@ -1,7 +1,6 @@
 package gate_test
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
@@ -179,7 +178,7 @@ func TestAvailabilityIntegrity(t *testing.T) {
 
 type failingCommitter struct{}
 
-func (failingCommitter) Check(_ context.Context, _ commitment.PayloadRef, _ []byte) error {
+func (failingCommitter) Check(_ commitment.PayloadRef, _ []byte) error {
 	return gate.ErrDACommitmentMismatch
 }
 

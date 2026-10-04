@@ -290,7 +290,7 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 	if ref.Height == 0 {
 		return nil, fmt.Errorf("%w: no height", ErrPublishResult)
 	}
-	checked, err := b.checkDA(ctx, ref, s.blob)
+	checked, err := b.checkDA(ref, s.blob)
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +404,7 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 }
 
 // checkDA recomputes the DA commitment unless the da is explicitly opted out.
-func (b *Builder) checkDA(ctx context.Context, ref commitment.PayloadRef, raw []byte) (bool, error) {
+func (b *Builder) checkDA(ref commitment.PayloadRef, raw []byte) (bool, error) {
 	if b.skip[ref.DA] {
 		return false, nil
 	}
@@ -420,7 +420,7 @@ func (b *Builder) checkDA(ctx context.Context, ref commitment.PayloadRef, raw []
 		return false, fmt.Errorf("%w: da %d", ErrDACheckUnavailable, ref.DA)
 	}
 	for _, c := range checks {
-		if err := b.runCommitter(ctx, c, ref, raw); err != nil {
+		if err := b.runCommitter(c, ref, raw); err != nil {
 			if errors.Is(err, ErrDACommitmentMismatch) || errors.Is(err, sharev1.ErrMismatch) {
 				return false, fmt.Errorf("%w: %w", ErrDACommitmentMismatch, err)
 			}
@@ -461,11 +461,10 @@ func (b *Builder) retention(ctx context.Context, height uint64) (v uint64, err e
 	return b.deps.Chain.FibreRetention(ctx, height)
 }
 
-// runCommitter calls a committer with the call timeout.
-func (b *Builder) runCommitter(ctx context.Context, c Committer, ref commitment.PayloadRef, raw []byte) error {
-	cctx, cancel := context.WithTimeout(ctx, b.cfg.CallTimeout)
-	defer cancel()
-	return guard("committer", func() error { return c.Check(cctx, ref, raw) })
+// runCommitter calls a committer. Check is a pure computation, so there is
+// no timeout; a panic is still recovered.
+func (b *Builder) runCommitter(c Committer, ref commitment.PayloadRef, raw []byte) error {
+	return guard("committer", func() error { return c.Check(ref, raw) })
 }
 
 // sign calls the signer with the call timeout.

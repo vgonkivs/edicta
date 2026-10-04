@@ -1,7 +1,6 @@
 package sdk_test
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -170,7 +169,7 @@ func TestCustomCommitterSeesExactBytes(t *testing.T) {
 	signedBefore := -1
 	r := newRig(t)
 	r.deps.Committers = map[commitment.DA]sdk.Committer{
-		commitment.DAFibre: committerFn(func(_ context.Context, ref commitment.PayloadRef, blob []byte) error {
+		commitment.DAFibre: committerFn(func(ref commitment.PayloadRef, blob []byte) error {
 			calls++
 			gotRef, gotBlob = ref, append([]byte{}, blob...)
 			signedBefore = r.signer.calls()
@@ -195,7 +194,7 @@ func TestCustomCommitterFailureStopsSigning(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			r := newRig(t)
 			r.deps.Committers = map[commitment.DA]sdk.Committer{
-				commitment.DAFibre: committerFn(func(context.Context, commitment.PayloadRef, []byte) error { return cerr }),
+				commitment.DAFibre: committerFn(func(commitment.PayloadRef, []byte) error { return cerr }),
 			}
 			r.rec.da = commitment.DAFibre
 			r.rec.retentionStart = now - 150
@@ -222,20 +221,20 @@ func TestShareV1Committer(t *testing.T) {
 	require.NotNil(t, c)
 	r := newRig(t)
 	res := r.commit()
-	require.NoError(t, c.Check(bg, res.Published.Ref, res.Blob))
+	require.NoError(t, c.Check(res.Published.Ref, res.Blob))
 
 	bad := append([]byte{}, res.Blob...)
 	bad[0] ^= 1
-	require.Error(t, c.Check(bg, res.Published.Ref, bad))
+	require.Error(t, c.Check(res.Published.Ref, bad))
 
 	fibre := res.Published.Ref
 	fibre.DA = commitment.DAFibre
-	require.Error(t, c.Check(bg, fibre, res.Blob), "no recompute exists for da 1")
+	require.Error(t, c.Check(fibre, res.Blob), "no recompute exists for da 1")
 
 	// The same vector blob the gate's committer accepts.
 	blob := gatefix.Blob(t)
 	ref := gatefix.Template(t).PayloadRef
-	require.NoError(t, c.Check(bg, ref, blob))
+	require.NoError(t, c.Check(ref, blob))
 }
 
 // An explicit opt-out for da 2 skips the check even though a committer is
@@ -253,7 +252,7 @@ func TestOptOutForDA2(t *testing.T) {
 		called := 0
 		r := newRig(t, skip2, func(r *rig) {
 			r.deps.Committers = map[commitment.DA]sdk.Committer{
-				commitment.DACelestiaBlob: committerFn(func(context.Context, commitment.PayloadRef, []byte) error {
+				commitment.DACelestiaBlob: committerFn(func(commitment.PayloadRef, []byte) error {
 					called++
 					return errors.New("must not run")
 				}),

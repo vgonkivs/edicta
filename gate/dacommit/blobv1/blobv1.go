@@ -3,7 +3,6 @@
 package blobv1
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/vgonkivs/edicta/commitment"
@@ -17,7 +16,7 @@ type committer struct{}
 // malformed reference or blob, fails with gate.ErrDACommitmentMismatch.
 func New() gate.DACommitter { return committer{} }
 
-func (committer) Check(_ context.Context, ref commitment.PayloadRef, blob []byte) error {
+func (committer) Check(ref commitment.PayloadRef, blob []byte) error {
 	if err := sharev1.Check(ref, blob); err != nil {
 		return fmt.Errorf("%w: %w", gate.ErrDACommitmentMismatch, err)
 	}

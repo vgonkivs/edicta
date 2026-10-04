@@ -49,7 +49,7 @@ type BlobSource interface {
 type DACommitter interface {
 	// Check recomputes the DA commitment of blob and compares it with
 	// ref.Commitment; it returns ErrDACommitmentMismatch on any difference.
-	Check(ctx context.Context, ref commitment.PayloadRef, blob []byte) error
+	Check(ref commitment.PayloadRef, blob []byte) error
 }
 
 type Signer interface {

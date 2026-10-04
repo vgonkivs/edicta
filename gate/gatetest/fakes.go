@@ -222,7 +222,7 @@ func (d *DACommitter) Bind(commitmentBytes, blob []byte) {
 	d.mu.Unlock()
 }
 
-func (d *DACommitter) Check(_ context.Context, ref commitment.PayloadRef, blob []byte) error {
+func (d *DACommitter) Check(ref commitment.PayloadRef, blob []byte) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if want, ok := d.bound[string(ref.Commitment)]; ok && string(want) == string(blob) {

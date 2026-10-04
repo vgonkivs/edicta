@@ -55,10 +55,7 @@ func NewEd25519Signer(priv ed25519.PrivateKey) (*Ed25519Signer, error) {
 func (s Ed25519Signer) PublicKey() ed25519.PublicKey { return bytes.Clone(s.pub) }
 
 // SignCommitment signs the tagged commitment hash and nothing else.
-func (s Ed25519Signer) SignCommitment(ctx context.Context, h commitment.Hash) ([]byte, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
+func (s Ed25519Signer) SignCommitment(_ context.Context, h commitment.Hash) ([]byte, error) {
 	st := s.state
 	if st == nil {
 		return nil, ErrSignerClosed
