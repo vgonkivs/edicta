@@ -1,0 +1,49 @@
+# Example edictad configuration. Every value is a placeholder: replace the
+# endpoints, paths and the <...> markers. Secrets are never written here, only
+# the paths of files that hold them. Unknown keys are refused.
+
+[network]
+chain_id = ""                      # optional cross-check; empty = discover from the node
+min_app_version = 3
+max_app_version = 10
+
+[network.bridge]                   # a bridge node you trust (reads, proofs)
+addr = "bridge.example.invalid:26658"
+token_file = "/etc/edictad/bn.token"
+tls = true
+
+[network.consensus_grpc]           # a consensus node's gRPC endpoint (submit, tx lookup)
+addr = "consensus.example.invalid:9090"
+token_file = ""
+tls = true
+
+[recorder]
+enabled = true
+namespace = "<58 hex characters>"
+keyring_dir = "/var/lib/edictad/keyring"      # the RECORDER's keyring, not the executor's
+keyring_backend = "file"
+key_name = "recorder"
+passphrase_file = "/etc/edictad/keyring.pass"
+max_blob_bytes = 1048576
+
+[recorder.quota]
+blobs_per_hour = 60
+bytes_per_day = 67108864
+
+[gate]
+gate_id = "my-gate-1"
+key_file = "/etc/edictad/gate.ed25519"        # 32 raw bytes, mode 0600
+registry_path = "/var/lib/edictad/registry.db"
+action_types = ["application/vnd.edicta.cosmos.bank-send.v0+cbor"]
+allowed_da = [2]
+allowlist_file = "/etc/edictad/agents.toml"   # [[agents]] agent_id, pubkey (hex)
+executor_keys = ["<64 hex characters>"]       # the executor's Ed25519 public key
+anchor_verifier = "self"
+
+[http]
+listen = "127.0.0.1:8080"
+tls_cert_file = ""
+tls_key_file = ""
+authorize_token_file = "/etc/edictad/api.token"
+record_token_file = "/etc/edictad/api.token"
+allow_insecure = false
