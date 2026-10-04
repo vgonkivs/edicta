@@ -318,11 +318,22 @@ func Sign(t testing.TB, keyName string, c *commitment.Commitment) ([]byte, commi
 	return SignWith(t, Key(t, keyName), c)
 }
 
-// SignWith signs with an arbitrary key; agent_pubkey must equal its public key.
+// SignWith signs with an arbitrary key. When the key is not the commitment's
+// agent_pubkey the envelope carries that key's signature, which a gate must
+// reject.
 func SignWith(t testing.TB, priv ed25519.PrivateKey, c *commitment.Commitment) ([]byte, commitment.Hash) {
 	t.Helper()
 	s, h, err := commitment.Sign(priv, c)
-	require.NoError(t, err, "sign")
+	if errors.Is(err, commitment.ErrInvalidPublicKey) {
+		h, err = commitment.HashOf(c)
+		require.NoError(t, err, "hash")
+		s = &commitment.SignedCommitment{
+			Commitment: *Clone(c),
+			Signature:  ed25519.Sign(priv, commitment.SigningMessage(h)),
+		}
+	} else {
+		require.NoError(t, err, "sign")
+	}
 	b, err := commitment.EncodeSigned(s)
 	require.NoError(t, err, "encode")
 	return b, h

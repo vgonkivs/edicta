@@ -22,7 +22,10 @@ type Config struct {
 	// MaxAuthorizationTTL bounds an Authorization's lifetime from the moment
 	// it is signed, in seconds; above SkewS.
 	MaxAuthorizationTTL uint64
-	OtherGateKeys       [][32]byte // gate keys besides the signer, refused as agent keys
+	// AllowedDA is the set of payload_ref.da values the gate accepts; empty
+	// means {1, 2}.
+	AllowedDA     []commitment.DA
+	OtherGateKeys [][32]byte // gate keys besides the signer, refused as agent keys
 	// ExecutorKeys is the executor allowlist: the keys whose signed record
 	// requests Record accepts. Disjoint from gate and agent keys.
 	ExecutorKeys [][32]byte

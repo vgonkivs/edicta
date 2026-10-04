@@ -103,6 +103,11 @@ func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
 		return nil, bad("%v", err)
 	}
 	cfg.Scope.ActionTypes = slices.Clone(cfg.Scope.ActionTypes)
+	allowed, err := normalizeDA(cfg.AllowedDA)
+	if err != nil {
+		return nil, bad("%v", err)
+	}
+	cfg.AllowedDA = allowed
 
 	g := &Gate{cfg: cfg, d: d, log: d.Logger, gateKeys: make(map[[32]byte]struct{}), sem: newWeightedSem(cfg.MaxFetchBytes)}
 	if g.log == nil {
@@ -240,9 +245,16 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	}
 
 	// Chain params.
-	latest, err := g.fibreRetention(ctx, 0)
-	if err != nil {
-		return Result{}, g.chainErr(ctx, "fibre retention", err)
+	// The Fibre parameters are read only when da = 1 is allowed. Otherwise the
+	// placeholder merely satisfies Params.Validate; every da = 1 commitment is
+	// refused right after verification, so the value never admits anything.
+	latest := uint64(math.MaxInt64)
+	if daAllowed(g.cfg.AllowedDA, commitment.DAFibre) {
+		var err error
+		latest, err = g.fibreRetention(ctx, 0)
+		if err != nil {
+			return Result{}, g.chainErr(ctx, "fibre retention", err)
+		}
 	}
 	p := commitment.Params{FibreRetentionS: latest, BlobRetentionS: g.cfg.BlobRetentionS, SkewS: g.cfg.SkewS}
 
@@ -255,6 +267,9 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	c := &s.Commitment
 	ev.DA = c.PayloadRef.DA
 	res := Result{CommitmentHash: h}
+	if !daAllowed(g.cfg.AllowedDA, c.PayloadRef.DA) {
+		return res, fmt.Errorf("%w: da %d", ErrDANotAllowed, c.PayloadRef.DA)
+	}
 
 	// Registry epoch.
 	if c.IssuedAt <= satAdd(g.epoch, g.cfg.SkewS) {
@@ -643,3 +658,52 @@ func (g *Gate) Prune(ctx context.Context) (int, error) {
 
 // PublicKey is the gate key that verifies Authorizations and receipts.
 func (g *Gate) PublicKey() ed25519.PublicKey { return bytes.Clone(g.signerPub) }
+
+// normalizeDA returns a private copy of the allowed set; empty means {1, 2}.
+func normalizeDA(in []commitment.DA) ([]commitment.DA, error) {
+	if len(in) == 0 {
+		return []commitment.DA{commitment.DAFibre, commitment.DACelestiaBlob}, nil
+	}
+	out := slices.Clone(in)
+	for i, da := range out {
+		if da != commitment.DAFibre && da != commitment.DACelestiaBlob {
+			return nil, fmt.Errorf("allowed_da: unknown da %d", da)
+		}
+		if slices.Contains(out[:i], da) {
+			return nil, fmt.Errorf("allowed_da: duplicate da %d", da)
+		}
+	}
+	return out, nil
+}
+
+func daAllowed(set []commitment.DA, da commitment.DA) bool {
+	if len(set) == 0 {
+		return da == commitment.DAFibre || da == commitment.DACelestiaBlob
+	}
+	return slices.Contains(set, da)
+}
+
+// Preflight checks the configuration against the chain. When da = 1 is
+// allowed the Fibre parameters must be readable; no chain call is made
+// otherwise.
+func Preflight(ctx context.Context, cfg Config, d Deps) error {
+	allowed, err := normalizeDA(cfg.AllowedDA)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+	}
+	if !daAllowed(allowed, commitment.DAFibre) {
+		return nil
+	}
+	if d.Params == nil {
+		return fmt.Errorf("%w: missing chain params dependency", ErrInvalidConfig)
+	}
+	cctx, cancel := ctx, context.CancelFunc(func() {})
+	if cfg.ChainTimeout > 0 {
+		cctx, cancel = context.WithTimeout(ctx, cfg.ChainTimeout)
+	}
+	defer cancel()
+	if _, err := d.Params.FibreRetention(cctx, 0); err != nil {
+		return fmt.Errorf("%w: fibre (da=1) is allowed but the chain has no x/fibre or it is unreachable: %w", ErrInvalidConfig, err)
+	}
+	return nil
+}

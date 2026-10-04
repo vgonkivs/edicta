@@ -12,6 +12,8 @@ var (
 	ErrAgentKeyMismatch  = errors.New("gate: agent key differs from the allowlisted key")
 	ErrAgentKeyIsGateKey = errors.New("gate: agent key is a gate key")
 
+	ErrDANotAllowed = errors.New("gate: payload_ref.da not allowed by this gate")
+
 	ErrNonceUsed           = errors.New("gate: nonce already used")
 	ErrBeforeRegistryEpoch = errors.New("gate: issued_at not after the registry epoch")
 
