@@ -3,6 +3,7 @@ package gatetest
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -231,99 +232,11 @@ func (d *DACommitter) Check(ref commitment.PayloadRef, blob []byte) error {
 	return gate.ErrDACommitmentMismatch
 }
 
-// Executor is a fake rail. By default every order is acknowledged with the
-// reference "9876543210" and Lookup reports an unknown outcome.
-type Executor struct {
-	mu          sync.Mutex
-	result      gate.ExecResult
-	err         error
-	hang        bool
-	onExecute   func(context.Context, gate.ExecRequest)
-	onLookup    func()
-	lookupRes   gate.ExecResult
-	lookupErr   error
-	requests    []gate.ExecRequest
-	lookupCalls int
-	lookupIDs   []string
-}
-
-var _ gate.Executor = (*Executor)(nil)
-
-func NewExecutor() *Executor {
-	return &Executor{result: gate.ExecResult{Outcome: gate.OutcomeExecuted, RailRef: "9876543210"}}
-}
-
-// SetResult sets the result of Execute and clears a pending error.
-func (e *Executor) SetResult(r gate.ExecResult) { e.mu.Lock(); e.result, e.err = r, nil; e.mu.Unlock() }
-
-// SetError makes Execute fail; the order counts as sent.
-func (e *Executor) SetError(err error) { e.mu.Lock(); e.err = err; e.mu.Unlock() }
-
-// Hang makes Execute block until its context ends.
-func (e *Executor) Hang() { e.mu.Lock(); e.hang = true; e.mu.Unlock() }
-
-func (e *Executor) OnExecute(f func(context.Context, gate.ExecRequest)) {
-	e.mu.Lock()
-	e.onExecute = f
-	e.mu.Unlock()
-}
-
-func (e *Executor) OnLookup(f func()) { e.mu.Lock(); e.onLookup = f; e.mu.Unlock() }
-
-func (e *Executor) SetLookup(r gate.ExecResult, err error) {
-	e.mu.Lock()
-	e.lookupRes, e.lookupErr = r, err
-	e.mu.Unlock()
-}
-
-// Calls is the number of Execute calls.
-func (e *Executor) Calls() int { e.mu.Lock(); defer e.mu.Unlock(); return len(e.requests) }
-
-func (e *Executor) Requests() []gate.ExecRequest {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return append([]gate.ExecRequest(nil), e.requests...)
-}
-
-func (e *Executor) LookupCalls() int { e.mu.Lock(); defer e.mu.Unlock(); return e.lookupCalls }
-
-func (e *Executor) LookupIDs() []string {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return append([]string(nil), e.lookupIDs...)
-}
-
-func (e *Executor) Execute(ctx context.Context, req gate.ExecRequest) (gate.ExecResult, error) {
-	e.mu.Lock()
-	e.requests = append(e.requests, req)
-	hook, hang, res, err := e.onExecute, e.hang, e.result, e.err
-	e.mu.Unlock()
-	if hook != nil {
-		hook(ctx, req)
-	}
-	if hang {
-		<-ctx.Done()
-		return gate.ExecResult{}, ctx.Err()
-	}
-	return res, err
-}
-
-func (e *Executor) Lookup(_ context.Context, id string) (gate.ExecResult, error) {
-	e.mu.Lock()
-	e.lookupCalls++
-	e.lookupIDs = append(e.lookupIDs, id)
-	hook, res, err := e.onLookup, e.lookupRes, e.lookupErr
-	e.mu.Unlock()
-	if hook != nil {
-		hook()
-	}
-	return res, err
-}
-
-// Metrics records admission events.
+// Metrics records authorization events and stored-action mismatches.
 type Metrics struct {
-	mu     sync.Mutex
-	events []gate.AdmissionEvent
+	mu         sync.Mutex
+	events     []gate.AdmissionEvent
+	mismatches []commitment.Hash
 }
 
 var _ gate.Metrics = (*Metrics)(nil)
@@ -336,14 +249,61 @@ func (m *Metrics) Admission(ev gate.AdmissionEvent) {
 	m.mu.Unlock()
 }
 
+// StoredActionMismatch counts entries whose stored action hash disagreed
+// with a commitment that passed its own checks.
+func (m *Metrics) StoredActionMismatch(h commitment.Hash) {
+	m.mu.Lock()
+	m.mismatches = append(m.mismatches, h)
+	m.mu.Unlock()
+}
+
 func (m *Metrics) Events() []gate.AdmissionEvent {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]gate.AdmissionEvent(nil), m.events...)
 }
 
+func (m *Metrics) Mismatches() []commitment.Hash {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]commitment.Hash(nil), m.mismatches...)
+}
+
+// LogCapture is a slog.Handler that keeps every record.
+type LogCapture struct {
+	mu   sync.Mutex
+	recs []slog.Record
+}
+
+var _ slog.Handler = (*LogCapture)(nil)
+
+func NewLogCapture() *LogCapture { return &LogCapture{} }
+
+func (l *LogCapture) Enabled(context.Context, slog.Level) bool { return true }
+func (l *LogCapture) Handle(_ context.Context, r slog.Record) error {
+	l.mu.Lock()
+	l.recs = append(l.recs, r)
+	l.mu.Unlock()
+	return nil
+}
+func (l *LogCapture) WithAttrs([]slog.Attr) slog.Handler { return l }
+func (l *LogCapture) WithGroup(string) slog.Handler      { return l }
+
+// Records returns the captured records at or above level.
+func (l *LogCapture) Records(level slog.Level) []slog.Record {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []slog.Record
+	for _, r := range l.recs {
+		if r.Level >= level {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // FaultyRegistry wraps a registry and injects failures per operation. The
-// operation names are Reserve, Resolve, Get, Pending, Recover, Meta, Prune.
+// operation names are Consume, Get, AttachReceipt, Meta, Prune.
 type FaultyRegistry struct {
 	inner registry.Registry
 
@@ -397,18 +357,11 @@ func (f *FaultyRegistry) Claim() (func(), error) {
 	return func() {}, nil
 }
 
-func (f *FaultyRegistry) Reserve(ctx context.Context, e registry.Entry, tolerance uint64) error {
-	if err := f.enter("Reserve"); err != nil {
+func (f *FaultyRegistry) Consume(ctx context.Context, e registry.Entry, tolerance uint64) error {
+	if err := f.enter("Consume"); err != nil {
 		return err
 	}
-	return f.inner.Reserve(ctx, e, tolerance)
-}
-
-func (f *FaultyRegistry) Resolve(ctx context.Context, k registry.Key, from registry.State, upd registry.Entry) error {
-	if err := f.enter("Resolve"); err != nil {
-		return err
-	}
-	return f.inner.Resolve(ctx, k, from, upd)
+	return f.inner.Consume(ctx, e, tolerance)
 }
 
 func (f *FaultyRegistry) Get(ctx context.Context, k registry.Key) (registry.Entry, error) {
@@ -418,18 +371,11 @@ func (f *FaultyRegistry) Get(ctx context.Context, k registry.Key) (registry.Entr
 	return f.inner.Get(ctx, k)
 }
 
-func (f *FaultyRegistry) Pending(ctx context.Context) ([]registry.Entry, error) {
-	if err := f.enter("Pending"); err != nil {
-		return nil, err
+func (f *FaultyRegistry) AttachReceipt(ctx context.Context, k registry.Key, h commitment.Hash, receipt []byte) error {
+	if err := f.enter("AttachReceipt"); err != nil {
+		return err
 	}
-	return f.inner.Pending(ctx)
-}
-
-func (f *FaultyRegistry) Recover(ctx context.Context, now uint64) (int, error) {
-	if err := f.enter("Recover"); err != nil {
-		return 0, err
-	}
-	return f.inner.Recover(ctx, now)
+	return f.inner.AttachReceipt(ctx, k, h, receipt)
 }
 
 func (f *FaultyRegistry) Meta(ctx context.Context) (registry.Meta, error) {

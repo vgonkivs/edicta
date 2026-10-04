@@ -45,30 +45,25 @@ func (e *e2e) stage(res *sdk.Result) {
 	e.env.DA.Put(res.Published.Ref, res.Blob)
 }
 
-func TestEndToEndAdmitAndExecuteOnce(t *testing.T) {
+func TestEndToEndAuthorizeOnce(t *testing.T) {
 	e := newE2E(t)
 	res, err := e.b.Commit(bg, e.rig.payload())
 	require.NoError(t, err)
 	require.True(t, res.DAChecked)
 	e.stage(res)
 
-	gres, err := e.env.AdmitWith(res.Envelope, res.Action)
-	require.NoError(t, err, "the gate admits what the SDK signed")
+	gres, err := e.env.AuthorizeWith(res.Envelope, res.Action)
+	require.NoError(t, err, "the gate authorizes what the SDK signed")
 	assert.Equal(t, res.CommitmentHash, gres.CommitmentHash)
-	assert.Equal(t, registry.StateExecuted, gres.State)
 	assert.Equal(t, registry.PathDA, gres.Path)
 
-	require.Equal(t, 1, e.env.Exec.Calls())
-	req := e.env.Exec.Requests()[0]
-	assert.Equal(t, res.CommitmentHash, req.CommitmentHash)
-	assert.Equal(t, res.Action, req.Action, "the bytes handed on are the committed ones")
-	gatefix.CheckReceipt(t, gres, res.CommitmentHash, gatefix.RailRef,
-		gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
+	gatefix.CheckAuthorization(t, gres.Authorization, res.Action, &res.Commitment, res.CommitmentHash,
+		commitment.PathDA, 0, uint64(e.env.Clock.Now().Unix()))
 
-	t.Run("a second submission is refused and nothing executes again", func(t *testing.T) {
-		_, err := e.env.AdmitWith(res.Envelope, res.Action)
+	t.Run("a second submission returns the same single Authorization", func(t *testing.T) {
+		again, err := e.env.AuthorizeWith(res.Envelope, res.Action)
 		require.ErrorIs(t, err, gate.ErrNonceUsed)
-		assert.Equal(t, 1, e.env.Exec.Calls())
+		assert.Equal(t, gres.Authorization, again.Authorization)
 	})
 	t.Run("every recipient reads the decision that was executed", func(t *testing.T) {
 		want := encoded(t, e.rig.payload())
@@ -93,7 +88,7 @@ func TestEndToEndRetentionClamp(t *testing.T) {
 		assert.Equal(t, "retention", res.Validity.ClampedBy)
 		assert.EqualValues(t, now+1800, res.Validity.ValidUntil)
 		e.stage(res)
-		gres, err := e.env.AdmitWith(res.Envelope, res.Action)
+		gres, err := e.env.AuthorizeWith(res.Envelope, res.Action)
 		require.NoError(t, err)
 		assert.Equal(t, registry.PathDA, gres.Path)
 	})
@@ -110,7 +105,6 @@ func TestEndToEndCorruptRecorderNeverReachesTheGate(t *testing.T) {
 	require.ErrorIs(t, err, sdk.ErrDACommitmentMismatch)
 	assert.Nil(t, res)
 	assert.Zero(t, e.sign.calls())
-	assert.Zero(t, e.env.Exec.Calls())
 }
 
 func TestEndToEndFibreWithOptOut(t *testing.T) {
@@ -132,10 +126,10 @@ func TestEndToEndFibreWithOptOut(t *testing.T) {
 	env.DA.Put(res.Published.Ref, res.Blob)
 	dac.Bind(res.Published.Ref.Commitment, res.Blob)
 
-	gres, err := env.AdmitWith(res.Envelope, res.Action)
+	gres, err := env.AuthorizeWith(res.Envelope, res.Action)
 	require.NoError(t, err)
 	assert.Equal(t, registry.PathDA, gres.Path)
-	assert.Equal(t, 1, env.Exec.Calls())
+	assert.NotEmpty(t, gres.Authorization)
 }
 
 // Without the opt-out a da = 1 commitment is never produced.

@@ -1,4 +1,4 @@
-// Package gate admits or refuses an action request that carries a signed
-// DecisionCommitment. Nothing is executed unless every check passes, and an
-// action is handed to the executor at most once per (agent key, nonce).
+// Package gate verifies a signed DecisionCommitment and authorizes the
+// committed action. It never executes anything: it signs an Authorization,
+// consumes the nonce, and an executor acts only on a valid Authorization.
 package gate

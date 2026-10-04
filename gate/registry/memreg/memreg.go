@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate/registry"
 )
 
@@ -46,8 +47,8 @@ func (r *Registry) Claim() (func(), error) {
 	}, nil
 }
 
-func (r *Registry) Reserve(_ context.Context, e registry.Entry, tolerance uint64) error {
-	if err := registry.CheckReserve(e); err != nil {
+func (r *Registry) Consume(_ context.Context, e registry.Entry, tolerance uint64) error {
+	if err := registry.CheckConsume(e); err != nil {
 		return err
 	}
 	r.mu.Lock()
@@ -58,26 +59,12 @@ func (r *Registry) Reserve(_ context.Context, e registry.Entry, tolerance uint64
 	if e.ValidUntil < r.meta.PruneCutoff {
 		return fmt.Errorf("%w: valid_until %d, cutoff %d", registry.ErrPrunedWindow, e.ValidUntil, r.meta.PruneCutoff)
 	}
-	if registry.BelowWatermark(e.ReservedAt, tolerance, r.meta.Watermark) {
-		return fmt.Errorf("%w: reserved_at %d, watermark %d", registry.ErrBelowWatermark, e.ReservedAt, r.meta.Watermark)
+	if registry.BelowWatermark(e.AuthorizedAt, tolerance, r.meta.Watermark) {
+		return fmt.Errorf("%w: authorized_at %d, watermark %d", registry.ErrBelowWatermark, e.AuthorizedAt, r.meta.Watermark)
 	}
+	e.Receipt = nil
 	r.entries[e.Key] = e.Clone()
-	r.meta.Watermark = max(r.meta.Watermark, e.ReservedAt)
-	return nil
-}
-
-func (r *Registry) Resolve(_ context.Context, k registry.Key, from registry.State, upd registry.Entry) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	stored, ok := r.entries[k]
-	if !ok {
-		return registry.ErrNotFound
-	}
-	next, err := registry.Transition(stored, from, upd)
-	if err != nil {
-		return err
-	}
-	r.entries[k] = next
+	r.meta.Watermark = max(r.meta.Watermark, e.AuthorizedAt)
 	return nil
 }
 
@@ -91,29 +78,25 @@ func (r *Registry) Get(_ context.Context, k registry.Key) (registry.Entry, error
 	return e.Clone(), nil
 }
 
-func (r *Registry) Pending(_ context.Context) ([]registry.Entry, error) {
+func (r *Registry) AttachReceipt(_ context.Context, k registry.Key, h commitment.Hash, receipt []byte) error {
+	if len(receipt) == 0 {
+		return fmt.Errorf("%w: empty receipt", registry.ErrInvalidEntry)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var out []registry.Entry
-	for _, e := range r.entries {
-		if registry.NeedsAttention(e) {
-			out = append(out, e.Clone())
-		}
+	e, ok := r.entries[k]
+	if !ok {
+		return registry.ErrNotFound
 	}
-	return out, nil
-}
-
-func (r *Registry) Recover(_ context.Context, now uint64) (int, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	n := 0
-	for k, e := range r.entries {
-		if e.State == registry.StateReserved {
-			r.entries[k] = registry.RecoverEntry(e, now)
-			n++
-		}
+	if e.CommitmentHash != h {
+		return fmt.Errorf("%w: the entry holds another commitment", registry.ErrStateConflict)
 	}
-	return n, nil
+	if e.Receipt != nil {
+		return fmt.Errorf("%w: receipt already attached", registry.ErrStateConflict)
+	}
+	e.Receipt = append([]byte(nil), receipt...)
+	r.entries[k] = e
+	return nil
 }
 
 func (r *Registry) Meta(_ context.Context) (registry.Meta, error) {

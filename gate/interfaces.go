@@ -3,6 +3,7 @@ package gate
 import (
 	"context"
 	"crypto/ed25519"
+	"log/slog"
 	"time"
 
 	"github.com/vgonkivs/edicta/commitment"
@@ -58,44 +59,20 @@ type Signer interface {
 }
 
 type Metrics interface {
+	// Admission is called once per Authorize call, after it returns.
 	Admission(ev AdmissionEvent)
+	// StoredActionMismatch is called when a stored entry holds the presented
+	// commitment but another action hash. That is a gate bug or a damaged
+	// registry and needs an operator.
+	StoredActionMismatch(h commitment.Hash)
 }
 
 type AdmissionEvent struct {
 	CommitmentHash commitment.Hash // zero if rejected before the signature check passed
 	DA             commitment.DA
-	Path           registry.Path  // 0 if no payload path was accepted
-	State          registry.State // 0 if nothing was reserved
-	Err            error          // nil on Executed
-}
-
-type Outcome uint8
-
-const (
-	OutcomeUnknown  Outcome = iota // may or may not have been placed
-	OutcomeExecuted                // the rail acknowledged the action
-	OutcomeRejected                // the rail guarantees it was not and will not be placed
-	OutcomeNotFound                // Lookup only: nothing with this client order id
-)
-
-type ExecRequest struct {
-	CommitmentHash commitment.Hash
-	ClientOrderID  string
-	Action         []byte    // the committed bytes, exactly as presented
-	NotAfter       time.Time // must not be sent after this instant
-}
-
-type ExecResult struct {
-	Outcome Outcome
-	RailRef string // required for OutcomeExecuted
-}
-
-// Executor acts on the committed action bytes. A non-nil error means
-// OutcomeUnknown whatever the result says. It must send ClientOrderID with
-// every request and be safe for concurrent use.
-type Executor interface {
-	Execute(ctx context.Context, req ExecRequest) (ExecResult, error)
-	Lookup(ctx context.Context, clientOrderID string) (ExecResult, error)
+	Path           registry.Path // 0 if no payload path was accepted
+	Authorized     bool          // a new Authorization was issued and stored
+	Err            error         // nil when Authorized
 }
 
 type Deps struct {
@@ -108,7 +85,7 @@ type Deps struct {
 	Committers map[commitment.DA]DACommitter
 	Allowlist  Allowlist
 	Registry   registry.Registry
-	Executor   Executor
-	Signer     Signer
-	Metrics    Metrics // nil means none
+	Signer     Signer       // the gate key: Authorizations and receipts
+	Metrics    Metrics      // nil means none
+	Logger     *slog.Logger // nil means slog.Default()
 }

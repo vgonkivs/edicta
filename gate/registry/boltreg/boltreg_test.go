@@ -27,15 +27,15 @@ func TestConformance(t *testing.T) {
 func entry(i byte) registry.Entry {
 	var k registry.Key
 	k.PubKey[0], k.Nonce[0] = i, i
-	return registry.Entry{Key: k, CommitmentHash: commitment.Hash{i}, State: registry.StateReserved,
-		Path: registry.PathArchive, ReservedAt: 5000, ValidUntil: 6000}
+	return registry.Entry{Key: k, CommitmentHash: commitment.Hash{i}, ActionHash: commitment.Hash{i, 2},
+		Path: registry.PathArchive, AuthorizedAt: 5000, ValidUntil: 6000, Authorization: []byte{0xa2, i}}
 }
 
 func TestDurableWrites(t *testing.T) {
 	r, err := boltreg.Open(filepath.Join(t.TempDir(), "n.db"), 100)
 	require.NoError(t, err)
 	defer r.Close()
-	require.False(t, r.NoSync(), "NoSync is set: a Reserve could be lost on a crash")
+	require.False(t, r.NoSync(), "NoSync is set: a Consume could be lost on a crash")
 }
 
 func TestSecondOpenFailsWhileLocked(t *testing.T) {
@@ -54,46 +54,36 @@ func TestSecondOpenFailsWhileLocked(t *testing.T) {
 }
 
 // TestReopenKeepsEverything simulates a crash by closing and reopening: the
-// entry, the history and the epoch persist, and a reopen never rewrites the
+// entries, the receipt and the epoch persist, and a reopen never rewrites the
 // epoch even when it is given a later time.
 func TestReopenKeepsEverything(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "n.db")
 	r, err := boltreg.Open(path, 100)
 	require.NoError(t, err)
 	e := entry(1)
-	err = r.Reserve(ctx, e, regtest.Tolerance)
-	require.NoError(t, err)
-	u := e
-	u.State = registry.StateUnknown
-	u.History = []registry.Resolution{{Source: registry.SourceRail, By: "gate", At: 5100, PrevState: registry.StateReserved}}
-	err = r.Resolve(ctx, e.Key, registry.StateReserved, u)
-	require.NoError(t, err)
+	require.NoError(t, r.Consume(ctx, e, regtest.Tolerance))
+	require.NoError(t, r.AttachReceipt(ctx, e.Key, e.CommitmentHash, []byte("receipt")))
 	e2 := entry(2)
-	err = r.Reserve(ctx, e2, regtest.Tolerance)
-	require.NoError(t, err)
+	require.NoError(t, r.Consume(ctx, e2, regtest.Tolerance))
 	want1, _ := r.Get(ctx, e.Key)
 	want2, _ := r.Get(ctx, e2.Key)
-	err = r.Close()
-	require.NoError(t, err)
+	require.NoError(t, r.Close())
 
 	r, err = boltreg.Open(path, 99999)
 	require.NoError(t, err)
 	defer r.Close()
 	m, err := r.Meta(ctx)
-	require.NoErrorf(t, err, "meta %+v", m)
-	require.EqualValuesf(t, 100, m.Epoch, "meta %+v %v", m, err)
-	require.EqualValuesf(t, 5000, m.Watermark, "meta %+v %v", m, err)
+	require.NoError(t, err)
+	require.Equal(t, registry.Meta{Epoch: 100, Watermark: 5000}, m)
 	got1, err := r.Get(ctx, e.Key)
-	require.NoErrorf(t, err, "entry 1 after reopen: %+v", got1)
-	require.Equalf(t, want1, got1, "entry 1 after reopen: %+v %v", got1, err)
+	require.NoError(t, err)
+	require.Equal(t, want1, got1)
+	require.Equal(t, []byte("receipt"), got1.Receipt)
 	got2, err := r.Get(ctx, e2.Key)
-	require.NoErrorf(t, err, "entry 2 after reopen: %+v", got2)
-	require.Equalf(t, want2, got2, "entry 2 after reopen: %+v %v", got2, err)
-	err = r.Reserve(ctx, e, regtest.Tolerance)
-	require.ErrorIs(t, err, registry.ErrExists, "reserve after reopen")
-	n, err := r.Recover(ctx, 7000)
-	require.NoErrorf(t, err, "Recover = %d", n)
-	require.EqualValuesf(t, 1, n, "Recover = %d, %v", n, err)
+	require.NoError(t, err)
+	require.Equal(t, want2, got2)
+	require.ErrorIs(t, r.Consume(ctx, e, regtest.Tolerance), registry.ErrExists, "consume after reopen")
+	require.ErrorIs(t, r.AttachReceipt(ctx, e.Key, e.CommitmentHash, []byte("again")), registry.ErrStateConflict)
 }
 
 func TestOpenRejectsGarbageFile(t *testing.T) {
@@ -112,12 +102,7 @@ func TestPruneCutoffSurvivesReopen(t *testing.T) {
 	require.NoError(t, err)
 	e := entry(1)
 	e.ValidUntil = 400
-	require.NoError(t, r.Reserve(ctx, e, regtest.Tolerance))
-	u := e
-	u.State = registry.StateExecuted
-	u.Receipt = []byte("r")
-	u.History = []registry.Resolution{{Source: registry.SourceRail, By: "gate", At: 5100, PrevState: registry.StateReserved}}
-	require.NoError(t, r.Resolve(ctx, e.Key, registry.StateReserved, u))
+	require.NoError(t, r.Consume(ctx, e, regtest.Tolerance))
 	n, err := r.Prune(ctx, 500)
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
@@ -131,7 +116,7 @@ func TestPruneCutoffSurvivesReopen(t *testing.T) {
 	require.EqualValues(t, 500, m.PruneCutoff)
 	old := entry(2)
 	old.ValidUntil = 499
-	require.ErrorIs(t, r.Reserve(ctx, old, regtest.Tolerance), registry.ErrPrunedWindow)
+	require.ErrorIs(t, r.Consume(ctx, old, regtest.Tolerance), registry.ErrPrunedWindow)
 	_, err = r.Get(ctx, old.Key)
 	require.ErrorIs(t, err, registry.ErrNotFound)
 }
@@ -158,7 +143,7 @@ func TestCorruptMetaIsRefused(t *testing.T) {
 				r, err = boltreg.Open(path, 100)
 				if err == nil {
 					defer r.Close()
-					err = r.Reserve(ctx, entry(1), regtest.Tolerance)
+					err = r.Consume(ctx, entry(1), regtest.Tolerance)
 				}
 				require.ErrorIs(t, err, registry.ErrCorruptMeta)
 				if r != nil {
@@ -167,5 +152,42 @@ func TestCorruptMetaIsRefused(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A file written by the earlier gate (no schema version, entries with a state
+// machine) must be refused, never read as an empty or valid registry.
+func TestOldSchemaFileIsRefused(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "n.db")
+	r, err := boltreg.Open(path, 100)
+	require.NoError(t, err)
+	require.NoError(t, r.DeleteMetaRaw("schema_version"))
+	require.NoError(t, r.Close())
+
+	r, err = boltreg.Open(path, 100)
+	if err == nil {
+		defer r.Close()
+		err = r.Consume(ctx, entry(1), regtest.Tolerance)
+	}
+	require.ErrorIs(t, err, registry.ErrCorruptMeta)
+}
+
+func TestUnknownSchemaVersionIsRefused(t *testing.T) {
+	for name, val := range map[string][]byte{
+		"empty": {}, "one byte": {0xff}, "nine bytes": make([]byte, 9),
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "n.db")
+			r, err := boltreg.Open(path, 100)
+			require.NoError(t, err)
+			require.NoError(t, r.SetMetaRaw("schema_version", val))
+			require.NoError(t, r.Close())
+			r, err = boltreg.Open(path, 100)
+			if err == nil {
+				defer r.Close()
+				err = r.Consume(ctx, entry(1), regtest.Tolerance)
+			}
+			require.ErrorIs(t, err, registry.ErrCorruptMeta)
+		})
 	}
 }

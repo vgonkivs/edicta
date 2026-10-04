@@ -25,7 +25,7 @@ var (
 	// ErrAnchorTooOld also matches ErrPayloadUnavailable.
 	ErrAnchorTooOld = fmt.Errorf("gate: anchor too old, archive did not return the blob: %w", ErrPayloadUnavailable)
 
-	// ErrBlobNotFound is returned by a BlobSource, never by Admit.
+	// ErrBlobNotFound is returned by a BlobSource, never by Authorize.
 	ErrBlobNotFound = errors.New("gate: blob not found")
 
 	ErrChainUnavailable     = errors.New("gate: chain data unavailable")
@@ -34,12 +34,10 @@ var (
 	ErrRegistryInUse        = errors.New("gate: registry already used by another gate")
 	ErrClockRegression      = errors.New("gate: clock before the registry watermark")
 
-	ErrExecutionRejected = errors.New("gate: rail rejected the order")
-	ErrExecutionUnknown  = errors.New("gate: execution outcome unknown")
-	ErrReceiptPending    = errors.New("gate: order placed, receipt pending")
-
-	ErrNotUnknown        = errors.New("gate: entry is not in state unknown")
-	ErrInvalidResolution = errors.New("gate: invalid manual resolution")
+	// ErrNotAuthorized is returned by Record when no Authorization of this commitment is stored.
+	ErrNotAuthorized = errors.New("gate: no authorization for this commitment")
+	// ErrReceiptExists is returned by Record when the receipt was already recorded; the stored receipt is returned with it.
+	ErrReceiptExists = errors.New("gate: receipt already recorded")
 
 	ErrClosed        = errors.New("gate: closed")
 	ErrInvalidConfig = errors.New("gate: invalid configuration")

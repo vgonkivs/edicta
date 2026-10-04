@@ -165,10 +165,10 @@ func TestFailureBeforeSigningDoesNotPinTheWindow(t *testing.T) {
 	assert.EqualValues(t, r.clock.unix, res.Commitment.IssuedAt)
 }
 
-// The regression against the real gate: a leaked signature executes, the clock
+// The regression against the real gate: a leaked signature is authorized, the clock
 // moves on, the nonce record is pruned, and only then does the agent retry. At
-// most one execution may result.
-func TestLateRetryAfterPruneNeverExecutesTwice(t *testing.T) {
+// most one Authorization may be issued for the decision.
+func TestLateRetryAfterPruneNeverAuthorizesTwice(t *testing.T) {
 	e := newE2E(t)
 	var leakedSig []byte
 	failed := false
@@ -196,7 +196,6 @@ func TestLateRetryAfterPruneNeverExecutesTwice(t *testing.T) {
 		// Refused: nothing more can be signed for this decision.
 		require.ErrorIs(t, err, sdk.ErrValidityWindow)
 		assert.Nil(t, res)
-		assert.Equal(t, 0, e.env.Exec.Calls())
 		return
 	}
 
@@ -209,8 +208,9 @@ func TestLateRetryAfterPruneNeverExecutesTwice(t *testing.T) {
 	e.stage(res)
 
 	e.env.Clock.Set(t0 + 5)
-	_, err = e.env.AdmitWith(leaked, res.Action)
-	require.NoError(t, err, "the leaked signature executes")
+	issued, err := e.env.AuthorizeWith(leaked, res.Action)
+	require.NoError(t, err, "the leaked signature is authorized")
+	require.NotEmpty(t, issued.Authorization)
 
 	e.env.Clock.Set(t0 + 5000)
 	e.sign.override = nil
@@ -221,14 +221,18 @@ func TestLateRetryAfterPruneNeverExecutesTwice(t *testing.T) {
 	res2, err := e.b.Finalize(bg, s2, pub2)
 	require.NoError(t, err)
 	e.stage(res2)
-	_, err = e.env.AdmitWith(res2.Envelope, res2.Action)
+	_, err = e.env.AuthorizeWith(res2.Envelope, res2.Action)
 	require.NoError(t, err)
 	_, err = e.env.Gate.Prune(bg)
 	require.NoError(t, err)
 
-	_, err = e.env.AdmitWith(res.Envelope, res.Action)
-	require.Truef(t, errors.Is(err, gate.ErrNonceUsed) || errors.Is(err, commitment.ErrExpired), "the retry was admitted or failed oddly: %v", err)
-	assert.Equal(t, 2, e.env.Exec.Calls(), "the leaked order and the unrelated order, never the retry")
+	late, err := e.env.AuthorizeWith(res.Envelope, res.Action)
+	require.Truef(t, errors.Is(err, gate.ErrNonceUsed) || errors.Is(err, commitment.ErrExpired), "the retry was authorized or failed oddly: %v", err)
+	if errors.Is(err, gate.ErrNonceUsed) {
+		assert.Equal(t, issued.Authorization, late.Authorization, "only the stored Authorization may come back")
+	} else {
+		assert.Nil(t, late.Authorization, "no second Authorization for one decision")
+	}
 }
 
 // A panic in any dependency is an error: no signature, and only the panic's

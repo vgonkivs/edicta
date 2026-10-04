@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -36,7 +37,7 @@ const (
 	GateID = "gate-paper-1"
 	// ActionType is the type of the action every template commits to.
 	ActionType = "application/vnd.edicta.ibkr.order.v0+cbor"
-	// RailRef is what the default fake executor returns.
+	// RailRef is the opaque reference the tests record.
 	RailRef = "9876543210"
 )
 
@@ -295,7 +296,7 @@ func WithKey(t testing.TB, c *commitment.Commitment, keyName string) *commitment
 }
 
 // Env is a Gate wired to fakes. All fields may be changed before the first
-// Admit; the fakes are safe for concurrent use.
+// Authorize; the fakes are safe for concurrent use.
 type Env struct {
 	T       testing.TB
 	Gate    *gate.Gate
@@ -307,8 +308,8 @@ type Env struct {
 	Anchors *gatetest.Anchors
 	DA      *gatetest.BlobSource
 	Archive *gatetest.BlobSource
-	Exec    *gatetest.Executor
 	Metrics *gatetest.Metrics
+	Logs    *gatetest.LogCapture
 	Reg     registry.Registry
 	Faulty  *gatetest.FaultyRegistry
 	Signer  gate.Signer
@@ -363,8 +364,8 @@ func TryNew(t testing.TB, opts ...Option) (*Env, error) {
 		Anchors: gatetest.NewAnchors(),
 		DA:      gatetest.NewBlobSource(),
 		Archive: gatetest.NewBlobSource(),
-		Exec:    gatetest.NewExecutor(),
 		Metrics: gatetest.NewMetrics(),
+		Logs:    gatetest.NewLogCapture(),
 		Reg:     MemReg(t, Epoch),
 		allow: map[string][]byte{
 			"dca-agent-1": Pub(t, "agent1"),
@@ -401,9 +402,9 @@ func TryNew(t testing.TB, opts ...Option) (*Env, error) {
 			commitment.DACelestiaBlob: blobv1.New(),
 		},
 		Registry: reg,
-		Executor: e.Exec,
 		Signer:   e.Signer,
 		Metrics:  e.Metrics,
+		Logger:   slog.New(e.Logs),
 	}
 	for _, f := range e.depsMods {
 		f(&e.Deps)
@@ -411,7 +412,7 @@ func TryNew(t testing.TB, opts ...Option) (*Env, error) {
 	return e, e.Restart()
 }
 
-// Restart builds a new Gate on the same dependencies, which runs recovery.
+// Restart builds a new Gate on the same dependencies.
 func (e *Env) Restart() error {
 	if e.Gate != nil {
 		require.NoError(e.T, e.Gate.Close(), "close the previous gate")
@@ -424,15 +425,15 @@ func (e *Env) Restart() error {
 	return nil
 }
 
-// Admit calls the gate with a background context and the template action,
+// Authorize calls the gate with a background context and the template action,
 // which every template and its variants commit to.
-func (e *Env) Admit(b []byte) (gate.Result, error) {
-	return e.AdmitWith(b, Action(e.T))
+func (e *Env) Authorize(b []byte) (gate.Result, error) {
+	return e.AuthorizeWith(b, Action(e.T))
 }
 
-// AdmitWith calls the gate with explicit action bytes.
-func (e *Env) AdmitWith(b, action []byte) (gate.Result, error) {
-	return e.Gate.Admit(context.Background(), b, action)
+// AuthorizeWith calls the gate with explicit action bytes.
+func (e *Env) AuthorizeWith(b, action []byte) (gate.Result, error) {
+	return e.Gate.Authorize(context.Background(), b, action)
 }
 
 // BlockTime is the header time Stage uses for c: 1000 s before issued_at.
@@ -476,28 +477,25 @@ func (e *Env) Entry(c *commitment.Commitment) (registry.Entry, error) {
 	return e.Reg.Get(context.Background(), KeyOf(c))
 }
 
-// RequireUntouched fails unless the executor was never called and no registry
-// entry exists for c.
+// RequireUntouched fails unless no registry entry exists for c.
 func (e *Env) RequireUntouched(c *commitment.Commitment) {
 	e.T.Helper()
-	require.Zero(e.T, e.Exec.Calls(), "executor called")
 	_, err := e.Entry(c)
 	require.ErrorIs(e.T, err, registry.ErrNotFound, "nonce touched")
 }
 
-// RequireRejected requires err to match want, no executor call, and an
-// untouched nonce.
+// RequireRejected requires err to match want and an untouched nonce.
 func (e *Env) RequireRejected(c *commitment.Commitment, err, want error) {
 	e.T.Helper()
 	require.ErrorIs(e.T, err, want)
 	e.RequireUntouched(c)
 }
 
-// CheckReceipt verifies a result receipt against the commitment.
-func CheckReceipt(t testing.TB, res gate.Result, h commitment.Hash, wantRef string, gateID string, gatePub []byte, wantAt uint64) {
+// CheckReceipt verifies a receipt against the commitment hash.
+func CheckReceipt(t testing.TB, receipt []byte, h commitment.Hash, wantRef string, gateID string, gatePub []byte, wantAt uint64) {
 	t.Helper()
-	require.NotEmpty(t, res.Receipt, "no receipt")
-	sr, _, err := commitment.VerifyReceipt(res.Receipt)
+	require.NotEmpty(t, receipt, "no receipt")
+	sr, _, err := commitment.VerifyReceipt(receipt)
 	require.NoError(t, err, "VerifyReceipt")
 	r := sr.Receipt
 	require.Equal(t, string(h[:]), string(r.CommitmentHash))
@@ -508,6 +506,27 @@ func CheckReceipt(t testing.TB, res gate.Result, h commitment.Hash, wantRef stri
 	if wantAt != 0 {
 		require.Equal(t, wantAt, r.RecordedAt)
 	}
+}
+
+// CheckAuthorization verifies res.Authorization as an executor would and
+// returns the decoded value.
+func CheckAuthorization(t testing.TB, auth, action []byte, c *commitment.Commitment, h commitment.Hash, path commitment.PayloadPath, wantExpires, now uint64) *commitment.SignedAuthorization {
+	t.Helper()
+	require.NotEmpty(t, auth, "no authorization")
+	sa, _, err := commitment.VerifyAuthorization(auth, commitment.AuthorizationCheck{
+		GatePubKey: Pub(t, "gate1"), GateID: GateID, ActionType: c.Action.Type, Action: action, Now: now, SkewS: 30,
+	})
+	require.NoError(t, err, "VerifyAuthorization")
+	a := sa.Authorization
+	require.Equal(t, string(h[:]), string(a.CommitmentHash))
+	require.Equal(t, string(c.Action.Hash), string(a.ActionHash))
+	require.Equal(t, GateID, a.GateID)
+	require.Equal(t, path, a.Path)
+	require.EqualValues(t, 0, a.Version)
+	if wantExpires != 0 {
+		require.Equal(t, wantExpires, a.Expires)
+	}
+	return sa
 }
 
 // MemReg returns an in-memory registry with the given creation time.
@@ -535,7 +554,7 @@ func KnownSentinels() []error {
 		gate.ErrBeforeRegistryEpoch, gate.ErrAnchorNotFound, gate.ErrRetentionUnavailable, gate.ErrAnchorTooOld,
 		gate.ErrDACommitmentMismatch, gate.ErrArchiveRecomputeUnsupported, gate.ErrPayloadUnavailable,
 		gate.ErrChainUnavailable, gate.ErrRegistryUnavailable, gate.ErrAllowlistUnavailable, gate.ErrClosed, gate.ErrRegistryInUse, gate.ErrClockRegression,
-		gate.ErrExecutionRejected, gate.ErrExecutionUnknown, gate.ErrReceiptPending,
+		gate.ErrNotAuthorized, gate.ErrReceiptExists,
 		context.Canceled, context.DeadlineExceeded,
 	}
 }

@@ -52,15 +52,18 @@ func sdkArmed(t *testing.T, key string, stage bool, opts ...gatefix.Option) *sdk
 
 // admit presents the envelope with the exact action bytes the SDK returned.
 func (r *sdkRun) admit(envelope []byte) (gate.Result, error) {
-	return r.env.AdmitWith(envelope, r.res.Action)
+	return r.env.AuthorizeWith(envelope, r.res.Action)
 }
 
 func TestSDKAttack0Control(t *testing.T) {
 	r := sdkArmed(t, "agent1", true)
-	_, err := r.admit(r.res.Envelope)
+	res, err := r.admit(r.res.Envelope)
 	require.NoError(t, err)
-	require.Equal(t, 1, r.env.Exec.Calls())
-	require.Equal(t, r.res.Action, r.env.Exec.Requests()[0].Action, "the executor gets the bytes the agent committed to")
+	_, _, err = commitment.VerifyAuthorization(res.Authorization, commitment.AuthorizationCheck{
+		GatePubKey: gatefix.Pub(t, "gate1"), GateID: gatefix.GateID, ActionType: r.res.Commitment.Action.Type,
+		Action: r.res.Action, Now: gatefix.Now, SkewS: 30,
+	})
+	require.NoError(t, err, "the Authorization covers the bytes the agent committed to")
 }
 
 // 2. Amount, recipient or asset outside the committed action: the SDK
@@ -94,13 +97,13 @@ func TestSDKAttack2ActionOutsideCommitment(t *testing.T) {
 		for i := range r.res.Action {
 			bad := append([]byte(nil), r.res.Action...)
 			bad[i] ^= 1
-			_, err := r.env.AdmitWith(r.res.Envelope, bad)
+			_, err := r.env.AuthorizeWith(r.res.Envelope, bad)
 			r.env.RequireRejected(&r.res.Commitment, err, commitment.ErrActionMismatch)
 		}
 	})
 	t.Run("the template order instead of the committed one", func(t *testing.T) {
 		r := sdkArmed(t, "agent1", true)
-		_, err := r.env.AdmitWith(r.res.Envelope, gatefix.Action(t))
+		_, err := r.env.AuthorizeWith(r.res.Envelope, gatefix.Action(t))
 		r.env.RequireRejected(&r.res.Commitment, err, commitment.ErrActionMismatch)
 	})
 	t.Run("the payload carries the committed bytes", func(t *testing.T) {
@@ -144,7 +147,6 @@ func TestSDKAttack4NonceReuse(t *testing.T) {
 		require.NoError(t, err)
 		_, err = r.admit(r.res.Envelope)
 		require.ErrorIs(t, err, gate.ErrNonceUsed)
-		require.Equal(t, 1, r.env.Exec.Calls())
 	})
 	t.Run("concurrent", func(t *testing.T) {
 		r := sdkArmed(t, "agent1", true)
@@ -170,7 +172,6 @@ func TestSDKAttack4NonceReuse(t *testing.T) {
 		done.Wait()
 		assert.EqualValues(t, 1, ok.Load(), "exactly one winner")
 		assert.EqualValues(t, n-1, used.Load())
-		assert.Equal(t, 1, r.env.Exec.Calls(), "the order is sent once")
 	})
 	t.Run("two SDK commitments of one decision are two decisions", func(t *testing.T) {
 		r := sdkArmed(t, "agent1", true)
@@ -216,7 +217,7 @@ func TestSDKAttack7PayloadSwapped(t *testing.T) {
 
 	_, err := r.admit(r.res.Envelope)
 	require.Error(t, err)
-	require.Zero(t, r.env.Exec.Calls())
+	r.env.RequireUntouched(&r.res.Commitment)
 
 	_, err = sdk.OpenPayload(r.res.Envelope, swapped, r.vec.Key(t, "gate-paper-1").OpenKey(true))
 	require.ErrorIs(t, err, commitment.ErrPayloadHashMismatch)

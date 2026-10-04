@@ -4,10 +4,8 @@ package regtest
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -22,10 +20,8 @@ import (
 const (
 	// Epoch is the creation time the suite passes to Opener.
 	Epoch = uint64(100)
-	// Tolerance is the clock tolerance the suite passes to Reserve.
+	// Tolerance is the clock tolerance the suite passes to Consume.
 	Tolerance = uint64(60)
-	// RecoverAt is the clock reading the suite passes to Recover.
-	RecoverAt = uint64(7777)
 )
 
 // Opener returns a new empty registry whose creation time is epoch.
@@ -44,30 +40,17 @@ func fresh(i byte) registry.Entry {
 	return registry.Entry{
 		Key:            key(i),
 		CommitmentHash: commitment.Hash{i, 1},
-		State:          registry.StateReserved,
+		ActionHash:     commitment.Hash{i, 2},
 		Path:           registry.PathDA,
-		ReservedAt:     1000 + uint64(i),
+		AuthorizedAt:   1000 + uint64(i),
 		ValidUntil:     2000,
+		Authorization:  []byte{0xa2, i},
 	}
 }
 
-func step(e registry.Entry, to registry.State, src registry.Source) registry.Entry {
-	n := e
-	n.History = append(append([]registry.Resolution(nil), e.History...), registry.Resolution{
-		Source: src, By: "gate", At: 1500, PrevState: e.State,
-	})
-	n.State = to
-	if to == registry.StateExecuted {
-		n.RailRef = "ref-1"
-		n.ExecutedAt = 1500
-		n.Receipt = []byte("receipt")
-	}
-	return n
-}
-
-func must(t *testing.T, err error) {
+func must(t *testing.T, err error, msgAndArgs ...any) {
 	t.Helper()
-	require.NoError(t, err)
+	require.NoError(t, err, msgAndArgs...)
 }
 
 func get(t *testing.T, r registry.Registry, k registry.Key) registry.Entry {
@@ -77,58 +60,38 @@ func get(t *testing.T, r registry.Registry, k registry.Key) registry.Entry {
 	return e
 }
 
-// reach puts a new entry in the wanted state through legal transitions.
-func reach(t *testing.T, r registry.Registry, i byte, s registry.State) registry.Entry {
-	t.Helper()
-	e := fresh(i)
-	must(t, r.Reserve(ctx, e, Tolerance))
-	if s == registry.StateReserved {
-		return get(t, r, e.Key)
-	}
-	next := step(e, s, registry.SourceRail)
-	must(t, r.Resolve(ctx, e.Key, registry.StateReserved, next))
-	return get(t, r, e.Key)
-}
-
 // Run executes the suite.
 func Run(t *testing.T, open Opener) {
 	t.Run("Meta", func(t *testing.T) {
 		r := open(t, Epoch)
 		m, err := r.Meta(ctx)
 		must(t, err)
-		require.Equalf(t, Epoch, m.Epoch, "meta %+v", m)
-		require.Equalf(t, Epoch, m.Watermark, "meta %+v", m)
+		require.Equal(t, registry.Meta{Epoch: Epoch, Watermark: Epoch}, m)
 	})
 
-	t.Run("ReserveAndGet", func(t *testing.T) {
+	t.Run("ConsumeAndGet", func(t *testing.T) {
 		r := open(t, Epoch)
 		e := fresh(1)
-		must(t, r.Reserve(ctx, e, Tolerance))
-		got := get(t, r, e.Key)
-		require.Equal(t, registry.StateReserved, got.State)
-		require.Equal(t, e.Key, got.Key)
-		require.Equal(t, e.CommitmentHash, got.CommitmentHash)
-		require.Equal(t, e.Path, got.Path)
-		require.Equal(t, e.ReservedAt, got.ReservedAt)
-		require.Equal(t, e.ValidUntil, got.ValidUntil)
-		require.Empty(t, got.History)
+		must(t, r.Consume(ctx, e, Tolerance))
+		require.Equal(t, e, get(t, r, e.Key))
 		_, err := r.Get(ctx, key(9))
 		require.ErrorIs(t, err, registry.ErrNotFound, "missing key")
 	})
 
-	t.Run("ReserveTwice", func(t *testing.T) {
+	t.Run("ConsumeTwice", func(t *testing.T) {
 		r := open(t, Epoch)
 		e := fresh(1)
-		must(t, r.Reserve(ctx, e, Tolerance))
+		must(t, r.Consume(ctx, e, Tolerance))
 		other := fresh(1)
 		other.CommitmentHash = commitment.Hash{9}
-		err := r.Reserve(ctx, other, Tolerance)
+		other.ActionHash = commitment.Hash{8}
+		other.Authorization = []byte("other")
+		err := r.Consume(ctx, other, Tolerance)
 		require.ErrorIs(t, err, registry.ErrExists)
 		var ee *registry.ExistsError
 		require.ErrorAs(t, err, &ee)
-		require.Equalf(t, e.CommitmentHash, ee.Existing.CommitmentHash, "ExistsError %+v", ee)
-		got := get(t, r, e.Key)
-		require.Equal(t, e.CommitmentHash, got.CommitmentHash, "the loser overwrote the entry")
+		require.Equal(t, e, ee.Existing, "the error carries the stored entry")
+		require.Equal(t, e, get(t, r, e.Key), "the loser overwrote the entry")
 	})
 
 	t.Run("KeyIsPubKeyAndNonce", func(t *testing.T) {
@@ -139,244 +102,203 @@ func Run(t *testing.T, open Opener) {
 		c := fresh(3)
 		c.Key.PubKey = a.Key.PubKey // same agent, other nonce
 		for _, e := range []registry.Entry{a, b, c} {
-			must(t, r.Reserve(ctx, e, Tolerance))
+			must(t, r.Consume(ctx, e, Tolerance))
 		}
 	})
 
-	t.Run("WatermarkIsMaxReservedAt", func(t *testing.T) {
+	t.Run("InvalidEntryIsRefusedAndWritesNothing", func(t *testing.T) {
+		bad := map[string]func(e *registry.Entry){
+			"empty authorization": func(e *registry.Entry) { e.Authorization = nil },
+			"zero-length":         func(e *registry.Entry) { e.Authorization = []byte{} },
+			"path zero":           func(e *registry.Entry) { e.Path = 0 },
+			"path three":          func(e *registry.Entry) { e.Path = 3 },
+		}
+		for name, mut := range bad {
+			r := open(t, Epoch)
+			e := fresh(1)
+			mut(&e)
+			err := r.Consume(ctx, e, Tolerance)
+			require.ErrorIsf(t, err, registry.ErrInvalidEntry, "%s", name)
+			_, err = r.Get(ctx, e.Key)
+			require.ErrorIsf(t, err, registry.ErrNotFound, "%s", name)
+			m, _ := r.Meta(ctx)
+			require.Equalf(t, registry.Meta{Epoch: Epoch, Watermark: Epoch}, m, "%s: meta changed", name)
+		}
+		require.NoError(t, registry.CheckConsume(fresh(1)))
+		require.ErrorIs(t, registry.CheckConsume(registry.Entry{}), registry.ErrInvalidEntry)
+	})
+
+	t.Run("WatermarkIsMaxAuthorizedAt", func(t *testing.T) {
 		r := open(t, Epoch)
 		hi := fresh(1)
-		hi.ReservedAt = 5000
-		must(t, r.Reserve(ctx, hi, Tolerance))
+		hi.AuthorizedAt = 5000
+		must(t, r.Consume(ctx, hi, Tolerance))
 		lo := fresh(2)
-		lo.ReservedAt = 4990
-		must(t, r.Reserve(ctx, lo, Tolerance))
+		lo.AuthorizedAt = 4990
+		must(t, r.Consume(ctx, lo, Tolerance))
 		m, _ := r.Meta(ctx)
-		require.EqualValuesf(t, 5000, m.Watermark, "meta %+v", m)
-		require.Equalf(t, Epoch, m.Epoch, "meta %+v", m)
+		require.EqualValues(t, 5000, m.Watermark)
+		require.Equal(t, Epoch, m.Epoch)
 	})
 
 	t.Run("ReturnedEntriesAreCopies", func(t *testing.T) {
 		r := open(t, Epoch)
-		e := reach(t, r, 1, registry.StateExecuted)
-		e.Receipt[0] ^= 0xff
-		e.History[0].By = "mallory"
+		e := fresh(1)
+		must(t, r.Consume(ctx, e, Tolerance))
+		must(t, r.AttachReceipt(ctx, e.Key, e.CommitmentHash, []byte("receipt")))
+		got := get(t, r, e.Key)
+		got.Authorization[0] ^= 0xff
+		got.Receipt[0] ^= 0xff
 		again := get(t, r, e.Key)
-		require.NotEqual(t, e.Receipt[0], again.Receipt[0], "stored entry aliases the returned one")
-		require.EqualValues(t, "gate", again.History[0].By, "stored entry aliases the returned one")
+		require.Equal(t, e.Authorization, again.Authorization, "stored entry aliases the returned one")
+		require.Equal(t, []byte("receipt"), again.Receipt, "stored entry aliases the returned one")
 	})
 
-	t.Run("Transitions", func(t *testing.T) {
-		states := []registry.State{registry.StateReserved, registry.StateExecuted, registry.StateRejected, registry.StateUnknown}
-		allowed := map[[2]registry.State]bool{
-			{registry.StateReserved, registry.StateExecuted}: true,
-			{registry.StateReserved, registry.StateRejected}: true,
-			{registry.StateReserved, registry.StateUnknown}:  true,
-			{registry.StateUnknown, registry.StateExecuted}:  true,
-			{registry.StateUnknown, registry.StateRejected}:  true,
-		}
-		for _, from := range states {
-			for _, to := range states {
-				t.Run(name(from)+"_to_"+name(to), func(t *testing.T) {
-					r := open(t, Epoch)
-					stored := reach(t, r, 1, from)
-					upd := step(stored, to, registry.SourceManual)
-					err := r.Resolve(ctx, stored.Key, from, upd)
-					after := get(t, r, stored.Key)
-					if allowed[[2]registry.State{from, to}] {
-						require.NoError(t, err, "refused")
-						require.Equalf(t, to, after.State, "entry %+v", after)
-						require.Lenf(t, after.History, len(stored.History)+1, "entry %+v", after)
-						return
-					}
-					require.ErrorIs(t, err, registry.ErrStateConflict)
-					require.Equalf(t, stored, after, "refused transition changed the entry\n%+v\n%+v", after, stored)
-				})
-			}
-		}
-	})
-
-	t.Run("ExecutedWithoutReceiptCanBeSignedOnce", func(t *testing.T) {
+	t.Run("StoredBytesAreCopies", func(t *testing.T) {
 		r := open(t, Epoch)
 		e := fresh(1)
-		must(t, r.Reserve(ctx, e, Tolerance))
-		noReceipt := step(e, registry.StateExecuted, registry.SourceRail)
-		noReceipt.Receipt = nil
-		must(t, r.Resolve(ctx, e.Key, registry.StateReserved, noReceipt))
-		stored := get(t, r, e.Key)
-		require.Nilf(t, stored.Receipt, "receipt %x", stored.Receipt)
-		upd := step(stored, registry.StateExecuted, registry.SourceLookup)
-		upd.Receipt = []byte("signed")
-		must(t, r.Resolve(ctx, e.Key, registry.StateExecuted, upd))
-		got := get(t, r, e.Key)
-		require.Equalf(t, hex.EncodeToString([]byte("signed")), hex.EncodeToString(got.Receipt), "entry %+v", got)
-		require.EqualValuesf(t, "ref-1", got.RailRef, "entry %+v", got)
-		again := step(get(t, r, e.Key), registry.StateExecuted, registry.SourceLookup)
-		again.Receipt = []byte("other")
-		err := r.Resolve(ctx, e.Key, registry.StateExecuted, again)
-		require.ErrorIs(t, err, registry.ErrStateConflict, "second receipt")
+		in := append([]byte(nil), e.Authorization...)
+		must(t, r.Consume(ctx, e, Tolerance))
+		e.Authorization[0] ^= 0xff
+		require.Equal(t, in, get(t, r, e.Key).Authorization, "the registry kept the caller's slice")
 	})
 
-	t.Run("ResolveChecksFromState", func(t *testing.T) {
+	t.Run("AttachReceipt", func(t *testing.T) {
 		r := open(t, Epoch)
-		stored := reach(t, r, 1, registry.StateReserved)
-		upd := step(stored, registry.StateExecuted, registry.SourceRail)
-		err := r.Resolve(ctx, stored.Key, registry.StateUnknown, upd)
-		require.ErrorIs(t, err, registry.ErrStateConflict, "wrong from")
-		require.Equal(t, registry.StateReserved, get(t, r, stored.Key).State, "entry changed")
-		err = r.Resolve(ctx, key(9), registry.StateReserved, upd)
+		e := fresh(1)
+		must(t, r.Consume(ctx, e, Tolerance))
+		require.Nil(t, get(t, r, e.Key).Receipt)
+
+		err := r.AttachReceipt(ctx, e.Key, commitment.Hash{7}, []byte("x"))
+		require.ErrorIs(t, err, registry.ErrStateConflict, "wrong commitment hash")
+		require.Nil(t, get(t, r, e.Key).Receipt)
+		err = r.AttachReceipt(ctx, key(9), e.CommitmentHash, []byte("x"))
 		require.ErrorIs(t, err, registry.ErrNotFound, "absent key")
+
+		must(t, r.AttachReceipt(ctx, e.Key, e.CommitmentHash, []byte("first")))
+		got := get(t, r, e.Key)
+		want := e
+		want.Receipt = []byte("first")
+		require.Equal(t, want, got, "only the receipt may change")
+
+		err = r.AttachReceipt(ctx, e.Key, e.CommitmentHash, []byte("second"))
+		require.ErrorIs(t, err, registry.ErrStateConflict, "second receipt")
+		require.Equal(t, want, get(t, r, e.Key))
 	})
 
-	t.Run("HistoryIsAppendOnly", func(t *testing.T) {
+	t.Run("AttachReceiptDoesNotTouchMeta", func(t *testing.T) {
 		r := open(t, Epoch)
-		stored := reach(t, r, 1, registry.StateUnknown)
-		bad := map[string]func(u *registry.Entry){
-			"no new record":   func(u *registry.Entry) { u.History = stored.History },
-			"two new records": func(u *registry.Entry) { u.History = append(u.History, u.History[len(u.History)-1]) },
-			"history dropped": func(u *registry.Entry) { u.History = u.History[len(u.History)-1:] },
-			"old record rewritten": func(u *registry.Entry) {
-				h := append([]registry.Resolution(nil), u.History...)
-				h[0].By = "someone"
-				u.History = h
-			},
-		}
-		for name, mut := range bad {
-			upd := step(stored, registry.StateRejected, registry.SourceManual)
-			mut(&upd)
-			err := r.Resolve(ctx, stored.Key, registry.StateUnknown, upd)
-			assert.Errorf(t, err, "%s: accepted", name)
-			after := get(t, r, stored.Key)
-			assert.Equalf(t, stored, after, "%s: entry changed", name)
-		}
-		good := step(stored, registry.StateRejected, registry.SourceManual)
-		good.History[len(good.History)-1].Note = "checked by hand"
-		good.History[len(good.History)-1].By = "op-1"
-		must(t, r.Resolve(ctx, stored.Key, registry.StateUnknown, good))
-		got := get(t, r, stored.Key)
-		last := got.History[len(got.History)-1]
-		require.Equalf(t, "checked by hand", last.Note, "history %+v", got.History)
-		require.EqualValuesf(t, "op-1", last.By, "history %+v", got.History)
-		require.Equalf(t, registry.SourceManual, last.Source, "history %+v", got.History)
-		require.Equalf(t, registry.StateUnknown, last.PrevState, "history %+v", got.History)
-		require.EqualValuesf(t, 1500, last.At, "history %+v", got.History)
+		e := fresh(1)
+		must(t, r.Consume(ctx, e, Tolerance))
+		before, _ := r.Meta(ctx)
+		must(t, r.AttachReceipt(ctx, e.Key, e.CommitmentHash, []byte("r")))
+		after, _ := r.Meta(ctx)
+		require.Equal(t, before, after)
 	})
 
-	t.Run("Pending", func(t *testing.T) {
+	t.Run("RemovedStateMachine", func(t *testing.T) {
 		r := open(t, Epoch)
-		reach(t, r, 1, registry.StateReserved)
-		reach(t, r, 2, registry.StateUnknown)
-		reach(t, r, 3, registry.StateExecuted)
-		reach(t, r, 4, registry.StateRejected)
-		p, err := r.Pending(ctx)
-		must(t, err)
-		var got []byte
-		for _, e := range p {
-			got = append(got, e.Key.PubKey[0])
-		}
-		sort.Slice(got, func(i, j int) bool { return got[i] < got[j] })
-		require.Equalf(t, hex.EncodeToString([]byte{1, 2}), hex.EncodeToString(got), "pending keys %v", got)
-	})
-
-	t.Run("Recover", func(t *testing.T) {
-		r := open(t, Epoch)
-		reach(t, r, 1, registry.StateReserved)
-		reach(t, r, 2, registry.StateReserved)
-		reach(t, r, 3, registry.StateExecuted)
-		reach(t, r, 4, registry.StateUnknown)
-		n, err := r.Recover(ctx, RecoverAt)
-		require.NoErrorf(t, err, "Recover = %d", n)
-		require.EqualValuesf(t, 2, n, "Recover = %d, %v", n, err)
-		for _, i := range []byte{1, 2} {
-			e := get(t, r, key(i))
-			last := e.History[len(e.History)-1]
-			require.Equalf(t, registry.StateUnknown, e.State, "entry %d", i)
-			require.Lenf(t, e.History, 1, "entry %d", i)
-			require.Equalf(t, registry.SourceRecover, last.Source, "entry %d", i)
-			require.Equalf(t, registry.StateReserved, last.PrevState, "entry %d", i)
-			require.Equalf(t, "gate", last.By, "entry %d", i)
-		}
-		require.EqualValues(t, registry.StateExecuted, get(t, r, key(3)).State, "Recover touched an entry that was not Reserved")
-		require.EqualValues(t, registry.StateUnknown, get(t, r, key(4)).State, "Recover touched an entry that was not Reserved")
-		n, err = r.Recover(ctx, RecoverAt)
-		require.NoErrorf(t, err, "second Recover = %d", n)
-		require.EqualValuesf(t, 0, n, "second Recover = %d, %v", n, err)
+		var x any = r
+		_, hasRecover := x.(interface {
+			Recover(context.Context, uint64) (int, error)
+		})
+		_, hasPending := x.(interface {
+			Pending(context.Context) ([]registry.Entry, error)
+		})
+		_, hasResolve := x.(interface {
+			Resolve(context.Context, registry.Key, uint8, registry.Entry) error
+		})
+		require.False(t, hasRecover, "Recover is gone")
+		require.False(t, hasPending, "Pending is gone")
+		require.False(t, hasResolve, "Resolve is gone")
 	})
 
 	t.Run("Prune", func(t *testing.T) {
 		r := open(t, Epoch)
-		mk := func(i byte, s registry.State, validUntil uint64) {
+		mk := func(i byte, validUntil uint64, receipt bool) {
 			e := fresh(i)
 			e.ValidUntil = validUntil
-			must(t, r.Reserve(ctx, e, Tolerance))
-			if s != registry.StateReserved {
-				must(t, r.Resolve(ctx, e.Key, registry.StateReserved, step(e, s, registry.SourceRail)))
+			must(t, r.Consume(ctx, e, Tolerance))
+			if receipt {
+				must(t, r.AttachReceipt(ctx, e.Key, e.CommitmentHash, []byte("r")))
 			}
 		}
-		mk(1, registry.StateExecuted, 499) // pruned
-		mk(2, registry.StateRejected, 499) // pruned
-		mk(3, registry.StateExecuted, 500) // equal to the cutoff: kept
-		mk(4, registry.StateExecuted, 900) // young
-		mk(5, registry.StateReserved, 10)  // never pruned
-		mk(6, registry.StateUnknown, 10)   // never pruned
+		mk(1, 499, true)  // pruned
+		mk(2, 499, false) // pruned: an entry without a receipt goes too
+		mk(3, 500, true)  // equal to the cutoff: kept
+		mk(4, 900, false) // young
 		n, err := r.Prune(ctx, 500)
-		require.NoErrorf(t, err, "Prune = %d", n)
-		require.EqualValuesf(t, 2, n, "Prune = %d, %v", n, err)
+		must(t, err)
+		require.Equal(t, 2, n)
 		for _, i := range []byte{1, 2} {
 			_, err := r.Get(ctx, key(i))
 			require.ErrorIsf(t, err, registry.ErrNotFound, "entry %d survived", i)
 		}
-		for _, i := range []byte{3, 4, 5, 6} {
+		for _, i := range []byte{3, 4} {
 			get(t, r, key(i))
 		}
-		// A pruned key can be reserved again.
-		must(t, r.Reserve(ctx, fresh(1), Tolerance))
+		must(t, r.Consume(ctx, fresh(1), Tolerance))
+		require.True(t, registry.Prunable(registry.Entry{ValidUntil: 499}, 500))
+		require.False(t, registry.Prunable(registry.Entry{ValidUntil: 500}, 500))
 	})
 
-	t.Run("ReserveBelowWatermarkIsRefusedAndWritesNothing", func(t *testing.T) {
+	t.Run("ConsumeBelowWatermarkIsRefusedAndWritesNothing", func(t *testing.T) {
 		r := open(t, Epoch)
 		hi := fresh(1)
-		hi.ReservedAt = 5000
-		must(t, r.Reserve(ctx, hi, Tolerance))
+		hi.AuthorizedAt = 5000
+		must(t, r.Consume(ctx, hi, Tolerance))
 
 		low := fresh(2)
-		low.ReservedAt = 5000 - Tolerance - 1
-		err := r.Reserve(ctx, low, Tolerance)
+		low.AuthorizedAt = 5000 - Tolerance - 1
+		err := r.Consume(ctx, low, Tolerance)
 		require.ErrorIs(t, err, registry.ErrBelowWatermark)
 		_, err = r.Get(ctx, low.Key)
 		require.ErrorIs(t, err, registry.ErrNotFound)
 		m, err := r.Meta(ctx)
-		require.NoError(t, err)
+		must(t, err)
 		require.EqualValues(t, 5000, m.Watermark)
 
 		edge := fresh(3)
-		edge.ReservedAt = 5000 - Tolerance
-		must(t, r.Reserve(ctx, edge, Tolerance))
-		get(t, r, edge.Key)
+		edge.AuthorizedAt = 5000 - Tolerance
+		must(t, r.Consume(ctx, edge, Tolerance))
 		m, _ = r.Meta(ctx)
-		require.EqualValues(t, 5000, m.Watermark, "an accepted older reservation must not lower the watermark")
+		require.EqualValues(t, 5000, m.Watermark, "an accepted older entry must not lower the watermark")
 	})
 
-	t.Run("ReserveToleranceIsPerCall", func(t *testing.T) {
+	t.Run("ConsumeToleranceIsPerCall", func(t *testing.T) {
 		r := open(t, Epoch)
 		hi := fresh(1)
-		hi.ReservedAt = 5000
-		must(t, r.Reserve(ctx, hi, Tolerance))
+		hi.AuthorizedAt = 5000
+		must(t, r.Consume(ctx, hi, Tolerance))
 		low := fresh(2)
-		low.ReservedAt = 4000
-		require.ErrorIs(t, r.Reserve(ctx, low, 0), registry.ErrBelowWatermark)
-		must(t, r.Reserve(ctx, low, 1000))
+		low.AuthorizedAt = 4000
+		require.ErrorIs(t, r.Consume(ctx, low, 0), registry.ErrBelowWatermark)
+		must(t, r.Consume(ctx, low, 1000))
 	})
 
-	t.Run("RecoverRecordsTheGivenTime", func(t *testing.T) {
+	t.Run("WatermarkOverflowIsSaturated", func(t *testing.T) {
 		r := open(t, Epoch)
-		reach(t, r, 1, registry.StateReserved)
-		n, err := r.Recover(ctx, RecoverAt)
-		require.NoError(t, err)
-		require.Equal(t, 1, n)
-		e := get(t, r, key(1))
-		require.Len(t, e.History, 1)
-		require.EqualValues(t, RecoverAt, e.History[0].At)
+		hi := fresh(1)
+		hi.AuthorizedAt = 5000
+		must(t, r.Consume(ctx, hi, Tolerance))
+		low := fresh(2)
+		low.AuthorizedAt = 10
+		require.ErrorIs(t, r.Consume(ctx, low, 0), registry.ErrBelowWatermark)
+		must(t, r.Consume(ctx, low, ^uint64(0)), "a huge tolerance must not wrap around")
+		require.True(t, registry.BelowWatermark(1, 0, 2))
+		require.False(t, registry.BelowWatermark(^uint64(0), ^uint64(0), ^uint64(0)))
+	})
+
+	t.Run("ExistsIsReportedBeforeNothingIsWritten", func(t *testing.T) {
+		r := open(t, Epoch)
+		e := fresh(1)
+		must(t, r.Consume(ctx, e, Tolerance))
+		before, _ := r.Meta(ctx)
+		again := fresh(1)
+		again.AuthorizedAt = 1500
+		require.ErrorIs(t, r.Consume(ctx, again, Tolerance), registry.ErrExists)
+		after, _ := r.Meta(ctx)
+		require.Equal(t, before, after, "a refused Consume must not raise the watermark")
 	})
 
 	t.Run("ClaimRefusesASecondOwnerUntilReleased", func(t *testing.T) {
@@ -384,125 +306,143 @@ func Run(t *testing.T, open Opener) {
 		cl, ok := r.(registry.Claimer)
 		require.True(t, ok, "registry does not implement Claimer")
 		release, err := cl.Claim()
-		require.NoError(t, err)
+		must(t, err)
 		_, err = cl.Claim()
 		require.ErrorIs(t, err, registry.ErrInUse)
 		release()
 		release2, err := cl.Claim()
-		require.NoError(t, err)
+		must(t, err)
 		release2()
 	})
 
-	t.Run("PruneCutoffRefusesReservationsInThePrunedWindow", func(t *testing.T) {
+	t.Run("PruneCutoffRefusesEntriesInThePrunedWindow", func(t *testing.T) {
 		r := open(t, Epoch)
 		m, err := r.Meta(ctx)
-		require.NoError(t, err)
+		must(t, err)
 		require.Zero(t, m.PruneCutoff)
 
 		done := fresh(1)
 		done.ValidUntil = 400
-		must(t, r.Reserve(ctx, done, Tolerance))
-		must(t, r.Resolve(ctx, done.Key, registry.StateReserved, step(done, registry.StateExecuted, registry.SourceRail)))
+		must(t, r.Consume(ctx, done, Tolerance))
 		n, err := r.Prune(ctx, 500)
-		require.NoError(t, err)
+		must(t, err)
 		require.Equal(t, 1, n)
 		m, _ = r.Meta(ctx)
 		require.EqualValues(t, 500, m.PruneCutoff)
 
 		inside := fresh(2)
 		inside.ValidUntil = 499
-		require.ErrorIs(t, r.Reserve(ctx, inside, Tolerance), registry.ErrPrunedWindow)
+		require.ErrorIs(t, r.Consume(ctx, inside, Tolerance), registry.ErrPrunedWindow)
 		_, err = r.Get(ctx, inside.Key)
 		require.ErrorIs(t, err, registry.ErrNotFound)
 		after, _ := r.Meta(ctx)
-		require.Equal(t, m, after, "a refused reservation must not change the meta")
+		require.Equal(t, m, after, "a refused Consume must not change the meta")
 
-		// The pruned key itself is refused too.
-		require.ErrorIs(t, r.Reserve(ctx, done, Tolerance), registry.ErrPrunedWindow)
+		// The pruned key itself is refused too, whatever the tolerance.
+		require.ErrorIs(t, r.Consume(ctx, done, Tolerance), registry.ErrPrunedWindow)
+		require.ErrorIs(t, r.Consume(ctx, done, ^uint64(0)), registry.ErrPrunedWindow)
 
 		edge := fresh(3)
 		edge.ValidUntil = 500
-		must(t, r.Reserve(ctx, edge, Tolerance))
+		must(t, r.Consume(ctx, edge, Tolerance))
 	})
 
 	t.Run("PruneCutoffOnlyGrows", func(t *testing.T) {
 		r := open(t, Epoch)
 		_, err := r.Prune(ctx, 700)
-		require.NoError(t, err)
+		must(t, err)
 		_, err = r.Prune(ctx, 300)
-		require.NoError(t, err)
+		must(t, err)
 		m, _ := r.Meta(ctx)
 		require.EqualValues(t, 700, m.PruneCutoff)
 	})
 
-	t.Run("ConcurrentReserveOneWinner", func(t *testing.T) {
+	t.Run("ConcurrentConsumeOneWinner", func(t *testing.T) {
 		r := open(t, Epoch)
 		const n = 32
 		var wins, losses atomic.Int32
 		var wg sync.WaitGroup
-		for i := 0; i < n; i++ {
+		for i := range n {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				e := fresh(1)
 				e.CommitmentHash = commitment.Hash{byte(i)}
-				switch err := r.Reserve(ctx, e, Tolerance); {
+				switch err := r.Consume(ctx, e, Tolerance); {
 				case err == nil:
 					wins.Add(1)
 				case errors.Is(err, registry.ErrExists):
 					losses.Add(1)
 				default:
-					assert.Fail(t, fmt.Sprintf("Reserve: %v", err))
+					assert.Fail(t, fmt.Sprintf("Consume: %v", err))
 				}
 			}()
 		}
 		wg.Wait()
-		require.EqualValuesf(t, 1, wins.Load(), "wins %d losses %d", wins.Load(), losses.Load())
-		require.EqualValuesf(t, n-1, losses.Load(), "wins %d losses %d", wins.Load(), losses.Load())
+		require.EqualValues(t, 1, wins.Load())
+		require.EqualValues(t, n-1, losses.Load())
 	})
 
-	t.Run("ConcurrentResolveOneWinner", func(t *testing.T) {
+	t.Run("ConcurrentAttachReceiptOneWinner", func(t *testing.T) {
 		r := open(t, Epoch)
-		stored := reach(t, r, 1, registry.StateUnknown)
+		e := fresh(1)
+		must(t, r.Consume(ctx, e, Tolerance))
 		const n = 16
 		var wins, conflicts atomic.Int32
 		var wg sync.WaitGroup
-		for i := 0; i < n; i++ {
+		for i := range n {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				to := registry.StateRejected
-				if i%2 == 0 {
-					to = registry.StateExecuted
-				}
-				switch err := r.Resolve(ctx, stored.Key, registry.StateUnknown, step(stored, to, registry.SourceManual)); {
+				switch err := r.AttachReceipt(ctx, e.Key, e.CommitmentHash, []byte{byte(i)}); {
 				case err == nil:
 					wins.Add(1)
 				case errors.Is(err, registry.ErrStateConflict):
 					conflicts.Add(1)
 				default:
-					assert.Fail(t, fmt.Sprintf("Resolve: %v", err))
+					assert.Fail(t, fmt.Sprintf("AttachReceipt: %v", err))
 				}
 			}()
 		}
 		wg.Wait()
-		require.EqualValuesf(t, 1, wins.Load(), "wins %d conflicts %d", wins.Load(), conflicts.Load())
-		require.EqualValuesf(t, n-1, conflicts.Load(), "wins %d conflicts %d", wins.Load(), conflicts.Load())
-		got := get(t, r, stored.Key)
-		require.Lenf(t, got.History, len(stored.History)+1, "history %+v", got.History)
+		require.EqualValues(t, 1, wins.Load())
+		require.EqualValues(t, n-1, conflicts.Load())
+		require.Len(t, get(t, r, e.Key).Receipt, 1)
 	})
-}
 
-func name(s registry.State) string {
-	switch s {
-	case registry.StateReserved:
-		return "Reserved"
-	case registry.StateExecuted:
-		return "Executed"
-	case registry.StateRejected:
-		return "Rejected"
-	case registry.StateUnknown:
-		return "Unknown"
-	}
-	return "?"
+	// The cutoff check lives in the marking transaction: an entry below the
+	// cutoff can never be left behind by a racing Prune.
+	t.Run("ConcurrentConsumeAndPruneKeepTheCutoffInvariant", func(t *testing.T) {
+		r := open(t, Epoch)
+		var wg sync.WaitGroup
+		for i := range byte(40) {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				e := fresh(i)
+				e.ValidUntil = 300 + uint64(i)*10
+				err := r.Consume(ctx, e, Tolerance)
+				if err != nil {
+					assert.ErrorIs(t, err, registry.ErrPrunedWindow)
+				}
+			}()
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, err := r.Prune(ctx, 300+uint64(i)*10)
+				assert.NoError(t, err)
+			}()
+		}
+		wg.Wait()
+		m, err := r.Meta(ctx)
+		must(t, err)
+		for i := range byte(40) {
+			e, err := r.Get(ctx, key(i))
+			if err == nil {
+				require.GreaterOrEqualf(t, e.ValidUntil, m.PruneCutoff, "entry %d is inside the pruned window", i)
+			} else {
+				require.ErrorIs(t, err, registry.ErrNotFound)
+			}
+		}
+	})
 }

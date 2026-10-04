@@ -3,13 +3,15 @@ package gate
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"math/bits"
 	"sync/atomic"
-	"time"
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate/registry"
@@ -19,6 +21,7 @@ import (
 type Gate struct {
 	cfg       Config
 	d         Deps
+	log       *slog.Logger
 	gateKeys  map[[32]byte]struct{}
 	signerPub []byte
 	epoch     uint64
@@ -26,28 +29,22 @@ type Gate struct {
 	sem       *weightedSem
 	release   func()
 	closed    atomic.Bool
-
-	// Test hooks; production code leaves them nil. A hook that returns an
-	// error makes Admit return at once, as a crash would.
-	afterReserve  func() error
-	afterExecute  func() error
-	beforeResolve func() error
 }
 
 type Result struct {
 	CommitmentHash commitment.Hash // zero if rejected before the signature check passed
-	State          registry.State  // 0 if no registry entry was written or found
+	ActionHash     commitment.Hash // zero if rejected before the action bytes were checked
 	Path           registry.Path   // 0 until a payload path was accepted
-	Receipt        []byte          // canonical SignedReceipt; set only when State is Executed and the receipt is signed
+	// Authorization is the canonical SignedAuthorization. It is set on
+	// success, and with ErrNonceUsed when the same commitment is presented
+	// again with the committed action bytes.
+	Authorization []byte
 }
-
-type ReconcileReport struct{ Executed, Rejected, StillUnknown int }
 
 // hasKey is implemented by allowlists that can say whether a key is listed.
 type hasKey interface{ HasKey(key [32]byte) bool }
 
-// New validates the configuration, loads the registry metadata and moves
-// every Reserved entry to Unknown.
+// New validates the configuration and loads the registry metadata.
 func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
 	bad := func(format string, a ...any) error {
 		return fmt.Errorf("%w: %s", ErrInvalidConfig, fmt.Sprintf(format, a...))
@@ -57,21 +54,26 @@ func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
 		return nil, bad("skew_s %d above %d", cfg.SkewS, maxSkewS)
 	case cfg.BlobRetentionS < 1 || cfg.BlobRetentionS > math.MaxInt64:
 		return nil, bad("blob_retention_s %d", cfg.BlobRetentionS)
-	case cfg.DATimeout <= 0 || cfg.ArchiveTimeout <= 0 || cfg.ExecTimeout <= 0 || cfg.ChainTimeout <= 0:
+	case cfg.DATimeout <= 0 || cfg.ArchiveTimeout <= 0 || cfg.SignTimeout <= 0 || cfg.ChainTimeout <= 0:
 		return nil, bad("timeouts must be positive")
 	case cfg.MaxFetchBytes == 0:
 		return nil, bad("max_fetch_bytes is zero")
 	case cfg.PruneGrace <= cfg.ClockTolerance:
 		return nil, bad("prune_grace %d must be above clock_tolerance %d", cfg.PruneGrace, cfg.ClockTolerance)
+	case cfg.MaxAuthorizationTTL <= cfg.SkewS || cfg.MaxAuthorizationTTL > math.MaxInt64:
+		return nil, bad("max_authorization_ttl %d must be above skew_s %d", cfg.MaxAuthorizationTTL, cfg.SkewS)
 	case d.Clock == nil || d.Params == nil || d.Headers == nil || d.Anchors == nil || d.DA == nil ||
-		d.Archive == nil || d.Allowlist == nil || d.Registry == nil || d.Executor == nil || d.Signer == nil:
+		d.Archive == nil || d.Allowlist == nil || d.Registry == nil || d.Signer == nil:
 		return nil, bad("missing dependency")
 	}
 	if d.Committers[commitment.DACelestiaBlob] == nil {
 		return nil, bad("a committer for da = 2 is required")
 	}
 
-	g := &Gate{cfg: cfg, d: d, gateKeys: make(map[[32]byte]struct{}), sem: newWeightedSem(cfg.MaxFetchBytes)}
+	g := &Gate{cfg: cfg, d: d, log: d.Logger, gateKeys: make(map[[32]byte]struct{}), sem: newWeightedSem(cfg.MaxFetchBytes)}
+	if g.log == nil {
+		g.log = slog.Default()
+	}
 	g.signerPub = bytes.Clone(d.Signer.PublicKey())
 	if err := commitment.CheckPublicKey(g.signerPub); err != nil {
 		return nil, fmt.Errorf("gate: signer key: %w", err)
@@ -119,9 +121,6 @@ func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
 	}
 	g.epoch = m.Epoch
 	g.watermark.Store(m.Watermark)
-	if _, err := d.Registry.Recover(ctx, now); err != nil {
-		return nil, fmt.Errorf("%w: recover: %w", ErrRegistryUnavailable, err)
-	}
 	started = true
 	return g, nil
 }
@@ -160,21 +159,24 @@ func (g *Gate) bumpWatermark(v uint64) {
 	}
 }
 
-// Admit verifies the envelope and, if every stage passes, executes the
-// committed action at most once and returns a signed receipt. Result.State is
-// authoritative; the error explains it.
-func (g *Gate) Admit(ctx context.Context, envelope, action []byte) (res Result, err error) {
+// Authorize verifies the envelope and, if every check passes, signs an
+// Authorization for exactly the presented action bytes, consumes the nonce
+// and stores the Authorization in one registry transaction, and only then
+// returns it. A nonce that is already used gives ErrNonceUsed; the stored
+// Authorization comes back with it only if the same commitment is presented
+// with the committed action bytes.
+func (g *Gate) Authorize(ctx context.Context, envelope, action []byte) (res Result, err error) {
 	var ev AdmissionEvent
 	defer func() {
 		if g.d.Metrics != nil {
-			ev.CommitmentHash, ev.Path, ev.State, ev.Err = res.CommitmentHash, res.Path, res.State, err
+			ev.CommitmentHash, ev.Path, ev.Authorized, ev.Err = res.CommitmentHash, res.Path, err == nil, err
 			g.d.Metrics.Admission(ev)
 		}
 	}()
-	return g.admit(ctx, envelope, action, &ev)
+	return g.authorize(ctx, envelope, action, &ev)
 }
 
-func (g *Gate) admit(ctx context.Context, envelope, action []byte, ev *AdmissionEvent) (Result, error) {
+func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *AdmissionEvent) (Result, error) {
 	if g.closed.Load() {
 		return Result{}, ErrClosed
 	}
@@ -195,7 +197,8 @@ func (g *Gate) admit(ctx context.Context, envelope, action []byte, ev *Admission
 	}
 	p := commitment.Params{FibreRetentionS: latest, BlobRetentionS: g.cfg.BlobRetentionS, SkewS: g.cfg.SkewS}
 
-	// Stateless verification: decoding, validation, signature, time, scope.
+	// Stateless verification: decoding, validation, signature, time, scope,
+	// action type.
 	s, h, err := commitment.VerifyForGate(envelope, now, g.cfg.Scope, p)
 	if err != nil {
 		return Result{}, err
@@ -229,22 +232,25 @@ func (g *Gate) admit(ctx context.Context, envelope, action []byte, ev *Admission
 		return res, ErrAgentKeyMismatch
 	}
 
-	// The presented bytes must be exactly the committed ones.
+	// The presented bytes must be exactly the committed ones. This runs before
+	// any registry read, so bytes that do not match learn nothing about a
+	// used nonce.
 	if err := commitment.CheckAction(c, action); err != nil {
 		return res, err
 	}
+	copy(res.ActionHash[:], c.Action.Hash)
 
 	// Advisory nonce check.
 	key := registry.Key{PubKey: agentKey}
 	copy(key.Nonce[:], c.Nonce)
 	switch old, err := g.d.Registry.Get(ctx, key); {
 	case err == nil:
-		return replay(h, old)
+		return g.replay(h, res.ActionHash, old)
 	case !errors.Is(err, registry.ErrNotFound):
 		return res, fmt.Errorf("%w: %w", ErrRegistryUnavailable, err)
 	}
 
-	// Other admissions may have raised the watermark while the registry was read.
+	// Other calls may have raised the watermark while the registry was read.
 	if satAdd(now, g.cfg.ClockTolerance) < g.watermark.Load() {
 		return res, fmt.Errorf("%w: now %d, watermark %d", ErrClockRegression, now, g.watermark.Load())
 	}
@@ -285,115 +291,156 @@ func (g *Gate) admit(ctx context.Context, envelope, action []byte, ev *Admission
 		return res, err
 	}
 
-	// The nonce is consumed here, before anything is sent.
+	// Sign. Nothing is written yet, so a failing signer burns no nonce.
+	if err := ctx.Err(); err != nil {
+		return res, fmt.Errorf("gate: %w", err)
+	}
+	expires := min(c.ValidUntil, satAdd(now2, g.cfg.MaxAuthorizationTTL))
+	signed, err := g.signAuthorization(ctx, h, res.ActionHash, c, action, path, expires, now2)
+	if err != nil {
+		return res, err
+	}
+
+	// Consume the nonce and store the Authorization in one transaction. The
+	// Authorization leaves the gate only after this commit.
 	if err := ctx.Err(); err != nil {
 		return res, fmt.Errorf("gate: %w", err)
 	}
 	entry := registry.Entry{
-		Key: key, CommitmentHash: h, State: registry.StateReserved, Path: path,
-		ReservedAt: now2, ValidUntil: c.ValidUntil,
+		Key: key, CommitmentHash: h, ActionHash: res.ActionHash, Path: path,
+		AuthorizedAt: now2, ValidUntil: c.ValidUntil, Authorization: signed,
 	}
-	if err := g.d.Registry.Reserve(ctx, entry, g.cfg.ClockTolerance); err != nil {
+	if err := g.d.Registry.Consume(ctx, entry, g.cfg.ClockTolerance); err != nil {
 		var ee *registry.ExistsError
 		if errors.As(err, &ee) {
-			return replay(h, ee.Existing)
+			return g.replay(h, res.ActionHash, ee.Existing)
 		}
 		if errors.Is(err, registry.ErrBelowWatermark) || errors.Is(err, registry.ErrPrunedWindow) {
 			return res, fmt.Errorf("%w: %w", ErrClockRegression, err)
 		}
-		return res, fmt.Errorf("%w: reserve: %w", ErrRegistryUnavailable, err)
+		return res, fmt.Errorf("%w: consume: %w", ErrRegistryUnavailable, err)
 	}
 	g.bumpWatermark(now2)
-	res.State = registry.StateReserved
-	if g.afterReserve != nil {
-		if err := g.afterReserve(); err != nil {
-			return res, fmt.Errorf("gate: after reserve: %w", err)
+	res.Authorization = bytes.Clone(signed)
+	return res, nil
+}
+
+// replay answers a presentation whose nonce is already used. It reports the
+// stored entry only if it belongs to the same commitment and its action hash
+// equals the presented one. Otherwise it reports the used nonce and nothing
+// of the entry.
+func (g *Gate) replay(h, actionHash commitment.Hash, old registry.Entry) (Result, error) {
+	res := Result{CommitmentHash: h}
+	if old.CommitmentHash != h {
+		return res, ErrNonceUsed
+	}
+	res.ActionHash = actionHash
+	if subtle.ConstantTimeCompare(old.ActionHash[:], actionHash[:]) != 1 {
+		g.log.Error("stored action hash differs from the commitment's own",
+			"commitment_hash", hex.EncodeToString(h[:]),
+			"stored_action_hash", hex.EncodeToString(old.ActionHash[:]),
+			"action_hash", hex.EncodeToString(actionHash[:]))
+		if g.d.Metrics != nil {
+			g.d.Metrics.StoredActionMismatch(h)
 		}
+		return res, fmt.Errorf("%w: stored entry disagrees", commitment.ErrActionMismatch)
+	}
+	res.Path = old.Path
+	res.Authorization = bytes.Clone(old.Authorization)
+	return res, ErrNonceUsed
+}
+
+// signAuthorization builds, signs and self-verifies the Authorization.
+func (g *Gate) signAuthorization(ctx context.Context, h, actionHash commitment.Hash, c *commitment.Commitment, action []byte, path registry.Path, expires, now uint64) ([]byte, error) {
+	a := commitment.Authorization{
+		CommitmentHash: h[:],
+		ActionHash:     actionHash[:],
+		GateID:         g.cfg.Scope.GateID,
+		Expires:        expires,
+		Path:           commitment.PayloadPath(path),
+	}
+	canon, err := commitment.EncodeAuthorization(&a)
+	if err != nil {
+		return nil, fmt.Errorf("gate: encode authorization: %w", err)
+	}
+	sig, err := g.sign(ctx, commitment.AuthorizationSigningMessage(commitment.HashAuthorization(canon)))
+	if err != nil {
+		return nil, fmt.Errorf("gate: sign authorization: %w", err)
+	}
+	b, err := commitment.EncodeSignedAuthorization(&commitment.SignedAuthorization{Authorization: a, Signature: sig})
+	if err != nil {
+		return nil, fmt.Errorf("gate: encode signed authorization: %w", err)
+	}
+	_, _, err = commitment.VerifyAuthorization(b, commitment.AuthorizationCheck{
+		GatePubKey: g.signerPub, GateID: g.cfg.Scope.GateID, ActionType: c.Action.Type,
+		Action: action, Now: now, SkewS: g.cfg.SkewS,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("gate: authorization does not verify: %w", err)
+	}
+	return b, nil
+}
+
+// Record attests the rail reference that the integrator reports for an
+// authorized commitment and returns the canonical SignedReceipt. The receipt
+// is the gate's record of the claim, not proof of execution. At most one
+// receipt is stored per decision; a second call returns it with
+// ErrReceiptExists.
+func (g *Gate) Record(ctx context.Context, envelope []byte, railRef string) ([]byte, error) {
+	if g.closed.Load() {
+		return nil, ErrClosed
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("gate: %w", err)
+	}
+	s, err := commitment.DecodeSigned(envelope)
+	if err != nil {
+		return nil, err
+	}
+	h, err := commitment.HashOf(&s.Commitment)
+	if err != nil {
+		return nil, err
+	}
+	var key registry.Key
+	copy(key.PubKey[:], s.Commitment.AgentPubKey)
+	copy(key.Nonce[:], s.Commitment.Nonce)
+
+	ent, err := g.d.Registry.Get(ctx, key)
+	switch {
+	case errors.Is(err, registry.ErrNotFound):
+		return nil, ErrNotAuthorized
+	case err != nil:
+		return nil, fmt.Errorf("%w: %w", ErrRegistryUnavailable, err)
+	case ent.CommitmentHash != h:
+		return nil, ErrNotAuthorized
+	case len(ent.Receipt) != 0:
+		return bytes.Clone(ent.Receipt), ErrReceiptExists
 	}
 
-	// Execute, detached from the caller's cancellation.
-	dctx := context.WithoutCancel(ctx)
-	notAfter := time.Unix(int64(c.ValidUntil-min(c.ValidUntil, g.cfg.SkewS)), 0)
-	er, eerr := g.execute(dctx, ExecRequest{CommitmentHash: h, ClientOrderID: clientOrderID(h), Action: bytes.Clone(action), NotAfter: notAfter})
-	if g.afterExecute != nil {
-		if err := g.afterExecute(); err != nil {
-			return res, fmt.Errorf("gate: after execute: %w", err)
-		}
-	}
-
-	outcome, ref := registry.StateUnknown, ""
-	if eerr == nil {
-		switch er.Outcome {
-		case OutcomeExecuted:
-			if validID(er.RailRef, 128) {
-				outcome, ref = registry.StateExecuted, er.RailRef
-			}
-		case OutcomeRejected:
-			outcome = registry.StateRejected
-		}
-	}
-	if g.beforeResolve != nil {
-		if err := g.beforeResolve(); err != nil {
-			return res, fmt.Errorf("gate: before resolve: %w", err)
-		}
-	}
-
-	// Receipt and resolution.
 	at := g.now()
 	if at == 0 {
-		at = now2
+		return nil, fmt.Errorf("%w: now %d", ErrClockRegression, at)
 	}
-	upd := entry
-	upd.State = outcome
-	upd.History = []registry.Resolution{{Source: registry.SourceRail, By: "gate", At: at, PrevState: registry.StateReserved}}
-	var signErr error
-	if outcome == registry.StateExecuted {
-		upd.RailRef, upd.ExecutedAt = ref, at
-		upd.Receipt, signErr = g.signReceipt(dctx, h, ref, at)
+	receipt, err := g.signReceipt(ctx, h, railRef, at)
+	if err != nil {
+		return nil, err
 	}
-	if err := g.d.Registry.Resolve(dctx, key, registry.StateReserved, upd); err != nil {
-		cause := fmt.Errorf("resolve: %w", err)
-		switch outcome {
-		case registry.StateExecuted:
-			return res, fmt.Errorf("%w: %w", ErrReceiptPending, cause)
-		case registry.StateRejected:
-			return res, fmt.Errorf("%w: %w", ErrExecutionRejected, cause)
+	switch err := g.d.Registry.AttachReceipt(ctx, key, h, receipt); {
+	case err == nil:
+		return receipt, nil
+	case errors.Is(err, registry.ErrNotFound):
+		return nil, ErrNotAuthorized
+	case errors.Is(err, registry.ErrStateConflict):
+		// Another call attached its receipt first; only the stored one counts.
+		cur, gerr := g.d.Registry.Get(ctx, key)
+		if gerr == nil && cur.CommitmentHash == h && len(cur.Receipt) != 0 {
+			return bytes.Clone(cur.Receipt), ErrReceiptExists
 		}
-		return res, fmt.Errorf("%w: %v: %w", ErrExecutionUnknown, eerr, cause)
+		return nil, fmt.Errorf("%w: attach receipt: %w", ErrRegistryUnavailable, err)
+	default:
+		return nil, fmt.Errorf("%w: attach receipt: %w", ErrRegistryUnavailable, err)
 	}
-	res.State = outcome
-	switch outcome {
-	case registry.StateExecuted:
-		if signErr != nil {
-			return res, fmt.Errorf("%w: sign: %w", ErrReceiptPending, signErr)
-		}
-		res.Receipt = bytes.Clone(upd.Receipt)
-		return res, nil
-	case registry.StateRejected:
-		return res, ErrExecutionRejected
-	}
-	if eerr != nil {
-		return res, fmt.Errorf("%w: %w", ErrExecutionUnknown, eerr)
-	}
-	return res, fmt.Errorf("%w: outcome %d", ErrExecutionUnknown, er.Outcome)
 }
-
-// replay answers a submission whose nonce is taken. It reports the stored
-// entry only if it belongs to the same commitment.
-func replay(h commitment.Hash, old registry.Entry) (Result, error) {
-	if old.CommitmentHash != h {
-		return Result{CommitmentHash: h}, fmt.Errorf("%w: held by commitment %x", ErrNonceUsed, old.CommitmentHash[:])
-	}
-	r := Result{CommitmentHash: h, State: old.State, Path: old.Path}
-	if old.State == registry.StateExecuted {
-		r.Receipt = bytes.Clone(old.Receipt)
-	}
-	return r, ErrNonceUsed
-}
-
-// clientOrderID is the idempotency key sent to the executor: the lowercase
-// hex of the commitment hash.
-func clientOrderID(h commitment.Hash) string { return hex.EncodeToString(h[:]) }
 
 func (g *Gate) chainErr(ctx context.Context, what string, err error) error {
 	if cerr := ctx.Err(); cerr != nil {
@@ -431,17 +478,6 @@ func (g *Gate) retentionHolds(ctx context.Context, c *commitment.Commitment, a A
 	return false, nil
 }
 
-func (g *Gate) execute(ctx context.Context, req ExecRequest) (res ExecResult, err error) {
-	ctx, cancel := context.WithTimeout(ctx, g.cfg.ExecTimeout)
-	defer cancel()
-	defer func() {
-		if r := recover(); r != nil {
-			res, err = ExecResult{}, fmt.Errorf("executor panicked: %v", r)
-		}
-	}()
-	return g.d.Executor.Execute(ctx, req)
-}
-
 func (g *Gate) chainCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, g.cfg.ChainTimeout)
 }
@@ -471,9 +507,9 @@ func (g *Gate) blockTime(ctx context.Context, height uint64) (uint64, error) {
 }
 
 // sign runs the signer under a timeout and turns a panic into an error, so a
-// broken signer leaves an Executed entry without a receipt.
+// broken signer cannot hang or crash the gate.
 func (g *Gate) sign(ctx context.Context, msg []byte) (sig []byte, err error) {
-	ctx, cancel := context.WithTimeout(ctx, g.cfg.ExecTimeout)
+	ctx, cancel := context.WithTimeout(ctx, g.cfg.SignTimeout)
 	defer cancel()
 	defer func() {
 		if r := recover(); r != nil {
@@ -495,9 +531,17 @@ func (g *Gate) signReceipt(ctx context.Context, h commitment.Hash, ref string, r
 	if err != nil {
 		return nil, err
 	}
-	sig, err := g.sign(ctx, commitment.ReceiptSigningMessage(commitment.HashReceipt(canon)))
+	// Reject an invalid reference before spending a signature.
+	probe, err := commitment.EncodeSignedReceipt(&commitment.SignedReceipt{Receipt: r, Signature: make([]byte, 64)})
 	if err != nil {
 		return nil, err
+	}
+	if _, _, err := commitment.DecodeSignedReceipt(probe); err != nil {
+		return nil, err
+	}
+	sig, err := g.sign(ctx, commitment.ReceiptSigningMessage(commitment.HashReceipt(canon)))
+	if err != nil {
+		return nil, fmt.Errorf("gate: sign receipt: %w", err)
 	}
 	b, err := commitment.EncodeSignedReceipt(&commitment.SignedReceipt{Receipt: r, Signature: sig})
 	if err != nil {
@@ -509,7 +553,7 @@ func (g *Gate) signReceipt(ctx context.Context, h commitment.Hash, ref string, r
 	return b, nil
 }
 
-// Prune deletes terminal entries that can no longer pass the time check. It
+// Prune deletes the entries whose decision can no longer pass the time check. It
 // uses the persisted watermark, so a clock that jumps forward cannot prune
 // early.
 func (g *Gate) Prune(ctx context.Context) (int, error) {
@@ -529,3 +573,6 @@ func (g *Gate) Prune(ctx context.Context) (int, error) {
 	}
 	return n, nil
 }
+
+// PublicKey is the gate key that verifies Authorizations and receipts.
+func (g *Gate) PublicKey() ed25519.PublicKey { return bytes.Clone(g.signerPub) }

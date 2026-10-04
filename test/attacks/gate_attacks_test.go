@@ -18,9 +18,8 @@ import (
 )
 
 // The gate attack suite: each test drives the full gate with fakes and
-// requires a rejection with the right sentinel, no executor call and, for the
-// stages before the nonce is consumed, an untouched nonce. The entry point is
-// still the admit-and-execute path; the authorizer replaces it.
+// requires a rejection with the right sentinel, no Authorization and, for the
+// stages before the nonce is consumed, an untouched nonce.
 
 func armed(t *testing.T, opts ...gatefix.Option) (*gatefix.Env, *commitment.Commitment, []byte) {
 	t.Helper()
@@ -33,8 +32,9 @@ func armed(t *testing.T, opts ...gatefix.Option) (*gatefix.Env, *commitment.Comm
 
 func TestGateAttack0Control(t *testing.T) {
 	e, _, b := armed(t)
-	_, err := e.Admit(b)
-	require.NoError(t, err, "the honest path must be admitted")
+	res, err := e.Authorize(b)
+	require.NoError(t, err, "the honest path must be authorized")
+	require.NotEmpty(t, res.Authorization)
 }
 
 // 1. Action without commitment.
@@ -53,9 +53,9 @@ func TestGateAttack1ActionWithoutCommitment(t *testing.T) {
 		"truncated envelope": good[:len(good)/2],
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := e.Admit(b)
+			res, err := e.Authorize(b)
 			require.Error(t, err, "gate accepted")
-			require.EqualValues(t, 0, e.Exec.Calls(), "executor called")
+			require.Nil(t, res.Authorization)
 		})
 	}
 	_, err := e.Entry(c)
@@ -78,7 +78,7 @@ func TestGateAttack2ActionOutsideCommitment(t *testing.T) {
 	}
 	t.Run("control", func(t *testing.T) {
 		e, _, b := armedJSON(t)
-		_, err := e.AdmitWith(b, committed)
+		_, err := e.AuthorizeWith(b, committed)
 		require.NoError(t, err)
 	})
 	variants := map[string]string{
@@ -94,7 +94,7 @@ func TestGateAttack2ActionOutsideCommitment(t *testing.T) {
 	for name, changed := range variants {
 		t.Run(name, func(t *testing.T) {
 			e, c, b := armedJSON(t)
-			_, err := e.AdmitWith(b, []byte(changed))
+			_, err := e.AuthorizeWith(b, []byte(changed))
 			e.RequireRejected(c, err, commitment.ErrActionMismatch)
 		})
 	}
@@ -103,27 +103,27 @@ func TestGateAttack2ActionOutsideCommitment(t *testing.T) {
 		for i := range committed {
 			bad := append([]byte(nil), committed...)
 			bad[i] ^= 1
-			_, err := e.AdmitWith(b, bad)
+			_, err := e.AuthorizeWith(b, bad)
 			e.RequireRejected(c, err, commitment.ErrActionMismatch)
 		}
 	})
 	t.Run("every truncation of the committed action", func(t *testing.T) {
 		e, c, b := armedJSON(t)
 		for i := 1; i < len(committed); i++ {
-			_, err := e.AdmitWith(b, committed[:i])
+			_, err := e.AuthorizeWith(b, committed[:i])
 			e.RequireRejected(c, err, commitment.ErrActionMismatch)
 		}
 	})
 	t.Run("no bytes and too many bytes", func(t *testing.T) {
 		e, c, b := armedJSON(t)
 		for _, bad := range [][]byte{nil, {}, make([]byte, commitment.MaxActionSize+1)} {
-			_, err := e.AdmitWith(b, bad)
+			_, err := e.AuthorizeWith(b, bad)
 			e.RequireRejected(c, err, commitment.ErrActionSize)
 		}
 	})
 	t.Run("the template order against the json commitment", func(t *testing.T) {
 		e, c, b := armedJSON(t)
-		_, err := e.AdmitWith(b, gatefix.Action(t))
+		_, err := e.AuthorizeWith(b, gatefix.Action(t))
 		e.RequireRejected(c, err, commitment.ErrActionMismatch)
 	})
 	t.Run("committed bytes under a type the gate does not serve", func(t *testing.T) {
@@ -131,7 +131,7 @@ func TestGateAttack2ActionOutsideCommitment(t *testing.T) {
 		c := gatefix.WithAction(t, gatefix.Template(t), jsonType, committed)
 		e.StageDA(c, gatefix.Blob(t))
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.AdmitWith(b, committed)
+		_, err := e.AuthorizeWith(b, committed)
 		e.RequireRejected(c, err, commitment.ErrActionTypeNotAllowed)
 	})
 	t.Run("hash rewritten after signing", func(t *testing.T) {
@@ -142,12 +142,12 @@ func TestGateAttack2ActionOutsideCommitment(t *testing.T) {
 		s, _, _ := commitment.Sign(gatefix.Key(t, "agent1"), c)
 		s.Commitment.Action.Hash = oh[:]
 		b, _ := commitment.EncodeSigned(s)
-		_, err = e.AdmitWith(b, other)
+		_, err = e.AuthorizeWith(b, other)
 		e.RequireRejected(c, err, commitment.ErrSignatureInvalid)
 	})
 	t.Run("template action, other bytes", func(t *testing.T) {
 		e, c, b := armed(t)
-		_, err := e.AdmitWith(b, gatefix.OtherAction(t, 1))
+		_, err := e.AuthorizeWith(b, gatefix.OtherAction(t, 1))
 		e.RequireRejected(c, err, commitment.ErrActionMismatch)
 	})
 }
@@ -162,14 +162,14 @@ func TestGateAttack3Expired(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			e, c, b := armed(t, gatefix.WithNow(now))
-			_, err := e.Admit(b)
+			_, err := e.Authorize(b)
 			e.RequireRejected(c, err, commitment.ErrExpired)
 		})
 	}
 	t.Run("expires while the payload is fetched", func(t *testing.T) {
 		e, c, b := armed(t)
 		e.DA.OnFetch(func() { e.Clock.Advance(time.Hour) })
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrExpired)
 	})
 	t.Run("validity stretched beyond the maximum", func(t *testing.T) {
@@ -178,7 +178,7 @@ func TestGateAttack3Expired(t *testing.T) {
 		e := gatefix.New(t)
 		e.StageDA(c, gatefix.Blob(t))
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrTTLTooLong)
 	})
 	t.Run("valid_until extended after signing", func(t *testing.T) {
@@ -187,7 +187,7 @@ func TestGateAttack3Expired(t *testing.T) {
 		s.Commitment.ValidUntil += 600
 		b, _ := commitment.EncodeSigned(s)
 		e.Clock.Set(1791000900)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrSignatureInvalid)
 	})
 	t.Run("validity outlasts the retention window: the DA copy is not used", func(t *testing.T) {
@@ -197,7 +197,7 @@ func TestGateAttack3Expired(t *testing.T) {
 		e.StageChain(c, th, th)
 		e.DA.Put(c.PayloadRef, gatefix.Blob(t))
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrAnchorTooOld)
 		require.EqualValues(t, 0, e.DA.Fetches(), "DA used outside its retention window")
 	})
@@ -207,79 +207,82 @@ func TestGateAttack3Expired(t *testing.T) {
 func TestGateAttack4ReusedNonce(t *testing.T) {
 	t.Run("sequential replay", func(t *testing.T) {
 		e, _, b := armed(t)
-		_, err := e.Admit(b)
+		first, err := e.Authorize(b)
 		require.NoError(t, err)
 		for i := 0; i < 5; i++ {
-			_, err := e.Admit(b)
+			res, err := e.Authorize(b)
 			require.ErrorIsf(t, err, gate.ErrNonceUsed, "replay %d", i)
+			require.Equal(t, first.Authorization, res.Authorization, "a replay must never mint a second Authorization")
 		}
-		require.EqualValuesf(t, 1, e.Exec.Calls(), "executor calls %d", e.Exec.Calls())
 	})
 	t.Run("same nonce, different action", func(t *testing.T) {
 		e, _, b := armed(t)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		require.NoError(t, err)
 		c2 := gatefix.Variant(t, gatefix.Template(t), 1)
 		e.StageDA(c2, gatefix.Blob(t))
 		b2, _ := gatefix.Sign(t, "agent1", c2)
-		_, err = e.AdmitWith(b2, gatefix.OtherAction(t, 1))
+		res, err := e.AuthorizeWith(b2, gatefix.OtherAction(t, 1))
 		require.ErrorIs(t, err, gate.ErrNonceUsed)
-		require.EqualValuesf(t, 1, e.Exec.Calls(), "executor calls %d", e.Exec.Calls())
+		require.Nil(t, res.Authorization)
 	})
-	t.Run("replay after an ambiguous execution", func(t *testing.T) {
+	t.Run("a retry with other bytes gets no Authorization", func(t *testing.T) {
 		e, _, b := armed(t)
-		e.Exec.SetError(errors.New("timeout"))
-		_, err := e.Admit(b)
-		require.ErrorIs(t, err, gate.ErrExecutionUnknown)
-		e.Exec.SetResult(gate.ExecResult{Outcome: gate.OutcomeExecuted, RailRef: "1"})
-		_, err = e.Admit(b)
-		require.ErrorIs(t, err, gate.ErrNonceUsed)
-		require.EqualValuesf(t, 1, e.Exec.Calls(), "executor calls %d", e.Exec.Calls())
+		_, err := e.Authorize(b)
+		require.NoError(t, err)
+		res, err := e.AuthorizeWith(b, gatefix.OtherAction(t, 1))
+		require.ErrorIs(t, err, commitment.ErrActionMismatch)
+		require.Nil(t, res.Authorization)
 	})
 	t.Run("concurrent double spend", func(t *testing.T) {
 		e, _, b := armed(t)
 		const n = 64
-		release := make(chan struct{})
-		e.Exec.OnExecute(func(context.Context, gate.ExecRequest) { <-release })
-		var wg sync.WaitGroup
+		var wg, start sync.WaitGroup
+		start.Add(1)
 		var ok atomic.Int32
-		losers := make(chan struct{}, n)
+		var mu sync.Mutex
+		distinct := map[string]struct{}{}
 		for i := 0; i < n; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, err := e.Admit(append([]byte(nil), b...))
+				start.Wait()
+				res, err := e.Authorize(append([]byte(nil), b...))
 				if err == nil {
 					ok.Add(1)
-					return
+				} else {
+					assert.ErrorIs(t, err, gate.ErrNonceUsed)
 				}
-				assert.ErrorIs(t, err, gate.ErrNonceUsed)
-				losers <- struct{}{}
+				mu.Lock()
+				distinct[string(res.Authorization)] = struct{}{}
+				mu.Unlock()
 			}()
 		}
-		for i := 0; i < n-1; i++ {
-			select {
-			case <-losers:
-			case <-time.After(30 * time.Second):
-				close(release)
-				require.FailNow(t, "a replay did not return: the nonce check let it through to the executor")
-			}
-		}
-		close(release)
+		start.Done()
 		wg.Wait()
-		require.EqualValuesf(t, 1, ok.Load(), "admitted %d, executor calls %d", ok.Load(), e.Exec.Calls())
-		require.EqualValuesf(t, 1, e.Exec.Calls(), "admitted %d, executor calls %d", ok.Load(), e.Exec.Calls())
+		require.EqualValues(t, 1, ok.Load(), "exactly one fresh Authorization")
+		require.Len(t, distinct, 1, "every caller sees the same Authorization bytes")
 	})
-	t.Run("concurrent double spend with a slow executor result", func(t *testing.T) {
-		e, _, b := armed(t)
-		e.Exec.SetError(errors.New("timeout"))
+	t.Run("concurrent double spend with different actions", func(t *testing.T) {
+		e, c0, _ := armed(t)
+		const n = 32
 		var wg sync.WaitGroup
-		for i := 0; i < 32; i++ {
+		var ok atomic.Int32
+		for i := 0; i < n; i++ {
+			c := gatefix.Variant(t, c0, i)
+			e.StageDA(c, gatefix.Blob(t))
+			b, _ := gatefix.Sign(t, "agent1", c)
+			action := gatefix.OtherAction(t, i)
 			wg.Add(1)
-			go func() { defer wg.Done(); _, _ = e.Admit(b) }()
+			go func() {
+				defer wg.Done()
+				if _, err := e.AuthorizeWith(b, action); err == nil {
+					ok.Add(1)
+				}
+			}()
 		}
 		wg.Wait()
-		require.EqualValuesf(t, 1, e.Exec.Calls(), "executor calls %d", e.Exec.Calls())
+		require.EqualValues(t, 1, ok.Load(), "one nonce, one Authorization")
 	})
 }
 
@@ -290,14 +293,14 @@ func TestGateAttack5PayloadUnavailable(t *testing.T) {
 		c := gatefix.Template(t)
 		e.StageChain(c, gatefix.BlockTime(c), gatefix.BlockTime(c))
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrPayloadUnavailable)
 	})
 	t.Run("both sources fail", func(t *testing.T) {
 		e, c, b := armed(t)
 		e.DA.Fail(errors.New("down"))
 		e.Archive.Fail(errors.New("down"))
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrPayloadUnavailable)
 	})
 	t.Run("pruned by the DA layer and the archive lost it", func(t *testing.T) {
@@ -306,7 +309,7 @@ func TestGateAttack5PayloadUnavailable(t *testing.T) {
 		th := c.ValidUntil + 600 - 14400 - 1
 		e.StageChain(c, th, th)
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrAnchorTooOld)
 		require.ErrorIs(t, err, gate.ErrPayloadUnavailable, "must also match ErrPayloadUnavailable")
 	})
@@ -315,7 +318,7 @@ func TestGateAttack5PayloadUnavailable(t *testing.T) {
 		c := gatefix.Template(t)
 		e.DA.Put(c.PayloadRef, gatefix.Blob(t))
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrAnchorNotFound)
 	})
 	t.Run("fibre payload that only the archive has", func(t *testing.T) {
@@ -325,7 +328,7 @@ func TestGateAttack5PayloadUnavailable(t *testing.T) {
 		e.StageChain(c, th, th)
 		e.Archive.Put(c.PayloadRef, gatefix.FibreBlob())
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrArchiveRecomputeUnsupported)
 		require.EqualValues(t, 0, e.Archive.Fetches(), "archive read for a payload that cannot be recomputed")
 	})
@@ -338,7 +341,7 @@ func TestGateAttack6WrongKey(t *testing.T) {
 		h, _ := commitment.HashOf(c)
 		b, _ := commitment.EncodeSigned(&commitment.SignedCommitment{Commitment: *c,
 			Signature: ed25519.Sign(gatefix.Key(t, "agent2"), commitment.SigningMessage(h))})
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrSignatureInvalid)
 	})
 	t.Run("pubkey swapped after signing", func(t *testing.T) {
@@ -346,7 +349,7 @@ func TestGateAttack6WrongKey(t *testing.T) {
 		s, _, _ := commitment.Sign(gatefix.Key(t, "agent1"), c)
 		s.Commitment.AgentPubKey = gatefix.Pub(t, "agent2")
 		b, _ := commitment.EncodeSigned(s)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrSignatureInvalid)
 	})
 	t.Run("valid signature of a key the allowlist does not bind to the id", func(t *testing.T) {
@@ -354,7 +357,7 @@ func TestGateAttack6WrongKey(t *testing.T) {
 		c := gatefix.WithKey(t, gatefix.Template(t), "agent2") // agent_id still says dca-agent-1
 		e.StageDA(c, gatefix.Blob(t))
 		b, _ := gatefix.Sign(t, "agent2", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrAgentKeyMismatch)
 	})
 	t.Run("unknown agent", func(t *testing.T) {
@@ -362,7 +365,7 @@ func TestGateAttack6WrongKey(t *testing.T) {
 		c := gatefix.Template(t)
 		e.StageDA(c, gatefix.Blob(t))
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrAgentNotAllowed)
 	})
 	t.Run("the gate's own receipt key as agent key", func(t *testing.T) {
@@ -370,7 +373,7 @@ func TestGateAttack6WrongKey(t *testing.T) {
 		c := gatefix.WithKey(t, gatefix.Template(t), "gate1")
 		e.StageDA(c, gatefix.Blob(t))
 		b, _ := gatefix.Sign(t, "gate1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrAgentKeyIsGateKey)
 	})
 	t.Run("small-order key forges any message", func(t *testing.T) {
@@ -379,7 +382,7 @@ func TestGateAttack6WrongKey(t *testing.T) {
 		c.AgentPubKey = append([]byte{1}, make([]byte, 31)...)
 		sig := append([]byte{1}, make([]byte, 63)...)
 		b, _ := commitment.EncodeSigned(&commitment.SignedCommitment{Commitment: *c, Signature: sig})
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrInvalidPublicKey)
 	})
 }
@@ -393,7 +396,7 @@ func TestGateAttack7PayloadSwapped(t *testing.T) {
 			bad := append([]byte(nil), x...)
 			bad[i] ^= 1
 			e.DA.Put(c.PayloadRef, bad)
-			_, err := e.Admit(b)
+			_, err := e.Authorize(b)
 			e.RequireRejected(c, err, commitment.ErrPayloadHashMismatch)
 		}
 	})
@@ -401,7 +404,7 @@ func TestGateAttack7PayloadSwapped(t *testing.T) {
 		e, c, b := armed(t)
 		e.DA.Put(c.PayloadRef, gatefix.BlobY(t))
 		e.Archive.Put(c.PayloadRef, gatefix.BlobY(t))
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrPayloadHashMismatch)
 	})
 	t.Run("archive copy swapped, DA pruned", func(t *testing.T) {
@@ -411,7 +414,7 @@ func TestGateAttack7PayloadSwapped(t *testing.T) {
 		e.StageChain(c, th, th)
 		e.Archive.Put(c.PayloadRef, gatefix.BlobY(t))
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrPayloadHashMismatch)
 	})
 	t.Run("anchor X, sign the hash of Y, archive serves Y", func(t *testing.T) {
@@ -424,7 +427,7 @@ func TestGateAttack7PayloadSwapped(t *testing.T) {
 		e.StageChain(c, th, th)
 		e.Archive.Put(c.PayloadRef, y)
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrDACommitmentMismatch)
 	})
 	t.Run("hash replaced after signing", func(t *testing.T) {
@@ -432,7 +435,7 @@ func TestGateAttack7PayloadSwapped(t *testing.T) {
 		s, _, _ := commitment.Sign(gatefix.Key(t, "agent1"), c)
 		s.Commitment.CiphertextHash[0] ^= 1
 		b, _ := commitment.EncodeSigned(s)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrSignatureInvalid)
 	})
 }
@@ -454,11 +457,11 @@ func TestGateAttack8CrossDomainReplay(t *testing.T) {
 			// The envelope was executed on the home gate; a second gate with
 			// its own registry must still refuse it.
 			home, c, b := armed(t)
-			_, err := home.Admit(b)
+			_, err := home.Authorize(b)
 			require.NoError(t, err)
 			other := gatefix.New(t, gatefix.WithScope(tt.scope))
 			other.StageDA(c, gatefix.Blob(t))
-			_, err = other.Admit(b)
+			_, err = other.Authorize(b)
 			other.RequireRejected(c, err, tt.want)
 		})
 	}
@@ -470,7 +473,7 @@ func TestGateAttack8CrossDomainReplay(t *testing.T) {
 		c.Action.Type = "application/octet-stream" // hash was computed under the ibkr type
 		e.StageDA(c, gatefix.Blob(t))
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrActionMismatch)
 	})
 	t.Run("commitment of another gate rewritten to this one", func(t *testing.T) {
@@ -480,16 +483,16 @@ func TestGateAttack8CrossDomainReplay(t *testing.T) {
 		s, _, _ := commitment.Sign(gatefix.Key(t, "agent1"), other)
 		s.Commitment.Scope.GateID = gatefix.GateID
 		b, _ := commitment.EncodeSigned(s)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrSignatureInvalid)
 	})
 }
 
 // Replay through a stepped clock: forward step, prune, back step inside one
-// admission must not let the executed envelope run again.
+// admission must not let the consumed envelope be authorized again.
 func TestGateAttack4ClockStepReplay(t *testing.T) {
 	e, _, b := armed(t, gatefix.WithFaultyRegistry())
-	_, err := e.Admit(b)
+	_, err := e.Authorize(b)
 	require.NoError(t, err)
 
 	later := gatefix.Now + 7200
@@ -499,13 +502,66 @@ func TestGateAttack4ClockStepReplay(t *testing.T) {
 	b2, _ := gatefix.Sign(t, "agent1", c2)
 	e.Faulty.Before("Get", func() {
 		e.Clock.Set(later)
-		_, err := e.Admit(b2)
+		_, err := e.Authorize(b2)
 		assert.NoError(t, err)
 		_, err = e.Gate.Prune(context.Background())
 		assert.NoError(t, err)
 		e.Clock.Set(gatefix.Now)
 	})
-	_, err = e.Admit(b)
+	res, err := e.Authorize(b)
 	require.ErrorIs(t, err, gate.ErrClockRegression)
-	require.Equal(t, 2, e.Exec.Calls())
+	require.Nil(t, res.Authorization)
+}
+
+// The Authorization is a bearer token for the executor: what an executor
+// checks must hold against tampering and against another gate.
+func TestGateAttack9AuthorizationAbuse(t *testing.T) {
+	e, c, b := armed(t)
+	res, err := e.Authorize(b)
+	require.NoError(t, err)
+	chk := func(mod func(*commitment.AuthorizationCheck)) error {
+		k := commitment.AuthorizationCheck{
+			GatePubKey: gatefix.Pub(t, "gate1"), GateID: gatefix.GateID, ActionType: c.Action.Type,
+			Action: gatefix.Action(t), Now: gatefix.Now, SkewS: 30,
+		}
+		mod(&k)
+		_, _, err := commitment.VerifyAuthorization(res.Authorization, k)
+		return err
+	}
+	require.NoError(t, chk(func(*commitment.AuthorizationCheck) {}), "control")
+	t.Run("other action bytes", func(t *testing.T) {
+		require.ErrorIs(t, chk(func(k *commitment.AuthorizationCheck) { k.Action = gatefix.OtherAction(t, 1) }), commitment.ErrActionMismatch)
+	})
+	t.Run("other action type", func(t *testing.T) {
+		require.ErrorIs(t, chk(func(k *commitment.AuthorizationCheck) { k.ActionType = "application/json" }), commitment.ErrActionMismatch)
+	})
+	t.Run("another gate", func(t *testing.T) {
+		require.ErrorIs(t, chk(func(k *commitment.AuthorizationCheck) { k.GateID = "gate-paper-2" }), commitment.ErrScopeMismatch)
+	})
+	t.Run("pinned key of another gate", func(t *testing.T) {
+		require.ErrorIs(t, chk(func(k *commitment.AuthorizationCheck) { k.GatePubKey = gatefix.Pub(t, "agent1") }), commitment.ErrSignatureInvalid)
+	})
+	t.Run("after expiry", func(t *testing.T) {
+		require.ErrorIs(t, chk(func(k *commitment.AuthorizationCheck) { k.Now = gatefix.Now + 300 }), commitment.ErrExpired)
+	})
+	t.Run("flipped byte anywhere", func(t *testing.T) {
+		for i := range res.Authorization {
+			bad := append([]byte(nil), res.Authorization...)
+			bad[i] ^= 1
+			_, _, err := commitment.VerifyAuthorization(bad, commitment.AuthorizationCheck{
+				GatePubKey: gatefix.Pub(t, "gate1"), GateID: gatefix.GateID, ActionType: c.Action.Type,
+				Action: gatefix.Action(t), Now: gatefix.Now, SkewS: 30,
+			})
+			require.Errorf(t, err, "byte %d", i)
+		}
+	})
+	t.Run("a receipt is not an Authorization", func(t *testing.T) {
+		r, err := e.Gate.Record(context.Background(), b, "ref-1")
+		require.NoError(t, err)
+		_, _, err = commitment.VerifyAuthorization(r, commitment.AuthorizationCheck{
+			GatePubKey: gatefix.Pub(t, "gate1"), GateID: gatefix.GateID, ActionType: c.Action.Type,
+			Action: gatefix.Action(t), Now: gatefix.Now, SkewS: 30,
+		})
+		require.Error(t, err)
+	})
 }

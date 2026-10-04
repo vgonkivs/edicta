@@ -36,13 +36,11 @@ func (s vScope) scope(t *testing.T) commitment.GateScope {
 	return commitment.GateScope{GateID: s.GateID, ActionTypes: s.ActionTypes}
 }
 
-// TestRejectVectorsThroughAdmit feeds every spec reject vector to Admit.
+// TestRejectVectorsThroughAuthorize feeds every spec reject vector to Authorize.
 // Every stage, including the action stage with the vector's own action
-// bytes, must give the vector's sentinel with the executor and the registry
-// untouched. The other stages get the template action: their defect is
+// bytes, must give the vector's sentinel. The other stages get the template action: their defect is
 // earlier in the order.
-// INTERIM: ported to the authorizer entry point.
-func TestRejectVectorsThroughAdmit(t *testing.T) {
+func TestRejectVectorsThroughAuthorize(t *testing.T) {
 	var rf struct {
 		Params vParams `json:"params"`
 		Gate   vScope  `json:"gate"`
@@ -82,9 +80,8 @@ func TestRejectVectorsThroughAdmit(t *testing.T) {
 			if rc.Stage == "A" {
 				action = gatefix.ActionOf(t, rc.ActionHex, rc.Pattern, rc.ActionSize)
 			}
-			_, err := e.AdmitWith(gatefix.MustHex(t, rc.EnvelopeHex), action)
+			_, err := e.AuthorizeWith(gatefix.MustHex(t, rc.EnvelopeHex), action)
 			require.ErrorIs(t, err, want)
-			require.EqualValues(t, 0, e.Exec.Calls(), "executor called")
 		})
 	}
 }
@@ -92,7 +89,6 @@ func TestRejectVectorsThroughAdmit(t *testing.T) {
 // TestValidVectorsReachChainStage: every valid vector passes all stateless
 // stages, including the action check on its own bytes, the registry epoch, the key roles and the allowlist, and stops at
 // the anchor lookup because no anchor exists in the fake.
-// INTERIM: ported to the authorizer entry point.
 func TestValidVectorsReachChainStage(t *testing.T) {
 	var vf struct {
 		Params vParams `json:"params"`
@@ -122,9 +118,8 @@ func TestValidVectorsReachChainStage(t *testing.T) {
 				gatefix.WithParams(p.params(t)),
 				gatefix.WithNow(gatefix.U64(t, vc.Now)),
 				gatefix.WithAllowlist(map[string][]byte{vc.Input.AgentID: gatefix.Pub(t, "agent1")}))
-			_, err := e.AdmitWith(gatefix.MustHex(t, vc.EnvelopeHex), gatefix.ActionOf(t, vc.ActionHex, vc.Pattern, vc.ActionSize))
+			_, err := e.AuthorizeWith(gatefix.MustHex(t, vc.EnvelopeHex), gatefix.ActionOf(t, vc.ActionHex, vc.Pattern, vc.ActionSize))
 			require.ErrorIs(t, err, gate.ErrAnchorNotFound)
-			require.EqualValues(t, 0, e.Exec.Calls(), "executor called")
 		})
 	}
 }
@@ -156,7 +151,7 @@ func TestAnchorK1Vectors(t *testing.T) {
 			e.StageChain(c, th, th)
 			e.DA.Put(c.PayloadRef, gatefix.Blob(t))
 			b, _ := gatefix.Sign(t, "agent1", c)
-			_, err := e.Admit(b)
+			_, err := e.Authorize(b)
 			if v.ExpectError == "" {
 				require.NoError(t, err)
 				return
@@ -235,7 +230,7 @@ func TestAnchorK2Vectors(t *testing.T) {
 				e.DA.Put(c.PayloadRef, blob)
 				e.Archive.Put(c.PayloadRef, blob)
 			}
-			res, err := e.Admit(b)
+			res, err := e.Authorize(b)
 			switch {
 			case v.Expect.ExpectError != "":
 				want, _ := gatefix.Sentinel(v.Expect.ExpectError)
@@ -270,17 +265,17 @@ func TestAnchorK2UnreadableRetentionIsNeverSubstituted(t *testing.T) {
 	e.StageDA(c, gatefix.FibreBlob())
 	e.Archive.Put(c.PayloadRef, gatefix.FibreBlob())
 	b, _ := gatefix.Sign(t, "agent1", c)
-	_, err := e.Admit(b)
+	_, err := e.Authorize(b)
 	e.RequireRejected(c, err, gate.ErrRetentionUnavailable)
 	require.EqualValues(t, 0, e.DA.Fetches()+e.Archive.Fetches(), "source touched")
 	// The envelope can be retried once the node serves the parameter.
 	e.Chain.FailHistorical(nil)
-	_, err = e.Admit(b)
+	_, err = e.Authorize(b)
 	require.NoError(t, err, "retry")
 }
 
-// TestRegistryEpochVectors runs the epoch rule through Admit for the vectors
-// that fit the time ranges Admit accepts.
+// TestRegistryEpochVectors runs the epoch rule through Authorize for the vectors
+// that fit the time ranges Authorize accepts.
 func TestRegistryEpochVectors(t *testing.T) {
 	var af struct {
 		Epoch []struct {
@@ -307,7 +302,7 @@ func TestRegistryEpochVectors(t *testing.T) {
 			c := gatefix.Times(gatefix.Template(t), issued, issued+900)
 			e.StageDA(c, gatefix.Blob(t))
 			b, _ := gatefix.Sign(t, "agent1", c)
-			_, err := e.Admit(b)
+			_, err := e.Authorize(b)
 			if v.ExpectError == "" {
 				require.NoError(t, err)
 				return

@@ -13,3 +13,11 @@ func (r *Registry) SetMetaRaw(key string, val []byte) error {
 		return tx.Bucket(bucketMeta).Put([]byte(key), val)
 	})
 }
+
+// DeleteMetaRaw removes a key of the meta bucket, so tests can build a file
+// of the previous layout.
+func (r *Registry) DeleteMetaRaw(key string) error {
+	return r.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketMeta).Delete([]byte(key))
+	})
+}

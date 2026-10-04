@@ -14,6 +14,7 @@ import (
 	"github.com/fxamacker/cbor/v2"
 	bolt "go.etcd.io/bbolt"
 
+	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate/registry"
 )
 
@@ -23,7 +24,12 @@ var (
 	keyEpoch      = []byte("epoch")
 	keyWatermark  = []byte("watermark")
 	keyCutoff     = []byte("prune_cutoff")
+	keySchema     = []byte("schema_version")
 )
+
+// schemaVersion is the layout of the entries and the metadata. A file without
+// it was written by an earlier layout and is refused.
+const schemaVersion = uint64(1)
 
 const lockTimeout = time.Second
 
@@ -57,6 +63,9 @@ func Open(path string, now uint64) (*Registry, error) {
 			_, err := readMeta(m)
 			return err
 		}
+		if err := m.Put(keySchema, u64(schemaVersion)); err != nil {
+			return err
+		}
 		if err := m.Put(keyEpoch, u64(now)); err != nil {
 			return err
 		}
@@ -79,12 +88,16 @@ func (r *Registry) Claim() (func(), error) {
 	return func() { r.claimed.Store(false) }, nil
 }
 
-// readMeta decodes the metadata strictly. The epoch and the watermark must be
-// present with exactly 8 bytes. The prune cutoff may be absent, which is the
+// readMeta decodes the metadata strictly. The schema version must be the
+// current one. The epoch and the watermark must be present with exactly 8
+// bytes. The prune cutoff may be absent, which is the
 // initial state of a new store and of one created before the field existed,
 // and then reads as 0; a present value of any other length is an error.
 func readMeta(m *bolt.Bucket) (registry.Meta, error) {
 	var out registry.Meta
+	if v := m.Get(keySchema); len(v) != 8 || binary.BigEndian.Uint64(v) != schemaVersion {
+		return registry.Meta{}, fmt.Errorf("%w: schema_version is missing or not %d", registry.ErrCorruptMeta, schemaVersion)
+	}
 	for _, f := range []struct {
 		key      []byte
 		dst      *uint64
@@ -124,10 +137,11 @@ func decode(b []byte) (registry.Entry, error) {
 	return e, nil
 }
 
-func (r *Registry) Reserve(_ context.Context, e registry.Entry, tolerance uint64) error {
-	if err := registry.CheckReserve(e); err != nil {
+func (r *Registry) Consume(_ context.Context, e registry.Entry, tolerance uint64) error {
+	if err := registry.CheckConsume(e); err != nil {
 		return err
 	}
+	e.Receipt = nil
 	val, err := encode(e)
 	if err != nil {
 		return err
@@ -150,39 +164,16 @@ func (r *Registry) Reserve(_ context.Context, e registry.Entry, tolerance uint64
 		if c := meta.PruneCutoff; e.ValidUntil < c {
 			return fmt.Errorf("%w: valid_until %d, cutoff %d", registry.ErrPrunedWindow, e.ValidUntil, c)
 		}
-		if registry.BelowWatermark(e.ReservedAt, tolerance, w) {
-			return fmt.Errorf("%w: reserved_at %d, watermark %d", registry.ErrBelowWatermark, e.ReservedAt, w)
+		if registry.BelowWatermark(e.AuthorizedAt, tolerance, w) {
+			return fmt.Errorf("%w: authorized_at %d, watermark %d", registry.ErrBelowWatermark, e.AuthorizedAt, w)
 		}
 		if err := b.Put(dbKey(e.Key), val); err != nil {
 			return err
 		}
-		if e.ReservedAt > w {
-			return m.Put(keyWatermark, u64(e.ReservedAt))
+		if e.AuthorizedAt > w {
+			return m.Put(keyWatermark, u64(e.AuthorizedAt))
 		}
 		return nil
-	})
-}
-
-func (r *Registry) Resolve(_ context.Context, k registry.Key, from registry.State, upd registry.Entry) error {
-	return r.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketEntries)
-		raw := b.Get(dbKey(k))
-		if raw == nil {
-			return registry.ErrNotFound
-		}
-		stored, err := decode(raw)
-		if err != nil {
-			return err
-		}
-		next, err := registry.Transition(stored, from, upd)
-		if err != nil {
-			return err
-		}
-		val, err := encode(next)
-		if err != nil {
-			return err
-		}
-		return b.Put(dbKey(k), val)
 	})
 }
 
@@ -200,62 +191,33 @@ func (r *Registry) Get(_ context.Context, k registry.Key) (registry.Entry, error
 	return out, err
 }
 
-func (r *Registry) Pending(_ context.Context) ([]registry.Entry, error) {
-	var out []registry.Entry
-	err := r.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketEntries).ForEach(func(_, v []byte) error {
-			e, err := decode(v)
-			if err != nil {
-				return err
-			}
-			if registry.NeedsAttention(e) {
-				out = append(out, e)
-			}
-			return nil
-		})
-	})
-	return out, err
-}
-
-func (r *Registry) Recover(_ context.Context, now uint64) (int, error) {
-	n := 0
-	err := r.db.Update(func(tx *bolt.Tx) error {
-		n = 0
+func (r *Registry) AttachReceipt(_ context.Context, k registry.Key, h commitment.Hash, receipt []byte) error {
+	if len(receipt) == 0 {
+		return fmt.Errorf("%w: empty receipt", registry.ErrInvalidEntry)
+	}
+	return r.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucketEntries)
-		type change struct {
-			key, val []byte
+		raw := b.Get(dbKey(k))
+		if raw == nil {
+			return registry.ErrNotFound
 		}
-		var changes []change
-		err := b.ForEach(func(k, v []byte) error {
-			e, err := decode(v)
-			if err != nil {
-				return err
-			}
-			if e.State != registry.StateReserved {
-				return nil
-			}
-			val, err := encode(registry.RecoverEntry(e, now))
-			if err != nil {
-				return err
-			}
-			changes = append(changes, change{append([]byte(nil), k...), val})
-			return nil
-		})
+		e, err := decode(raw)
 		if err != nil {
 			return err
 		}
-		for _, c := range changes {
-			if err := b.Put(c.key, c.val); err != nil {
-				return err
-			}
+		if e.CommitmentHash != h {
+			return fmt.Errorf("%w: the entry holds another commitment", registry.ErrStateConflict)
 		}
-		n = len(changes)
-		return nil
+		if e.Receipt != nil {
+			return fmt.Errorf("%w: receipt already attached", registry.ErrStateConflict)
+		}
+		e.Receipt = append([]byte(nil), receipt...)
+		val, err := encode(e)
+		if err != nil {
+			return err
+		}
+		return b.Put(dbKey(k), val)
 	})
-	if err != nil {
-		return 0, err
-	}
-	return n, nil
 }
 
 func (r *Registry) Meta(_ context.Context) (registry.Meta, error) {

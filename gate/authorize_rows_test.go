@@ -27,65 +27,8 @@ func happy(t *testing.T, opts ...gatefix.Option) (*gatefix.Env, *commitment.Comm
 	return e, c, b, h
 }
 
-// INTERIM: ported to the authorizer entry point.
-func TestAdmitHappyPathDA(t *testing.T) {
-	e, c, b, h := happy(t)
-	res, err := e.Admit(b)
-	require.NoError(t, err, "Admit")
-	require.Equalf(t, registry.StateExecuted, res.State, "result %+v", res)
-	require.Equalf(t, registry.PathDA, res.Path, "result %+v", res)
-	require.Equalf(t, h, res.CommitmentHash, "result %+v", res)
-	gatefix.CheckReceipt(t, res, h, gatefix.RailRef, gatefix.GateID, gatefix.Pub(t, "gate1"), gatefix.Now)
-	require.EqualValuesf(t, 1, e.Exec.Calls(), "calls exec=%d da=%d archive=%d", e.Exec.Calls(), e.DA.Fetches(), e.Archive.Fetches())
-	require.EqualValuesf(t, 1, e.DA.Fetches(), "calls exec=%d da=%d archive=%d", e.Exec.Calls(), e.DA.Fetches(), e.Archive.Fetches())
-	require.EqualValuesf(t, 0, e.Archive.Fetches(), "calls exec=%d da=%d archive=%d", e.Exec.Calls(), e.DA.Fetches(), e.Archive.Fetches())
-	ent, err := e.Entry(c)
-	require.NoError(t, err)
-	require.Equal(t, registry.StateExecuted, ent.State)
-	require.Equal(t, registry.PathDA, ent.Path)
-	require.Equal(t, gatefix.RailRef, ent.RailRef)
-	require.Equal(t, h, ent.CommitmentHash)
-	require.Equal(t, c.ValidUntil, ent.ValidUntil)
-	require.EqualValues(t, gatefix.Now, ent.ReservedAt)
-	require.Equal(t, res.Receipt, ent.Receipt)
-	require.Len(t, ent.History, 1)
-	require.Equal(t, registry.Resolution{Source: registry.SourceRail, By: "gate", At: gatefix.Now, PrevState: registry.StateReserved}, ent.History[0])
-	ev := e.Metrics.Events()
-	require.Len(t, ev, 1)
-	require.NoError(t, ev[0].Err)
-	require.Equal(t, registry.PathDA, ev[0].Path)
-	require.Equal(t, registry.StateExecuted, ev[0].State)
-	require.Equal(t, commitment.DACelestiaBlob, ev[0].DA)
-}
-
-// INTERIM: ported to the authorizer entry point.
-func TestAdmitHappyPathFibre(t *testing.T) {
-	e := gatefix.New(t)
-	c := gatefix.FibreTemplate(t)
-	e.StageDA(c, gatefix.FibreBlob())
-	b, h := gatefix.Sign(t, "agent1", c)
-	res, err := e.Admit(b)
-	require.NoError(t, err, "Admit")
-	require.Equalf(t, registry.StateExecuted, res.State, "result %+v", res)
-	require.Equalf(t, registry.PathDA, res.Path, "result %+v", res)
-	gatefix.CheckReceipt(t, res, h, gatefix.RailRef, gatefix.GateID, gatefix.Pub(t, "gate1"), 0)
-}
-
-// INTERIM: removed together with the executor path.
-func TestExecRequestFields(t *testing.T) {
-	e, _, b, h := happy(t)
-	_, err := e.Admit(b)
-	require.NoError(t, err)
-	reqs := e.Exec.Requests()
-	require.Lenf(t, reqs, 1, "%d requests", len(reqs))
-	r := reqs[0]
-	require.Equal(t, h, r.CommitmentHash)
-	require.Equal(t, gatefix.Action(t), r.Action, "the executor gets the committed bytes")
-	require.True(t, r.NotAfter.Equal(time.Unix(int64(1791000900-30), 0)))
-}
-
 // TestInvariantRejections: every row breaks exactly one check and must give
-// its sentinel, with zero executor calls and an untouched nonce.
+// its sentinel, and an untouched nonce.
 func TestInvariantRejections(t *testing.T) {
 	forged := func(t *testing.T, c *commitment.Commitment, signer string) []byte {
 		h, err := commitment.HashOf(c)
@@ -291,15 +234,16 @@ func TestInvariantRejections(t *testing.T) {
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {
 			e, c, b := r.build(t)
-			_, err := e.Admit(b)
+			res, err := e.Authorize(b)
 			e.RequireRejected(c, err, r.want)
+			require.Nil(t, res.Authorization, "a rejection must not carry an Authorization")
 		})
 	}
 }
 
 // TestActionBytesRejections: the bytes presented with the envelope must be
 // exactly the committed ones. Each row presents other bytes for a commitment
-// that is otherwise valid; nothing is executed and the nonce stays free.
+// that is otherwise valid; nothing is authorized and the nonce stays free.
 func TestActionBytesRejections(t *testing.T) {
 	flip := func(i int) func([]byte) []byte {
 		return func(a []byte) []byte {
@@ -328,13 +272,14 @@ func TestActionBytesRejections(t *testing.T) {
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {
 			e, c, b, _ := happy(t)
-			_, err := e.AdmitWith(b, r.action(gatefix.Action(t)))
+			res, err := e.AuthorizeWith(b, r.action(gatefix.Action(t)))
 			e.RequireRejected(c, err, r.want)
+			require.Nil(t, res.Authorization, "a rejection must not carry an Authorization")
 		})
 	}
 	t.Run("the committed bytes are admitted", func(t *testing.T) {
 		e, _, b, _ := happy(t)
-		_, err := e.AdmitWith(b, gatefix.Action(t))
+		_, err := e.AuthorizeWith(b, gatefix.Action(t))
 		require.NoError(t, err)
 	})
 	t.Run("the same bytes committed under another allowed type", func(t *testing.T) {
@@ -344,7 +289,7 @@ func TestActionBytesRejections(t *testing.T) {
 		c := gatefix.WithAction(t, gatefix.Template(t), "application/json", gatefix.Action(t))
 		e.StageDA(c, gatefix.Blob(t))
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.AdmitWith(b, gatefix.Action(t))
+		_, err := e.AuthorizeWith(b, gatefix.Action(t))
 		require.NoError(t, err, "the type is part of the commitment, and it matches")
 	})
 	t.Run("bytes committed under the other type are another action", func(t *testing.T) {
@@ -352,10 +297,10 @@ func TestActionBytesRejections(t *testing.T) {
 			GateID: gatefix.GateID, ActionTypes: []string{gatefix.ActionType, "application/json"},
 		}))
 		c := gatefix.Template(t)
-		c.Action.Type = "application/json" // hash was computed under the ibkr type
+		c.Action.Type = "application/json" // the hash was computed under another type
 		e.StageDA(c, gatefix.Blob(t))
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.AdmitWith(b, gatefix.Action(t))
+		_, err := e.AuthorizeWith(b, gatefix.Action(t))
 		e.RequireRejected(c, err, commitment.ErrActionMismatch)
 	})
 }
@@ -367,36 +312,36 @@ func TestStageOrder(t *testing.T) {
 		c := gatefix.Template(t)
 		b, err := commitment.EncodeSigned(&commitment.SignedCommitment{Commitment: *c, Signature: make([]byte, 64)})
 		require.NoError(t, err)
-		_, err = e.Admit(b)
+		_, err = e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrSignatureInvalid)
 	})
 	t.Run("registry epoch before allowlist", func(t *testing.T) {
 		e := gatefix.New(t, gatefix.WithRegistry(gatefix.MemReg(t, 1791000000-10)), gatefix.WithAllowlist(map[string][]byte{"x": gatefix.Pub(t, "agent2")}))
 		c := gatefix.Template(t)
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrBeforeRegistryEpoch)
 	})
 	t.Run("gate key role before allowlist", func(t *testing.T) {
 		e := gatefix.New(t, gatefix.WithAllowlist(map[string][]byte{"x": gatefix.Pub(t, "agent2")}))
 		c := gatefix.WithKey(t, gatefix.Template(t), "gate1")
 		b, _ := gatefix.Sign(t, "gate1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrAgentKeyIsGateKey)
 	})
 	t.Run("allowlist before anchor", func(t *testing.T) {
 		e := gatefix.New(t, gatefix.WithAllowlist(map[string][]byte{"x": gatefix.Pub(t, "agent2")}))
 		c := gatefix.Template(t)
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrAgentNotAllowed)
 	})
 	t.Run("nonce peek before anchor lookup", func(t *testing.T) {
 		e, _, b, _ := happy(t)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		require.NoError(t, err)
 		e.Anchors.Fail(errors.New("down"))
-		_, err = e.Admit(b)
+		_, err = e.Authorize(b)
 		require.ErrorIs(t, err, gate.ErrNonceUsed)
 	})
 	t.Run("anchor before payload", func(t *testing.T) {
@@ -404,7 +349,7 @@ func TestStageOrder(t *testing.T) {
 		c := gatefix.Template(t)
 		b, _ := gatefix.Sign(t, "agent1", c)
 		e.DA.Put(c.PayloadRef, gatefix.BlobY(t))
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrAnchorNotFound)
 		require.EqualValues(t, 0, e.DA.Fetches(), "payload fetched before the anchor was found")
 	})
@@ -413,17 +358,17 @@ func TestStageOrder(t *testing.T) {
 		c := gatefix.Template(t)
 		e.StageChain(c, c.IssuedAt+31, c.IssuedAt+31)
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrIssuedBeforeAnchor)
 		require.EqualValues(t, 0, e.DA.Fetches()+e.Archive.Fetches(), "payload fetched after the anchor time check failed")
 	})
 	t.Run("action check before nonce peek", func(t *testing.T) {
 		e, _, b, _ := happy(t)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		require.NoError(t, err)
 		changed := gatefix.Action(t)
 		changed[0] ^= 1
-		_, err = e.AdmitWith(b, changed)
+		_, err = e.AuthorizeWith(b, changed)
 		require.ErrorIs(t, err, commitment.ErrActionMismatch)
 	})
 }
@@ -435,8 +380,8 @@ func TestBoundaryExpiryAccepted(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			e, _, b, _ := happy(t, gatefix.WithNow(now))
-			_, err := e.Admit(b)
-			require.NoErrorf(t, err, "Admit at %d", now)
+			_, err := e.Authorize(b)
+			require.NoErrorf(t, err, "Authorize at %d", now)
 		})
 	}
 }
@@ -444,48 +389,48 @@ func TestBoundaryExpiryAccepted(t *testing.T) {
 func TestClockAndChainErrors(t *testing.T) {
 	t.Run("clock stepped back beyond tolerance", func(t *testing.T) {
 		e, _, b, _ := happy(t)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		require.NoError(t, err)
 		c2 := gatefix.Fresh(gatefix.Template(t), 2)
 		e.StageDA(c2, gatefix.Blob(t))
 		b2, _ := gatefix.Sign(t, "agent1", c2)
 		e.Clock.Set(gatefix.Now - 61)
-		_, err = e.Admit(b2)
+		_, err = e.Authorize(b2)
 		require.ErrorIs(t, err, gate.ErrClockRegression)
 		_, gerr := e.Entry(c2)
 		require.ErrorIs(t, gerr, registry.ErrNotFound, "nonce touched")
 		e.Clock.Set(gatefix.Now - 60)
-		_, err = e.Admit(b2)
+		_, err = e.Authorize(b2)
 		require.NoError(t, err, "within tolerance")
 	})
 	t.Run("clock reads zero", func(t *testing.T) {
 		e, c, b, _ := happy(t)
 		e.Clock.Set(0)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrClockRegression)
 	})
 	t.Run("latest retention unreadable", func(t *testing.T) {
 		e, c, b, _ := happy(t)
 		e.Chain.FailLatest(errors.New("node down"))
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrChainUnavailable)
 	})
 	t.Run("latest retention zero is invalid params", func(t *testing.T) {
 		e, c, b, _ := happy(t)
 		e.Chain.SetLatest(0)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrInvalidParams)
 	})
 	t.Run("header source error", func(t *testing.T) {
 		e, c, b, _ := happy(t)
 		e.Headers.Fail(errors.New("node down"))
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrChainUnavailable)
 	})
 	t.Run("anchor source error", func(t *testing.T) {
 		e, c, b, _ := happy(t)
 		e.Anchors.Fail(errors.New("node down"))
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrChainUnavailable)
 	})
 	t.Run("no header for the height", func(t *testing.T) {
@@ -493,28 +438,16 @@ func TestClockAndChainErrors(t *testing.T) {
 		c := gatefix.Template(t)
 		e.Anchors.Set(c.PayloadRef, gate.Anchor{Height: c.PayloadRef.Height})
 		b, _ := gatefix.Sign(t, "agent1", c)
-		_, err := e.Admit(b)
+		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrAnchorNotFound)
 	})
 	t.Run("cancelled context writes nothing", func(t *testing.T) {
 		e, c, b, _ := happy(t)
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := e.Gate.Admit(ctx, b, gatefix.Action(t))
+		_, err := e.Gate.Authorize(ctx, b, gatefix.Action(t))
 		e.RequireRejected(c, err, context.Canceled)
 	})
-}
-
-// INTERIM: ported to the authorizer entry point.
-func TestAdmitEnvelopeBytesOnly(t *testing.T) {
-	// The only admission method takes bytes. Calling it with nil must fail
-	// closed, not panic.
-	e := gatefix.New(t)
-	for _, b := range [][]byte{nil, {}, {0xa0}} {
-		_, err := e.Admit(b)
-		require.Errorf(t, err, "admitted %x", b)
-	}
-	require.EqualValues(t, 0, e.Exec.Calls(), "executor called")
 }
 
 func TestNewValidation(t *testing.T) {
@@ -542,85 +475,4 @@ func TestNewValidation(t *testing.T) {
 		_, err := gatefix.TryNew(t, gatefix.WithConfig(func(c *gate.Config) { c.PruneGrace = c.ClockTolerance }))
 		require.Error(t, err, "accepted prune grace equal to clock tolerance")
 	})
-}
-
-// INTERIM: ported to the authorizer entry point.
-func TestReplayAcrossAgentsAndNonces(t *testing.T) {
-	t.Run("same nonce, other agent key is a different registry key", func(t *testing.T) {
-		e, _, b, _ := happy(t)
-		_, err := e.Admit(b)
-		require.NoError(t, err)
-		c2 := gatefix.WithKey(t, gatefix.Template(t), "agent2")
-		c2.AgentID = "dca-agent-2"
-		e.StageDA(c2, gatefix.Blob(t))
-		b2, _ := gatefix.Sign(t, "agent2", c2)
-		_, err = e.Admit(b2)
-		require.NoError(t, err, "second agent with the same nonce")
-		require.EqualValuesf(t, 2, e.Exec.Calls(), "exec calls %d", e.Exec.Calls())
-	})
-	t.Run("same nonce, different action, same agent", func(t *testing.T) {
-		e, _, b, _ := happy(t)
-		_, err := e.Admit(b)
-		require.NoError(t, err)
-		other := gatefix.Action(t)
-		other[0] ^= 1
-		c2 := gatefix.WithAction(t, gatefix.Template(t), gatefix.ActionType, other)
-		e.StageDA(c2, gatefix.Blob(t))
-		b2, h2 := gatefix.Sign(t, "agent1", c2)
-		res, err := e.AdmitWith(b2, other)
-		require.ErrorIs(t, err, gate.ErrNonceUsed)
-		require.Equal(t, 1, e.Exec.Calls())
-		require.Equal(t, h2, res.CommitmentHash)
-		require.Zero(t, res.State, "the state of another decision must not be reported as this one's")
-		require.Zero(t, res.Path)
-		require.Nil(t, res.Receipt)
-	})
-	t.Run("replay returns the stored receipt with ErrNonceUsed", func(t *testing.T) {
-		e, _, b, _ := happy(t)
-		first, err := e.Admit(b)
-		require.NoError(t, err)
-		again, err := e.Admit(b)
-		require.ErrorIs(t, err, gate.ErrNonceUsed)
-		require.Equalf(t, registry.StateExecuted, again.State, "replay result %+v", again)
-		require.Equalf(t, first.Receipt, again.Receipt, "replay result %+v", again)
-		require.EqualValuesf(t, 1, e.Exec.Calls(), "exec calls %d", e.Exec.Calls())
-	})
-}
-
-// INTERIM: ported to the authorizer entry point.
-func TestPrune(t *testing.T) {
-	e, a, ba, _ := happy(t)
-	_, err := e.Admit(ba)
-	require.NoError(t, err)
-	// B ends in Unknown and must never be pruned.
-	cb := gatefix.Fresh(gatefix.Template(t), 2)
-	e.StageDA(cb, gatefix.Blob(t))
-	bb, _ := gatefix.Sign(t, "agent1", cb)
-	e.Exec.SetError(errors.New("rail down"))
-	_, err = e.Admit(bb)
-	require.ErrorIs(t, err, gate.ErrExecutionUnknown)
-	e.Exec.SetResult(gate.ExecResult{Outcome: gate.OutcomeExecuted, RailRef: gatefix.RailRef})
-
-	n, err := e.Gate.Prune(context.Background())
-	require.NoErrorf(t, err, "early prune removed %d, err", n)
-	require.EqualValuesf(t, 0, n, "early prune removed %d, err %v", n, err)
-
-	later := uint64(1791000900 + 3600 + 100)
-	e.Clock.Set(later)
-	cc := gatefix.Times(gatefix.Fresh(gatefix.Template(t), 3), later-10, later+890)
-	e.StageDA(cc, gatefix.Blob(t))
-	bc, _ := gatefix.Sign(t, "agent1", cc)
-	_, err = e.Admit(bc)
-	require.NoError(t, err, "admit at the later time")
-	n, err = e.Gate.Prune(context.Background())
-	require.NoError(t, err)
-	require.EqualValues(t, 1, n)
-	_, err = e.Entry(a)
-	require.ErrorIs(t, err, registry.ErrNotFound, "executed entry not pruned")
-	ent, err := e.Entry(cb)
-	require.NoErrorf(t, err, "unknown entry must stay: %+v", ent)
-	require.Equalf(t, registry.StateUnknown, ent.State, "unknown entry must stay: %+v %v", ent, err)
-	_, err = e.Admit(ba)
-	require.ErrorIs(t, err, commitment.ErrExpired, "replay after prune")
-	require.EqualValuesf(t, 3, e.Exec.Calls(), "exec calls %d", e.Exec.Calls())
 }

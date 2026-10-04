@@ -9,17 +9,12 @@ import (
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
 
-// FuzzAdmit: Admit never panics, rejects only with known sentinels, calls the
-// executor at most once, and calls it only for an envelope that passes the
-// stateless verification with exactly the committed action bytes.
-// INTERIM: ported to the authorizer entry point.
-func FuzzAdmit(f *testing.F) {
-	var vf struct {
-		Cases []struct {
-			EnvelopeHex string `json:"envelope_hex"`
-		} `json:"cases"`
-	}
-	var rf struct {
+// FuzzAuthorize: Authorize never panics, rejects only with known sentinels,
+// returns an Authorization only for an envelope that passes the stateless
+// verification with exactly the committed bytes, and answers a second
+// submission with the same bytes.
+func FuzzAuthorize(f *testing.F) {
+	var vf, rf struct {
 		Cases []struct {
 			EnvelopeHex string `json:"envelope_hex"`
 		} `json:"cases"`
@@ -46,22 +41,25 @@ func FuzzAdmit(f *testing.F) {
 		if s, err := commitment.DecodeSigned(data); err == nil {
 			e.StageDA(&s.Commitment, blob)
 		}
-		res, err := e.AdmitWith(data, presented)
+		res, err := e.AuthorizeWith(data, presented)
 		if err != nil {
 			require.Truef(t, gatefix.IsKnown(err), "rejection without a known sentinel: %v", err)
-		} else {
-			require.NotNil(t, res.Receipt, "admitted without a receipt")
+			require.Nil(t, res.Authorization, "a rejection carried an Authorization")
+			return
 		}
-		n := e.Exec.Calls()
-		require.LessOrEqual(t, n, 1, "executor called more than once")
-		if n == 1 {
-			p := commitment.Params{FibreRetentionS: 14400, BlobRetentionS: 14400, SkewS: 30}
-			s, _, verr := commitment.VerifyForGate(data, gatefix.Now, e.Cfg.Scope, p)
-			require.NoError(t, verr, "executor called for an envelope that fails verification")
-			require.NoError(t, commitment.CheckAction(&s.Commitment, presented), "executor called for bytes other than the committed ones")
-		}
-		// A second submission never executes again.
-		_, _ = e.AdmitWith(data, presented)
-		require.LessOrEqual(t, e.Exec.Calls(), 1, "second submission executed")
+		require.NotEmpty(t, res.Authorization, "authorized without an Authorization")
+		p := commitment.Params{FibreRetentionS: 14400, BlobRetentionS: 14400, SkewS: 30}
+		s, _, verr := commitment.VerifyForGate(data, gatefix.Now, e.Cfg.Scope, p)
+		require.NoError(t, verr, "authorized an envelope that fails verification")
+		require.NoError(t, commitment.CheckAction(&s.Commitment, presented), "authorized bytes other than the committed ones")
+		_, _, aerr := commitment.VerifyAuthorization(res.Authorization, commitment.AuthorizationCheck{
+			GatePubKey: gatefix.Pub(t, "gate1"), GateID: gatefix.GateID, ActionType: s.Commitment.Action.Type,
+			Action: presented, Now: gatefix.Now, SkewS: 30,
+		})
+		require.NoError(t, aerr)
+
+		again, err := e.AuthorizeWith(data, presented)
+		require.True(t, gatefix.IsKnown(err) && err != nil, "second submission must report the used nonce")
+		require.Equal(t, res.Authorization, again.Authorization)
 	})
 }

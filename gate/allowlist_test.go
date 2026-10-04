@@ -78,21 +78,3 @@ func TestEd25519Signer(t *testing.T) {
 	_, err = gate.NewEd25519Signer(nil)
 	require.Error(t, err, "accepted a nil key")
 }
-
-// TestReceiptBinding: the receipt is the only artefact that carries the
-// order reference, it is signed under its own tag, and it names this gate.
-// INTERIM: ported to the authorizer entry point.
-func TestReceiptBinding(t *testing.T) {
-	e, _, b, h := happy(t)
-	res, err := e.Admit(b)
-	require.NoError(t, err)
-	require.False(t, strings.Contains(string(b), gatefix.RailRef), "the envelope contains the order reference")
-	sr, rh, err := commitment.VerifyReceipt(res.Receipt)
-	require.NoError(t, err)
-	require.Equal(t, string(h[:]), string(sr.Receipt.CommitmentHash), "receipt not bound to the commitment hash")
-	require.False(t, ed25519.Verify(sr.Receipt.GatePubKey, commitment.SigningMessage(h), sr.Signature), "receipt signature verifies as a commitment signature")
-	require.True(t, ed25519.Verify(sr.Receipt.GatePubKey, commitment.ReceiptSigningMessage(rh), sr.Signature), "receipt signature does not verify under the receipt tag")
-	// A receipt is not a commitment.
-	_, _, err = commitment.VerifyForGate(res.Receipt, gatefix.Now, e.Cfg.Scope, commitment.DefaultParams())
-	require.Error(t, err, "receipt accepted as a commitment envelope")
-}
