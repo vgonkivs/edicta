@@ -11,6 +11,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/commitment"
 )
 
@@ -119,6 +120,13 @@ func ParseConfig(data []byte) (Config, error) {
 	}
 	if err := c.validate(); err != nil {
 		return Config{}, err
+	}
+	if b := &c.Network.Bridge; b.Addr != "" {
+		u, err := node.BridgeURL(b.Addr, b.TLS)
+		if err != nil {
+			return Config{}, cfgErr("network.bridge.addr: %v", err)
+		}
+		b.Addr = u
 	}
 	return c, nil
 }

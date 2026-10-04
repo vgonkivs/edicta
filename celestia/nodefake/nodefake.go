@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 
 	"github.com/vgonkivs/edicta/celestia/node"
@@ -166,9 +167,11 @@ type Consensus struct {
 	Fibre     *node.FibreParams // nil = module absent
 	Denom     string
 	HRP       string
-	Accounts  map[string]node.AccountInfo
-	txs       map[[32]byte]node.TxStatus
-	Sent      [][]byte
+	// MinPrice is the minimum gas price MinGasPrice returns, in Denom per gas.
+	MinPrice *big.Rat
+	Accounts map[string]node.AccountInfo
+	txs      map[[32]byte]node.TxStatus
+	Sent     [][]byte
 	// Fail, when set, is returned by every method.
 	Fail error
 }
@@ -176,7 +179,7 @@ type Consensus struct {
 // NewConsensus makes a consensus fake on chainID with one agreeing provider.
 func NewConsensus(chainID string) *Consensus {
 	return &Consensus{
-		ChainID: chainID, Providers: []string{chainID}, Denom: "utia", HRP: "celestia",
+		ChainID: chainID, Providers: []string{chainID}, Denom: "utia", HRP: "celestia", MinPrice: big.NewRat(1, 250),
 		Accounts: map[string]node.AccountInfo{}, txs: map[[32]byte]node.TxStatus{},
 	}
 }
@@ -209,6 +212,15 @@ func (c *Consensus) BondDenom(context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.Denom, c.Fail
+}
+
+func (c *Consensus) MinGasPrice(context.Context) (*big.Rat, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Fail != nil {
+		return nil, c.Fail
+	}
+	return new(big.Rat).Set(c.MinPrice), nil
 }
 
 func (c *Consensus) Bech32Prefix(context.Context) (string, error) {

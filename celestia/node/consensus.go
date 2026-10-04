@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client/grpc/cmtservice"
+	nodeservice "github.com/cosmos/cosmos-sdk/client/grpc/node"
 	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -68,6 +70,7 @@ type ConsensusClient struct {
 	staking stakingtypes.QueryClient
 	tx      txtypes.ServiceClient
 	fibre   fibretypes.QueryClient
+	cfg     nodeservice.ServiceClient
 }
 
 var _ Consensus = (*ConsensusClient)(nil)
@@ -86,7 +89,7 @@ func NewConsensusConn(conn *grpc.ClientConn) *ConsensusClient {
 	return &ConsensusClient{
 		conn: conn, cmt: cmtservice.NewServiceClient(conn), auth: authtypes.NewQueryClient(conn),
 		staking: stakingtypes.NewQueryClient(conn), tx: txtypes.NewServiceClient(conn),
-		fibre: fibretypes.NewQueryClient(conn),
+		fibre: fibretypes.NewQueryClient(conn), cfg: nodeservice.NewServiceClient(conn),
 	}
 }
 
@@ -215,4 +218,23 @@ func (c *ConsensusClient) Tx(ctx context.Context, hash [32]byte) (TxStatus, erro
 		return TxStatus{}, nil
 	}
 	return TxStatus{Found: true, Height: uint64(tr.Height), Code: tr.Code}, nil
+}
+
+// MinGasPrice reads minimum_gas_price from the node Config service, a decimal
+// followed by the denom, and returns the decimal exactly.
+func (c *ConsensusClient) MinGasPrice(ctx context.Context) (*big.Rat, error) {
+	r, err := c.cfg.Config(ctx, &nodeservice.ConfigRequest{})
+	if err != nil {
+		return nil, classifyGRPC(ctx, err)
+	}
+	s := r.MinimumGasPrice
+	i := 0
+	for i < len(s) && (s[i] >= '0' && s[i] <= '9' || s[i] == '.') {
+		i++
+	}
+	price, ok := new(big.Rat).SetString(s[:i])
+	if i == 0 || !ok || price.Sign() < 0 {
+		return nil, fmt.Errorf("%w: minimum gas price %q", ErrUnsupported, s)
+	}
+	return price, nil
 }

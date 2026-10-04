@@ -7,11 +7,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/sdk/blob"
 )
 
@@ -89,7 +91,8 @@ type Config struct {
 	ExecPassPrompt  bool
 	ExecEd25519File string // 32 raw bytes, signs the record request
 	GasLimit        uint64
-	Fee             uint64
+	Fee             uint64 // 0: derive from the node's minimum gas price
+	FeeMargin       string // decimal factor on the derived fee; "" or "0": railtx.DefaultFeeMargin
 	MaxFee          uint64
 	Rebroadcast     time.Duration
 }
@@ -174,7 +177,8 @@ func parseFlags(args []string, usage io.Writer) (Config, error) {
 	fs.BoolVar(&c.ExecPassPrompt, "executor-passphrase-prompt", false, "ask for the keyring passphrase on the terminal, no echo")
 	fs.StringVar(&c.ExecEd25519File, "executor-ed25519-file", "", "executor Ed25519 key for record requests: 32 raw seed bytes, mode 0600; its public key must be in edictad's executor_keys")
 	fs.Uint64Var(&c.GasLimit, "gas-limit", 150000, "gas limit of the transfer")
-	fs.Uint64Var(&c.Fee, "fee", 500, "fee in base units (utia); check your network's minimum gas price")
+	fs.Uint64Var(&c.Fee, "fee", 0, "fee in base units (utia); 0 derives it from the node's minimum gas price")
+	fs.StringVar(&c.FeeMargin, "fee-margin", "", "decimal factor on the node's minimum gas price when --fee is 0 (default 1.2)")
 	fs.Uint64Var(&c.MaxFee, "max-fee", 1000, "the executor refuses to sign a fee above this")
 	fs.DurationVar(&c.Rebroadcast, "rebroadcast-every", 10*time.Second, "resend interval of the same signed bytes")
 
@@ -185,6 +189,13 @@ func parseFlags(args []string, usage io.Writer) (Config, error) {
 		return Config{}, cfgErr("unexpected arguments %q", fs.Args())
 	}
 	c.RPCWitnesses, c.CrossBridges, c.Recipients = wit, cb, rec
+	if c.BridgeAddr != "" {
+		u, err := node.BridgeURL(c.BridgeAddr, c.BridgeTLS)
+		if err != nil {
+			return Config{}, cfgErr("--bridge-addr: %v", err)
+		}
+		c.BridgeAddr = u
+	}
 	if err := c.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -219,6 +230,9 @@ func (c Config) Validate() error {
 
 	if c.BridgeAddr == "" {
 		return cfgErr("--bridge-addr is required")
+	}
+	if _, err := node.BridgeURL(c.BridgeAddr, c.BridgeTLS); err != nil {
+		return cfgErr("--bridge-addr: %v", err)
 	}
 	if c.BridgeTokenFile != "" && !c.BridgeTLS && !loopbackAddr(c.BridgeAddr) {
 		return cfgErr("--bridge-token-file over plain HTTP to a non-loopback address is refused; set --bridge-tls")
@@ -349,6 +363,9 @@ func (c Config) Validate() error {
 	if c.Fee > c.MaxFee {
 		return cfgErr("--fee is above --max-fee")
 	}
+	if _, err := parseMargin(c.FeeMargin); err != nil {
+		return cfgErr("--fee-margin: %v", err)
+	}
 	if c.Rebroadcast <= 0 {
 		return cfgErr("--rebroadcast-every must be positive")
 	}
@@ -409,4 +426,22 @@ func parseRecipient(s string) (blob.Recipient, error) {
 		return blob.Recipient{}, errors.New("not an X25519 public key")
 	}
 	return blob.Recipient{KID: []byte(kid), PublicKey: pk}, nil
+}
+
+// parseMargin reads a non-negative decimal such as "1.2"; "" is zero, which
+// means the default margin.
+func parseMargin(s string) (*big.Rat, error) {
+	if s == "" {
+		return new(big.Rat), nil
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && r != '.' {
+			return nil, errors.New("want a non-negative decimal such as 1.2")
+		}
+	}
+	m, ok := new(big.Rat).SetString(s)
+	if !ok {
+		return nil, errors.New("want a non-negative decimal such as 1.2")
+	}
+	return m, nil
 }

@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"math/big"
 	"time"
 )
 
@@ -101,4 +102,6 @@ type Consensus interface {
 	// Broadcast sends txRaw unchanged and returns its hash.
 	Broadcast(ctx context.Context, txRaw []byte) ([32]byte, error)
 	Tx(ctx context.Context, hash [32]byte) (TxStatus, error)
+	// MinGasPrice is the node's minimum_gas_price in bond denom per gas unit.
+	MinGasPrice(ctx context.Context) (*big.Rat, error)
 }

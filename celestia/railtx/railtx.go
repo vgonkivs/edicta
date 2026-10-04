@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"strconv"
 	"time"
 
@@ -28,6 +29,9 @@ var (
 	// ErrSequenceMismatch means the node refused the broadcast because the
 	// account sequence differs; it is not a success.
 	ErrSequenceMismatch = errors.New("railtx: account sequence mismatch")
+	// ErrRejected means the node checked the transaction and refused it; the
+	// message keeps the node's code and log. It is final, never indeterminate.
+	ErrRejected = transfer.ErrRejected
 	// ErrIndeterminate means the outcome is unknown (timeout, cancelled
 	// context, unreachable node); callers must fail closed.
 	ErrIndeterminate = errors.New("railtx: outcome indeterminate")
@@ -374,6 +378,8 @@ func (r *Rail) Broadcast(ctx context.Context, txRaw []byte) error {
 		return nil
 	case errors.Is(err, node.ErrSequenceMismatch):
 		return fmt.Errorf("%w: %w", ErrSequenceMismatch, err)
+	case errors.Is(err, node.ErrRejected):
+		return fmt.Errorf("%w: %w", ErrRejected, err)
 	default:
 		return fmt.Errorf("%w: %w", ErrIndeterminate, err)
 	}
@@ -396,4 +402,43 @@ func (r *Rail) Status(ctx context.Context, hash [32]byte) (transfer.TxStatus, er
 	default:
 		return transfer.TxStatus{State: transfer.TxCommitted, Height: s.Height, Code: s.Code}, nil
 	}
+}
+
+// DefaultFeeMargin is the safety factor DeriveFee applies on the node's
+// minimum gas price: 1.2.
+var DefaultFeeMargin = big.NewRat(6, 5)
+
+// GasPriceSource reports the node's minimum gas price in bond denom per gas
+// unit. node.Consensus satisfies it.
+type GasPriceSource interface {
+	MinGasPrice(ctx context.Context) (*big.Rat, error)
+}
+
+// DeriveFee returns ceil(gasLimit x price x margin) in base units, with exact
+// arithmetic. A nil or zero margin means DefaultFeeMargin.
+func DeriveFee(ctx context.Context, src GasPriceSource, gasLimit uint64, margin *big.Rat) (uint64, error) {
+	if gasLimit == 0 {
+		return 0, errors.New("railtx: zero gas limit")
+	}
+	if margin == nil || margin.Sign() == 0 {
+		margin = DefaultFeeMargin
+	}
+	if margin.Sign() < 0 {
+		return 0, errors.New("railtx: negative fee margin")
+	}
+	price, err := src.MinGasPrice(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("railtx: min gas price: %w", err)
+	}
+	if price == nil || price.Sign() < 0 {
+		return 0, errors.New("railtx: invalid minimum gas price")
+	}
+	fee := new(big.Rat).SetInt(new(big.Int).SetUint64(gasLimit))
+	fee.Mul(fee, price)
+	fee.Mul(fee, margin)
+	n := new(big.Int).Quo(new(big.Int).Add(fee.Num(), new(big.Int).Sub(fee.Denom(), big.NewInt(1))), fee.Denom())
+	if !n.IsUint64() {
+		return 0, errors.New("railtx: derived fee overflows")
+	}
+	return n.Uint64(), nil
 }

@@ -112,7 +112,11 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 	}
 
 	// chain access
-	rc, rd, err := node.NewReadOnly(ctx, node.BridgeConfig{Addr: cfg.BridgeAddr, Token: bridgeTok, TLS: cfg.BridgeTLS})
+	bridgeURL, err := node.BridgeURL(cfg.BridgeAddr, cfg.BridgeTLS)
+	if err != nil {
+		return cfgErr("--bridge-addr: %v", err)
+	}
+	rc, rd, err := node.NewReadOnly(ctx, node.BridgeConfig{Addr: bridgeURL, Token: bridgeTok, TLS: cfg.BridgeTLS})
 	if err != nil {
 		return fmt.Errorf("bridge node: %w", err)
 	}
@@ -159,11 +163,19 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 		return err
 	}
 
+	fee, err := resolveFee(ctx, cfg, cons)
+	if err != nil {
+		return fmt.Errorf("fee: %w", err)
+	}
+	if cfg.Fee == 0 {
+		logf("fee %d utia derived from the node's minimum gas price", fee)
+	}
+
 	// executor rail, with its own chain key
 	rail, err := railtx.New(railtx.Config{
 		Consensus: cons, Reader: rd,
 		Key:      railtx.KeyFromKeyring(cfg.ExecKeyringDir, cfg.ExecKeyName, pass),
-		GasLimit: cfg.GasLimit, Fee: cfg.Fee,
+		GasLimit: cfg.GasLimit, Fee: fee,
 	})
 	if err != nil {
 		return fmt.Errorf("executor key: %w", err)
@@ -397,7 +409,11 @@ func buildVerifier(ctx context.Context, cfg Config, chainID string, rd node.Read
 		}
 		var srcs []inclusion.Source
 		for _, a := range cfg.CrossBridges {
-			c, r, err := node.NewReadOnly(ctx, node.BridgeConfig{Addr: a, Token: tok, TLS: cfg.CrossTLS})
+			u, err := node.BridgeURL(a, cfg.CrossTLS)
+			if err != nil {
+				return nil, 0, "", closeFn, cfgErr("--crosscheck-bridge %s: %v", a, err)
+			}
+			c, r, err := node.NewReadOnly(ctx, node.BridgeConfig{Addr: u, Token: tok, TLS: cfg.CrossTLS})
 			if err != nil {
 				return nil, 0, "", closeFn, fmt.Errorf("crosscheck bridge %s: %w", a, err)
 			}
@@ -411,4 +427,24 @@ func buildVerifier(ctx context.Context, cfg Config, chainID string, rd node.Read
 		}
 		return cv, sdk.SubmitterUntrusted, inclusion.LevelCrossCheck.String(), closeFn, nil
 	}
+}
+
+// resolveFee returns the explicit --fee, or derives one from the node's
+// minimum gas price and refuses a result above --max-fee.
+func resolveFee(ctx context.Context, c Config, src railtx.GasPriceSource) (uint64, error) {
+	if c.Fee != 0 {
+		return c.Fee, nil
+	}
+	margin, err := parseMargin(c.FeeMargin)
+	if err != nil {
+		return 0, cfgErr("--fee-margin: %v", err)
+	}
+	fee, err := railtx.DeriveFee(ctx, src, c.GasLimit, margin)
+	if err != nil {
+		return 0, err
+	}
+	if fee > c.MaxFee {
+		return 0, fmt.Errorf("%w: derived fee %d, max %d", railtx.ErrFeeAboveMax, fee, c.MaxFee)
+	}
+	return fee, nil
 }

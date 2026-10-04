@@ -31,6 +31,11 @@ var (
 	// code is in Result.
 	ErrFailedOnChain = errors.New("transfer: transaction failed on chain")
 
+	// ErrRejected is the Rail's final answer to a broadcast: the node checked
+	// the transaction and refused it, so sending the same bytes again cannot
+	// help. The Rail's error carries the node's code and log.
+	ErrRejected = errors.New("transfer: transaction rejected by the node")
+
 	ErrChainMismatch  = bankaction.ErrChainMismatch
 	ErrSenderMismatch = bankaction.ErrSenderMismatch
 	ErrDenomMismatch  = bankaction.ErrDenomMismatch
@@ -317,7 +322,7 @@ func (e *Executor) resolve(ctx context.Context, h commitment.Hash, rec Record) (
 	case StateFinished:
 		return outcome(rec.Prepared.Hash, rec.Height, rec.Code)
 	case StateHandedOff:
-		return Result{}, ErrHandedOff
+		return Result{TxHash: rec.Prepared.Hash}, ErrHandedOff
 	case StateAbandoned:
 		return Result{}, ErrAbandoned
 	default:
@@ -338,9 +343,11 @@ func outcome(hash [32]byte, height uint64, code uint32) (Result, error) {
 // the chain has not passed the timeout height; the status is looked up before
 // every send so an included transaction is never sent again.
 func (e *Executor) drive(ctx context.Context, h commitment.Hash, p Prepared) (Result, error) {
+	res := Result{TxHash: p.Hash}
+	var lastSendErr error
 	for {
 		if err := ctx.Err(); err != nil {
-			return Result{}, err
+			return res, err
 		}
 		live := e.valid(p.Expires)
 		height, _, _, headErr := e.rail.Head(ctx)
@@ -349,26 +356,36 @@ func (e *Executor) drive(ctx context.Context, h commitment.Hash, p Prepared) (Re
 		st, statusErr := e.rail.Status(ctx, p.Hash)
 		if statusErr == nil && st.State == TxCommitted {
 			if err := e.store.Finish(ctx, h, st.Height, st.Code); err != nil {
-				return Result{}, fmt.Errorf("transfer: finish: %w", err)
+				return res, fmt.Errorf("transfer: finish: %w", err)
 			}
 			return outcome(p.Hash, st.Height, st.Code)
 		}
 		if !live || pastTimeout {
 			if statusErr != nil {
-				return Result{}, fmt.Errorf("transfer: final status: %w", statusErr)
+				return res, fmt.Errorf("transfer: final status: %w", statusErr)
 			}
 			if err := e.store.HandOff(ctx, h, handOffReason); err != nil {
-				return Result{}, fmt.Errorf("transfer: hand off: %w", err)
+				return res, fmt.Errorf("transfer: hand off: %w", err)
 			}
-			return Result{}, ErrHandedOff
+			if lastSendErr != nil {
+				return res, fmt.Errorf("%w: last broadcast error: %w", ErrHandedOff, lastSendErr)
+			}
+			return res, ErrHandedOff
 		}
 		if headErr == nil {
-			// A failed send is retried with the same bytes on the next turn.
-			_ = e.rail.Broadcast(ctx, p.TxRaw)
+			// A transient failure is retried with the same bytes on the next
+			// turn; a final rejection ends the attempt.
+			lastSendErr = e.rail.Broadcast(ctx, p.TxRaw)
+			if errors.Is(lastSendErr, ErrRejected) {
+				if err := e.store.HandOff(ctx, h, handOffReason); err != nil {
+					return res, errors.Join(lastSendErr, fmt.Errorf("transfer: hand off: %w", err))
+				}
+				return res, fmt.Errorf("%w: %w", ErrHandedOff, lastSendErr)
+			}
 		}
 		select {
 		case <-ctx.Done():
-			return Result{}, ctx.Err()
+			return res, ctx.Err()
 		case <-e.clock.After(e.cfg.RebroadcastEvery):
 		}
 	}

@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/celestiaorg/celestia-app/v10/app"
 	"github.com/celestiaorg/celestia-app/v10/app/encoding"
@@ -14,6 +17,10 @@ import (
 
 // ErrKeyring wraps every refusal to open a keyring or find its key.
 var ErrKeyring = errors.New("node: keyring")
+
+// ErrBadPassphrase means the passphrase does not unlock the file keyring. It
+// wraps ErrKeyring and is returned without ever prompting on stdin.
+var ErrBadPassphrase = fmt.Errorf("%w: wrong passphrase", ErrKeyring)
 
 // KeyringConfig locates one signing key. The Recorder and the executor each
 // use their own Dir and KeyName; nothing here is shared between them.
@@ -47,6 +54,9 @@ func OpenKeyring(c KeyringConfig) (keyring.Keyring, error) {
 		if len(c.Passphrase) == 0 {
 			return nil, fmt.Errorf("%w: file backend needs a passphrase", ErrKeyring)
 		}
+		if err := checkPassphrase(c.Dir, c.Passphrase); err != nil {
+			return nil, err
+		}
 		in = &repeatReader{line: append(append([]byte(nil), c.Passphrase...), '\n')}
 	case keyring.BackendTest:
 		if !c.AllowTest {
@@ -63,6 +73,9 @@ func OpenKeyring(c KeyringConfig) (keyring.Keyring, error) {
 		return nil, fmt.Errorf("%w: open: %v", ErrKeyring, err)
 	}
 	if _, err := kr.Key(c.Name); err != nil {
+		if errors.Is(err, keyring.ErrMaxPassPhraseAttempts) {
+			return nil, ErrBadPassphrase
+		}
 		return nil, fmt.Errorf("%w: key %q: %v", ErrKeyring, c.Name, err)
 	}
 	return kr, nil
@@ -87,3 +100,20 @@ func (r *repeatReader) Read(p []byte) (int, error) {
 type eofReader struct{}
 
 func (eofReader) Read([]byte) (int, error) { return 0, io.EOF }
+
+// checkPassphrase compares pass with the keyring's stored hash before the
+// library can fall back to prompting on a terminal. A keyring without a hash
+// file has no key yet; the later key lookup reports that.
+func checkPassphrase(dir string, pass []byte) error {
+	h, err := os.ReadFile(filepath.Join(dir, "keyhash"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("%w: read keyhash: %v", ErrKeyring, err)
+	}
+	if bcrypt.CompareHashAndPassword(h, pass) != nil {
+		return ErrBadPassphrase
+	}
+	return nil
+}

@@ -12,7 +12,10 @@ as a blob BEFORE acting, the gate authorizes the exact action, a separate
 executor account sends the transfer with the commitment hash as memo, and the
 gate records a receipt. `edicta-live` prints the evidence and checks it.
 
-All commands run from the `celestia/` directory. Replace every placeholder in
+Working directory: the commands use `go -C celestia ...`, so run them from the
+repository root. Paths given to the program (`-config`, key files) are resolved
+against your shell's current directory, not `celestia/`, so use absolute paths or
+`~`. Replace every placeholder in
 angle brackets. Never paste real keys or tokens into chat, logs or the repo.
 
 ## 1. Prerequisites
@@ -38,7 +41,10 @@ celestia-appd keys add recorder --keyring-backend file --keyring-dir ~/edicta-li
 celestia-appd keys add sender   --keyring-backend file --keyring-dir ~/edicta-live/executor-keyring
 ```
 
-Each keyring has its own passphrase. Put each passphrase in a file with mode
+Each keyring has its own passphrase. The keyring library prints a line
+"Enter keyring passphrase" even when the passphrase comes from a file; it is
+not a prompt and nothing is read from the terminal. A wrong passphrase file
+fails with a clear error and never falls back to a prompt. Put each passphrase in a file with mode
 0600 (`chmod 600`), or for the executor use `--executor-passphrase-prompt` to
 type it without echo. Note the two addresses the tool prints.
 
@@ -52,12 +58,11 @@ for the executor's record request, one for the gate. Then print the public
 keys, which go into the `edictad` config:
 
 ```
-mkdir -p ~/edicta-live && cd ~/edicta-live
-for k in agent executor gate; do head -c 32 /dev/urandom > $k.ed25519; chmod 600 $k.ed25519; done
-cd - >/dev/null
-go run ./cmd/edicta-live pubkey ~/edicta-live/agent.ed25519
-go run ./cmd/edicta-live pubkey ~/edicta-live/executor.ed25519
-go run ./cmd/edicta-live pubkey ~/edicta-live/gate.ed25519
+mkdir -p ~/edicta-live
+for k in agent executor gate; do head -c 32 /dev/urandom > ~/edicta-live/$k.ed25519; chmod 600 ~/edicta-live/$k.ed25519; done
+go -C celestia run ./cmd/edicta-live pubkey ~/edicta-live/agent.ed25519
+go -C celestia run ./cmd/edicta-live pubkey ~/edicta-live/executor.ed25519
+go -C celestia run ./cmd/edicta-live pubkey ~/edicta-live/gate.ed25519
 ```
 
 Create a bearer-token file (any long random string, mode 0600) for the
@@ -72,7 +77,7 @@ head -c 24 /dev/urandom | base64 > ~/edicta-live/api.token; chmod 600 ~/edicta-l
 Copy the example and edit it:
 
 ```
-cp cmd/edictad/edictad.example.toml ~/edicta-live/edictad.toml
+cp celestia/cmd/edictad/edictad.example.toml ~/edicta-live/edictad.toml
 ```
 
 Set, at least: the bridge and consensus addresses (and `tls`), `recorder.namespace`,
@@ -90,8 +95,8 @@ pubkey = "<agent public key, 64 hex characters>"
 Check that the config parses (it prints paths only, never secrets), then start:
 
 ```
-go run ./cmd/edictad -config ~/edicta-live/edictad.toml -print-config
-go run ./cmd/edictad -config ~/edicta-live/edictad.toml
+go -C celestia run ./cmd/edictad -config ~/edicta-live/edictad.toml -print-config
+go -C celestia run ./cmd/edictad -config ~/edicta-live/edictad.toml
 ```
 
 edictad refuses to start if the node fails the compatibility check, if a key
@@ -106,7 +111,7 @@ does not record a receipt. The first reading becomes the baseline, so the run
 waits for the price to move; for a first test lower the threshold.
 
 ```
-go run ./cmd/edicta-live \
+go -C celestia run ./cmd/edicta-live \
   --api-url http://127.0.0.1:8080 --api-token-file ~/edicta-live/api.token \
   --gate-pubkey <gate public key, 64 hex> \
   --bridge-addr <bridge host:port> --bridge-tls --bridge-token-file <file> \
@@ -123,8 +128,11 @@ go run ./cmd/edicta-live \
 
 Amounts are in base units (`utia`). `--gen-recipient-key` creates the key that
 opens the published payload; keep that file. Use `--recipient kid=<64 hex X25519 public key>` instead
-to seal to a key you already have. Drop `--bridge-tls`, `--grpc-tls` for a
-local plaintext endpoint. `--da` (blob by default) must equal the `da` of edictad's config. `--chain-id` and `--namespace` optionally pin what
+to seal to a key you already have. `--bridge-addr` takes `host:port` (the scheme follows `--bridge-tls`) or a full
+`http://` or `https://` URL, which must agree with `--bridge-tls`. Drop `--bridge-tls`, `--grpc-tls` for a
+local plaintext endpoint. The gRPC endpoint must present a certificate that
+verifies against the system roots; one with a private or origin-only
+certificate cannot be used with `--grpc-tls`. `--da` (blob by default) must equal the `da` of edictad's config. `--chain-id` and `--namespace` optionally pin what
 the nodes and edictad report.
 
 The default inclusion check is `self`: it trusts your own bridge node, which is
@@ -141,8 +149,10 @@ is never overwritten). To use the real 1% trigger leave `--threshold-bp` out
 30m) and `--poll-interval` (default 30s) bound the wait. The price comes from
 a public source: `--price-source coingecko|kraken` (`--asset`, `--quote`,
 `--kraken-pair`). There is no fake price in the command. `--max-decisions`
-(default 1) stops the run. `--fee` and `--max-fee` are base units: check your
-network's minimum gas price. `--json` prints JSON instead of text and
+(default 1) stops the run. The fee is derived at startup from the node's
+`minimum_gas_price`: gas limit x price x `--fee-margin` (default 1.2), rounded
+up, in base units. `--gas-limit` and `--fee` (non-zero) override it, and
+`--max-fee` caps either; the run refuses a fee above the cap. `--json` prints JSON instead of text and
 `--evidence-file <path>` also saves it.
 
 The run exits non-zero with a clear message on any failure. If the transfer
@@ -173,8 +183,8 @@ and the receipt verify.
 ## Tests
 
 ```
-go build ./... && go vet ./... && go test -race -count=1 ./...
-go test -tags integration ./cmd/edicta-live    # skips without the environment
+go -C celestia build ./... && go -C celestia vet ./... && go -C celestia test -race -count=1 ./...
+go -C celestia test -tags integration ./cmd/edicta-live    # skips without the environment
 ```
 
 The integration tests read endpoints and key files from `EDICTA_*` variables
