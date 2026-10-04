@@ -30,6 +30,10 @@ var (
 	ErrSignerClosed          = errors.New("sdk: signer closed")
 	ErrPlaintextHashMismatch = errors.New("sdk: plaintext_hash mismatch")
 	ErrPayloadMismatch       = errors.New("sdk: payload action differs from the commitment")
+	ErrInclusionUnverified   = errors.New("sdk: publication not verified on chain")
+	ErrBlockTimeMismatch     = errors.New("sdk: published block time differs from the verified header")
+	ErrUnexpectedRef         = errors.New("sdk: published namespace or signer not expected")
+	ErrPublishTimeout        = errors.New("sdk: publication not confirmed in time")
 )
 
 type Publisher interface {
@@ -74,6 +78,31 @@ func (shareV1Committer) Check(ref commitment.PayloadRef, b []byte) error {
 // ShareV1Committer is the default check for da = 2.
 func ShareV1Committer() Committer { return shareV1Committer{} }
 
+// InclusionVerifier proves, through sources the submitter does not control,
+// that a blob with ref's namespace, commitment and signer is in block
+// ref.Height, and returns the time of that verified header in Unix seconds.
+type InclusionVerifier interface {
+	VerifyInclusion(ctx context.Context, ref commitment.PayloadRef) (blockTime uint64, err error)
+}
+
+// IndependenceReporter is implemented by a verifier that says whether its
+// sources are independent of the submitter. A verifier that reads only the
+// operator's own node reports false.
+type IndependenceReporter interface{ Independent() bool }
+
+// SubmitterTrust says how far the blob submitter is trusted. There is no
+// default: the zero value is invalid.
+type SubmitterTrust uint8
+
+const (
+	// SubmitterSameOperator: the submitter and the producer share an
+	// operator. An inclusion verifier is optional.
+	SubmitterSameOperator SubmitterTrust = iota + 1
+	// SubmitterUntrusted: an inclusion verifier is required and must report
+	// that it is independent of the submitter.
+	SubmitterUntrusted
+)
+
 type Config struct {
 	AgentID        string
 	Scope          commitment.Scope
@@ -90,6 +119,22 @@ type Config struct {
 	// dependencies that honour their context.
 	CallTimeout time.Duration
 
+	// SubmitterTrust is required.
+	SubmitterTrust SubmitterTrust
+
+	// ExpectNamespace, when set, is the only namespace a published reference
+	// may carry. ExpectSigners, when set, lists the accounts allowed to appear
+	// as the reference signer. Both are copied.
+	ExpectNamespace []byte
+	ExpectSigners   [][]byte
+
+	// MaxPublishWait bounds one attempt of Commit: publish, DA recompute and
+	// inclusion verification. Zero means the default; negative is invalid.
+	MaxPublishWait time.Duration
+	// MaxReissues is how many times Commit seals the payload anew, with a new
+	// nonce, after an attempt that was not confirmed. Negative is invalid.
+	MaxReissues int
+
 	// UnsafeSkipDACheck lists the da values for which Finalize signs WITHOUT
 	// recomputing the DA commitment from the blob. Empty by default.
 	UnsafeSkipDACheck []commitment.DA
@@ -98,6 +143,9 @@ type Config struct {
 const (
 	minValidityFloorS  = 60
 	defaultCallTimeout = 60 * time.Second
+
+	defaultMaxPublishWait = 120 * time.Second
+	defaultMaxReissues    = 2
 )
 
 // OpenerParams are the commitment parameters OpenPayload checks against. An
@@ -115,6 +163,8 @@ func DefaultConfig() Config {
 		BlobRetentionS: 14400,
 		MaxBlobSize:    blob.MaxSealSize,
 		CallTimeout:    defaultCallTimeout,
+		MaxPublishWait: defaultMaxPublishWait,
+		MaxReissues:    defaultMaxReissues,
 	}
 }
 
@@ -124,6 +174,9 @@ type Deps struct {
 	Clock     Clock
 	// Chain is required when the publisher may return da = 1.
 	Chain ChainParams
+	// Inclusion verifies, before signing, that the published reference is on
+	// chain. Required with SubmitterUntrusted.
+	Inclusion InclusionVerifier
 	// Committers adds checks per da. For da 2 the built-in recompute always
 	// runs first and cannot be replaced; UnsafeSkipDACheck switches it off.
 	Committers map[commitment.DA]Committer

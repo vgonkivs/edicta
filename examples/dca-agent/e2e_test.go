@@ -46,6 +46,7 @@ func newWorld(t *testing.T) *world {
 	signer, err := sdk.NewEd25519Signer(gatefix.Key(t, "agent1"))
 	require.NoError(t, err)
 	cfg := sdk.DefaultConfig()
+	cfg.SubmitterTrust = sdk.SubmitterSameOperator
 	cfg.AgentID = "dca-agent-1"
 	cfg.Scope = commitment.Scope{GateID: gatefix.GateID}
 	cfg.Recipients = vec.Recipients(t, "gate-paper-1", "auditor-1")

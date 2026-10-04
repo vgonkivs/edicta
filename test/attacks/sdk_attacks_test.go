@@ -33,6 +33,7 @@ func sdkArmed(t *testing.T, key string, stage bool, opts ...gatefix.Option) *sdk
 	signer, err := sdk.NewEd25519Signer(gatefix.Key(t, key))
 	require.NoError(t, err)
 	cfg := sdk.DefaultConfig()
+	cfg.SubmitterTrust = sdk.SubmitterSameOperator
 	cfg.AgentID = "dca-agent-1"
 	cfg.Scope = commitment.Scope{GateID: gatefix.GateID}
 	cfg.Recipients = v.Recipients(t, "gate-paper-1", "auditor-1")

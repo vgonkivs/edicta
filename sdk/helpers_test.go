@@ -160,6 +160,7 @@ func newRig(t *testing.T, mods ...func(*rig)) *rig {
 	}
 	r.deps = sdk.Deps{Chain: r.chain}
 	r.cfg.AgentID = "dca-agent-1"
+	r.cfg.SubmitterTrust = sdk.SubmitterSameOperator
 	r.cfg.Scope = commitment.Scope{GateID: gatefix.GateID}
 	r.cfg.Recipients = v.Recipients(t, "gate-paper-1", "auditor-1")
 	for _, m := range mods {

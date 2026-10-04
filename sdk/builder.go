@@ -77,6 +77,40 @@ func New(cfg Config, d Deps) (*Builder, error) {
 	case cfg.CallTimeout < 0:
 		return nil, bad("call timeout %s", cfg.CallTimeout)
 	}
+	switch {
+	case cfg.MaxPublishWait == 0:
+		cfg.MaxPublishWait = defaultMaxPublishWait
+	case cfg.MaxPublishWait < 0:
+		return nil, bad("max publish wait %s", cfg.MaxPublishWait)
+	}
+	if cfg.MaxReissues < 0 {
+		return nil, bad("max reissues %d", cfg.MaxReissues)
+	}
+	switch cfg.SubmitterTrust {
+	case SubmitterSameOperator:
+	case SubmitterUntrusted:
+		if d.Inclusion == nil {
+			return nil, bad("an untrusted submitter needs an inclusion verifier")
+		}
+		rep, ok := d.Inclusion.(IndependenceReporter)
+		if !ok {
+			return nil, bad("an untrusted submitter needs a verifier that reports its independence")
+		}
+		independent := false
+		if err := guard("independence report", func() error { independent = rep.Independent(); return nil }); err != nil || !independent {
+			return nil, bad("an untrusted submitter needs a verifier independent of it")
+		}
+	default:
+		return nil, bad("submitter trust %d", cfg.SubmitterTrust)
+	}
+	if n := len(cfg.ExpectNamespace); n != 0 && n != 29 {
+		return nil, bad("expected namespace of %d bytes", n)
+	}
+	for i, s := range cfg.ExpectSigners {
+		if len(s) != 20 {
+			return nil, bad("expected signer %d of %d bytes", i, len(s))
+		}
+	}
 	skip := map[commitment.DA]bool{}
 	for _, da := range cfg.UnsafeSkipDACheck {
 		if da != commitment.DAFibre && da != commitment.DACelestiaBlob || skip[da] {
@@ -95,6 +129,11 @@ func New(cfg Config, d Deps) (*Builder, error) {
 		return nil, err
 	}
 	cfg.Recipients = slices.Clone(cfg.Recipients)
+	cfg.ExpectNamespace = bytes.Clone(cfg.ExpectNamespace)
+	cfg.ExpectSigners = slices.Clone(cfg.ExpectSigners)
+	for i, s := range cfg.ExpectSigners {
+		cfg.ExpectSigners[i] = bytes.Clone(s)
+	}
 	cfg.UnsafeSkipDACheck = slices.Clone(cfg.UnsafeSkipDACheck)
 	return &Builder{cfg: cfg, deps: d, committers: committers, skip: skip}, nil
 }
@@ -134,17 +173,59 @@ type Result struct {
 	DAChecked  bool // false only when the da was in UnsafeSkipDACheck
 }
 
-// Commit is Seal, Publish and Finalize.
+// Commit is Seal, Publish and Finalize, bounded by MaxPublishWait per attempt.
+// An attempt that times out, fails to publish or is not verified on chain is
+// dropped unsigned and the payload is sealed anew, with a new nonce, up to
+// MaxReissues times. A refusal of the published content, a block time that
+// differs from the verified header and the caller's own cancellation end the
+// call at once.
 func (b *Builder) Commit(ctx context.Context, p *payload.Payload) (*Result, error) {
+	var last error
+	for attempt := 0; attempt <= b.cfg.MaxReissues; attempt++ {
+		res, retry, err := b.attempt(ctx, p)
+		if err == nil {
+			return res, nil
+		}
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, fmt.Errorf("%w: %w", cerr, err)
+		}
+		if !retry {
+			return nil, err
+		}
+		last = err
+	}
+	return nil, fmt.Errorf("%w after %d attempts: %w", ErrPublishTimeout, b.cfg.MaxReissues+1, last)
+}
+
+// attempt runs one seal, publish and finalize. retry reports whether the
+// failure is one a fresh seal may cure.
+func (b *Builder) attempt(ctx context.Context, p *payload.Payload) (res *Result, retry bool, err error) {
 	s, err := b.Seal(ctx, p)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	pub, err := b.Publish(ctx, s)
+	actx, cancel := context.WithTimeout(ctx, b.cfg.MaxPublishWait)
+	defer cancel()
+	pub, err := b.Publish(actx, s)
 	if err != nil {
-		return nil, err
+		return nil, true, err
 	}
-	return b.Finalize(ctx, s, pub)
+	res, err = b.Finalize(actx, s, pub)
+	if err == nil {
+		return res, false, nil
+	}
+	if errors.Is(err, ErrInclusionUnverified) {
+		return nil, true, err
+	}
+	if actx.Err() != nil && ctx.Err() == nil {
+		// The attempt's own deadline ended it. After the signer was reached the
+		// window is pinned and the failure is not a delay.
+		s.mu.Lock()
+		pinned := s.pinned
+		s.mu.Unlock()
+		return nil, !pinned, err
+	}
+	return nil, false, err
 }
 
 func (b *Builder) now() (now uint64, err error) {
@@ -286,9 +367,21 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 	if ref.Height == 0 {
 		return nil, fmt.Errorf("%w: no height", ErrPublishResult)
 	}
+	if err := b.checkExpected(ref); err != nil {
+		return nil, err
+	}
 	checked, err := b.checkDA(ref, s.blob)
 	if err != nil {
 		return nil, err
+	}
+	if b.deps.Inclusion != nil {
+		t, err := b.verifyInclusion(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		if t != pub.BlockTime {
+			return nil, fmt.Errorf("%w: header time %d, published %d", ErrBlockTimeMismatch, t, pub.BlockTime)
+		}
 	}
 
 	now, err := b.now()
@@ -398,6 +491,36 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 		Published: Published{Ref: ref, BlockTime: pub.BlockTime, RetentionStart: pub.RetentionStart},
 		Validity:  v, DAChecked: checked,
 	}, nil
+}
+
+// checkExpected refuses a reference outside the configured namespace and
+// signer allowlist.
+func (b *Builder) checkExpected(ref commitment.PayloadRef) error {
+	if len(b.cfg.ExpectNamespace) != 0 && !bytes.Equal(ref.Namespace, b.cfg.ExpectNamespace) {
+		return fmt.Errorf("%w: namespace", ErrUnexpectedRef)
+	}
+	if len(b.cfg.ExpectSigners) != 0 && !slices.ContainsFunc(b.cfg.ExpectSigners, func(s []byte) bool { return bytes.Equal(s, ref.Signer) }) {
+		return fmt.Errorf("%w: signer", ErrUnexpectedRef)
+	}
+	return nil
+}
+
+// verifyInclusion asks the verifier about ref and returns the time of the
+// header it verified. Every failure, including a panic, is ErrInclusionUnverified.
+func (b *Builder) verifyInclusion(ctx context.Context, ref commitment.PayloadRef) (t uint64, err error) {
+	cctx, cancel := context.WithTimeout(ctx, b.cfg.CallTimeout)
+	defer cancel()
+	err = guard("inclusion verifier", func() (err error) {
+		t, err = b.deps.Inclusion.VerifyInclusion(cctx, cloneRef(ref))
+		return err
+	})
+	if err != nil {
+		if errors.Is(err, ErrInclusionUnverified) {
+			return 0, err
+		}
+		return 0, fmt.Errorf("%w: %w", ErrInclusionUnverified, err)
+	}
+	return t, nil
 }
 
 // checkDA recomputes the DA commitment unless the da is explicitly opted out.
