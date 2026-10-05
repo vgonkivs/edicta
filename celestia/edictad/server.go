@@ -262,6 +262,8 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 var recorderErrors = []edictaapi.ErrorRule{
 	{Code: "recorder.ErrTooLarge", Err: recorder.ErrTooLarge, Status: 413},
 	{Code: "recorder.ErrOutcomeUnknown", Err: recorder.ErrOutcomeUnknown, Status: 503, Retryable: true},
+	{Code: "recorder.ErrNodeUnavailable", Err: recorder.ErrNodeUnavailable, Status: 503, Retryable: true},
+	{Code: "recorder.ErrTooManyPending", Err: recorder.ErrTooManyPending, Status: 503, Retryable: true},
 	{Code: "recorder.ErrNotVisible", Err: recorder.ErrNotVisible, Status: 503, Retryable: true},
 	{Code: "recorder.ErrSignerMismatch", Err: recorder.ErrSignerMismatch, Status: 502},
 }

@@ -131,10 +131,13 @@ type kraken struct {
 	c                        *http.Client
 }
 
-// NewKraken reads the last trade price of pair, for example "TIAUSD", from
-// the ticker endpoint under baseURL ("https://api.kraken.com"). assetID and
-// quote name the asset in the payload exactly as given; quote is an upper-case
-// currency. A nil client gets a 10 second timeout.
+// NewKraken reads the last trade of pair, for example "TIAUSD", from the
+// trades endpoint under baseURL ("https://api.kraken.com"); the observation
+// time is that trade's own time. When trades are unusable the latest candle
+// is read instead, with the candle's time. The ticker carries no time, so it
+// is never a source. assetID and quote name the asset in the payload exactly
+// as given; quote is an upper-case currency. A nil client gets a 10 second
+// timeout.
 func NewKraken(baseURL, pair, assetID, quote string, c *http.Client) (Feed, error) {
 	if pair == "" || assetID == "" || quote == "" || quote != strings.ToUpper(quote) {
 		return nil, fmt.Errorf("%w: kraken pair, asset id and upper-case quote are required", ErrInvalidConfig)
@@ -143,38 +146,73 @@ func NewKraken(baseURL, pair, assetID, quote string, c *http.Client) (Feed, erro
 }
 
 func (k *kraken) Observe(ctx context.Context) (Observation, error) {
-	b, err := get(ctx, k.c, k.base+"/0/public/Ticker?pair="+url.QueryEscape(k.pair))
-	if err != nil {
-		return Observation{}, err
-	}
 	fetched := unixNow()
+	// Trades rows: price, volume, time, ...; OHLC rows: time, open, high,
+	// low, close, ...
+	price, at, err := k.lastRow(ctx, "Trades", 0, 2)
+	if err != nil {
+		var err2 error
+		price, at, err2 = k.lastRow(ctx, "OHLC", 4, 0)
+		if err2 != nil {
+			return Observation{}, fmt.Errorf("%w: no source timestamp: trades: %v; ohlc: %v", ErrFeed, err, err2)
+		}
+	}
+	return Observation{
+		Source: "kraken:" + k.pair, AssetID: k.asset, Quote: k.quote,
+		Price: price, ObservedAt: at, FetchedAt: fetched,
+	}, nil
+}
+
+// lastRow returns the price and the whole-second time of the newest row of a
+// Kraken endpoint.
+func (k *kraken) lastRow(ctx context.Context, endpoint string, priceIdx, timeIdx int) (price, at uint64, err error) {
+	b, err := get(ctx, k.c, k.base+"/0/public/"+endpoint+"?pair="+url.QueryEscape(k.pair))
+	if err != nil {
+		return 0, 0, err
+	}
 	var ans struct {
-		Error  []string `json:"error"`
-		Result map[string]struct {
-			C []string `json:"c"`
-		} `json:"result"`
+		Error  []string                   `json:"error"`
+		Result map[string]json.RawMessage `json:"result"`
 	}
 	if err := decode(b, &ans); err != nil {
-		return Observation{}, err
+		return 0, 0, err
 	}
 	if len(ans.Error) > 0 {
-		return Observation{}, fmt.Errorf("%w: %s", ErrFeed, strings.Join(ans.Error, "; "))
+		return 0, 0, fmt.Errorf("%w: %s", ErrFeed, strings.Join(ans.Error, "; "))
 	}
-	if len(ans.Result) != 1 {
-		return Observation{}, fmt.Errorf("%w: %d tickers", ErrFeed, len(ans.Result))
-	}
-	for _, t := range ans.Result {
-		if len(t.C) < 1 {
-			return Observation{}, fmt.Errorf("%w: no last trade", ErrFeed)
+	var rows [][]any
+	for name, raw := range ans.Result {
+		if name == "last" {
+			continue
 		}
-		price, err := ParseDecimal(t.C[0])
-		if err != nil {
-			return Observation{}, err
+		if rows != nil {
+			return 0, 0, fmt.Errorf("%w: more than one pair", ErrFeed)
 		}
-		return Observation{
-			Source: "kraken:" + k.pair, AssetID: k.asset, Quote: k.quote,
-			Price: price, ObservedAt: fetched, FetchedAt: fetched,
-		}, nil
+		if err := decode(raw, &rows); err != nil {
+			return 0, 0, err
+		}
 	}
-	return Observation{}, fmt.Errorf("%w: no ticker", ErrFeed)
+	if len(rows) == 0 {
+		return 0, 0, fmt.Errorf("%w: no %s rows", ErrFeed, endpoint)
+	}
+	row := rows[len(rows)-1]
+	if len(row) <= max(priceIdx, timeIdx) {
+		return 0, 0, fmt.Errorf("%w: short %s row", ErrFeed, endpoint)
+	}
+	ps, ok := row[priceIdx].(string)
+	if !ok {
+		return 0, 0, fmt.Errorf("%w: %s price is not a string", ErrFeed, endpoint)
+	}
+	if price, err = ParseDecimal(ps); err != nil {
+		return 0, 0, err
+	}
+	tn, ok := row[timeIdx].(json.Number)
+	if !ok {
+		return 0, 0, fmt.Errorf("%w: %s time is not a number", ErrFeed, endpoint)
+	}
+	whole, _, _ := strings.Cut(tn.String(), ".")
+	if at, err = strconv.ParseUint(whole, 10, 63); err != nil || at == 0 {
+		return 0, 0, fmt.Errorf("%w: %s time", ErrFeed, endpoint)
+	}
+	return price, at, nil
 }

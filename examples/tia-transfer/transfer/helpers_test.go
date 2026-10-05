@@ -94,6 +94,15 @@ type fakeRail struct {
 	broadcastErrs []error // consumed one per Broadcast call
 	badBody       bool    // Sign returns a TxRaw whose body differs
 	onBroadcast   func(n int)
+	// heightFn, when set, replaces the clock-driven height. It runs with the
+	// rail lock held and may read r.bodies.
+	heightFn func(clockUnix uint64) uint64
+	// commitAtClock: once the wall clock reaches it (and something was
+	// broadcast) Status reports the tx committed at commitHeight.
+	commitAtClock uint64
+	commitHeight  uint64
+	onStatus      func(n int)
+	statusTimes   []uint64
 
 	bodies       [][]byte
 	chainIDs     []string
@@ -111,6 +120,9 @@ func newRail(c *fakeClock) *fakeRail {
 }
 
 func (r *fakeRail) height() uint64 {
+	if r.heightFn != nil {
+		return r.heightFn(r.clock.unix())
+	}
 	if r.frozen {
 		return headH
 	}
@@ -179,9 +191,20 @@ func (r *fakeRail) Broadcast(_ context.Context, raw []byte) error {
 
 func (r *fakeRail) Status(_ context.Context, h [32]byte) (transfer.TxStatus, error) {
 	r.mu.Lock()
+	n := len(r.statusHashes) + 1
+	hook := r.onStatus
+	r.mu.Unlock()
+	if hook != nil {
+		hook(n)
+	}
+	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.statusHashes = append(r.statusHashes, h)
 	r.statusHeight = append(r.statusHeight, r.height())
+	r.statusTimes = append(r.statusTimes, r.clock.unix())
+	if r.commitAtClock != 0 && len(r.broadcasts) > 0 && r.clock.unix() >= r.commitAtClock {
+		return transfer.TxStatus{State: transfer.TxCommitted, Height: r.commitHeight, Code: r.code}, nil
+	}
 	for _, raw := range r.signed {
 		if sha256.Sum256(raw) != h {
 			continue
@@ -280,12 +303,13 @@ type rig struct {
 	store *spyStore
 	cfg   transfer.Config
 	exec  *transfer.Executor
+	guard context.Context // set by cancelOnStatus
 }
 
 func newRig(t *testing.T, mods ...func(*transfer.Config)) *rig {
 	t.Helper()
 	c := newClock()
-	r := &rig{t: t, clock: c, rail: newRail(c)}
+	r := &rig{t: t, clock: c, rail: newRail(c), guard: context.Background()}
 	r.store = &spyStore{Store: transfer.NewMemStore(), rail: r.rail}
 	r.cfg = transfer.Config{
 		GatePubKey: gatePub(),
@@ -354,3 +378,5 @@ func goodAuth(t *testing.T, ch commitment.Hash, action []byte, opts ...authOpt) 
 	t.Helper()
 	return authorize(t, seedKey(7), ch, bankaction.ActionType, action, opts...)
 }
+
+func (r *fakeRail) statusCalls() int { r.mu.Lock(); defer r.mu.Unlock(); return len(r.statusHashes) }

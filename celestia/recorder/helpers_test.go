@@ -46,7 +46,7 @@ func realCommitment(t testing.TB, ns, signer, data []byte) []byte {
 
 // landing is a Submitter fake that writes the blob into a nodefake.Chain with
 // the REAL share commitment (nodefake.SubmitBlob uses a stand-in), and can be
-// bent. It implements the assumed recorder.Submitter interface.
+// bent. It implements recorder.Submitter.
 type landing struct {
 	mu    sync.Mutex
 	chain *nodefake.Chain

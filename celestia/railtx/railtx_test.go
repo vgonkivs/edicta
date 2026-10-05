@@ -26,21 +26,6 @@ import (
 	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
 )
 
-// Assumed symbols (railtx does not exist yet; this is the contract):
-//   railtx.Config{Consensus node.Consensus; Reader node.Reader; Key railtx.KeySource;
-//     GasLimit, Fee uint64 (Fee in base units of the bond denom)}
-//   railtx.New(ccfg railtx.Config) (*railtx.Rail, error)   // *Rail satisfies transfer.Rail
-//   railtx.KeyFromSecret(secret.Secret) railtx.KeySource    // Reveal() = 32-byte secp256k1 scalar
-//   railtx.KeyFromKeyring(dir, name string, passphrase secret.Secret) railtx.KeySource // "file" backend
-//   (*Rail).Address(ctx) (string, error)
-//   sentinels: ErrFeeAboveMax, ErrChainMismatch, ErrSignerMismatch, ErrBadBody,
-//     ErrSequenceMismatch (broadcast refused: account sequence differs; NOT a success),
-//     ErrIndeterminate (timeout/context/unreachable: outcome unknown, fail closed)
-//   Broadcast: node answering "already in mempool/cache" (node.ErrAlreadyInMempool, assumed)
-//     is idempotent success (nil); node.ErrSequenceMismatch (assumed) -> railtx.ErrSequenceMismatch.
-//   Status: node.TxStatus{Found:false} -> TxUnknown; Found && Height==0 -> TxPending;
-//     Found && Height>0 -> TxCommitted{Height, Code}.
-
 var bg = context.Background()
 
 type vec struct {
@@ -383,8 +368,6 @@ func TestKeyFromKeyring(t *testing.T) {
 	v := f.Signed[0]
 	dir := t.TempDir()
 	pass := secret.New([]byte("correct horse battery"))
-	// Assumed helper: railtx.ImportKeyring creates a file-backend keyring entry
-	// from a raw secp256k1 key (used by tests and edicta-live setup).
 	require.NoError(t, railtx.ImportKeyring(dir, "executor", pass, secret.New(unhex(t, v.Key.Priv))))
 
 	cons := nodefake.NewConsensus(v.ChainID)

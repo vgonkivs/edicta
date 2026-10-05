@@ -407,6 +407,10 @@ func buildVerifier(ctx context.Context, cfg Config, chainID string, rd node.Read
 		if err != nil {
 			return nil, 0, "", closeFn, fmt.Errorf("crosscheck token: %w", err)
 		}
+		own, err := bridgeID(cfg.BridgeAddr, cfg.BridgeTLS)
+		if err != nil {
+			return nil, 0, "", closeFn, cfgErr("--bridge-addr: %v", err)
+		}
 		var srcs []inclusion.Source
 		for _, a := range cfg.CrossBridges {
 			u, err := node.BridgeURL(a, cfg.CrossTLS)
@@ -419,7 +423,11 @@ func buildVerifier(ctx context.Context, cfg Config, chainID string, rd node.Read
 			}
 			prev := closeFn
 			closeFn = func() { prev(); _ = c.Close() }
-			srcs = append(srcs, inclusion.Source{Name: a, Headers: r})
+			id, err := bridgeID(a, cfg.CrossTLS)
+			if err != nil {
+				return nil, 0, "", closeFn, cfgErr("--crosscheck-bridge %s: %v", a, err)
+			}
+			srcs = append(srcs, inclusion.Source{Name: a, ID: id, Headers: r, SubmitterControlled: id == own})
 		}
 		cv, err := inclusion.NewCrossCheck(inclusion.CrossCheckConfig{ChainID: chainID, Sources: srcs, Proofs: rd})
 		if err != nil {

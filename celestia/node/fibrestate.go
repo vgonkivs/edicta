@@ -18,6 +18,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/grpc/cmtservice"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const hostQueryTimeout = 15 * time.Second
@@ -61,6 +63,11 @@ func (s *fibreState) Start(ctx context.Context) error {
 	s.chainID = strings.TrimSpace(r.DefaultNodeInfo.Network)
 	all, err := s.vals.AllBondedFibreProviders(ctx, &valtypes.QueryAllBondedFibreProvidersRequest{})
 	if err != nil {
+		// Hosts are also resolved lazily by GetHost; a chain without the
+		// module must still be usable for plain blob submission.
+		if status.Code(err) == codes.Unimplemented {
+			return nil
+		}
 		return fmt.Errorf("start host registry: %w", err)
 	}
 	s.mu.Lock()

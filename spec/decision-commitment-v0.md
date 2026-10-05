@@ -2,7 +2,7 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v0-draft.13` (2026-10-04). Working draft, subject to change.
+Status: revision `v0-draft.14` (2026-10-05). Working draft, subject to change.
 Wire version: `version = 0`. Domain tags: `edicta/v0/...`.
 
 The core knows no rail, broker or chain. An action is an opaque byte string
@@ -45,6 +45,7 @@ signature even if the byte layout were identical.
 | `v0-draft.11` | 2026-10-04 | Publish request review. (1) `publish_message` gains the Recorder's `gate_id` with a one-byte length, right after the tag: a request is valid at one server only. The wire request is unchanged; the server fills in its own `gate_id`, as for record requests. (2) New rule PR6: dedupe by `SHA-256(blob)`; the same blob inside its window is published once and every accepted retry gets the same response. Quotas move to PR7 and are not charged for a deduplicated request. (3) Threat rows and section 17 notes updated: cross-Recorder replay is closed. Bank-send profile `bank-send-v0-draft.2` (timeout budget, resend stop) at the same time. | Changed: `publish_message` (70..196 bytes) and so every publish signature. Unchanged: everything else | Regenerated: `spec/vectors/api/publish_request.json` (`v0-draft.11`; 2 new rejects). Every other core and dca-agent file byte-identical. |
 | `v0-draft.12` | 2026-10-04 | HTTP API, additive. (1) New section 18: endpoints `POST /v0/publish`, `POST /v0/authorize`, `POST /v0/record`, `GET /v0/health`; `application/cbor` bodies; request, response and error body shapes reusing the canonical encodings; status and retry semantics; the error table (first match wins), with 409 carrying the stored Authorization only under the retry rule of section 8.7 and the stored receipt for `ErrReceiptExists`. (2) Section 12: the operational and HTTP-layer sentinels that cross the API get stable names (`gate.ErrChainUnavailable` and others, `recorder.*`, `edictaapi.*`). | Unchanged: every existing message, tag and check outcome. New: HTTP wrapper shapes and the error body | New: `spec/vectors/api/errors.json` (`v0-draft.12`), generator `gen_api_errors.py`, checker `check_api_errors.py`. Every existing file byte-identical. |
 | `v0-draft.13` | 2026-10-04 | Single DA per instance. Section 7: the 256 KiB Recorder split between `celestia_blob` and `fibre` is replaced by a normative deployment rule: one DA per gate/Recorder instance, chosen by configuration; a payload that does not fit it is refused; switching DA is a restart with another configuration, after which commitments for the other DA fail C3. "Routing" wording for the gate's K2 choice between the DA and archive paths is renamed "path selection" (no change in meaning). | Unchanged | Every file byte-identical. |
+| `v0-draft.14` | 2026-10-05 | HTTP error mapping (section 18.3): `recorder.ErrNodeUnavailable` and `recorder.ErrTooManyPending` added to section 12 and mapped to 503, retryable, matched after `recorder.ErrNotVisible`. Before this they fell through to 500 `edictaapi.ErrInternal`, so the status and retry advice for these failures change. | Unchanged | `spec/vectors/api/errors.json` regenerated: the two entries (74 codes) and `"revision": "v0-draft.14"`. Every other file byte-identical. |
 
 ## 1. Threat model in one table
 
@@ -1633,6 +1634,8 @@ have stable names, because the API reports them as codes:
 | `recorder.ErrOutcomeUnknown` | A submission may or may not have reached the chain; a retry is deduplicated (PR6) | 503 |
 | `recorder.ErrNotVisible` | The anchor was not visible on the read node in time | 503 |
 | `recorder.ErrSignerMismatch` | The node shows the anchored blob under another signer or share version | 502 |
+| `recorder.ErrNodeUnavailable` | The Recorder's node could not be read (for example the head) before anything was submitted | 503 |
+| `recorder.ErrTooManyPending` | Too many blobs have an unresolved submission outcome; new publishes wait until they resolve | 503 |
 | `edictaapi.ErrTokenInvalid` | Missing or wrong bearer token on an endpoint that requires one | 401 |
 | `edictaapi.ErrRouteNotFound` | No such path | 404 |
 | `edictaapi.ErrMethodNotAllowed` | Wrong HTTP method for the path | 405 |
@@ -1696,7 +1699,7 @@ keeps its bytes and its `"revision": "v0-draft.9"` field):
 |---|---|
 | `spec/vectors/api/publish_request.json` | Section 17 (`"revision": "v0-draft.11"`). `tag`, `publish_window_s`, `request_overhead`, `patterns`, `server` (`gate_id`, `now`, `skew_s`, `max_blob_bytes`, `allowlist` of `agent_id` -> public key, `gate_keys`). `cases`: `signer`, `agent_id`, `requested_at`, the blob as `blob_hex` or `blob_pattern` + `blob_size`, `blob_sha256_hex`, `publish_message_hex`, `signature_hex`, and `request_cbor_hex` (or `request_size` + `request_sha256_hex` for a pattern blob). `reject`: `id`, `stage`, `rule`, `description`, `request_cbor_hex`, optional `server` overrides, one `expect_error`. `response`: `commitment_ref` (a `valid.json` id), `payload_ref_cbor_hex`, `block_time`, `retention_start`, `response_cbor_hex`. 7 cases, 30 rejects, 1 response. PR6 and PR7 are stateful and have no vectors. Generated by `gen_api_vectors.py`, checked by `check_api_vectors.py`. |
 
-| File (`v0-draft.12`) | Contents |
+| File (`v0-draft.12`, regenerated in `v0-draft.14`) | Contents |
 |---|---|
 | `spec/vectors/api/errors.json` | Section 18. `statuses` (status -> `retryable`); `errors` in match order: `code`, `status`, `retryable`, `stored` (`none`, `authorization` or `receipt`), `endpoints`, `rules`; `not_api_visible`: every other name in section 12 with the reason it never crosses the API; `examples`: per endpoint, `request_cbor_hex` (or none for `GET /v0/health`), `status`, `response_cbor_hex`, with refs into the core vectors. Generated by `gen_api_errors.py`, checked by `check_api_errors.py`, which also parses section 12 of this document and fails if a sentinel there is neither mapped nor listed as not API-visible. |
 
@@ -2449,7 +2452,7 @@ listed first.
 | 425 | `ErrNotYetValid`, `ErrAnchorNotFound` |
 | 429 | `edictaapi.ErrQuotaExceeded` |
 | 502 | `recorder.ErrSignerMismatch` |
-| 503 | `ErrPayloadUnavailable`, `ErrRetentionUnavailable`, `ErrChainUnavailable`, `ErrAllowlistUnavailable`, `ErrRegistryUnavailable`, `ErrClockRegression`, `ErrClosed`, `recorder.ErrOutcomeUnknown`, `recorder.ErrNotVisible` |
+| 503 | `ErrPayloadUnavailable`, `ErrRetentionUnavailable`, `ErrChainUnavailable`, `ErrAllowlistUnavailable`, `ErrRegistryUnavailable`, `ErrClockRegression`, `ErrClosed`, `recorder.ErrOutcomeUnknown`, `recorder.ErrNotVisible`, `recorder.ErrNodeUnavailable`, `recorder.ErrTooManyPending` |
 | 504 | `edictaapi.ErrDeadline` |
 | 500 | `edictaapi.ErrInternal` (anything else) |
 

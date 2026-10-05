@@ -65,8 +65,9 @@ type Store interface {
 	Begin(ctx context.Context, h commitment.Hash, expires uint64) error
 	// Prepare stores the signed transaction of a begun record.
 	Prepare(ctx context.Context, h commitment.Hash, p Prepared) error
-	// Finish records the block that included the transaction. Repeating it
-	// with the same values is not an error.
+	// Finish records the block that included the transaction, also for a
+	// record already handed off. Repeating it with the same values is not an
+	// error.
 	Finish(ctx context.Context, h commitment.Hash, height uint64, code uint32) error
 	// HandOff closes a prepared record as not included; terminal.
 	HandOff(ctx context.Context, h commitment.Hash, reason string) error
@@ -76,7 +77,10 @@ type Store interface {
 	Get(ctx context.Context, h commitment.Hash) (Record, error)
 }
 
-// MemStore is an in-memory Store. It does not survive a restart.
+// MemStore is an in-memory Store for tests and one-shot demos. It is not
+// durable: it does not meet the Prepare-durable rule, so after a restart an
+// executor would not know it already signed a transaction for a decision and
+// could sign a second one. A long-lived executor needs a durable Store.
 type MemStore struct {
 	mu sync.Mutex
 	m  map[commitment.Hash]Record
@@ -124,7 +128,7 @@ func (s *MemStore) Finish(_ context.Context, h commitment.Hash, height uint64, c
 	switch {
 	case r.State == StateFinished && r.Height == height && r.Code == code:
 		return nil
-	case r.State != StatePrepared:
+	case r.State != StatePrepared && r.State != StateHandedOff:
 		return fmt.Errorf("transfer: cannot finish a record in state %d", r.State)
 	}
 	r.State, r.Height, r.Code = StateFinished, height, code

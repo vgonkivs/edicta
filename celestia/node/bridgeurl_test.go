@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Assumed symbol: BridgeURL(addr string, tls bool) (string, error). A bare
+// A bare
 // host:port becomes http:// or https:// by the flag; a URL must agree with the flag.
 func TestBridgeURL(t *testing.T) {
 	for _, tc := range []struct {

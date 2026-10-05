@@ -12,19 +12,6 @@ import (
 	"github.com/vgonkivs/edicta/celestia/railtx"
 )
 
-// Assumed symbols (package main):
-//   Config.FeeMargin string (decimal, no floats), flag --fee-margin; "" or "0" means
-//     railtx.DefaultFeeMargin (6/5); malformed or negative is a config error.
-//   railtx.GasPriceSource.MinGasPrice returns *big.Rat.
-//   --fee default is 0, meaning "derive from the node's minimum_gas_price".
-//   resolveFee(ctx context.Context, c Config, src railtx.GasPriceSource) (uint64, error):
-//     c.Fee != 0 -> returned as is, src never asked; otherwise
-//     railtx.DeriveFee(ctx, src, c.GasLimit, c.FeeMargin); a result above
-//     c.MaxFee is an error wrapping railtx.ErrFeeAboveMax. An explicit
-//     --gas-limit feeds the derivation.
-//   parseFlags normalises --bridge-addr to a URL (node.BridgeURL with --bridge-tls);
-//     a scheme that disagrees with --bridge-tls is a config error.
-
 type price struct {
 	p   *big.Rat
 	err error

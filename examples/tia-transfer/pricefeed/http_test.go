@@ -43,11 +43,19 @@ func krakenObserve(t *testing.T, s *httptest.Server) (pricefeed.Observation, err
 }
 
 func TestKrakenParsesWithoutFloats(t *testing.T) {
-	s := serve(t, `{"error":[],"result":{"TIAUSD":{"c":["4.1234","1.0"]}}}`)
+	// observed_at is the source's time (Trades or OHLC); a ticker carries none.
+	s := krakenServer(t,
+		`{"error":[],"result":{"TIAUSD":{"c":["4.1234","1.0"]}}}`,
+		`{"error":[],"result":{"TIAUSD":[["4.1234","1.0",1791000000.1234,"b","l",""]],"last":"1791000000123400000"}}`,
+		`{"error":[],"result":{"TIAUSD":[[1791000000,"4.0","4.2","3.9","4.1234","4.1","10.0",5]],"last":1791000000}}`)
 	got, err := krakenObserve(t, s)
 	require.NoError(t, err)
 	assert.Equal(t, uint64(4_12340000), got.Price)
+	assert.Equal(t, krakenTime, got.ObservedAt, "the source's time, not the fetch time")
 	assert.NotEmpty(t, got.Source)
+
+	_, err = krakenObserve(t, serve(t, `{"error":[],"result":{"TIAUSD":{"c":["4.1234","1.0"]}}}`))
+	assert.Error(t, err, "ticker-only has no source timestamp")
 }
 
 func TestFeedsRefuseBadAnswers(t *testing.T) {

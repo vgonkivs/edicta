@@ -3,9 +3,11 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/vgonkivs/edicta/celestia/edictad"
@@ -71,6 +74,26 @@ func run() error {
 	return srv.Shutdown(sctx)
 }
 
+// consensusConn is the consensus client adapters needs.
+type consensusConn interface {
+	node.Consensus
+	Close() error
+}
+
+// The seams let tests check the order of the startup steps without a network.
+var (
+	newConsensusFn = func(g node.GRPCConfig) (consensusConn, error) { return node.NewConsensus(g) }
+	newReadOnlyFn  = func(ctx context.Context, b node.BridgeConfig) (io.Closer, node.Reader, error) {
+		return node.NewReadOnly(ctx, b)
+	}
+	checkFn       = node.Check
+	openKeyringFn = node.OpenKeyring
+	newSigningFn  = func(ctx context.Context, b node.BridgeConfig, g node.GRPCConfig, kr keyring.Keyring,
+		keyName, network string) (io.Closer, node.Reader, node.Submitter, error) {
+		return node.NewSigning(ctx, b, g, kr, keyName, network)
+	}
+)
+
 // adapters builds the real node adapters. The Recorder's keyring is its own:
 // the executor signs with a different key in a different keyring, never here.
 // closeAll releases every connection and is safe to call once.
@@ -90,7 +113,7 @@ func adapters(ctx context.Context, cfg edictad.Config, log *slog.Logger) (node.R
 	}
 	g := node.GRPCConfig{Addr: cfg.Network.ConsensusGRPC.Addr, TLS: cfg.Network.ConsensusGRPC.TLS, Token: consTok,
 		AllowInsecureToken: loopbackAddr(cfg.Network.ConsensusGRPC.Addr)}
-	cons, err := node.NewConsensus(g)
+	cons, err := newConsensusFn(g)
 	if err != nil {
 		return nil, nil, nil, noop, err
 	}
@@ -102,23 +125,37 @@ func adapters(ctx context.Context, cfg edictad.Config, log *slog.Logger) (node.R
 	}
 	closers = append(closers, func() { _ = cons.Close() })
 
+	rc, rd, err := newReadOnlyFn(ctx, b)
+	if err != nil {
+		closeAll()
+		return nil, nil, nil, noop, err
+	}
+	closers = append(closers, func() { _ = rc.Close() })
 	if !cfg.Recorder.Enabled {
-		rc, rd, err := node.NewReadOnly(ctx, b)
-		if err != nil {
-			closeAll()
-			return nil, nil, nil, noop, err
-		}
-		closers = append(closers, func() { _ = rc.Close() })
 		return rd, cons, nil, closeAll, nil
 	}
 
+	// The signing client starts the transaction and Fibre clients, so the
+	// chain is vetted first and an unsupported one fails with a clear error.
+	ns, err := hex.DecodeString(cfg.Recorder.Namespace)
+	if err != nil {
+		closeAll()
+		return nil, nil, nil, noop, fmt.Errorf("recorder namespace: %w", err)
+	}
+	if _, err := checkFn(ctx, rd, cons, node.Expect{
+		ChainID: cfg.Network.ChainID, MinAppVersion: cfg.Network.MinAppVersion,
+		MaxAppVersion: cfg.Network.MaxAppVersion, Namespace: ns,
+	}); err != nil {
+		closeAll()
+		return nil, nil, nil, noop, fmt.Errorf("compatibility check: %w", err)
+	}
 	pass, err := secret.FromFile(cfg.Recorder.PassphraseFile)
 	if err != nil {
 		closeAll()
 		return nil, nil, nil, noop, fmt.Errorf("passphrase file: %w", err)
 	}
 	pb := pass.Reveal()
-	kr, err := node.OpenKeyring(node.KeyringConfig{
+	kr, err := openKeyringFn(node.KeyringConfig{
 		Dir: cfg.Recorder.KeyringDir, Name: cfg.Recorder.KeyName, Backend: cfg.Recorder.KeyringBackend,
 		AllowTest: cfg.Recorder.AllowTestKeyring, Passphrase: pb, Logger: log,
 	})
@@ -133,13 +170,13 @@ func adapters(ctx context.Context, cfg edictad.Config, log *slog.Logger) (node.R
 		closeAll()
 		return nil, nil, nil, noop, fmt.Errorf("consensus node: %w", err)
 	}
-	c, rd, sub, err := node.NewSigning(ctx, b, g, kr, cfg.Recorder.KeyName, network)
+	c, srd, sub, err := newSigningFn(ctx, b, g, kr, cfg.Recorder.KeyName, network)
 	if err != nil {
 		closeAll()
 		return nil, nil, nil, noop, err
 	}
 	closers = append(closers, func() { _ = c.Close() })
-	return rd, cons, recorder.NewLocalSubmitter(sub), closeAll, nil
+	return srd, cons, recorder.NewLocalSubmitter(sub), closeAll, nil
 }
 
 func readToken(path string) (string, error) {

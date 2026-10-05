@@ -38,8 +38,7 @@ func minPriceClient(t *testing.T, price string) *ConsensusClient {
 	return c
 }
 
-// Assumed symbol: (*ConsensusClient).MinGasPrice(ctx) (*big.Rat, error), exact, also a
-// method of the Consensus interface: the node's minimum_gas_price in bond
+// MinGasPrice is exact (*big.Rat): the node's minimum_gas_price in bond
 // denom per gas unit, read from cosmos.base.node.v1.Service/Config.
 func TestMinGasPrice(t *testing.T) {
 	for _, tc := range []struct {

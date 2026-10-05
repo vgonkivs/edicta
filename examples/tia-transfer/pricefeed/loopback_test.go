@@ -35,7 +35,8 @@ func TestCoinGeckoKeepsTheReportedObservationTime(t *testing.T) {
 }
 
 func TestKrakenIdentityComesFromConfig(t *testing.T) {
-	s := loopback(t, `{"error":[],"result":{"TIAUSD":{"c":["4.1234","1.0"]}}}`)
+	// Ticker-only must error (no source time), so serve a Trades fixture.
+	s := loopback(t, `{"error":[],"result":{"TIAUSD":[["4.1234","1.0",1791000000.1234,"b","l",""]],"last":"1791000000123400000"}}`)
 
 	f, err := pricefeed.NewKraken(s.URL, "TIAUSD", "celestia", "USD", s.Client())
 	require.NoError(t, err)

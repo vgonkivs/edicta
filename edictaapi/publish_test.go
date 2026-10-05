@@ -81,12 +81,12 @@ func TestPublishMessageRejectsBadInputs(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
-	m1, err := edictaapi.PublishMessage("g", "a", 1, blob)
+	msgA, err := edictaapi.PublishMessage("g", "a", 1, blob)
 	require.NoError(t, err)
-	m2, err := edictaapi.PublishMessage("h", "a", 1, blob)
+	msgB, err := edictaapi.PublishMessage("h", "a", 1, blob)
 	require.NoError(t, err)
-	require.NotEqual(t, m1, m2, "the server's gate_id is bound into the message")
-	require.Equal(t, byte(0x19), m1[0])
+	require.NotEqual(t, msgA, msgB, "the server's gate_id is bound into the message")
+	require.Equal(t, byte(0x19), msgA[0])
 }
 
 func TestPublishAcceptedVectors(t *testing.T) {

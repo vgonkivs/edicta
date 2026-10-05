@@ -49,6 +49,8 @@ const (
 	defaultMaxTimeoutBlocks = 200
 	defaultRebroadcastEvery = 10 * time.Second
 	handOffReason           = "not included by timeout_height"
+	defaultHandOffGrace     = 10 * time.Minute
+	rejectRecheckDelay      = 2 * time.Second
 )
 
 // TxState is what the chain knows about a transaction.
@@ -105,6 +107,10 @@ type Config struct {
 	MaxTimeoutBlocks uint64
 	// RebroadcastEvery is the resend interval; zero means 10 seconds.
 	RebroadcastEvery time.Duration
+	// HandOffGrace is how long after the Authorization expires the executor
+	// keeps watching a transaction whose timeout height the head has not
+	// passed (a stalled chain); zero means 10 minutes.
+	HandOffGrace time.Duration
 	// SignKey signs record requests. Optional; it must not be the chain key.
 	SignKey ed25519.PrivateKey
 }
@@ -141,6 +147,8 @@ func NewExecutor(cfg Config, d Domain, r Rail, s Store, c Clock) (*Executor, err
 		return nil, bad("skew %d above %d", cfg.SkewS, maxSkewS)
 	case cfg.MaxTimeoutBlocks > bankaction.MaxTimeoutBlocks:
 		return nil, bad("max timeout blocks above %d", bankaction.MaxTimeoutBlocks)
+	case cfg.HandOffGrace < 0:
+		return nil, bad("negative hand-off grace")
 	case cfg.RebroadcastEvery < 0:
 		return nil, bad("negative rebroadcast interval")
 	case cfg.SignKey != nil && len(cfg.SignKey) != ed25519.PrivateKeySize:
@@ -155,6 +163,9 @@ func NewExecutor(cfg Config, d Domain, r Rail, s Store, c Clock) (*Executor, err
 	cfg.Destinations = append([]string(nil), cfg.Destinations...)
 	if cfg.MaxTimeoutBlocks == 0 {
 		cfg.MaxTimeoutBlocks = defaultMaxTimeoutBlocks
+	}
+	if cfg.HandOffGrace == 0 {
+		cfg.HandOffGrace = defaultHandOffGrace
 	}
 	if cfg.RebroadcastEvery == 0 {
 		cfg.RebroadcastEvery = defaultRebroadcastEvery
@@ -322,12 +333,26 @@ func (e *Executor) resolve(ctx context.Context, h commitment.Hash, rec Record) (
 	case StateFinished:
 		return outcome(rec.Prepared.Hash, rec.Height, rec.Code)
 	case StateHandedOff:
-		return Result{TxHash: rec.Prepared.Hash}, ErrHandedOff
+		return e.reconcile(ctx, h, rec)
 	case StateAbandoned:
 		return Result{}, ErrAbandoned
 	default:
 		return Result{}, fmt.Errorf("transfer: record in state %d", rec.State)
 	}
+}
+
+// reconcile looks a handed-off transaction up once: it may have been included
+// after the hand-off was written. Nothing is signed or sent.
+func (e *Executor) reconcile(ctx context.Context, h commitment.Hash, rec Record) (Result, error) {
+	res := Result{TxHash: rec.Prepared.Hash}
+	st, err := e.rail.Status(ctx, rec.Prepared.Hash)
+	if err != nil {
+		return res, fmt.Errorf("%w: status: %w", ErrHandedOff, err)
+	}
+	if st.State != TxCommitted {
+		return res, ErrHandedOff
+	}
+	return e.finish(ctx, h, rec.Prepared.Hash, st)
 }
 
 func outcome(hash [32]byte, height uint64, code uint32) (Result, error) {
@@ -340,8 +365,11 @@ func outcome(hash [32]byte, height uint64, code uint32) (Result, error) {
 
 // drive sends the stored transaction until it is included, then ends the
 // record. It sends only while the Authorization is valid by the wall clock and
-// the chain has not passed the timeout height; the status is looked up before
-// every send so an included transaction is never sent again.
+// the chain has not passed the timeout height, and looks the status up before
+// every send so an included transaction is never sent again. After the
+// Authorization runs out it only watches: the transaction may still be
+// included until the timeout height, so the hand-off waits for a status check
+// made with a head past it.
 func (e *Executor) drive(ctx context.Context, h commitment.Hash, p Prepared) (Result, error) {
 	res := Result{TxHash: p.Hash}
 	var lastSendErr error
@@ -353,34 +381,40 @@ func (e *Executor) drive(ctx context.Context, h commitment.Hash, p Prepared) (Re
 		height, _, _, headErr := e.rail.Head(ctx)
 		pastTimeout := headErr == nil && height > p.TimeoutHeight
 
+		// The status is read after the head, so a transaction included
+		// before that head is seen here.
 		st, statusErr := e.rail.Status(ctx, p.Hash)
 		if statusErr == nil && st.State == TxCommitted {
-			if err := e.store.Finish(ctx, h, st.Height, st.Code); err != nil {
-				return res, fmt.Errorf("transfer: finish: %w", err)
-			}
-			return outcome(p.Hash, st.Height, st.Code)
+			return e.finish(ctx, h, p.Hash, st)
 		}
-		if !live || pastTimeout {
+		graceOver := e.now() >= p.Expires && e.now()-p.Expires >= uint64(e.cfg.HandOffGrace/time.Second)
+		if pastTimeout || graceOver {
 			if statusErr != nil {
 				return res, fmt.Errorf("transfer: final status: %w", statusErr)
 			}
-			if err := e.store.HandOff(ctx, h, handOffReason); err != nil {
+			bound := fmt.Sprintf("head %d is past timeout_height %d", height, p.TimeoutHeight)
+			if !pastTimeout {
+				bound = fmt.Sprintf("hand-off grace of %s after expiry has passed while timeout_height %d is not reached; the transaction may still be included until then",
+					e.cfg.HandOffGrace, p.TimeoutHeight)
+			}
+			reason := fmt.Sprintf("%s: %s (tx %x)", handOffReason, bound, p.Hash)
+			if err := e.store.HandOff(ctx, h, reason); err != nil {
 				return res, fmt.Errorf("transfer: hand off: %w", err)
 			}
 			if lastSendErr != nil {
-				return res, fmt.Errorf("%w: last broadcast error: %w", ErrHandedOff, lastSendErr)
+				return res, fmt.Errorf("%w: %s (tx %x): last broadcast error: %w", ErrHandedOff, bound, p.Hash, lastSendErr)
 			}
-			return res, ErrHandedOff
+			return res, fmt.Errorf("%w: %s (tx %x)", ErrHandedOff, bound, p.Hash)
 		}
-		if headErr == nil {
+		if !live && headErr != nil {
+			return res, fmt.Errorf("transfer: head after the authorization expired: %w", headErr)
+		}
+		if live && headErr == nil {
 			// A transient failure is retried with the same bytes on the next
 			// turn; a final rejection ends the attempt.
 			lastSendErr = e.rail.Broadcast(ctx, p.TxRaw)
 			if errors.Is(lastSendErr, ErrRejected) {
-				if err := e.store.HandOff(ctx, h, handOffReason); err != nil {
-					return res, errors.Join(lastSendErr, fmt.Errorf("transfer: hand off: %w", err))
-				}
-				return res, fmt.Errorf("%w: %w", ErrHandedOff, lastSendErr)
+				return e.rejected(ctx, h, p, lastSendErr)
 			}
 		}
 		select {
@@ -389,6 +423,37 @@ func (e *Executor) drive(ctx context.Context, h commitment.Hash, p Prepared) (Re
 		case <-e.clock.After(e.cfg.RebroadcastEvery):
 		}
 	}
+}
+
+func (e *Executor) finish(ctx context.Context, h commitment.Hash, hash [32]byte, st TxStatus) (Result, error) {
+	if err := e.store.Finish(ctx, h, st.Height, st.Code); err != nil {
+		return Result{TxHash: hash}, fmt.Errorf("transfer: finish: %w", err)
+	}
+	return outcome(hash, st.Height, st.Code)
+}
+
+// rejected ends a transfer the node refused. The refusal can come from a
+// resend of a transaction that was included in the meantime (the ante checks
+// may fail before the sequence check does), so the chain is asked once more
+// after a short wait before anything is handed off.
+func (e *Executor) rejected(ctx context.Context, h commitment.Hash, p Prepared, cause error) (Result, error) {
+	res := Result{TxHash: p.Hash}
+	select {
+	case <-ctx.Done():
+		return res, errors.Join(cause, ctx.Err())
+	case <-e.clock.After(rejectRecheckDelay):
+	}
+	st, err := e.rail.Status(ctx, p.Hash)
+	if err != nil {
+		return res, errors.Join(cause, fmt.Errorf("transfer: status after the rejection: %w", err))
+	}
+	if st.State == TxCommitted {
+		return e.finish(ctx, h, p.Hash, st)
+	}
+	if err := e.store.HandOff(ctx, h, "rejected by the node: "+cause.Error()); err != nil {
+		return res, errors.Join(cause, fmt.Errorf("transfer: hand off: %w", err))
+	}
+	return res, fmt.Errorf("%w: %w", ErrHandedOff, cause)
 }
 
 // RecordRequest signs the executor's claim that railRef belongs to the

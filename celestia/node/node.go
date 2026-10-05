@@ -25,6 +25,9 @@ var (
 	// ErrRejected means the node checked a broadcast transaction and refused
 	// it for a reason other than the two above; resending will not help.
 	ErrRejected = errors.New("node: tx rejected")
+	// ErrMempoolFull means the node's mempool had no room; the same bytes
+	// may be accepted later.
+	ErrMempoolFull = errors.New("node: mempool full")
 )
 
 // Header is the part of a block header Edicta reads.

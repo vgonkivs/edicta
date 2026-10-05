@@ -166,6 +166,7 @@ const (
 	sdkCodespace         = "sdk"
 	codeWrongSequence    = 32
 	codeTxInMempoolCache = 19
+	codeMempoolFull      = 20
 )
 
 // Broadcast sends txRaw unchanged in sync mode and returns its hash, the
@@ -193,6 +194,8 @@ func (c *ConsensusClient) Broadcast(ctx context.Context, txRaw []byte) ([32]byte
 			return want, fmt.Errorf("%w: %s", ErrAlreadyInMempool, tr.RawLog)
 		case tr.Codespace == sdkCodespace && tr.Code == codeWrongSequence:
 			return [32]byte{}, fmt.Errorf("%w: %s", ErrSequenceMismatch, tr.RawLog)
+		case tr.Codespace == sdkCodespace && tr.Code == codeMempoolFull:
+			return [32]byte{}, fmt.Errorf("%w: codespace %q code %d: %s", ErrMempoolFull, tr.Codespace, tr.Code, tr.RawLog)
 		}
 		return [32]byte{}, fmt.Errorf("%w: codespace %q code %d: %s", ErrRejected, tr.Codespace, tr.Code, tr.RawLog)
 	}

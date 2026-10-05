@@ -16,18 +16,6 @@ import (
 	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
 )
 
-// Assumed symbols:
-//   railtx.ErrRejected: final; Broadcast maps node.ErrRejected to it (never to
-//     ErrIndeterminate), keeping the node's code and log in the message. It
-//     also satisfies errors.Is(err, transfer.ErrRejected) (assumed new sentinel
-//     in the transfer package; railtx.ErrRejected may be that same value).
-//   railtx.DefaultFeeMargin = big.NewRat(6, 5)
-//   railtx.DeriveFee(ctx, src railtx.GasPriceSource, gasLimit uint64, margin *big.Rat) (uint64, error)
-//     fee = ceil(gasLimit * minGasPrice * margin); nil or zero margin means DefaultFeeMargin; exact big.Rat math, no floats;
-//     a result above MaxUint64 is an error, a negative margin or price is an error.
-//   railtx.GasPriceSource interface { MinGasPrice(ctx context.Context) (*big.Rat, error) }
-//     (satisfied by node.Consensus, which gains MinGasPrice).
-
 type rejectingCons struct {
 	*nodefake.Consensus
 	bErr  error

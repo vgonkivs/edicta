@@ -1,26 +1,7 @@
 package edictad_test
 
-// Assumed API of package celestia/edictad (007k), all of it used below:
-//
-//	var ErrConfig error                       // every config refusal wraps it
-//	type Config struct{ Network{ChainID string; MinAppVersion, MaxAppVersion uint64};
-//	    Recorder{Enabled bool; Quota{BlobsPerHour, BytesPerDay uint64}};
-//	    Gate{GateID string}; Network.DA string ("blob"|"fibre"); HTTP{Listen string} }
-//	func ParseConfig(data []byte) (Config, error)   // strict TOML, no file access
-//	type Deps struct {
-//	    Reader node.Reader; Consensus node.Consensus
-//	    Submitter recorder.Submitter   // overrides the keyring; nil + enabled = open keyring
-//	    Clock gate.Clock; Logger *slog.Logger
-//	    Listen   func(network, addr string) (net.Listener, error)  // nil = net.Listen
-//	    WrapGate func(edictaapi.Gate) edictaapi.Gate               // test seam, nil = identity
-//	}
-//	func Start(ctx context.Context, cfg Config, d Deps) (*Server, error)
-//	func (*Server) Addr() string; Shutdown(ctx context.Context) error
-//	var ErrDANotSupported error  // da = "fibre" at Start (007l2); health.AllowedDA = [2] for blob
-//
 // Start order: secret files (mode) -> node.Check -> gate.Preflight -> open
-// registry -> recorder -> Listen. Secret files: gate key = 32-byte raw seed;
-// agents file = TOML [[agents]] agent_id, pubkey(hex).
+// registry -> recorder -> Listen.
 
 import (
 	"bytes"

@@ -9,8 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Assumed symbol: ErrBadPassphrase, wrapping ErrKeyring, returned by
-// OpenKeyring when the file backend cannot decrypt with the given passphrase.
+// ErrBadPassphrase wraps ErrKeyring and is returned by OpenKeyring when the file backend cannot decrypt with the given passphrase.
 func TestOpenKeyringWrongPassphraseFailsWithoutReadingStdin(t *testing.T) {
 	dir := t.TempDir()
 	makeKey(t, dir, keyring.BackendFile, "executor", "right-passphrase")

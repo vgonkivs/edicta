@@ -172,18 +172,20 @@ func TestAmbiguousSubmitNeverDoubleSubmits(t *testing.T) {
 			assert.Equal(t, genesis+1, p.Ref.Height)
 		})
 		t.Run(name+" not landed", func(t *testing.T) {
+			// A scan miss is not proof the first tx is gone.
 			ch := newChain()
 			sub := newLanding(ch)
 			sub.Err, sub.NoLand = e, true
 			rec := mk(t, cfg(), sub, ch)
 			blob := []byte("same bytes")
 			_, err := rec.Publish(bg, blob)
-			require.Error(t, err)
+			require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
 			sub.Err, sub.NoLand = nil, false
-			p, err := rec.Publish(bg, blob)
-			require.NoError(t, err)
-			assert.Equal(t, 2, sub.Calls, "not on chain: submitted again")
-			assert.NotZero(t, p.Ref.Height)
+			for i := 0; i < 3; i++ {
+				_, err = rec.Publish(bg, blob)
+				require.ErrorIs(t, err, recorder.ErrOutcomeUnknown, "retry %d", i)
+			}
+			assert.Equal(t, 1, sub.Calls, "a scan miss never resubmits")
 		})
 	}
 }

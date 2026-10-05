@@ -353,29 +353,6 @@ func TestHandsOffAfterTimeoutHeight(t *testing.T) {
 	assert.False(t, r.store.has("finish"))
 }
 
-func TestHandsOffAtExpiryByTheWallClock(t *testing.T) {
-	r := newRig(t)
-	r.rail.frozen = true // the chain stalls: only the wall clock can end the loop
-	action := actionBytes(t, chainID, validMsg())
-	exp := nowUnix + 600
-	ctx, cancel := context.WithCancel(bg)
-	defer cancel()
-	r.rail.onBroadcast = func(n int) {
-		if n > 1000 {
-			cancel()
-		}
-	}
-	_, err := r.exec.Execute(ctx, goodAuth(t, chash(5), action), action)
-	require.ErrorIs(t, err, transfer.ErrHandedOff)
-	require.NoError(t, ctx.Err(), "the loop ended on its own")
-	require.Greater(t, r.rail.broadcastCalls(), 1)
-	for _, ts := range r.rail.bcastTimes {
-		assert.Less(t, ts+skew, exp, "no broadcast at or after expires minus skew")
-	}
-	assert.Equal(t, 1, r.rail.signCalls())
-	assert.True(t, r.store.has("handoff"))
-}
-
 func TestFailedOnChainIsTerminal(t *testing.T) {
 	r := newRig(t)
 	r.rail.includeAt = headH + 1

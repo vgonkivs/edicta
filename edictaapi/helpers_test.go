@@ -28,30 +28,6 @@ import (
 	"github.com/vgonkivs/edicta/sdk"
 )
 
-// Assumed symbols of package edictaapi (007e), beyond design.md H.4:
-//
-//	type HandlerConfig struct {
-//	    GateID string; Clock gate.Clock; Skew time.Duration; MaxBlobBytes uint64
-//	    GateKeys [][]byte               // L0
-//	    ExtraErrors []ErrorRule         // consulted after the built-in table (recorder.* codes live in another module)
-//	    RequestTimeout time.Duration    // expiry maps to ErrDeadline (504)
-//	}
-//	type ErrorRule struct { Code string; Err error; Status int; Retryable bool }
-//	func PublishMessage(gateID, agentID string, requestedAt uint64, blob []byte) ([]byte, error)
-//	type PublishRequest struct { Blob []byte; AgentID string; RequestedAt uint64; Signature []byte }
-//	func EncodePublishRequest(PublishRequest) ([]byte, error)
-//	func DecodePublishRequest(b []byte, maxBlob uint64) (PublishRequest, error)
-//	type QuotaConfig struct { BlobsPerHour, BytesPerDay uint64 }
-//	func NewQuota(QuotaConfig, gate.Clock) Quota   // in-memory token buckets, safe for concurrent use
-//	type HealthInfo struct { Status uint64; ChainID string; HeadHeight, HeadTime uint64; GateID string
-//	    GatePubKey, RecorderSigner, Namespace []byte; AllowedDA []uint64 }
-//	type Secret; zero value = no token
-//	ClientOption: WithGateID(string), WithClock(gate.Clock),
-//	    WithRetry(maxAttempts int, wait func(ctx context.Context, attempt int, retryAfter time.Duration) error)
-//	sentinels: ErrPublishStale ErrTokenInvalid ErrPublishSignature ErrRouteNotFound ErrPublishDisabled
-//	    ErrMethodNotAllowed ErrQuotaExceeded ErrMediaType ErrDeadline ErrInternal
-//	*Error implements error and Is(target) (code -> root sentinel); 409 body key 4 is Error.Stored.
-
 const (
 	vecDir     = "../spec/vectors/api"
 	cborType   = "application/cbor"
@@ -327,13 +303,17 @@ var (
 	errRecSignerMis    = errors.New("recorder: signer mismatch")
 	errRecOutcomeUnk   = errors.New("recorder: outcome unknown")
 	errRecNotVisible   = errors.New("recorder: not visible")
+	errRecNodeUnavail  = errors.New("recorder: node unavailable")
+	errRecTooManyPend  = errors.New("recorder: too many pending")
 	recorderRuleStatus = map[string]int{
 		"recorder.ErrTooLarge": 413, "recorder.ErrSignerMismatch": 502,
 		"recorder.ErrOutcomeUnknown": 503, "recorder.ErrNotVisible": 503,
+		"recorder.ErrNodeUnavailable": 503, "recorder.ErrTooManyPending": 503,
 	}
 	recorderErrs = map[string]error{
 		"recorder.ErrTooLarge": errRecTooLarge, "recorder.ErrSignerMismatch": errRecSignerMis,
 		"recorder.ErrOutcomeUnknown": errRecOutcomeUnk, "recorder.ErrNotVisible": errRecNotVisible,
+		"recorder.ErrNodeUnavailable": errRecNodeUnavail, "recorder.ErrTooManyPending": errRecTooManyPend,
 	}
 )
 
@@ -343,6 +323,8 @@ func extraRules() []edictaapi.ErrorRule {
 		{Code: "recorder.ErrSignerMismatch", Err: errRecSignerMis, Status: 502},
 		{Code: "recorder.ErrOutcomeUnknown", Err: errRecOutcomeUnk, Status: 503, Retryable: true},
 		{Code: "recorder.ErrNotVisible", Err: errRecNotVisible, Status: 503, Retryable: true},
+		{Code: "recorder.ErrNodeUnavailable", Err: errRecNodeUnavail, Status: 503, Retryable: true},
+		{Code: "recorder.ErrTooManyPending", Err: errRecTooManyPend, Status: 503, Retryable: true},
 	}
 }
 

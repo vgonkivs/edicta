@@ -175,9 +175,9 @@ func TestFmtPrice(t *testing.T) {
 	assert.Equal(t, "100.00000000", fmtPrice(100_00000000))
 }
 
-// 007l2: edictad reports its single da in health (AllowedDA has one entry);
+// edictad reports its single da in health (AllowedDA has one entry);
 // edicta-live refuses when it differs from its own configured Config.DA
-// ("blob" | "fibre", assumed field).
+// ("blob" | "fibre").
 func TestCheckHealthDA(t *testing.T) {
 	blob, fibre := []uint64{uint64(commitment.DACelestiaBlob)}, []uint64{uint64(commitment.DAFibre)}
 	cases := []struct {

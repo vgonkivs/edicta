@@ -12,7 +12,10 @@ import (
 
 // Source is one header provider.
 type Source struct {
-	Name    string
+	Name string
+	// ID names the provider (for example its normalized address). Sources
+	// with the same ID are one provider; empty falls back to the Reader.
+	ID      string
 	Headers node.Reader
 	// SubmitterControlled marks the submitter's own node: it must agree but
 	// does not count toward the independent minimum.
@@ -43,16 +46,20 @@ func NewCrossCheck(cfg CrossCheckConfig) (*CrossCheck, error) {
 	if cfg.Proofs == nil {
 		return nil, fmt.Errorf("%w: no proof source", ErrConfig)
 	}
-	seen := map[node.Reader]bool{}
+	seen := map[any]bool{}
 	independent := 0
 	for _, s := range cfg.Sources {
 		if s.Headers == nil {
 			return nil, fmt.Errorf("%w: source %q has no reader", ErrConfig, s.Name)
 		}
-		if seen[s.Headers] {
+		var key any = s.Headers
+		if s.ID != "" {
+			key = s.ID
+		}
+		if seen[key] {
 			continue
 		}
-		seen[s.Headers] = true
+		seen[key] = true
 		if !s.SubmitterControlled {
 			independent++
 		}

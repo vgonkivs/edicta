@@ -202,6 +202,20 @@ func parseFlags(args []string, usage io.Writer) (Config, error) {
 	return c, nil
 }
 
+// bridgeID names the provider behind a bridge address, so the same node
+// written in different ways is recognized as one.
+func bridgeID(addr string, tls bool) (string, error) {
+	raw, err := node.BridgeURL(addr, tls)
+	if err != nil {
+		return "", err
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	return strings.ToLower(u.Host) + strings.TrimRight(u.Path, "/"), nil
+}
+
 func cfgErr(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", ErrConfig, fmt.Sprintf(format, a...))
 }
@@ -268,6 +282,28 @@ func (c Config) Validate() error {
 	case "crosscheck":
 		if len(c.CrossBridges) < 2 {
 			return cfgErr("--inclusion crosscheck needs at least two --crosscheck-bridge")
+		}
+		own, err := bridgeID(c.BridgeAddr, c.BridgeTLS)
+		if err != nil {
+			return cfgErr("--bridge-addr: %v", err)
+		}
+		seen := map[string]bool{}
+		independent := 0
+		for _, a := range c.CrossBridges {
+			id, err := bridgeID(a, c.CrossTLS)
+			if err != nil {
+				return cfgErr("--crosscheck-bridge %s: %v", a, err)
+			}
+			if seen[id] {
+				return cfgErr("--crosscheck-bridge %s is listed twice", a)
+			}
+			seen[id] = true
+			if id != own {
+				independent++
+			}
+		}
+		if independent < 2 {
+			return cfgErr("--inclusion crosscheck needs at least two --crosscheck-bridge other than --bridge-addr")
 		}
 		if c.CrossTokenFile != "" && !c.CrossTLS {
 			for _, a := range c.CrossBridges {

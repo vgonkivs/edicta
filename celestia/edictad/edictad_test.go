@@ -433,7 +433,7 @@ func TestDABlobRejectsDA1OverHTTP(t *testing.T) {
 }
 
 // Restart: the registry file survives and is reused by the next instance.
-// The fibre half of the 007l2 switch (a registry created by a fibre instance,
+// The fibre half of the DA switch (a registry created by a fibre instance,
 // nonces consumed, then reused by a blob instance) cannot be tested until the
 // Fibre DA task lands: Start refuses da = "fibre", and Deps has no committer
 // seam (the design keeps exactly one committer entry filled by edictad). The

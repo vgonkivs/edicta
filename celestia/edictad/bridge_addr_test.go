@@ -8,7 +8,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/edictad"
 )
 
-// Assumed: ParseConfig normalises [network.bridge] addr to a URL with
+// ParseConfig normalises [network.bridge] addr to a URL with
 // node.BridgeURL(addr, tls); a scheme that disagrees with tls is ErrConfig.
 func TestBridgeAddrForms(t *testing.T) {
 	e := newEnv(t)

@@ -12,13 +12,8 @@ import (
 	"github.com/celestiaorg/celestia-node/api/client"
 )
 
-// Assumed seams in package node (unexported vars the programmer must add):
-//
-//	newClientFn  func(ctx context.Context, cfg client.Config, kr keyring.Keyring) (*client.Client, error)
-//	  NewSigning calls it instead of client.New.
-//	dialStateClient func(addr string, tls bool, token string) (state.Client, error)
-//	  builds the Fibre state client; NewSigning's StateClientFn calls it with the
-//	  consensus connection's address, TLS flag and token.
+// NewSigning builds the Fibre state client through dialStateClient with the
+// consensus connection's address, TLS flag and token.
 func TestNewSigningFibreStateClientUsesConsensusTLSAndToken(t *testing.T) {
 	for _, tc := range []struct {
 		name string

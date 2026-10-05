@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v0",
-  "revision": "v0-draft.12",
+  "revision": "v0-draft.14",
   "content_type": "application/cbor",
   "endpoints": {
     "publish": {
@@ -832,6 +832,26 @@
         "/v0/publish"
       ],
       "rules": "Recorder read-back"
+    },
+    {
+      "code": "recorder.ErrNodeUnavailable",
+      "status": "503",
+      "retryable": "1",
+      "stored": "none",
+      "endpoints": [
+        "/v0/publish"
+      ],
+      "rules": "Recorder node read"
+    },
+    {
+      "code": "recorder.ErrTooManyPending",
+      "status": "503",
+      "retryable": "1",
+      "stored": "none",
+      "endpoints": [
+        "/v0/publish"
+      ],
+      "rules": "PR6, unresolved submissions"
     },
     {
       "code": "edictaapi.ErrDeadline",
