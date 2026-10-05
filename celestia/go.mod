@@ -71,7 +71,7 @@ require (
 	github.com/bgentry/speakeasy v0.2.0 // indirect
 	github.com/bits-and-blooms/bitset v1.24.6 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
-	github.com/celestiaorg/celestia-app/v10 v10.1.0-mocha
+	github.com/celestiaorg/celestia-app/v10 v10.4.0-mocha
 	github.com/celestiaorg/go-header v0.8.7 // indirect
 	github.com/celestiaorg/go-libp2p-messenger v0.2.2 // indirect
 	github.com/celestiaorg/go-square/merkle v0.0.0-20240117232118-fd78256df076 // indirect
