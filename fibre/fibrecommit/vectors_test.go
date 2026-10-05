@@ -110,12 +110,10 @@ func TestVectorsReject(t *testing.T) {
 			err := cm.Check(ref(t, c.CommitmentHex), blob)
 			require.Error(t, err)
 
+			require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
 			if uint64(len(blob)) > fibrecommit.DefaultMaxDataSize {
 				require.ErrorIs(t, err, fibrecommit.ErrTooLarge)
-				require.NotErrorIs(t, err, gate.ErrDACommitmentMismatch)
-				return
 			}
-			require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
 		})
 	}
 }
@@ -149,7 +147,7 @@ func TestCheckRejectsOtherDA(t *testing.T) {
 	r.DA = commitment.DACelestiaBlob
 
 	err = cm.Check(r, []byte{0x65})
-	require.Error(t, err)
+	require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
 	require.NotErrorIs(t, err, fibrecommit.ErrTooLarge)
 }
 
@@ -209,7 +207,7 @@ func TestConfiguredCapApplies(t *testing.T) {
 
 	err = cm.Check(r, make([]byte, 301))
 	require.ErrorIs(t, err, fibrecommit.ErrTooLarge)
-	require.NotErrorIs(t, err, gate.ErrDACommitmentMismatch)
+	require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
 
 	err = cm.Check(r, make([]byte, 300))
 	require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)

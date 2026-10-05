@@ -29,6 +29,8 @@ const (
 // commitment mismatch: nothing was computed.
 var ErrTooLarge = errors.New("fibrecommit: data above the configured cap")
 
+var errEmpty = errors.New("fibrecommit: empty blob")
+
 var errWrongDA = errors.New("fibrecommit: reference is not a Fibre reference")
 
 // Committer implements gate.DACommitter for da = 1.
@@ -52,18 +54,18 @@ func (c *Committer) MaxDataSize() uint64 { return c.max }
 // The size is checked first so an oversize input never reaches the encoder.
 func (c *Committer) Check(ref commitment.PayloadRef, blob []byte) error {
 	if uint64(len(blob)) > c.max {
-		return fmt.Errorf("%w: %d bytes, cap %d", ErrTooLarge, len(blob), c.max)
+		return fmt.Errorf("%w: %w: %d bytes, cap %d", gate.ErrDACommitmentMismatch, ErrTooLarge, len(blob), c.max)
 	}
 	if ref.DA != commitment.DAFibre {
-		return fmt.Errorf("%w: da %d", errWrongDA, ref.DA)
+		return fmt.Errorf("%w: %w: da %d", gate.ErrDACommitmentMismatch, errWrongDA, ref.DA)
 	}
 	if len(ref.Commitment) != fibre.CommitmentSize {
 		return fmt.Errorf("%w: commitment is %d bytes", gate.ErrDACommitmentMismatch, len(ref.Commitment))
 	}
 	if len(blob) == 0 {
-		return fmt.Errorf("%w: empty blob", gate.ErrDACommitmentMismatch)
+		return fmt.Errorf("%w: %w", gate.ErrDACommitmentMismatch, errEmpty)
 	}
-	got, err := Commitment(blob)
+	got, err := CommitmentWithCap(blob, c.max)
 	if err != nil {
 		return fmt.Errorf("%w: %w", gate.ErrDACommitmentMismatch, err)
 	}
@@ -73,14 +75,24 @@ func (c *Committer) Check(ref commitment.PayloadRef, blob []byte) error {
 	return nil
 }
 
-// Commitment returns the Fibre commitment of data. data is not modified.
+// Commitment returns the Fibre commitment of data, refusing data above
+// DefaultMaxDataSize. data is not modified.
 func Commitment(data []byte) ([32]byte, error) {
+	return CommitmentWithCap(data, DefaultMaxDataSize)
+}
+
+// CommitmentWithCap is Commitment with an explicit cap, which must not exceed
+// MaxDataSize.
+func CommitmentWithCap(data []byte, limit uint64) ([32]byte, error) {
 	var out [32]byte
 	if len(data) == 0 {
 		return out, errors.New("fibrecommit: empty data")
 	}
-	if uint64(len(data)) > MaxDataSize {
-		return out, fmt.Errorf("%w: %d bytes exceed the encoder limit", ErrTooLarge, len(data))
+	if limit > MaxDataSize {
+		limit = MaxDataSize
+	}
+	if uint64(len(data)) > limit {
+		return out, fmt.Errorf("%w: %d bytes, cap %d", ErrTooLarge, len(data), limit)
 	}
 	// NewBlob keeps its input as row storage.
 	b, err := fibre.NewBlob(bytes.Clone(data), fibre.DefaultBlobConfigV0())

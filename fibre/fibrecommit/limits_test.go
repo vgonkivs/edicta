@@ -8,6 +8,7 @@ import (
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/fibre/fibrecommit"
+	"github.com/vgonkivs/edicta/gate"
 )
 
 // An oversize input must be refused from its length alone: the encoding of
@@ -25,6 +26,7 @@ func TestOversizeDoesNotAllocateEncoding(t *testing.T) {
 	runtime.ReadMemStats(&after)
 
 	require.ErrorIs(t, err, fibrecommit.ErrTooLarge)
+	require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
 	const bound = 1 << 20
 	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(bound))
 

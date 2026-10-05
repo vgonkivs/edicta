@@ -9,28 +9,62 @@ import (
 	"github.com/celestiaorg/celestia-app/v10/fibre"
 )
 
-// A payload anchored on Mocha and the commitment the chain recorded for it.
-const (
-	liveCommitmentHex = "0af738097b64a00bff6820c48a3ae26160b8054c9a9b79bd3cac2100d1833b2e"
-	liveUploadSize    = 262144
-)
+// selfTestCases are copied from fibre_commit.json: the live Mocha blob, the
+// padding boundary around 262144 and a row size above 128. Blobs follow the
+// vector file's affine pattern: byte i is 7*i+3 mod 256.
+var selfTestCases = []struct {
+	name       string
+	size       int
+	commitment [32]byte
+	uploadSize uint64
+	live       bool
+}{
+	{"fibre_live_mocha_popsmin1", 1, mustHex32("0af738097b64a00bff6820c48a3ae26160b8054c9a9b79bd3cac2100d1833b2e"), 262144, true},
+	{"fibre_size_262139", 262139, mustHex32("c2f52f72723d3a23dca37e165297dcab888be28078578b12c0976b5ef08a939e"), 262144, false},
+	{"fibre_size_262140", 262140, mustHex32("f8ffcc4de8e10dd63b214cef0048b1c7aba8ee08614d538b6817da2a8b4c3087"), 524288, false},
+	{"fibre_size_524284", 524284, mustHex32("6fee93b1c2540bbe58943ef43baf1eb566604095aebc140a74c6fb3c017d228f"), 786432, false},
+}
 
-// SelfTest recomputes the live Mocha vector and checks the encoder limits, so
-// a drifted encoder is caught at startup instead of as mass rejections.
+func mustHex32(s string) [32]byte {
+	var out [32]byte
+	b, err := hex.DecodeString(s)
+	if err != nil || len(b) != len(out) {
+		return out
+	}
+	copy(out[:], b)
+	return out
+}
+
+func selfTestBlob(size int, live bool) []byte {
+	if live {
+		return []byte{0x65}
+	}
+	b := make([]byte, size)
+	for i := range b {
+		b[i] = byte(7*i + 3)
+	}
+	return b
+}
+
+// SelfTest recomputes the known answers and checks the encoder limits, so a
+// drifted encoder is caught at startup instead of as mass rejections.
 func SelfTest() error {
-	got, err := Commitment([]byte{0x65})
-	if err != nil {
-		return fmt.Errorf("fibrecommit self-test: %w", err)
-	}
-	if h := hex.EncodeToString(got[:]); h != liveCommitmentHex {
-		return fmt.Errorf("fibrecommit self-test: commitment %s, want %s", h, liveCommitmentHex)
-	}
-	up, err := UploadSize(1)
-	if err != nil {
-		return fmt.Errorf("fibrecommit self-test: %w", err)
-	}
-	if up != liveUploadSize {
-		return fmt.Errorf("fibrecommit self-test: upload size %d, want %d", up, liveUploadSize)
+	for _, c := range selfTestCases {
+		blob := selfTestBlob(c.size, c.live)
+		got, err := Commitment(blob)
+		if err != nil {
+			return fmt.Errorf("fibrecommit self-test %s: %w", c.name, err)
+		}
+		if got != c.commitment {
+			return fmt.Errorf("fibrecommit self-test %s: commitment %x, want %x", c.name, got, c.commitment)
+		}
+		up, err := UploadSize(uint64(len(blob)))
+		if err != nil {
+			return fmt.Errorf("fibrecommit self-test %s: %w", c.name, err)
+		}
+		if up != c.uploadSize {
+			return fmt.Errorf("fibrecommit self-test %s: upload size %d, want %d", c.name, up, c.uploadSize)
+		}
 	}
 	if lim := fibre.DefaultBlobConfigV0().MaxDataSize; lim != MaxDataSize {
 		return fmt.Errorf("fibrecommit self-test: encoder limit %d, want %d", lim, MaxDataSize)
@@ -41,7 +75,8 @@ func SelfTest() error {
 const appModule = "github.com/celestiaorg/celestia-app/v10"
 
 // pinnedReplaces are the replace targets the vectors were produced under.
-// A module absent from the build is not checked.
+// Only modules outside pinnedModules are optional; those in it must all be
+// present and match.
 var pinnedReplaces = map[string]string{
 	"cosmossdk.io/api":                            "github.com/celestiaorg/cosmos-sdk/api@v0.7.6",
 	"cosmossdk.io/log":                            "github.com/celestiaorg/cosmos-sdk/log@v1.3.0",
@@ -69,8 +104,8 @@ var pinnedReplaces = map[string]string{
 }
 
 // CheckBuild verifies that this binary was built with the pinned
-// celestia-app version and the replace targets the vectors were produced
-// under.
+// celestia-app version, the replace targets, and the version and h1 sum of
+// every module the upstream fibre package links.
 func CheckBuild() error {
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
@@ -83,13 +118,25 @@ func checkBuildInfo(bi *debug.BuildInfo) error {
 	if bi == nil {
 		return errors.New("fibrecommit: build info unavailable")
 	}
+	pins := make(map[string]pinnedModule, len(pinnedModules))
+	for _, p := range pinnedModules {
+		pins[p.path] = p
+	}
 	var app *debug.Module
+	seen := make(map[string]bool, len(pins))
 	for _, d := range bi.Deps {
 		if d == nil {
 			continue
 		}
 		if d.Path == appModule {
 			app = d
+		}
+		if p, ok := pins[d.Path]; ok {
+			if err := checkPinned(d, p); err != nil {
+				return err
+			}
+			seen[d.Path] = true
+			continue
 		}
 		want, pinned := pinnedReplaces[d.Path]
 		if !pinned {
@@ -105,8 +152,40 @@ func checkBuildInfo(bi *debug.BuildInfo) error {
 	if app == nil {
 		return fmt.Errorf("fibrecommit: %s is not in the build", appModule)
 	}
+	for _, p := range pinnedModules {
+		if !seen[p.path] {
+			return fmt.Errorf("fibrecommit: pinned module %s is not in the build", p.path)
+		}
+	}
 	if app.Version != PinnedAppVersion || app.Replace != nil {
 		return fmt.Errorf("fibrecommit: %s is %s, want %s", appModule, app.Version, PinnedAppVersion)
+	}
+	return nil
+}
+
+func checkPinned(d *debug.Module, p pinnedModule) error {
+	eff := d
+	if p.replacePath == "" {
+		if d.Replace != nil {
+			return fmt.Errorf("fibrecommit: %s is replaced by %s, want no replace", d.Path, d.Replace.Path)
+		}
+	} else {
+		if d.Replace == nil {
+			return fmt.Errorf("fibrecommit: %s is not replaced, want %s", d.Path, p.replacePath)
+		}
+		if d.Replace.Path != p.replacePath {
+			return fmt.Errorf("fibrecommit: %s replaced by %s, want %s", d.Path, d.Replace.Path, p.replacePath)
+		}
+		eff = d.Replace
+	}
+	if eff.Version != p.version {
+		return fmt.Errorf("fibrecommit: %s is %s, want %s", d.Path, eff.Version, p.version)
+	}
+	if eff.Sum == "" {
+		return fmt.Errorf("fibrecommit: %s has no sum, want %s", d.Path, p.sum)
+	}
+	if eff.Sum != p.sum {
+		return fmt.Errorf("fibrecommit: %s sum %s, want %s", d.Path, eff.Sum, p.sum)
 	}
 	return nil
 }
