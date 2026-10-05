@@ -132,38 +132,90 @@ func TestFailedHeightReadAfterExpiryDoesNotEndTheWatch(t *testing.T) {
 	})
 }
 
+// wantDeadline is the rule for every per-call deadline, against the clock
+// reading the executor saw: now + every while the send is not live, and
+// min(now + every, stop) while it is.
+func wantDeadline(c callInfo, every time.Duration, stop time.Time) time.Time {
+	d := c.clockNow.Add(every)
+	if c.clockNow.Before(stop) && stop.Before(d) {
+		return stop
+	}
+	return d
+}
+
 func TestEveryCallHasABoundedDeadline(t *testing.T) {
-	r := newRig(t, func(c *transfer.Config) { c.RebroadcastEvery = 50 * time.Millisecond })
+	const every = 100 * time.Millisecond
+	r := newRig(t, func(c *transfer.Config) { c.RebroadcastEvery = every })
+	realNow := time.Now()
+	r.clock.followRealTime()
+	expires := uint64(realNow.Unix()) + 600
 	r.rail.frozen = true
 	r.rail.hang = map[string]int{"height": 1, "status": 1, "broadcast": 1}
-	ctx, cancel := context.WithTimeout(bg, 20*time.Second)
-	defer cancel()
 	action := actionBytes(t, chainID, validMsg())
 	h := chash(14)
-	_, err := r.exec.Execute(ctx, goodAuth(t, h, action), action)
-	require.NoError(t, ctx.Err(), "a hanging call blocked past its bound")
+	auth := goodAuth(t, h, action, func(a *commitment.Authorization) { a.Expires = expires })
+	// No parent deadline: a hung call may be cut only by its own.
+	_, err := r.exec.Execute(bg, auth, action)
 	require.ErrorIs(t, err, transfer.ErrHandedOff)
+	stop := time.Unix(int64(expires-skew), 0)
 	for _, kind := range []string{"height", "status", "broadcast"} {
 		calls := r.rail.calls(kind)
 		require.NotEmpty(t, calls, kind)
+		var hung int
 		for _, c := range calls {
-			assert.True(t, c.hasDeadline, "%s call without a deadline", kind)
-			assert.LessOrEqual(t, c.remaining, 50*time.Millisecond, kind)
+			require.True(t, c.hasDeadline, "%s call without a deadline", kind)
+			// The clock follows real time, so the executor's reading is a little
+			// earlier than the one recorded at call entry.
+			assert.InDelta(t, 0, float64(c.deadline.Sub(wantDeadline(c, every, stop))), float64(20*time.Millisecond), "%s deadline %s, clock %s", kind, c.deadline, c.clockNow)
+			if c.blocked > 0 {
+				hung++
+				assert.GreaterOrEqual(t, c.blocked, every/2, "%s hung call was cut before its own deadline", kind)
+				assert.Less(t, c.blocked, 5*time.Second, "%s hung call outlived its deadline", kind)
+			}
 		}
+		assert.Equal(t, 1, hung, kind)
 	}
 }
 
 func TestDeadlineAfterExpiryIsTheRebroadcastInterval(t *testing.T) {
-	r := newRig(t, func(c *transfer.Config) { c.RebroadcastEvery = 7 * time.Second })
+	const every = 7 * time.Second
+	r := newRig(t, func(c *transfer.Config) { c.RebroadcastEvery = every })
 	r.rail.frozen = true
 	action := actionBytes(t, chainID, validMsg())
 	_, err := r.exec.Execute(bg, goodAuth(t, chash(15), action), action)
 	require.ErrorIs(t, err, transfer.ErrHandedOff)
-	var checked int
+	stop := time.Unix(int64(expiresAt-skew), 0)
+	var live, expired int
 	for _, c := range append(r.rail.calls("height"), r.rail.calls("status")...) {
 		require.True(t, c.hasDeadline)
-		assert.LessOrEqual(t, c.remaining, 7*time.Second)
-		checked++
+		assert.True(t, c.deadline.Equal(wantDeadline(c, every, stop)), "deadline %s, clock %s", c.deadline, c.clockNow)
+		if c.clockNow.Before(stop) {
+			live++
+			assert.False(t, c.deadline.After(stop), "live call outlives the send stop")
+			continue
+		}
+		expired++
+		assert.True(t, c.deadline.Equal(c.clockNow.Add(every)), "deadline %s after expiry, clock %s", c.deadline, c.clockNow)
+	}
+	assert.Positive(t, live)
+	assert.Positive(t, expired)
+}
+
+func TestAfterExpiryHeightAndStatusDeadlinesAreNeverInThePast(t *testing.T) {
+	r := newRig(t)
+	r.rail.frozen = true
+	action := actionBytes(t, chainID, validMsg())
+	_, err := r.exec.Execute(bg, goodAuth(t, chash(17), action), action)
+	require.ErrorIs(t, err, transfer.ErrHandedOff)
+	var checked int
+	for _, kind := range []string{"height", "status"} {
+		for _, c := range r.rail.calls(kind) {
+			if c.clockNow.Unix() < int64(expiresAt) {
+				continue
+			}
+			checked++
+			assert.True(t, c.deadline.After(c.clockNow), "%s deadline %s is not after the clock %s", kind, c.deadline, c.clockNow)
+		}
 	}
 	assert.Positive(t, checked)
 }

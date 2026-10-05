@@ -78,7 +78,8 @@ type TxStatus struct {
 // Domain is the executor's own view of the chain and its key.
 type Domain struct{ ChainID, Denom, HRP, Sender string }
 
-// Clock is the executor's time source.
+// Clock is the executor's time source. Now must be wall time in production:
+// per-call deadlines are absolute times computed from it.
 type Clock interface {
 	Now() time.Time
 	After(d time.Duration) <-chan time.Time

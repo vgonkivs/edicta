@@ -56,11 +56,30 @@ type fakeClock struct {
 	mu    sync.Mutex
 	t     time.Time
 	waits []time.Duration
+	// follow makes the clock advance with real time on top of the waits, so
+	// real context deadlines built from it are meaningful.
+	follow bool
+	off    time.Duration
 }
 
 func newClock() *fakeClock { return &fakeClock{t: time.Unix(int64(nowUnix), 0)} }
 
-func (c *fakeClock) Now() time.Time      { c.mu.Lock(); defer c.mu.Unlock(); return c.t }
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.follow {
+		return time.Now().Add(c.off)
+	}
+	return c.t
+}
+
+// followRealTime starts the clock at the real time; waits still jump it.
+func (c *fakeClock) followRealTime() {
+	c.mu.Lock()
+	c.follow, c.off = true, 0
+	c.mu.Unlock()
+}
+
 func (c *fakeClock) unix() uint64        { return uint64(c.Now().Unix()) }
 func (c *fakeClock) setTime(t time.Time) { c.mu.Lock(); c.t = t; c.mu.Unlock() }
 func (c *fakeClock) set(u uint64)        { c.mu.Lock(); c.t = time.Unix(int64(u), 0); c.mu.Unlock() }
@@ -69,6 +88,7 @@ func (c *fakeClock) After(d time.Duration) <-chan time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.t = c.t.Add(d)
+	c.off += d
 	c.waits = append(c.waits, d)
 	ch := make(chan time.Time, 1)
 	ch <- c.t
@@ -135,6 +155,8 @@ type callInfo struct {
 	hasDeadline bool
 	deadline    time.Time
 	remaining   time.Duration
+	clockNow    time.Time
+	blocked     time.Duration
 }
 
 func newRail(c *fakeClock) *fakeRail {
@@ -161,8 +183,10 @@ func (r *fakeRail) nodeHeight() uint64 {
 // enter records the context of a call and blocks if the call is meant to hang.
 func (r *fakeRail) enter(ctx context.Context, kind string) error {
 	dl, ok := ctx.Deadline()
+	started := time.Now()
 	r.mu.Lock()
-	r.callLog = append(r.callLog, callInfo{kind: kind, hasDeadline: ok, deadline: dl, remaining: time.Until(dl)})
+	r.callLog = append(r.callLog, callInfo{kind: kind, hasDeadline: ok, deadline: dl, remaining: time.Until(dl), clockNow: r.clock.Now()})
+	idx := len(r.callLog) - 1
 	hang := r.hang[kind] > 0
 	if hang {
 		r.hang[kind]--
@@ -170,6 +194,9 @@ func (r *fakeRail) enter(ctx context.Context, kind string) error {
 	r.mu.Unlock()
 	if hang {
 		<-ctx.Done()
+		r.mu.Lock()
+		r.callLog[idx].blocked = time.Since(started)
+		r.mu.Unlock()
 		return ctx.Err()
 	}
 	return nil
