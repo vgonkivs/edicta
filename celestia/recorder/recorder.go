@@ -24,6 +24,16 @@ var (
 	ErrNodeUnavailable = errors.New("recorder: node unavailable")
 	ErrTooManyPending  = errors.New("recorder: too many blobs with an unresolved outcome")
 
+	// ErrArchiveUnavailable means the archive write failed. Before a submit
+	// nothing was submitted; after one, a retry resumes without paying again.
+	ErrArchiveUnavailable = errors.New("recorder: archive unavailable")
+	// ErrEscrowInsufficient means the escrow cannot pay for the upload;
+	// nothing was submitted.
+	ErrEscrowInsufficient = errors.New("recorder: escrow balance too low for this upload")
+	// ErrSubmitMismatch means the node returned a blob ID other than the one
+	// computed locally; a fee may have been spent.
+	ErrSubmitMismatch = errors.New("recorder: node returned another blob id than computed")
+
 	errBlobDiffers  = errors.New("recorder: anchored blob differs from the submitted one")
 	errInvalidInput = errors.New("recorder: invalid configuration")
 )

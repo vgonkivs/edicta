@@ -266,6 +266,9 @@ var recorderErrors = []edictaapi.ErrorRule{
 	{Code: "recorder.ErrTooManyPending", Err: recorder.ErrTooManyPending, Status: 503, Retryable: true},
 	{Code: "recorder.ErrNotVisible", Err: recorder.ErrNotVisible, Status: 503, Retryable: true},
 	{Code: "recorder.ErrSignerMismatch", Err: recorder.ErrSignerMismatch, Status: 502},
+	{Code: "recorder.ErrSubmitMismatch", Err: recorder.ErrSubmitMismatch, Status: 502},
+	{Code: "recorder.ErrArchiveUnavailable", Err: recorder.ErrArchiveUnavailable, Status: 503, Retryable: true},
+	{Code: "recorder.ErrEscrowInsufficient", Err: recorder.ErrEscrowInsufficient, Status: 503, Retryable: true},
 }
 
 // gateAPI adapts *gate.Gate to the API's interface, which takes the executor

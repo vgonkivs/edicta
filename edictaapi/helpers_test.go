@@ -305,15 +305,22 @@ var (
 	errRecNotVisible   = errors.New("recorder: not visible")
 	errRecNodeUnavail  = errors.New("recorder: node unavailable")
 	errRecTooManyPend  = errors.New("recorder: too many pending")
+	errRecSubmitMis    = errors.New("recorder: submit mismatch")
+	errRecArchiveUnav  = errors.New("recorder: archive unavailable")
+	errRecEscrow       = errors.New("recorder: escrow insufficient")
 	recorderRuleStatus = map[string]int{
 		"recorder.ErrTooLarge": 413, "recorder.ErrSignerMismatch": 502,
 		"recorder.ErrOutcomeUnknown": 503, "recorder.ErrNotVisible": 503,
 		"recorder.ErrNodeUnavailable": 503, "recorder.ErrTooManyPending": 503,
+		"recorder.ErrSubmitMismatch": 502, "recorder.ErrArchiveUnavailable": 503,
+		"recorder.ErrEscrowInsufficient": 503,
 	}
 	recorderErrs = map[string]error{
 		"recorder.ErrTooLarge": errRecTooLarge, "recorder.ErrSignerMismatch": errRecSignerMis,
 		"recorder.ErrOutcomeUnknown": errRecOutcomeUnk, "recorder.ErrNotVisible": errRecNotVisible,
 		"recorder.ErrNodeUnavailable": errRecNodeUnavail, "recorder.ErrTooManyPending": errRecTooManyPend,
+		"recorder.ErrSubmitMismatch": errRecSubmitMis, "recorder.ErrArchiveUnavailable": errRecArchiveUnav,
+		"recorder.ErrEscrowInsufficient": errRecEscrow,
 	}
 )
 
@@ -325,6 +332,9 @@ func extraRules() []edictaapi.ErrorRule {
 		{Code: "recorder.ErrNotVisible", Err: errRecNotVisible, Status: 503, Retryable: true},
 		{Code: "recorder.ErrNodeUnavailable", Err: errRecNodeUnavail, Status: 503, Retryable: true},
 		{Code: "recorder.ErrTooManyPending", Err: errRecTooManyPend, Status: 503, Retryable: true},
+		{Code: "recorder.ErrSubmitMismatch", Err: errRecSubmitMis, Status: 502},
+		{Code: "recorder.ErrArchiveUnavailable", Err: errRecArchiveUnav, Status: 503, Retryable: true},
+		{Code: "recorder.ErrEscrowInsufficient", Err: errRecEscrow, Status: 503, Retryable: true},
 	}
 }
 
@@ -509,6 +519,7 @@ var sentinels = map[string]error{
 	"ErrPayloadUnavailable": gate.ErrPayloadUnavailable, "ErrRetentionUnavailable": gate.ErrRetentionUnavailable,
 	"ErrChainUnavailable": gate.ErrChainUnavailable, "ErrAllowlistUnavailable": gate.ErrAllowlistUnavailable,
 	"ErrRegistryUnavailable": gate.ErrRegistryUnavailable, "ErrClockRegression": gate.ErrClockRegression,
+	"ErrPayloadAboveCap": gate.ErrPayloadAboveCap, "ErrArchiveUnavailable": gate.ErrArchiveUnavailable,
 	"ErrClosed": gate.ErrClosed, "edictaapi.ErrDeadline": edictaapi.ErrDeadline, "edictaapi.ErrInternal": edictaapi.ErrInternal,
 }
 

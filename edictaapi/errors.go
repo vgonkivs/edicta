@@ -107,6 +107,7 @@ var table = []ErrorRule{
 	rule(409, "ErrBeforeRegistryEpoch", gate.ErrBeforeRegistryEpoch),
 
 	rule(413, "ErrTooLarge", commitment.ErrTooLarge),
+	rule(413, "ErrPayloadAboveCap", gate.ErrPayloadAboveCap),
 	rule(415, "edictaapi.ErrMediaType", ErrMediaType),
 
 	rule(422, "ErrActionMismatch", commitment.ErrActionMismatch),
@@ -130,6 +131,7 @@ var table = []ErrorRule{
 	rule(503, "ErrRegistryUnavailable", gate.ErrRegistryUnavailable),
 	rule(503, "ErrClockRegression", gate.ErrClockRegression),
 	rule(503, "ErrClosed", gate.ErrClosed),
+	rule(503, "ErrArchiveUnavailable", gate.ErrArchiveUnavailable),
 
 	rule(504, "edictaapi.ErrDeadline", ErrDeadline),
 	rule(500, codeInternal, ErrInternal),

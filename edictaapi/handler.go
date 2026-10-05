@@ -231,12 +231,18 @@ func (h *handler) failIn(ctx context.Context, r *http.Request, err error, stored
 		msg = "internal error"
 	}
 	var after time.Duration
-	if rule.Status == 429 {
+	switch {
+	case rule.Status == 429:
 		after = retryAfter(err)
+	case errors.Is(err, gate.ErrArchiveUnavailable):
+		after = archiveRetryAfter
 	}
 	h.log.Debug("edictaapi: request failed", "path", r.URL.Path, "code", rule.Code, "err", err)
 	return errorResponse(rule.Status, rule.Code, msg, rule.Retryable, stored, after)
 }
+
+// archiveRetryAfter is the advised wait after ErrArchiveUnavailable.
+const archiveRetryAfter = 5 * time.Second
 
 func errorResponse(status int, code, msg string, retryable bool, stored []byte, after time.Duration) response {
 	items := []kv{

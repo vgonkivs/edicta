@@ -14,6 +14,11 @@ var (
 
 	ErrDANotAllowed = errors.New("gate: payload_ref.da not allowed by this gate")
 
+	ErrPayloadAboveCap = errors.New("gate: payload above the Fibre payload limit")
+	// ErrArchiveUnavailable means the decision record could not be written
+	// durably; nothing was signed and the nonce is unused.
+	ErrArchiveUnavailable = errors.New("gate: archive unavailable")
+
 	ErrNonceUsed           = errors.New("gate: nonce already used")
 	ErrBeforeRegistryEpoch = errors.New("gate: issued_at not after the registry epoch")
 
