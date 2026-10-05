@@ -3,7 +3,7 @@
 Edicta profile for a bank transfer on a Cosmos SDK chain, used by the demo in
 `examples/tia-transfer`.
 
-Status: revision `bank-send-v0-draft.2` (2026-10-04). Working draft, subject
+Status: revision `bank-send-v0-draft.3` (2026-10-05). Working draft, subject
 to change. Built on the core spec `spec/decision-commitment-v0.md`, revision
 `v0-draft.11`; section numbers prefixed "core" refer to it.
 
@@ -30,6 +30,7 @@ Changes:
 |---|---|---|
 | `bank-send-v0-draft.1` | First draft. | Initial set. |
 | `bank-send-v0-draft.2` | (1) The pinned chain has no transaction timeout timestamp (section 6), so the chain-side bound stays `timeout_height`, now budgeted at twice the observed block interval (4.3, `slowdown_factor = 2`). (2) T10: rebroadcasting stops at `expires` by the executor's wall clock, whatever the height. (3) Section 4.3 states why a halt that delays inclusion past `expires` is still safe. | Regenerated: `timeout_height.json`, `e2e.json` (both now `bank-send-v0-draft.2`). Byte-identical, keeping `bank-send-v0-draft.1`: `msg_send.json`, `tx.json`, `action.json`, `executor.json`, `price_trigger.json`. |
+| `bank-send-v0-draft.3` | Hand-off and reconcile (4.1, 4.2). (1) T12 has two bounds: head `> timeout_height`, or wall clock `>= expires + hand_off_grace` (new setting, default 10 min), whichever comes first; either needs a successful status query on the same turn, and the reason names the bound. (2) New T13: a final rejection by the node is followed by one status query after a short wait; committed goes to T11, otherwise the record is handed off with the node's reason. (3) A handed-off record is looked up again by `Resume` and by a repeated `Execute`, and moves to finished if the transaction is found committed. (4) T10 names transient broadcast errors (resent) versus a final rejection (T13). Outcomes for an implementation that followed draft.2 change only for a stalled chain, a rejection and a late inclusion after a hand-off. | Every file byte-identical; none has a T10..T13 vector (chain fake only). |
 
 The profile depends on the core only through `ActionHash`,
 `VerifyAuthorization`, `commitment_hash` and rule I5 as amended in
@@ -177,6 +178,7 @@ the transfer to the exact authorized message.
 | `max_timeout_blocks` | Cap on `timeout_height - H0`, `1..10000`, default 200. |
 | `rebroadcast_every` | Resend interval, default 10 s. |
 | `skew_s` | Clock tolerance, `0..300`. |
+| `hand_off_grace` | How long after `expires` the executor keeps watching a transaction whose `timeout_height` the head has not passed (a stalled or halted chain), default 10 min. Never negative. |
 | executor key | Ed25519 key for record requests (core I7), distinct from the chain key. |
 
 ### 4.2 Rules
@@ -194,19 +196,52 @@ the transfer to the exact authorized message.
 | T7 | `now + skew_s < expires` (core I6); otherwise abandon | `transfer.ErrExpired` |
 | T8 | `timeout_height` by 4.3; no block fits: abandon | `transfer.ErrExpired` |
 | T9 | `body = Body(msg, commitment_hash, timeout_height)`; sign (3.2) with `chain_id` from the action; check `body_bytes`; `Store.Prepare(commitment_hash, TxRaw, SHA-256(TxRaw), timeout_height, expires)`, durable **before the first broadcast** | signer error: abandon (nothing was sent) |
-| T10 | Broadcast the stored `TxRaw`; every resend is the same bytes. Resend every `rebroadcast_every` only while `now + skew_s < expires` by the executor's wall clock and the chain height is `<= timeout_height`; rebroadcasting stops at the latest at `expires`, whatever the height. Status queries by the transaction hash continue until T11 or T12 | - |
+| T10 | Each turn, every `rebroadcast_every`: read the head, then query the status by the transaction hash (in this order, so a transaction included at or before that head is seen); committed goes to T11; then check the T12 bounds. Otherwise broadcast the stored `TxRaw`, only while `now + skew_s < expires` by the executor's wall clock, measured at the start of the turn, and only when the head was read on this turn. Every send is the same bytes. Rebroadcasting stops at the latest at `expires`, whatever the height; after that the executor only queries. A transient broadcast error (node unreachable, timeout, mempool full, wrong sequence) is retried with the same bytes on the next turn; "already in the mempool cache" counts as sent. Any other refusal by the node's CheckTx is a final rejection (T13). After `expires`, a head that cannot be read ends the call with an error and leaves the record prepared | - |
 | T11 | Committed: `Store.Finish(height, code)`. Code 0: optional record request with `rail_ref` (3.2). Code != 0: terminal | `transfer.ErrFailedOnChain` |
-| T12 | Chain height `> timeout_height` and not committed (one final status query after `timeout_height + 1`): `Store.HandOff(commitment_hash, "not included by timeout_height")`. No new transaction is ever built for this decision | `transfer.ErrHandedOff` |
+| T12 | Not committed and either bound holds: (a) the head read on this turn is `> timeout_height`; (b) `now >= expires + hand_off_grace` by the executor's wall clock (a stalled chain, where (a) may never come). The status query of the same turn is the final status check and MUST have succeeded; if it failed, the call ends with an error, the record stays prepared and nothing is handed off. Then `Store.HandOff(commitment_hash, reason)`; the reason names the bound and the transaction hash, and for (b) states that the transaction may still be included until `timeout_height`. No new transaction is ever built for this decision | `transfer.ErrHandedOff` |
+| T13 | Final rejection of a broadcast (T10): stop sending, wait a short delay (2 s in the reference executor), query the status once. Committed: T11 (a resend of an already included transaction can fail ante checks before the sequence check). Status error: the call ends with the rejection and the status error, the record stays prepared. Otherwise `Store.HandOff(commitment_hash, "rejected by the node: " + the node's code and log)` | `transfer.ErrHandedOff` |
 
 T2 to T5 are pure and covered by `executor.json`, including their order.
-T1 is covered by the core `authorization.json`; T6 to T12 need a chain fake.
+T1 is covered by the core `authorization.json`; T6 to T13 need a chain fake.
+
+A hand-off is the executor's statement "inclusion not confirmed, the operator
+takes over", not "the transaction will never land". Under T12 (b) and T13 the
+signed bytes may still sit in some mempool and be included up to block
+`timeout_height`. A handed-off record is therefore not final for lookups:
+`Resume` and a repeated `Execute` (T6 `ErrSeen`) query the status once more,
+and a committed transaction moves the record from handed off to finished
+(`Store.Finish` accepts that transition; T11 applies, including the code).
+Nothing is signed or sent on that path. An operator MUST run `Resume` before
+any manual action on a handed-off decision, and SHOULD repeat it after block
+`timeout_height` if the record is still handed off.
 
 `Resume(commitment_hash)` after a crash: begun but not prepared: abandon
 (nothing can have been sent, because broadcast happens only after a durable
-Prepare); prepared: continue T10 to T12 from the stored bytes (resend only
-under the T10 conditions, otherwise status only); finished or handed off:
-return the stored outcome. Records are kept at least until `expires +
-skew_s` and until resolved.
+Prepare); prepared: continue T10 to T13 from the stored bytes (resend only
+under the T10 conditions, otherwise status only; hand off only on the T12
+bounds or T13, after the final status check); handed off: one status query,
+finished if committed (as above), otherwise `transfer.ErrHandedOff` again;
+finished: return the stored outcome; abandoned: return
+`transfer.ErrAbandoned`. Records are kept at least until `expires + skew_s`
+and until resolved; a handed-off record at least until the head passes
+`timeout_height`.
+
+Threat note (hand-off). Both bounds exist because neither alone suffices.
+`timeout_height` is the chain's own guarantee: past it the transaction can
+never be included, so a hand-off on (a) is final up to the accuracy of the
+status query. On a stalled or halted chain (a) may not come for a long
+time, so (b) bounds how long an executor call can hang; it is safe because
+nothing is sent after `expires`, nothing new is ever signed, and a late
+inclusion is caught by the reconcile on `Resume`. The final status check
+before every hand-off keeps an included transaction from being reported as
+not included. Residual risk: the head and the status may come from
+different nodes, and a node's transaction index is updated asynchronously
+from block commit (a node with the indexer disabled never finds any
+transaction), so a hand-off under (a) can still be wrong for a transaction
+that is on chain. This is the reason for the `Resume` rule above.
+`UNVERIFIED`: that the status query used by the reference rail (`GetTx` on
+the consensus node) is served from the transaction indexer and lags block
+commit.
 
 ### 4.3 Timeout height
 
@@ -335,6 +370,7 @@ recipient of the payload (core 9.1); it is never public in clear text.
 | `cosmos.auth.v1beta1.Query/Bech32Prefix` is served by celestia-app nodes | `UNVERIFIED`; fallback: configured prefix, cross-checked against the executor's own address | - |
 | Account address = RIPEMD-160(SHA-256(compressed secp256k1 key)), 20 bytes | VERIFIED (vectors `tx.json` `signed`, from the SDK's `PubKey.Address`) | cosmos-sdk `crypto/keys/secp256k1` |
 | The SDK's transaction decoder rejects unknown fields in `TxBody` except non-critical ones (`RejectUnknownFields`) | VERIFIED | `x/auth/tx/decoder.go` at the fork |
+| CheckTx codes in codespace `sdk` used by T10: 19 (transaction already in the mempool cache: counts as sent), 20 (mempool full: transient), 32 (wrong sequence: transient); every other nonzero code is a final rejection | `UNVERIFIED` at the pin | cosmos-sdk `types/errors/errors.go` at the fork |
 | `TxStatus` query by hash for the resend loop | `UNVERIFIED` at the pin | celestia-app `proto/celestia/core/v1/tx/tx.proto` |
 
 ## 7. Sentinels
@@ -352,7 +388,8 @@ recipient of the payload (core 9.1); it is never public in clear text.
 | `transfer.ErrSeen` | T6 | none (store state) |
 | `transfer.ErrExpired` | T7, T8 | `timeout_height.json` |
 | `transfer.ErrFailedOnChain` | T11 | none (chain fake) |
-| `transfer.ErrHandedOff` | T12 | none (chain fake) |
+| `transfer.ErrAbandoned` | `Resume` of a record that was begun but never prepared, and any later lookup of it | none (store state) |
+| `transfer.ErrHandedOff` | T12, T13, `Resume` of a handed-off record still not committed | none (chain fake) |
 | `pricetrigger.ErrMalformed` | section 5 | `price_trigger.json` `reject` |
 
 The prefix is the Go package under `examples/tia-transfer/`. The core

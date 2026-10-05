@@ -24,9 +24,10 @@ const ActionType = bankaction.ActionType
 var (
 	// ErrInvalidConfig means NewExecutor refused its arguments.
 	ErrInvalidConfig = errors.New("transfer: invalid configuration")
-	// ErrHandedOff means the transaction was not included in time and the
-	// operator takes over. No second transaction is built for the decision.
-	ErrHandedOff = errors.New("transfer: not included before timeout_height; handed to the operator")
+	// ErrHandedOff means the executor stopped waiting or the node rejected the
+	// transaction, and the operator takes over. Library users can call Resume to
+	// look the transaction up again. No second transaction is built for the decision.
+	ErrHandedOff = errors.New("transfer: handed to the operator; inclusion not confirmed")
 	// ErrFailedOnChain means the transaction was included and failed; the
 	// code is in Result.
 	ErrFailedOnChain = errors.New("transfer: transaction failed on chain")

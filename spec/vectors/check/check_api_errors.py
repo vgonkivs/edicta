@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/api/errors.json (v0-draft.14) against the spec text and the core vectors.
+"""Verifies spec/vectors/api/errors.json (v0-draft.15) against the spec text and the core vectors.
 
 - Every sentinel named in section 12 of the spec is either mapped (errors) or
   listed in not_api_visible, never both; codes are unique.
@@ -201,7 +201,7 @@ def check_health(b: bytes, w: str):
 def main() -> int:
     try:
         f = json.loads((DIR / "errors.json").read_text())
-        expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v0-draft.14", "header")
+        expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v0-draft.15", "header")
         expect(f["content_type"] == "application/cbor", "content type")
         spec = SPEC.read_text()
         by_code = check_mapping(f, spec)
@@ -211,7 +211,7 @@ def main() -> int:
     except (Failure, Reject, CBORError) as e:
         print(f"FAIL (api errors): {e}", file=sys.stderr)
         return 1
-    print(f"OK (api errors, v0-draft.14): {len(f['errors'])} codes, {len(f['not_api_visible'])} not API-visible, "
+    print(f"OK (api errors, v0-draft.15): {len(f['errors'])} codes, {len(f['not_api_visible'])} not API-visible, "
           f"{len(f['examples'])} examples; section 12 fully covered, section 18.3 table matches")
     return 0
 

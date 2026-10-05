@@ -156,8 +156,11 @@ up, in base units. `--gas-limit` and `--fee` (non-zero) override it, and
 `--evidence-file <path>` also saves it.
 
 The run exits non-zero with a clear message on any failure. If the transfer
-was signed but not included before its timeout height, the run reports it was
-handed off to the operator: no second transaction is ever built for the
+was signed but its inclusion could not be confirmed (timeout height or grace
+passed, or the node rejected it), the run reports it was handed off to the
+operator. Look the printed tx hash up on the chain, and never send the
+transfer again by hand while it may still be included (until timeout_height):
+no second transaction is ever built for the
 decision.
 
 ## 5. Reading the evidence

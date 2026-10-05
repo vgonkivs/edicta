@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates spec/vectors/api/errors.json (v0-draft.14): the HTTP error mapping of
+"""Generates spec/vectors/api/errors.json (v0-draft.15): the HTTP error mapping of
 section 18 and example request and response bytes per endpoint. Deterministic.
 
 Usage: python3 spec/vectors/check/gen_api_errors.py [--core DIR] [--out DIR]
@@ -31,7 +31,7 @@ def arg(name: str, default: Path) -> Path:
 CORE = arg("--core", VECTORS / "v0")
 OUT = arg("--out", VECTORS / "api")
 FORMAT = "edicta-vectors/v0"
-REVISION = "v0-draft.14"
+REVISION = "v0-draft.15"
 
 P, A, R, H = "/v0/publish", "/v0/authorize", "/v0/record", "/v0/health"
 POSTS = [P, A, R]
@@ -99,9 +99,9 @@ ERRORS = [
     ("ErrClockRegression", 503, "none", [A, R], "operational"),
     ("ErrClosed", 503, "none", ALL, "operational"),
     ("recorder.ErrOutcomeUnknown", 503, "none", [P], "PR6"),
-    ("recorder.ErrNotVisible", 503, "none", [P], "Recorder read-back"),
     ("recorder.ErrNodeUnavailable", 503, "none", [P], "Recorder node read"),
     ("recorder.ErrTooManyPending", 503, "none", [P], "PR6, unresolved submissions"),
+    ("recorder.ErrNotVisible", 503, "none", [P], "Recorder read-back"),
     ("edictaapi.ErrDeadline", 504, "none", ALL, "18.3"),
     ("edictaapi.ErrInternal", 500, "none", ALL, "18.3"),
 ]
