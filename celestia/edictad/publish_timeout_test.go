@@ -62,3 +62,44 @@ func TestPublishTimeoutsOfTheNodeAre503Not504(t *testing.T) {
 		})
 	}
 }
+
+type slowReadBackReader struct {
+	node.Reader
+	armed        atomic.Bool
+	header, blob bool
+}
+
+func (r *slowReadBackReader) HeaderAt(ctx context.Context, h uint64) (node.Header, error) {
+	if r.armed.Load() && r.header {
+		return node.Header{}, fmt.Errorf("header: %w", context.DeadlineExceeded)
+	}
+	return r.Reader.HeaderAt(ctx, h)
+}
+
+func (r *slowReadBackReader) Blob(ctx context.Context, h uint64, ns, c []byte) (node.Blob, error) {
+	if r.armed.Load() && r.blob {
+		return node.Blob{}, fmt.Errorf("blob: %w", context.DeadlineExceeded)
+	}
+	return r.Reader.Blob(ctx, h, ns, c)
+}
+
+func TestPublishReadBackTimeoutIs503NodeUnavailable(t *testing.T) {
+	for name, rd := range map[string]*slowReadBackReader{
+		"header read-back": {header: true},
+		"blob read-back":   {blob: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			rd.Reader = e.chain
+			e.deps.Reader = rd
+			e.start()
+			rd.armed.Store(true)
+			_, err := e.client("").Publish(bg, []byte("decision payload"))
+			var ae *edictaapi.Error
+			require.ErrorAs(t, err, &ae)
+			assert.Equal(t, 503, ae.Status)
+			assert.True(t, ae.Retryable)
+			assert.Equal(t, "recorder.ErrNodeUnavailable", ae.Code)
+		})
+	}
+}

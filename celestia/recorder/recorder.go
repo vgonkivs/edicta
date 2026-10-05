@@ -294,7 +294,7 @@ func (r *Recorder) scan(ctx context.Context, e *entry, comm []byte) (uint64, boo
 			return h, true, nil
 		case errors.Is(err, node.ErrNotFound):
 		case ctx.Err() != nil:
-			return 0, false, ctx.Err()
+			return 0, false, fmt.Errorf("%w: scan: %w", ErrNodeUnavailable, ctx.Err())
 		default:
 			return 0, false, fmt.Errorf("%w: scan: %w", ErrNodeUnavailable, err)
 		}
@@ -373,7 +373,7 @@ func (r *Recorder) poll(ctx context.Context, deadline time.Time, fn func() error
 			return nil
 		}
 		if cerr := ctx.Err(); cerr != nil {
-			return cerr
+			return fmt.Errorf("%w: %w", ErrNodeUnavailable, cerr)
 		}
 		if !errors.Is(err, node.ErrNotFound) {
 			return fmt.Errorf("%w: %w", ErrNodeUnavailable, err)
@@ -385,7 +385,7 @@ func (r *Recorder) poll(ctx context.Context, deadline time.Time, fn func() error
 		select {
 		case <-ctx.Done():
 			t.Stop()
-			return ctx.Err()
+			return fmt.Errorf("%w: %w", ErrNodeUnavailable, ctx.Err())
 		case <-t.C:
 		}
 	}

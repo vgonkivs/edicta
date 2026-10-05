@@ -60,9 +60,10 @@ type fakeClock struct {
 
 func newClock() *fakeClock { return &fakeClock{t: time.Unix(int64(nowUnix), 0)} }
 
-func (c *fakeClock) Now() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.t }
-func (c *fakeClock) unix() uint64   { return uint64(c.Now().Unix()) }
-func (c *fakeClock) set(u uint64)   { c.mu.Lock(); c.t = time.Unix(int64(u), 0); c.mu.Unlock() }
+func (c *fakeClock) Now() time.Time      { c.mu.Lock(); defer c.mu.Unlock(); return c.t }
+func (c *fakeClock) unix() uint64        { return uint64(c.Now().Unix()) }
+func (c *fakeClock) setTime(t time.Time) { c.mu.Lock(); c.t = t; c.mu.Unlock() }
+func (c *fakeClock) set(u uint64)        { c.mu.Lock(); c.t = time.Unix(int64(u), 0); c.mu.Unlock() }
 
 func (c *fakeClock) After(d time.Duration) <-chan time.Time {
 	c.mu.Lock()
@@ -132,6 +133,7 @@ type fakeRail struct {
 type callInfo struct {
 	kind        string
 	hasDeadline bool
+	deadline    time.Time
 	remaining   time.Duration
 }
 
@@ -160,7 +162,7 @@ func (r *fakeRail) nodeHeight() uint64 {
 func (r *fakeRail) enter(ctx context.Context, kind string) error {
 	dl, ok := ctx.Deadline()
 	r.mu.Lock()
-	r.callLog = append(r.callLog, callInfo{kind: kind, hasDeadline: ok, remaining: time.Until(dl)})
+	r.callLog = append(r.callLog, callInfo{kind: kind, hasDeadline: ok, deadline: dl, remaining: time.Until(dl)})
 	hang := r.hang[kind] > 0
 	if hang {
 		r.hang[kind]--

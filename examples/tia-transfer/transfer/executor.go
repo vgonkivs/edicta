@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/vgonkivs/edicta/commitment"
@@ -476,16 +477,22 @@ func (e *Executor) callCtx(ctx context.Context, expires uint64) (context.Context
 	return c, cancel
 }
 
-// sendCtx is callCtx plus the validity read from the same clock reading.
+// sendCtx is callCtx plus the validity, both from one clock reading. The
+// deadline is absolute (expires - skew), so a call never outlives it.
 func (e *Executor) sendCtx(ctx context.Context, expires uint64) (context.Context, context.CancelFunc, bool) {
-	d := e.cfg.RebroadcastEvery
-	live := e.valid(expires)
-	if live {
-		if left := time.Duration(expires-e.cfg.SkewS-e.now()) * time.Second; left < d {
-			d = left
+	now := e.clock.Now()
+	dl := now.Add(e.cfg.RebroadcastEvery)
+	live := false
+	if expires > e.cfg.SkewS && expires-e.cfg.SkewS <= math.MaxInt64 {
+		stop := time.Unix(int64(expires-e.cfg.SkewS), 0)
+		if now.Before(stop) {
+			live = true
+			if stop.Before(dl) {
+				dl = stop
+			}
 		}
 	}
-	c, cancel := context.WithTimeout(ctx, d)
+	c, cancel := context.WithDeadline(ctx, dl)
 	return c, cancel, live
 }
 

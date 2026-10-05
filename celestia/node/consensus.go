@@ -12,6 +12,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client/grpc/cmtservice"
 	nodeservice "github.com/cosmos/cosmos-sdk/client/grpc/node"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -205,22 +206,20 @@ func (c *ConsensusClient) Broadcast(ctx context.Context, txRaw []byte) ([32]byte
 	return want, nil
 }
 
-// LatestHeight reads the latest block height of this node.
+// LatestHeight reads the latest block height of this node. The validator set
+// call with a page of one is used because, unlike the latest block, its
+// response does not carry the block's transactions and blobs.
 func (c *ConsensusClient) LatestHeight(ctx context.Context) (uint64, error) {
-	r, err := c.cmt.GetLatestBlock(ctx, &cmtservice.GetLatestBlockRequest{})
+	r, err := c.cmt.GetLatestValidatorSet(ctx, &cmtservice.GetLatestValidatorSetRequest{
+		Pagination: &query.PageRequest{Limit: 1},
+	})
 	if err != nil {
 		return 0, classifyGRPC(ctx, err)
 	}
-	var h int64
-	if b := r.GetSdkBlock(); b != nil {
-		h = b.Header.Height
-	} else if b := r.GetBlock(); b != nil {
-		h = b.Header.Height
-	}
-	if h <= 0 {
+	if r.GetBlockHeight() <= 0 {
 		return 0, fmt.Errorf("%w: node reported no latest height", ErrUnavailable)
 	}
-	return uint64(h), nil
+	return uint64(r.GetBlockHeight()), nil
 }
 
 // TxIndex requires default_node_info.other.tx_index to be exactly "on".
