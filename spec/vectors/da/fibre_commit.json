@@ -1,0 +1,238 @@
+{
+  "format": "edicta-vectors/v0",
+  "revision": "v0-draft.17",
+  "generator": "spec/vectors/tools/fibrecommit-gen",
+  "upstream": {
+    "celestia-app": "github.com/celestiaorg/celestia-app/v10 v10.4.0-mocha (fibre.NewBlob, fibre.DefaultBlobConfigV0, Blob.ID, Blob.RowSize, Blob.UploadSize)",
+    "replace_set": "identical to github.com/celestiaorg/celestia-node v0.34.2-mocha go.mod"
+  },
+  "params": {
+    "blob_version": "0",
+    "header_size": "5",
+    "max_data_size": "134217723",
+    "min_row_size": "64",
+    "original_rows": "4096",
+    "parity_rows": "12288"
+  },
+  "patterns": {
+    "affine-7-3": "byte i of the blob is (7*i + 3) mod 256, for i from 0"
+  },
+  "cases": [
+    {
+      "id": "fibre_live_mocha_popsmin1",
+      "description": "Live Mocha blob: one byte 0x65 in namespace popsmin1, anchored by a PayForFibre at the given height. The commitment equals the one in the PFF and its EventPayForFibre.",
+      "size": "1",
+      "blob_hex": "65",
+      "blob_sha256_hex": "3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea",
+      "row_size": "64",
+      "upload_size": "262144",
+      "blob_id_hex": "000af738097b64a00bff6820c48a3ae26160b8054c9a9b79bd3cac2100d1833b2e",
+      "commitment_hex": "0af738097b64a00bff6820c48a3ae26160b8054c9a9b79bd3cac2100d1833b2e",
+      "live": {
+        "chain_id": "mocha-5",
+        "height": "1402819",
+        "tx_hash": "63CE1560A08212CDE9B126D57A2FECF59FBF04E0F05DD033BE8918A48839B04E",
+        "namespace_hex": "000000000000000000000000000000000000000000706f70736d696e31",
+        "upload_size": "262144",
+        "observed_on": "2026-10-05"
+      }
+    },
+    {
+      "id": "fibre_minimal_lmt_payload",
+      "description": "The payload blob of valid vector minimal_lmt (payload.json ciphertext_hash_small_blob). minimal_lmt itself is da = 2; this is the commitment the same bytes would have as a Fibre blob.",
+      "size": "301",
+      "blob_hex": "a401000282a3014c676174652d70617065722d310258201b66dba1e659b5c474d02967a870a29307a044b62f4436618960118ce37c1b2b0358300a814b588aa4c07d43756273d717e47ee6ad860ed308d5478eef2ada561281c67190cf05a28f4c3bc557053e26f64342a3014961756469746f722d31025820fe8512b211b63311ae135c63eac3d923cc0afad4e38ea3c9dec222afcdd667f00358305732353d1e2651a15029867ef31c475ff04c9ba3bd68414b3abb980864354a7d38b4e62e0f64f9d69220f375b5aa4ab2034c7f979b8f963ea00610e99ae804585078398f904aa39c3b014127c6b7d2522fe37e09d6c1f3c47c09fa37f0942a9c9f654e3b37286eecc66a1b2a6ceec8ba8c3f750e387c2edb6e7cb340e41ee38aa85ec52b098d497da66f9e65d258cfe19f",
+      "blob_sha256_hex": "9edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab",
+      "row_size": "64",
+      "upload_size": "262144",
+      "blob_id_hex": "00ba7b74ce84c6d81d2ef6aafb4c61fcbf8c2f71718f371f12bd826156b303f56f",
+      "commitment_hex": "ba7b74ce84c6d81d2ef6aafb4c61fcbf8c2f71718f371f12bd826156b303f56f"
+    },
+    {
+      "id": "fibre_size_1",
+      "description": "One byte: header plus data fill 6 bytes of the first 64-byte row; the upload is the minimum 4096 x 64.",
+      "size": "1",
+      "blob_hex": "03",
+      "blob_sha256_hex": "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+      "row_size": "64",
+      "upload_size": "262144",
+      "blob_id_hex": "001e1eb183e3b955a1e0687b9b0b5b924c92cc86b5bb4fb816c43fcfcb3bc87c59",
+      "commitment_hex": "1e1eb183e3b955a1e0687b9b0b5b924c92cc86b5bb4fb816c43fcfcb3bc87c59"
+    },
+    {
+      "id": "fibre_size_262139",
+      "description": "Header plus data = 262144 = 4096 x 64 exactly: the largest blob with the minimum row size.",
+      "size": "262139",
+      "blob_pattern": "affine-7-3",
+      "blob_sha256_hex": "592c379b77f54db54387730c6fc8983469d2b02521417e824bb4e6e38a56dfb3",
+      "row_size": "64",
+      "upload_size": "262144",
+      "blob_id_hex": "00c2f52f72723d3a23dca37e165297dcab888be28078578b12c0976b5ef08a939e",
+      "commitment_hex": "c2f52f72723d3a23dca37e165297dcab888be28078578b12c0976b5ef08a939e"
+    },
+    {
+      "id": "fibre_size_262140",
+      "description": "One byte more: the row size grows to 128 and the upload doubles.",
+      "size": "262140",
+      "blob_pattern": "affine-7-3",
+      "blob_sha256_hex": "9ec693c3881896c9573920fff663a965d498c15b6b4ed36c42b0fee460be4f18",
+      "row_size": "128",
+      "upload_size": "524288",
+      "blob_id_hex": "00f8ffcc4de8e10dd63b214cef0048b1c7aba8ee08614d538b6817da2a8b4c3087",
+      "commitment_hex": "f8ffcc4de8e10dd63b214cef0048b1c7aba8ee08614d538b6817da2a8b4c3087"
+    },
+    {
+      "id": "fibre_size_262144",
+      "description": "256 KiB of data: row size 128 because the 5-byte header does not fit in 64-byte rows.",
+      "size": "262144",
+      "blob_pattern": "affine-7-3",
+      "blob_sha256_hex": "fc605e60859112505546770ab850bfbf0243484140b42d1f6ae9556bbaa7784e",
+      "row_size": "128",
+      "upload_size": "524288",
+      "blob_id_hex": "00cefaa6d5feea8f359f3b3b1108dbe97cf71e1ef5e8094a503b90873647230234",
+      "commitment_hex": "cefaa6d5feea8f359f3b3b1108dbe97cf71e1ef5e8094a503b90873647230234"
+    },
+    {
+      "id": "fibre_size_524283",
+      "description": "Header plus data = 4096 x 128 exactly.",
+      "size": "524283",
+      "blob_pattern": "affine-7-3",
+      "blob_sha256_hex": "7379b3889478250e3ea9a9dff91bc1d0b8a49cc941e291bdff78cb9f52d613e4",
+      "row_size": "128",
+      "upload_size": "524288",
+      "blob_id_hex": "00bcb37439fceedc811a4e5e6f8e47c2a5f8106af07611f58ce5ca8f951792124a",
+      "commitment_hex": "bcb37439fceedc811a4e5e6f8e47c2a5f8106af07611f58ce5ca8f951792124a"
+    },
+    {
+      "id": "fibre_size_524284",
+      "description": "One byte more: row size 192.",
+      "size": "524284",
+      "blob_pattern": "affine-7-3",
+      "blob_sha256_hex": "1bb97157d8ac9329f1e4a11539b3c1f2388ddd258d6a83cb698637b6aebacdb9",
+      "row_size": "192",
+      "upload_size": "786432",
+      "blob_id_hex": "006fee93b1c2540bbe58943ef43baf1eb566604095aebc140a74c6fb3c017d228f",
+      "commitment_hex": "6fee93b1c2540bbe58943ef43baf1eb566604095aebc140a74c6fb3c017d228f"
+    },
+    {
+      "id": "fibre_size_1048571",
+      "description": "Header plus data = 4096 x 256 exactly (1 MiB).",
+      "size": "1048571",
+      "blob_pattern": "affine-7-3",
+      "blob_sha256_hex": "e6a21f68c035fc9fbe9bb64371e5038de3d7b64d3f0ffda51faf2ff82cec0325",
+      "row_size": "256",
+      "upload_size": "1048576",
+      "blob_id_hex": "0045dbdcee44ef55822f87a172d8e18d33defde4adfbafa7b08fdbcf740d74c4b6",
+      "commitment_hex": "45dbdcee44ef55822f87a172d8e18d33defde4adfbafa7b08fdbcf740d74c4b6"
+    },
+    {
+      "id": "fibre_size_1048572",
+      "description": "One byte more: row size 320.",
+      "size": "1048572",
+      "blob_pattern": "affine-7-3",
+      "blob_sha256_hex": "3fa96d2c0a913045d0ae6a72bed567d4a1cf82d49ab466a80b134fe7a829d3f0",
+      "row_size": "320",
+      "upload_size": "1310720",
+      "blob_id_hex": "00ba57e02bddb624b31d5ace1a1295771792967dd6e0e997df66ed452a58c2f07c",
+      "commitment_hex": "ba57e02bddb624b31d5ace1a1295771792967dd6e0e997df66ed452a58c2f07c"
+    },
+    {
+      "id": "fibre_size_8388608",
+      "description": "8 MiB of data: row size 2112, several 64-byte units per row.",
+      "size": "8388608",
+      "blob_pattern": "affine-7-3",
+      "blob_sha256_hex": "67930bd55dbd6f8ce6d1ccf483b846c6f41cb480fcab7de24da712fe02abdc31",
+      "row_size": "2112",
+      "upload_size": "8650752",
+      "blob_id_hex": "0076b139c7b45f6c7496d7d746e941744984704998bf867a5c6bfc31197088bb9b",
+      "commitment_hex": "76b139c7b45f6c7496d7d746e941744984704998bf867a5c6bfc31197088bb9b"
+    }
+  ],
+  "reject": [
+    {
+      "id": "fibre_anchor_x_sign_hash_y",
+      "description": "Anchor X, sign H(Y): the anchored blob X is the minimal_lmt payload, the archive serves Y (last byte flipped). A commitment with ciphertext_hash = SHA-256(Y) passes P2; only the recompute rejects.",
+      "size": "301",
+      "blob_hex": "a401000282a3014c676174652d70617065722d310258201b66dba1e659b5c474d02967a870a29307a044b62f4436618960118ce37c1b2b0358300a814b588aa4c07d43756273d717e47ee6ad860ed308d5478eef2ada561281c67190cf05a28f4c3bc557053e26f64342a3014961756469746f722d31025820fe8512b211b63311ae135c63eac3d923cc0afad4e38ea3c9dec222afcdd667f00358305732353d1e2651a15029867ef31c475ff04c9ba3bd68414b3abb980864354a7d38b4e62e0f64f9d69220f375b5aa4ab2034c7f979b8f963ea00610e99ae804585078398f904aa39c3b014127c6b7d2522fe37e09d6c1f3c47c09fa37f0942a9c9f654e3b37286eecc66a1b2a6ceec8ba8c3f750e387c2edb6e7cb340e41ee38aa85ec52b098d497da66f9e65d258cfe19e",
+      "blob_sha256_hex": "a9096bd33d24888f5c7506c724b8bce1e32576e586b69c4c6a21fb115c3c997a",
+      "commitment_hex": "ba7b74ce84c6d81d2ef6aafb4c61fcbf8c2f71718f371f12bd826156b303f56f",
+      "expect_error": "ErrDACommitmentMismatch"
+    },
+    {
+      "id": "fibre_trailing_zero",
+      "description": "The anchored payload plus one zero byte, as a source that kept row padding would serve it.",
+      "size": "302",
+      "blob_hex": "a401000282a3014c676174652d70617065722d310258201b66dba1e659b5c474d02967a870a29307a044b62f4436618960118ce37c1b2b0358300a814b588aa4c07d43756273d717e47ee6ad860ed308d5478eef2ada561281c67190cf05a28f4c3bc557053e26f64342a3014961756469746f722d31025820fe8512b211b63311ae135c63eac3d923cc0afad4e38ea3c9dec222afcdd667f00358305732353d1e2651a15029867ef31c475ff04c9ba3bd68414b3abb980864354a7d38b4e62e0f64f9d69220f375b5aa4ab2034c7f979b8f963ea00610e99ae804585078398f904aa39c3b014127c6b7d2522fe37e09d6c1f3c47c09fa37f0942a9c9f654e3b37286eecc66a1b2a6ceec8ba8c3f750e387c2edb6e7cb340e41ee38aa85ec52b098d497da66f9e65d258cfe19f00",
+      "blob_sha256_hex": "13ccbac90a173a501d4a07a28084d9a3bc14824e6318691b841d360a3685a6f2",
+      "commitment_hex": "ba7b74ce84c6d81d2ef6aafb4c61fcbf8c2f71718f371f12bd826156b303f56f",
+      "expect_error": "ErrDACommitmentMismatch"
+    },
+    {
+      "id": "fibre_with_header",
+      "description": "The anchored payload with its 5-byte Fibre header (version 0, uint32 BE size) still in front: Download strips it, so a source that returns it serves other bytes.",
+      "size": "306",
+      "blob_hex": "000000012da401000282a3014c676174652d70617065722d310258201b66dba1e659b5c474d02967a870a29307a044b62f4436618960118ce37c1b2b0358300a814b588aa4c07d43756273d717e47ee6ad860ed308d5478eef2ada561281c67190cf05a28f4c3bc557053e26f64342a3014961756469746f722d31025820fe8512b211b63311ae135c63eac3d923cc0afad4e38ea3c9dec222afcdd667f00358305732353d1e2651a15029867ef31c475ff04c9ba3bd68414b3abb980864354a7d38b4e62e0f64f9d69220f375b5aa4ab2034c7f979b8f963ea00610e99ae804585078398f904aa39c3b014127c6b7d2522fe37e09d6c1f3c47c09fa37f0942a9c9f654e3b37286eecc66a1b2a6ceec8ba8c3f750e387c2edb6e7cb340e41ee38aa85ec52b098d497da66f9e65d258cfe19f",
+      "blob_sha256_hex": "159f90928838075300fca1529a47a4699dc68dfaaaea6e5147c192e0b88a7ea6",
+      "commitment_hex": "ba7b74ce84c6d81d2ef6aafb4c61fcbf8c2f71718f371f12bd826156b303f56f",
+      "expect_error": "ErrDACommitmentMismatch"
+    },
+    {
+      "id": "fibre_da2_commitment",
+      "description": "The da = 2 share commitment of the same bytes (da_blob.json blob_v1_minimal_lmt_payload) presented as a Fibre commitment.",
+      "size": "301",
+      "blob_hex": "a401000282a3014c676174652d70617065722d310258201b66dba1e659b5c474d02967a870a29307a044b62f4436618960118ce37c1b2b0358300a814b588aa4c07d43756273d717e47ee6ad860ed308d5478eef2ada561281c67190cf05a28f4c3bc557053e26f64342a3014961756469746f722d31025820fe8512b211b63311ae135c63eac3d923cc0afad4e38ea3c9dec222afcdd667f00358305732353d1e2651a15029867ef31c475ff04c9ba3bd68414b3abb980864354a7d38b4e62e0f64f9d69220f375b5aa4ab2034c7f979b8f963ea00610e99ae804585078398f904aa39c3b014127c6b7d2522fe37e09d6c1f3c47c09fa37f0942a9c9f654e3b37286eecc66a1b2a6ceec8ba8c3f750e387c2edb6e7cb340e41ee38aa85ec52b098d497da66f9e65d258cfe19f",
+      "blob_sha256_hex": "9edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab",
+      "commitment_hex": "5404489c5efaf6a092a115d978b919cf3bc809df136ddc4bf64be61784151a04",
+      "expect_error": "ErrDACommitmentMismatch"
+    },
+    {
+      "id": "fibre_live_commitment_other_bytes",
+      "description": "The live Mocha commitment with the minimal_lmt payload: the commitment binds bytes only, so any other blob fails.",
+      "size": "301",
+      "blob_hex": "a401000282a3014c676174652d70617065722d310258201b66dba1e659b5c474d02967a870a29307a044b62f4436618960118ce37c1b2b0358300a814b588aa4c07d43756273d717e47ee6ad860ed308d5478eef2ada561281c67190cf05a28f4c3bc557053e26f64342a3014961756469746f722d31025820fe8512b211b63311ae135c63eac3d923cc0afad4e38ea3c9dec222afcdd667f00358305732353d1e2651a15029867ef31c475ff04c9ba3bd68414b3abb980864354a7d38b4e62e0f64f9d69220f375b5aa4ab2034c7f979b8f963ea00610e99ae804585078398f904aa39c3b014127c6b7d2522fe37e09d6c1f3c47c09fa37f0942a9c9f654e3b37286eecc66a1b2a6ceec8ba8c3f750e387c2edb6e7cb340e41ee38aa85ec52b098d497da66f9e65d258cfe19f",
+      "blob_sha256_hex": "9edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab",
+      "commitment_hex": "0af738097b64a00bff6820c48a3ae26160b8054c9a9b79bd3cac2100d1833b2e",
+      "expect_error": "ErrDACommitmentMismatch"
+    },
+    {
+      "id": "fibre_empty",
+      "description": "Zero bytes: fibre.NewBlob refuses empty data, so no commitment exists and the committer reports a mismatch. Unreachable through the gate, where S6 rejects payload_size 0 first.",
+      "size": "0",
+      "blob_hex": "",
+      "blob_sha256_hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "commitment_hex": "0af738097b64a00bff6820c48a3ae26160b8054c9a9b79bd3cac2100d1833b2e",
+      "expect_error": "ErrDACommitmentMismatch"
+    },
+    {
+      "id": "fibre_size_134217724",
+      "description": "One byte above the Fibre maximum (2^27 - 5): fibre.NewBlob returns ErrBlobTooLarge. S7 allows payload_size up to 2^27, so a da = 1 commitment of 2^27 - 4 .. 2^27 bytes passes stage S and fails here (no such blob can be anchored).",
+      "size": "134217724",
+      "blob_pattern": "affine-7-3",
+      "blob_sha256_hex": "db3550f91b2651b898e998ad08bfee835eaafd935a1521ffd382a42841f3f0e7",
+      "commitment_hex": "0af738097b64a00bff6820c48a3ae26160b8054c9a9b79bd3cac2100d1833b2e",
+      "expect_error": "ErrDACommitmentMismatch"
+    }
+  ],
+  "anchor_k2_with_fibre_committer": [
+    {
+      "anchor_ref": "k2_fibre_one_second_over",
+      "without_committer": "ErrArchiveRecomputeUnsupported",
+      "route": "archive"
+    },
+    {
+      "anchor_ref": "k2_fibre_creation_unknown",
+      "without_committer": "ErrArchiveRecomputeUnsupported",
+      "route": "archive"
+    },
+    {
+      "anchor_ref": "k2_fibre_retention_lowered_over",
+      "without_committer": "ErrArchiveRecomputeUnsupported",
+      "route": "archive"
+    },
+    {
+      "anchor_ref": "k2_fibre_governance_minimum_over",
+      "without_committer": "ErrArchiveRecomputeUnsupported",
+      "route": "archive"
+    }
+  ]
+}

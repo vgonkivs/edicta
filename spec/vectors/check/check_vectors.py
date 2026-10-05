@@ -7,7 +7,8 @@ checked by check_payload_blob.py, which runs the RFC 9180 known-answer tests of
 the hand-written HPKE first. The dca-agent profile vectors are checked by
 check_profile_dca_agent.py, the bank-send profile vectors by
 check_profile_bank_send.py and the API vectors by check_api_vectors.py
-(publish request) and check_api_errors.py (HTTP error mapping).
+(publish request) and check_api_errors.py (HTTP error mapping), and
+da/fibre_commit.json by check_fibre_commit.py.
 
 Usage: python3 spec/vectors/check/check_vectors.py [--dir DIR]
 Without --dir, spec/vectors/v0, the profile and the API vectors are checked; with
@@ -621,6 +622,7 @@ def main() -> int:
     rc |= run_script(HERE / "check_profile_bank_send.py")
     rc |= run_script(HERE / "check_api_vectors.py")
     rc |= run_script(HERE / "check_api_errors.py")
+    rc |= run_script(HERE / "check_fibre_commit.py")
     return rc
 
 
