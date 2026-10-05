@@ -191,6 +191,9 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 	if err := checkAccounts(dom, hl.RecorderSigner); err != nil {
 		return err
 	}
+	if err := rail.CheckTxIndex(ctx); err != nil {
+		return fmt.Errorf("executor status node: %w", err)
+	}
 	logf("executor account %s (denom %s)", dom.Sender, dom.Denom)
 
 	// inclusion verifier
@@ -226,6 +229,7 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 		GatePubKey: ed25519.PublicKey(pins.gateKey), GateID: hl.GateID, SkewS: cfg.SkewS,
 		MaxAmount: max(cfg.UpAmount, cfg.DownAmount), MaxFee: cfg.MaxFee,
 		Destinations: []string{cfg.UpAddr, cfg.DownAddr}, RebroadcastEvery: cfg.Rebroadcast,
+		IndexerLagBlocks: cfg.IndexerLag, ConfirmDelay: cfg.ConfirmDelay,
 		SignKey: execSign,
 	}, dom, rail, store, wallClock{})
 	if err != nil {

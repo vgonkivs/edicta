@@ -2,7 +2,7 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v0-draft.15` (2026-10-05). Working draft, subject to change.
+Status: revision `v0-draft.16` (2026-10-05). Working draft, subject to change.
 Wire version: `version = 0`. Domain tags: `edicta/v0/...`.
 
 The core knows no rail, broker or chain. An action is an opaque byte string
@@ -47,6 +47,7 @@ signature even if the byte layout were identical.
 | `v0-draft.13` | 2026-10-04 | Single DA per instance. Section 7: the 256 KiB Recorder split between `celestia_blob` and `fibre` is replaced by a normative deployment rule: one DA per gate/Recorder instance, chosen by configuration; a payload that does not fit it is refused; switching DA is a restart with another configuration, after which commitments for the other DA fail C3. "Routing" wording for the gate's K2 choice between the DA and archive paths is renamed "path selection" (no change in meaning). | Unchanged | Every file byte-identical. |
 | `v0-draft.14` | 2026-10-05 | HTTP error mapping (section 18.3): `recorder.ErrNodeUnavailable` and `recorder.ErrTooManyPending` added to section 12 and mapped to 503, retryable, matched after `recorder.ErrNotVisible`. Before this they fell through to 500 `edictaapi.ErrInternal`, so the status and retry advice for these failures change. | Unchanged | `spec/vectors/api/errors.json` regenerated: the two entries (74 codes) and `"revision": "v0-draft.14"`. Every other file byte-identical. |
 | `v0-draft.15` | 2026-10-05 | Section 18.3 match order corrected to the reference server: `recorder.ErrNodeUnavailable` and `recorder.ErrTooManyPending` are matched **before** `recorder.ErrNotVisible`, not after it as draft.14 said. No Recorder error wraps more than one of these sentinels, so no status or code changes; the order is normative because `errors.json` is defined as match order. Section 12: `recorder.ErrNodeUnavailable` is also returned after a submit (search and read-back), not only before one. Bank-send profile `bank-send-v0-draft.3` (hand-off bounds and reconcile) at the same time. | Unchanged | `spec/vectors/api/errors.json` regenerated: the two entries move ahead of `recorder.ErrNotVisible`, `"revision": "v0-draft.15"`. Every other file byte-identical. |
+| `v0-draft.16` | 2026-10-05 | Recorder and inclusion review. (1) Section 17.3: PR6 is the completed-blob cache only (a completed answer, or a concurrent request for the same blob that completes, is free); PR7 states that the quota counts requests that reach it, not spend, so a retry of a blob with an unresolved submission is charged; new rule PR8: an unresolved submission is never submitted again, the retry resumes its search (moved out of PR6). Before this the text said every deduplicated retry was free. (2) Section 18.3: `edictaapi.ErrDeadline` only for the handler's own deadline; a Recorder submit timeout is `recorder.ErrOutcomeUnknown`, a Recorder read timeout `recorder.ErrNodeUnavailable` (both 503), whatever context error they wrap. The match order and the `errors.json` table are unchanged; the statement is new. (3) Section 9.5: `CrossCheck` source identity, rules X1 to X4 (URL normalization) and a refusal to start when two sources share a normalized host. Bank-send profile `bank-send-v0-draft.4` (watch loop, `indexer_lag_blocks`, startup indexer check, rejection keeps watching) at the same time. | Unchanged | Every file byte-identical, including `spec/vectors/api/errors.json` (`"revision": "v0-draft.15"`: its bytes and meaning did not change) and `publish_request.json` (PR6 to PR8 are stateful, no vectors). |
 
 ## 1. Threat model in one table
 
@@ -83,7 +84,7 @@ Each mechanism below names what it defends against and what it assumes.
 | Nothing (out of core scope) | Action bytes that are malformed, unsafe or semantically wrong for the rail (notional, price, instrument): the core authorizes exactly what the agent committed and checks no semantics | The profile's strict decoder and the executor's own limits (for example the dca-agent profile's account check and operator risk limit). A malicious caller can obtain an Authorization only for bytes the agent committed to |
 | Blob submitter (Recorder, relay) trusted for liveness only; rules W4, W5, W6 (section 9.5) | A submitter that anchors other bytes, anchors under an unexpected account or namespace, or reports a false height or block time, getting the agent to sign a false "public at H" | The submitter is untrusted for integrity: it can refuse, delay, or anchor under its own account, and nothing else. The producer recomputes the DA commitment from its own bytes (W4), verifies inclusion of that commitment under a header it verified itself from sources the submitter does not control (W5), and only then signs; the gate re-checks K0, K1, P1 to P3. Worst case: censorship or delay, visible as a missing or late decision, bounded by W6 |
 | Independent inclusion check, rule W5, three trust levels (section 9.5) | A lying submitter or a lying proof-serving node | `Light` (cryptographic): a trust anchor, more than 2/3 of voting power honest at H, and at least one honest header provider among primary and witnesses. `CrossCheck` (weaker interim substitute, MUST be identified as such): at least one of two or more independent header providers is honest and they do not collude; no signature is checked. `SelfCheck`: the operator's own node, allowed only when submitter and producer are one operator. A commitment proof can come from any node: it is checked against the verified header's data root |
-| Agent-signed publish request (section 17) | A party without an allowlisted agent key spending the Recorder operator's fees; probing the allowlist; reusing an agent signature of another kind as a publish request; replaying a request at another Recorder | Agent keys are secret; each server's `gate_id` is unique (it is signed into the message). Domain separation (tag length 25, unique) keeps publish requests apart from commitment signatures. A replay at the same server inside the window is answered from the dedupe record (PR6) and spends no fee; it never creates a decision. Quotas are per `agent_id` and checked before any fee is spent |
+| Agent-signed publish request (section 17) | A party without an allowlisted agent key spending the Recorder operator's fees; probing the allowlist; reusing an agent signature of another kind as a publish request; replaying a request at another Recorder | Agent keys are secret; each server's `gate_id` is unique (it is signed into the message). Domain separation (tag length 25, unique) keeps publish requests apart from commitment signatures. A replay at the same server inside the window is answered from the dedupe record (PR6) or finds the earlier submission (PR8), so it spends no second fee; it never creates a decision. Quotas are per `agent_id`, count requests rather than fees (PR7), and are checked before anything is submitted |
 | DA allowlist, rule C3 (section 8.3) | A gate authorizing a `da` it cannot check on its chain (for example `da = 1` where `x/fibre` is absent) | The operator configures the set; a gate that allows `da = 1` refuses to start if it cannot read Fibre parameters |
 | Byte-identical resend, amended rule I5 (section 16.1) | A transfer lost in a mempool never landing, and a "fix" that builds a second transaction and executes twice | The rail includes the same signed bytes at most once (an account sequence) and the profile bounds the window (a timeout height). The bound is in blocks, not seconds: a slower chain moves the last possible inclusion later in wall-clock time (bank-send profile, section 4) |
 
@@ -1086,6 +1087,38 @@ different party (a hosted relay, another operator), W5 MUST be performed at
 level `Light` or `CrossCheck`, and a producer MUST refuse to start with
 `SelfCheck` or without W5.
 
+`CrossCheck` source identity (v0 minimum). Independence is counted per
+host, never per configured string. Each header provider URL is normalized
+before any comparison, both between sources and against the submitter's
+own node:
+
+| Rule | Normalization |
+|---|---|
+| X1 | The URL is absolute; the scheme is compared lower-case and MUST be one the implementation supports. Unparsable, relative, or an unknown scheme: refuse to start |
+| X2 | The host is compared lower-case, with one trailing dot removed (`a.example.` is `a.example`); an IPv6 literal is compared without brackets |
+| X3 | The port is explicit: when absent, the scheme's default (`http`, `ws`: 80; `https`, `wss`: 443; a scheme without a default and without a port: refuse to start) |
+| X4 | Path, query, fragment and user info are not part of the identity; in particular a trailing `/` and any other path are ignored |
+
+The identity of a source is `scheme://host:port` after X1 to X4. A producer
+MUST refuse to start (a configuration error) if two configured `CrossCheck`
+sources have the same normalized host (X2), whatever their scheme, port or
+path: two endpoints on one host are one provider, and silently counting or
+silently dropping one of them would misstate the number of independent
+sources. A source whose normalized host equals that of a node the submitter
+controls (for the reference tools, the node configured for submission) is
+submitter-controlled and does not count toward the two independent sources.
+After this check, fewer than two independent sources is also a refusal to
+start.
+
+Threat note (source identity). The rule closes operator mistakes in which
+one provider is listed twice under different spellings (`https://a` and
+`https://A:443/`, `a.example.` and `a.example`), which would let one node
+satisfy "two or more independent providers". It does not prove
+independence: an IP address and its DNS name, two DNS names for one machine,
+`localhost` versus `127.0.0.1` versus `::1`, or two hosts run by one company
+still count as two. Independence stays an operator assertion, and the
+level stays weaker than `Light` for that reason.
+
 Facts the rule relies on (celestia-core `v0.42.3`, celestia-node `v0.31.4`
 source read locally; `UNVERIFIED` that they are unchanged at the pinned
 celestia-node `v0.34.2-mocha` and app `v10.x`):
@@ -1632,16 +1665,16 @@ have stable names, because the API reports them as codes:
 | `ErrClockRegression` (package `gate`) | The gate clock is before the registry watermark | 503 |
 | `ErrClosed` (package `gate`) | The gate is shutting down | 503 |
 | `recorder.ErrTooLarge` | The blob is above the Recorder's own limit | 413 |
-| `recorder.ErrOutcomeUnknown` | A submission may or may not have reached the chain; a retry is deduplicated (PR6) | 503 |
+| `recorder.ErrOutcomeUnknown` | A submission may or may not have reached the chain; a retry of the same blob does not submit again while the outcome is unresolved (PR8), and is charged quota (PR7) | 503 |
 | `recorder.ErrNotVisible` | The anchor was not visible on the read node in time | 503 |
 | `recorder.ErrSignerMismatch` | The node shows the anchored blob under another signer or share version | 502 |
-| `recorder.ErrNodeUnavailable` | The Recorder's read node failed for a reason other than "not found". Before a submit (the head): nothing was submitted and the blob is not held. After a submit (the search for the blob, or reading back its header or blob): the submission is kept, and a retry of the same blob resumes the search and does not submit again while the outcome is unresolved (PR6) | 503 |
+| `recorder.ErrNodeUnavailable` | The Recorder's read node failed for a reason other than "not found". Before a submit (the head): nothing was submitted and the blob is not held. After a submit (the search for the blob, or reading back its header or blob): the submission is kept, and a retry of the same blob resumes the search and does not submit again while the outcome is unresolved (PR8) | 503 |
 | `recorder.ErrTooManyPending` | Too many blobs have an unresolved submission outcome; new publishes wait until they resolve | 503 |
 | `edictaapi.ErrTokenInvalid` | Missing or wrong bearer token on an endpoint that requires one | 401 |
 | `edictaapi.ErrRouteNotFound` | No such path | 404 |
 | `edictaapi.ErrMethodNotAllowed` | Wrong HTTP method for the path | 405 |
 | `edictaapi.ErrMediaType` | Request `Content-Type` is not `application/cbor` | 415 |
-| `edictaapi.ErrDeadline` | The server's handler deadline passed | 504 |
+| `edictaapi.ErrDeadline` | The server's own per-request handler deadline passed, and the operation's error matches no other sentinel (section 18.3) | 504 |
 | `edictaapi.ErrInternal` | Anything unmapped; message redacted | 500 |
 
 The draft.8 execution errors (execution rejected or unknown, receipt
@@ -1700,7 +1733,7 @@ keeps its bytes and its `"revision": "v0-draft.9"` field):
 
 | File | Contents |
 |---|---|
-| `spec/vectors/api/publish_request.json` | Section 17 (`"revision": "v0-draft.11"`). `tag`, `publish_window_s`, `request_overhead`, `patterns`, `server` (`gate_id`, `now`, `skew_s`, `max_blob_bytes`, `allowlist` of `agent_id` -> public key, `gate_keys`). `cases`: `signer`, `agent_id`, `requested_at`, the blob as `blob_hex` or `blob_pattern` + `blob_size`, `blob_sha256_hex`, `publish_message_hex`, `signature_hex`, and `request_cbor_hex` (or `request_size` + `request_sha256_hex` for a pattern blob). `reject`: `id`, `stage`, `rule`, `description`, `request_cbor_hex`, optional `server` overrides, one `expect_error`. `response`: `commitment_ref` (a `valid.json` id), `payload_ref_cbor_hex`, `block_time`, `retention_start`, `response_cbor_hex`. 7 cases, 30 rejects, 1 response. PR6 and PR7 are stateful and have no vectors. Generated by `gen_api_vectors.py`, checked by `check_api_vectors.py`. |
+| `spec/vectors/api/publish_request.json` | Section 17 (`"revision": "v0-draft.11"`). `tag`, `publish_window_s`, `request_overhead`, `patterns`, `server` (`gate_id`, `now`, `skew_s`, `max_blob_bytes`, `allowlist` of `agent_id` -> public key, `gate_keys`). `cases`: `signer`, `agent_id`, `requested_at`, the blob as `blob_hex` or `blob_pattern` + `blob_size`, `blob_sha256_hex`, `publish_message_hex`, `signature_hex`, and `request_cbor_hex` (or `request_size` + `request_sha256_hex` for a pattern blob). `reject`: `id`, `stage`, `rule`, `description`, `request_cbor_hex`, optional `server` overrides, one `expect_error`. `response`: `commitment_ref` (a `valid.json` id), `payload_ref_cbor_hex`, `block_time`, `retention_start`, `response_cbor_hex`. 7 cases, 30 rejects, 1 response. PR6 to PR8 are stateful and have no vectors. Generated by `gen_api_vectors.py`, checked by `check_api_vectors.py`. |
 
 | File (`v0-draft.12`, regenerated in `v0-draft.14` and `v0-draft.15`) | Contents |
 |---|---|
@@ -2305,11 +2338,13 @@ In this order; the first failing rule decides:
 | PR3 | `agent_id` is in the agent allowlist, and its key passes G0, G2 and G1 (cofactorless) for `signature` over `publish_message`. An unknown `agent_id` and a bad signature give the same sentinel, so the endpoint is no allowlist oracle | `edictaapi.ErrPublishSignature` |
 | PR4 | The allowlisted key is not a gate key (L0) | `ErrAgentKeyIsGateKey` |
 | PR5 | `abs(now - requested_at) <= skew_s + 300` | `edictaapi.ErrPublishStale` |
-| PR6 | Dedupe by `SHA-256(blob)`: if this server already published, or is publishing, the same blob, it does not submit again. A completed entry is answered with the stored PublishResponse (same `payload_ref`, `block_time`, `retention_start`); an in-flight one makes the request wait for it, or answers retryable `recorder.ErrOutcomeUnknown`. Entries are kept at least `2 * (skew_s + 300)` seconds after the publication, so every request that can still pass PR5 for that blob finds them | (none: answered from the record) |
-| PR7 | Per-`agent_id` quotas (blobs per hour, bytes per day) allow the blob; checked before any fee is spent. A request answered by PR6 spends no fee and is not charged | `edictaapi.ErrQuotaExceeded` |
+| PR6 | Completed-blob cache, by `SHA-256(blob)`. (a) If this server has a completed publication of the same blob, the request is answered with the stored PublishResponse (same `payload_ref`, `block_time`, `retention_start`). (b) If another request for the same blob is being processed right now, this one waits for it and, if that one completes, gets the same answer; if it fails, this request continues at PR7 as if no entry existed. Completed entries are kept at least `2 * (skew_s + 300)` seconds after the publication, so every request that can still pass PR5 for that blob finds them. Requests answered under (a) or (b) are not charged | (none: answered from the record) |
+| PR7 | Per-`agent_id` quota (blobs per hour, bytes per day) allows the request, and is charged for it; checked before anything is submitted. The quota counts **requests that reach this rule, not spend**: a retry of a blob whose earlier submission has an unresolved outcome (it answered `recorder.ErrOutcomeUnknown`, `recorder.ErrNodeUnavailable` after the submit, or a deadline) is charged again, although it never submits again (PR8) | `edictaapi.ErrQuotaExceeded` |
+| PR8 | Unresolved submissions, by `SHA-256(blob)`. If an earlier submission of the same blob has an unresolved outcome and is still held (section 12, `recorder.ErrNodeUnavailable`), the Recorder does not submit again: it resumes the search for that submission and answers the PublishResponse if found, otherwise retryable `recorder.ErrOutcomeUnknown`. Unresolved submissions are held at least `2 * (skew_s + 300)` seconds, like completed ones. Otherwise it submits | `recorder.ErrOutcomeUnknown` |
 
-Then the Recorder publishes the blob unchanged, records the response under
-`SHA-256(blob)` and answers with it. Signature before staleness and quota, as for agents at the gate (L
+Then the Recorder publishes the blob unchanged (or finds the earlier
+submission, PR8), records the response under `SHA-256(blob)` and answers
+with it. Signature before staleness and quota, as for agents at the gate (L
 after G): an unsigned request learns nothing about the allowlist or the
 quotas.
 
@@ -2317,7 +2352,10 @@ Threat notes:
 - Replay. A captured request is valid only at the server whose `gate_id` it
   names (PR3), and only for `skew_s + 300` seconds either side of
   `requested_at` (PR5). Inside that window PR6 answers it from the dedupe
-  record: no second submission, no fee, the same `payload_ref`. It publishes
+  record, or PR8 finds the earlier submission: no second submission, no
+  second fee, the same `payload_ref`. A replay that reaches PR7 is charged
+  to the agent's quota, which bounds how much Recorder work a captured
+  request can cause. It publishes
   only bytes the agent chose and creates no decision.
 - Dedupe key. `SHA-256(blob)` per server: the server has one namespace and
   one signer account, so the share commitment of a given blob is fixed and
@@ -2331,6 +2369,17 @@ Threat notes:
   the operator's fees, not the agent. The agent's protection is W4 to W6.
 - Quotas held in memory reset on restart; a restart therefore restores a
   quota early. Accepted for v0.
+- What the quota counts. v0 has one quota and it counts requests that reach
+  PR7, not fees spent. Only completed answers (PR6) are free. A retry
+  of an unresolved blob spends no fee (PR8 never submits it twice) but is
+  charged, because it costs the Recorder node reads (the search resumes from
+  where the last one stopped) and because an agent that keeps retrying must
+  not hold Recorder capacity for free: unresolved entries count toward the
+  Recorder's limit on unresolved submissions (`recorder.ErrTooManyPending`).
+  Consequence for clients: retrying `recorder.ErrOutcomeUnknown` with the
+  same blob uses quota; after a few such answers a client SHOULD discard the
+  blob and seal a new payload (W6) instead. A separate request-rate limit and
+  spend quota are possible later and are not part of v0.
 
 Vectors: `spec/vectors/api/publish_request.json` (section 13).
 
@@ -2458,6 +2507,23 @@ listed first.
 | 503 | `ErrPayloadUnavailable`, `ErrRetentionUnavailable`, `ErrChainUnavailable`, `ErrAllowlistUnavailable`, `ErrRegistryUnavailable`, `ErrClockRegression`, `ErrClosed`, `recorder.ErrOutcomeUnknown`, `recorder.ErrNodeUnavailable`, `recorder.ErrTooManyPending`, `recorder.ErrNotVisible` |
 | 504 | `edictaapi.ErrDeadline` |
 | 500 | `edictaapi.ErrInternal` (anything else) |
+
+Deadlines (normative). `edictaapi.ErrDeadline` means only that the
+server's own per-request handler deadline fired. A timeout inside an
+operation is reported by that operation's sentinel, and the table order
+(every 503 row before 504) makes it win even when the handler deadline fired
+at the same time or the error wraps a context deadline:
+- a Recorder submit that timed out: `recorder.ErrOutcomeUnknown` (503; the
+  blob may have been broadcast, PR8 applies to a retry);
+- a Recorder read of the node (head, search, read-back) that timed out:
+  `recorder.ErrNodeUnavailable` (503);
+- a gate dependency timeout that the gate reports as an unavailable
+  sentinel (`ErrChainUnavailable` and others) stays 503.
+An error that wraps a context deadline but matches no section 12 sentinel is
+504 `edictaapi.ErrDeadline` only if the handler's deadline has fired;
+otherwise it is 500 `edictaapi.ErrInternal`. Threat note: a Recorder timeout
+reported as 504 would hide that a fee may have been spent and that a retry
+is held by PR8; 503 with the Recorder code says exactly that.
 
 The mapping is the whole contract: two servers report the same code and
 status for the same failure because the operations' stage orders (sections

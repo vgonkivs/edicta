@@ -75,6 +75,12 @@ func (c *chain) Head(context.Context) (uint64, uint64, time.Duration, error) {
 	return c.height(), uint64(c.clock.Now().Unix()), time.Duration(blockS) * time.Second, nil
 }
 
+func (c *chain) Height(context.Context) (uint64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.height(), nil
+}
+
 func (c *chain) Sign(_ context.Context, body []byte, _ string, _ uint64) ([]byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -104,12 +110,12 @@ func (c *chain) Status(_ context.Context, h [32]byte) (transfer.TxStatus, error)
 	for _, raw := range c.signed {
 		if sha256.Sum256(raw) == h && len(c.broadcasts) > 0 {
 			if c.height() > headH {
-				return transfer.TxStatus{State: transfer.TxCommitted, Height: headH + 1}, nil
+				return transfer.TxStatus{State: transfer.TxCommitted, Height: headH + 1, NodeHeight: c.height()}, nil
 			}
-			return transfer.TxStatus{State: transfer.TxPending}, nil
+			return transfer.TxStatus{State: transfer.TxPending, NodeHeight: c.height()}, nil
 		}
 	}
-	return transfer.TxStatus{State: transfer.TxUnknown}, nil
+	return transfer.TxStatus{State: transfer.TxUnknown, NodeHeight: c.height()}, nil
 }
 
 func (c *chain) counts() (signs, sends int) {

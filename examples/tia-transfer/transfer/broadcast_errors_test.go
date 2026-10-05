@@ -21,7 +21,7 @@ import (
 // ErrHandedOff and the Rail's error (node code and log). Every failure Result
 // carries the real tx hash (sha256 of the signed bytes), never zeros.
 
-func TestFinalRejectionStopsRebroadcastAndHandsOff(t *testing.T) {
+func TestFinalRejectionStopsSendingButKeepsWatchingUntilTheBounds(t *testing.T) {
 	for name, cause := range map[string]string{
 		"insufficient fee": "code 13: insufficient fee; got: 500utia required: 600utia",
 		"signature":        "code 4: signature verification failed",
@@ -30,22 +30,53 @@ func TestFinalRejectionStopsRebroadcastAndHandsOff(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newRig(t)
-			r.rail.includeAt = headH + 50
+			r.rail.frozen = true
 			r.rail.broadcastErrs = []error{fmt.Errorf("%w: %s", transfer.ErrRejected, cause)}
+			ctx := r.cancelOnStatus(5000)
 			action := actionBytes(t, chainID, validMsg())
-			res, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+			h := chash(1)
+			res, err := r.exec.Execute(ctx, goodAuth(t, h, action), action)
+			require.NoError(t, ctx.Err(), "the loop ended on its own")
 			require.ErrorIs(t, err, transfer.ErrHandedOff)
 			require.ErrorIs(t, err, transfer.ErrRejected)
 			assert.Contains(t, err.Error(), cause, "node code and log reach the caller")
-			assert.Equal(t, 1, r.rail.broadcastCalls(), "no rebroadcast after a final rejection")
-			assert.Equal(t, 1, r.rail.broadcastCalls(), "a delay before the last status check is fine, a resend is not")
-			assert.True(t, r.store.has("handoff"))
+			assert.Equal(t, 1, r.rail.broadcastCalls(), "no resend after a final rejection")
+			assert.GreaterOrEqual(t, r.clock.unix(), expiresAt+600, "handed off only at the grace bound")
+			assert.Greater(t, r.rail.statusCalls(), 10, "the watch went on after the rejection")
 			assert.False(t, r.store.has("finish"))
 			require.Equal(t, 1, r.rail.signCalls())
-			assert.Equal(t, sha256.Sum256(r.rail.signed[0]), res.TxHash, "the real tx hash, not zeros")
-			assert.NotEqual(t, [32]byte{}, res.TxHash)
+			assert.Equal(t, sha256.Sum256(r.rail.signed[0]), res.TxHash)
+			rec, gerr := r.store.Get(bg, h)
+			require.NoError(t, gerr)
+			assert.Equal(t, transfer.StateHandedOff, rec.State)
+			assert.Contains(t, rec.Reason, cause)
 		})
 	}
+}
+
+func TestRejectedTxThatLandsLaterIsFinished(t *testing.T) {
+	r := newRig(t)
+	r.rail.frozen = true
+	r.rail.broadcastErrs = []error{fmt.Errorf("%w: code 13: insufficient fee", transfer.ErrRejected)}
+	r.rail.commitAtClock, r.rail.commitHeight = nowUnix+120, headH
+	action := actionBytes(t, chainID, validMsg())
+	res, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+	require.NoError(t, err, "the first send was in a mempool and got included")
+	assert.Equal(t, headH, res.Height)
+	assert.Equal(t, 1, r.rail.broadcastCalls())
+	assert.True(t, r.store.has("finish"))
+	assert.False(t, r.store.has("handoff"))
+}
+
+func TestRejectedTxIsHandedOffOnTheTimeoutBound(t *testing.T) {
+	r := newRig(t)
+	r.rail.broadcastErrs = []error{fmt.Errorf("%w: code 13: insufficient fee", transfer.ErrRejected)}
+	action := actionBytes(t, chainID, validMsg())
+	_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+	require.ErrorIs(t, err, transfer.ErrHandedOff)
+	require.ErrorIs(t, err, transfer.ErrRejected)
+	assert.Equal(t, 1, r.rail.broadcastCalls())
+	assert.Greater(t, r.clock.unix(), nowUnix+60, "not handed off right after the rejection")
 }
 
 func TestTransientBroadcastErrorsKeepRetrying(t *testing.T) {

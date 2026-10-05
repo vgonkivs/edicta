@@ -348,7 +348,10 @@ func TestHandsOffAfterTimeoutHeight(t *testing.T) {
 	}
 	last := len(r.rail.statusHeight) - 1
 	require.GreaterOrEqual(t, last, 0)
-	assert.Greater(t, r.rail.statusHeight[last], th, "one final status after timeout_height")
+	assert.Greater(t, r.rail.statusHeight[last], th+3, "final status after timeout_height plus the lag margin")
+	require.GreaterOrEqual(t, last, 1)
+	assert.Greater(t, r.rail.statusHeight[last-1], th+3, "a second status check confirmed it")
+	assert.Greater(t, r.rail.statusTimes[last], r.rail.statusTimes[last-1], "the second check is delayed")
 	assert.True(t, r.store.has("handoff"))
 	assert.False(t, r.store.has("finish"))
 }

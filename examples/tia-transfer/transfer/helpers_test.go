@@ -104,6 +104,20 @@ type fakeRail struct {
 	onStatus      func(n int)
 	statusTimes   []uint64
 
+	// nodeHeightFn is the height of the node that answers Status; nil means
+	// the same as the head.
+	nodeHeightFn func(clockUnix uint64) uint64
+	// heightErrFn, when set, makes the height-only read fail.
+	heightErrFn func(clockUnix uint64) error
+	onHeight    func(n int)
+	// statusOverride, when it reports true, replaces the answer of Status.
+	statusOverride func(n int, nodeHeight uint64) (transfer.TxStatus, bool)
+	// hang counts, per call kind, the first calls that block until their
+	// context ends.
+	hang    map[string]int
+	callLog []callInfo
+	heightN int
+
 	bodies       [][]byte
 	chainIDs     []string
 	maxFees      []uint64
@@ -113,6 +127,12 @@ type fakeRail struct {
 	bcastTimes   []uint64
 	statusHashes [][32]byte
 	statusHeight []uint64
+}
+
+type callInfo struct {
+	kind        string
+	hasDeadline bool
+	remaining   time.Duration
 }
 
 func newRail(c *fakeClock) *fakeRail {
@@ -129,6 +149,42 @@ func (r *fakeRail) height() uint64 {
 	return headH + (r.clock.unix()-nowUnix)/blockS
 }
 
+func (r *fakeRail) nodeHeight() uint64 {
+	if r.nodeHeightFn != nil {
+		return r.nodeHeightFn(r.clock.unix())
+	}
+	return r.height()
+}
+
+// enter records the context of a call and blocks if the call is meant to hang.
+func (r *fakeRail) enter(ctx context.Context, kind string) error {
+	dl, ok := ctx.Deadline()
+	r.mu.Lock()
+	r.callLog = append(r.callLog, callInfo{kind: kind, hasDeadline: ok, remaining: time.Until(dl)})
+	hang := r.hang[kind] > 0
+	if hang {
+		r.hang[kind]--
+	}
+	r.mu.Unlock()
+	if hang {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return nil
+}
+
+func (r *fakeRail) calls(kind string) []callInfo {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []callInfo
+	for _, c := range r.callLog {
+		if c.kind == kind {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func (r *fakeRail) Domain(context.Context) (transfer.Domain, error) {
 	return transfer.Domain{ChainID: chainID, Denom: denom, HRP: hrp, Sender: sender}, nil
 }
@@ -140,6 +196,30 @@ func (r *fakeRail) Head(context.Context) (uint64, uint64, time.Duration, error) 
 		return 0, 0, 0, r.headErr
 	}
 	return r.height(), r.clock.unix(), r.interval, nil
+}
+
+func (r *fakeRail) Height(ctx context.Context) (uint64, error) {
+	if err := r.enter(ctx, "height"); err != nil {
+		return 0, err
+	}
+	r.mu.Lock()
+	r.heightN++
+	n, hook := r.heightN, r.onHeight
+	r.mu.Unlock()
+	if hook != nil {
+		hook(n)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.heightErrFn != nil {
+		if err := r.heightErrFn(r.clock.unix()); err != nil {
+			return 0, err
+		}
+	}
+	if r.headErr != nil {
+		return 0, r.headErr
+	}
+	return r.height(), nil
 }
 
 func uv(v int) []byte { return binary.AppendUvarint(nil, uint64(v)) }
@@ -171,7 +251,10 @@ func (r *fakeRail) Sign(_ context.Context, body []byte, cid string, maxFee uint6
 	return raw, nil
 }
 
-func (r *fakeRail) Broadcast(_ context.Context, raw []byte) error {
+func (r *fakeRail) Broadcast(ctx context.Context, raw []byte) error {
+	if err := r.enter(ctx, "broadcast"); err != nil {
+		return err
+	}
 	r.mu.Lock()
 	r.broadcasts = append(r.broadcasts, append([]byte(nil), raw...))
 	r.bcastHeights = append(r.bcastHeights, r.height())
@@ -189,7 +272,10 @@ func (r *fakeRail) Broadcast(_ context.Context, raw []byte) error {
 	return err
 }
 
-func (r *fakeRail) Status(_ context.Context, h [32]byte) (transfer.TxStatus, error) {
+func (r *fakeRail) Status(ctx context.Context, h [32]byte) (transfer.TxStatus, error) {
+	if err := r.enter(ctx, "status"); err != nil {
+		return transfer.TxStatus{}, err
+	}
 	r.mu.Lock()
 	n := len(r.statusHashes) + 1
 	hook := r.onStatus
@@ -200,21 +286,28 @@ func (r *fakeRail) Status(_ context.Context, h [32]byte) (transfer.TxStatus, err
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.statusHashes = append(r.statusHashes, h)
-	r.statusHeight = append(r.statusHeight, r.height())
+	nh := r.nodeHeight()
+	r.statusHeight = append(r.statusHeight, nh)
 	r.statusTimes = append(r.statusTimes, r.clock.unix())
+	if r.statusOverride != nil {
+		if st, ok := r.statusOverride(n, nh); ok {
+			st.NodeHeight = nh
+			return st, nil
+		}
+	}
 	if r.commitAtClock != 0 && len(r.broadcasts) > 0 && r.clock.unix() >= r.commitAtClock {
-		return transfer.TxStatus{State: transfer.TxCommitted, Height: r.commitHeight, Code: r.code}, nil
+		return transfer.TxStatus{State: transfer.TxCommitted, Height: r.commitHeight, Code: r.code, NodeHeight: nh}, nil
 	}
 	for _, raw := range r.signed {
 		if sha256.Sum256(raw) != h {
 			continue
 		}
-		if len(r.broadcasts) > 0 && r.includeAt != 0 && r.height() >= r.includeAt {
-			return transfer.TxStatus{State: transfer.TxCommitted, Height: r.includeAt, Code: r.code}, nil
+		if len(r.broadcasts) > 0 && r.includeAt != 0 && nh >= r.includeAt {
+			return transfer.TxStatus{State: transfer.TxCommitted, Height: r.includeAt, Code: r.code, NodeHeight: nh}, nil
 		}
-		return transfer.TxStatus{State: transfer.TxPending}, nil
+		return transfer.TxStatus{State: transfer.TxPending, NodeHeight: nh}, nil
 	}
-	return transfer.TxStatus{State: transfer.TxUnknown}, nil
+	return transfer.TxStatus{State: transfer.TxUnknown, NodeHeight: nh}, nil
 }
 
 func (r *fakeRail) signCalls() int      { r.mu.Lock(); defer r.mu.Unlock(); return len(r.signed) }

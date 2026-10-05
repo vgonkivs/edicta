@@ -28,6 +28,9 @@ var (
 	// ErrMempoolFull means the node's mempool had no room; the same bytes
 	// may be accepted later.
 	ErrMempoolFull = errors.New("node: mempool full")
+	// ErrTxIndexDisabled means the node does not index transactions, or does
+	// not say that it does, so a transaction lookup cannot be trusted.
+	ErrTxIndexDisabled = errors.New("node: transaction index disabled")
 )
 
 // Header is the part of a block header Edicta reads.
@@ -88,6 +91,9 @@ type TxStatus struct {
 	Found  bool
 	Height uint64
 	Code   uint32
+	// NodeHeight is the height of the answering node, read before the lookup;
+	// zero when it could not be read.
+	NodeHeight uint64
 }
 
 // Consensus reads consensus-node state and broadcasts raw transactions.
@@ -105,6 +111,11 @@ type Consensus interface {
 	// Broadcast sends txRaw unchanged and returns its hash.
 	Broadcast(ctx context.Context, txRaw []byte) ([32]byte, error)
 	Tx(ctx context.Context, hash [32]byte) (TxStatus, error)
+	// LatestHeight is the latest block height of the answering node.
+	LatestHeight(ctx context.Context) (uint64, error)
+	// TxIndex returns nil only when the node reports that it indexes
+	// transactions; otherwise ErrTxIndexDisabled, also when it cannot be read.
+	TxIndex(ctx context.Context) error
 	// MinGasPrice is the node's minimum_gas_price in bond denom per gas unit.
 	MinGasPrice(ctx context.Context) (*big.Rat, error)
 }

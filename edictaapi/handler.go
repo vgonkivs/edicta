@@ -161,7 +161,7 @@ func (h *handler) serve(r *http.Request) (res response) {
 	if method == http.MethodGet {
 		info, err := h.h.Health(ctx)
 		if err != nil {
-			return h.fail(r, err, nil)
+			return h.failIn(ctx, r, err, nil)
 		}
 		return response{status: 200, body: encodeHealth(info)}
 	}
@@ -185,7 +185,7 @@ func (h *handler) serve(r *http.Request) (res response) {
 		out, stored, err = h.record(ctx, body)
 	}
 	if err != nil {
-		return h.fail(r, err, stored)
+		return h.failIn(ctx, r, err, stored)
 	}
 	return response{status: 200, body: out}
 }
@@ -211,7 +211,14 @@ func readLimited(r *http.Request, limit uint64) ([]byte, error) {
 // fail maps err through section 18.3 and builds the error response. stored is
 // attached only to the two 409 rows that carry a result.
 func (h *handler) fail(r *http.Request, err error, stored []byte) response {
-	rule, ok := classify(err, h.cfg.ExtraErrors)
+	return h.failIn(r.Context(), r, err, stored)
+}
+
+// failIn is fail for an error returned under ctx, the request context with the
+// handler's own deadline.
+func (h *handler) failIn(ctx context.Context, r *http.Request, err error, stored []byte) response {
+	own := r.Context().Err() == nil && errors.Is(ctx.Err(), context.DeadlineExceeded)
+	rule, ok := classify(err, h.cfg.ExtraErrors, own)
 	if !ok {
 		h.log.Error("edictaapi: unmapped error", "path", r.URL.Path, "err", err)
 		return errorResponse(500, codeInternal, "internal error", false, nil, 0)

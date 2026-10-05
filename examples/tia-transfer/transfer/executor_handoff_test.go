@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -47,7 +48,7 @@ func stalledPastExpiry(t *testing.T, r *rig, action []byte, h commitment.Hash) {
 		if err != nil {
 			panic(err)
 		}
-		return th + 1
+		return th + 10
 	}
 	ctx := r.cancelOnStatus(5000)
 	_ = ctx
@@ -87,7 +88,7 @@ func TestKeepsCheckingStatusAfterExpiresAndHandsOffOnlyPastTimeoutHeight(t *test
 	}
 	assert.GreaterOrEqual(t, after, 2, "status keeps being checked after expires")
 	last := len(r.rail.statusHeight) - 1
-	assert.Greater(t, r.rail.statusHeight[last], th, "the last status check is past timeout_height")
+	assert.Greater(t, r.rail.statusHeight[last], th+3, "the last status check is past timeout_height plus the lag margin")
 	for i, hh := range r.rail.statusHeight {
 		if r.rail.statusTimes[i] >= expiresAt && hh <= th {
 			assert.False(t, i == last, "no hand-off while the head is at or below timeout_height")
@@ -117,27 +118,6 @@ func TestTxLandingBetweenExpiresAndTimeoutHeightIsFinished(t *testing.T) {
 		assert.Less(t, ts+skew, expiresAt)
 	}
 	assert.Equal(t, 1, r.rail.signCalls())
-}
-
-func TestUnreadableHeadAfterExpiryDoesNotHandOff(t *testing.T) {
-	r := newRig(t)
-	action := actionBytes(t, chainID, validMsg())
-	h := chash(7)
-	r.rail.frozen = true
-	ctx := r.cancelOnStatus(5000)
-	r.rail.onBroadcast = func(n int) {
-		if n == 1 {
-			r.rail.headErr = errors.New("head unreadable")
-		}
-	}
-	_, err := r.exec.Execute(ctx, goodAuth(t, h, action), action)
-	require.Error(t, err)
-	require.NotErrorIs(t, err, transfer.ErrHandedOff, "without a head we cannot say the timeout passed")
-	require.NoError(t, ctx.Err(), "the loop ended on its own")
-	assert.False(t, r.store.has("handoff"))
-	rec, gerr := r.store.Get(bg, h)
-	require.NoError(t, gerr)
-	assert.Equal(t, transfer.StatePrepared, rec.State, "left for Resume")
 }
 
 func handOff(t *testing.T, r *rig, h commitment.Hash) []byte {
@@ -201,26 +181,6 @@ func TestFinalRejectionOfATxAlreadyCommittedIsSuccess(t *testing.T) {
 	assert.Equal(t, 1, r.rail.broadcastCalls())
 }
 
-func TestFinalRejectionStoresTheRealReason(t *testing.T) {
-	cause := "codespace \"sdk\" code 13: insufficient fee; got: 500utia required: 600utia"
-	r := newRig(t)
-	r.rail.broadcastErrs = []error{fmt.Errorf("%w: %s", transfer.ErrRejected, cause)}
-	action := actionBytes(t, chainID, validMsg())
-	h := chash(2)
-	_, err := r.exec.Execute(bg, goodAuth(t, h, action), action)
-	require.ErrorIs(t, err, transfer.ErrHandedOff)
-	require.ErrorIs(t, err, transfer.ErrRejected)
-	assert.Contains(t, err.Error(), cause)
-	assert.NotContains(t, err.Error(), "not included by timeout_height")
-	assert.GreaterOrEqual(t, r.rail.statusCalls(), 2, "one status check before the send, one after the rejection")
-	rec, gerr := r.store.Get(bg, h)
-	require.NoError(t, gerr)
-	assert.Equal(t, transfer.StateHandedOff, rec.State)
-	assert.Contains(t, rec.Reason, "code 13")
-	assert.Contains(t, rec.Reason, "insufficient fee")
-	assert.NotContains(t, rec.Reason, "not included by timeout_height")
-}
-
 // Mempool full (sdk code 20) is not final: the Rail reports it as an ordinary
 // transient error (not ErrRejected), so the same bytes keep being sent.
 func TestMempoolFullKeepsRetryingButOtherFinalCodesStayFinal(t *testing.T) {
@@ -239,4 +199,42 @@ func TestMempoolFullKeepsRetryingButOtherFinalCodesStayFinal(t *testing.T) {
 	_, err = r2.exec.Execute(bg, goodAuth(t, chash(4), action), action)
 	require.ErrorIs(t, err, transfer.ErrHandedOff)
 	assert.Equal(t, 1, r2.rail.broadcastCalls())
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "grace"):
+		assert.GreaterOrEqual(t, r2.clock.unix(), expiresAt+graceS, "grace bound fired")
+	case strings.Contains(msg, "timeout_height"):
+		th := timeoutOf(t, r2, action, chash(4))
+		last := len(r2.rail.statusHeight) - 1
+		require.GreaterOrEqual(t, last, 0)
+		assert.Greater(t, r2.rail.statusHeight[last], th, "timeout bound fired past timeout_height")
+	default:
+		require.Fail(t, "hand-off names no bound", err.Error())
+	}
+}
+
+func TestNoSendOncePastTimeoutHeight(t *testing.T) {
+	r := newRig(t)
+	action := actionBytes(t, chainID, validMsg())
+	h := chash(6)
+	a, err := bankaction.Decode(action)
+	require.NoError(t, err)
+	r.rail.broadcastErrs = []error{errors.New("unavailable")}
+	r.rail.heightFn = func(uint64) uint64 {
+		if len(r.rail.broadcasts) == 0 {
+			return headH
+		}
+		th, err := bankaction.CheckBody(a, h, r.rail.bodies[0])
+		if err != nil {
+			panic(err)
+		}
+		return th + 10
+	}
+	r.rail.nodeHeightFn = func(uint64) uint64 { return headH }
+	ctx := r.cancelOnStatus(5000)
+	_, err = r.exec.Execute(ctx, goodAuth(t, h, action), action)
+	require.NoError(t, ctx.Err())
+	require.ErrorIs(t, err, transfer.ErrHandedOff)
+	assert.Equal(t, 1, r.rail.broadcastCalls(), "the loop height is past timeout_height: no further send")
+	assert.Equal(t, 1, r.rail.signCalls())
 }

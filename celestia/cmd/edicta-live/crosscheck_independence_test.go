@@ -13,16 +13,24 @@ import (
 
 func TestCrosscheckRefusesTheSameBridgeListedTwice(t *testing.T) {
 	for name, extra := range map[string][]string{
-		"identical": {"--crosscheck-bridge", "a.invalid:1", "--crosscheck-bridge", "a.invalid:1"},
-		"case":      {"--crosscheck-bridge", "A.invalid:1", "--crosscheck-bridge", "a.INVALID:1"},
-		"scheme":    {"--crosscheck-bridge", "a.invalid:1", "--crosscheck-bridge", "https://a.invalid:1"},
-		"slash":     {"--crosscheck-bridge", "https://a.invalid:1", "--crosscheck-bridge", "https://a.invalid:1/"},
+		"identical":            {"--crosscheck-bridge", "a.invalid:1", "--crosscheck-bridge", "a.invalid:1"},
+		"case":                 {"--crosscheck-bridge", "A.invalid:1", "--crosscheck-bridge", "a.INVALID:1"},
+		"scheme":               {"--crosscheck-bridge", "a.invalid:1", "--crosscheck-bridge", "https://a.invalid:1"},
+		"slash":                {"--crosscheck-bridge", "https://a.invalid:1", "--crosscheck-bridge", "https://a.invalid:1/"},
+		"https default port":   {"--crosscheck-bridge", "https://Node.invalid:443/", "--crosscheck-bridge", "https://node.invalid"},
+		"scheme case":          {"--crosscheck-bridge", "HTTPS://a.invalid", "--crosscheck-bridge", "https://a.invalid:443"},
+		"same host other port": {"--crosscheck-bridge", "https://a.invalid:1", "--crosscheck-bridge", "https://a.invalid:2"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := parse(t, append([]string{"--inclusion", "crosscheck", "--crosscheck-tls"}, extra...)...)
 			require.ErrorIs(t, err, ErrConfig, "one provider counted twice is not two independent sources")
 		})
 	}
+	t.Run("http default port", func(t *testing.T) {
+		_, err := parse(t, "--inclusion", "crosscheck",
+			"--crosscheck-bridge", "http://a.invalid:80", "--crosscheck-bridge", "http://a.invalid")
+		require.ErrorIs(t, err, ErrConfig)
+	})
 	t.Run("two distinct pass", func(t *testing.T) {
 		_, err := parse(t, "--inclusion", "crosscheck", "--crosscheck-tls",
 			"--crosscheck-bridge", "a.invalid:1", "--crosscheck-bridge", "b.invalid:1")

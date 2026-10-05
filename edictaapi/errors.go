@@ -146,20 +146,30 @@ func builtinSentinel(code string) (error, bool) {
 }
 
 // classify returns the first rule err matches: the built-in table in order,
-// then extra. The bool is false when nothing matches (the caller reports
-// ErrInternal).
-func classify(err error, extra []ErrorRule) (ErrorRule, bool) {
-	for _, r := range table {
-		if errors.Is(err, r.Err) {
-			return r, true
+// with extra just before the deadline rule. A bare context deadline counts as
+// ErrDeadline only when ownDeadline says the handler's own deadline fired: a
+// deadline inside an operation's error belongs to that operation's rule. The
+// bool is false when nothing matches (the caller reports ErrInternal).
+func classify(err error, extra []ErrorRule, ownDeadline bool) (ErrorRule, bool) {
+	extras := func() (ErrorRule, bool) {
+		for _, r := range extra {
+			if r.Err != nil && errors.Is(err, r.Err) {
+				return r, true
+			}
 		}
-		// A deadline of the request context surfaces as the bare context error.
-		if r.Err == ErrDeadline && errors.Is(err, context.DeadlineExceeded) {
-			return r, true
-		}
+		return ErrorRule{}, false
 	}
-	for _, r := range extra {
-		if r.Err != nil && errors.Is(err, r.Err) {
+	for _, r := range table {
+		if r.Err == ErrDeadline {
+			if x, ok := extras(); ok {
+				return x, true
+			}
+			if errors.Is(err, ErrDeadline) || (ownDeadline && errors.Is(err, context.DeadlineExceeded)) {
+				return r, true
+			}
+			continue
+		}
+		if errors.Is(err, r.Err) {
 			return r, true
 		}
 	}

@@ -362,6 +362,17 @@ func newEnv(t testing.TB, allow map[string]string, opts ...option) *env {
 	return e
 }
 
+// useRequestTimeout rebuilds the handler with its own request deadline.
+func (e *env) useRequestTimeout(d time.Duration) {
+	cfg := e.cfg
+	cfg.RequestTimeout = d
+	var p sdk.Publisher
+	if e.pub != nil {
+		p = e.pub
+	}
+	e.h = edictaapi.NewHandler(e.gate, p, e.allow, e.quota, e.health, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
 func (e *env) do(method, path, ctype string, body []byte) *httptest.ResponseRecorder {
 	var r io.Reader
 	if body != nil {

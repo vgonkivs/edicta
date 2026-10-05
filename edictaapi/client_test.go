@@ -42,8 +42,16 @@ type clientEnv struct {
 }
 
 func newClientEnv(t *testing.T, opts ...edictaapi.ClientOption) *clientEnv {
+	return newClientEnvTimeout(t, 0, opts...)
+}
+
+// newClientEnvTimeout sets the handler's own request deadline when d > 0.
+func newClientEnvTimeout(t *testing.T, d time.Duration, opts ...edictaapi.ClientOption) *clientEnv {
 	sk, pubHex := testKey(1)
 	e := newEnv(t, map[string]string{"agent-a": pubHex})
+	if d > 0 {
+		e.useRequestTimeout(d)
+	}
 	srv := httptest.NewServer(e.h)
 	t.Cleanup(srv.Close)
 	signer := &fakeSigner{id: "agent-a", sk: sk}
@@ -95,7 +103,12 @@ func TestClientErrorsMapToSentinels(t *testing.T) {
 		sent, ok := sentinelFor(row.Code)
 		require.True(t, ok)
 		t.Run(row.Code, func(t *testing.T) {
-			ce := newClientEnv(t)
+			var ce *clientEnv
+			if row.Code == "edictaapi.ErrDeadline" {
+				ce = newClientEnvTimeout(t, time.Nanosecond)
+			} else {
+				ce = newClientEnv(t)
+			}
 			injected := sent
 			if row.Code == "edictaapi.ErrInternal" {
 				injected = errors.New("boom")
@@ -355,4 +368,17 @@ func TestClientPublishWithoutRecorderOrSigner(t *testing.T) {
 	require.Zero(t, rs.n(), "no signer, no request")
 	_, err = edictaapi.NewClient("", edictaapi.Secret{}, nil, nil)
 	require.Error(t, err)
+}
+
+func TestClientBareDeadlineIsInternal(t *testing.T) {
+	ce := newClientEnv(t)
+	ce.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
+		return gate.Result{}, context.DeadlineExceeded
+	}
+	_, err := ce.client.Authorize(context.Background(), []byte("e"), []byte("a"))
+	var ae *edictaapi.Error
+	require.ErrorAs(t, err, &ae)
+	require.Equal(t, 500, ae.Status)
+	require.Equal(t, "edictaapi.ErrInternal", ae.Code)
+	require.NotErrorIs(t, err, edictaapi.ErrDeadline)
 }

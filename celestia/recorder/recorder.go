@@ -53,6 +53,8 @@ type Config struct {
 	// MaxPending caps blobs whose outcome is unresolved; a new blob is
 	// refused with ErrTooManyPending at the cap. Default 4096.
 	MaxPending int
+	// Now is the clock for entry expiry; nil means time.Now.
+	Now func() time.Time
 }
 
 type pendingKey string
@@ -119,6 +121,9 @@ func New(cfg Config, sub Submitter, rd node.Reader) (*Recorder, error) {
 	}
 	if cfg.MaxPending <= 0 {
 		cfg.MaxPending = defaultMaxPending
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
 	}
 	return &Recorder{cfg: cfg, sub: sub, rd: rd, entries: map[pendingKey]*entry{}}, nil
 }
@@ -188,7 +193,7 @@ func (r *Recorder) Publish(ctx context.Context, blob []byte) (sdk.Published, err
 
 	head, err := r.rd.Head(ctx)
 	if err != nil {
-		r.forget(key)
+		r.forget(key, e)
 		return sdk.Published{}, fmt.Errorf("%w: head: %w", ErrNodeUnavailable, err)
 	}
 	r.mu.Lock()
@@ -200,7 +205,7 @@ func (r *Recorder) Publish(ctx context.Context, blob []byte) (sdk.Published, err
 	cancel()
 	if err != nil {
 		if errors.Is(err, node.ErrUnsupported) {
-			r.forget(key)
+			r.forget(key, e)
 			return sdk.Published{}, fmt.Errorf("recorder: submit: %w", err)
 		}
 		r.release(e)
@@ -222,8 +227,8 @@ func clonePublished(p sdk.Published) sdk.Published {
 func (r *Recorder) claim(key pendingKey) (e *entry, resume bool, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	now := time.Now()
-	if old, ok := r.entries[key]; ok && old.done == nil && now.Sub(old.created) > pendingTTL {
+	now := r.cfg.Now()
+	if old, ok := r.entries[key]; ok && old.done == nil && !old.inflight && now.Sub(old.created) > pendingTTL {
 		delete(r.entries, key)
 		r.unresolved--
 	}
@@ -260,9 +265,9 @@ func (r *Recorder) release(e *entry) {
 	r.mu.Unlock()
 }
 
-func (r *Recorder) forget(key pendingKey) {
+func (r *Recorder) forget(key pendingKey, e *entry) {
 	r.mu.Lock()
-	if e, ok := r.entries[key]; ok && e.done == nil {
+	if r.entries[key] == e && e.done == nil {
 		delete(r.entries, key)
 		r.unresolved--
 	}
@@ -348,6 +353,9 @@ func (r *Recorder) finish(key pendingKey, e *entry, pub sdk.Published) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	e.done, e.inflight = &pub, false
+	if r.entries[key] != e {
+		return
+	}
 	r.unresolved--
 	r.finished = append(r.finished, key)
 	if len(r.finished) > finishedKeep {

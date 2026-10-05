@@ -155,6 +155,11 @@ up, in base units. `--gas-limit` and `--fee` (non-zero) override it, and
 `--max-fee` caps either; the run refuses a fee above the cap. `--json` prints JSON instead of text and
 `--evidence-file <path>` also saves it.
 
+`--indexer-lag-blocks` (default 3) is how many blocks past the timeout height
+the status node may lag before a missing transaction counts as lost, and
+`--confirm-delay` (default 2s, at most `--rebroadcast-every`) is the wait
+before the second status query of that final check.
+
 The run exits non-zero with a clear message on any failure. If the transfer
 was signed but its inclusion could not be confirmed (timeout height or grace
 passed, or the node rejected it), the run reports it was handed off to the

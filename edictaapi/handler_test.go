@@ -182,6 +182,7 @@ func TestErrorTable(t *testing.T) {
 				}
 				if row.Code == "edictaapi.ErrDeadline" {
 					injected = fmt.Errorf("wrapped: %w", context.DeadlineExceeded)
+					e.useRequestTimeout(time.Nanosecond)
 				}
 				switch ep {
 				case "/v0/authorize":
@@ -317,6 +318,14 @@ func TestConflictStored(t *testing.T) {
 		eb := requireErr(t, e.post("/v0/record", recReq(t)), 422, "ErrNotAuthorized", false)
 		require.False(t, eb.HasStored)
 	})
+}
+
+func TestBareDeadlineIsInternal(t *testing.T) {
+	e := newEnv(t, nil)
+	e.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
+		return gate.Result{}, fmt.Errorf("wrapped: %w", context.DeadlineExceeded)
+	}
+	requireErr(t, e.post("/v0/authorize", authReq(t)), 500, "edictaapi.ErrInternal", false)
 }
 
 func TestDeadline(t *testing.T) {

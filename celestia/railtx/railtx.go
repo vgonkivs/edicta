@@ -32,6 +32,9 @@ var (
 	// ErrRejected means the node checked the transaction and refused it; the
 	// message keeps the node's code and log. It is final, never indeterminate.
 	ErrRejected = transfer.ErrRejected
+	// ErrTxIndexDisabled means the status node does not report that it indexes
+	// transactions; every lookup would answer "not found".
+	ErrTxIndexDisabled = node.ErrTxIndexDisabled
 	// ErrIndeterminate means the outcome is unknown (timeout, cancelled
 	// context, unreachable node); callers must fail closed.
 	ErrIndeterminate = errors.New("railtx: outcome indeterminate")
@@ -159,6 +162,35 @@ func (r *Rail) Head(ctx context.Context) (uint64, uint64, time.Duration, error) 
 		return 0, 0, 0, fmt.Errorf("railtx: block interval unknown at height %d: %w", head.Height, node.ErrNotFound)
 	}
 	return head.Height, uint64(head.Time.Unix()), largest, nil
+}
+
+// Height returns the latest height of the consensus node that answers Status.
+func (r *Rail) Height(ctx context.Context) (uint64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	h, err := r.cons.LatestHeight(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("railtx: height: %w", err)
+	}
+	return h, nil
+}
+
+// CheckTxIndex refuses a status node that does not report its transaction
+// index as on. A node that cannot be asked counts as off.
+func (r *Rail) CheckTxIndex(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	err := r.cons.TxIndex(ctx)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrTxIndexDisabled):
+		return fmt.Errorf("railtx: %w", err)
+	default:
+		return fmt.Errorf("railtx: %w: %w", ErrTxIndexDisabled, err)
+	}
 }
 
 // Sign returns the TxRaw for body, whose bytes go into body_bytes unchanged.
@@ -396,11 +428,11 @@ func (r *Rail) Status(ctx context.Context, hash [32]byte) (transfer.TxStatus, er
 	}
 	switch {
 	case !s.Found:
-		return transfer.TxStatus{State: transfer.TxUnknown}, nil
+		return transfer.TxStatus{State: transfer.TxUnknown, NodeHeight: s.NodeHeight}, nil
 	case s.Height == 0:
-		return transfer.TxStatus{State: transfer.TxPending}, nil
+		return transfer.TxStatus{State: transfer.TxPending, NodeHeight: s.NodeHeight}, nil
 	default:
-		return transfer.TxStatus{State: transfer.TxCommitted, Height: s.Height, Code: s.Code}, nil
+		return transfer.TxStatus{State: transfer.TxCommitted, Height: s.Height, Code: s.Code, NodeHeight: s.NodeHeight}, nil
 	}
 }
 

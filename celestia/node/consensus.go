@@ -205,22 +205,54 @@ func (c *ConsensusClient) Broadcast(ctx context.Context, txRaw []byte) ([32]byte
 	return want, nil
 }
 
+// LatestHeight reads the latest block height of this node.
+func (c *ConsensusClient) LatestHeight(ctx context.Context) (uint64, error) {
+	r, err := c.cmt.GetLatestBlock(ctx, &cmtservice.GetLatestBlockRequest{})
+	if err != nil {
+		return 0, classifyGRPC(ctx, err)
+	}
+	var h int64
+	if b := r.GetSdkBlock(); b != nil {
+		h = b.Header.Height
+	} else if b := r.GetBlock(); b != nil {
+		h = b.Header.Height
+	}
+	if h <= 0 {
+		return 0, fmt.Errorf("%w: node reported no latest height", ErrUnavailable)
+	}
+	return uint64(h), nil
+}
+
+// TxIndex requires default_node_info.other.tx_index to be exactly "on".
+func (c *ConsensusClient) TxIndex(ctx context.Context) error {
+	r, err := c.cmt.GetNodeInfo(ctx, &cmtservice.GetNodeInfoRequest{})
+	if err != nil {
+		return fmt.Errorf("%w: node info: %w", ErrTxIndexDisabled, classifyGRPC(ctx, err))
+	}
+	if r.DefaultNodeInfo == nil || r.DefaultNodeInfo.Other.TxIndex != "on" {
+		return fmt.Errorf("%w: the node does not report tx_index on", ErrTxIndexDisabled)
+	}
+	return nil
+}
+
 // Tx reports a committed transaction; an unknown hash is Found false, not an
-// error.
+// error. The node's height is read first, so a transaction included at or
+// before it is seen by the lookup.
 func (c *ConsensusClient) Tx(ctx context.Context, hash [32]byte) (TxStatus, error) {
+	nodeHeight, _ := c.LatestHeight(ctx)
 	r, err := c.tx.GetTx(ctx, &txtypes.GetTxRequest{Hash: strings.ToUpper(hex.EncodeToString(hash[:]))})
 	if err != nil {
 		err = classifyGRPC(ctx, err)
 		if errors.Is(err, ErrNotFound) {
-			return TxStatus{}, nil
+			return TxStatus{NodeHeight: nodeHeight}, nil
 		}
 		return TxStatus{}, err
 	}
 	tr := r.GetTxResponse()
 	if tr == nil {
-		return TxStatus{}, nil
+		return TxStatus{NodeHeight: nodeHeight}, nil
 	}
-	return TxStatus{Found: true, Height: uint64(tr.Height), Code: tr.Code}, nil
+	return TxStatus{Found: true, Height: uint64(tr.Height), Code: tr.Code, NodeHeight: nodeHeight}, nil
 }
 
 // MinGasPrice reads minimum_gas_price from the node Config service, a decimal

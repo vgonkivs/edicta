@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgonkivs/edicta/celestia/inclusion"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/sdk/blob"
 )
@@ -95,6 +96,8 @@ type Config struct {
 	FeeMargin       string // decimal factor on the derived fee; "" or "0": railtx.DefaultFeeMargin
 	MaxFee          uint64
 	Rebroadcast     time.Duration
+	IndexerLag      int           // 0: the executor default
+	ConfirmDelay    time.Duration // 0: the executor default
 }
 
 type listFlag []string
@@ -181,6 +184,8 @@ func parseFlags(args []string, usage io.Writer) (Config, error) {
 	fs.StringVar(&c.FeeMargin, "fee-margin", "", "decimal factor on the node's minimum gas price when --fee is 0 (default 1.2)")
 	fs.Uint64Var(&c.MaxFee, "max-fee", 1000, "the executor refuses to sign a fee above this")
 	fs.DurationVar(&c.Rebroadcast, "rebroadcast-every", 10*time.Second, "resend interval of the same signed bytes")
+	fs.IntVar(&c.IndexerLag, "indexer-lag-blocks", 0, "blocks past the timeout height the status node may lag before a missing tx counts as lost (0 = default 3)")
+	fs.DurationVar(&c.ConfirmDelay, "confirm-delay", 0, "wait before the second status query of that final check; at most --rebroadcast-every (0 = default 2s)")
 
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
@@ -202,18 +207,14 @@ func parseFlags(args []string, usage io.Writer) (Config, error) {
 	return c, nil
 }
 
-// bridgeID names the provider behind a bridge address, so the same node
-// written in different ways is recognized as one.
+// bridgeID is the normalized host of a bridge address: two addresses on one
+// host are one provider, whatever their port, scheme or path.
 func bridgeID(addr string, tls bool) (string, error) {
 	raw, err := node.BridgeURL(addr, tls)
 	if err != nil {
 		return "", err
 	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "", err
-	}
-	return strings.ToLower(u.Host) + strings.TrimRight(u.Path, "/"), nil
+	return inclusion.SourceHost(raw)
 }
 
 func cfgErr(format string, a ...any) error {
@@ -287,17 +288,23 @@ func (c Config) Validate() error {
 		if err != nil {
 			return cfgErr("--bridge-addr: %v", err)
 		}
-		seen := map[string]bool{}
+		urls := make([]string, 0, len(c.CrossBridges))
+		for _, a := range c.CrossBridges {
+			u, err := node.BridgeURL(a, c.CrossTLS)
+			if err != nil {
+				return cfgErr("--crosscheck-bridge %s: %v", a, err)
+			}
+			urls = append(urls, u)
+		}
+		if err := inclusion.CheckDistinctSources(urls); err != nil {
+			return cfgErr("--crosscheck-bridge: %v", err)
+		}
 		independent := 0
 		for _, a := range c.CrossBridges {
 			id, err := bridgeID(a, c.CrossTLS)
 			if err != nil {
 				return cfgErr("--crosscheck-bridge %s: %v", a, err)
 			}
-			if seen[id] {
-				return cfgErr("--crosscheck-bridge %s is listed twice", a)
-			}
-			seen[id] = true
 			if id != own {
 				independent++
 			}
@@ -404,6 +411,15 @@ func (c Config) Validate() error {
 	}
 	if c.Rebroadcast <= 0 {
 		return cfgErr("--rebroadcast-every must be positive")
+	}
+	if c.IndexerLag < 0 {
+		return cfgErr("--indexer-lag-blocks is negative")
+	}
+	if c.ConfirmDelay < 0 {
+		return cfgErr("--confirm-delay is negative")
+	}
+	if c.ConfirmDelay > c.Rebroadcast {
+		return cfgErr("--confirm-delay is above --rebroadcast-every")
 	}
 	return nil
 }

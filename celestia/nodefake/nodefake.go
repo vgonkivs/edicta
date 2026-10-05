@@ -172,6 +172,7 @@ type Consensus struct {
 	Accounts map[string]node.AccountInfo
 	txs      map[[32]byte]node.TxStatus
 	Sent     [][]byte
+	height   uint64
 	// Fail, when set, is returned by every method.
 	Fail error
 }
@@ -267,4 +268,32 @@ func (c *Consensus) Tx(_ context.Context, hash [32]byte) (node.TxStatus, error) 
 		return node.TxStatus{}, c.Fail
 	}
 	return c.txs[hash], nil
+}
+
+// SetHeight sets the latest height LatestHeight reports.
+func (c *Consensus) SetHeight(h uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.height = h
+}
+
+// LatestHeight reports the height set by SetHeight; zero is unavailable, as on
+// a node that returns no block.
+func (c *Consensus) LatestHeight(context.Context) (uint64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Fail != nil {
+		return 0, c.Fail
+	}
+	if c.height == 0 {
+		return 0, fmt.Errorf("%w: no latest height set", node.ErrUnavailable)
+	}
+	return c.height, nil
+}
+
+// TxIndex reports the index as on unless Fail is set.
+func (c *Consensus) TxIndex(context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Fail
 }
