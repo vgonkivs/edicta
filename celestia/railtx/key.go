@@ -1,7 +1,6 @@
 package railtx
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -9,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"strings"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -18,6 +16,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 
+	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/secret"
 )
 
@@ -82,17 +81,15 @@ func allZero(b []byte) bool {
 	return true
 }
 
-func openKeyring(dir string, pass secret.Secret) (keyring.Keyring, error) {
+func openKeyring(dir string, pass secret.Secret, create bool) (keyring.Keyring, error) {
 	if !pass.IsSet() {
 		return nil, errors.New("railtx: keyring passphrase not set")
 	}
 	reg := codectypes.NewInterfaceRegistry()
 	cryptocodec.RegisterInterfaces(reg)
-	// The file backend prompts for the passphrase on a reader, once per
-	// unlock and twice when it creates the store; feed it enough lines.
-	p := pass.RevealString()
-	in := bufio.NewReader(strings.NewReader(strings.Repeat(p+"\n", 16)))
-	kr, err := keyring.New(keyringApp, keyring.BackendFile, dir, in, codec.NewProtoCodec(reg))
+	p := pass.Reveal()
+	defer clear(p)
+	kr, err := node.OpenFileKeyring(dir, p, codec.NewProtoCodec(reg), create)
 	if err != nil {
 		return nil, fmt.Errorf("railtx: open keyring: %w", err)
 	}
@@ -103,7 +100,7 @@ func loadKeyring(dir, name string, pass secret.Secret) (*secp256k1.PrivKey, erro
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		return nil, fmt.Errorf("railtx: keyring dir %q unusable: %w", dir, errOrNotDir(err))
 	}
-	kr, err := openKeyring(dir, pass)
+	kr, err := openKeyring(dir, pass, false)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +139,7 @@ func ImportKeyring(dir, name string, passphrase, key secret.Secret) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("railtx: keyring dir: %w", err)
 	}
-	kr, err := openKeyring(dir, passphrase)
+	kr, err := openKeyring(dir, passphrase, true)
 	if err != nil {
 		return err
 	}

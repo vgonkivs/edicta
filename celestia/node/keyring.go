@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	keyring99 "github.com/99designs/keyring"
+	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"golang.org/x/crypto/bcrypt"
 
@@ -53,26 +54,11 @@ func OpenKeyring(c KeyringConfig) (keyring.Keyring, error) {
 	var kr keyring.Keyring
 	switch c.Backend {
 	case keyring.BackendFile:
-		if len(c.Passphrase) == 0 {
-			return nil, fmt.Errorf("%w: file backend needs a passphrase", ErrKeyring)
-		}
-		fileDir := filepath.Join(c.Dir, fileKeyringDir)
-		if err := checkPassphrase(fileDir, c.Passphrase); err != nil {
+		var err error
+		kr, err = OpenFileKeyring(c.Dir, c.Passphrase, cfg.Codec, false)
+		if err != nil {
 			return nil, err
 		}
-		pass := string(c.Passphrase)
-		// Opened here rather than through keyring.New: the SDK file backend
-		// reads the terminal whenever stdin is one.
-		db, err := keyring99.Open(keyring99.Config{
-			AllowedBackends:  []keyring99.BackendType{keyring99.FileBackend},
-			ServiceName:      app.Name,
-			FileDir:          fileDir,
-			FilePasswordFunc: func(string) (string, error) { return pass, nil },
-		})
-		if err != nil {
-			return nil, fmt.Errorf("%w: open: %v", ErrKeyring, err)
-		}
-		kr = keyring.NewInMemoryWithKeyring(db, cfg.Codec)
 	case keyring.BackendTest:
 		if !c.AllowTest {
 			return nil, fmt.Errorf("%w: test backend is refused without the explicit development flag", ErrKeyring)
@@ -92,6 +78,69 @@ func OpenKeyring(c KeyringConfig) (keyring.Keyring, error) {
 		return nil, fmt.Errorf("%w: key %q: %v", ErrKeyring, c.Name, err)
 	}
 	return kr, nil
+}
+
+// OpenFileKeyring opens the SDK file backend keyring under dir without ever
+// prompting or reading stdin; the SDK's own opener reads the terminal
+// whenever stdin is one. An existing keyhash is checked against pass and
+// never rewritten. With create, a missing store is created (mode 0700) and
+// its keyhash written the way the SDK writes it, so the SDK and celestia-appd
+// can open the store later.
+func OpenFileKeyring(dir string, pass []byte, cdc codec.Codec, create bool) (keyring.Keyring, error) {
+	if len(pass) == 0 {
+		return nil, fmt.Errorf("%w: file backend needs a passphrase", ErrKeyring)
+	}
+	fileDir := filepath.Join(dir, fileKeyringDir)
+	if create {
+		if err := os.MkdirAll(fileDir, 0o700); err != nil {
+			return nil, fmt.Errorf("%w: create dir: %v", ErrKeyring, err)
+		}
+		if err := writeKeyhash(fileDir, pass); err != nil {
+			return nil, err
+		}
+	}
+	if err := checkPassphrase(fileDir, pass); err != nil {
+		return nil, err
+	}
+	p := string(pass)
+	db, err := keyring99.Open(keyring99.Config{
+		AllowedBackends:  []keyring99.BackendType{keyring99.FileBackend},
+		ServiceName:      app.Name,
+		FileDir:          fileDir,
+		FilePasswordFunc: func(string) (string, error) { return p, nil },
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: open: %v", ErrKeyring, err)
+	}
+	return keyring.NewInMemoryWithKeyring(db, cdc), nil
+}
+
+// keyhashCost is the bcrypt cost the SDK uses for the keyhash file.
+const keyhashCost = 2
+
+// writeKeyhash creates keyhash if it does not exist; an existing one is left
+// for checkPassphrase.
+func writeKeyhash(fileDir string, pass []byte) error {
+	path := filepath.Join(fileDir, "keyhash")
+	h, err := bcrypt.GenerateFromPassword(pass, keyhashCost)
+	if err != nil {
+		return fmt.Errorf("%w: keyhash: %v", ErrKeyring, err)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("%w: write keyhash: %v", ErrKeyring, err)
+	}
+	if _, err := f.Write(h); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("%w: write keyhash: %v", ErrKeyring, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("%w: write keyhash: %v", ErrKeyring, err)
+	}
+	return nil
 }
 
 // fileKeyringDir is where the SDK file backend keeps its files under the

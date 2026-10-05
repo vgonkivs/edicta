@@ -59,6 +59,12 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 	defer cancel()
 	logf := env.logf
 
+	if cfg.GenRecipient != "" {
+		if _, serr := os.Lstat(cfg.GenRecipient); serr == nil {
+			return fmt.Errorf("recipient key file %s already exists; it is never overwritten", cfg.GenRecipient)
+		}
+	}
+
 	// secrets
 	agentKey, err := readSeed(cfg.AgentKeyFile, "agent")
 	if err != nil {
@@ -195,11 +201,13 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 	defer closeVerifier()
 	logf("inclusion check: %s", level)
 
+	started := false
 	if cfg.GenRecipient != "" {
-		rc, err := genRecipient(cfg.GenRecipient)
+		rc, release, err := reserveRecipientKey(cfg.GenRecipient)
 		if err != nil {
 			return err
 		}
+		defer func() { release(started) }()
 		logf("created recipient key file %s (keep it: it opens the published payload); kid=%s", cfg.GenRecipient, rc.KID)
 		recipients = append(recipients, rc)
 	}
@@ -258,6 +266,7 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 	if err != nil {
 		return fmt.Errorf("agent: %w", err)
 	}
+	started = true
 	return loop(ctx, cfg, ag, logf)
 }
 

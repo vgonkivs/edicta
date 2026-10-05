@@ -116,6 +116,24 @@ func genRecipient(path string) (blob.Recipient, error) {
 	return blob.Recipient{KID: []byte("edicta-live-1"), PublicKey: sk.PublicKey()}, nil
 }
 
+// reserveRecipientKey creates the recipient key file at path. The returned
+// release removes the file unless keep is true: nothing is sealed to the key
+// before the decision loop starts, so a startup failure need not burn the path.
+func reserveRecipientKey(path string) (blob.Recipient, func(keep bool), error) {
+	if _, err := os.Lstat(path); err == nil {
+		return blob.Recipient{}, nil, fmt.Errorf("recipient key file %s already exists; it is never overwritten: %w", path, os.ErrExist)
+	}
+	rc, err := genRecipient(path)
+	if err != nil {
+		return blob.Recipient{}, nil, err
+	}
+	return rc, func(keep bool) {
+		if !keep {
+			_ = os.Remove(path)
+		}
+	}, nil
+}
+
 // readToken reads an optional bearer token file.
 func readToken(path string) (string, error) {
 	if path == "" {
