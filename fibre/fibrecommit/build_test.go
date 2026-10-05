@@ -21,9 +21,9 @@ func TestCheckBuildInBinary(t *testing.T) {
 		t.Skip("builds a binary")
 	}
 	bin := filepath.Join(t.TempDir(), "checkbuild")
-	build := exec.Command("go", "build", "-o", bin, "./fibrecommit/testdata/checkbuild")
+	build := exec.Command("go", "build", "-mod=readonly", "-o", bin, "./fibrecommit/testdata/checkbuild")
 	build.Dir = ".."
-	build.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "GOPROXY=off", "GOWORK=off")
+	build.Env = append(os.Environ(), "GOFLAGS=", "GOPROXY=off", "GOWORK=off")
 	out, err := build.CombinedOutput()
 	require.NoError(t, err, string(out))
 
@@ -78,9 +78,16 @@ func TestPinnedReplacesEqualGoMod(t *testing.T) {
 	assert.Equal(t, goModReplaces(t), pinnedReplaces)
 }
 
-// pinnedBuildInfo is the build info a correct build carries. A replaced
-// module appears under its original path with the pinned module data on the
-// replacement.
+const (
+	linkedPlain    = "github.com/example/linked"
+	linkedReplaced = "github.com/gogo/protobuf"
+	badSum         = "h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+)
+
+// pinnedBuildInfo is the build info a correct build carries: the strict
+// modules as pinned, plus one plain and one correctly replaced linked module.
+// A replaced module appears under its original path with the pinned module
+// data on the replacement.
 func pinnedBuildInfo(t *testing.T) *debug.BuildInfo {
 	t.Helper()
 	require.NotEmpty(t, pinnedModules)
@@ -101,6 +108,14 @@ func pinnedBuildInfo(t *testing.T) *debug.BuildInfo {
 		bi.Deps = append(bi.Deps, d)
 	}
 	require.True(t, hasApp, "pinned modules must include celestia-app")
+
+	target, ok := pinnedReplaces[linkedReplaced]
+	require.True(t, ok)
+	path, version, _ := strings.Cut(target, "@")
+	bi.Deps = append(bi.Deps,
+		&debug.Module{Path: linkedPlain, Version: "v1.2.3", Sum: "h1:linked"},
+		&debug.Module{Path: linkedReplaced, Version: "v1.3.2", Replace: &debug.Module{Path: path, Version: version, Sum: "h1:r"}},
+	)
 	return bi
 }
 
@@ -115,107 +130,94 @@ func findDep(t *testing.T, bi *debug.BuildInfo, keep func(*debug.Module) bool) *
 	return nil
 }
 
+func without(bi *debug.BuildInfo, path string) *debug.BuildInfo {
+	var deps []*debug.Module
+	for _, d := range bi.Deps {
+		if d.Path != path {
+			deps = append(deps, d)
+		}
+	}
+	bi.Deps = deps
+	return bi
+}
+
 func TestCheckBuildInfo(t *testing.T) {
-	app := func(d *debug.Module) bool { return d.Path == appModule }
-	replaced := func(d *debug.Module) bool { return d.Replace != nil }
-	plain := func(d *debug.Module) bool {
-		return d.Path != appModule && d.Replace == nil
+	byPath := func(p string) func(*debug.Module) bool {
+		return func(d *debug.Module) bool { return d.Path == p }
+	}
+	strictReplaced := func(d *debug.Module) bool {
+		for _, m := range pinnedModules {
+			if m.path == d.Path && m.replacePath != "" {
+				return true
+			}
+		}
+		return false
+	}
+	strictPlain := func(d *debug.Module) bool {
+		for _, m := range pinnedModules {
+			if m.path == d.Path && m.path != appModule && m.replacePath == "" {
+				return true
+			}
+		}
+		return false
+	}
+	// eff returns the module whose version and sum are pinned.
+	eff := func(d *debug.Module) *debug.Module {
+		if d.Replace != nil {
+			return d.Replace
+		}
+		return d
+	}
+	bad := &debug.Module{Path: "example.com/fork", Version: "v1.0.0", Sum: "h1:x"}
+
+	type mut func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo
+	pick := func(keep func(*debug.Module) bool, f func(d *debug.Module)) mut {
+		return func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
+			f(findDep(t, bi, keep))
+			return bi
+		}
+	}
+	drop := func(keep func(*debug.Module) bool) mut {
+		return func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
+			return without(bi, findDep(t, bi, keep).Path)
+		}
 	}
 
 	tests := []struct {
 		name   string
-		mutate func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo
+		mutate mut
 		ok     bool
 	}{
 		{"pinned", func(_ *testing.T, bi *debug.BuildInfo) *debug.BuildInfo { return bi }, true},
 		{"nil", func(*testing.T, *debug.BuildInfo) *debug.BuildInfo { return nil }, false},
-		{"app version drift", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			findDep(t, bi, app).Version = "v10.4.1-mocha"
-			return bi
-		}, false},
-		{"app missing", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			a := findDep(t, bi, app)
-			var deps []*debug.Module
-			for _, d := range bi.Deps {
-				if d != a {
-					deps = append(deps, d)
-				}
-			}
-			bi.Deps = deps
-			return bi
-		}, false},
-		{"app sum differs", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			findDep(t, bi, app).Sum = "h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-			return bi
-		}, false},
-		{"app sum missing", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			findDep(t, bi, app).Sum = ""
-			return bi
-		}, false},
-		{"app replaced", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			a := findDep(t, bi, app)
-			a.Replace = &debug.Module{Path: "example.com/fork", Version: "v1.0.0", Sum: "h1:x"}
-			return bi
-		}, false},
-		{"replace target version changed", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			findDep(t, bi, replaced).Replace.Version = "v0.0.0-doctored"
-			return bi
-		}, false},
-		{"replace target path changed", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			findDep(t, bi, replaced).Replace.Path = "example.com/fork"
-			return bi
-		}, false},
-		{"replace target sum differs", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			findDep(t, bi, replaced).Replace.Sum = "h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-			return bi
-		}, false},
-		{"replace target sum missing", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			findDep(t, bi, replaced).Replace.Sum = ""
-			return bi
-		}, false},
-		{"replace dropped", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			findDep(t, bi, replaced).Replace = nil
-			return bi
-		}, false},
-		{"upstream dependency version differs", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			findDep(t, bi, plain).Version = "v0.0.1-doctored"
-			return bi
-		}, false},
-		{"upstream dependency sum differs", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			findDep(t, bi, plain).Sum = "h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-			return bi
-		}, false},
-		{"upstream dependency sum missing", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			findDep(t, bi, plain).Sum = ""
-			return bi
-		}, false},
-		{"upstream dependency unpinned replace", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			d := findDep(t, bi, plain)
-			d.Replace = &debug.Module{Path: "example.com/fork", Version: "v1.0.0", Sum: "h1:x"}
-			return bi
-		}, false},
-		{"pinned replaced module absent", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			r := findDep(t, bi, replaced)
-			var deps []*debug.Module
-			for _, d := range bi.Deps {
-				if d != r {
-					deps = append(deps, d)
-				}
-			}
-			bi.Deps = deps
-			return bi
-		}, false},
-		{"pinned upstream dependency absent", func(t *testing.T, bi *debug.BuildInfo) *debug.BuildInfo {
-			p := findDep(t, bi, plain)
-			var deps []*debug.Module
-			for _, d := range bi.Deps {
-				if d != p {
-					deps = append(deps, d)
-				}
-			}
-			bi.Deps = deps
-			return bi
-		}, false},
+
+		{"app version drift", pick(byPath(appModule), func(d *debug.Module) { d.Version = "v10.4.1-mocha" }), false},
+		{"app missing", drop(byPath(appModule)), false},
+		{"app sum differs", pick(byPath(appModule), func(d *debug.Module) { d.Sum = badSum }), false},
+		{"app sum missing", pick(byPath(appModule), func(d *debug.Module) { d.Sum = "" }), false},
+		{"app replaced", pick(byPath(appModule), func(d *debug.Module) { d.Replace = bad }), false},
+
+		{"strict replaced version drift", pick(strictReplaced, func(d *debug.Module) { d.Replace.Version = "v0.0.0-doctored" }), false},
+		{"strict replaced path changed", pick(strictReplaced, func(d *debug.Module) { d.Replace.Path = "example.com/fork" }), false},
+		{"strict replaced sum differs", pick(strictReplaced, func(d *debug.Module) { d.Replace.Sum = badSum }), false},
+		{"strict replaced sum missing", pick(strictReplaced, func(d *debug.Module) { d.Replace.Sum = "" }), false},
+		{"strict replaced dropped", pick(strictReplaced, func(d *debug.Module) { d.Replace = nil }), false},
+		{"strict replaced absent", drop(strictReplaced), false},
+
+		{"strict version drift", pick(strictPlain, func(d *debug.Module) { eff(d).Version = "v0.0.1-doctored" }), false},
+		{"strict sum differs", pick(strictPlain, func(d *debug.Module) { eff(d).Sum = badSum }), false},
+		{"strict sum missing", pick(strictPlain, func(d *debug.Module) { eff(d).Sum = "" }), false},
+		{"strict unpinned replace", pick(strictPlain, func(d *debug.Module) { d.Replace = bad }), false},
+		{"strict absent", drop(strictPlain), false},
+
+		{"linked version differs", pick(byPath(linkedPlain), func(d *debug.Module) { d.Version = "v9.9.9" }), true},
+		{"linked sum differs", pick(byPath(linkedPlain), func(d *debug.Module) { d.Sum = badSum }), true},
+		{"linked absent", drop(byPath(linkedPlain)), true},
+		{"linked pinned replace absent", drop(byPath(linkedReplaced)), true},
+		{"linked unpinned replace", pick(byPath(linkedPlain), func(d *debug.Module) { d.Replace = bad }), false},
+		{"linked pinned module wrong replace path", pick(byPath(linkedReplaced), func(d *debug.Module) { d.Replace.Path = "example.com/fork" }), false},
+		{"linked pinned module wrong replace version", pick(byPath(linkedReplaced), func(d *debug.Module) { d.Replace.Version = "v0.0.0-doctored" }), false},
+		{"linked pinned module not replaced", pick(byPath(linkedReplaced), func(d *debug.Module) { d.Replace = nil }), false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

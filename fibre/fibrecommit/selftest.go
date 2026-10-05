@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"strings"
 
 	"github.com/celestiaorg/celestia-app/v10/fibre"
 )
@@ -75,8 +76,8 @@ func SelfTest() error {
 const appModule = "github.com/celestiaorg/celestia-app/v10"
 
 // pinnedReplaces are the replace targets the vectors were produced under.
-// Only modules outside pinnedModules are optional; those in it must all be
-// present and match.
+// A linked module with a replace must match this table; modules in
+// pinnedModules are additionally checked for version and sum.
 var pinnedReplaces = map[string]string{
 	"cosmossdk.io/api":                            "github.com/celestiaorg/cosmos-sdk/api@v0.7.6",
 	"cosmossdk.io/log":                            "github.com/celestiaorg/cosmos-sdk/log@v1.3.0",
@@ -104,8 +105,10 @@ var pinnedReplaces = map[string]string{
 }
 
 // CheckBuild verifies that this binary was built with the pinned
-// celestia-app version, the replace targets, and the version and h1 sum of
-// every module the upstream fibre package links.
+// celestia-app version, with the version and h1 sum of the modules on the
+// encoding path (pinnedModules), and that every replace in the build is one
+// of the pinned targets. Other module versions are not checked: the self-test
+// guards the encoder behaviour.
 func CheckBuild() error {
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
@@ -140,6 +143,9 @@ func checkBuildInfo(bi *debug.BuildInfo) error {
 		}
 		want, pinned := pinnedReplaces[d.Path]
 		if !pinned {
+			if d.Replace != nil && !isOwnModule(d.Path) {
+				return fmt.Errorf("fibrecommit: %s is replaced by %s, which is not a pinned replace", d.Path, d.Replace.Path)
+			}
 			continue
 		}
 		if d.Replace == nil {
@@ -188,4 +194,11 @@ func checkPinned(d *debug.Module, p pinnedModule) error {
 		return fmt.Errorf("fibrecommit: %s sum %s, want %s", d.Path, eff.Sum, p.sum)
 	}
 	return nil
+}
+
+// isOwnModule reports whether path belongs to this repository, which is
+// replaced by local directories in the repository's own builds.
+func isOwnModule(path string) bool {
+	const own = "github.com/vgonkivs/edicta"
+	return path == own || strings.HasPrefix(path, own+"/")
 }
