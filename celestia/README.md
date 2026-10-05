@@ -41,12 +41,11 @@ celestia-appd keys add recorder --keyring-backend file --keyring-dir ~/edicta-li
 celestia-appd keys add sender   --keyring-backend file --keyring-dir ~/edicta-live/executor-keyring
 ```
 
-Each keyring has its own passphrase. The keyring library prints a line
-"Enter keyring passphrase" even when the passphrase comes from a file; it is
-not a prompt and nothing is read from the terminal. A wrong passphrase file
-fails with a clear error and never falls back to a prompt. Put each passphrase in a file with mode
-0600 (`chmod 600`), or for the executor use `--executor-passphrase-prompt` to
-type it without echo. Note the two addresses the tool prints.
+Each keyring has its own passphrase. It is read only from the passphrase file
+or, for the executor, from `--executor-passphrase-prompt` (typed without echo);
+nothing else prompts, even when stdin is a terminal. A wrong passphrase fails
+with a clear error. Put each passphrase in a file with mode 0600
+(`chmod 600`). Note the two addresses the tool prints.
 
 Fund both addresses. On a public testnet use that network's faucet. On Mocha,
 use the Mocha faucet (see the Celestia documentation for its current location)

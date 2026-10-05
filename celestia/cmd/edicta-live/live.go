@@ -102,15 +102,6 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 		}
 		recipients = append(recipients, rc)
 	}
-	if cfg.GenRecipient != "" {
-		rc, err := genRecipient(cfg.GenRecipient)
-		if err != nil {
-			return err
-		}
-		logf("created recipient key file %s (keep it: it opens the published payload); kid=%s", cfg.GenRecipient, rc.KID)
-		recipients = append(recipients, rc)
-	}
-
 	// chain access
 	bridgeURL, err := node.BridgeURL(cfg.BridgeAddr, cfg.BridgeTLS)
 	if err != nil {
@@ -203,6 +194,15 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 	}
 	defer closeVerifier()
 	logf("inclusion check: %s", level)
+
+	if cfg.GenRecipient != "" {
+		rc, err := genRecipient(cfg.GenRecipient)
+		if err != nil {
+			return err
+		}
+		logf("created recipient key file %s (keep it: it opens the published payload); kid=%s", cfg.GenRecipient, rc.KID)
+		recipients = append(recipients, rc)
+	}
 
 	scfg := sdk.DefaultConfig()
 	scfg.AgentID = cfg.AgentID

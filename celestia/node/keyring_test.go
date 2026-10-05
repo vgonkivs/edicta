@@ -19,7 +19,7 @@ func makeKey(t *testing.T, dir, backend, name, pass string) {
 	var in = eofReader{}
 	var r interface{ Read([]byte) (int, error) } = in
 	if backend == keyring.BackendFile {
-		r = &repeatReader{line: []byte(pass + "\n")}
+		r = &passLines{line: []byte(pass + "\n")}
 	}
 	kr, err := keyring.New(app.Name, backend, dir, r, encoding.MakeConfig(app.ModuleEncodingRegisters...).Codec)
 	require.NoError(t, err)
@@ -65,4 +65,21 @@ func TestOpenKeyringTestBackendWarnsAndFileWorks(t *testing.T) {
 	_, err = OpenKeyring(KeyringConfig{Dir: fdir, Name: "recorder", Backend: "file", Passphrase: []byte("hunter2-long")})
 	require.ErrorIs(t, err, ErrKeyring)
 	require.False(t, strings.Contains(err.Error(), "hunter2-long"), "passphrase must not leak into errors")
+}
+
+// passLines answers every passphrase prompt of the SDK file backend while a
+// test fixture keyring is being created.
+type passLines struct {
+	line []byte
+	off  int
+}
+
+func (r *passLines) Read(p []byte) (int, error) {
+	n := 0
+	for n < len(p) {
+		c := copy(p[n:], r.line[r.off:])
+		n += c
+		r.off = (r.off + c) % len(r.line)
+	}
+	return n, nil
 }

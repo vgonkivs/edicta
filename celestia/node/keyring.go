@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	keyring99 "github.com/99designs/keyring"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"golang.org/x/crypto/bcrypt"
 
@@ -19,7 +20,7 @@ import (
 var ErrKeyring = errors.New("node: keyring")
 
 // ErrBadPassphrase means the passphrase does not unlock the file keyring. It
-// wraps ErrKeyring and is returned without ever prompting on stdin.
+// wraps ErrKeyring and is returned without ever prompting.
 var ErrBadPassphrase = fmt.Errorf("%w: wrong passphrase", ErrKeyring)
 
 // KeyringConfig locates one signing key. The Recorder and the executor each
@@ -48,62 +49,62 @@ func OpenKeyring(c KeyringConfig) (keyring.Keyring, error) {
 	case c.Name == "":
 		return nil, fmt.Errorf("%w: no key name", ErrKeyring)
 	}
-	var in io.Reader
+	cfg := encoding.MakeConfig(app.ModuleEncodingRegisters...)
+	var kr keyring.Keyring
 	switch c.Backend {
 	case keyring.BackendFile:
 		if len(c.Passphrase) == 0 {
 			return nil, fmt.Errorf("%w: file backend needs a passphrase", ErrKeyring)
 		}
-		if err := checkPassphrase(c.Dir, c.Passphrase); err != nil {
+		fileDir := filepath.Join(c.Dir, fileKeyringDir)
+		if err := checkPassphrase(fileDir, c.Passphrase); err != nil {
 			return nil, err
 		}
-		in = &repeatReader{line: append(append([]byte(nil), c.Passphrase...), '\n')}
+		pass := string(c.Passphrase)
+		// Opened here rather than through keyring.New: the SDK file backend
+		// reads the terminal whenever stdin is one.
+		db, err := keyring99.Open(keyring99.Config{
+			AllowedBackends:  []keyring99.BackendType{keyring99.FileBackend},
+			ServiceName:      app.Name,
+			FileDir:          fileDir,
+			FilePasswordFunc: func(string) (string, error) { return pass, nil },
+		})
+		if err != nil {
+			return nil, fmt.Errorf("%w: open: %v", ErrKeyring, err)
+		}
+		kr = keyring.NewInMemoryWithKeyring(db, cfg.Codec)
 	case keyring.BackendTest:
 		if !c.AllowTest {
 			return nil, fmt.Errorf("%w: test backend is refused without the explicit development flag", ErrKeyring)
 		}
 		log.Warn("node: plaintext test keyring backend, for development only", "key", c.Name)
-		in = eofReader{}
+		// The test backend answers its own password callback; the empty
+		// reader only guarantees nothing is read from stdin.
+		var err error
+		kr, err = keyring.New(app.Name, c.Backend, c.Dir, eofReader{}, cfg.Codec)
+		if err != nil {
+			return nil, fmt.Errorf("%w: open: %v", ErrKeyring, err)
+		}
 	default:
 		return nil, fmt.Errorf("%w: unsupported backend %q", ErrKeyring, c.Backend)
 	}
-	cfg := encoding.MakeConfig(app.ModuleEncodingRegisters...)
-	kr, err := keyring.New(app.Name, c.Backend, c.Dir, in, cfg.Codec)
-	if err != nil {
-		return nil, fmt.Errorf("%w: open: %v", ErrKeyring, err)
-	}
 	if _, err := kr.Key(c.Name); err != nil {
-		if errors.Is(err, keyring.ErrMaxPassPhraseAttempts) {
-			return nil, ErrBadPassphrase
-		}
 		return nil, fmt.Errorf("%w: key %q: %v", ErrKeyring, c.Name, err)
 	}
 	return kr, nil
 }
 
-// repeatReader answers every passphrase prompt of the file backend.
-type repeatReader struct {
-	line []byte
-	off  int
-}
-
-func (r *repeatReader) Read(p []byte) (int, error) {
-	n := 0
-	for n < len(p) {
-		c := copy(p[n:], r.line[r.off:])
-		n += c
-		r.off = (r.off + c) % len(r.line)
-	}
-	return n, nil
-}
+// fileKeyringDir is where the SDK file backend keeps its files under the
+// keyring directory.
+const fileKeyringDir = "keyring-file"
 
 type eofReader struct{}
 
 func (eofReader) Read([]byte) (int, error) { return 0, io.EOF }
 
-// checkPassphrase compares pass with the keyring's stored hash before the
-// library can fall back to prompting on a terminal. A keyring without a hash
-// file has no key yet; the later key lookup reports that.
+// checkPassphrase compares pass with the hash stored in the file keyring
+// directory, so a wrong passphrase is reported as such. A keyring without a
+// hash file has no key yet; the later key lookup reports that.
 func checkPassphrase(dir string, pass []byte) error {
 	h, err := os.ReadFile(filepath.Join(dir, "keyhash"))
 	if errors.Is(err, os.ErrNotExist) {
