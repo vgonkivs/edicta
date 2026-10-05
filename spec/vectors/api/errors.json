@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v0",
-  "revision": "v0-draft.15",
+  "revision": "v0-draft.17",
   "content_type": "application/cbor",
   "endpoints": {
     "publish": {
@@ -605,6 +605,16 @@
       "rules": "Recorder limit"
     },
     {
+      "code": "ErrPayloadAboveCap",
+      "status": "413",
+      "retryable": "0",
+      "stored": "none",
+      "endpoints": [
+        "/v0/authorize"
+      ],
+      "rules": "C4, Fibre payload limit"
+    },
+    {
       "code": "edictaapi.ErrMediaType",
       "status": "415",
       "retryable": "0",
@@ -737,6 +747,16 @@
       "rules": "Recorder read-back"
     },
     {
+      "code": "recorder.ErrSubmitMismatch",
+      "status": "502",
+      "retryable": "0",
+      "stored": "none",
+      "endpoints": [
+        "/v0/publish"
+      ],
+      "rules": "Recorder Fibre submit result"
+    },
+    {
       "code": "ErrPayloadUnavailable",
       "status": "503",
       "retryable": "1",
@@ -852,6 +872,36 @@
         "/v0/publish"
       ],
       "rules": "Recorder read-back"
+    },
+    {
+      "code": "ErrArchiveUnavailable",
+      "status": "503",
+      "retryable": "1",
+      "stored": "none",
+      "endpoints": [
+        "/v0/authorize"
+      ],
+      "rules": "AR3, archive before authorize"
+    },
+    {
+      "code": "recorder.ErrArchiveUnavailable",
+      "status": "503",
+      "retryable": "1",
+      "stored": "none",
+      "endpoints": [
+        "/v0/publish"
+      ],
+      "rules": "Recorder archive write"
+    },
+    {
+      "code": "recorder.ErrEscrowInsufficient",
+      "status": "503",
+      "retryable": "1",
+      "stored": "none",
+      "endpoints": [
+        "/v0/publish"
+      ],
+      "rules": "Recorder Fibre escrow preflight"
     },
     {
       "code": "edictaapi.ErrDeadline",

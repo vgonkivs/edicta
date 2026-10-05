@@ -48,7 +48,7 @@ signature even if the byte layout were identical.
 | `v0-draft.14` | 2026-10-05 | HTTP error mapping (section 18.3): `recorder.ErrNodeUnavailable` and `recorder.ErrTooManyPending` added to section 12 and mapped to 503, retryable, matched after `recorder.ErrNotVisible`. Before this they fell through to 500 `edictaapi.ErrInternal`, so the status and retry advice for these failures change. | Unchanged | `spec/vectors/api/errors.json` regenerated: the two entries (74 codes) and `"revision": "v0-draft.14"`. Every other file byte-identical. |
 | `v0-draft.15` | 2026-10-05 | Section 18.3 match order corrected to the reference server: `recorder.ErrNodeUnavailable` and `recorder.ErrTooManyPending` are matched **before** `recorder.ErrNotVisible`, not after it as draft.14 said. No Recorder error wraps more than one of these sentinels, so no status or code changes; the order is normative because `errors.json` is defined as match order. Section 12: `recorder.ErrNodeUnavailable` is also returned after a submit (search and read-back), not only before one. Bank-send profile `bank-send-v0-draft.3` (hand-off bounds and reconcile) at the same time. | Unchanged | `spec/vectors/api/errors.json` regenerated: the two entries move ahead of `recorder.ErrNotVisible`, `"revision": "v0-draft.15"`. Every other file byte-identical. |
 | `v0-draft.16` | 2026-10-05 | Recorder and inclusion review. (1) Section 17.3: PR6 is the completed-blob cache only (a completed answer, or a concurrent request for the same blob that completes, is free); PR7 states that the quota counts requests that reach it, not spend, so a retry of a blob with an unresolved submission is charged; new rule PR8: an unresolved submission is never submitted again, the retry resumes its search (moved out of PR6). Before this the text said every deduplicated retry was free. (2) Section 18.3: `edictaapi.ErrDeadline` only for the handler's own deadline; a Recorder submit timeout is `recorder.ErrOutcomeUnknown`, a Recorder read timeout `recorder.ErrNodeUnavailable` (both 503), whatever context error they wrap. The match order and the `errors.json` table are unchanged; the statement is new. (3) Section 9.5: `CrossCheck` source identity, rules X1 to X4 (URL normalization) and a refusal to start when two sources share a normalized host. Bank-send profile `bank-send-v0-draft.4` (watch loop, `indexer_lag_blocks`, startup indexer check, rejection keeps watching) at the same time. | Unchanged | Every file byte-identical, including `spec/vectors/api/errors.json` (`"revision": "v0-draft.15"`: its bytes and meaning did not change) and `publish_request.json` (PR6 to PR8 are stateful, no vectors). |
-| `v0-draft.17` | 2026-10-05 | Fibre (`da = 1`) as a first-class v0 mode; no wire change. (1) Section 8.5, 10.4: the Fibre commitment recompute exists (`fibre.NewBlob` at the pin, in a module separate from the core); a gate with a `da = 1` committer runs P3 itself on both paths, so the `da = 1` archive path is no longer refused. `ErrArchiveRecomputeUnsupported` keeps its name and now means only "no committer is configured for this `da`"; a gate whose configured DA is `fibre` MUST have one and refuses to start otherwise. (2) Section 10.4: the anchor is found by scanning block `height` (no tx index), and the PFF tx MUST have result code 0. (3) Section 10.6.1: the certificate rule for verifiers, byte-exact sign bytes, positional signatures over the keeper's validator order, and the chain's quorum test. (4) Section 10.7: archive MUST contents for `da = 1` (payload, PFF tx and inclusion proof, validator set and header at the promise height, header at `height`). (5) Section 10.8: startup compatibility check against pinned versions, MUST. (6) Section 11.2: where `fibre_retention_s` at `height` comes from (rules RS1 to RS6): echoed-height reads, a canary for height-ignoring endpoints at start and periodically, persisted observations; never the current value. (7) Section 9.5 W4: `da = 1` producers recompute with the same committer. | Unchanged | Every existing file byte-identical, including `anchor.json`: its `da = 1` cases that expect `ErrArchiveRecomputeUnsupported` describe a gate without a `da = 1` committer and keep that outcome there. New: `spec/vectors/da/fibre_commit.json` (`v0-draft.17`), generator module `spec/vectors/tools/fibrecommit-gen`, checker `check_fibre_commit.py`. |
+| `v0-draft.17` | 2026-10-05 | Fibre (`da = 1`) as a first-class v0 mode; no wire change. (1) Section 8.5, 10.4: the Fibre commitment recompute exists (`fibre.NewBlob` at the pin, in a module separate from the core); a gate with a `da = 1` committer runs P3 itself on both paths, so the `da = 1` archive path is no longer refused. `ErrArchiveRecomputeUnsupported` keeps its name and now means only "no committer is configured for this `da`"; a gate whose configured DA is `fibre` MUST have one and refuses to start otherwise. (2) Section 10.4: the anchor is found by scanning block `height` (no tx index), and the PFF tx MUST have result code 0. (3) Section 10.6.1: the certificate rule for verifiers, byte-exact sign bytes, positional signatures over the keeper's validator order, and the chain's quorum test. (4) Section 10.7: archive MUST contents for `da = 1` (payload, PFF tx and inclusion proof, validator set and header at the promise height, header at `height`). (5) Section 10.8: startup compatibility check against pinned versions, MUST. (6) Section 11.2: where `fibre_retention_s` at `height` comes from (rules RS1 to RS6): echoed-height reads, a canary for height-ignoring endpoints at start and periodically, persisted observations; never the current value. (7) Section 9.5 W4: `da = 1` producers recompute with the same committer. Amended in place before merge (human decisions of 2026-10-05): (8) new section 10.9, at-height reads AH1 to AH5 for every module and both `da` (echoed height, binding to the header, canary per endpoint; observations-only retention mode, otherwise `ErrChainUnavailable` or a height-independent source; never a verdict from latest state). (9) Section 8.7 stage 4a, rules AR1 to AR4: the gate archives the envelope and action bytes, idempotently, after G, L and A and before signing; archive down gives `ErrArchiveUnavailable` (503, `Retry-After`), nonce not consumed. (10) Section 10.6.2: verifier header trust HT1 to HT7 (trusted header at `T >= H`, backward `last_block_id` hash chain, no signatures, optional cross-check; forward verification out of scope). (11) Section 10.6.1: settlement reported as `node-attested` (certificate, system blob, code 0); CV8 and section 10.7 updated (system blob MUST). (12) Section 10.4 and rule C4: Fibre payload limit, default 16 MiB, `ErrPayloadAboveCap`. (13) SC3: `da = 1` chain allowlist is configuration, default `mocha-5`. (14) Section 10.6.1: the verifier applies the network threshold, reports the signed share and warns when `3 * signed <= 2 * total`. (15) Section 10.4: `da = 1` submission only through the operator's own node. (16) Sections 12 and 18.3: new codes `ErrPayloadAboveCap` (413), `recorder.ErrSubmitMismatch` (502), `ErrArchiveUnavailable`, `recorder.ErrArchiveUnavailable`, `recorder.ErrEscrowInsufficient` (503). | Unchanged | `spec/vectors/api/errors.json` regenerated additively: five new codes (79), `"revision": "v0-draft.17"`; every existing entry unchanged. Every other existing file byte-identical, including `anchor.json`: its `da = 1` cases that expect `ErrArchiveRecomputeUnsupported` describe a gate without a `da = 1` committer and keep that outcome there. New: `spec/vectors/da/fibre_commit.json` (`v0-draft.17`), generator module `spec/vectors/tools/fibrecommit-gen`, checker `check_fibre_commit.py`. |
 
 ## 1. Threat model in one table
 
@@ -73,7 +73,7 @@ Each mechanism below names what it defends against and what it assumes.
 | `payload_ref.signer` with share version 1 (section 10.5) | An L1 blob with the same bytes posted by another account being taken as the Edicta anchor; an unrecomputable share commitment | Same as the row above: the blob-signer rule is enforced in CheckTx and ProcessProposal |
 | Archive fallback (section 11) | Fibre pruning before the commitment expires | Archive is honest for availability only; integrity comes from the hash (P2) and the recomputed DA commitment (P3) |
 | DA commitment recompute, rule P3 (section 8.5) | "Anchor X, sign H(Y)": an agent or Recorder anchors blob X, archives blob Y and signs `ciphertext_hash = H(Y)`, so a hash-only check accepts bytes that were never public | SHA-256 collision resistance; the recompute is the upstream code at the pin (`fibre.NewBlob` for `da = 1`, go-square for `da = 2`), checked by vectors generated from that code alone |
-| Anchor-relative time, rules K1 and K2 (section 11.2) | A commitment signed before its payload was public; a commitment whose validity outlives the DA retention window being executed as if the DA layer still served the payload | The gate reads true header time from a node it trusts (v0: the operator's own node). At-height retention comes from a read whose response echoes the requested height on an endpoint that passed the canary, or from the gate's own persisted observations; a change that is made and reverted between two observations is missed (RS1 to RS6, section 11.2) |
+| Anchor-relative time, rules K1 and K2 (section 11.2) | A commitment signed before its payload was public; a commitment whose validity outlives the DA retention window being executed as if the DA layer still served the payload | The gate reads true header time from a node it trusts (the operator's own node is recommended; a public endpoint is allowed). Every read at a past height, on every module and on both `da` paths, is used only if the response echoes the requested height and, where the content allows, is bound to the header at that height (AH1 to AH5, section 10.9). At-height retention comes from such a read on an endpoint that passed the canary, or from the gate's own persisted observations (observations-only mode when the endpoint ignores heights); a change that is made and reverted between two observations is missed (RS1 to RS6, section 11.2) |
 | PFF certificate check for verifiers (section 10.6.1) | A forged or under-signed availability certificate presented after the chain pruned the state that could re-check it | More than 2/3 of voting power honest at `PaymentPromise.height`; the archived validator set is the one the chain used, tied to a header by `validators_hash` and that header to the chain by a light-client path; Ed25519 |
 | Startup compatibility check (section 10.8) | Silent divergence after an upstream change: another Fibre encoding, another sign-bytes layout, another chain or a node that answers in another format | The pinned versions and the known-answer vectors describe the network; the check runs before the gate serves |
 | Registry epoch, rule E1 (section 8.7) | Replay after the nonce registry was lost or recreated | The gate clock did not step back across the recreation |
@@ -604,10 +604,13 @@ each entry passes the section 4.6 grammar):
 | C1 | `scope.gate_id == gate.gate_id` | `ErrScopeMismatch` | `foreign_gate_id` |
 | C2 | `action.type` is in `gate.action_types`, by bytewise equality | `ErrActionTypeNotAllowed` | `action_type_not_allowed`, `action_type_suffix_differs` |
 | C3 | `payload_ref.da` is in the gate's configured DA set (`allowed_da`); an unset set means `{1, 2}` | `ErrDANotAllowed` (package `gate`) | none (gate configuration; gate tests) |
+| C4 | `da = 1` only, and only on a gate with a `da = 1` committer: `payload_size <= fibre_max_data_bytes` (section 10.4, Fibre payload limit; default 16 MiB) | `ErrPayloadAboveCap` (package `gate`) | none (gate configuration; gate tests) |
 
-C3 is a gate rule, not part of `VerifyForGate`: the gate evaluates it right
-after `VerifyForGate` succeeds and before stage 2 of section 8.7, so it is
-never an oracle for unsigned input. With `allowed_da` unset, C3 always
+C3 and C4 are gate rules, not part of `VerifyForGate`: the gate evaluates
+them, C3 first, right after `VerifyForGate` succeeds and before stage 2 of
+section 8.7, so they are never an oracle for unsigned input. C4 does not
+apply to a gate without a `da = 1` committer (it delegates P3 and never
+encodes), so every existing vector keeps its outcome. With `allowed_da` unset, C3 always
 holds, so every existing vector keeps its outcome. A gate that does not
 allow `da = 1` need not read Fibre parameters: it passes `fibre_retention_s =
 2^63-1` to `VerifyForGate`, which only satisfies `Params.Validate`; S14 then
@@ -622,6 +625,14 @@ Threat note (C3): a gate on a chain without `x/fibre` cannot evaluate S14, K2
 or P3 for `da = 1`; without C3 it would either fail every such commitment
 with an operational error or, worse, read a substituted value. C3 turns it
 into a fixed, configured rejection.
+
+Threat note (C4): P3 for `da = 1` encodes the whole blob, more than 12 times
+`payload_size` in memory (about 1.6 GB per check at `2^27` bytes). C4 refuses
+an oversize commitment from `payload_size` alone, before any fetch, so an
+agent cannot make the gate download and encode a blob it would never
+accept. `ErrPayloadAboveCap` is distinct from `ErrPayloadTooLarge` (S7): S7
+is the same for every gate, C4 depends on this gate's configuration, and the
+two must not share an API code (section 18.3).
 
 Threat note (C2): the allowlist is how an operator says which executors stand
 behind this gate. Without it, a gate in front of an IBKR executor would also
@@ -710,10 +721,11 @@ a later stage's sentinel when an earlier stage fails.
 
 | # | Stage | Rule | Check | Sentinel | Inv. |
 |---|---|---|---|---|---|
-| 1 | D, S, G, T, C | section 8.6, C3 | `VerifyForGate` with `now` read once from the gate clock and params read from chain state; C includes C2 (action type allowed); then C3 (DA allowed, section 8.3) | stage D to C sentinels, `ErrDANotAllowed` | 1, 4, 6 |
+| 1 | D, S, G, T, C | section 8.6, C3 | `VerifyForGate` with `now` read once from the gate clock and params read from chain state; C includes C2 (action type allowed); then C3 (DA allowed) and C4 (`da = 1` payload cap), section 8.3 | stage D to C sentinels, `ErrDANotAllowed`, `ErrPayloadAboveCap` | 1, 4, 6 |
 | 2 | E | E1 | `issued_at > epoch + skew_s`, where `epoch` is the gate clock when the nonce registry was created, persisted inside the registry in its creation transaction and never rewritten | `ErrBeforeRegistryEpoch` | 5 |
 | 3 | L | L0, L1, L2 | `agent_pubkey` is not a gate key: not the gate's own key (which signs Authorizations and receipts) and not any gate key in its configuration (L0). The allowlist has `agent_id` (L1), and maps it to exactly `agent_pubkey` (L2). Checked in the order L0, L1, L2, after G, so it is never an oracle for unsigned input | `ErrAgentKeyIsGateKey`, `ErrAgentNotAllowed`, `ErrAgentKeyMismatch` | 1, 7 |
 | 4 | A | A0, A1 | `CheckAction(c, action_bytes)` on the supplied bytes (section 8.4) | `ErrActionSize`, `ErrActionMismatch` | 3 |
+| 4a | AR | AR1 to AR4 | Archive the decision before any Authorization exists (below): write `envelope` and `action_bytes` under `commitment_hash`, idempotently, and wait until the write is durable. Required for a gate with an archive configured (every `edictad` gate); a library gate without one skips this stage. Writes nothing to the nonce registry | `ErrArchiveUnavailable` (503, `Retry-After`) | 2, 5 |
 | 5 | N0 | N1 | No registry entry exists for `(agent_pubkey, nonce)`. Advisory; stage 12 is authoritative. If one exists, the retry rule below applies | `ErrNonceUsed` | 5 |
 | 6 | K | K0 | The anchor tx exists at `payload_ref.height` (section 10.4 for `da = 1`: found by scanning that block, result code 0; 10.5 for `da = 2`), and the header time `T_H` is readable | `ErrAnchorNotFound` | 2 |
 | 7 | K1 | K1 | Section 11.2 | `ErrIssuedBeforeAnchor` | 4 |
@@ -763,8 +775,36 @@ from handing an Authorization to a caller that cannot present the committed
 bytes, and keep a caller without those bytes from learning whether a nonce is
 taken.
 
-Threat note (sign before consume). Stages 1 to 11 write nothing, so a
-transient DA, chain or signer failure never burns a nonce, and anyone holding
+Archive before authorize (normative since `v0-draft.17`):
+
+| Rule | Requirement |
+|---|---|
+| AR1 | The record is keyed by `commitment_hash` and holds the envelope bytes and the action bytes exactly as presented. Nothing else is required before stage 11; the Authorization, its path and the K2 inputs are written after stage 12 (section 10.7). |
+| AR2 | Idempotent. The same bytes under an existing key succeed without a change. The archive never overwrites: different bytes under an existing key are a conflict. Because G and A1 run first, a conflict on the action bytes is impossible (equal `commitment_hash` fixes `action.hash`); envelopes can differ only by a second valid signature of the agent key over the same hash (G2 rules out malleated `S`), and the gate treats that conflict as success, keeping the stored record, which verifies equally. Any other conflict is an archive fault: `ErrArchiveUnavailable`, nothing signed. |
+| AR3 | Failure, timeout or an archive the gate cannot reach: answer `ErrArchiveUnavailable` (HTTP 503 with a `Retry-After` header, section 18.3). The nonce is not consumed and nothing is signed, so the same request can be retried unchanged. |
+| AR4 | No fallback: a gate with an archive configured MUST NOT issue an Authorization whose decision record is not durable, whatever its mode. |
+
+Threat note (archive before authorize). Without AR4 an Authorization can
+exist for a decision whose envelope and action bytes exist only in the gate's
+registry, which prunes; once it does, `verify <ref>` and `replay <ref>` have
+nothing to verify and the decision is unauditable. Writing first costs one
+durable write per authorization and turns an archive outage into a
+retryable refusal, never into an unverifiable action. The archive is trusted
+for availability only: a record that differs from what the gate later reads
+fails the verifier's own checks (signature, action hash). The write happens
+after G, L and A (the `edictad` server decodes, checks the signature and the
+allowlist and runs A before writing, then runs the remaining stages), so an
+unauthenticated caller cannot fill the archive, and a caller who holds a
+published envelope but not the committed action bytes cannot store wrong
+bytes under its key first and lock the real request out. A request that
+fails stage 1 to 4 stores nothing; a request that
+passes A and then fails a later stage leaves a record of a decision that
+was never authorized, which is harmless (the record is the agent's own
+signed decision, and the absent Authorization says it was not authorized).
+
+Threat note (sign before consume). Stages 1 to 11 write nothing to the
+nonce registry (stage 4a writes only the idempotent archive record), so a
+transient DA, chain, archive or signer failure never burns a nonce, and anyone holding
 the envelope and the action bytes can retry. The Authorization exists only in
 gate memory until stage 12 commits, and it leaves the gate only after the
 commit is durable. A crash before the commit leaves nothing stored and the
@@ -1288,12 +1328,40 @@ second-language gate links the same upstream code or reproduces every vector
 bit for bit; the Python checker checks the file structure and the size
 arithmetic, not the commitments.
 
+Fibre payload limit (normative since `v0-draft.17`). Every component that
+handles `da = 1` has a configured cap `fibre_max_data_bytes`, default
+16 MiB (16,777,216 bytes), allowed range 1 to `2^27 - 5`:
+
+| Component | Rule | On failure |
+|---|---|---|
+| Recorder | Refuses a blob above its cap before committing, archiving or paying | `recorder.ErrTooLarge` (413) |
+| Gate (with a `da = 1` committer) | C4 (section 8.3): `payload_size` above its cap, before any fetch | `ErrPayloadAboveCap` (413) |
+| Committer | Refuses to encode above its own cap, which MUST be at least the gate's and the Recorder's cap in the same deployment (section 8.5) | `ErrDACommitmentMismatch` |
+| Producer (SDK) | SHOULD use the cap of the Recorder and gate it targets, so that it never signs a decision the gate refuses by size | - |
+| Verifier | MAY refuse to recompute above its own cap (default `2^27 - 5`, every valid blob); it then reports P3 as not checked, never as passed | - |
+
+The 16 MiB default bounds the encode memory (about 200 MB per check) and
+upload cost; S7 (`2^27`) stays the format limit for every `da`. Raising the
+cap is a configuration change; the value is not on the wire.
+
+Submission (normative for v0). A Recorder submits `da = 1` blobs only
+through a celestia-node that its own operator runs, holding the escrow
+account key in that node's keyring. A third-party node or relay for `da = 1`
+submission is not supported in v0. Reason: the node signs the
+`PaymentPromise` with the escrow key and runs the upload; a third party would
+hold the key that pays and could spend the escrow on blobs of its own.
+`recorder.ErrSubmitMismatch` (section 12) and W4 catch a substituted commitment, not
+that spending. The
+gate's reads (anchor, retention, download) may still use other endpoints
+under the rules of section 10.9.
+
 Anchor lookup (rule K0 for `da = 1`, normative since `v0-draft.17`). The gate
 does not use the tx index (it may be disabled on a node, and the event query
 needs a JSON-quoted base64 value):
 
 1. Read block `height` (header and txs) and the results of its txs from the
-   gate's node.
+   gate's node, under the at-height rules of section 10.9 (the block and the
+   results echo `height`, the txs hash to the header's `data_hash`).
 2. A tx is a candidate iff upstream `fibretypes.TryParseFibreTx` (`APP/x/fibre/types/classified_tx.go`)
    classifies it as a Fibre tx, its single `MsgPayForFibre` carries a
    `PaymentPromise` with `namespace == payload_ref.namespace`,
@@ -1308,8 +1376,9 @@ needs a JSON-quoted base64 value):
    the anchor is the one with the earliest `creation_timestamp`, ties broken
    by block order. They attest the same blob; the earliest timestamp gives
    the earliest `start` in K2, which is the conservative side.
-5. No candidate: `ErrAnchorNotFound`. A transport or node failure is
-   operational (`ErrChainUnavailable`), never `ErrAnchorNotFound`.
+5. No candidate: `ErrAnchorNotFound`. A transport or node failure, or a
+   response that fails the at-height rules (section 10.9), is operational
+   (`ErrChainUnavailable`), never `ErrAnchorNotFound`.
 
 From the anchor the gate takes `PaymentPromise.creation_timestamp` for K2
 (section 11.2) and `T_H` from the header of `height`. It MAY also check that
@@ -1466,8 +1535,8 @@ verification failure; the verifier reports the first rule that failed.
 | CV4 | Validator list `V`: the bonded validators of x/staking `HistoricalInfo` at `promise.height`, each with its Ed25519 consensus key and power `tokens` (the integer token amount, not the consensus power), sorted as CometBFT `NewValidatorSet` sorts: power descending, then address (the first 20 bytes of `SHA-256(pubkey)`) ascending. The order is positional: signature `i` belongs to `V[i]`. |
 | CV5 | `len(validator_signatures) <= len(V)`. |
 | CV6 | Quorum, exactly as the chain: `required = floor(2 * total / 3)` with `total` the sum of `V`'s powers. Walk `i = 0, 1, ...`; skip empty entries; a non-empty entry MUST verify as an Ed25519 signature by `V[i]` over `sign_bytes` (the Go `crypto/ed25519.Verify` equation, as rule G1) or the certificate is rejected; add `V[i]`'s power once; as soon as the sum is `>= required`, accept and stop (entries after that point are not checked, as on chain). If the walk ends below `required`, reject. |
-| CV7 | `V` is the chain's: the CometBFT validator set committed by a header at `promise.height` (see below) holds exactly `V`'s keys, with consensus power `floor(tokens / 10^6)` for each. The header is tied to the chain by a light-client path or by the trust the verifier already places in the archived headers (W5 trust levels). |
-| CV8 | Anchor: the PFF tx is included in block `payload_ref.height` (inclusion proof against that header's `data_hash`, section 10.7) with result code 0 (section 10.4). |
+| CV7 | `V` is the chain's: the CometBFT validator set committed by a header at `promise.height` (see below) holds exactly `V`'s keys, with consensus power `floor(tokens / 10^6)` for each. The header is tied to the chain by the header trust rules of section 10.6.2. |
+| CV8 | Anchor (settlement), v0 level `node-attested` (below): the share-version-2 system blob for `(payload_ref.namespace, payload_ref.commitment)` is included in block `payload_ref.height` (proof against the data root of that header, trusted by section 10.6.2); the archived result of the PFF tx at that height has code 0; if the archive holds an inclusion proof of the PFF tx against `data_hash`, it MUST verify. |
 
 Sign bytes (byte-exact; `APP/fibre/payment_promise.go` `SignBytes`,
 celestia-core `types.RawBytesMessageSignBytes`):
@@ -1490,9 +1559,10 @@ Facts and open points:
 - The threshold is the chain's, `signed >= floor(2 * total / 3)`, computed
   over token amounts. It accepts exactly two thirds, and through the floor
   slightly less, so it is not the strict "more than 2/3" of CometBFT
-  commits. VERIFIED (code). The verifier MUST report the signed fraction;
-  whether Edicta should additionally require `3 * signed > 2 * total` is a
-  decision for the human (it could reject a PFF the chain accepted).
+  commits. VERIFIED (code). Decided for v0: the verifier applies the
+  network rule (CV6) and never rejects what the network accepted; it does
+  not add `3 * signed > 2 * total` as a condition. Whether the network rule
+  should be strict is an open question with the Fibre team.
 - Token amounts versus consensus power: CometBFT and the light client use
   `floor(tokens / 10^6)`; the keeper sorts and counts by tokens. Two
   validators with equal consensus power but different tokens can be in a
@@ -1512,6 +1582,35 @@ Facts and open points:
   `HistoricalInfo` (`historical_entries` = 10000 blocks, about 7 h 56 min at
   2.855 s per block; VERIFIED, probe). After that only the archive can.
 
+Verifier report for `da = 1` (normative since `v0-draft.17`). Besides the
+verdict, `verify` and `replay` report:
+
+| Field | Value |
+|---|---|
+| `cert_signed_power` | Sum of the token powers of every non-empty entry that verifies, walking the whole list (not only up to the CV6 stop point). An entry after the stop point that fails is reported as a warning and does not change the verdict, because the chain never checked it. |
+| `cert_total_power` | `total` of CV6. |
+| `cert_signed_share` | `cert_signed_power / cert_total_power`, informational, printed with at least four decimals; comparisons use the integers. |
+| `cert_quorum_warning` | `WARN` iff `3 * cert_signed_power <= 2 * cert_total_power`: the certificate passed the network rule but not the classic BFT "more than 2/3". The verdict stays valid. |
+| `cert_valset_header` | Which header committed to `V` in CV7 (`next_validators_hash` at `promise.height`, or `validators_hash` at `promise.height + 1`). |
+| `settlement` | `node-attested` in v0 (below); `failed` if CV8 fails. |
+| `header_trust` | Section 10.6.2: the trusted header's height and hash, and the cross-check result. |
+
+Settlement level `node-attested` (v0). Settlement means the PFF executed
+with code 0 at `height`, so the escrow paid and the promise is on chain. In
+v0 the verifier establishes it from three parts: the certificate (CV1 to
+CV7, cryptographic given the validator set), the system blob at `height`
+(cryptographic given the header), and code 0, which is only what the
+Recorder's node reported when the archive was written. A verifier MUST
+report it as `node-attested` and MUST NOT call it proven. Planned right after
+v0 Fibre: a proof of code 0 against `last_results_hash` of the header at
+`height + 1`, by recomputing the results Merkle root from the archived
+results of block `height`; that level will be reported as `proven`.
+Threat note: a node that lies about code 0 can make a PFF that failed in
+execution look settled. The certificate and the system blob still show that
+validators attested the blob and that the blob was in block `height`; what
+is not proven is the payment. `UNVERIFIED`: whether a PFF with a nonzero
+code can be included with its system blob at all (section 10.4, step 3).
+
 Threat note (CV). The certificate is what turns "a tx was included" into
 "validators holding the required stake attested custody of shards of this
 blob". Inclusion already implies it under the honest-majority assumption,
@@ -1520,6 +1619,38 @@ FinalizeBlock. CV lets a verifier check it without trusting the proposer and
 the 2/3 that accepted the block, given a validator set it trusts through CV7.
 It does not prove that validators still hold the shards (retention ends at
 `pruneAt`), nor that the blob is the agent's payload (that is P2 and P3).
+
+### 10.6.2 Header trust for verifiers (both `da`, normative since `v0-draft.17`)
+
+The verifier works from the archive and needs headers it can trust: at
+`payload_ref.height` (`T_H`, `data_hash`, the inclusion proofs) and, for
+`da = 1`, at `promise.height` (and `promise.height + 1` when CV7 uses its
+`validators_hash`). Archived headers are untrusted (the archive is trusted
+for availability only). v0 ties them to the chain with a trusted header and
+the hash chain, without signatures:
+
+| Rule | Requirement |
+|---|---|
+| HT1 Trusted header | The auditor supplies a trusted header file: one header at height `T` with its hash, obtained out of band. `T` MUST be at least the highest height the verifier needs (`payload_ref.height`, or `promise.height + 1` if that is higher). A file with `T` below that is refused: forward verification from an older header is out of scope for v0. |
+| HT2 Hash of the trusted header | The verifier recomputes the header hash (CometBFT `Header.Hash()`, the Merkle root of the header fields) and it MUST equal the hash in the file. |
+| HT3 Backward chain | For each `k` from `T` down to the lowest needed height, the header at `k - 1` is accepted iff its recomputed hash equals `last_block_id.hash` of the accepted header at `k`. Headers between come from the archive, a file or any online source; they need no trust, because the chain checks them. Any break: the header trust fails. |
+| HT4 No signatures | Commit signatures are not checked in v0: the trust comes from the trusted header and SHA-256 collision resistance, not from a validator set. |
+| HT5 Archived headers | An archived header at a needed height is used only if its hash equals the one reached by HT3. |
+| HT6 Cross-check (optional) | The verifier MAY additionally read the header at `T` (or at `payload_ref.height`) from one or more configured endpoints, under the at-height rules (section 10.9: the response echoes the height), and compare hashes. A mismatch fails the header trust. An unreachable endpoint is reported as `cross-check: not done`, never as a pass. |
+| HT7 Verdict | Without a trusted header file, or if HT1 to HT3 fail, the verifier MUST NOT report the anchor as valid: it reports `header_trust: none` or the failed rule, and the overall verdict is not valid. The report always carries `T`, the trusted hash and the cross-check result. |
+
+`UNVERIFIED`: that celestia-core at the pin computes `Header.Hash()` and
+`last_block_id.hash` exactly as upstream CometBFT (the fields and their
+order), so that a generic CometBFT implementation reproduces them.
+
+Threat note (HT). The whole anchor proof rests on the trusted header: an
+auditor who takes it from the party being audited proves nothing. With a
+correct header the backward chain is as strong as SHA-256; no assumption
+about validator honesty enters, except the one already in the certificate
+(CV) and in inclusion. Cost: `T - H` headers (about 1,260 per hour of
+blocks). A light client that verifies forward from an older trusted header
+(signature bisection) would remove the need for `T >= H` and is planned
+after v0.
 
 ### 10.7 What must be archived for later verification
 
@@ -1530,17 +1661,22 @@ Contents and reasons:
 | Item | `da` | Level | Why |
 |---|---|---|---|
 | The blob bytes, written before the anchor tx is submitted | both | MUST | Fibre prunes after `pruneAt` (about 4 h); L1 pruned nodes after 7d + 1h. P2 and P3 tie the bytes to the commitment. |
-| The signed envelope and the SignedAuthorization | both | MUST | The object being verified, and which path the gate used (section 15). |
-| The anchor tx bytes exactly as included (PFF or PFB), its index in block `height`, and its inclusion proof against `data_hash` of that header | both | MUST | Proves namespace and commitment were committed on L1 at `height`; for `da = 1` it also carries the `PaymentPromise` and the positional certificate (section 10.6.1). About 5.3 KB at 83 validators. |
+| The signed envelope and the action bytes, written by the gate before it signs (stage 4a, rules AR1 to AR4); the SignedAuthorization, written after stage 12 (a crash between the two is repaired from the registry at the next start) | both | MUST | The object being verified, and which path the gate used (section 15). Writing the decision first means no Authorization exists for a decision the archive lacks. |
+| The anchor tx bytes exactly as included (PFF or PFB), its index in block `height`, and its inclusion proof against `data_hash` of that header (for `da = 1` the proof is SHOULD: the system blob below is the v0 inclusion evidence, CV8) | both | MUST | Proves namespace and commitment were committed on L1 at `height`; for `da = 1` it also carries the `PaymentPromise` and the positional certificate (section 10.6.1). About 5.3 KB at 83 validators. |
 | The signed header (header and commit) of block `height` | both | MUST | Root of the inclusion proof, `T_H` for K1 and K2. |
 | For PFF: the x/staking `HistoricalInfo` validator set at `PaymentPromise.height` (consensus keys and token amounts) | 1 | MUST | CV4 and CV6 need the keeper's order and powers. The chain keeps it only for `historical_entries` blocks (about 8 h), after which nobody can re-check the certificate without the archive. |
 | For PFF: the signed header at `PaymentPromise.height` and the CometBFT validator set its `next_validators_hash` (or the `validators_hash` of `promise.height + 1`) commits to | 1 | MUST | CV7: ties the `HistoricalInfo` set to the chain. |
 | The retention inputs the gate used: `shard_retention` latest and at `height`, and which source gave the at-height value (section 11.2, RS rules) | 1 | MUST | K2 replay; the at-height value cannot be read back reliably later. |
-| The result of the anchor tx (code 0) with a proof against `last_results_hash` of the header at `height + 1` | 1 | SHOULD | CV8 offline. `UNVERIFIED`: a serving API for that proof. |
-| The share-version-2 system blob and its inclusion proof | 1 | MAY | Second, blob-shaped evidence of `(namespace, commitment)` at `height`; it has no timestamp and no signatures. |
+| The result of the anchor tx (code 0) as the node reported it | 1 | MUST | CV8, settlement `node-attested` (section 10.6.1). |
+| The results of all txs of block `height` and the header at `height + 1`, for a proof of code 0 against `last_results_hash` | 1 | SHOULD | Lets the planned `proven` settlement level be checked later for decisions archived now. |
+| The share-version-2 system blob and its inclusion proof against the data root of the header at `height` | 1 | MUST | CV8: the v0 evidence that `(namespace, commitment)` was in block `height`; it has no timestamp and no signatures, which the PFF tx and the certificate supply. |
+
+Headers the verifier needs between the trusted header and `height` (section
+10.6.2) need not be archived: the hash chain checks them from any source.
 
 The Recorder MUST write the blob before submitting and the remaining MUST
-items before returning `payload_ref` to the producer, so a signed
+items, other than the gate's decision record and Authorization, before
+returning `payload_ref` to the producer, so a signed
 commitment never exists without them. For `da = 1` this is also before the
 `historical_entries` horizon, which is hours away at that point.
 
@@ -1578,9 +1714,9 @@ error, not a sentinel.
 |---|---|
 | SC1 Build pin | The linked celestia-app module is exactly the pinned version (section 10.1, read from the build information). |
 | SC2 Known answers | The `da = 1` committer reproduces the commitments of `fibre_commit.json` it embeds: at least `fibre_live_mocha_popsmin1`, `fibre_size_262139`, `fibre_size_262140` and one row size above 128. |
-| SC3 Chain | The node's chain id is in the configured `da = 1` allowlist (v0: `mocha-5`), and the app version in the latest header is 10. |
+| SC3 Chain | The node's chain id is in the configured `da = 1` chain allowlist, and the app version in the latest header is 10. The allowlist is configuration; its default, and the only value validated for v0, is `["mocha-5"]`. Adding a chain (for example Arabica or Corto) is an operator decision after checking that the pins and `fibre_commit.json` hold there. |
 | SC4 Parameters | x/fibre `Params` is readable and `shard_retention` is within the governance bounds (10 min to 168 h). |
-| SC5 Retention source | The retention store is bound to this chain id and gets its first sample; the canary runs (section 11.2, RS2). A failing canary disables only the direct at-height read, never the start. |
+| SC5 Retention source and at-height reads | The retention store is bound to this chain id and gets its first sample; the canary runs (section 11.2, RS2; section 10.9). A failing canary disables only the direct at-height read, never the start: the gate then runs in observations-only mode for retention and MUST log the mode and the reason at startup at warning level (and again whenever a later canary changes it). |
 | SC6 Fallback node | A bridge used as a download fallback reports the pinned celestia-node version, otherwise the fallback is disabled (logged); it is never trusted for P3, which the gate computes itself. |
 
 An app version change seen at runtime (an upgrade) stops `da = 1` service
@@ -1591,6 +1727,46 @@ upstream definitions that a new tag may change; the vectors are the only
 independent memory of what the network did at the pin. Refusing to start on
 any difference turns a silent divergence (accepting bytes the network never
 committed, rejecting every anchor) into a visible configuration error.
+
+### 10.9 At-height reads (all modules, both `da`; normative since `v0-draft.17`)
+
+Facts: on 2026-10-05 the public QuickNode Mocha endpoint answered x/fibre
+queries pinned to a past height with the latest state and no response
+height (VERIFIED, probe). Per the human, it drops the height for every
+module, not only x/fibre; the gate cannot tell such an endpoint from an
+honest one by a normal answer. Every read "at height `h`" by a gate,
+Recorder or verifier is therefore suspect until checked. Two classes:
+
+- State reads: a Cosmos gRPC or REST query whose height travels in request
+  metadata (`x-cosmos-block-height`), for example x/fibre `Params` at `h`.
+- Block reads: a request whose height is an argument and whose response is
+  an object that names its own height: a header, a block, block results, a
+  commit, a validator set at `h`, `HistoricalInfo(h)`, a celestia-node
+  `header.GetByHeight(h)`, `blob.Get(h, namespace, commitment)` and its
+  proof. This covers the `celestia_blob` path (K0 and `T_H` for `da = 2`)
+  as much as `da = 1`.
+
+| Rule | Requirement |
+|---|---|
+| AH1 Echo | A response is used only if it carries the requested height and that height equals `h`: for a state read the response header `x-cosmos-block-height`; for a block read the height inside the returned object (`header.height`, `block.header.height`, the results' height, `HistoricalInfo.header.height`). A response without a height (for example `blob.Get`) is used only through AH2. Missing or different: the response is discarded as a failure of that endpoint. |
+| AH2 Binding | Where the content can be tied to the header at `h`, it MUST be, and the header itself MUST pass AH1: txs to its `data_hash`; a blob or its share commitment to its data root through the inclusion proof; a validator set to `validators_hash` or `next_validators_hash`. A block read that passes AH1 and AH2 does not depend on whether the endpoint honours heights. |
+| AH3 Canary per endpoint | The RS2 canary (section 11.2) is a property of the endpoint, not of a module: a failing canary marks the endpoint height-ignoring for every state read, whatever the module. Block reads are checked by AH1 and AH2 on every response; an AH1 mismatch on any block read also marks the endpoint height-ignoring for state reads until a later canary passes. |
+| AH4 On failure, retention | The x/fibre retention at `height` comes only from the gate's own observations (RS4 to RS6): observations-only mode, logged at startup and on every change (SC5). A height the observations do not cover gives `ErrRetentionUnavailable`. |
+| AH5 On failure, other reads | Any other read at a height that fails AH1 or AH2 on every configured source gives nothing: the check that needed it is not evaluated from latest state or from another height. The gate answers `ErrChainUnavailable` (503, nonce untouched), never `ErrAnchorNotFound`, never a K1 or K2 verdict from the wrong block. It MAY instead use a source that does not depend on the endpoint honouring heights: a header verified by the W5 light verifier (section 9.5), or a block read from another endpoint that passes AH1 and AH2. A state read other than x/fibre `Params` from a height-ignoring endpoint MUST NOT be used; v0 defines no other. |
+
+The Recorder applies AH1, AH2 and AH5 to its read-back (an AH failure is
+`recorder.ErrNodeUnavailable`); the verifier applies them to HT6
+(section 10.6.2).
+
+Threat note (AH). A height-ignoring endpoint answers "latest" for "at `h`".
+For retention that silently replaces the at-height half of `r` (RS1); for a
+block read it would make a gate find no anchor, or the wrong block time.
+AH1 detects it whenever the object names its height, AH2 makes the content
+self-checking against the header, and AH5 turns any remaining doubt into a
+retryable refusal instead of a verdict. What AH does not cover: an endpoint
+that echoes the requested height and serves a consistent but false header.
+The header is trusted from the node (own node recommended), or from the W5
+light verifier; that is the same assumption as K1 and K2 (section 11.2).
 
 ## 11. MaxTTL, retention, anchor time and the archive
 
@@ -1664,7 +1840,7 @@ from a normal answer which kind of endpoint it talks to, so the gate uses:
 |---|---|
 | RS1 | The latest value is never used as the value at `height`, unless one of the sources below establishes it for `height`. |
 | RS2 Canary | At start and at least every `canary_interval` (default 600 s, at most 3600 s), the gate queries x/fibre `Params` pinned to each configured canary height whose state cannot hold x/fibre params: height 1 and the last height before x/fibre was activated (Mocha: 1,082,619). The canary passes only if every such query fails with an error from the node (on an honest pruned node "failed to load state"; on an honest archival node at the pin a gRPC `Internal` error). A success, with any value, marks the endpoint height-ignoring. A transport error, timeout or cancellation is inconclusive and counts as not passed. |
-| RS3 Direct read | A read of x/fibre `Params` pinned to `height` establishes the value only if: the canary passed at start; the response carries the response header `x-cosmos-block-height` equal to `height`; and a canary on the same connection right after the read passes. Otherwise the direct source gives nothing for this check (it is not a rejection by itself). |
+| RS3 Direct read | A read of x/fibre `Params` pinned to `height` establishes the value only if: the canary passed at start; the response carries the response header `x-cosmos-block-height` equal to `height`; and a canary on the same connection right after the read passes. Otherwise the direct source gives nothing for this check (it is not a rejection by itself). While the canary fails, the gate is in observations-only mode (section 10.9, AH4). |
 | RS4 Samples | The gate samples the latest `shard_retention` at start, periodically (default every 30 s), on every `da = 1` check, and on demand when `height` is above the newest sample. A sample reads the chain head `a`, then the latest params, then the head `b`, and records that the value was in force at some height in `[a - lag, b]`, where `lag` is configured (0 for an own node, more for a load-balanced endpoint whose backends may trail each other). Samples are persisted durably in the gate's registry, bound to the chain id, before they are used, and never rewritten. |
 | RS5 Segments | Consecutive samples with the same value form a run; consecutive runs form a segment. A new segment starts when the next sample is more than `max_gap_blocks` (default 100) above the last one or more than `max_gap_s` (default 300) later on the gate clock, or when heights or the clock go backwards. A restart that keeps within both gaps continues the segment; otherwise only heights strictly inside the downtime are uncovered. Runs MAY be pruned once older than 8 days (above the 168 h governance maximum). |
 | RS6 Value at `height` | From samples: `height` is covered iff some segment has `first.FirstTo <= height <= last.LastFrom`; a run `r` of that segment may be in force at `height` iff `prev(r).LastFrom <= height <= next(r).FirstTo` (a missing neighbour uses `r.FirstTo`, `r.LastFrom` instead); the value is the minimum over those runs. The value at `height` is the minimum over RS3 and RS6 when both give one, either one when only one does, and `ErrRetentionUnavailable` when neither does. |
@@ -1728,7 +1904,9 @@ Threat notes:
   the whole validity window". Without K2 a gate could report DA availability
   for a commitment whose payload the DA layer prunes before `valid_until`.
 - Both rules trust the node for `T_H`, `creation_timestamp` and the retention
-  parameters. In v0 that node is the operator's own (self-check). A gate MAY
+  parameters, read under section 10.9. The operator's own node is
+  recommended (self-check); a public endpoint is allowed, and the operator
+  docs list the providers that passed the canary (P-OPS, nodes.guru). A gate MAY
   instead take K0 and `T_H` for `da = 2` from the W5 verifier (section 9.5),
   which removes the trust in its node for those two inputs.
 - Vectors: `anchor.json`: `k1` (equality accepted, one second earlier
@@ -1750,7 +1928,8 @@ and are not by the QuickNode public endpoint (RS rules above). Still
 |---|---|
 | When it is used | When K2 fails, or when the DA path fails for any reason, for both `da` values when the gate has the committer for that `da` (section 8.5). |
 | What is checked | P1, P2 and P3 on the full archived blob. The archive is trusted for availability only. |
-| Recorder duty | The Recorder writes the archive synchronously before submitting the anchor tx, so the archive copy exists whenever a valid commitment exists. |
+| Recorder duty | The Recorder writes the archive synchronously before submitting the anchor tx, so the archive copy exists whenever a valid commitment exists. Archive unavailable: `recorder.ErrArchiveUnavailable` (503), nothing submitted; after a submit the write is retried by resubmitting the same bytes, which pays nothing again (PR8). |
+| Gate duty | The gate writes the decision record (envelope, action bytes) before it signs and the Authorization after it commits the nonce (section 8.7, stage 4a, AR1 to AR4). Archive unavailable: `ErrArchiveUnavailable` (503, `Retry-After`), nonce not consumed. |
 | Residual risk | If the archive loses or withholds the blob after the DA layer pruned it, the gate rejects (`ErrAnchorTooOld` when K2 failed, otherwise `ErrPayloadUnavailable`), and later `verify` or `replay` cannot recover the payload. Mitigations post-v0: archive replication, archive health check before signing. |
 | `da = 1` and the archive | Accepted since `v0-draft.17` by a gate with the `da = 1` committer, which every gate configured for `fibre` has (section 8.5). With 4 h retention the archive is the only source a few hours after the anchor, so for `da = 1` it is part of normal operation, not a rare fallback. |
 
@@ -1865,6 +2044,11 @@ prefix is the Go package; vectors write them as `pkg.ErrName`.
 Gate sentinel added in `v0-draft.10`: `ErrDANotAllowed` (package `gate`,
 stage C, rule C3; no vector, gate configuration).
 
+Gate sentinel added in `v0-draft.17`: `ErrPayloadAboveCap` (package `gate`,
+stage C, rule C4: `da = 1` `payload_size` above the gate's Fibre payload
+limit, section 10.4; no vector, gate configuration). It is not
+`ErrPayloadTooLarge`: that name is S7 and both are reported as bare codes.
+
 Publish-request sentinels (section 17; package `edictaapi`). The stage D and
 S sentinels of the request wrapper are the core ones above.
 
@@ -1888,12 +2072,16 @@ have stable names, because the API reports them as codes:
 | `ErrRegistryUnavailable` (package `gate`) | The nonce registry could not be read or written | 503 |
 | `ErrClockRegression` (package `gate`) | The gate clock is before the registry watermark | 503 |
 | `ErrClosed` (package `gate`) | The gate is shutting down | 503 |
+| `ErrArchiveUnavailable` (package `gate`) | The decision record could not be written durably before signing (section 8.7, stage 4a, AR3); nothing signed, nonce not consumed | 503 |
 | `recorder.ErrTooLarge` | The blob is above the Recorder's own limit | 413 |
 | `recorder.ErrOutcomeUnknown` | A submission may or may not have reached the chain; a retry of the same blob does not submit again while the outcome is unresolved (PR8), and is charged quota (PR7) | 503 |
 | `recorder.ErrNotVisible` | The anchor was not visible on the read node in time | 503 |
 | `recorder.ErrSignerMismatch` | The node shows the anchored blob under another signer or share version | 502 |
 | `recorder.ErrNodeUnavailable` | The Recorder's read node failed for a reason other than "not found". Before a submit (the head): nothing was submitted and the blob is not held. After a submit (the search for the blob, or reading back its header or blob): the submission is kept, and a retry of the same blob resumes the search and does not submit again while the outcome is unresolved (PR8) | 503 |
 | `recorder.ErrTooManyPending` | Too many blobs have an unresolved submission outcome; new publishes wait until they resolve | 503 |
+| `recorder.ErrArchiveUnavailable` | The archive write failed. Before a submit (the blob): nothing was submitted. After a submit (the evidence): the submission is kept, and a retry of the same blob resumes and pays nothing again (PR8) | 503 |
+| `recorder.ErrEscrowInsufficient` | `da = 1`: the escrow account cannot pay for this upload; nothing was submitted. The Recorder never deposits by itself; the same request may succeed after the operator tops up | 503 |
+| `recorder.ErrSubmitMismatch` | `da = 1`: the node reported a BlobID other than `0x00 \|\| commitment` the Recorder computed; nothing is returned to the agent, and a fee may have been spent | 502 |
 | `edictaapi.ErrTokenInvalid` | Missing or wrong bearer token on an endpoint that requires one | 401 |
 | `edictaapi.ErrRouteNotFound` | No such path | 404 |
 | `edictaapi.ErrMethodNotAllowed` | Wrong HTTP method for the path | 405 |
@@ -2699,11 +2887,12 @@ Status semantics:
 | 429 | Quota exceeded; a `Retry-After` header gives the seconds to wait | 1 |
 | 500 | Unmapped server error; `message` redacted | 0 |
 | 502 | The chain shows something the Recorder did not submit | 0 |
-| 503 | A dependency is unavailable or the outcome is unknown; nothing was consumed | 1 |
+| 503 | A dependency is unavailable or the outcome is unknown; nothing was consumed. `ErrArchiveUnavailable` MUST and every other 503 MAY carry a `Retry-After` header (seconds) | 1 |
 | 504 | The server's deadline passed; nothing was consumed, or a retry is deduplicated | 1 |
 
 `retryable = 1` means: the same request, unchanged, may succeed later, and
-retrying is safe (the gate writes nothing before stage 12, the Recorder
+retrying is safe (the gate writes nothing to the registry before stage 12
+and its archive write is idempotent, the Recorder
 deduplicates by blob hash, `Record` returns the stored receipt). A client
 MUST NOT retry a request answered with `retryable = 0` unchanged.
 
@@ -2721,7 +2910,11 @@ Mapping (normative). The server maps the error returned by the operation to
 the first row below whose sentinel it matches (Go: `errors.Is`, in table
 order). Order matters where one sentinel also matches another:
 `ErrAnchorTooOld` matches `ErrPayloadUnavailable` too (section 8.5), so it is
-listed first.
+listed first. The sentinels added in `v0-draft.17` (`ErrPayloadAboveCap`,
+`recorder.ErrSubmitMismatch`, `ErrArchiveUnavailable`,
+`recorder.ErrArchiveUnavailable`, `recorder.ErrEscrowInsufficient`) wrap
+no other section 12 sentinel and are matched after the existing codes of
+their status.
 
 | Status | Codes, in match order |
 |---|---|
@@ -2732,13 +2925,13 @@ listed first.
 | 404 | `edictaapi.ErrRouteNotFound`, `edictaapi.ErrPublishDisabled` |
 | 405 | `edictaapi.ErrMethodNotAllowed` |
 | 409 | `ErrNonceUsed`, `ErrReceiptExists`, `ErrBeforeRegistryEpoch` |
-| 413 | `ErrTooLarge`, `recorder.ErrTooLarge` |
+| 413 | `ErrTooLarge`, `recorder.ErrTooLarge`, `ErrPayloadAboveCap` |
 | 415 | `edictaapi.ErrMediaType` |
 | 422 | `ErrActionMismatch`, `ErrPayloadSizeMismatch`, `ErrPayloadHashMismatch`, `ErrDACommitmentMismatch`, `ErrArchiveRecomputeUnsupported`, `ErrIssuedBeforeAnchor`, `ErrTTLTooLong`, `ErrNotAuthorized` |
 | 425 | `ErrNotYetValid`, `ErrAnchorNotFound` |
 | 429 | `edictaapi.ErrQuotaExceeded` |
-| 502 | `recorder.ErrSignerMismatch` |
-| 503 | `ErrPayloadUnavailable`, `ErrRetentionUnavailable`, `ErrChainUnavailable`, `ErrAllowlistUnavailable`, `ErrRegistryUnavailable`, `ErrClockRegression`, `ErrClosed`, `recorder.ErrOutcomeUnknown`, `recorder.ErrNodeUnavailable`, `recorder.ErrTooManyPending`, `recorder.ErrNotVisible` |
+| 502 | `recorder.ErrSignerMismatch`, `recorder.ErrSubmitMismatch` |
+| 503 | `ErrPayloadUnavailable`, `ErrRetentionUnavailable`, `ErrChainUnavailable`, `ErrAllowlistUnavailable`, `ErrRegistryUnavailable`, `ErrClockRegression`, `ErrClosed`, `recorder.ErrOutcomeUnknown`, `recorder.ErrNodeUnavailable`, `recorder.ErrTooManyPending`, `recorder.ErrNotVisible`, `ErrArchiveUnavailable`, `recorder.ErrArchiveUnavailable`, `recorder.ErrEscrowInsufficient` |
 | 504 | `edictaapi.ErrDeadline` |
 | 500 | `edictaapi.ErrInternal` (anything else) |
 
@@ -2773,8 +2966,9 @@ Threat notes:
   returned only under the retry rule, so a caller without the committed
   bytes learns nothing about a used nonce.
 - `retryable` is advice the server derives from the sentinel, never from
-  the client. A 503 at `/v0/authorize` means nothing was written (section
-  8.7, sign before consume), so a retry cannot produce a second
-  Authorization.
+  the client. A 503 at `/v0/authorize` means no nonce was consumed and no
+  Authorization left the gate (section 8.7, sign before consume); at most
+  the idempotent decision record of stage 4a exists, so a retry cannot
+  produce a second Authorization.
 - `message` is for operators. It MUST NOT contain tokens, keys or request
   bodies; for 500 it is a fixed redacted text.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates spec/vectors/api/errors.json (v0-draft.15): the HTTP error mapping of
+"""Generates spec/vectors/api/errors.json (v0-draft.17): the HTTP error mapping of
 section 18 and example request and response bytes per endpoint. Deterministic.
 
 Usage: python3 spec/vectors/check/gen_api_errors.py [--core DIR] [--out DIR]
@@ -31,7 +31,7 @@ def arg(name: str, default: Path) -> Path:
 CORE = arg("--core", VECTORS / "v0")
 OUT = arg("--out", VECTORS / "api")
 FORMAT = "edicta-vectors/v0"
-REVISION = "v0-draft.15"
+REVISION = "v0-draft.17"
 
 P, A, R, H = "/v0/publish", "/v0/authorize", "/v0/record", "/v0/health"
 POSTS = [P, A, R]
@@ -78,6 +78,7 @@ ERRORS = [
     ("ErrBeforeRegistryEpoch", 409, "none", [A], "E1"),
     ("ErrTooLarge", 413, "none", POSTS, "18.1, D0, PR1"),
     ("recorder.ErrTooLarge", 413, "none", [P], "Recorder limit"),
+    ("ErrPayloadAboveCap", 413, "none", [A], "C4, Fibre payload limit"),
     ("edictaapi.ErrMediaType", 415, "none", POSTS, "18.1"),
     ("ErrActionMismatch", 422, "none", [A], "A1, retry rule 8.7"),
     ("ErrPayloadSizeMismatch", 422, "none", [A], "P1"),
@@ -91,6 +92,7 @@ ERRORS = [
     ("ErrAnchorNotFound", 425, "none", [A], "K0"),
     ("edictaapi.ErrQuotaExceeded", 429, "none", [P], "PR7"),
     ("recorder.ErrSignerMismatch", 502, "none", [P], "Recorder read-back"),
+    ("recorder.ErrSubmitMismatch", 502, "none", [P], "Recorder Fibre submit result"),
     ("ErrPayloadUnavailable", 503, "none", [A], "8.5"),
     ("ErrRetentionUnavailable", 503, "none", [A], "K2"),
     ("ErrChainUnavailable", 503, "none", [P, A], "operational"),
@@ -102,6 +104,9 @@ ERRORS = [
     ("recorder.ErrNodeUnavailable", 503, "none", [P], "Recorder node read"),
     ("recorder.ErrTooManyPending", 503, "none", [P], "PR6, unresolved submissions"),
     ("recorder.ErrNotVisible", 503, "none", [P], "Recorder read-back"),
+    ("ErrArchiveUnavailable", 503, "none", [A], "AR3, archive before authorize"),
+    ("recorder.ErrArchiveUnavailable", 503, "none", [P], "Recorder archive write"),
+    ("recorder.ErrEscrowInsufficient", 503, "none", [P], "Recorder Fibre escrow preflight"),
     ("edictaapi.ErrDeadline", 504, "none", ALL, "18.3"),
     ("edictaapi.ErrInternal", 500, "none", ALL, "18.3"),
 ]
