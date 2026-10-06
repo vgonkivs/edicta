@@ -220,4 +220,93 @@ func Run(t *testing.T, open Opener) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, runs, "a fresh sample after a prune must stay readable")
 	})
+
+	t.Run("AppendBeforeBindRefused", func(t *testing.T) {
+		h := open(t)
+		require.Error(t, h.Store.Append(ctx, s(100, 100, 7, 5000), pol))
+		require.NoError(t, h.Store.Bind(ctx, "mocha-5"))
+		_, have, err := h.Store.Last(ctx)
+		require.NoError(t, err)
+		assert.False(t, have, "a refused write leaves nothing behind")
+	})
+
+	t.Run("EmptyChainIDRefused", func(t *testing.T) {
+		h := open(t)
+		require.Error(t, h.Store.Bind(ctx, ""))
+		require.Error(t, h.Store.Append(ctx, s(100, 100, 7, 5000), pol))
+	})
+
+	t.Run("AppendUnderOtherChainRefused", func(t *testing.T) {
+		h := bound(t, open)
+		other := s(100, 100, 7, 5000)
+		other.ChainID = "mainnet"
+		require.ErrorIs(t, h.Store.Append(ctx, other, pol), retention.ErrChainMismatch)
+		_, have, err := h.Store.Last(ctx)
+		require.NoError(t, err)
+		assert.False(t, have)
+		same := s(100, 100, 7, 5000)
+		same.ChainID = "mocha-5"
+		require.NoError(t, h.Store.Append(ctx, same, pol))
+	})
+
+	t.Run("PruneKeepsTheNewestSegmentWhenTheClockSteppedBack", func(t *testing.T) {
+		h := bound(t, open)
+		require.NoError(t, h.Store.Append(ctx, s(100, 100, 7, 9000), pol))
+		require.NoError(t, h.Store.Append(ctx, s(1000, 1000, 8, 100), pol))
+		want, _, err := h.Store.Last(ctx)
+		require.NoError(t, err)
+		_, err = h.Store.Prune(ctx, 5000)
+		require.NoError(t, err)
+		got, have, err := h.Store.Last(ctx)
+		require.NoError(t, err)
+		require.True(t, have)
+		assert.Equal(t, want, got)
+		runs, err := h.Store.Segment(ctx, 1000)
+		require.NoError(t, err)
+		assert.NotEmpty(t, runs)
+	})
+
+	t.Run("PruneKeepsEveryRunOfTheNewestSegment", func(t *testing.T) {
+		h := bound(t, open)
+		require.NoError(t, h.Store.Append(ctx, s(100, 100, 7, 1000), pol))
+		require.NoError(t, h.Store.Append(ctx, s(130, 130, 9, 1030), pol))
+		n, err := h.Store.Prune(ctx, 5000)
+		require.NoError(t, err)
+		assert.Zero(t, n)
+		runs, err := h.Store.Segment(ctx, 120)
+		require.NoError(t, err)
+		assert.Len(t, runs, 2)
+	})
+
+	t.Run("PruneStillDropsOlderSegments", func(t *testing.T) {
+		h := bound(t, open)
+		require.NoError(t, h.Store.Append(ctx, s(100, 100, 7, 1000), pol))
+		require.NoError(t, h.Store.Append(ctx, s(1000, 1000, 7, 1100), pol))
+		n, err := h.Store.Prune(ctx, 5000)
+		require.NoError(t, err)
+		assert.Equal(t, 1, n)
+		cur, err := h.Store.Segment(ctx, 1000)
+		require.NoError(t, err)
+		assert.NotEmpty(t, cur)
+	})
+
+	t.Run("SegmentIDsAreNeverReusedAfterAPrune", func(t *testing.T) {
+		h := bound(t, open)
+		seen := map[uint64]bool{}
+		next := func(smp retention.Sample) {
+			require.NoError(t, h.Store.Append(ctx, smp, pol))
+			last, _, err := h.Store.Last(ctx)
+			require.NoError(t, err)
+			require.False(t, seen[last.Segment], "segment %d reused", last.Segment)
+			seen[last.Segment] = true
+		}
+		next(s(100, 100, 7, 9000))
+		next(s(1000, 1000, 7, 100))
+		next(s(2000, 2000, 7, 9500))
+		_, err := h.Store.Prune(ctx, 5000)
+		require.NoError(t, err)
+		h.Store = h.Reopen()
+		next(s(3000, 3000, 7, 9600))
+		next(s(4000, 4000, 7, 9700))
+	})
 }

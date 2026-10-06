@@ -1,6 +1,7 @@
 package retention_test
 
 import (
+	"errors"
 	"math/rand/v2"
 	"slices"
 	"testing"
@@ -62,4 +63,52 @@ func TestFibreRetentionNeverSubstitutesTheLatest(t *testing.T) {
 			}
 		}
 	}
+}
+
+// Behind a load balancer the head reads and the params read may hit backends
+// up to lag blocks apart. Around a retention change at block c, no recorded
+// answer may exceed the value really in force at the height asked.
+func TestLoadBalancedSourceNeverExceedsTheTrueValue(t *testing.T) {
+	const lag = 5
+	rng := rand.New(rand.NewPCG(42, 1))
+	pol := Policy
+	pol.AssumedLagBlocks = lag
+	covered := 0
+	for i := range 2000 {
+		c := uint64(200 + rng.IntN(100))
+		before, after := uint64(1+rng.IntN(5)), uint64(1+rng.IntN(5))
+		truth := func(h uint64) uint64 {
+			if h < c {
+				return before
+			}
+			return after
+		}
+		head := uint64(150)
+		latest := NewLatest("mocha-5")
+		latest.Fn = func(int) (retention.Sample, error) {
+			head += uint64(rng.IntN(6))
+			backend := func() uint64 { return head - uint64(rng.IntN(lag+1)) }
+			a, x, b := backend(), backend(), backend()
+			return retention.Sample{FromHeight: a, ToHeight: b, RetentionS: truth(x)}, nil
+		}
+		clk := NewClock(5000)
+		p, err := retention.NewParams(pol, latest, nil, memstore.New(), clk)
+		require.NoError(t, err)
+		require.NoError(t, p.Start(ctx))
+		for range 39 {
+			clk.Advance(10)
+			require.NoError(t, p.Observe(ctx))
+		}
+		latest.Fn = func(int) (retention.Sample, error) { return retention.Sample{}, errors.New("down") }
+
+		for h := c - 2*lag - 2; h <= c+2*lag+2; h++ {
+			got, err := p.FibreRetention(ctx, h)
+			if err != nil {
+				continue
+			}
+			covered++
+			require.LessOrEqual(t, got, truth(h), "iteration %d: change at %d, height %d returned %d", i, c, h, got)
+		}
+	}
+	require.NotZero(t, covered, "the property must not hold vacuously")
 }

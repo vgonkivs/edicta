@@ -1,9 +1,11 @@
 package boltreg_test
 
 import (
+	"encoding/binary"
 	"path/filepath"
 	"testing"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -148,6 +150,59 @@ func TestCorruptRetentionIsIsolated(t *testing.T) {
 			defer r2.Close()
 			_, err = r2.Get(ctx, entry(5).Key)
 			require.NoError(t, err)
+		})
+	}
+}
+
+func rawRun(t *testing.T, seg uint64, f map[int]uint64) (key, val []byte) {
+	t.Helper()
+	enc, err := cbor.CoreDetEncOptions().EncMode()
+	require.NoError(t, err)
+	val, err = enc.Marshal(f)
+	require.NoError(t, err)
+	key = make([]byte, 16)
+	binary.BigEndian.PutUint64(key, seg)
+	binary.BigEndian.PutUint64(key[8:], f[2])
+	return key, val
+}
+
+func TestInconsistentStoredRunIsCorrupt(t *testing.T) {
+	base := func() map[int]uint64 {
+		return map[int]uint64{1: 1, 2: 100, 3: 100, 4: 100, 5: 100, 6: 7, 7: 5000, 8: 5000}
+	}
+	cases := []struct {
+		name string
+		edit func(f map[int]uint64)
+		ok   bool
+	}{
+		{"consistent run", func(map[int]uint64) {}, true},
+		{"first from above last from", func(f map[int]uint64) { f[2] = 200 }, false},
+		{"first to above last to", func(f map[int]uint64) { f[3], f[5] = 150, 100 }, false},
+		{"first at above last at", func(f map[int]uint64) { f[7] = 6000 }, false},
+		{"from above to at the first sample", func(f map[int]uint64) { f[2], f[4] = 100, 100; f[3] = 90 }, false},
+		{"from above to at the last sample", func(f map[int]uint64) { f[4], f[5] = 120, 110 }, false},
+		{"segment zero", func(f map[int]uint64) { f[1] = 0 }, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := openAt(t)
+			st := r.RetentionStore()
+			require.NoError(t, st.Bind(ctx, "mocha-5"))
+			f := base()
+			tc.edit(f)
+			seg := f[1]
+			k, v := rawRun(t, seg, f)
+			require.NoError(t, r.SetRetentionRaw("runs", string(k), v))
+
+			_, _, err := st.Last(ctx)
+			_, serr := st.Segment(ctx, 100)
+			if tc.ok {
+				require.NoError(t, err)
+				require.NoError(t, serr)
+				return
+			}
+			require.ErrorIs(t, err, retention.ErrStoreCorrupt)
+			require.ErrorIs(t, serr, retention.ErrStoreCorrupt)
 		})
 	}
 }

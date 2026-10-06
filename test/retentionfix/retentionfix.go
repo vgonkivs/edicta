@@ -59,7 +59,10 @@ type Latest struct {
 	ChainEr error
 	steps   []Step
 	Fn      func(call int) (retention.Sample, error)
-	calls   int
+	// Hook wins over Fn and steps; it runs outside the fake's lock, so it may
+	// block.
+	Hook  func(ctx context.Context, call int) (retention.Sample, error)
+	calls int
 }
 
 func NewLatest(chain string, steps ...Step) *Latest { return &Latest{Chain: chain, steps: steps} }
@@ -68,18 +71,32 @@ func Ok(s retention.Sample) Step { return Step{Sample: s} }
 
 func (l *Latest) ChainID(context.Context) (string, error) { return l.Chain, l.ChainEr }
 
-func (l *Latest) LatestSample(context.Context) (retention.Sample, error) {
+func (l *Latest) LatestSample(ctx context.Context) (retention.Sample, error) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	n := l.calls
 	l.calls++
-	if l.Fn != nil {
-		return l.Fn(n)
-	}
-	if n >= len(l.steps) {
+	hook, fn, chain := l.Hook, l.Fn, l.Chain
+	l.mu.Unlock()
+	var (
+		s   retention.Sample
+		err error
+	)
+	switch {
+	case hook != nil:
+		s, err = hook(ctx, n)
+	case fn != nil:
+		l.mu.Lock()
+		s, err = fn(n)
+		l.mu.Unlock()
+	case n >= len(l.steps):
 		return retention.Sample{}, ErrExhausted
+	default:
+		s, err = l.steps[n].Sample, l.steps[n].Err
 	}
-	return l.steps[n].Sample, l.steps[n].Err
+	if s.ChainID == "" {
+		s.ChainID = chain
+	}
+	return s, err
 }
 
 func (l *Latest) Calls() int {
@@ -147,4 +164,42 @@ func Ticking(chain string, base, step uint64, vals func(call int) uint64) *Lates
 		return retention.Sample{FromHeight: h, ToHeight: h, RetentionS: vals(n)}, nil
 	}
 	return l
+}
+
+// FaultStore wraps a Store to inject Append failures and to observe Prune.
+type FaultStore struct {
+	retention.Store
+	mu        sync.Mutex
+	appendErr error
+	// Pruned receives the cutoff of every Prune call, after it ran.
+	Pruned chan uint64
+}
+
+func Wrap(st retention.Store) *FaultStore {
+	return &FaultStore{Store: st, Pruned: make(chan uint64, 64)}
+}
+
+func (f *FaultStore) FailAppend(err error) {
+	f.mu.Lock()
+	f.appendErr = err
+	f.mu.Unlock()
+}
+
+func (f *FaultStore) Append(ctx context.Context, s retention.Sample, p retention.Policy) error {
+	f.mu.Lock()
+	err := f.appendErr
+	f.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return f.Store.Append(ctx, s, p)
+}
+
+func (f *FaultStore) Prune(ctx context.Context, before uint64) (int, error) {
+	n, err := f.Store.Prune(ctx, before)
+	select {
+	case f.Pruned <- before:
+	default:
+	}
+	return n, err
 }

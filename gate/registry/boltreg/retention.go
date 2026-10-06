@@ -22,10 +22,19 @@ var (
 
 const retentionSchema = uint64(1)
 
-var (
-	retEnc, _ = cbor.CoreDetEncOptions().EncMode()
-	retDec, _ = cbor.DecOptions{DupMapKey: cbor.DupMapKeyEnforcedAPF, ExtraReturnErrors: cbor.ExtraDecErrorUnknownField}.DecMode()
-)
+var retEnc, retDec, retCodecErr = newRetentionCodecs()
+
+func newRetentionCodecs() (cbor.EncMode, cbor.DecMode, error) {
+	enc, err := cbor.CoreDetEncOptions().EncMode()
+	if err != nil {
+		return nil, nil, fmt.Errorf("boltreg: retention encoder: %w", err)
+	}
+	dec, err := cbor.DecOptions{DupMapKey: cbor.DupMapKeyEnforcedAPF, ExtraReturnErrors: cbor.ExtraDecErrorUnknownField}.DecMode()
+	if err != nil {
+		return nil, nil, fmt.Errorf("boltreg: retention decoder: %w", err)
+	}
+	return enc, dec, nil
+}
 
 type runWire struct {
 	Segment    uint64 `cbor:"1,keyasint"`
@@ -50,12 +59,18 @@ func runKey(r retention.Run) []byte {
 }
 
 func encodeRun(r retention.Run) ([]byte, error) {
+	if retCodecErr != nil {
+		return nil, retCodecErr
+	}
 	return retEnc.Marshal(runWire(r))
 }
 
 func decodeRun(k, v []byte) (retention.Run, error) {
 	if len(k) != 16 {
 		return retention.Run{}, corrupt("run key has %d bytes", len(k))
+	}
+	if retCodecErr != nil {
+		return retention.Run{}, retCodecErr
 	}
 	var w runWire
 	if err := retDec.Unmarshal(v, &w); err != nil {
@@ -64,6 +79,10 @@ func decodeRun(k, v []byte) (retention.Run, error) {
 	r := retention.Run(w)
 	if string(runKey(r)) != string(k) {
 		return retention.Run{}, corrupt("run %x does not match its key", k)
+	}
+	if r.Segment == 0 || r.FirstFrom > r.FirstTo || r.LastFrom > r.LastTo ||
+		r.FirstFrom > r.LastFrom || r.FirstTo > r.LastTo || r.FirstAt > r.LastAt {
+		return retention.Run{}, corrupt("run %x is inconsistent", k)
 	}
 	return r, nil
 }
@@ -120,6 +139,9 @@ func lastRun(runs *bolt.Bucket) (retention.Run, bool, error) {
 }
 
 func (s retentionStore) Bind(_ context.Context, chainID string) error {
+	if chainID == "" {
+		return fmt.Errorf("%w: empty chain id", retention.ErrChainMismatch)
+	}
 	return s.r.db.Update(func(tx *bolt.Tx) error {
 		meta, _, err := buckets(tx, true)
 		if err != nil {
@@ -152,10 +174,19 @@ func (s retentionStore) Last(_ context.Context) (retention.Run, bool, error) {
 }
 
 func (s retentionStore) Append(_ context.Context, smp retention.Sample, p retention.Policy) error {
+	if err := smp.Validate(); err != nil {
+		return err
+	}
 	return s.r.db.Update(func(tx *bolt.Tx) error {
-		meta, runs, err := buckets(tx, true)
+		meta, runs, err := buckets(tx, false)
 		if err != nil {
 			return err
+		}
+		if meta == nil || meta.Get(keyRetChain) == nil {
+			return fmt.Errorf("%w: store is not bound", retention.ErrChainMismatch)
+		}
+		if cur := meta.Get(keyRetChain); smp.ChainID != "" && string(cur) != smp.ChainID {
+			return fmt.Errorf("%w: bound to %q, sample from %q", retention.ErrChainMismatch, cur, smp.ChainID)
 		}
 		last, have, err := lastRun(runs)
 		if err != nil {
@@ -221,8 +252,12 @@ func (s retentionStore) Prune(_ context.Context, before uint64) (int, error) {
 		if err != nil {
 			return err
 		}
+		if len(all) == 0 {
+			return nil
+		}
+		newest := all[len(all)-1].Segment
 		for _, r := range all {
-			if r.LastAt < before {
+			if r.Segment != newest && r.LastAt < before {
 				if err := runs.Delete(runKey(r)); err != nil {
 					return err
 				}
