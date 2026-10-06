@@ -183,11 +183,6 @@ func TestBlobPanicGuard(t *testing.T) {
 	}
 }
 
-func TestFibreSlotRefuses(t *testing.T) {
-	_, err := anchorverify.Fibre().VerifyAnchor(commitment.PayloadRef{DA: commitment.DAFibre}, &archive.EvidenceRecord{})
-	require.ErrorIs(t, err, verifier.ErrAnchorUnsupported)
-}
-
 func TestBlobDecodeIsPanicGuarded(t *testing.T) {
 	for _, in := range []string{
 		"null", "[]", `{"row_proof":null}`, `{"subtree_root_proofs":[null]}`, `{"row_proof":{"proofs":[null]}}`,

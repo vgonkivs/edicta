@@ -192,7 +192,3 @@ func TestReplay(t *testing.T) {
 	assert.Equal(t, true, k2["replayable"])
 	assert.Equal(t, true, k2["consistent"])
 }
-
-func TestDA1EndToEnd(t *testing.T) {
-	t.Skip("no da = 1 anchor verifier is wired into the command yet")
-}

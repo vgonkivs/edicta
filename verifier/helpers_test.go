@@ -46,6 +46,8 @@ type fakeAnchor struct {
 	signed     int64
 	total      int64
 	precision  string
+	proofForm  int
+	earlier    int
 	calls      int
 }
 
@@ -69,6 +71,8 @@ func (f *fakeAnchor) VerifyAnchor(ref commitment.PayloadRef, ev *archive.Evidenc
 		CertSignedPower:    f.signed,
 		CertTotalPower:     f.total,
 		CertTokenPrecision: f.precision,
+		ProofForm:          f.proofForm,
+		CandidatesEarlier:  f.earlier,
 	}
 	if ref.DA == commitment.DAFibre {
 		ph := sha256.Sum256([]byte("promise-header"))

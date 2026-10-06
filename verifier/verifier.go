@@ -78,6 +78,12 @@ type AnchorFacts struct {
 	CertTokenPrecision string
 	CertValsetHeader   string
 	Settlement         string
+	// ProofForm is the form of the archived anchor proof (da = 1): 1 for
+	// namespace data and DAH, 0 for the system blob commitment proof.
+	ProofForm int
+	// CandidatesEarlier counts the other candidates with an earlier promise
+	// creation time than the archived anchor (da = 1, form 1).
+	CandidatesEarlier int
 }
 
 // AnchorVerifier checks the anchor evidence of one da against the headers

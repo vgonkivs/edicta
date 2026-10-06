@@ -68,26 +68,28 @@ type k2View struct {
 
 // reportView is the printed form of a report; the JSON keys are the contract.
 type reportView struct {
-	Verdict        string       `json:"verdict"`
-	CommitmentHash string       `json:"commitment_hash"`
-	State          string       `json:"state"`
-	AuthVerified   bool         `json:"authorization_verified"`
-	Params         paramsView   `json:"params"`
-	Rejections     []string     `json:"rejections,omitempty"`
-	DA             uint64       `json:"da,omitempty"`
-	Height         uint64       `json:"height,omitempty"`
-	BlockTime      uint64       `json:"block_time,omitempty"`
-	RetentionStart uint64       `json:"retention_start,omitempty"`
-	GateID         string       `json:"gate_id,omitempty"`
-	ActionType     string       `json:"action_type,omitempty"`
-	Settlement     string       `json:"settlement,omitempty"`
-	Authorization  *authView    `json:"authorization,omitempty"`
-	Cert           *certView    `json:"cert,omitempty"`
-	Receipt        *receiptView `json:"receipt,omitempty"`
-	HeaderTrust    trustView    `json:"header_trust"`
-	Checks         []checkView  `json:"checks"`
-	Warnings       []string     `json:"warnings,omitempty"`
-	K2             *k2View      `json:"k2,omitempty"`
+	Verdict           string       `json:"verdict"`
+	CommitmentHash    string       `json:"commitment_hash"`
+	State             string       `json:"state"`
+	AuthVerified      bool         `json:"authorization_verified"`
+	Params            paramsView   `json:"params"`
+	Rejections        []string     `json:"rejections,omitempty"`
+	DA                uint64       `json:"da,omitempty"`
+	Height            uint64       `json:"height,omitempty"`
+	BlockTime         uint64       `json:"block_time,omitempty"`
+	RetentionStart    uint64       `json:"retention_start,omitempty"`
+	GateID            string       `json:"gate_id,omitempty"`
+	ActionType        string       `json:"action_type,omitempty"`
+	Settlement        string       `json:"settlement,omitempty"`
+	Authorization     *authView    `json:"authorization,omitempty"`
+	Cert              *certView    `json:"cert,omitempty"`
+	ProofForm         *int         `json:"anchor_proof_form,omitempty"`
+	CandidatesEarlier *int         `json:"anchor_candidates_earlier,omitempty"`
+	Receipt           *receiptView `json:"receipt,omitempty"`
+	HeaderTrust       trustView    `json:"header_trust"`
+	Checks            []checkView  `json:"checks"`
+	Warnings          []string     `json:"warnings,omitempty"`
+	K2                *k2View      `json:"k2,omitempty"`
 }
 
 func pathName(p commitment.PayloadPath) string {
@@ -147,6 +149,10 @@ func viewOf(r verifier.Report) reportView {
 	}
 	if a := r.Authorization; a != nil {
 		v.Authorization = &authView{Path: pathName(a.Path), Expires: a.Expires, AuthorizedAt: a.AuthorizedAt}
+	}
+	if r.Cert != nil {
+		form, earlier := r.AnchorProofForm, r.AnchorCandidatesEarlier
+		v.ProofForm, v.CandidatesEarlier = &form, &earlier
 	}
 	if c := r.Cert; c != nil {
 		v.Cert = &certView{
@@ -246,6 +252,9 @@ func writeText(out io.Writer, v reportView, colour bool) {
 	}
 	if c := v.Cert; c != nil {
 		p("certificate: signed %d of %d (%.4f), token precision %q", c.SignedPower, c.TotalPower, c.SignedShare, c.TokenPrecision)
+	}
+	if v.ProofForm != nil {
+		p("anchor proof form: %d, earlier candidates: %d", *v.ProofForm, *v.CandidatesEarlier)
 	}
 	ht := v.HeaderTrust
 	if ht.CheckpointH != 0 {

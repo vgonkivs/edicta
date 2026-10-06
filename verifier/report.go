@@ -107,12 +107,15 @@ type Report struct {
 	GateID         string
 	ActionType     string
 	Settlement     string
-	Authorization  *AuthorizationInfo
-	Cert           *CertReport
-	Receipt        *ReceiptInfo
-	HeaderTrust    HeaderTrustReport
-	Checks         []Check
-	Warnings       []string
+	// AnchorProofForm and AnchorCandidatesEarlier are set for da = 1.
+	AnchorProofForm         int
+	AnchorCandidatesEarlier int
+	Authorization           *AuthorizationInfo
+	Cert                    *CertReport
+	Receipt                 *ReceiptInfo
+	HeaderTrust             HeaderTrustReport
+	Checks                  []Check
+	Warnings                []string
 }
 
 // Check returns the step with this name.

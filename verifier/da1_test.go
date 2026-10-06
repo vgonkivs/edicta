@@ -1,8 +1,6 @@
 package verifier_test
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -99,10 +97,44 @@ func TestDA1PayloadMissingIsIncomplete(t *testing.T) {
 	require.ErrorIs(t, c.Err, archive.ErrNotFound)
 }
 
-func TestDA1RealAnchorVectors(t *testing.T) {
-	path := filepath.Join("..", "spec", "vectors", "da", "fibre_anchor.json")
-	if _, err := os.Stat(path); err != nil {
-		t.Skip("spec/vectors/da/fibre_anchor.json is not present")
+func TestDA1ProofFormAndEarlierCandidatesReachTheReport(t *testing.T) {
+	tests := []struct {
+		name         string
+		form, early  int
+		wantVerdict  verifier.Verdict
+		wantWarnings int
+	}{
+		{"form 1, no earlier candidate", 1, 0, verifier.VerdictValid, 0},
+		{"form 1, earlier candidates", 1, 3, verifier.VerdictValid, 1},
+		{"form 0 is a warning", 0, 0, verifier.VerdictValid, 1},
+		{"form 0 and earlier candidates", 0, 2, verifier.VerdictValid, 2},
+		{"unknown form", 2, 0, verifier.VerdictInvalid, 0},
+		{"negative count", 1, -1, verifier.VerdictInvalid, 0},
 	}
-	t.Skip("the real da = 1 anchor verifier is tested in the celestia module")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t, newFibreParts(t))
+			r.anchor.proofForm, r.anchor.earlier = tc.form, tc.early
+			rep := r.verify(t)
+			assert.Equal(t, tc.wantVerdict, rep.Verdict)
+			if tc.wantVerdict == verifier.VerdictInvalid {
+				requireOnly(t, failed(t, rep, verifier.CheckAnchor).Err, verifier.ErrAnchorInvalid)
+				assert.Zero(t, rep.AnchorProofForm, "nothing of a refused anchor is reported")
+				assert.Zero(t, rep.AnchorCandidatesEarlier)
+				return
+			}
+			assert.Equal(t, tc.form, rep.AnchorProofForm)
+			assert.Equal(t, tc.early, rep.AnchorCandidatesEarlier)
+			assert.Len(t, rep.Warnings, tc.wantWarnings)
+		})
+	}
+}
+
+func TestDA2ReportHasNoProofFormFields(t *testing.T) {
+	r := newRig(t, newParts(t))
+	r.anchor.proofForm, r.anchor.earlier = 1, 4
+	rep := r.verify(t)
+	assert.Equal(t, verifier.VerdictValid, rep.Verdict)
+	assert.Zero(t, rep.AnchorProofForm)
+	assert.Zero(t, rep.AnchorCandidatesEarlier)
 }

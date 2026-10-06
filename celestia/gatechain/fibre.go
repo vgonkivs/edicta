@@ -19,6 +19,7 @@ import (
 	libshare "github.com/celestiaorg/go-square/v4/share"
 
 	"github.com/vgonkivs/edicta/celestia/fibrecert"
+	"github.com/vgonkivs/edicta/celestia/fibreproof"
 	"github.com/vgonkivs/edicta/celestia/heightcheck"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/commitment"
@@ -306,11 +307,8 @@ func (a *FibreAnchors) verifyNamespace(ctx context.Context, height uint64) (veri
 	}
 	// A fresh value: Hash caches its result in the struct it is called on.
 	dah := &da.DataAvailabilityHeader{RowRoots: raw.RowRoots, ColumnRoots: raw.ColumnRoots}
-	if err := dah.ValidateBasic(); err != nil {
+	if err := fibreproof.CheckDAH(dah, hdr.DataHash); err != nil {
 		return verifiedBlock{}, unavailable(fmt.Errorf("dah at %d: %w", height, err))
-	}
-	if !bytes.Equal(dah.Hash(), hdr.DataHash) {
-		return verifiedBlock{}, unavailable(fmt.Errorf("dah at %d does not hash to the header data hash", height))
 	}
 	got, err := a.r.NamespaceData(ctx, height, libshare.PayForFibreNamespace)
 	if err != nil {
@@ -321,14 +319,7 @@ func (a *FibreAnchors) verifyNamespace(ctx context.Context, height uint64) (veri
 		return verifiedBlock{}, unavailable(fmt.Errorf("namespace data at %d: %w", height, err))
 	}
 	// Verify what the archive will hold: the stream, decoded again.
-	var nd shwap.NamespaceData
-	if _, err := nd.ReadFrom(bytes.NewReader(stream)); err != nil {
-		return verifiedBlock{}, unavailable(fmt.Errorf("namespace data at %d: %w", height, err))
-	}
-	if err := nd.Verify(dah, libshare.PayForFibreNamespace); err != nil {
-		return verifiedBlock{}, unavailable(fmt.Errorf("namespace data at %d: %w", height, err))
-	}
-	txs, err := reassemble(nd.Flatten())
+	txs, err := fibreproof.VerifyNamespaceData(dah, stream)
 	if err != nil {
 		return verifiedBlock{}, unavailable(fmt.Errorf("namespace data at %d: %w", height, err))
 	}
@@ -340,7 +331,7 @@ func (a *FibreAnchors) verifyNamespace(ctx context.Context, height uint64) (veri
 	if err != nil {
 		return verifiedBlock{}, unavailable(fmt.Errorf("dah at %d: %w", height, err))
 	}
-	return verifiedBlock{txs: txs, proof: anchorProof(dahProto, stream)}, nil
+	return verifiedBlock{txs: txs, proof: fibreproof.EncodeProof(dahProto, stream)}, nil
 }
 
 var errReadLimit = errors.New("answer above the read limit")
@@ -365,72 +356,7 @@ func encodeNamespaceData(nd shwap.NamespaceData, limit uint64) ([]byte, error) {
 	return w.buf.Bytes(), nil
 }
 
-// reassemble parses the compact shares of the PayForFibre namespace and
-// accepts them only if splitting the txs again gives the same shares. That
-// rules out a cut last unit, a missing or extra share and a second sequence,
-// all of which ParseTxs alone tolerates or drops without an error.
-func reassemble(shares []libshare.Share) ([][]byte, error) {
-	if len(shares) == 0 {
-		return nil, nil
-	}
-	txs, err := libshare.ParseTxs(shares)
-	if err != nil {
-		return nil, fmt.Errorf("parse txs: %w", err)
-	}
-	css := libshare.NewCompactShareSplitter(libshare.PayForFibreNamespace, libshare.ShareVersionZero)
-	for _, tx := range txs {
-		if err := css.WriteTx(tx); err != nil {
-			return nil, fmt.Errorf("split txs: %w", err)
-		}
-	}
-	again, err := css.Export()
-	if err != nil {
-		return nil, fmt.Errorf("split txs: %w", err)
-	}
-	if len(again) != len(shares) {
-		return nil, fmt.Errorf("re-split gives %d shares, the namespace has %d", len(again), len(shares))
-	}
-	for i := range again {
-		if !bytes.Equal(again[i].ToBytes(), shares[i].ToBytes()) {
-			return nil, fmt.Errorf("re-split differs at share %d", i)
-		}
-	}
-	return txs, nil
-}
-
-// anchorProof is the archive form of the anchor proof: the deterministic CBOR
-// map {1: 1, 2: DAH protobuf, 3: namespace data stream}.
-func anchorProof(dahProto, stream []byte) []byte {
-	var b bytes.Buffer
-	b.WriteByte(0xa3)
-	b.Write([]byte{0x01, 0x01, 0x02})
-	cborBytesHead(&b, uint64(len(dahProto)))
-	b.Write(dahProto)
-	b.WriteByte(0x03)
-	cborBytesHead(&b, uint64(len(stream)))
-	b.Write(stream)
-	return b.Bytes()
-}
-
-// cborBytesHead writes the shortest head of a byte string of length n.
-func cborBytesHead(b *bytes.Buffer, n uint64) {
-	const major = 2 << 5
-	switch {
-	case n < 24:
-		b.WriteByte(major | byte(n))
-	case n <= 0xff:
-		b.Write([]byte{major | 24, byte(n)})
-	case n <= 0xffff:
-		b.Write([]byte{major | 25, byte(n >> 8), byte(n)})
-	case n <= 0xffffffff:
-		b.Write([]byte{major | 26, byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n)})
-	default:
-		b.WriteByte(major | 27)
-		for i := 7; i >= 0; i-- {
-			b.WriteByte(byte(n >> (8 * i)))
-		}
-	}
-}
+func reassemble(shares []libshare.Share) ([][]byte, error) { return fibreproof.Reassemble(shares) }
 
 // bindingFor takes the blob size from the promise itself: the reference does
 // not carry it.

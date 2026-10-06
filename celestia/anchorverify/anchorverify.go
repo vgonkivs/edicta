@@ -4,15 +4,21 @@
 package anchorverify
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/celestiaorg/celestia-app/v10/pkg/da"
+	daproto "github.com/celestiaorg/celestia-app/v10/proto/celestia/core/v1/da"
+	fibretypes "github.com/celestiaorg/celestia-app/v10/x/fibre/types"
 	"github.com/celestiaorg/celestia-node/blob"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	core "github.com/cometbft/cometbft/types"
 
 	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/celestia/fibrecert"
+	"github.com/vgonkivs/edicta/celestia/fibreproof"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/verifier"
 )
@@ -89,10 +95,210 @@ func decodeSignedHeader(b []byte) (core.Header, error) {
 
 type fibreAnchor struct{}
 
-// Fibre is the da = 1 anchor verifier slot. It refuses every record until
-// the form-1 anchor proof exists.
+// Fibre verifies da = 1 evidence offline: the form-1 anchor proof (DAH and
+// namespace data) against the data hash of the archived header, the archived
+// PayForFibre tx among the reassembled txs, and the validator certificate
+// against the archived validator list and promise header. Records written
+// before the form-1 proof are unchecked, not valid.
 func Fibre() verifier.AnchorVerifier { return fibreAnchor{} }
 
-func (fibreAnchor) VerifyAnchor(commitment.PayloadRef, *archive.EvidenceRecord) (verifier.AnchorFacts, error) {
-	return verifier.AnchorFacts{}, fmt.Errorf("%w: the da = 1 anchor proof is not implemented", verifier.ErrAnchorUnsupported)
+func (fibreAnchor) VerifyAnchor(ref commitment.PayloadRef, ev *archive.EvidenceRecord) (facts verifier.AnchorFacts, err error) {
+	if ref.DA != commitment.DAFibre {
+		return verifier.AnchorFacts{}, fmt.Errorf("%w: da %d", verifier.ErrAnchorUnsupported, ref.DA)
+	}
+	// The evidence is attacker-supplied archive data, and the decoders of the
+	// upstream libraries are as exposed as their verifiers.
+	defer func() {
+		if r := recover(); r != nil {
+			facts, err = verifier.AnchorFacts{}, fmt.Errorf("panic: %v", r)
+		}
+	}()
+	switch {
+	case len(ref.Commitment) != 32:
+		return verifier.AnchorFacts{}, fmt.Errorf("commitment is %d bytes", len(ref.Commitment))
+	case len(ev.SystemBlobProof) == 0:
+		return verifier.AnchorFacts{}, errors.New("evidence has no anchor proof")
+	case ev.SystemBlobProof[0] == '{':
+		return verifier.AnchorFacts{}, fmt.Errorf("%w: the evidence holds the form-0 anchor proof, which is not checked", verifier.ErrAnchorUnsupported)
+	}
+	hd, err := decodeSignedHeader(ev.Header)
+	if err != nil {
+		return verifier.AnchorFacts{}, fmt.Errorf("header: %w", err)
+	}
+	if uint64(hd.Height) != ref.Height {
+		return verifier.AnchorFacts{}, fmt.Errorf("header is for height %d, the reference names %d", hd.Height, ref.Height)
+	}
+	if len(hd.DataHash) == 0 {
+		return verifier.AnchorFacts{}, errors.New("header has no data root")
+	}
+	hash := hd.Hash()
+	if len(hash) != 32 {
+		return verifier.AnchorFacts{}, errors.New("header has no hash")
+	}
+	if hd.Time.Unix() < 0 {
+		return verifier.AnchorFacts{}, fmt.Errorf("header time %s is before 1970", hd.Time.UTC().Format(time.RFC3339))
+	}
+
+	txs, err := verifyBlockProof(ev.SystemBlobProof, hd.DataHash)
+	if err != nil {
+		return verifier.AnchorFacts{}, fmt.Errorf("anchor proof at height %d: %w", ref.Height, err)
+	}
+	if len(ev.AnchorTx) == 0 {
+		return verifier.AnchorFacts{}, errors.New("evidence has no anchor tx")
+	}
+	if ev.TxCode != 0 {
+		return verifier.AnchorFacts{}, fmt.Errorf("the anchor tx has result code %d", ev.TxCode)
+	}
+	if err := checkSystemBlob(ev); err != nil {
+		return verifier.AnchorFacts{}, err
+	}
+
+	b := fibrecert.Binding{ChainID: hd.ChainID, Namespace: ref.Namespace, Commitment: [32]byte(ref.Commitment)}
+	earlier, err := candidatesEarlier(txs, ev.AnchorTx, b)
+	if err != nil {
+		return verifier.AnchorFacts{}, err
+	}
+
+	pff, ok, err := fibrecert.ParsePFF(ev.AnchorTx)
+	if err != nil || !ok {
+		return verifier.AnchorFacts{}, fmt.Errorf("anchor tx: %w", errors.Join(err, errNotFibre(ok)))
+	}
+	if ev.PromiseHeight != pff.Promise.Height {
+		return verifier.AnchorFacts{}, fmt.Errorf("evidence promise height %d, the promise names %d", ev.PromiseHeight, pff.Promise.Height)
+	}
+	b.BlobSize = pff.Promise.BlobSize
+	rep, matched, err := fibrecert.Verify(ev.AnchorTx, b, ev.HistoricalInfo, fibrecert.ValsetEvidence{PromiseHeader: ev.PromiseHeader})
+	if err != nil {
+		return verifier.AnchorFacts{}, fmt.Errorf("certificate: %w", err)
+	}
+	vals, err := fibrecert.ParseHistoricalInfo(ev.HistoricalInfo)
+	if err != nil {
+		return verifier.AnchorFacts{}, fmt.Errorf("certificate: %w", err)
+	}
+	robust, err := fibrecert.TokensRobust(pff, vals)
+	if err != nil {
+		return verifier.AnchorFacts{}, fmt.Errorf("certificate: %w", err)
+	}
+	precision := "bucket-dependent"
+	if robust {
+		precision = "robust"
+	}
+	ph, err := promiseHeaderHash(ev.PromiseHeader)
+	if err != nil {
+		return verifier.AnchorFacts{}, err
+	}
+	start := pff.Promise.CreationTime.Unix()
+	if start <= 0 {
+		return verifier.AnchorFacts{}, fmt.Errorf("promise creation time %s is not after 1970", pff.Promise.CreationTime.UTC().Format(time.RFC3339))
+	}
+	ts := uint64(hd.Time.Unix())
+	return verifier.AnchorFacts{
+		BlockTime:          ts,
+		RetentionStart:     uint64(start),
+		HeaderHashes:       map[uint64][]byte{ref.Height: hash, ev.PromiseHeight: ph},
+		CertSignedPower:    rep.SignedPower,
+		CertTotalPower:     rep.TotalPower,
+		CertTokenPrecision: precision,
+		CertValsetHeader:   matched,
+		Settlement:         "node-attested",
+		ProofForm:          1,
+		CandidatesEarlier:  earlier,
+	}, nil
+}
+
+func errNotFibre(ok bool) error {
+	if ok {
+		return nil
+	}
+	return errors.New("not a Fibre tx")
+}
+
+// verifyBlockProof checks the form-1 proof against the data hash of the
+// archived header and returns the txs of the PayForFibre namespace.
+func verifyBlockProof(raw, dataHash []byte) ([][]byte, error) {
+	dahProto, stream, err := fibreproof.DecodeProof(raw)
+	if err != nil {
+		return nil, err
+	}
+	var dp daproto.DataAvailabilityHeader
+	if err := dp.Unmarshal(dahProto); err != nil {
+		return nil, fmt.Errorf("dah: %w", err)
+	}
+	dah := &da.DataAvailabilityHeader{RowRoots: dp.RowRoots, ColumnRoots: dp.ColumnRoots}
+	if err := fibreproof.CheckDAH(dah, dataHash); err != nil {
+		return nil, fmt.Errorf("dah: %w", err)
+	}
+	txs, err := fibreproof.VerifyNamespaceData(dah, stream)
+	if err != nil {
+		return nil, fmt.Errorf("namespace data: %w", err)
+	}
+	return txs, nil
+}
+
+// candidatesEarlier requires the archived tx to be a candidate among txs and
+// counts the candidates with an earlier promise creation time.
+func candidatesEarlier(txs [][]byte, anchor []byte, b fibrecert.Binding) (int, error) {
+	var (
+		found     bool
+		anchorAt  time.Time
+		creations []time.Time
+	)
+	for _, raw := range txs {
+		pff, ok, err := fibrecert.ParsePFF(raw)
+		if !ok || err != nil {
+			continue
+		}
+		cb := b
+		cb.BlobSize = pff.Promise.BlobSize
+		if fibrecert.CheckBinding(pff.Promise, cb) != nil {
+			continue
+		}
+		creations = append(creations, pff.Promise.CreationTime)
+		if !found && bytes.Equal(raw, anchor) {
+			found, anchorAt = true, pff.Promise.CreationTime
+		}
+	}
+	if !found {
+		return 0, errors.New("the anchor tx is not a candidate among the PayForFibre txs of the block")
+	}
+	n := 0
+	for _, t := range creations {
+		if t.Before(anchorAt) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// checkSystemBlob requires the archived system blob to be the one the
+// archived tx stands for in the square.
+func checkSystemBlob(ev *archive.EvidenceRecord) error {
+	ftx, ok, err := fibretypes.TryParseFibreTx(ev.AnchorTx)
+	if err != nil || !ok {
+		return fmt.Errorf("anchor tx: %w", errors.Join(err, errNotFibre(ok)))
+	}
+	want, err := ftx.SystemBlob.Marshal()
+	if err != nil {
+		return fmt.Errorf("system blob: %w", err)
+	}
+	if !bytes.Equal(want, ev.SystemBlob) {
+		return errors.New("the archived system blob is not the one of the anchor tx")
+	}
+	return nil
+}
+
+func promiseHeaderHash(raw []byte) ([]byte, error) {
+	var h cmtproto.Header
+	if err := h.Unmarshal(raw); err != nil {
+		return nil, fmt.Errorf("promise header: %w", err)
+	}
+	ch, err := core.HeaderFromProto(&h)
+	if err != nil {
+		return nil, fmt.Errorf("promise header: %w", err)
+	}
+	hash := ch.Hash()
+	if len(hash) != 32 {
+		return nil, errors.New("promise header has no hash")
+	}
+	return hash, nil
 }

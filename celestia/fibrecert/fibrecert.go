@@ -489,3 +489,70 @@ func Verify(rawTx []byte, b Binding, historicalInfo []byte, e ValsetEvidence) (r
 	}
 	return rep, matched, nil
 }
+
+// TokensRobust reports whether the quorum verdict of the walk is the same for
+// every assignment of staking tokens that keeps each validator's consensus
+// power: accepted even when the signers hold the fewest and the others the
+// most tokens of their power bucket, or rejected even in the opposite
+// assignment. No header commits to exact tokens, only to the consensus power,
+// so a verdict that is not robust rests on the archived amounts.
+func TokensRobust(f PFF, vals []Validator) (bool, error) {
+	if _, err := validateValidators(vals); err != nil {
+		return false, err
+	}
+	if len(f.Signatures) > len(vals) {
+		return false, fmt.Errorf("%w: %d signatures for %d validators", ErrCertificateMalformed, len(f.Signatures), len(vals))
+	}
+	signBytes, err := SignBytes(f.Promise)
+	if err != nil {
+		return false, err
+	}
+	const (
+		empty = iota
+		valid
+		invalid
+	)
+	state := make([]int, len(vals))
+	for i, s := range f.Signatures {
+		switch {
+		case len(s) == 0:
+		case ed25519.Verify(vals[i].PubKey, signBytes, s):
+			state[i] = valid
+		default:
+			state[i] = invalid
+		}
+	}
+	accepts := func(signersLow bool) bool {
+		powers := make([]int64, len(vals))
+		var total int64
+		for i, v := range vals {
+			low := v.Power / powerReduction * powerReduction
+			if (state[i] == valid) == signersLow {
+				powers[i] = low
+			} else {
+				powers[i] = low + powerReduction - 1
+			}
+			total += powers[i]
+		}
+		required, _, _ := Threshold(0, total)
+		var running, signed int64
+		stopped := false
+		invalidBefore := 0
+		for i, st := range state {
+			switch st {
+			case invalid:
+				if !stopped {
+					invalidBefore++
+				}
+			case valid:
+				signed += powers[i]
+				if !stopped {
+					running += powers[i]
+					stopped = running >= required
+				}
+			}
+		}
+		return invalidBefore == 0 && signed >= required
+	}
+	return accepts(true) || !accepts(false), nil
+}

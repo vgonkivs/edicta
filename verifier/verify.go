@@ -363,6 +363,12 @@ func (r *run) anchor() (*archive.EvidenceRecord, bool, error) {
 		if ev.PromiseHeight == 0 {
 			return bad(errors.New("evidence has no promise height"))
 		}
+		if facts.ProofForm != 0 && facts.ProofForm != 1 {
+			return bad(fmt.Errorf("anchor proof form %d", facts.ProofForm))
+		}
+		if facts.CandidatesEarlier < 0 {
+			return bad(fmt.Errorf("%d earlier candidates", facts.CandidatesEarlier))
+		}
 		if facts.CertTotalPower <= 0 || facts.CertSignedPower < 0 || facts.CertSignedPower > facts.CertTotalPower {
 			return bad(fmt.Errorf("certificate powers %d of %d", facts.CertSignedPower, facts.CertTotalPower))
 		}
@@ -374,6 +380,14 @@ func (r *run) anchor() (*archive.EvidenceRecord, bool, error) {
 	r.rep.Settlement = facts.Settlement
 	if ref.DA == commitment.DAFibre {
 		r.cert(facts)
+		r.rep.AnchorProofForm = facts.ProofForm
+		r.rep.AnchorCandidatesEarlier = facts.CandidatesEarlier
+		if facts.ProofForm == 0 {
+			r.warn("anchor: the proof is the system blob commitment proof, without the completeness of the namespace data")
+		}
+		if facts.CandidatesEarlier > 0 {
+			r.warn("anchor: %d other promises for this blob are earlier; their result codes are not archived, so the retention start rests on the creation time the gate recorded", facts.CandidatesEarlier)
+		}
 	}
 	r.pass(CheckAnchor)
 	return ev, true, nil
