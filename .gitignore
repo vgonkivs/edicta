@@ -20,3 +20,4 @@ spec/vectors/tools/*/banksend-gen
 spec/vectors/tools/*/dacommit-gen
 spec/vectors/tools/*/fibrecommit-gen
 __pycache__/
+spec/vectors/tools/*/fibrecert-gen
