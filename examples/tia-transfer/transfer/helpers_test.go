@@ -60,6 +60,7 @@ type fakeClock struct {
 	// real context deadlines built from it are meaningful.
 	follow bool
 	off    time.Duration
+	base   time.Time
 }
 
 func newClock() *fakeClock { return &fakeClock{t: time.Unix(int64(nowUnix), 0)} }
@@ -68,7 +69,10 @@ func (c *fakeClock) Now() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.follow {
-		return time.Now().Add(c.off)
+		// Elapsed time comes from the monotonic reading, so a wall-clock step
+		// cannot split the clock from deadlines built from it; the result carries
+		// no monotonic reading, so all comparisons are wall-based and consistent.
+		return c.base.Round(0).Add(time.Since(c.base) + c.off)
 	}
 	return c.t
 }
@@ -76,7 +80,7 @@ func (c *fakeClock) Now() time.Time {
 // followRealTime starts the clock at the real time; waits still jump it.
 func (c *fakeClock) followRealTime() {
 	c.mu.Lock()
-	c.follow, c.off = true, 0
+	c.follow, c.off, c.base = true, 0, time.Now()
 	c.mu.Unlock()
 }
 
