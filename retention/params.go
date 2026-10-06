@@ -220,31 +220,33 @@ func (p *Params) Observe(ctx context.Context) error {
 	return errors.Join(readErr, persistErr)
 }
 
-// FibreRetention returns the latest value for height 0, even when recording
+// FibreRetentionSourced is FibreRetention plus where the value came from.
+// Height 0 is the latest chain value and reports SourceDirect.
+// It returns the latest value for height 0, even when recording
 // a valid sample of the bound chain failed: only reads at a height depend on the store. For a height it
 // returns the minimum of the direct read, when trusted, and the recorded
 // samples, or an error; the latest value is never used for a past height.
-func (p *Params) FibreRetention(ctx context.Context, height uint64) (uint64, error) {
+func (p *Params) FibreRetentionSourced(ctx context.Context, height uint64) (uint64, Source, error) {
 	if height == 0 {
 		s, persistErr, err := p.sample(ctx, true)
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		if persistErr != nil {
 			p.log.Warn("retention: latest sample not recorded", "err", persistErr)
 		}
-		return s.RetentionS, nil
+		return s.RetentionS, SourceDirect, nil
 	}
 
 	last, have, err := p.store.Last(ctx)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if !have || height > last.LastFrom {
 		_, persistErr, readErr := p.sample(ctx, false)
 		for _, e := range []error{readErr, persistErr} {
 			if errors.Is(e, ErrStoreCorrupt) || errors.Is(e, ErrChainMismatch) {
-				return 0, e
+				return 0, 0, e
 			}
 		}
 	}
@@ -255,19 +257,45 @@ func (p *Params) FibreRetention(ctx context.Context, height uint64) (uint64, err
 	)
 	runs, err := p.store.Segment(ctx, height)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
+	var observed, direct bool
 	if v, err := AtHeight(runs, height); err == nil {
-		best, found = v, true
+		best, found, observed = v, true, true
 	}
-	if v, ok := p.directAt(ctx, height); ok && (!found || v < best) {
-		best, found = v, true
+	if v, ok := p.directAt(ctx, height); ok {
+		direct = true
+		if !found || v < best {
+			best, found = v, true
+		}
 	}
 	if !found {
-		return 0, fmt.Errorf("%w: height %d", ErrNotCovered, height)
+		return 0, 0, fmt.Errorf("%w: height %d", ErrNotCovered, height)
 	}
-	return best, nil
+	switch {
+	case observed && direct:
+		return best, SourceBoth, nil
+	case direct:
+		return best, SourceDirect, nil
+	}
+	return best, SourceObserved, nil
 }
+
+// FibreRetention returns the latest value for height 0 and, for a height, the
+// value in force there; see FibreRetentionSourced.
+func (p *Params) FibreRetention(ctx context.Context, height uint64) (uint64, error) {
+	v, _, err := p.FibreRetentionSourced(ctx, height)
+	return v, err
+}
+
+// Source says which evidence an at-height retention value rests on.
+type Source uint8
+
+const (
+	SourceDirect   Source = 1
+	SourceObserved Source = 2
+	SourceBoth     Source = 3
+)
 
 // directAt keeps a read only if the canary passes right after it, so an
 // endpoint that started ignoring heights cannot slip a value through.

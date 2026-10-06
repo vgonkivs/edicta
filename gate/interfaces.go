@@ -24,6 +24,42 @@ type ChainParams interface {
 	FibreRetention(ctx context.Context, height uint64) (uint64, error)
 }
 
+// SourcedChainParams is a ChainParams that also reports what an at-height
+// retention value rests on.
+type SourcedChainParams interface {
+	ChainParams
+	FibreRetentionSourced(ctx context.Context, height uint64) (uint64, RetentionSource, error)
+}
+
+// RetentionSource says where an at-height retention value came from; the
+// values equal the archive's.
+type RetentionSource uint8
+
+const (
+	RetentionDirect   RetentionSource = 1
+	RetentionObserved RetentionSource = 2
+	RetentionBoth     RetentionSource = 3
+)
+
+// DecisionRecord is the envelope and the action bytes exactly as presented,
+// keyed by the commitment hash.
+type DecisionRecord struct {
+	CommitmentHash commitment.Hash
+	Envelope       []byte
+	Action         []byte
+}
+
+// Archiver stores a decision record durably before the gate reads or marks
+// any nonce. Put is idempotent: the same record again returns nil. The gate
+// calls it only after the agent signature, the action type allowlist and the
+// action bytes check, so only signed, allowlisted decisions with their
+// committed action bytes reach the archive; unsigned or unlisted input
+// cannot fill it. A request refused after this stage leaves the record
+// behind. Any error becomes ErrArchiveUnavailable.
+type Archiver interface {
+	Put(ctx context.Context, rec DecisionRecord) error
+}
+
 type HeaderSource interface {
 	// BlockTime is the header time (Unix seconds) of a committed block. A block
 	// that cannot be read, including one that does not exist yet, is
@@ -87,6 +123,7 @@ type Deps struct {
 	Allowlist  Allowlist
 	Registry   registry.Registry
 	Signer     Signer       // the gate key: Authorizations and receipts
+	Archiver   Archiver     // nil skips the archive stage
 	Metrics    Metrics      // nil means none
 	Logger     *slog.Logger // nil means slog.Default()
 }

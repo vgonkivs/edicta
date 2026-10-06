@@ -38,6 +38,10 @@ type Result struct {
 	CommitmentHash commitment.Hash // zero if rejected before the signature check passed
 	ActionHash     commitment.Hash // zero if rejected before the action bytes were checked
 	Path           registry.Path   // 0 until a payload path was accepted
+	// DecisionArchived is set once the archive stage succeeded.
+	DecisionArchived bool
+	// AuthorizedAt is the clock reading of the Authorization; zero on a refusal.
+	AuthorizedAt uint64
 	// Authorization is the canonical SignedAuthorization. It is set on
 	// success, and with ErrNonceUsed when the same commitment is presented
 	// again with the committed action bytes.
@@ -50,7 +54,10 @@ type Result struct {
 // K2Inputs are the values the path selection used. The retention fields are
 // set for da = 1 only.
 type K2Inputs struct {
-	CheckedAt          uint64 // the clock reading the checks ran at
+	DA                 commitment.DA
+	BlobRetentionS     uint64          // da = 2 only
+	RetentionSource    RetentionSource // zero if the params do not report one
+	CheckedAt          uint64          // the clock reading the checks ran at
 	BlockTime          uint64
 	RetentionStart     uint64
 	RetentionLatestS   uint64
@@ -324,12 +331,21 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	}
 	copy(res.ActionHash[:], c.Action.Hash)
 
+	// Archive the decision before any nonce read, so a request that is
+	// refused later or retried still leaves the signed decision behind.
+	if g.d.Archiver != nil {
+		if err := g.archiveDecision(ctx, h, envelope, action); err != nil {
+			return res, err
+		}
+		res.DecisionArchived = true
+	}
+
 	// Advisory nonce check.
 	key := registry.Key{PubKey: agentKey}
 	copy(key.Nonce[:], c.Nonce)
 	switch old, err := g.d.Registry.Get(ctx, key); {
 	case err == nil:
-		return g.replay(h, res.ActionHash, old)
+		return g.replayArchived(res, old)
 	case !errors.Is(err, registry.ErrNotFound):
 		return res, fmt.Errorf("%w: %w", ErrRegistryUnavailable, err)
 	}
@@ -354,13 +370,17 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	if err := commitment.CheckAnchorTime(c, blockTime, p); err != nil {
 		return res, err
 	}
-	within, atH, err := g.retentionHolds(ctx, c, anchor, blockTime, latest)
+	within, atH, src, err := g.retentionHolds(ctx, c, anchor, blockTime, latest)
 	if err != nil {
 		return res, err
 	}
-	res.K2 = K2Inputs{CheckedAt: now, BlockTime: blockTime}
-	if c.PayloadRef.DA == commitment.DAFibre {
+	res.K2 = K2Inputs{DA: c.PayloadRef.DA, CheckedAt: now, BlockTime: blockTime}
+	switch c.PayloadRef.DA {
+	case commitment.DAFibre:
 		res.K2.RetentionStart, res.K2.RetentionLatestS, res.K2.RetentionAtHeightS = anchor.RetentionStart, latest, atH
+		res.K2.RetentionSource = src
+	case commitment.DACelestiaBlob:
+		res.K2.BlobRetentionS = g.cfg.BlobRetentionS
 	}
 
 	// Payload.
@@ -401,7 +421,7 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	if err := g.d.Registry.Consume(ctx, entry, g.cfg.ClockTolerance); err != nil {
 		var ee *registry.ExistsError
 		if errors.As(err, &ee) {
-			return g.replay(h, res.ActionHash, ee.Existing)
+			return g.replayArchived(res, ee.Existing)
 		}
 		if errors.Is(err, registry.ErrBelowWatermark) || errors.Is(err, registry.ErrPrunedWindow) {
 			return res, fmt.Errorf("%w: %w", ErrClockRegression, err)
@@ -410,7 +430,30 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	}
 	g.bumpWatermark(now2)
 	res.Authorization = bytes.Clone(signed)
+	res.AuthorizedAt = now2
 	return res, nil
+}
+
+// archiveDecision writes the decision record under its own deadline. A done
+// parent context is the caller's, not an archive fault.
+func (g *Gate) archiveDecision(ctx context.Context, h commitment.Hash, envelope, action []byte) error {
+	wctx, cancel := context.WithTimeout(ctx, g.cfg.ArchiveWriteTimeout)
+	defer cancel()
+	err := g.d.Archiver.Put(wctx, DecisionRecord{CommitmentHash: h, Envelope: bytes.Clone(envelope), Action: bytes.Clone(action)})
+	if err == nil {
+		return nil
+	}
+	if cerr := ctx.Err(); cerr != nil {
+		return fmt.Errorf("gate: %w", cerr)
+	}
+	return fmt.Errorf("%w: %w", ErrArchiveUnavailable, err)
+}
+
+// replayArchived is replay that keeps what the earlier stages already set.
+func (g *Gate) replayArchived(pre Result, old registry.Entry) (Result, error) {
+	res, err := g.replay(pre.CommitmentHash, pre.ActionHash, old)
+	res.DecisionArchived = pre.DecisionArchived
+	return res, err
 }
 
 // replay answers a presentation whose nonce is already used. The signed
@@ -438,6 +481,7 @@ func (g *Gate) replay(h, actionHash commitment.Hash, old registry.Entry) (Result
 		return res, fmt.Errorf("%w: stored authorization disagrees", commitment.ErrActionMismatch)
 	}
 	res.Path = old.Path
+	res.AuthorizedAt = old.AuthorizedAt
 	res.Authorization = bytes.Clone(old.Authorization)
 	return res, ErrNonceUsed
 }
@@ -561,24 +605,24 @@ func (g *Gate) anchorErr(ctx context.Context, what string, err error) error {
 
 // retentionHolds reports whether the signed validity window ends before the payload can be pruned. For da = 1 it reads the retention at the anchor
 // height and never substitutes the latest value when that read fails.
-func (g *Gate) retentionHolds(ctx context.Context, c *commitment.Commitment, a Anchor, blockTime, latest uint64) (within bool, atH uint64, err error) {
+func (g *Gate) retentionHolds(ctx context.Context, c *commitment.Commitment, a Anchor, blockTime, latest uint64) (within bool, atH uint64, src RetentionSource, err error) {
 	switch c.PayloadRef.DA {
 	case commitment.DAFibre:
-		atH, err = g.fibreRetention(ctx, c.PayloadRef.Height)
+		atH, src, err = g.fibreRetentionSourced(ctx, c.PayloadRef.Height)
 		if err != nil {
 			if cerr := ctx.Err(); cerr != nil {
-				return false, 0, fmt.Errorf("gate: %w", cerr)
+				return false, 0, 0, fmt.Errorf("gate: %w", cerr)
 			}
-			return false, 0, fmt.Errorf("%w: height %d: %w", ErrRetentionUnavailable, c.PayloadRef.Height, err)
+			return false, 0, 0, fmt.Errorf("%w: height %d: %w", ErrRetentionUnavailable, c.PayloadRef.Height, err)
 		}
 		if a.RetentionStart == 0 {
-			return false, atH, nil
+			return false, atH, src, nil
 		}
-		return commitment.WithinRetention(c, min(blockTime, a.RetentionStart), min(latest, atH)), atH, nil
+		return commitment.WithinRetention(c, min(blockTime, a.RetentionStart), min(latest, atH)), atH, src, nil
 	case commitment.DACelestiaBlob:
-		return commitment.WithinRetention(c, blockTime, g.cfg.BlobRetentionS), 0, nil
+		return commitment.WithinRetention(c, blockTime, g.cfg.BlobRetentionS), 0, 0, nil
 	}
-	return false, 0, nil
+	return false, 0, 0, nil
 }
 
 func (g *Gate) chainCtx(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -589,6 +633,19 @@ func (g *Gate) fibreRetention(ctx context.Context, height uint64) (uint64, error
 	ctx, cancel := g.chainCtx(ctx)
 	defer cancel()
 	return g.d.Params.FibreRetention(ctx, height)
+}
+
+// fibreRetentionSourced reports the source when the params can; otherwise it
+// is zero.
+func (g *Gate) fibreRetentionSourced(ctx context.Context, height uint64) (uint64, RetentionSource, error) {
+	sp, ok := g.d.Params.(SourcedChainParams)
+	if !ok {
+		v, err := g.fibreRetention(ctx, height)
+		return v, 0, err
+	}
+	ctx, cancel := g.chainCtx(ctx)
+	defer cancel()
+	return sp.FibreRetentionSourced(ctx, height)
 }
 
 func (g *Gate) allowlistKey(ctx context.Context, id string) ([32]byte, error) {

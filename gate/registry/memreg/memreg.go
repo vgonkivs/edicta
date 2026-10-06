@@ -3,9 +3,11 @@
 package memreg
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/vgonkivs/edicta/commitment"
@@ -19,7 +21,10 @@ type Registry struct {
 	meta    registry.Meta
 }
 
-var _ registry.Registry = (*Registry)(nil)
+var (
+	_ registry.Registry = (*Registry)(nil)
+	_ registry.Lister   = (*Registry)(nil)
+)
 
 // New creates an empty registry whose creation time is epoch.
 func New(epoch uint64) (*Registry, error) {
@@ -76,6 +81,33 @@ func (r *Registry) Get(_ context.Context, k registry.Key) (registry.Entry, error
 		return registry.Entry{}, registry.ErrNotFound
 	}
 	return e.Clone(), nil
+}
+
+// List returns up to n entries after the key, in key order.
+func (r *Registry) List(ctx context.Context, after *registry.Key, n int) ([]registry.Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []registry.Entry
+	for _, e := range r.entries {
+		if after == nil || compareKeys(e.Key, *after) > 0 {
+			out = append(out, e.Clone())
+		}
+	}
+	slices.SortFunc(out, func(a, b registry.Entry) int { return compareKeys(a.Key, b.Key) })
+	if n >= 0 && len(out) > n {
+		out = out[:n]
+	}
+	return out, nil
+}
+
+func compareKeys(a, b registry.Key) int {
+	if c := bytes.Compare(a.PubKey[:], b.PubKey[:]); c != 0 {
+		return c
+	}
+	return bytes.Compare(a.Nonce[:], b.Nonce[:])
 }
 
 func (r *Registry) AttachReceipt(_ context.Context, k registry.Key, h commitment.Hash, receipt []byte) error {

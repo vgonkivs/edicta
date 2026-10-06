@@ -260,6 +260,7 @@ func TestResultCarriesK2Inputs(t *testing.T) {
 		res, err := e.Authorize(b)
 		require.NoError(t, err)
 		assert.Equal(t, gate.K2Inputs{
+			DA:                 commitment.DAFibre,
 			CheckedAt:          gatefix.Now,
 			BlockTime:          blockTime,
 			RetentionStart:     start,
@@ -276,6 +277,8 @@ func TestResultCarriesK2Inputs(t *testing.T) {
 		require.NoError(t, err)
 		assert.EqualValues(t, gatefix.Now, res.K2.CheckedAt)
 		assert.Equal(t, gatefix.BlockTime(c), res.K2.BlockTime)
+		assert.Equal(t, commitment.DACelestiaBlob, res.K2.DA)
+		assert.EqualValues(t, 14400, res.K2.BlobRetentionS)
 	})
 }
 

@@ -4,6 +4,7 @@
 package boltreg
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -187,6 +188,37 @@ func (r *Registry) Get(_ context.Context, k registry.Key) (registry.Entry, error
 		var err error
 		out, err = decode(raw)
 		return err
+	})
+	return out, err
+}
+
+// List returns up to n entries after the key, in key order, in one read
+// transaction.
+func (r *Registry) List(ctx context.Context, after *registry.Key, n int) ([]registry.Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	var out []registry.Entry
+	err := r.db.View(func(tx *bolt.Tx) error {
+		c := tx.Bucket(bucketEntries).Cursor()
+		var k, v []byte
+		if after == nil {
+			k, v = c.First()
+		} else {
+			start := dbKey(*after)
+			k, v = c.Seek(start)
+			if k != nil && bytes.Equal(k, start) {
+				k, v = c.Next()
+			}
+		}
+		for ; k != nil && len(out) < n; k, v = c.Next() {
+			e, err := decode(v)
+			if err != nil {
+				return err
+			}
+			out = append(out, e)
+		}
+		return nil
 	})
 	return out, err
 }

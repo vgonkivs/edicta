@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	maxSkewS                 = 300
-	defaultFibreMaxDataBytes = 16 << 20
+	maxSkewS                   = 300
+	defaultFibreMaxDataBytes   = 16 << 20
+	defaultArchiveWriteTimeout = 10 * time.Second
 	// maxFibreDataBytes is the largest blob the Fibre encoder accepts.
 	maxFibreDataBytes = 1<<27 - 5
 	// fibreFetchFactor is how many times a Fibre payload's size the fetch
@@ -32,6 +33,8 @@ type Config struct {
 	// MaxAuthorizationTTL bounds an Authorization's lifetime from the moment
 	// it is signed, in seconds; above SkewS.
 	MaxAuthorizationTTL uint64
+	// ArchiveWriteTimeout bounds one Archiver.Put; zero means 10s.
+	ArchiveWriteTimeout time.Duration
 	// AllowedDA is the set of payload_ref.da values the gate accepts; empty
 	// means {1, 2}.
 	AllowedDA []commitment.DA
@@ -58,11 +61,15 @@ func DefaultConfig() Config {
 		ClockTolerance:      60,
 		PruneGrace:          3600,
 		MaxAuthorizationTTL: 300,
+		ArchiveWriteTimeout: defaultArchiveWriteTimeout,
 	}
 }
 
 // withDefaults fills the fields whose zero value means a default.
 func (c Config) withDefaults() Config {
+	if c.ArchiveWriteTimeout == 0 {
+		c.ArchiveWriteTimeout = defaultArchiveWriteTimeout
+	}
 	if c.FibreMaxDataBytes == 0 {
 		c.FibreMaxDataBytes = defaultFibreMaxDataBytes
 	}
@@ -83,7 +90,7 @@ func (c Config) ValidateBasic() error {
 		return bad("skew_s %d above %d", c.SkewS, maxSkewS)
 	case c.BlobRetentionS < 1 || c.BlobRetentionS > math.MaxInt64:
 		return bad("blob_retention_s %d", c.BlobRetentionS)
-	case c.DATimeout <= 0 || c.ArchiveTimeout <= 0 || c.SignTimeout <= 0 || c.ChainTimeout <= 0:
+	case c.DATimeout <= 0 || c.ArchiveTimeout <= 0 || c.ArchiveWriteTimeout <= 0 || c.SignTimeout <= 0 || c.ChainTimeout <= 0:
 		return bad("timeouts must be positive")
 	case c.MaxFetchBytes == 0:
 		return bad("max_fetch_bytes is zero")

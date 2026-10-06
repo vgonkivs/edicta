@@ -97,6 +97,13 @@ type Registry interface {
 	Prune(ctx context.Context, cutoff uint64) (int, error)
 }
 
+// Lister pages through entries in key order; a nil after starts at the first.
+// Entries come back in ascending order of public key, then nonce, and each
+// call is one short read.
+type Lister interface {
+	List(ctx context.Context, after *Key, n int) ([]Entry, error)
+}
+
 // CheckConsume validates the entry given to Consume.
 func CheckConsume(e Entry) error {
 	if len(e.Authorization) == 0 {
