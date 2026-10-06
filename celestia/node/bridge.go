@@ -7,8 +7,10 @@ import (
 
 	libshare "github.com/celestiaorg/go-square/v4/share"
 
+	"github.com/celestiaorg/celestia-app/v10/pkg/da"
 	"github.com/celestiaorg/celestia-node/api/client"
 	"github.com/celestiaorg/celestia-node/blob"
+	"github.com/celestiaorg/celestia-node/share/shwap"
 
 	"github.com/vgonkivs/edicta/celestia/heightcheck"
 )
@@ -50,6 +52,37 @@ func (b bridge) HeaderAt(ctx context.Context, height uint64) (Header, error) {
 		ChainID: h.ChainID(), Height: uint64(h.Height()), Time: h.Time(),
 		AppVersion: h.Version.App, DataRoot: append([]byte(nil), h.DataHash...),
 	}, nil
+}
+
+// NewFibreBridge wraps the read side of an api/client as the bridge half of
+// the Fibre anchor lookup. The caller keeps ownership of rc and closes it.
+func NewFibreBridge(rc *client.ReadClient) (FibreBridgeReader, error) {
+	if rc == nil {
+		return nil, errors.New("node: nil read client")
+	}
+	return bridge{rc: rc}, nil
+}
+
+func (b bridge) DAH(ctx context.Context, height uint64) (*da.DataAvailabilityHeader, error) {
+	h, err := b.rc.Header.GetByHeight(ctx, height)
+	if err != nil {
+		return nil, wrapCtx(ctx, err)
+	}
+	if err := heightcheck.HeaderHeight(uint64(h.Height()), height); err != nil {
+		return nil, heightIgnored(err)
+	}
+	if h.DAH == nil {
+		return nil, fmt.Errorf("%w: bridge header at height %d has no DAH", ErrUnavailable, height)
+	}
+	return h.DAH, nil
+}
+
+func (b bridge) NamespaceData(ctx context.Context, height uint64, ns libshare.Namespace) (shwap.NamespaceData, error) {
+	nd, err := b.rc.Share.GetNamespaceData(ctx, height, ns)
+	if err != nil {
+		return nil, wrapCtx(ctx, err)
+	}
+	return nd, nil
 }
 
 type bridgeEndpoint struct {
