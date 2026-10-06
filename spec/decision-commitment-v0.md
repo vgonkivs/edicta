@@ -3311,7 +3311,7 @@ publications of the same bytes are a replay that PR6 answers from the first.
 | AW1 Write-once | A stored record is never overwritten or deleted in v0 (retention and cleanup are not specified). A write is atomic: the record is either fully present or absent, also after a crash (for files: temp file, fsync, rename, fsync of the directory). |
 | AW2 Identity | A write of a record whose key is already stored compares identities: equal, the write succeeds and the stored record stays unchanged; different, `archive.ErrConflict` and nothing is written. Identity per kind: payload, every field except `intent_height`; evidence, `da`, `commitment`, `namespace`, `height`; decision, the whole record; Authorization, `signed_authorization`; rejection, the key (`commitment_hash`, `error`). |
 | AW3 DA check | Before storing a payload, the store recomputes the DA commitment from `blob` (and, for `da = 2`, `namespace` and `signer`) with the committer for `da` (sections 10.4, 10.5) and compares it with `commitment`. Mismatch: `gate.ErrDACommitmentMismatch`, nothing written. A store has a committer for every `da` it accepts; a payload for any other `da` is refused with `gate.ErrArchiveRecomputeUnsupported`, nothing written. |
-| AW4 Order | Evidence needs the payload record of its key; an Authorization or a marker needs the decision record of its `commitment_hash`. Otherwise `archive.ErrNotFound`, nothing written. |
+| AW4 Order | Evidence needs the payload record of its key; an Authorization or a marker needs the decision record of its `commitment_hash`. Otherwise `archive.ErrNotFound`, nothing written. An Authorization with K2 inputs whose `da` differs from the decision's `payload_ref.da` is refused with `archive.ErrCorrupt`, nothing written, before the identity comparison of AW2 (so also when a consistent Authorization is already stored): a reader would report the stored record corrupt (19.2). |
 | AW5 Conditional marker | A marker write and an Authorization write for the same `commitment_hash` are serialized. If an Authorization record exists, the marker write succeeds without writing (AR6). |
 
 Callers:
@@ -3383,3 +3383,9 @@ A new field is a new `format` value, because strict decoding rejects unknown
 keys; a reader of a later format keeps reading format 0.
 
 Vectors: `spec/vectors/archive/records.json` and `state.json` (section 13).
+Must-reject records too large to embed are in `reject_large`: the record is
+`record_prefix_hex` followed by the `affine-7-3` pattern of the given size,
+with `record_size` and `record_sha256_hex` of the whole. A reject with
+several defects lists them in `defects`, the expected cause first; its cause
+follows the stage order of 19.1. `state.json` `reads` places records in a
+store without the write checks and reads them back with the reader checks.

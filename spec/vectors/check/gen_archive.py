@@ -57,8 +57,11 @@ FIBRE = {c["id"]: c for c in load(VECTORS / "da" / "fibre_commit.json")["cases"]
 KEYS = load(CORE / "keys.json")["keys"]
 
 
+PERIOD = bytes((7 * i + 3) & 0xFF for i in range(256))
+
+
 def pattern(size: int) -> bytes:
-    return bytes((7 * i + 3) & 0xFF for i in range(size))
+    return (PERIOD * (size // 256 + 1))[:size]
 
 
 def blob_of(c: dict) -> bytes:
@@ -260,6 +263,9 @@ CASES = [
      rejection("action_json_bytes", "ErrExpired", 1791000901), {"valid": "action_json_bytes"}, []),
     ("rejection_fibre_small_payload_retention", "fibre_small_payload refused with ErrRetentionUnavailable.",
      rejection("fibre_small_payload", "ErrRetentionUnavailable", 1791000060), {"valid": "fibre_small_payload"}, []),
+    ("authorization_minimal_lmt_da_k2_da1", "Authorization auth_minimal_lmt_da with da = 1 K2 inputs, while the decision has da = 2: well-formed alone, corrupt next to its decision (the store refuses to write it, a reader reports it corrupt).",
+     authorization("auth_minimal_lmt_da", k2_da1(1791000060, T_H, T_H - 10, av.SOURCE_DIRECT)),
+     {"authorization": "auth_minimal_lmt_da"}, []),
 ]
 
 
@@ -381,8 +387,10 @@ def build_rejects(recs: dict):
         ("rejection_hash_31", "31-byte commitment_hash.", mutate(r, commitment_hash=r["commitment_hash"][:31]), "ErrFieldSize"),
         ("rejection_at_0", "rejected_at = 0.", mutate(r, rejected_at=0), "ErrZeroValue"),
     ]
+    rej += strict_rejects(recs, good_r)
     out = []
-    for rid, desc, data, cause in rej:
+    for item in rej:
+        rid, desc, data, cause = item[:4]
         if rid == "rec_float":
             data = bytes([0xA2, 0x01, 0xF9, 0x00, 0x00, 0x02, 0x05])
         elif rid == "rec_tag":
@@ -396,9 +404,146 @@ def build_rejects(recs: dict):
             raise AssertionError(f"{rid}: decodes")
         except av.Reject as e:
             assert e.sentinel == cause, f"{rid}: got {e.sentinel}, want {cause}"
-        out.append({"id": rid, "description": desc, "record_cbor_hex": data.hex(),
+        entry = {"id": rid, "description": desc, "record_cbor_hex": data.hex(),
+                 "expect_error": "archive.ErrCorrupt", "cause": cause}
+        if len(item) > 4:
+            assert item[4][0] == cause, rid
+            entry["defects"] = list(item[4])
+        out.append(entry)
+    return out
+
+
+def strict_rejects(recs: dict, good_r: bytes) -> list:
+    """Generic well-formedness causes with no other vector, and records with
+    several defects whose cause is the earliest stage of section 19.1. An
+    entry with a fifth element lists every defect, the expected cause first."""
+    p2 = recs["payload_da2_minimal_lmt"]
+    p1 = recs["payload_da1_live"]
+    e1 = recs["evidence_da1_live"]
+    d = recs["decision_minimal_lmt"]
+    a = recs["authorization_minimal_lmt_da"]
+    r = recs["rejection_minimal_lmt_not_yet_valid"]
+    r_pairs = sorted(av.to_cbor(r).items())
+    k2_2 = av._to_int_keys(a["k2"], av.K2)
+    assert good_r[0] == 0xA6 and d["envelope"][0] == 0xA2
+
+    def pairs(items) -> bytes:
+        return encode(Pairs(tuple(items)))
+
+    def tstr_raw(b: bytes) -> Raw:
+        assert len(b) < 24
+        return Raw(bytes([0x60 | len(b)]) + b)
+
+    return [
+        ("rec_indefinite_map", "The record map with an indefinite length (0xbf ... 0xff).",
+         b"\xbf" + good_r[1:] + b"\xff", "ErrIndefiniteLength"),
+        ("rejection_error_indefinite_tstr", "error as an indefinite-length text string of one chunk.",
+         mutate(r, error=Raw(b"\x7f" + encode("ErrNotYetValid") + b"\xff")), "ErrIndefiniteLength"),
+        ("payload_blob_indefinite_bstr", "blob as an indefinite-length byte string of one chunk.",
+         mutate(p1, blob=Raw(b"\x5f" + encode(p1["blob"]) + b"\xff")), "ErrIndefiniteLength"),
+        ("rec_break_stray", "A break byte (0xff) as the value of format: additional info 31 on major 7.",
+         mutate(r, format=Raw(b"\xff")), "ErrMalformed"),
+        ("rec_duplicate_key", "Key 1 (format) twice, both 0.",
+         pairs(r_pairs[:1] + r_pairs[:1] + r_pairs[1:]), "ErrDuplicateKey"),
+        ("rec_duplicate_last_key", "Key 6 (rejected_at) twice with different values.",
+         pairs(r_pairs + [(6, r["rejected_at"] + 1)]), "ErrDuplicateKey"),
+        ("k2_duplicate_key", "Key 2 (checked_at) twice inside the K2 inputs.",
+         mutate(a, k2=Pairs(tuple(sorted(k2_2.items())[:2] + sorted(k2_2.items())[1:]))), "ErrDuplicateKey"),
+        ("rec_simple_true", "format = true (0xf5).", mutate(r, format=Raw(b"\xf5")), "ErrSimpleValue"),
+        ("rec_simple_null", "rejected_at = null (0xf6).", mutate(r, rejected_at=Raw(b"\xf6")), "ErrSimpleValue"),
+        ("rec_simple_32", "rejected_at = simple(32), two-byte form (0xf8 0x20).",
+         mutate(r, rejected_at=Raw(b"\xf8\x20")), "ErrSimpleValue"),
+        ("rec_key_tstr", "A text key \"x\" after the last key.", pairs(r_pairs + [("x", 0)]), "ErrKeyType"),
+        ("rec_key_negative", "Key -1 before format.", pairs([(-1, 0)] + r_pairs), "ErrKeyType"),
+        ("k2_key_bstr", "A byte-string key inside the K2 inputs.",
+         mutate(a, k2=Pairs(tuple(sorted(k2_2.items()) + [(b"\x09", 0)]))), "ErrKeyType"),
+        ("rejection_error_utf8_ff", "error with the byte 0xff in place of its last letter.",
+         mutate(r, error=tstr_raw(b"ErrNotYetVali\xff")), "ErrInvalidString"),
+        ("rejection_gate_id_utf8_overlong", "gate_id with an overlong encoding of '/' (0xc0 0xaf).",
+         mutate(r, gate_id=tstr_raw(b"gate\xc0\xafpaper")), "ErrInvalidString"),
+        ("rejection_gate_id_utf8_surrogate", "gate_id with an encoded UTF-16 surrogate (0xed 0xa0 0x80).",
+         mutate(r, gate_id=tstr_raw(b"gate\xed\xa0\x80")), "ErrInvalidString"),
+        ("rejection_gate_id_utf8_truncated", "gate_id ending inside a three-byte sequence (0xe2 0x82).",
+         mutate(r, gate_id=tstr_raw(b"gate\xe2\x82")), "ErrInvalidString"),
+        ("rec_reserved_ai_28", "format with major 0, additional info 28 (0x1c).",
+         mutate(r, format=Raw(b"\x1c")), "ErrMalformed"),
+        ("rec_reserved_ai_30_major_7", "rejected_at with major 7, additional info 30 (0xfe): reserved, checked before the simple value rule.",
+         mutate(r, rejected_at=Raw(b"\xfe")), "ErrMalformed"),
+        ("payload_reserved_ai_29_bstr", "commitment with major 2, additional info 29 (0x5d).",
+         mutate(p1, commitment=Raw(b"\x5d")), "ErrMalformed"),
+        ("decision_envelope_indefinite", "Envelope whose top map has an indefinite length: the nested strict decoding of section 6 fails (stage 8).",
+         mutate(d, envelope=b"\xbf" + d["envelope"][1:] + b"\xff"), "ErrIndefiniteLength"),
+        ("decision_envelope_unsorted", "Envelope with its two keys swapped: stage 8, cause from section 6.",
+         mutate(d, envelope=_swap_envelope(d["envelope"])), "ErrUnsortedMap"),
+        # Several defects: the earliest stage of section 19.1 decides.
+        ("multi_unsorted_and_format_1", "Stage 2 before stage 3: kind before format, and format = 1.",
+         pairs([(2, 5), (1, 1)] + r_pairs[2:]), "ErrUnsortedMap", ("ErrUnsortedMap", "ErrUnsupportedVersion")),
+        ("multi_format_1_and_kind_size", "Stage 3 before stage 4: a decision record labelled as a rejection, with format = 1.",
+         mutate(d, format=1, kind=5), "ErrUnsupportedVersion", ("ErrUnsupportedVersion", "ErrTooLarge")),
+        ("multi_kind_missing_and_format_tstr", "Stage 3 reads format before kind: format as text, kind absent.",
+         pairs([(1, "0")] + r_pairs[2:]), "ErrWrongType", ("ErrWrongType", "ErrMissingField")),
+        ("multi_unknown_key_and_missing", "Stage 5 before stage 6: da = 2 payload with key 9 and without signer.",
+         mutate(p2, signer=None, key_9=1), "ErrUnknownKey", ("ErrUnknownKey", "ErrMissingField")),
+        ("multi_undefined_for_da_and_missing", "Stage 5 before stage 6, for one da: da = 1 evidence with a blob_proof (not defined for da = 1) and without historical_info (required for da = 1).",
+         mutate(e1, blob_proof=b"\x01", historical_info=None), "ErrUnknownKey", ("ErrUnknownKey", "ErrMissingField")),
+        ("multi_key_order_wrong_type_first", "Stage 5 runs in key order: signer as text (key 6) before an unknown key 9.",
+         mutate(p2, signer="celestia1rxcpgc9d67garayuh9jtv0ha", key_9=1), "ErrWrongType", ("ErrWrongType", "ErrUnknownKey")),
+        ("multi_key_order_size_first", "Stage 5 runs in key order: a 31-byte commitment (key 4) before a namespace with a wrong type (key 5).",
+         mutate(p2, commitment=p2["commitment"][:31], namespace=1), "ErrFieldSize", ("ErrFieldSize", "ErrWrongType")),
+        ("multi_wrong_type_and_enum", "Stage 5 before stage 7: an operational error name, and rejected_at as text.",
+         mutate(r, error="ErrChainUnavailable", rejected_at="1790999990"), "ErrWrongType", ("ErrWrongType", "ErrInvalidEnum")),
+        ("multi_missing_and_enum", "Stage 6 before stage 7: rejected_at absent, and an operational error name.",
+         mutate(r, rejected_at=None, error="ErrChainUnavailable"), "ErrMissingField", ("ErrMissingField", "ErrInvalidEnum")),
+        ("multi_int_range_enum_zero_namespace", "Stage 7 order: intent_height = 2^63, da = 3 (namespace and signer pass stage 5 for an unknown da), reserved namespace.",
+         mutate(p2, da=3, intent_height=1 << 63, namespace=b"\xff" + p2["namespace"][1:]), "ErrIntRange",
+         ("ErrIntRange", "ErrInvalidEnum", "ErrInvalidNamespace")),
+        ("multi_enum_zero_namespace", "Stage 7 order: da = 3, intent_height = 0, reserved namespace.",
+         mutate(p2, da=3, intent_height=0, namespace=b"\xff" + p2["namespace"][1:]), "ErrInvalidEnum",
+         ("ErrInvalidEnum", "ErrZeroValue", "ErrInvalidNamespace")),
+        ("multi_zero_namespace", "Stage 7 order: intent_height = 0 and a reserved namespace.",
+         mutate(p2, intent_height=0, namespace=b"\xff" + p2["namespace"][1:]), "ErrZeroValue",
+         ("ErrZeroValue", "ErrInvalidNamespace")),
+        ("multi_tx_code_and_zero", "Stage 7 order: tx_code = 1 (an integer range rule) before promise_height = 0.",
+         mutate(e1, tx_code=1, promise_height=0), "ErrIntRange", ("ErrIntRange", "ErrZeroValue")),
+        ("multi_zero_and_nested", "Stage 7 before stage 8: authorized_at = 0 and signed_authorization that is not CBOR.",
+         mutate(a, authorized_at=0, signed_authorization=b"\xff"), "ErrZeroValue", ("ErrZeroValue", "ErrMalformed")),
+    ]
+
+
+def large_rejects(recs: dict) -> list:
+    """Records too big to embed: a da = 1 payload map without intent_height
+    whose blob is the affine-7-3 pattern, sized so the whole record has
+    record_size bytes. Given as the prefix (every byte before the blob
+    content), the pattern size, and the SHA-256 of the whole record."""
+    p1 = recs["payload_da1_live"]
+    out = []
+    for rid, desc, size, cause in (
+        ("payload_max_record_size_plus_1", "MaxRecordSize + 1 bytes: refused before parsing (stage 1), although the blob is also above 2^27 and intent_height is missing.",
+         av.MAX_RECORD_SIZE + 1, "ErrTooLarge"),
+        ("payload_max_record_size", "Exactly MaxRecordSize bytes: stage 1 and the payload cap of stage 4 pass (the bound is inclusive); the blob above 2^27 fails at stage 5.",
+         av.MAX_RECORD_SIZE, "ErrFieldSize"),
+    ):
+        fixed = encode(Pairs(((1, 0), (2, av.KIND_PAYLOAD), (3, 1), (4, p1["commitment"])))) + b"\x07\x5a"
+        n = size - len(fixed) - 4
+        prefix = bytes([0xA5]) + fixed[1:] + n.to_bytes(4, "big")
+        data = prefix + pattern(n)
+        assert len(data) == size and n > av.MAX_BLOB
+        try:
+            av.decode_record(data)
+            raise AssertionError(f"{rid}: decodes")
+        except av.Reject as e:
+            assert e.sentinel == cause, f"{rid}: got {e.sentinel}, want {cause}"
+        out.append({"id": rid, "description": desc, "record_prefix_hex": prefix.hex(),
+                    "record_suffix": {"pattern": "affine-7-3", "size": str(n)},
+                    "record_size": str(size), "record_sha256_hex": hashlib.sha256(data).hexdigest(),
                     "expect_error": "archive.ErrCorrupt", "cause": cause})
     return out
+
+
+def _swap_envelope(env: bytes) -> bytes:
+    """{1: commitment, 2: signature} re-emitted as {2: signature, 1: commitment}."""
+    assert env[0] == 0xA2 and env[1] == 0x01 and env[-67:-64] == b"\x02\x58\x40"
+    return b"\xa2" + env[-67:] + env[1:-67]
 
 
 def _path3(sa: bytes) -> bytes:
@@ -465,6 +610,12 @@ SCENARIOS = [
         ("evidence_da2_minimal_lmt_with_tx", "unchanged", None),
         ("evidence_da2_minimal_lmt_other_height", "archive.ErrConflict", None),
     ]),
+    ("k2_da_mismatch", "An Authorization whose K2 inputs name another da than the decision is refused as corrupt and nothing is written, also after the consistent one is stored (the check precedes the identity comparison).", [
+        ("decision_minimal_lmt", "written", None),
+        ("authorization_minimal_lmt_da_k2_da1", "archive.ErrCorrupt", S("minimal_lmt", "pending", [])),
+        ("authorization_minimal_lmt_da", "written", S("minimal_lmt", "authorized", [])),
+        ("authorization_minimal_lmt_da_k2_da1", "archive.ErrCorrupt", S("minimal_lmt", "authorized", [])),
+    ]),
     ("payload_and_evidence_da1", "The same rules for da = 1.", [
         ("payload_da1_live", "written", None),
         ("payload_da1_live_later_intent", "unchanged", None),
@@ -484,7 +635,36 @@ FINAL_STORED = {
     "orphans": [],
     "payload_and_evidence_da2": ["payload_da2_minimal_lmt", "payload_da2_256k", "evidence_da2_minimal_lmt"],
     "payload_and_evidence_da1": ["payload_da1_live", "evidence_da1_live"],
+    "k2_da_mismatch": ["decision_minimal_lmt", "authorization_minimal_lmt_da"],
 }
+
+# Records placed in a store directly (by a writer that skipped the checks,
+# or by tampering), then read back with the reader checks.
+READS = [
+    ("authorization_k2_da_mismatch", "A stored Authorization whose K2 da differs from its decision's da: the reader reports it corrupt.",
+     ["decision_minimal_lmt", "authorization_minimal_lmt_da_k2_da1"], "minimal_lmt", "archive.ErrCorrupt"),
+    ("authorization_k2_da_match", "The consistent record reads back.",
+     ["decision_minimal_lmt", "authorization_minimal_lmt_da"], "minimal_lmt", "ok"),
+    ("authorization_repaired_no_k2", "Without K2 inputs there is nothing to compare.",
+     ["decision_minimal_lmt", "authorization_minimal_lmt_da_repaired"], "minimal_lmt", "ok"),
+]
+
+
+def run_reads(recs: dict) -> list:
+    out = []
+    for rid, desc, stored, case, want in READS:
+        store = av.Store(lambda _: True)
+        for name in stored:
+            store.records[av.record_key(recs[name])] = av.encode_record(recs[name])
+        try:
+            store.authorization(bytes.fromhex(h_of(case)))
+            got = "ok"
+        except (av.Corrupt, av.NotFound) as e:
+            got = e.sentinel
+        assert got == want, f"{rid}: got {got}, want {want}"
+        out.append({"id": rid, "description": desc, "stored": stored,
+                    "read": {"kind": "authorization", "commitment_hash_hex": h_of(case)}, "expect": want})
+    return out
 
 
 def da_pairs() -> list[dict]:
@@ -509,7 +689,7 @@ def run_scenarios(recs: dict, pairs: list[dict]):
         for rid, expect, state in steps:
             try:
                 got = "written" if store.put(recs[rid]) else "unchanged"
-            except (av.Conflict, av.NotFound, av.DAMismatch) as e:
+            except (av.Conflict, av.NotFound, av.DAMismatch, av.Corrupt) as e:
                 got = e.sentinel
             assert got == expect, f"{sid}/{rid}: got {got}, want {expect}"
             step = {"put": rid, "expect": expect}
@@ -544,10 +724,10 @@ def main() -> int:
               "refs": {"core": "spec/vectors/v0", "fibre_commit": "spec/vectors/da/fibre_commit.json"}}
     records = {**header, "params": params, "patterns": PATTERNS,
                "placeholder": "SHA-256(\"edicta/v0 test archive placeholder|\" + label + \"|\" + i) for i = 0, 1, ..., concatenated and cut to the size; not valid upstream encodings",
-               "cases": cases, "reject": rejects}
+               "cases": cases, "reject": rejects, "reject_large": large_rejects(recs)}
     pairs = da_pairs()
     state = {**header, "records": "spec/vectors/archive/records.json", "da_check": pairs,
-             "scenarios": run_scenarios(recs, pairs)}
+             "scenarios": run_scenarios(recs, pairs), "reads": run_reads(recs)}
     OUT.mkdir(parents=True, exist_ok=True)
     for name, obj in (("records.json", records), ("state.json", state)):
         (OUT / name).write_text(json.dumps(obj, indent=2, sort_keys=False) + "\n")

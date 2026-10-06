@@ -424,6 +424,18 @@ class DAMismatch(Exception):
     sentinel = "gate.ErrDACommitmentMismatch"
 
 
+class Corrupt(Exception):
+    sentinel = "archive.ErrCorrupt"
+
+
+def k2_da_matches(auth: dict, decision_rec: dict) -> bool:
+    """The da of the K2 inputs is the decision's payload_ref.da (section 19.2)."""
+    if "k2" not in auth:
+        return True
+    env, _ = decode_signed(decision_rec["envelope"])
+    return auth["k2"]["da"] == env["commitment"]["payload_ref"]["da"]
+
+
 class Store:
     """Reference semantics of section 19.4 and 19.5, in memory."""
 
@@ -454,7 +466,26 @@ class Store:
                 raise NotFound("no decision record")
             if kind == KIND_REJECTION and (KIND_AUTHORIZATION, h) in self.records:
                 return False
+            if kind == KIND_AUTHORIZATION and not k2_da_matches(rec, decode_record(self.records[(KIND_DECISION, h)])):
+                raise Corrupt("k2 da differs from the decision's da")
         return self._put(rec)
+
+    def authorization(self, h: bytes) -> dict:
+        """Reads the Authorization record of h with the reader checks of
+        section 19.2 and 19.3. Raises NotFound or Corrupt."""
+        data = self.records.get((KIND_AUTHORIZATION, h))
+        if data is None:
+            raise NotFound("no Authorization record")
+        try:
+            rec = decode_record(data)
+        except Reject as e:
+            raise Corrupt(e.sentinel)
+        if record_key(rec) != (KIND_AUTHORIZATION, h):
+            raise Corrupt("stored under another key")
+        dec = self.records.get((KIND_DECISION, h))
+        if dec is not None and not k2_da_matches(rec, decode_record(dec)):
+            raise Corrupt("k2 da differs from the decision's da")
+        return rec
 
     def state(self, h: bytes):
         if (KIND_DECISION, h) not in self.records:

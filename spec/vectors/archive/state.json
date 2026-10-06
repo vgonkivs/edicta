@@ -407,6 +407,47 @@
       ]
     },
     {
+      "id": "k2_da_mismatch",
+      "description": "An Authorization whose K2 inputs name another da than the decision is refused as corrupt and nothing is written, also after the consistent one is stored (the check precedes the identity comparison).",
+      "steps": [
+        {
+          "put": "decision_minimal_lmt",
+          "expect": "written"
+        },
+        {
+          "put": "authorization_minimal_lmt_da_k2_da1",
+          "expect": "archive.ErrCorrupt",
+          "state_after": {
+            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "state": "pending",
+            "rejections": []
+          }
+        },
+        {
+          "put": "authorization_minimal_lmt_da",
+          "expect": "written",
+          "state_after": {
+            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "state": "authorized",
+            "rejections": []
+          }
+        },
+        {
+          "put": "authorization_minimal_lmt_da_k2_da1",
+          "expect": "archive.ErrCorrupt",
+          "state_after": {
+            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "state": "authorized",
+            "rejections": []
+          }
+        }
+      ],
+      "final_records": [
+        "decision_minimal_lmt",
+        "authorization_minimal_lmt_da"
+      ]
+    },
+    {
       "id": "payload_and_evidence_da1",
       "description": "The same rules for da = 1.",
       "steps": [
@@ -435,6 +476,47 @@
         "payload_da1_live",
         "evidence_da1_live"
       ]
+    }
+  ],
+  "reads": [
+    {
+      "id": "authorization_k2_da_mismatch",
+      "description": "A stored Authorization whose K2 da differs from its decision's da: the reader reports it corrupt.",
+      "stored": [
+        "decision_minimal_lmt",
+        "authorization_minimal_lmt_da_k2_da1"
+      ],
+      "read": {
+        "kind": "authorization",
+        "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d"
+      },
+      "expect": "archive.ErrCorrupt"
+    },
+    {
+      "id": "authorization_k2_da_match",
+      "description": "The consistent record reads back.",
+      "stored": [
+        "decision_minimal_lmt",
+        "authorization_minimal_lmt_da"
+      ],
+      "read": {
+        "kind": "authorization",
+        "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d"
+      },
+      "expect": "ok"
+    },
+    {
+      "id": "authorization_repaired_no_k2",
+      "description": "Without K2 inputs there is nothing to compare.",
+      "stored": [
+        "decision_minimal_lmt",
+        "authorization_minimal_lmt_da_repaired"
+      ],
+      "read": {
+        "kind": "authorization",
+        "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d"
+      },
+      "expect": "ok"
     }
   ]
 }

@@ -9,7 +9,10 @@
   Authorizations against v0/authorization.json and the gate key, K2 inputs
   against the decision (same da; K2 failing implies path = 2), rejection
   markers against the decision's hash and gate_id;
-- every reject fails strict decoding with its cause;
+- every reject fails strict decoding with its cause, including the records
+  too large to embed (rebuilt from prefix and pattern) and the records with
+  several defects (the cause is the first listed defect);
+- reads of records placed in a store directly give the listed result;
 - state scenarios replayed on the reference store give every step result,
   state and the final stored records;
 - the generator reproduces both files byte for byte.
@@ -59,8 +62,11 @@ def arg(name: str, default: Path) -> Path:
     return default
 
 
+PERIOD = bytes((7 * i + 3) & 0xFF for i in range(256))
+
+
 def pattern(size: int) -> bytes:
-    return bytes((7 * i + 3) & 0xFF for i in range(size))
+    return (PERIOD * (size // 256 + 1))[:size]
 
 
 def from_json(j: dict) -> dict:
@@ -134,7 +140,7 @@ def check_records(f: dict, core: Path):
     fibre = {c["id"]: c for c in json.loads((VECTORS / "da" / "fibre_commit.json").read_text())["cases"]}
     gate_pub = bytes.fromhex(keys["gate1"]["public_key_hex"])
 
-    ids = [c["id"] for c in f["cases"] + f["reject"]]
+    ids = [c["id"] for c in f["cases"] + f["reject"] + f["reject_large"]]
     expect(len(ids) == len(set(ids)), "duplicate ids")
     recs = {}
     for c in f["cases"]:
@@ -184,9 +190,10 @@ def check_records(f: dict, core: Path):
             expect(auth["action_hash"].hex() == v["action_hash_hex"], f"{cid}: action_hash")
             if "k2" in rec:
                 env, _ = decode_signed(bytes.fromhex(v["envelope_hex"]))
-                expect(rec["k2"]["da"] == env["commitment"]["payload_ref"]["da"], f"{cid}: K2 da")
+                same = rec["k2"]["da"] == env["commitment"]["payload_ref"]["da"]
+                expect(same == (cid != "authorization_minimal_lmt_da_k2_da1"), f"{cid}: K2 da")
                 expect(rec["k2"]["checked_at"] <= rec["authorized_at"], f"{cid}: checked_at after authorized_at")
-                if not av.k2_holds(env, rec["k2"]):
+                if same and not av.k2_holds(env, rec["k2"]):
                     expect(auth["path"] == 2, f"{cid}: K2 fails but path = 1")
         elif kind == av.KIND_REJECTION:
             v = valid[refs["valid"]]
@@ -194,13 +201,31 @@ def check_records(f: dict, core: Path):
             expect(rec["gate_id"] == v["input"]["scope"]["gate_id"], f"{cid}: gate_id")
         recs[cid] = rec
 
-    for r in f["reject"]:
+    multi = 0
+    for r in f["reject"] + f["reject_large"]:
         expect(r["expect_error"] == "archive.ErrCorrupt", f"{r['id']}: expect_error")
+        if "defects" in r:
+            expect(len(r["defects"]) >= 2 and r["defects"][0] == r["cause"], f"{r['id']}: defects")
+            multi += 1
+        if "record_cbor_hex" in r:
+            data = bytes.fromhex(r["record_cbor_hex"])
+        else:
+            expect(r["record_suffix"]["pattern"] == "affine-7-3", f"{r['id']}: pattern")
+            data = bytes.fromhex(r["record_prefix_hex"]) + pattern(int(r["record_suffix"]["size"]))
+            expect(str(len(data)) == r["record_size"], f"{r['id']}: record_size")
+            expect(hashlib.sha256(data).hexdigest() == r["record_sha256_hex"], f"{r['id']}: record_sha256_hex")
         try:
-            av.decode_record(bytes.fromhex(r["record_cbor_hex"]))
+            av.decode_record(data)
             raise Failure(f"{r['id']}: decodes")
         except Reject as e:
             expect(e.sentinel == r["cause"], f"{r['id']}: cause {e.sentinel}, want {r['cause']}")
+    expect(multi >= 2, "multi-defect rejects")
+    causes = {r["cause"] for r in f["reject"] + f["reject_large"]}
+    for c in ("ErrIndefiniteLength", "ErrDuplicateKey", "ErrSimpleValue", "ErrKeyType", "ErrInvalidString",
+              "ErrMalformed", "ErrTooLarge"):
+        expect(c in causes, f"no reject with cause {c}")
+    expect(any(r["cause"] == "ErrTooLarge" and int(r["record_size"]) == av.MAX_RECORD_SIZE + 1
+               for r in f["reject_large"]), "no MaxRecordSize + 1 reject")
     return recs, da_blob, fibre
 
 
@@ -222,7 +247,7 @@ def check_state(s: dict, recs: dict, da_blob: dict, fibre: dict) -> int:
         for st in sc["steps"]:
             try:
                 got = "written" if store.put(recs[st["put"]]) else "unchanged"
-            except (av.Conflict, av.NotFound, av.DAMismatch) as e:
+            except (av.Conflict, av.NotFound, av.DAMismatch, av.Corrupt) as e:
                 got = e.sentinel
             expect(got == st["expect"], f"{sc['id']}/{st['put']}: {got}, want {st['expect']}")
             results.add(got)
@@ -235,7 +260,21 @@ def check_state(s: dict, recs: dict, da_blob: dict, fibre: dict) -> int:
         final = {av.record_key(recs[r]): av.encode_record(recs[r]) for r in sc["final_records"]}
         expect(stored == final, f"{sc['id']}: final records")
     expect(results == {"written", "unchanged", "archive.ErrConflict", "archive.ErrNotFound",
-                       "gate.ErrDACommitmentMismatch"}, f"results covered: {results}")
+                       "gate.ErrDACommitmentMismatch", "archive.ErrCorrupt"}, f"results covered: {results}")
+    reads = set()
+    for rd in s["reads"]:
+        store = av.Store(da_check)
+        for name in rd["stored"]:
+            store.records[av.record_key(recs[name])] = av.encode_record(recs[name])
+        expect(rd["read"]["kind"] == "authorization", f"{rd['id']}: read kind")
+        try:
+            store.authorization(bytes.fromhex(rd["read"]["commitment_hash_hex"]))
+            got = "ok"
+        except (av.Corrupt, av.NotFound) as e:
+            got = e.sentinel
+        expect(got == rd["expect"], f"{rd['id']}: {got}, want {rd['expect']}")
+        reads.add(got)
+    expect(reads == {"ok", "archive.ErrCorrupt"}, f"read results covered: {reads}")
     return steps
 
 
@@ -260,7 +299,8 @@ def main() -> int:
         return 1
     s = json.loads((d / "state.json").read_text())
     print(f"OK (archive, {REVISION}): {len(f['cases'])} records, {len(f['reject'])} reject, "
-          f"{len(s['scenarios'])} scenarios ({steps} steps); generator output identical")
+          f"{len(f['reject_large'])} large reject, {len(s['scenarios'])} scenarios ({steps} steps), "
+          f"{len(s['reads'])} reads; generator output identical")
     return 0
 
 
