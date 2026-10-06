@@ -125,7 +125,7 @@ func (p *Params) setMode(reason error, force bool) {
 	case obs && (changed || force):
 		p.log.Warn("retention: observations-only mode", "reason", reason)
 	case !obs && (changed || force):
-		p.log.Info("retention: direct at-height reads on")
+		p.log.Info("retention: direct reads on")
 	}
 }
 

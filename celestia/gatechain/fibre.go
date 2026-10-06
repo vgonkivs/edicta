@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -34,11 +35,17 @@ var ErrInvalidConfig = errors.New("gatechain: invalid config")
 // DefaultFibreMaxReadBytes is the answer size limit WithDefaults sets.
 const DefaultFibreMaxReadBytes = 16 << 20
 
+// DefaultFibreLookupTimeout bounds one anchor lookup when the caller's
+// context sets no sooner deadline.
+const DefaultFibreLookupTimeout = time.Minute
+
 // Upper bounds of the options: the archive holds an anchor proof of at most
 // 2^22 bytes, and a cache of whole proofs must stay a bounded amount of memory.
 const (
 	maxFibreMaxReadBytes = 1 << 30
-	maxFibreCacheEntries = 1024
+	maxFibreCacheBytes   = 1 << 30
+	// anchorOverhead is charged per cached anchor on top of its byte fields.
+	anchorOverhead = 256
 )
 
 // FibreAnchorOptions configures FibreAnchors.
@@ -49,8 +56,11 @@ type FibreAnchorOptions struct {
 	// SkipCertificate turns the validator certificate check off. The zero value
 	// checks it.
 	SkipCertificate bool
-	// CacheEntries bounds the anchors kept per reference; zero keeps none.
-	CacheEntries int
+	// CacheBytes bounds the memory of the anchors kept across requests; zero
+	// keeps none.
+	CacheBytes uint64
+	// LookupTimeout bounds every lookup, whatever deadline its context has.
+	LookupTimeout time.Duration
 	// Log receives the certificate warnings; nil is slog.Default.
 	Log *slog.Logger
 }
@@ -60,7 +70,16 @@ func (o FibreAnchorOptions) WithDefaults() FibreAnchorOptions {
 	if o.MaxReadBytes == 0 {
 		o.MaxReadBytes = DefaultFibreMaxReadBytes
 	}
+	if o.LookupTimeout == 0 {
+		o.LookupTimeout = DefaultFibreLookupTimeout
+	}
 	return o
+}
+
+// BridgeLimits is what the bridge client must allow so that it can carry a
+// namespace data answer of MaxReadBytes.
+func (o FibreAnchorOptions) BridgeLimits() node.BridgeLimits {
+	return node.BridgeLimits{NamespaceDataBytes: o.MaxReadBytes}
 }
 
 // ValidateBasic checks the stateless fields.
@@ -71,11 +90,11 @@ func (o FibreAnchorOptions) ValidateBasic() error {
 	if o.MaxReadBytes > maxFibreMaxReadBytes {
 		return fmt.Errorf("%w: max read bytes %d above %d", ErrInvalidConfig, o.MaxReadBytes, uint64(maxFibreMaxReadBytes))
 	}
-	if o.CacheEntries < 0 {
-		return fmt.Errorf("%w: negative cache entries", ErrInvalidConfig)
+	if o.CacheBytes > maxFibreCacheBytes {
+		return fmt.Errorf("%w: cache bytes %d above %d", ErrInvalidConfig, o.CacheBytes, uint64(maxFibreCacheBytes))
 	}
-	if o.CacheEntries > maxFibreCacheEntries {
-		return fmt.Errorf("%w: cache entries %d above %d", ErrInvalidConfig, o.CacheEntries, maxFibreCacheEntries)
+	if o.LookupTimeout <= 0 {
+		return fmt.Errorf("%w: lookup timeout %s", ErrInvalidConfig, o.LookupTimeout)
 	}
 	return nil
 }
@@ -107,9 +126,10 @@ type FibreAnchors struct {
 	cfgErr  error
 	log     *slog.Logger
 
-	mu    sync.Mutex
-	cache map[anchorKey]FibreAnchor
-	order []anchorKey
+	mu         sync.Mutex
+	cache      map[anchorKey]FibreAnchor
+	order      []anchorKey
+	cacheBytes uint64
 }
 
 var _ gate.AnchorSource = (*FibreAnchors)(nil)
@@ -159,6 +179,10 @@ func (a *FibreAnchors) FindAnchor(ctx context.Context, ref commitment.PayloadRef
 // and commitment, blob version 0 and this chain. The earliest creation time
 // with result code 0 and a valid certificate wins; ties go to the position in
 // the namespace.
+//
+// Under a context from WithAnchorScope the lookups of one reference share one
+// read, concurrent ones included. Only successes are kept, in the scope and in
+// the cache.
 func (a *FibreAnchors) Lookup(ctx context.Context, ref commitment.PayloadRef) (FibreAnchor, error) {
 	if a.cfgErr != nil {
 		return FibreAnchor{}, unavailable(a.cfgErr)
@@ -170,15 +194,84 @@ func (a *FibreAnchors) Lookup(ctx context.Context, ref commitment.PayloadRef) (F
 		return FibreAnchor{}, unavailable(err)
 	}
 	key := anchorKey{ref.Height, string(ref.Namespace), string(ref.Commitment)}
+	sc, _ := ctx.Value(scopeKey{}).(*anchorScope)
+	if sc == nil {
+		return a.lookupOnce(ctx, key, ref)
+	}
+	e, leader := sc.join(key)
+	if !leader {
+		select {
+		case <-e.done:
+		case <-ctx.Done():
+			return FibreAnchor{}, unavailable(ctx.Err())
+		}
+		if e.err != nil {
+			return FibreAnchor{}, e.err
+		}
+		return cloneAnchor(e.fa), nil
+	}
+	e.fa, e.err = a.lookupOnce(ctx, key, ref)
+	if e.err != nil {
+		sc.drop(key)
+	}
+	close(e.done)
+	if e.err != nil {
+		return FibreAnchor{}, e.err
+	}
+	return cloneAnchor(e.fa), nil
+}
+
+func (a *FibreAnchors) lookupOnce(ctx context.Context, key anchorKey, ref commitment.PayloadRef) (FibreAnchor, error) {
 	if fa, ok := a.cached(key); ok {
 		return fa, nil
 	}
-	fa, err := a.find(ctx, ref)
+	lctx, cancel := context.WithTimeout(ctx, a.o.LookupTimeout)
+	defer cancel()
+	fa, err := a.find(lctx, ref)
 	if err != nil {
 		return FibreAnchor{}, err
 	}
 	a.store(key, fa)
 	return fa, nil
+}
+
+type scopeKey struct{}
+
+// anchorScope holds the anchors of one request.
+type anchorScope struct {
+	mu sync.Mutex
+	m  map[anchorKey]*scopeEntry
+}
+
+type scopeEntry struct {
+	done chan struct{}
+	fa   FibreAnchor
+	err  error
+}
+
+// join returns the entry of key and whether the caller must fill it.
+func (s *anchorScope) join(k anchorKey) (*scopeEntry, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if e, ok := s.m[k]; ok {
+		return e, false
+	}
+	e := &scopeEntry{done: make(chan struct{})}
+	s.m[k] = e
+	return e, true
+}
+
+func (s *anchorScope) drop(k anchorKey) {
+	s.mu.Lock()
+	delete(s.m, k)
+	s.mu.Unlock()
+}
+
+// WithAnchorScope makes every Lookup under the returned context share one read
+// per reference. The scope holds only what its request looked up and ends with
+// the context.
+func WithAnchorScope(ctx context.Context) context.Context {
+	return context.WithValue(ctx, scopeKey{}, &anchorScope{m: map[anchorKey]*scopeEntry{}})
 }
 
 // checkRef refuses a reference that cannot name a da = 1 blob before any chain
@@ -198,7 +291,7 @@ func checkRef(ref commitment.PayloadRef) error {
 }
 
 func (a *FibreAnchors) cached(k anchorKey) (FibreAnchor, bool) {
-	if a.o.CacheEntries == 0 {
+	if a.o.CacheBytes == 0 {
 		return FibreAnchor{}, false
 	}
 	a.mu.Lock()
@@ -215,20 +308,32 @@ func cloneAnchor(fa FibreAnchor) FibreAnchor {
 	return fa
 }
 
+func anchorCost(fa FibreAnchor) uint64 {
+	return uint64(len(fa.Proof)+len(fa.Promise.Namespace)+len(fa.Promise.SignerKey)) + anchorOverhead
+}
+
+// store keeps fa unless it alone is above the budget, evicting the oldest
+// entries until it fits.
 func (a *FibreAnchors) store(k anchorKey, fa FibreAnchor) {
-	if a.o.CacheEntries == 0 {
+	cost := anchorCost(fa)
+	if a.o.CacheBytes == 0 || cost > a.o.CacheBytes {
 		return
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if _, ok := a.cache[k]; !ok {
-		for len(a.order) >= a.o.CacheEntries {
-			delete(a.cache, a.order[0])
-			a.order = a.order[1:]
-		}
-		a.order = append(a.order, k)
+	if old, ok := a.cache[k]; ok {
+		a.cacheBytes -= anchorCost(old)
+		delete(a.cache, k)
+		a.order = slices.DeleteFunc(a.order, func(o anchorKey) bool { return o == k })
 	}
+	for a.cacheBytes+cost > a.o.CacheBytes && len(a.order) > 0 {
+		a.cacheBytes -= anchorCost(a.cache[a.order[0]])
+		delete(a.cache, a.order[0])
+		a.order = a.order[1:]
+	}
+	a.order = append(a.order, k)
 	a.cache[k] = cloneAnchor(fa)
+	a.cacheBytes += cost
 }
 
 // verifiedBlock is what the proof steps established about the PayForFibre
@@ -244,6 +349,11 @@ func (a *FibreAnchors) find(ctx context.Context, ref commitment.PayloadRef) (Fib
 	if err != nil {
 		return FibreAnchor{}, err
 	}
+	return a.findIn(ctx, ref, vb)
+}
+
+// findIn picks the anchor of ref among the txs of an already verified block.
+func (a *FibreAnchors) findIn(ctx context.Context, ref commitment.PayloadRef, vb verifiedBlock) (FibreAnchor, error) {
 	want := [32]byte(ref.Commitment)
 	var cands []candidate
 	for _, raw := range vb.txs {

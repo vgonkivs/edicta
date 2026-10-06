@@ -62,7 +62,7 @@ func committer(t testing.TB) *fibrecommit.Committer {
 
 func blobsOver(t *testing.T, l live, direct, bridge node.FibreDownloader) gate.BlobSource {
 	t.Helper()
-	a := anchorsOver(liveBlock(t).chain(t, l), mochaID, func(o *gatechain.FibreAnchorOptions) { o.CacheEntries = 8 })
+	a := anchorsOver(liveBlock(t).chain(t, l), mochaID, func(o *gatechain.FibreAnchorOptions) { o.CacheBytes = 1 << 24 })
 	return gatechain.NewFibreBlobs(a, direct, bridge, committer(t))
 }
 
@@ -212,7 +212,7 @@ func TestFibreFetchHonoursMaxSize(t *testing.T) {
 
 	t.Run("returns maxSize+1 bytes of a larger blob and allocates no more", func(t *testing.T) {
 		direct := &fakeDL{data: big}
-		a := anchorsOver(liveBlock(t).chain(t, l), mochaID, func(o *gatechain.FibreAnchorOptions) { o.CacheEntries = 8 })
+		a := anchorsOver(liveBlock(t).chain(t, l), mochaID, func(o *gatechain.FibreAnchorOptions) { o.CacheBytes = 1 << 24 })
 		src := gatechain.NewFibreBlobs(a, direct, nil, committer(t))
 		_, err := a.FindAnchor(bg, l.ref())
 		require.NoError(t, err)

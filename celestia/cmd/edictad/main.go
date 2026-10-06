@@ -62,7 +62,16 @@ func run() error {
 		return err
 	}
 	defer closeAll()
-	srv, err := edictad.Start(ctx, cfg, edictad.Deps{Reader: rd, Consensus: cons, Submitter: sub, Logger: log})
+	deps := edictad.Deps{Reader: rd, Consensus: cons, Submitter: sub, Logger: log}
+	if cfg.Network.DA == edictad.DAConfigFibre {
+		fd, closeFibre, err := fibreAdapters(ctx, cfg, cons, log)
+		if err != nil {
+			return err
+		}
+		defer closeFibre()
+		deps.Fibre = fd
+	}
+	srv, err := edictad.Start(ctx, cfg, deps)
 	if err != nil {
 		return err
 	}
@@ -97,21 +106,10 @@ var (
 // closeAll releases every connection and is safe to call once.
 func adapters(ctx context.Context, cfg edictad.Config, log *slog.Logger) (node.Reader, node.Consensus, recorder.Submitter, func(), error) {
 	noop := func() {}
-	bridgeTok, err := readToken(cfg.Network.Bridge.TokenFile)
+	b, g, err := endpointConfigs(cfg)
 	if err != nil {
-		return nil, nil, nil, noop, fmt.Errorf("bridge token: %w", err)
-	}
-	consTok, err := readToken(cfg.Network.ConsensusGRPC.TokenFile)
-	if err != nil {
-		return nil, nil, nil, noop, fmt.Errorf("consensus token: %w", err)
-	}
-	b := node.BridgeConfig{Addr: cfg.Network.Bridge.Addr, Token: bridgeTok, TLS: cfg.Network.Bridge.TLS,
-		AllowInsecureToken: loopbackAddr(cfg.Network.Bridge.Addr)}
-	if err := b.ValidateBasic(); err != nil {
 		return nil, nil, nil, noop, err
 	}
-	g := node.GRPCConfig{Addr: cfg.Network.ConsensusGRPC.Addr, TLS: cfg.Network.ConsensusGRPC.TLS, Token: consTok,
-		AllowInsecureToken: loopbackAddr(cfg.Network.ConsensusGRPC.Addr)}
 	cons, err := newConsensusFn(g)
 	if err != nil {
 		return nil, nil, nil, noop, err
@@ -176,6 +174,27 @@ func adapters(ctx context.Context, cfg edictad.Config, log *slog.Logger) (node.R
 	}
 	closers = append(closers, func() { _ = c.Close() })
 	return srd, cons, recorder.NewLocalSubmitter(sub), closeAll, nil
+}
+
+// endpointConfigs reads the endpoint tokens and builds the bridge and the
+// consensus connection settings.
+func endpointConfigs(cfg edictad.Config) (b node.BridgeConfig, g node.GRPCConfig, err error) {
+	bridgeTok, err := readToken(cfg.Network.Bridge.TokenFile)
+	if err != nil {
+		return b, g, fmt.Errorf("bridge token: %w", err)
+	}
+	consTok, err := readToken(cfg.Network.ConsensusGRPC.TokenFile)
+	if err != nil {
+		return b, g, fmt.Errorf("consensus token: %w", err)
+	}
+	b = node.BridgeConfig{Addr: cfg.Network.Bridge.Addr, Token: bridgeTok, TLS: cfg.Network.Bridge.TLS,
+		AllowInsecureToken: loopbackAddr(cfg.Network.Bridge.Addr)}
+	if err := b.ValidateBasic(); err != nil {
+		return b, g, err
+	}
+	g = node.GRPCConfig{Addr: cfg.Network.ConsensusGRPC.Addr, TLS: cfg.Network.ConsensusGRPC.TLS, Token: consTok,
+		AllowInsecureToken: loopbackAddr(cfg.Network.ConsensusGRPC.Addr)}
+	return b, g, nil
 }
 
 func readToken(path string) (string, error) {

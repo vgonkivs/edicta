@@ -219,7 +219,7 @@ func (e *env) tomlOf(edits ...[2]string) string {
 chain_id = ""
 min_app_version = 3
 max_app_version = 10
-da = "blob"
+da = "celestia_blob"
 
 [network.bridge]
 addr = "bn.invalid:26658"
@@ -244,6 +244,11 @@ max_blob_bytes = 1048576
 blobs_per_hour = 60
 bytes_per_day = 67108864
 
+[archive]
+dir = %q
+write_timeout_s = 10
+sweep_interval_s = 600
+
 [gate]
 gate_id = "gate-test-1"
 key_file = %q
@@ -261,7 +266,7 @@ authorize_token_file = ""
 record_token_file = ""
 allow_insecure = false
 `, e.path("bn.token"), hex.EncodeToString(nsBytes), e.path("keyring"), e.path("keyring.pass"),
-		e.path("gate.ed25519"), e.path("registry.db"), e.path("agents.toml"), hex.EncodeToString(e.execPub))
+		e.path("archive"), e.path("gate.ed25519"), e.path("registry.db"), e.path("agents.toml"), hex.EncodeToString(e.execPub))
 	for _, ed := range edits {
 		require.Contains(e.t, s, ed[0], "edit target missing")
 		s = strings.Replace(s, ed[0], ed[1], 1)
@@ -314,10 +319,13 @@ func rep(from, to string) [2]string { return [2]string{from, to} }
 // ---- minimal CBOR bodies (short items only) ----
 
 func cbHead(major byte, n int) []byte {
-	if n < 24 {
+	switch {
+	case n < 24:
 		return []byte{major<<5 | byte(n)}
+	case n < 256:
+		return []byte{major<<5 | 24, byte(n)}
 	}
-	return []byte{major<<5 | 24, byte(n)}
+	return []byte{major<<5 | 25, byte(n >> 8), byte(n)}
 }
 func cbBytes(b []byte) []byte { return append(cbHead(2, len(b)), b...) }
 func cbText(s string) []byte  { return append(cbHead(3, len(s)), s...) }
@@ -352,4 +360,28 @@ func post(t *testing.T, srv *edictad.Server, path, authz string, body []byte) *h
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = resp.Body.Close() })
 	return resp
+}
+
+// passSigned forwards a signed header read to the wrapped fake reader, which
+// the Recorder needs for the evidence record.
+func passSigned(r node.Reader, ctx context.Context, h uint64) ([]byte, error) {
+	return r.(interface {
+		SignedHeader(context.Context, uint64) ([]byte, error)
+	}).SignedHeader(ctx, h)
+}
+
+func (r *orderReader) SignedHeader(ctx context.Context, h uint64) ([]byte, error) {
+	return passSigned(r.Reader, ctx, h)
+}
+
+func (r *slowHeadReader) SignedHeader(ctx context.Context, h uint64) ([]byte, error) {
+	return passSigned(r.Reader, ctx, h)
+}
+
+func (r *slowReadBackReader) SignedHeader(ctx context.Context, h uint64) ([]byte, error) {
+	return passSigned(r.Reader, ctx, h)
+}
+
+func (r *outageReader) SignedHeader(ctx context.Context, h uint64) ([]byte, error) {
+	return passSigned(r.Reader, ctx, h)
 }

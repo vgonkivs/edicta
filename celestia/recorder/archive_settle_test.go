@@ -317,7 +317,8 @@ func TestNewRefusesAnArchiveWithoutASignedHeaderReader(t *testing.T) {
 	ch := newChain()
 	st := openArchive(t, t.TempDir())
 
-	_, err := recorder.New(archCfg(st), newLanding(ch), ch)
+	// The fake chain serves signed headers itself; hide that.
+	_, err := recorder.New(archCfg(st), newLanding(ch), struct{ node.Reader }{ch})
 	require.Error(t, err, "found before paying, not after")
 	assert.ErrorContains(t, err, "signed headers")
 

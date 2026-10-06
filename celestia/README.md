@@ -101,6 +101,45 @@ go -C celestia run ./cmd/edictad -config ~/edicta-live/edictad.toml
 edictad refuses to start if the node fails the compatibility check, if a key
 file is too permissive, or if the config has an unknown key. Leave it running.
 
+### Data availability mode and the archive
+
+`network.da` picks the one mode an instance serves: `"celestia_blob"` (da = 2,
+the blob is on Celestia L1) or `"fibre"` (da = 1). The old value `"blob"` is
+refused; write `"celestia_blob"`. A decision for the other mode is refused with
+`ErrDANotAllowed`.
+
+- `[archive]` is required in both modes. `dir` is the archive directory (one
+  edictad per directory), `write_timeout_s` bounds every archive write (1..60,
+  default 10) and `sweep_interval_s` how often a failed sweep is repeated (60..86400,
+  default 600).
+- `da = "fibre"` takes `network.fibre_chain_ids` (the chains whose payment
+  promises are accepted, default `["mocha-5"]`) and the `[fibre]` table:
+  `max_data_bytes`, `max_read_bytes`, `anchor_cache_bytes`, `lookup_timeout_s`,
+  `assumed_lag_blocks`, `sample_every_s`, `canary_every_s` and `bridge_fallback`.
+  Every key has a default and the example config shows them. With `celestia_blob`
+  none of these keys may be set, so a half-switched file never starts. The Fibre
+  app version is pinned: `min_app_version` and `max_app_version` are refused.
+- The Fibre Recorder is not wired into edictad yet: `da = "fibre"` needs
+  `recorder.enabled = false`, and the start is refused otherwise.
+
+The gate writes the decision (the envelope and the action bytes exactly as
+presented) to the archive after the agent signature, the action type allowlist and the
+action bytes have passed, and before it reads or marks the nonce. So only signed,
+allowlisted decisions with their committed bytes reach the archive, and unsigned
+input cannot fill it. The Authorization is archived after it is signed, and a
+refusal after the decision was archived leaves a marker with the error name. At
+start, a sweep copies Authorizations that are in the registry but not in the
+archive (after a crash or an archive outage between the two writes), and repeats
+every `sweep_interval_s` while it has work left.
+
+If the archive is down, `POST /v0/authorize` answers 503 with `ErrArchiveUnavailable`
+and `Retry-After: 5`, nothing is signed and the nonce stays unused, so the same
+request succeeds once the archive is back. This also holds for a retry of a
+decision that was already authorized: the archive write comes before the nonce
+read, so while the archive is down that retry gets 503 as well, and gets the usual
+409 with the stored Authorization afterwards. An archive write that fails after the
+Authorization was signed does not change the 200; the sweep repairs the archive.
+
 ## 4. Run edicta-live
 
 Dry run first. It does everything except broadcast the transfer: it publishes
@@ -186,6 +225,77 @@ On success the run prints, and re-checks before printing OK:
 The acceptance claim is: the blob is at height H, the transfer is included at a
 height above H, its memo is the commitment hash, and both the Authorization
 and the receipt verify.
+
+## Endpoints
+
+Every read the gate makes at a height is checked: the answer must carry the
+height that was asked for. A consensus endpoint must honour the
+`x-cosmos-block-height` header, which is how the gate reads x/fibre retention at
+the height of an anchor. At start, each endpoint runs a height canary and edictad
+logs one line per endpoint (`consensus: height honoured`, `consensus:
+height-ignoring, observations-only mode`, `consensus: height check
+inconclusive, observations-only mode`, and the same for `bridge`), then exactly one
+summary line:
+
+```
+INFO edictad: at-height reads da=fibre retention=direct
+WARN edictad: at-height reads da=fibre retention=observations-only reason=...
+INFO edictad: at-height reads da=celestia_blob retention=unused bridge=honoured
+```
+
+The endpoints verified as honouring the height as of 2026-10-05 are P-OPS
+(`grpc-mocha.pops.one:9090`) and nodes.guru. The public QuickNode endpoint is
+height-ignoring. An own node is the robust choice.
+
+An endpoint that is height-ignoring does not stop the start. edictad then runs in
+observations-only mode: the retention at a height is taken only from the gate's own
+samples (the observer samples x/fibre every `sample_every_s` seconds and stores
+them in the registry file). A decision whose anchor height those samples do not
+cover fails with 503 `ErrRetentionUnavailable`, and so does every height after the observer
+has stopped; the health status is then degraded.
+
+With `da = "fibre"` the bridge is required: the anchor proof (the data availability
+header and the namespace data of the block that holds the payment) is read from it
+and verified against the consensus header, so a lying bridge gets a 503, never a
+false anchor. Nothing else is trusted from it.
+
+The bridge download fallback is off by default. With `fibre.bridge_fallback = true`
+edictad enables it only if a capability probe passes at start: it downloads one
+recent, anchored blob through the same bridge client and token, checks that the raw
+answer has exactly the expected shape and recomputes the blob's commitment. A node
+version, or any capability, written in the configuration is never accepted instead
+(the version method of the node needs an admin token, which a gate must not hold).
+A failed or inconclusive probe leaves the fallback off with a warning and the start
+continues. Every blob from the fallback is recomputed anyway, so the probe only
+finds an incompatible bridge at start instead of when it is needed.
+
+Fibre submission by the Recorder (when it is wired) must go only through a node the
+operator controls, which is what `recorder.own_node = true` asserts.
+
+## Fibre escrow
+
+A Fibre upload is paid from the signer's escrow balance. The cost of one decision's
+blob is
+
+```
+650000 + 45000 * ceil(upload_bytes / 262144)   utia
+```
+
+where `upload_bytes` is the size the upload is charged for, which is larger than
+the payload length (`fibrecommit.UploadSize`). Fund the escrow with a `MsgDepositToEscrow`
+transaction from the Recorder account. **UNVERIFIED until the live run:** the
+command below has not been run against a network and its flags may differ.
+
+```
+celestia-appd tx fibre deposit-to-escrow <amount>utia --from <recorder key> \
+  --node <consensus rpc> --chain-id <chain id>
+```
+
+The Recorder checks the escrow before it uploads. A balance below the cost fails
+with `recorder.ErrEscrowInsufficient`, which names the missing amount, and nothing
+is uploaded. Funding is never automatic: `AutoFund` is switched off in every client
+Edicta builds, so the escrow only changes by a deposit you make. A withdrawal
+takes effect after a delay of 24 h, so plan the balance for at least that long.
 
 ## Tests
 

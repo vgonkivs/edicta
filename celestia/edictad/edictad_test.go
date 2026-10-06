@@ -32,7 +32,7 @@ func TestParseConfigValid(t *testing.T) {
 	e := newEnv(t)
 	c := e.cfg()
 	require.Equal(t, "gate-test-1", c.Gate.GateID)
-	require.Equal(t, "blob", c.Network.DA)
+	require.Equal(t, "celestia_blob", c.Network.DA)
 	require.True(t, c.Recorder.Enabled)
 	require.EqualValues(t, 60, c.Recorder.Quota.BlobsPerHour)
 	require.EqualValues(t, 67108864, c.Recorder.Quota.BytesPerDay)
@@ -58,13 +58,13 @@ func TestParseConfigRefusals(t *testing.T) {
 		{"no action types", [][2]string{rep(`action_types = ["application/vnd.edicta.test.v0+cbor"]`, `action_types = []`)}},
 		{"action type not a media type", [][2]string{rep(`"application/vnd.edicta.test.v0+cbor"]`, `"not a media type"]`)}},
 		{"duplicate action type", [][2]string{rep(`action_types = ["application/vnd.edicta.test.v0+cbor"]`, `action_types = ["a/b", "a/b"]`)}},
-		{"da missing", [][2]string{rep("da = \"blob\"\n", "")}},
-		{"da empty", [][2]string{rep(`da = "blob"`, `da = ""`)}},
-		{"da unknown", [][2]string{rep(`da = "blob"`, `da = "archive"`)}},
-		{"da wrong case", [][2]string{rep(`da = "blob"`, `da = "Blob"`)}},
-		{"da list", [][2]string{rep(`da = "blob"`, `da = ["blob"]`)}},
-		{"da both as list", [][2]string{rep(`da = "blob"`, `da = ["blob", "fibre"]`)}},
-		{"da number", [][2]string{rep(`da = "blob"`, `da = 2`)}},
+		{"da missing", [][2]string{rep("da = \"celestia_blob\"\n", "")}},
+		{"da empty", [][2]string{rep(`da = "celestia_blob"`, `da = ""`)}},
+		{"da unknown", [][2]string{rep(`da = "celestia_blob"`, `da = "archive"`)}},
+		{"da wrong case", [][2]string{rep(`da = "celestia_blob"`, `da = "Celestia_Blob"`)}},
+		{"da list", [][2]string{rep(`da = "celestia_blob"`, `da = ["celestia_blob"]`)}},
+		{"da both as list", [][2]string{rep(`da = "celestia_blob"`, `da = ["celestia_blob", "fibre"]`)}},
+		{"da number", [][2]string{rep(`da = "celestia_blob"`, `da = 2`)}},
 		{"old allowed_da key is unknown", [][2]string{rep("[gate]\n", "[gate]\nallowed_da = [2]\n")}},
 		{"da under gate is unknown", [][2]string{rep("[gate]\n", "[gate]\nda = \"blob\"\n")}},
 		{"missing key_file", [][2]string{rep(`key_file = "`+good+`"`, `key_file = ""`)}},
@@ -103,7 +103,7 @@ func TestParseConfigRefusals(t *testing.T) {
 
 func TestParseConfigAcceptsFibreAndInsecureOptIn(t *testing.T) {
 	e := newEnv(t)
-	c := e.cfg(rep(`da = "blob"`, `da = "fibre"`))
+	c := e.cfg(fibreEdits()...)
 	require.Equal(t, "fibre", c.Network.DA)
 	_, err := edictad.ParseConfig([]byte(e.tomlOf(
 		rep(`listen = "127.0.0.1:0"`, `listen = "0.0.0.0:8080"`),
@@ -141,7 +141,7 @@ func TestRecorderDisabledNeedsNoKeyAndPublishIsDisabled(t *testing.T) {
 	// No recorder fields at all, and no submitter dependency.
 	off := e.tomlOf()
 	i := strings.Index(off, "[recorder]")
-	j := strings.Index(off, "[gate]")
+	j := strings.Index(off, "[archive]")
 	off = off[:i] + "[recorder]\nenabled = false\n\n" + off[j:]
 	c, err := edictad.ParseConfig([]byte(off))
 	require.NoError(t, err)
@@ -165,7 +165,7 @@ func TestRecorderDisabledNeedsNoKeyAndPublishIsDisabled(t *testing.T) {
 func TestRecorderDisabledNeverTouchesFeeKey(t *testing.T) {
 	e := newEnv(t)
 	off := e.tomlOf()
-	off = off[:strings.Index(off, "[recorder]")] + "[recorder]\nenabled = false\n\n" + off[strings.Index(off, "[gate]"):]
+	off = off[:strings.Index(off, "[recorder]")] + "[recorder]\nenabled = false\n\n" + off[strings.Index(off, "[archive]"):]
 	c, err := edictad.ParseConfig([]byte(off))
 	require.NoError(t, err)
 	srv, err := edictad.Start(bg, c, e.deps) // e.deps.Submitter is a tripwire here
@@ -216,7 +216,6 @@ func TestStartRefusesAndBindsNoListener(t *testing.T) {
 		{"head stale", func(e *env) { e.deps.Clock = clock{t0.AddDate(0, 0, 1)} }, nil, node.ErrUnsupported, false},
 		{"bridge node down", func(e *env) { e.chain.Fail = node.ErrUnavailable }, nil, node.ErrUnsupported, false},
 		{"consensus down", func(e *env) { e.cons.Fail = node.ErrUnavailable }, nil, node.ErrUnsupported, false},
-		{"da fibre not supported yet", nil, [][2]string{rep(`da = "blob"`, `da = "fibre"`)}, edictad.ErrDANotSupported, false},
 		{"gate key file group-readable", func(e *env) { writeFile(t, e.path("gate.ed25519"), e.seed, 0o640) }, nil, secret.ErrPermissions, false},
 		{"gate key file wrong size", func(e *env) { writeFile(t, e.path("gate.ed25519"), e.seed[:31], 0o600) }, nil, nil, false},
 		{"gate key file missing", func(e *env) { _ = os.Remove(e.path("gate.ed25519")) }, nil, nil, false},
@@ -433,11 +432,6 @@ func TestDABlobRejectsDA1OverHTTP(t *testing.T) {
 }
 
 // Restart: the registry file survives and is reused by the next instance.
-// The fibre half of the DA switch (a registry created by a fibre instance,
-// nonces consumed, then reused by a blob instance) cannot be tested until the
-// Fibre DA task lands: Start refuses da = "fibre", and Deps has no committer
-// seam (the design keeps exactly one committer entry filled by edictad). The
-// refusal of the OLD DA after a switch is covered by TestDABlobRejectsDA1OverHTTP.
 func TestRegistryFileReusedAcrossRestarts(t *testing.T) {
 	e := newEnv(t)
 	e.start()

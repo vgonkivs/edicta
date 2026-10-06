@@ -46,6 +46,7 @@ type FibreBridge struct {
 	header  headerapi.API
 	share   shareapi.API
 	fibre   fibreapi.API
+	raw     rawFibre
 	closers []jsonrpc.ClientCloser
 	nsWire  uint64
 	limits  BridgeLimits
@@ -74,7 +75,7 @@ func NewFibreBridge(ctx context.Context, b BridgeConfig, lim BridgeLimits) (*Fib
 	for _, c := range []struct {
 		ns  string
 		out any
-	}{{"header", &fb.header.Internal}, {"share", &fb.share.Internal}, {"fibre", &fb.fibre.Internal}} {
+	}{{"header", &fb.header.Internal}, {"share", &fb.share.Internal}, {"fibre", &fb.fibre.Internal}, {"fibre", &fb.raw}} {
 		closer, err := jsonrpc.NewMergeClient(ctx, addr, c.ns, []any{c.out}, hdr, jsonrpc.WithHTTPClient(hc))
 		if err != nil {
 			fb.Close()

@@ -805,7 +805,7 @@ func TestFibreReadLimit(t *testing.T) {
 	})
 	t.Run("an oversized answer is not cached", func(t *testing.T) {
 		c := b.chain(t, l)
-		a := anchorsOver(c, mochaID, lim(size-1), func(o *gatechain.FibreAnchorOptions) { o.CacheEntries = 4 })
+		a := anchorsOver(c, mochaID, lim(size-1), func(o *gatechain.FibreAnchorOptions) { o.CacheBytes = 1 << 24 })
 		_, _ = a.Lookup(bg, l.ref())
 		_, err := a.Lookup(bg, l.ref())
 		requireUnavailable(t, err)
@@ -816,8 +816,9 @@ func TestFibreReadLimit(t *testing.T) {
 func TestFibreFindAnchorCaches(t *testing.T) {
 	l := loadLive(t)
 	b := liveBlock(t)
+	cost := anchorCost(t, l, b)
 	withCache := func(n int) func(*gatechain.FibreAnchorOptions) {
-		return func(o *gatechain.FibreAnchorOptions) { o.CacheEntries = n }
+		return func(o *gatechain.FibreAnchorOptions) { o.CacheBytes = uint64(n) * cost }
 	}
 	t.Run("one read serves repeated lookups", func(t *testing.T) {
 		c := b.chain(t, l)
@@ -875,8 +876,9 @@ func TestFibreFindAnchorCaches(t *testing.T) {
 	})
 	t.Run("the bound evicts the oldest", func(t *testing.T) {
 		other := mutateTx(t, l.pff, func(m *fibretypes.MsgPayForFibre) { m.PaymentPromise.Commitment[0] ^= 1 })
-		c := buildBlock(t, l.pffHeight, l.pff, other).chain(t, l)
-		a := anchorsOver(c, mochaID, skipCert, withCache(1))
+		two := buildBlock(t, l.pffHeight, l.pff, other)
+		c := two.chain(t, l)
+		a := anchorsOver(c, mochaID, skipCert, func(o *gatechain.FibreAnchorOptions) { o.CacheBytes = anchorCost(t, l, two) })
 		refB := l.ref()
 		refB.Commitment[0] ^= 1
 		_, err := a.Lookup(bg, l.ref())
@@ -924,7 +926,8 @@ func TestFibreAnchorsConfig(t *testing.T) {
 	}{
 		{"no reader", gatechain.NewFibreAnchors(nil, mochaID, gatechain.FibreAnchorOptions{})},
 		{"no chain id", gatechain.NewFibreAnchors(c, "", gatechain.FibreAnchorOptions{})},
-		{"negative cache", gatechain.NewFibreAnchors(c, mochaID, gatechain.FibreAnchorOptions{CacheEntries: -1})},
+		{"cache above the bound", gatechain.NewFibreAnchors(c, mochaID, gatechain.FibreAnchorOptions{CacheBytes: 1<<30 + 1})},
+		{"negative lookup timeout", gatechain.NewFibreAnchors(c, mochaID, gatechain.FibreAnchorOptions{LookupTimeout: -time.Second})},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -939,7 +942,7 @@ func TestFibreAnchorsConfig(t *testing.T) {
 }
 
 func TestFibreAnchorOptionsValidateBasic(t *testing.T) {
-	valid := gatechain.FibreAnchorOptions{MaxReadBytes: 1 << 20, CacheEntries: 16}
+	valid := gatechain.FibreAnchorOptions{MaxReadBytes: 1 << 20, CacheBytes: 1 << 24, LookupTimeout: time.Minute}
 	require.NoError(t, valid.ValidateBasic())
 	cases := []struct {
 		name string
@@ -947,16 +950,16 @@ func TestFibreAnchorOptionsValidateBasic(t *testing.T) {
 		ok   bool
 	}{
 		{"valid", func(*gatechain.FibreAnchorOptions) {}, true},
-		{"no cache", func(o *gatechain.FibreAnchorOptions) { o.CacheEntries = 0 }, true},
+		{"no cache", func(o *gatechain.FibreAnchorOptions) { o.CacheBytes = 0 }, true},
 		{"certificate check skipped", func(o *gatechain.FibreAnchorOptions) { o.SkipCertificate = true }, true},
 		{"one byte limit", func(o *gatechain.FibreAnchorOptions) { o.MaxReadBytes = 1 }, true},
 		{"zero limit", func(o *gatechain.FibreAnchorOptions) { o.MaxReadBytes = 0 }, false},
-		{"negative cache", func(o *gatechain.FibreAnchorOptions) { o.CacheEntries = -1 }, false},
+		{"negative lookup timeout", func(o *gatechain.FibreAnchorOptions) { o.LookupTimeout = -1 }, false},
 		{"limit at the upper bound", func(o *gatechain.FibreAnchorOptions) { o.MaxReadBytes = 1 << 30 }, true},
 		{"limit above the upper bound", func(o *gatechain.FibreAnchorOptions) { o.MaxReadBytes = 1<<30 + 1 }, false},
 		{"limit of the whole address space", func(o *gatechain.FibreAnchorOptions) { o.MaxReadBytes = ^uint64(0) }, false},
-		{"cache at the upper bound", func(o *gatechain.FibreAnchorOptions) { o.CacheEntries = 1024 }, true},
-		{"cache above the upper bound", func(o *gatechain.FibreAnchorOptions) { o.CacheEntries = 1025 }, false},
+		{"cache at the upper bound", func(o *gatechain.FibreAnchorOptions) { o.CacheBytes = 1 << 30 }, true},
+		{"cache above the upper bound", func(o *gatechain.FibreAnchorOptions) { o.CacheBytes = 1<<30 + 1 }, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -975,12 +978,15 @@ func TestFibreAnchorOptionsValidateBasic(t *testing.T) {
 		assert.EqualValues(t, gatechain.DefaultFibreMaxReadBytes, o.MaxReadBytes)
 		assert.EqualValues(t, 16<<20, o.MaxReadBytes)
 		assert.False(t, o.SkipCertificate)
+		assert.Equal(t, time.Minute, o.LookupTimeout)
+		assert.Zero(t, o.CacheBytes)
 		require.NoError(t, o.ValidateBasic())
 	})
 	t.Run("defaults keep what is set", func(t *testing.T) {
-		o := gatechain.FibreAnchorOptions{MaxReadBytes: 77, CacheEntries: 3, SkipCertificate: true}.WithDefaults()
+		o := gatechain.FibreAnchorOptions{MaxReadBytes: 77, CacheBytes: 3, LookupTimeout: 5 * time.Second, SkipCertificate: true}.WithDefaults()
 		assert.EqualValues(t, 77, o.MaxReadBytes)
-		assert.Equal(t, 3, o.CacheEntries)
+		assert.EqualValues(t, 3, o.CacheBytes)
+		assert.Equal(t, 5*time.Second, o.LookupTimeout)
 		assert.True(t, o.SkipCertificate)
 	})
 }

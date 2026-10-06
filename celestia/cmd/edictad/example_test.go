@@ -20,3 +20,14 @@ func TestExampleConfigParses(t *testing.T) {
 	_, err = edictad.ParseConfig([]byte(s))
 	require.NoError(t, err)
 }
+
+// The example is the one place an operator learns the keys of both modes.
+func TestExampleConfigCoversBothModes(t *testing.T) {
+	b, err := os.ReadFile("edictad.example.toml")
+	require.NoError(t, err)
+	s := string(b)
+	for _, want := range []string{`da = "celestia_blob"`, "[archive]", "fibre_chain_ids", "[fibre]", "bridge_fallback"} {
+		require.Contains(t, s, want)
+	}
+	require.NotContains(t, s, `da = "blob"`)
+}

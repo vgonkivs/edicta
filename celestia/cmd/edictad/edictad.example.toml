@@ -3,10 +3,11 @@
 # the paths of files that hold them. Unknown keys are refused.
 
 [network]
-da = "blob"                         # one data availability mode per instance: "blob" ("fibre" is not supported yet)
+da = "celestia_blob"               # one data availability mode per instance: "celestia_blob" or "fibre"
 chain_id = ""                      # optional cross-check; empty = discover from the node
-min_app_version = 3
+min_app_version = 3                # celestia_blob only; da = "fibre" pins app version 10
 max_app_version = 10
+# fibre_chain_ids = ["mocha-5"]    # da = "fibre" only: the chains whose payment promises the gate accepts
 
 [network.bridge]                   # a bridge node you trust (reads, proofs)
 addr = "bridge.example.invalid:26658"
@@ -17,6 +18,26 @@ tls = true
 addr = "consensus.example.invalid:9090"
 token_file = ""
 tls = true
+
+# The [fibre] table exists only with da = "fibre" and must be absent (or all
+# zero) with "celestia_blob". Every key below shows its default. To switch,
+# change da, drop min_app_version and max_app_version, set fibre_chain_ids and
+# the recorder to enabled = false (the Fibre Recorder is not wired yet).
+#
+# [fibre]
+# max_data_bytes = 16777216        # largest payload_size of a da = 1 decision, at most 16 MiB
+# max_read_bytes = 16777216        # anchor namespace data of one lookup, 64 KiB .. 1 GiB; also the bridge client's limit
+# anchor_cache_bytes = 0           # 0 = no cross-request cache; else max_read_bytes + 4096 .. 1 GiB
+# lookup_timeout_s = 60            # 1..600
+# assumed_lag_blocks = 0           # widen retention samples for a load-balanced consensus endpoint; 0 for an own node
+# sample_every_s = 30              # retention sampling, 1..300
+# canary_every_s = 600             # height canary, 60..3600
+# bridge_fallback = false          # download through the bridge when providers fail; enabled only if a start-time probe passes
+
+[archive]                          # required with both modes; one edictad per directory
+dir = "/var/lib/edictad/archive"
+write_timeout_s = 10               # 1..60; the archive write before signing and every later archive write
+sweep_interval_s = 600             # 60..86400; how often a failed sweep repeats
 
 [recorder]
 enabled = true

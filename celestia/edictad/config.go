@@ -5,14 +5,18 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/fibre/fibrecommit"
 )
 
 // ErrConfig wraps every configuration refusal. Messages name keys, never values.
@@ -22,6 +26,8 @@ var ErrConfig = errors.New("edictad: invalid configuration")
 // of files that hold them.
 type Config struct {
 	Network  NetworkConfig  `toml:"network"`
+	Fibre    FibreConfig    `toml:"fibre"`
+	Archive  ArchiveConfig  `toml:"archive"`
 	Recorder RecorderConfig `toml:"recorder"`
 	Gate     GateConfig     `toml:"gate"`
 	HTTP     HTTPConfig     `toml:"http"`
@@ -32,12 +38,52 @@ type Config struct {
 type NetworkConfig struct {
 	// ChainID is an optional cross-check; empty means discover.
 	ChainID string `toml:"chain_id"`
-	// DA is the one data availability mode of this instance: blob or fibre.
-	DA            string         `toml:"da"`
+	// DA is the one data availability mode of this instance: celestia_blob or
+	// fibre.
+	DA string `toml:"da"`
+	// FibreChainIDs is the da = 1 chain allowlist; empty means mocha-5.
+	FibreChainIDs []string       `toml:"fibre_chain_ids"`
 	MinAppVersion uint64         `toml:"min_app_version"`
 	MaxAppVersion uint64         `toml:"max_app_version"`
 	Bridge        EndpointConfig `toml:"bridge"`
 	ConsensusGRPC EndpointConfig `toml:"consensus_grpc"`
+}
+
+// Values of NetworkConfig.DA.
+const (
+	DAConfigBlob  = "celestia_blob"
+	DAConfigFibre = "fibre"
+)
+
+// FibreConfig holds the keys that exist only with da = "fibre". With
+// celestia_blob every field must stay zero, so a half-switched file never
+// starts.
+type FibreConfig struct {
+	// MaxDataBytes is the cap on the payload size of a da = 1 decision.
+	MaxDataBytes uint64 `toml:"max_data_bytes"`
+	// MaxReadBytes bounds the namespace data of one anchor lookup and is also
+	// the bridge client's limit.
+	MaxReadBytes uint64 `toml:"max_read_bytes"`
+	// AnchorCacheBytes is the memory of the cross-request anchor cache; zero
+	// keeps none.
+	AnchorCacheBytes uint64 `toml:"anchor_cache_bytes"`
+	LookupTimeoutS   uint64 `toml:"lookup_timeout_s"`
+	// AssumedLagBlocks widens each retention sample for a load-balanced
+	// consensus endpoint; zero for an own node.
+	AssumedLagBlocks uint64 `toml:"assumed_lag_blocks"`
+	SampleEveryS     uint64 `toml:"sample_every_s"`
+	CanaryEveryS     uint64 `toml:"canary_every_s"`
+	// BridgeFallback asks for the bridge download fallback. It is enabled only
+	// if the capability probe passes at start.
+	BridgeFallback bool `toml:"bridge_fallback"`
+}
+
+// ArchiveConfig configures the archive the gate writes before it signs.
+type ArchiveConfig struct {
+	// Dir is the archive directory; one edictad per directory.
+	Dir            string `toml:"dir"`
+	WriteTimeoutS  uint64 `toml:"write_timeout_s"`
+	SweepIntervalS uint64 `toml:"sweep_interval_s"`
 }
 
 // EndpointConfig is one node endpoint.
@@ -92,6 +138,21 @@ type HTTPConfig struct {
 
 const defaultMaxBlobBytes = 1 << 20
 
+// Defaults and bounds of the keys above.
+const (
+	defaultArchiveWriteS  = 10
+	defaultSweepIntervalS = 600
+	defaultLookupTimeoutS = 60
+	defaultSampleEveryS   = 30
+	defaultCanaryEveryS   = 600
+
+	minFibreReadBytes = 64 << 10
+	maxFibreReadBytes = 1 << 30
+	// cacheSlack is what an anchor costs beyond its proof, so a cache that
+	// cannot hold one full-size anchor is refused.
+	cacheSlack = 4096
+)
+
 func cfgErr(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", ErrConfig, fmt.Sprintf(format, a...))
 }
@@ -118,7 +179,8 @@ func ParseConfig(data []byte) (Config, error) {
 		}
 		return Config{}, cfgErr("invalid TOML")
 	}
-	if err := c.validate(); err != nil {
+	c = c.WithDefaults()
+	if err := c.ValidateBasic(); err != nil {
 		return Config{}, err
 	}
 	if b := &c.Network.Bridge; b.Addr != "" {
@@ -146,14 +208,99 @@ func validID(s string, max int) bool {
 	return true
 }
 
-func (c Config) validate() error {
+// WithDefaults fills the zero fields that have defaults. The fibre table is
+// only filled with da = "fibre".
+func (c Config) WithDefaults() Config {
+	c.Archive = c.Archive.withDefaults()
+	if c.Network.DA == DAConfigFibre {
+		c.Fibre = c.Fibre.withDefaults()
+	}
+	return c
+}
+
+func (a ArchiveConfig) withDefaults() ArchiveConfig {
+	if a.WriteTimeoutS == 0 {
+		a.WriteTimeoutS = defaultArchiveWriteS
+	}
+	if a.SweepIntervalS == 0 {
+		a.SweepIntervalS = defaultSweepIntervalS
+	}
+	return a
+}
+
+func (f FibreConfig) withDefaults() FibreConfig {
+	if f.MaxDataBytes == 0 {
+		f.MaxDataBytes = fibrecommit.DefaultMaxDataSize
+	}
+	if f.MaxReadBytes == 0 {
+		f.MaxReadBytes = gatechain.DefaultFibreMaxReadBytes
+	}
+	if f.LookupTimeoutS == 0 {
+		f.LookupTimeoutS = defaultLookupTimeoutS
+	}
+	if f.SampleEveryS == 0 {
+		f.SampleEveryS = defaultSampleEveryS
+	}
+	if f.CanaryEveryS == 0 {
+		f.CanaryEveryS = defaultCanaryEveryS
+	}
+	return f
+}
+
+// DA is the data availability mode the gate serves.
+func (c Config) DA() commitment.DA {
+	if c.Network.DA == DAConfigFibre {
+		return commitment.DAFibre
+	}
+	return commitment.DACelestiaBlob
+}
+
+// FibreAnchorOptions are the options of the da = 1 anchor lookup; the caller
+// adds the logger.
+func (c Config) FibreAnchorOptions() gatechain.FibreAnchorOptions {
+	return gatechain.FibreAnchorOptions{
+		MaxReadBytes:  c.Fibre.MaxReadBytes,
+		CacheBytes:    c.Fibre.AnchorCacheBytes,
+		LookupTimeout: time.Duration(c.Fibre.LookupTimeoutS) * time.Second,
+	}
+}
+
+// FibreBridgeLimits are the limits the bridge client must be built with: it
+// has to carry the largest namespace data the gate reads.
+func (c Config) FibreBridgeLimits() node.BridgeLimits { return c.FibreAnchorOptions().BridgeLimits() }
+
+// FibreExpect is what the da = 1 compatibility check requires. A bridge
+// version is never part of it: the download fallback is enabled by a
+// capability probe, not by a version the operator declares.
+func (c Config) FibreExpect(log *slog.Logger) node.FibreExpect {
+	return node.FibreExpect{
+		Expect:   node.Expect{ChainID: c.Network.ChainID},
+		ChainIDs: slices.Clone(c.Network.FibreChainIDs),
+		Log:      log,
+	}
+}
+
+// ValidateBasic checks every field that needs no dependency. It applies no
+// defaults: call WithDefaults first.
+func (c Config) ValidateBasic() error {
 	n := c.Network
 	if n.MinAppVersion != 0 && n.MaxAppVersion != 0 && n.MinAppVersion > n.MaxAppVersion {
 		return cfgErr("network.min_app_version above network.max_app_version")
 	}
 
-	if n.DA != "blob" && n.DA != "fibre" {
-		return cfgErr(`network.da must be "blob" or "fibre"`)
+	switch n.DA {
+	case DAConfigBlob:
+	case DAConfigFibre:
+	case "blob":
+		return cfgErr(`network.da "blob" is not a mode: use "celestia_blob"`)
+	default:
+		return cfgErr(`network.da must be "celestia_blob" or "fibre"`)
+	}
+	if err := c.validateArchive(); err != nil {
+		return err
+	}
+	if err := c.validateFibre(); err != nil {
+		return err
 	}
 
 	g := c.Gate
@@ -190,6 +337,58 @@ func (c Config) validate() error {
 		return err
 	}
 	return c.HTTP.validate()
+}
+
+func (c Config) validateArchive() error {
+	a := c.Archive
+	switch {
+	case a.Dir == "":
+		return cfgErr("archive.dir is required")
+	case a.WriteTimeoutS < 1 || a.WriteTimeoutS > 60:
+		return cfgErr("archive.write_timeout_s must be 1..60")
+	case a.SweepIntervalS < 60 || a.SweepIntervalS > 86400:
+		return cfgErr("archive.sweep_interval_s must be 60..86400")
+	}
+	return nil
+}
+
+func (c Config) validateFibre() error {
+	n, f := c.Network, c.Fibre
+	if n.DA == DAConfigBlob {
+		if f != (FibreConfig{}) || len(n.FibreChainIDs) != 0 {
+			return cfgErr(`the [fibre] table and network.fibre_chain_ids need network.da = "fibre"`)
+		}
+		return nil
+	}
+	if n.MinAppVersion != 0 || n.MaxAppVersion != 0 {
+		return cfgErr(`network.min_app_version and network.max_app_version do not apply to da = "fibre": the app version is pinned`)
+	}
+	for i, id := range n.FibreChainIDs {
+		switch {
+		case id == "" || len(id) > 20:
+			return cfgErr("network.fibre_chain_ids[%d] must be 1..20 bytes", i)
+		case slices.Contains(n.FibreChainIDs[:i], id):
+			return cfgErr("network.fibre_chain_ids[%d] is a duplicate", i)
+		}
+	}
+	switch {
+	case f.MaxDataBytes < 1 || f.MaxDataBytes > fibrecommit.DefaultMaxDataSize:
+		return cfgErr("fibre.max_data_bytes must be 1..%d", fibrecommit.DefaultMaxDataSize)
+	case f.MaxReadBytes < minFibreReadBytes || f.MaxReadBytes > maxFibreReadBytes:
+		return cfgErr("fibre.max_read_bytes must be %d..%d", minFibreReadBytes, maxFibreReadBytes)
+	case f.AnchorCacheBytes != 0 && (f.AnchorCacheBytes < f.MaxReadBytes+cacheSlack || f.AnchorCacheBytes > 1<<30):
+		return cfgErr("fibre.anchor_cache_bytes must be 0 or fibre.max_read_bytes + %d .. %d", cacheSlack, 1<<30)
+	case f.LookupTimeoutS < 1 || f.LookupTimeoutS > 600:
+		return cfgErr("fibre.lookup_timeout_s must be 1..600")
+	case f.SampleEveryS < 1 || f.SampleEveryS > 300:
+		return cfgErr("fibre.sample_every_s must be 1..300")
+	case f.CanaryEveryS < 60 || f.CanaryEveryS > 3600:
+		return cfgErr("fibre.canary_every_s must be 60..3600")
+	}
+	if c.Recorder.Enabled {
+		return fmt.Errorf("%w: %w: da = fibre with the recorder enabled", ErrConfig, ErrDANotSupported)
+	}
+	return nil
 }
 
 func (c Config) executorKeys() ([][32]byte, error) {

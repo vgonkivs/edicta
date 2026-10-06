@@ -71,7 +71,7 @@ func recorderCfg(t *testing.T) edictad.Config {
 	ns := "00" + strings.Repeat("00", 18) + strings.Repeat("07", 10)
 	toml := fmt.Sprintf(`
 [network]
-da = "blob"
+da = "celestia_blob"
 chain_id = ""
 min_app_version = 3
 max_app_version = 10
@@ -94,6 +94,8 @@ max_blob_bytes = 1048576
 [recorder.quota]
 blobs_per_hour = 60
 bytes_per_day = 67108864
+[archive]
+dir = %q
 [gate]
 gate_id = "gate-1"
 key_file = %q
@@ -109,7 +111,7 @@ tls_key_file = ""
 authorize_token_file = ""
 record_token_file = ""
 allow_insecure = false
-`, ns, filepath.Join(dir, "kr"), pass, filepath.Join(dir, "gate.key"), filepath.Join(dir, "reg.db"),
+`, ns, filepath.Join(dir, "kr"), pass, filepath.Join(dir, "archive"), filepath.Join(dir, "gate.key"), filepath.Join(dir, "reg.db"),
 		filepath.Join(dir, "agents.toml"), hex.EncodeToString(execPub))
 	cfg, err := edictad.ParseConfig([]byte(toml))
 	require.NoError(t, err)

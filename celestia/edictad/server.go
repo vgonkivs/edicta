@@ -11,20 +11,27 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/celestia/gatechain"
+	"github.com/vgonkivs/edicta/celestia/heightcheck"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/celestia/secret"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edictaapi"
+	"github.com/vgonkivs/edicta/fibre/fibrecommit"
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/gate/dacommit/blobv1"
 	"github.com/vgonkivs/edicta/gate/registry/boltreg"
+	"github.com/vgonkivs/edicta/retention"
 	"github.com/vgonkivs/edicta/sdk"
 )
 
@@ -39,12 +46,45 @@ type Deps struct {
 	// Submitter pays for the Recorder's blobs. It is required when the
 	// Recorder is enabled and never touched otherwise.
 	Submitter recorder.Submitter
-	Clock     gate.Clock   // nil means the system clock
-	Logger    *slog.Logger // nil means slog.Default()
+	// Fibre is required with da = "fibre" and ignored otherwise.
+	Fibre *FibreDeps
+	// Archive is where decisions, Authorizations and refusals are kept; nil
+	// opens the filesystem archive of the configured directory.
+	Archive archive.Store
+	Clock   gate.Clock   // nil means the system clock
+	Logger  *slog.Logger // nil means slog.Default()
 	// Listen opens the API listener; nil means net.Listen.
 	Listen func(network, addr string) (net.Listener, error)
 	// WrapGate lets a test stand in for the gate behind the API; nil keeps it.
 	WrapGate func(edictaapi.Gate) edictaapi.Gate
+	// SweepTick paces the background archive sweep; nil means a ticker of
+	// archive.sweep_interval_s. A test sends the ticks.
+	SweepTick <-chan time.Time
+}
+
+// FibreDeps are the da = 1 dependencies.
+type FibreDeps struct {
+	// Chain reads the consensus endpoint: headers, result codes and validator
+	// sets of an anchor.
+	Chain node.FibreChainReader
+	// Bridge serves the data availability header and the namespace data of the
+	// anchor proof. A bridge that reports its limits must report the ones the
+	// configuration asks for.
+	Bridge node.FibreBridgeReader
+	// Direct downloads blobs from the storage providers.
+	Direct node.FibreDownloader
+	// Fallback downloads through a bridge. It is used only if the configuration
+	// asks for it and BridgeCompat passes.
+	Fallback node.FibreDownloader
+	// BridgeCompat is the capability probe of the fallback bridge. Nil means
+	// no probe is available, so the fallback stays off.
+	BridgeCompat func(ctx context.Context) error
+	// Committer recomputes the da = 1 commitment; nil means a committer
+	// capped at fibre.max_data_bytes.
+	Committer *fibrecommit.Committer
+	// SelfTest, CheckBuild and CheckNMT replace the pin checks in tests; nil
+	// runs the real ones.
+	SelfTest, CheckBuild, CheckNMT func() error
 }
 
 type systemClock struct{}
@@ -58,6 +98,9 @@ type Server struct {
 	gate *gate.Gate
 	reg  interface{ Close() error }
 
+	// stop ends the background goroutines; they are waited for on shutdown.
+	stop   context.CancelFunc
+	bg     sync.WaitGroup
 	mu     sync.Mutex
 	closed bool
 	served chan struct{}
@@ -66,9 +109,10 @@ type Server struct {
 // Addr is the address the API listens on.
 func (s *Server) Addr() string { return s.addr }
 
-// Shutdown stops accepting, lets in-flight requests finish, then releases the
-// gate and closes the registry. If ctx ends first it returns ctx's error and
-// may be called again. After a clean shutdown it returns nil.
+// Shutdown stops accepting, lets in-flight requests finish, then stops the
+// background work and releases the gate and the registry. If ctx ends first it
+// returns ctx's error and may be called again. After a clean shutdown it
+// returns nil.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -80,6 +124,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	<-s.served
 	s.closed = true
+	s.stop()
+	s.bg.Wait()
 	_ = s.gate.Close()
 	if err := s.reg.Close(); err != nil {
 		return fmt.Errorf("edictad: closing registry: %w", err)
@@ -87,19 +133,48 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+func isNil(v any) bool {
+	if v == nil {
+		return true
+	}
+	switch rv := reflect.ValueOf(v); rv.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan, reflect.Interface:
+		return rv.IsNil()
+	}
+	return false
+}
+
+// checkFibreDeps refuses a da = 1 start that lacks a dependency, or whose
+// bridge client was built for other limits than the configuration reads with.
+func checkFibreDeps(cfg Config, d Deps) error {
+	f := d.Fibre
+	if f == nil || isNil(f.Chain) || isNil(f.Bridge) || isNil(f.Direct) {
+		return cfgErr(`da = "fibre" needs a consensus reader, a bridge reader and a download client`)
+	}
+	if l, ok := f.Bridge.(interface{ Limits() node.BridgeLimits }); ok && l.Limits() != cfg.FibreBridgeLimits() {
+		return cfgErr("the bridge client's namespace data limit differs from fibre.max_read_bytes")
+	}
+	return nil
+}
+
 // Start validates everything, then serves. Order: secret files, the
-// compatibility check, gate preflight, the registry, the Recorder, the
-// listener. A refusal returns a nil Server, with no listener bound, and the
-// registry is not even created before the check and preflight pass.
+// compatibility check, gate preflight, the archive, the registry, the
+// retention observer, the archive sweep, the Recorder, the listener. A refusal
+// returns a nil Server, with no listener bound, and the archive and the
+// registry are not even created before the check and preflight pass.
 func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
-	if err := cfg.validate(); err != nil {
+	cfg = cfg.WithDefaults()
+	if err := cfg.ValidateBasic(); err != nil {
 		return nil, err
 	}
-	if d.Reader == nil || d.Consensus == nil {
+	if isNil(d.Reader) || isNil(d.Consensus) {
 		return nil, cfgErr("a node reader and a consensus client are required")
 	}
-	if cfg.Network.DA == "fibre" {
-		return nil, fmt.Errorf("%w: da = fibre", ErrDANotSupported)
+	fibre := cfg.DA() == commitment.DAFibre
+	if fibre {
+		if err := checkFibreDeps(cfg, d); err != nil {
+			return nil, err
+		}
 	}
 	log := d.Logger
 	if log == nil {
@@ -133,23 +208,62 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 		}
 	}
 
-	head, err := node.Check(ctx, d.Reader, d.Consensus, node.Expect{
-		ChainID:       cfg.Network.ChainID,
-		MinAppVersion: cfg.Network.MinAppVersion,
-		MaxAppVersion: cfg.Network.MaxAppVersion,
-		Namespace:     ns,
-		Now:           clock.Now,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("edictad: compatibility check: %w", err)
+	committers := map[commitment.DA]gate.DACommitter{commitment.DACelestiaBlob: blobv1.New()}
+	var fibreCommitter *fibrecommit.Committer
+	if fibre {
+		if fibreCommitter = d.Fibre.Committer; fibreCommitter == nil {
+			if fibreCommitter, err = fibrecommit.New(cfg.Fibre.MaxDataBytes); err != nil {
+				return nil, fmt.Errorf("edictad: fibre gate without a da = 1 committer: %w", err)
+			}
+		}
+		committers[commitment.DAFibre] = fibreCommitter
+	}
+
+	// What the at-height summary line says about the endpoints.
+	var (
+		head      node.Header
+		bridgeSt  heightcheck.Status
+		obsOnly   bool
+		fallbackD node.FibreDownloader
+	)
+	if fibre {
+		x := cfg.FibreExpect(log)
+		x.Now = clock.Now
+		x.Namespace = ns
+		x.SelfTest, x.CheckBuild, x.CheckNMT = d.Fibre.SelfTest, d.Fibre.CheckBuild, d.Fibre.CheckNMT
+		fs, err := node.CheckFibre(ctx, d.Reader, d.Consensus, x)
+		if err != nil {
+			return nil, fmt.Errorf("edictad: compatibility check: %w", err)
+		}
+		head, obsOnly = fs.Head, fs.ObservationsOnly
+		fallbackD = bridgeFallback(ctx, cfg, d.Fibre, log)
+	} else {
+		head, err = node.Check(ctx, d.Reader, d.Consensus, node.Expect{
+			ChainID:       cfg.Network.ChainID,
+			MinAppVersion: cfg.Network.MinAppVersion,
+			MaxAppVersion: cfg.Network.MaxAppVersion,
+			Namespace:     ns,
+			Now:           clock.Now,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("edictad: compatibility check: %w", err)
+		}
+		ep := &recordedEndpoint{Endpoint: node.BridgeEndpoint("bridge", d.Reader)}
+		if _, err := heightcheck.Startup(ctx, log, ep); err != nil {
+			return nil, fmt.Errorf("edictad: compatibility check: %w", err)
+		}
+		bridgeSt = ep.status
 	}
 
 	gcfg := gate.DefaultConfig()
 	gcfg.Scope = commitment.GateScope{GateID: cfg.Gate.GateID, ActionTypes: slices.Clone(cfg.Gate.ActionTypes)}
 	gcfg.ExecutorKeys = execKeys
-	gcfg.AllowedDA = []commitment.DA{commitment.DACelestiaBlob}
-	params := gatechain.NewParams(d.Consensus)
-	if err := gate.Preflight(ctx, gcfg, gate.Deps{Params: params}); err != nil {
+	gcfg.AllowedDA = []commitment.DA{cfg.DA()}
+	gcfg.ArchiveWriteTimeout = time.Duration(cfg.Archive.WriteTimeoutS) * time.Second
+	if fibre {
+		gcfg.FibreMaxDataBytes = cfg.Fibre.MaxDataBytes
+	}
+	if err := gate.Preflight(ctx, gcfg, gate.Deps{Params: gatechain.NewParams(d.Consensus)}); err != nil {
 		return nil, fmt.Errorf("edictad: gate preflight: %w", err)
 	}
 
@@ -157,32 +271,92 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("edictad: gate key: %w", err)
 	}
+	store := d.Archive
+	if store == nil {
+		if store, err = fsarchive.Open(cfg.Archive.Dir, committers); err != nil {
+			return nil, fmt.Errorf("edictad: archive: %w", err)
+		}
+	}
+	aio := newArchiveIO(store)
 	reg, err := boltreg.Open(cfg.Gate.RegistryPath, uint64(clock.Now().Unix()))
 	if err != nil {
 		return nil, fmt.Errorf("edictad: registry: %w", err)
 	}
-	g, err := gate.New(ctx, gcfg, gate.Deps{
+
+	runCtx, stop := context.WithCancel(context.Background())
+	s := &Server{stop: stop, reg: reg, served: make(chan struct{})}
+	fail := func(err error) (*Server, error) {
+		stop()
+		s.bg.Wait()
+		if s.gate != nil {
+			_ = s.gate.Close()
+		}
+		_ = reg.Close()
+		return nil, err
+	}
+
+	hl := &health{rd: d.Reader, clock: clock, log: log, gateID: cfg.Gate.GateID, gatePub: signer.PublicKey(),
+		allowedDA: []uint64{uint64(cfg.DA())}, last: head, lastOK: true, lastAt: clock.Now()}
+
+	gdeps := gate.Deps{
 		Clock:      clock,
-		Params:     params,
-		Headers:    gatechain.NewHeaders(d.Reader),
-		Anchors:    gatechain.NewAnchors(d.Reader),
-		DA:         gatechain.NewBlobSource(d.Reader),
-		Archive:    gatechain.NoArchive,
-		Committers: map[commitment.DA]gate.DACommitter{commitment.DACelestiaBlob: blobv1.New()},
+		Archive:    archive.NewGateSource(store),
+		Archiver:   &archiver{io: aio},
+		Committers: committers,
 		Allowlist:  allow,
 		Registry:   reg,
 		Signer:     signer,
 		Logger:     log,
-	})
+	}
+	if fibre {
+		reader, err := node.NewFibreAnchorReader(d.Fibre.Chain, d.Fibre.Bridge)
+		if err != nil {
+			return fail(fmt.Errorf("edictad: fibre anchor reader: %w", err))
+		}
+		obsParams, err := startObserver(ctx, cfg, d, reg, clock, log)
+		if err != nil {
+			return fail(err)
+		}
+		s.bg.Add(1)
+		go func() {
+			defer s.bg.Done()
+			err := obsParams.Run(runCtx, time.Duration(cfg.Fibre.SampleEveryS)*time.Second, time.Duration(cfg.Fibre.CanaryEveryS)*time.Second)
+			if runCtx.Err() == nil {
+				log.Error("edictad: retention observer stopped; heights it no longer covers fail closed", "err", err)
+				hl.degraded.Store(true)
+			}
+		}()
+		logAtHeightFibre(log, obsParams.ObservationsOnly(), obsOnly)
+
+		opts := cfg.FibreAnchorOptions()
+		opts.Log = log
+		anchors := gatechain.NewFibreAnchors(reader, head.ChainID, opts)
+		gdeps.Params = gatechain.NewFibreParams(obsParams)
+		gdeps.Headers = gatechain.NewFibreHeaders(d.Fibre.Chain)
+		gdeps.Anchors = anchors
+		gdeps.DA = gatechain.NewFibreBlobs(anchors, d.Fibre.Direct, fallbackD, fibreCommitter)
+	} else {
+		logAtHeightBlob(log, bridgeSt)
+		gdeps.Params = gatechain.NewParams(d.Consensus)
+		gdeps.Headers = gatechain.NewHeaders(d.Reader)
+		gdeps.Anchors = gatechain.NewAnchors(d.Reader)
+		gdeps.DA = gatechain.NewBlobSource(d.Reader)
+	}
+	g, err := gate.New(ctx, gcfg, gdeps)
 	if err != nil {
-		_ = reg.Close()
-		return nil, fmt.Errorf("edictad: gate: %w", err)
+		return fail(fmt.Errorf("edictad: gate: %w", err))
 	}
-	fail := func(err error) (*Server, error) {
-		_ = g.Close()
-		_ = reg.Close()
-		return nil, err
-	}
+	s.gate = g
+
+	timeout := time.Duration(cfg.Archive.WriteTimeoutS) * time.Second
+	q := &retryQueue{}
+	sw := &sweeper{lister: reg, io: aio, q: q, log: log, timeout: timeout}
+	_, firstFailed := sw.run(ctx, true)
+	s.bg.Add(1)
+	go func() {
+		defer s.bg.Done()
+		sw.loop(runCtx, d.SweepTick, time.Duration(cfg.Archive.SweepIntervalS)*time.Second, firstFailed)
+	}()
 
 	hcfg := edictaapi.HandlerConfig{
 		GateID:         cfg.Gate.GateID,
@@ -193,15 +367,20 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 		ExtraErrors:    recorderErrors,
 		RequestTimeout: 2 * time.Minute,
 	}
-	hl := &health{rd: d.Reader, clock: clock, log: log, gateID: cfg.Gate.GateID, gatePub: signer.PublicKey(),
-		allowedDA: []uint64{uint64(commitment.DACelestiaBlob)}, last: head, lastOK: true, lastAt: clock.Now()}
 	var pub sdk.Publisher
 	var quota edictaapi.Quota
 	if cfg.Recorder.Enabled {
 		if d.Submitter == nil {
 			return fail(cfgErr("recorder is enabled but no submitter is available"))
 		}
-		rec, err := recorder.New(recorder.Config{Namespace: ns, MaxBlobBytes: cfg.Recorder.maxBlob()}, d.Submitter, d.Reader)
+		// The Recorder archives the signed header of every blob it lands; without
+		// the archive a restart can pay for the same blob twice, so a reader
+		// that cannot serve one refuses the start.
+		if _, ok := d.Reader.(signedHeaderReader); !ok {
+			return fail(cfgErr("the recorder needs a node reader that can return signed headers"))
+		}
+		rcfg := recorder.Config{Namespace: ns, MaxBlobBytes: cfg.Recorder.maxBlob(), Archive: store}
+		rec, err := recorder.New(rcfg, d.Submitter, d.Reader)
 		if err != nil {
 			return fail(fmt.Errorf("edictad: recorder: %w", err))
 		}
@@ -216,7 +395,10 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 		}, clock)
 	}
 
-	var api edictaapi.Gate = gateAPI{g}
+	var api edictaapi.Gate = &archivingGate{
+		g: g, clock: clock, gateID: cfg.Gate.GateID,
+		w: &writer{io: aio, q: q, log: log, timeout: timeout},
+	}
 	if d.WrapGate != nil {
 		api = d.WrapGate(api)
 	}
@@ -230,16 +412,11 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 	if err != nil {
 		return fail(fmt.Errorf("edictad: listen: %w", err))
 	}
-	s := &Server{
-		addr: l.Addr().String(),
-		http: &http.Server{
-			Handler:           handler,
-			ReadHeaderTimeout: 10 * time.Second,
-			IdleTimeout:       2 * time.Minute,
-		},
-		gate:   g,
-		reg:    reg,
-		served: make(chan struct{}),
+	s.addr = l.Addr().String()
+	s.http = &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
 	}
 	tls := cfg.HTTP.TLSCertFile != ""
 	go func() {
@@ -255,8 +432,95 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 		}
 	}()
 	log.Info("edictad: serving", "addr", s.addr, "chain_id", head.ChainID, "gate_id", cfg.Gate.GateID,
-		"recorder", cfg.Recorder.Enabled)
+		"da", cfg.Network.DA, "recorder", cfg.Recorder.Enabled)
 	return s, nil
+}
+
+type signedHeaderReader interface {
+	SignedHeader(ctx context.Context, height uint64) ([]byte, error)
+}
+
+// recordedEndpoint keeps the canary result so the summary line can name it.
+type recordedEndpoint struct {
+	heightcheck.Endpoint
+	status heightcheck.Status
+}
+
+func (r *recordedEndpoint) Canary(ctx context.Context) (heightcheck.Status, error) {
+	st, err := r.Endpoint.Canary(ctx)
+	r.status = st
+	return st, err
+}
+
+func (r *recordedEndpoint) Details() []any {
+	if d, ok := r.Endpoint.(heightcheck.Described); ok {
+		return d.Details()
+	}
+	return nil
+}
+
+// startObserver binds the registry's retention store to the chain and takes
+// the first sample. A refusal here is a refusal to start: without the
+// samples the gate could not answer for any past height.
+func startObserver(ctx context.Context, cfg Config, d Deps, reg *boltreg.Registry, clock gate.Clock, log *slog.Logger) (*retention.Params, error) {
+	latest, direct := gatechain.NewRetentionSources(d.Consensus)
+	p, err := retention.NewParams(retention.Policy{AssumedLagBlocks: cfg.Fibre.AssumedLagBlocks},
+		latest, direct, reg.RetentionStore(), clock, retention.WithLogger(log))
+	if err != nil {
+		return nil, fmt.Errorf("edictad: retention observer: %w", err)
+	}
+	if err := p.Start(ctx); err != nil {
+		return nil, fmt.Errorf("edictad: retention observer: %w", err)
+	}
+	return p, nil
+}
+
+func logAtHeightFibre(log *slog.Logger, observationsOnly, consensusFailed bool) {
+	if !observationsOnly {
+		log.Info("edictad: at-height reads", "da", DAConfigFibre, "retention", "direct")
+		return
+	}
+	reason := "the retention canary did not pass"
+	if consensusFailed {
+		reason = "the consensus endpoint did not pass the height canary"
+	}
+	log.Warn("edictad: at-height reads", "da", DAConfigFibre, "retention", "observations-only", "reason", reason)
+}
+
+func logAtHeightBlob(log *slog.Logger, bridge heightcheck.Status) {
+	name := "inconclusive"
+	switch bridge {
+	case heightcheck.Honoured:
+		name = "honoured"
+	case heightcheck.Ignoring:
+		name = "ignoring"
+	}
+	log.Info("edictad: at-height reads", "da", DAConfigBlob, "retention", "unused", "bridge", name)
+}
+
+// bridgeFallback returns the bridge download client if the operator asked for
+// it and the capability probe passed; otherwise nil, with the reason logged.
+// It never refuses the start: the fallback is optional, and a version or
+// capability the operator declares is never a substitute for the probe.
+func bridgeFallback(ctx context.Context, cfg Config, f *FibreDeps, log *slog.Logger) node.FibreDownloader {
+	if !cfg.Fibre.BridgeFallback {
+		log.Info("edictad: bridge download fallback off", "reason", "fibre.bridge_fallback is false")
+		return nil
+	}
+	if f.BridgeCompat == nil {
+		log.Warn("edictad: bridge download fallback off", "reason", "no capability probe is available")
+		return nil
+	}
+	if err := f.BridgeCompat(ctx); err != nil {
+		log.Warn("edictad: bridge download fallback off", "reason", "the capability probe did not pass", "err", err)
+		return nil
+	}
+	if isNil(f.Fallback) {
+		log.Info("edictad: bridge download fallback off", "reason", "no bridge download client")
+		return nil
+	}
+	log.Info("edictad: bridge download fallback on", "reason", "the capability probe passed")
+	return f.Fallback
 }
 
 var recorderErrors = []edictaapi.ErrorRule{
@@ -271,15 +535,49 @@ var recorderErrors = []edictaapi.ErrorRule{
 	{Code: "recorder.ErrEscrowInsufficient", Err: recorder.ErrEscrowInsufficient, Status: 503, Retryable: true},
 }
 
-// gateAPI adapts *gate.Gate to the API's interface, which takes the executor
-// key as plain bytes.
-type gateAPI struct{ g *gate.Gate }
-
-func (a gateAPI) Authorize(ctx context.Context, envelope, action []byte) (gate.Result, error) {
-	return a.g.Authorize(ctx, envelope, action)
+// archivingGate adapts *gate.Gate to the API's interface, which takes the
+// executor key as plain bytes, and writes what follows the gate's decision to
+// the archive. The archive write that must come before the signature is the
+// gate's own stage, not this type's.
+type archivingGate struct {
+	g      *gate.Gate
+	clock  gate.Clock
+	gateID string
+	w      *writer
 }
 
-func (a gateAPI) Record(ctx context.Context, envelope []byte, railRef string, execPub, execSig []byte) ([]byte, error) {
+func (a *archivingGate) Authorize(ctx context.Context, envelope, action []byte) (gate.Result, error) {
+	// One scope per request: the anchor stage and the payload stage read the
+	// block once between them.
+	res, err := a.g.Authorize(gatechain.WithAnchorScope(ctx), envelope, action)
+	a.after(ctx, res, err)
+	return res, err
+}
+
+// after archives the outcome. A failure here never changes the answer: the
+// registry is the authority and the sweep repairs the archive.
+func (a *archivingGate) after(ctx context.Context, res gate.Result, err error) {
+	switch {
+	case err == nil:
+		a.w.write(ctx, &archive.AuthorizationRecord{
+			SignedAuthorization: res.Authorization, AuthorizedAt: res.AuthorizedAt, K2: k2Record(res.K2),
+		})
+	case errors.Is(err, gate.ErrNonceUsed) && res.Authorization != nil:
+		// The same decision again: copy the stored Authorization. The inputs
+		// of this request belong to a signature that was dropped, so no K2.
+		a.w.write(ctx, &archive.AuthorizationRecord{SignedAuthorization: res.Authorization, AuthorizedAt: res.AuthorizedAt})
+	case res.DecisionArchived:
+		name, ok := markerName(err)
+		if !ok {
+			return
+		}
+		a.w.write(ctx, &archive.RejectionRecord{
+			CommitmentHash: res.CommitmentHash, Error: name, GateID: a.gateID, RejectedAt: uint64(a.clock.Now().Unix()),
+		})
+	}
+}
+
+func (a *archivingGate) Record(ctx context.Context, envelope []byte, railRef string, execPub, execSig []byte) ([]byte, error) {
 	return a.g.Record(ctx, envelope, railRef, ed25519.PublicKey(execPub), execSig)
 }
 
@@ -353,6 +651,9 @@ type health struct {
 	namespace []byte
 	allowedDA []uint64
 
+	// degraded is set when the retention observer has stopped.
+	degraded atomic.Bool
+
 	mu     sync.Mutex
 	last   node.Header
 	lastOK bool
@@ -378,7 +679,7 @@ func (h *health) Health(ctx context.Context) (edictaapi.HealthInfo, error) {
 		}
 	}
 	status := uint64(1)
-	if !h.lastOK {
+	if !h.lastOK || h.degraded.Load() {
 		status = 2
 	}
 	return edictaapi.HealthInfo{
