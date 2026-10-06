@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client/grpc/cmtservice"
@@ -21,6 +22,8 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	fibretypes "github.com/celestiaorg/celestia-app/v10/x/fibre/types"
+
+	"github.com/vgonkivs/edicta/celestia/heightcheck"
 )
 
 // GRPCConfig is one consensus gRPC endpoint.
@@ -121,11 +124,67 @@ func (c *ConsensusClient) FibreParams(ctx context.Context) (FibreParams, error) 
 		}
 		return FibreParams{}, err
 	}
+	return fibreParams(r)
+}
+
+func fibreParams(r *fibretypes.QueryParamsResponse) (FibreParams, error) {
 	d := r.Params.ShardRetention
 	if d <= 0 {
 		return FibreParams{}, fmt.Errorf("%w: x/fibre shard retention is not positive", ErrUnsupported)
 	}
 	return FibreParams{RetentionS: uint64(d.Seconds())}, nil
+}
+
+// pinned sends the height in x-cosmos-block-height and returns the response
+// headers.
+func pinned(ctx context.Context, height uint64) (context.Context, *metadata.MD) {
+	return metadata.AppendToOutgoingContext(ctx, heightcheck.HeightHeader, strconv.FormatUint(height, 10)), &metadata.MD{}
+}
+
+func heightIgnored(err error) error {
+	return fmt.Errorf("%w: %w", ErrUnavailable, err)
+}
+
+// FibreParamsAt reads x/fibre params at height and requires the node to echo
+// that height.
+func (c *ConsensusClient) FibreParamsAt(ctx context.Context, height uint64) (FibreParams, error) {
+	pctx, md := pinned(ctx, height)
+	r, err := c.fibre.Params(pctx, &fibretypes.QueryParamsRequest{}, grpc.Header(md))
+	if err != nil {
+		return FibreParams{}, classifyGRPC(ctx, err)
+	}
+	if err := heightcheck.EchoHeight(*md, height); err != nil {
+		return FibreParams{}, heightIgnored(err)
+	}
+	return fibreParams(r)
+}
+
+// canaryHeights are far below any x/fibre activation; an honest node cannot
+// load state there.
+var canaryHeights = []uint64{1, 2, 3}
+
+// HeightCanary pins x/fibre params to heights below activation. A node that
+// fails them looks at the height; one that answers any of them does not.
+func (c *ConsensusClient) HeightCanary(ctx context.Context) (heightcheck.Status, error) {
+	var first error
+	out := heightcheck.Honoured
+	for _, h := range canaryHeights {
+		pctx, md := pinned(ctx, h)
+		_, err := c.fibre.Params(pctx, &fibretypes.QueryParamsRequest{}, grpc.Header(md))
+		switch st := heightcheck.ClassifyGRPC(err); st {
+		case heightcheck.Ignoring:
+			return st, nil
+		case heightcheck.Inconclusive:
+			out = st
+			if first == nil {
+				first = err
+			}
+		}
+	}
+	if out == heightcheck.Inconclusive {
+		return out, fmt.Errorf("height canary: %w", classifyGRPC(ctx, first))
+	}
+	return out, nil
 }
 
 func (c *ConsensusClient) BondDenom(ctx context.Context) (string, error) {
@@ -250,6 +309,20 @@ func (c *ConsensusClient) Tx(ctx context.Context, hash [32]byte) (TxStatus, erro
 	return TxStatus{Found: true, Height: uint64(tr.Height), Code: tr.Code, NodeHeight: nodeHeight}, nil
 }
 
+// TxAt is Tx for a transaction expected at height.
+func (c *ConsensusClient) TxAt(ctx context.Context, hash [32]byte, height uint64) (TxStatus, error) {
+	st, err := c.Tx(ctx, hash)
+	if err != nil {
+		return TxStatus{}, err
+	}
+	if st.Found {
+		if err := heightcheck.HeaderHeight(st.Height, height); err != nil {
+			return TxStatus{}, heightIgnored(err)
+		}
+	}
+	return st, nil
+}
+
 // MinGasPrice reads minimum_gas_price from the node Config service, a decimal
 // followed by the denom, and returns the decimal exactly.
 func (c *ConsensusClient) MinGasPrice(ctx context.Context) (*big.Rat, error) {
@@ -267,4 +340,20 @@ func (c *ConsensusClient) MinGasPrice(ctx context.Context) (*big.Rat, error) {
 		return nil, fmt.Errorf("%w: minimum gas price %q", ErrUnsupported, s)
 	}
 	return price, nil
+}
+
+type consensusEndpoint struct {
+	name string
+	c    Consensus
+}
+
+// ConsensusEndpoint exposes the height canary of c to heightcheck.Startup.
+func ConsensusEndpoint(name string, c Consensus) heightcheck.Endpoint {
+	return consensusEndpoint{name: name, c: c}
+}
+
+func (e consensusEndpoint) Name() string { return e.name }
+
+func (e consensusEndpoint) Canary(ctx context.Context) (heightcheck.Status, error) {
+	return e.c.HeightCanary(ctx)
 }

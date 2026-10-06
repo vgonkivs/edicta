@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/vgonkivs/edicta/celestia/heightcheck"
 	"github.com/vgonkivs/edicta/celestia/node"
 )
 
@@ -173,6 +174,8 @@ type Consensus struct {
 	txs      map[[32]byte]node.TxStatus
 	Sent     [][]byte
 	height   uint64
+	// CanaryStatus is what HeightCanary reports; zero means honoured.
+	CanaryStatus heightcheck.Status
 	// Fail, when set, is returned by every method.
 	Fail error
 }
@@ -207,6 +210,27 @@ func (c *Consensus) FibreParams(context.Context) (node.FibreParams, error) {
 		return node.FibreParams{}, node.ErrNotFound
 	}
 	return *c.Fibre, nil
+}
+
+// FibreParamsAt returns the one configured value for every height.
+func (c *Consensus) FibreParamsAt(ctx context.Context, _ uint64) (node.FibreParams, error) {
+	return c.FibreParams(ctx)
+}
+
+// HeightCanary reports CanaryStatus, honoured by default.
+func (c *Consensus) HeightCanary(context.Context) (heightcheck.Status, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Fail != nil {
+		return heightcheck.Inconclusive, c.Fail
+	}
+	if c.CanaryStatus == 0 {
+		return heightcheck.Honoured, nil
+	}
+	if c.CanaryStatus == heightcheck.Inconclusive {
+		return c.CanaryStatus, node.ErrUnavailable
+	}
+	return c.CanaryStatus, nil
 }
 
 func (c *Consensus) BondDenom(context.Context) (string, error) {
@@ -268,6 +292,21 @@ func (c *Consensus) Tx(_ context.Context, hash [32]byte) (node.TxStatus, error) 
 		return node.TxStatus{}, c.Fail
 	}
 	return c.txs[hash], nil
+}
+
+// TxAt is Tx for a transaction expected at height; a found one at another
+// height is refused.
+func (c *Consensus) TxAt(ctx context.Context, hash [32]byte, height uint64) (node.TxStatus, error) {
+	st, err := c.Tx(ctx, hash)
+	if err != nil {
+		return node.TxStatus{}, err
+	}
+	if st.Found {
+		if err := heightcheck.HeaderHeight(st.Height, height); err != nil {
+			return node.TxStatus{}, fmt.Errorf("%w: %w", node.ErrUnavailable, err)
+		}
+	}
+	return st, nil
 }
 
 // SetHeight sets the latest height LatestHeight reports.

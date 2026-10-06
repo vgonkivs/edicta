@@ -5,6 +5,8 @@ import (
 	"errors"
 	"math/big"
 	"time"
+
+	"github.com/vgonkivs/edicta/celestia/heightcheck"
 )
 
 // Errors every implementation maps its transport errors onto.
@@ -105,12 +107,22 @@ type Consensus interface {
 	ProviderChainIDs(ctx context.Context) ([]string, error)
 	// FibreParams returns ErrNotFound when the chain has no x/fibre module.
 	FibreParams(ctx context.Context) (FibreParams, error)
+	// FibreParamsAt reads the params pinned to height and fails unless the
+	// response echoes that height; the failure is ErrUnavailable and
+	// heightcheck.ErrHeightIgnored.
+	FibreParamsAt(ctx context.Context, height uint64) (FibreParams, error)
+	// HeightCanary asks for state at heights that cannot hold it.
+	HeightCanary(ctx context.Context) (heightcheck.Status, error)
 	BondDenom(ctx context.Context) (string, error)
 	Bech32Prefix(ctx context.Context) (string, error)
 	Account(ctx context.Context, address string) (AccountInfo, error)
 	// Broadcast sends txRaw unchanged and returns its hash.
 	Broadcast(ctx context.Context, txRaw []byte) ([32]byte, error)
 	Tx(ctx context.Context, hash [32]byte) (TxStatus, error)
+	// TxAt is Tx for a transaction expected at height; a found transaction at
+	// another height is refused like an ignored height. An unknown hash is
+	// Found false.
+	TxAt(ctx context.Context, hash [32]byte, height uint64) (TxStatus, error)
 	// LatestHeight is the latest block height of the answering node.
 	LatestHeight(ctx context.Context) (uint64, error)
 	// TxIndex returns nil only when the node reports that it indexes

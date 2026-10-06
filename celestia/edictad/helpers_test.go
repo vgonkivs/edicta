@@ -9,6 +9,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -53,6 +54,16 @@ func blockAt(h uint64, app uint64) node.Header {
 		DataRoot: bytes.Repeat([]byte{byte(h)}, 32)}
 }
 
+// rootProof verifies only against the data root of the block the blob landed in.
+type rootProof struct{ root []byte }
+
+func (p rootProof) Verify(dataRoot, _ []byte) error {
+	if !bytes.Equal(dataRoot, p.root) {
+		return errors.New("proof does not verify against the data root")
+	}
+	return nil
+}
+
 // landing is a recorder.Submitter that really lands the blob in the fake
 // chain with the real share commitment.
 type landing struct {
@@ -84,7 +95,7 @@ func (l *landing) Submit(ctx context.Context, ns, data []byte) (recorder.SubmitR
 		return recorder.SubmitResult{}, err
 	}
 	l.chain.AddBlob(h, node.Blob{Namespace: bytes.Clone(ns), Data: bytes.Clone(data), ShareVersion: 1,
-		Signer: bytes.Clone(recAddr), Commitment: c}, nil)
+		Signer: bytes.Clone(recAddr), Commitment: c}, rootProof{root: hd.DataRoot})
 	return recorder.SubmitResult{Height: h}, nil
 }
 

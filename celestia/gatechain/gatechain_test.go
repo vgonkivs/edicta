@@ -3,6 +3,7 @@ package gatechain_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -50,14 +51,32 @@ func ref(t *testing.T) commitment.PayloadRef {
 		Commitment: comm(t, data), Height: H, Signer: signer}
 }
 
+// rootProof is a commitment proof that verifies only against its own data root.
+type rootProof struct {
+	root []byte
+	got  *[2][]byte
+}
+
+func (p rootProof) Verify(dataRoot, commitment []byte) error {
+	if p.got != nil {
+		*p.got = [2][]byte{bytes.Clone(dataRoot), bytes.Clone(commitment)}
+	}
+	if !bytes.Equal(dataRoot, p.root) {
+		return errors.New("proof does not verify against the data root")
+	}
+	return nil
+}
+
+func rootAt(h uint64) []byte { return bytes.Repeat([]byte{byte(h)}, 32) }
+
 func chain(t *testing.T, mut func(*node.Blob)) *nodefake.Chain {
 	c := nodefake.NewChain(signer)
-	c.AddHeader(node.Header{ChainID: "devnet-1", Height: H, Time: t0})
+	c.AddHeader(node.Header{ChainID: "devnet-1", Height: H, Time: t0, DataRoot: rootAt(H)})
 	b := node.Blob{Namespace: ns, Data: bytes.Clone(data), ShareVersion: 1, Signer: signer, Commitment: comm(t, data)}
 	if mut != nil {
 		mut(&b)
 	}
-	c.AddBlob(H, b, nil)
+	c.AddBlob(H, b, rootProof{root: rootAt(H)})
 	return c
 }
 

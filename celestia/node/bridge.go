@@ -9,6 +9,8 @@ import (
 
 	"github.com/celestiaorg/celestia-node/api/client"
 	"github.com/celestiaorg/celestia-node/blob"
+
+	"github.com/vgonkivs/edicta/celestia/heightcheck"
 )
 
 // bridge adapts a celestia-node ReadClient to Reader.
@@ -39,10 +41,46 @@ func (b bridge) HeaderAt(ctx context.Context, height uint64) (Header, error) {
 	if err != nil {
 		return Header{}, wrapCtx(ctx, err)
 	}
+	if err := heightcheck.HeaderHeight(uint64(h.Height()), height); err != nil {
+		return Header{}, heightIgnored(err)
+	}
 	return Header{
 		ChainID: h.ChainID(), Height: uint64(h.Height()), Time: h.Time(),
 		AppVersion: h.Version.App, DataRoot: append([]byte(nil), h.DataHash...),
 	}, nil
+}
+
+// canaryAhead is how far above the head the bridge canary asks; no header
+// exists there.
+const canaryAhead = 1_000_000
+
+type bridgeEndpoint struct {
+	name string
+	r    Reader
+}
+
+// BridgeEndpoint exposes the height canary of r to heightcheck.Startup.
+func BridgeEndpoint(name string, r Reader) heightcheck.Endpoint {
+	return bridgeEndpoint{name: name, r: r}
+}
+
+func (e bridgeEndpoint) Name() string { return e.name }
+
+// Canary asks for a header far above the head: an honest bridge says not
+// found, one that ignores the height answers some other header.
+func (e bridgeEndpoint) Canary(ctx context.Context) (heightcheck.Status, error) {
+	head, err := e.r.Head(ctx)
+	if err != nil {
+		return heightcheck.Inconclusive, fmt.Errorf("height canary: head: %w", err)
+	}
+	_, err = e.r.HeaderAt(ctx, head.Height+canaryAhead)
+	switch {
+	case err == nil, errors.Is(err, heightcheck.ErrHeightIgnored):
+		return heightcheck.Ignoring, nil
+	case errors.Is(err, ErrNotFound):
+		return heightcheck.Honoured, nil
+	}
+	return heightcheck.Inconclusive, fmt.Errorf("height canary: %w", err)
 }
 
 func (b bridge) Blob(ctx context.Context, height uint64, namespace, commitment []byte) (Blob, error) {
