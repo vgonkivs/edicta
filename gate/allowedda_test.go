@@ -139,8 +139,8 @@ func TestOnlyDA2NeverReadsFibreRetention(t *testing.T) {
 func TestDA1AllowedStillReadsFibreRetention(t *testing.T) {
 	e := gatefix.New(t, gatefix.WithConfig(onlyDA(1, 2)))
 	e.Chain.FailLatest(errNoFibre)
-	c := gatefix.Template(t)
-	e.StageDA(c, gatefix.Blob(t))
+	c := gatefix.FibreTemplate(t)
+	e.StageDA(c, gatefix.FibreBlob())
 	b, _ := gatefix.Sign(t, "agent1", c)
 	_, err := e.Authorize(b)
 	require.ErrorIs(t, err, gate.ErrChainUnavailable)

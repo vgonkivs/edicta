@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"math/bits"
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate/registry"
 )
+
+const fibreWeightFactor = 13
 
 // acquirePayload fetches and verifies the payload. The DA path is tried first when the retention
 // window holds; the archive path follows, or comes alone when the window
@@ -39,21 +43,27 @@ func (g *Gate) acquirePayload(ctx context.Context, c *commitment.Commitment, wit
 func (g *Gate) tryPath(ctx context.Context, c *commitment.Commitment, path registry.Path) error {
 	ref := c.PayloadRef
 	src, timeout := g.d.DA, g.cfg.DATimeout
-	// The archive is trusted for availability only, so the DA-commitment check is mandatory there.
-	// On the DA path a Fibre commitment is verified by the operator's node.
-	needCommitter := path == registry.PathArchive || ref.DA == commitment.DACelestiaBlob
 	if path == registry.PathArchive {
 		src, timeout = g.d.Archive, g.cfg.ArchiveTimeout
 	}
-	var committer DACommitter
-	if needCommitter {
-		committer = g.d.Committers[ref.DA]
-		if committer == nil {
-			return fmt.Errorf("%w: da %d", ErrArchiveRecomputeUnsupported, ref.DA)
-		}
+	// The archive is trusted for availability only, so the DA-commitment check is mandatory there.
+	// On the DA path da = 2 always needs it; da = 1 has it only when a committer is configured,
+	// otherwise the operator's node verifies the commitment.
+	committer := g.d.Committers[ref.DA]
+	if committer == nil && (path == registry.PathArchive || ref.DA == commitment.DACelestiaBlob) {
+		return fmt.Errorf("%w: da %d", ErrArchiveRecomputeUnsupported, ref.DA)
 	}
 
-	held, err := g.sem.acquire(ctx, c.PayloadSize)
+	weight := c.PayloadSize
+	if ref.DA == commitment.DAFibre && committer != nil {
+		// The recompute holds the blob and its encoding in memory.
+		hi, lo := bits.Mul64(c.PayloadSize, fibreWeightFactor)
+		weight = lo
+		if hi != 0 {
+			weight = math.MaxUint64
+		}
+	}
+	held, err := g.sem.acquire(ctx, weight)
 	if err != nil {
 		return err
 	}

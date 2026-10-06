@@ -181,7 +181,7 @@ func TestStalledDependenciesAreCutByChainTimeout(t *testing.T) {
 		set   func(d *gate.Deps)
 		want  []error
 	}{
-		{"latest retention", false, func(d *gate.Deps) { d.Params = stallParams{inner: d.Params, stallAtTip: true} }, []error{gate.ErrChainUnavailable}},
+		{"latest retention", true, func(d *gate.Deps) { d.Params = stallParams{inner: d.Params, stallAtTip: true} }, []error{gate.ErrChainUnavailable}},
 		{"header", false, func(d *gate.Deps) { d.Headers = stallHeaders{} }, []error{gate.ErrChainUnavailable}},
 		{"anchor", false, func(d *gate.Deps) { d.Anchors = stallAnchors{} }, []error{gate.ErrChainUnavailable}},
 		{"retention at the anchor height", true, func(d *gate.Deps) { d.Params = stallParams{inner: d.Params, stallAtH: true} }, []error{gate.ErrRetentionUnavailable, gate.ErrChainUnavailable}},
@@ -370,7 +370,7 @@ func TestFailureCausesStayMatchable(t *testing.T) {
 		require.ErrorIs(t, err, cause)
 	})
 	t.Run("latest retention", func(t *testing.T) {
-		e, c, b, _ := happy(t)
+		e, c, b, _ := happyFibre(t)
 		e.Chain.FailLatest(cause)
 		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrChainUnavailable)

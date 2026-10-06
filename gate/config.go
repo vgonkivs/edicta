@@ -24,8 +24,11 @@ type Config struct {
 	MaxAuthorizationTTL uint64
 	// AllowedDA is the set of payload_ref.da values the gate accepts; empty
 	// means {1, 2}.
-	AllowedDA     []commitment.DA
-	OtherGateKeys [][32]byte // gate keys besides the signer, refused as agent keys
+	AllowedDA []commitment.DA
+	// FibreMaxDataBytes caps payload_size of a da = 1 commitment; zero means
+	// 16 MiB. It applies only when a da = 1 committer is configured.
+	FibreMaxDataBytes uint64
+	OtherGateKeys     [][32]byte // gate keys besides the signer, refused as agent keys
 	// ExecutorKeys is the executor allowlist: the keys whose signed record
 	// requests Record accepts. Disjoint from gate and agent keys.
 	ExecutorKeys [][32]byte

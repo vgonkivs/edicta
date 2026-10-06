@@ -403,13 +403,13 @@ func TestClockAndChainErrors(t *testing.T) {
 		e.RequireRejected(c, err, gate.ErrClockRegression)
 	})
 	t.Run("latest retention unreadable", func(t *testing.T) {
-		e, c, b, _ := happy(t)
+		e, c, b, _ := happyFibre(t)
 		e.Chain.FailLatest(errors.New("node down"))
 		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, gate.ErrChainUnavailable)
 	})
 	t.Run("latest retention zero is invalid params", func(t *testing.T) {
-		e, c, b, _ := happy(t)
+		e, c, b, _ := happyFibre(t)
 		e.Chain.SetLatest(0)
 		_, err := e.Authorize(b)
 		e.RequireRejected(c, err, commitment.ErrInvalidParams)

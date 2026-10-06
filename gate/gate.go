@@ -41,6 +41,19 @@ type Result struct {
 	// success, and with ErrNonceUsed when the same commitment is presented
 	// again with the committed action bytes.
 	Authorization []byte
+	// K2 holds the inputs of the retention decision, for archiving. It is
+	// zero until the decision was made.
+	K2 K2Inputs
+}
+
+// K2Inputs are the values the path selection used. The retention fields are
+// set for da = 1 only.
+type K2Inputs struct {
+	Now                uint64
+	BlockTime          uint64
+	RetentionStart     uint64
+	RetentionLatestS   uint64
+	RetentionAtHeightS uint64
 }
 
 // checkScope validates the gate id and the action type allowlist.
@@ -244,12 +257,13 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 		return Result{}, fmt.Errorf("%w: now %d, watermark %d", ErrClockRegression, now, g.watermark.Load())
 	}
 
-	// Chain params.
-	// The Fibre parameters are read only when da = 1 is allowed. Otherwise the
-	// placeholder merely satisfies Params.Validate; every da = 1 commitment is
-	// refused right after verification, so the value never admits anything.
+	// The latest Fibre retention is read only for a da = 1 commitment that
+	// this gate allows. Otherwise the placeholder merely satisfies
+	// Params.Validate; a da = 1 commitment the gate does not allow is refused
+	// right after verification, so the value never admits anything.
 	latest := uint64(math.MaxInt64)
-	if daAllowed(g.cfg.AllowedDA, commitment.DAFibre) {
+	if pre, derr := commitment.DecodeSigned(envelope); derr == nil &&
+		pre.Commitment.PayloadRef.DA == commitment.DAFibre && daAllowed(g.cfg.AllowedDA, commitment.DAFibre) {
 		var err error
 		latest, err = g.fibreRetention(ctx, 0)
 		if err != nil {
@@ -269,6 +283,10 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	res := Result{CommitmentHash: h}
 	if !daAllowed(g.cfg.AllowedDA, c.PayloadRef.DA) {
 		return res, fmt.Errorf("%w: da %d", ErrDANotAllowed, c.PayloadRef.DA)
+	}
+	if c.PayloadRef.DA == commitment.DAFibre && g.d.Committers[commitment.DAFibre] != nil &&
+		c.PayloadSize > g.fibreMaxDataBytes() {
+		return res, fmt.Errorf("%w: payload_size %d, limit %d", ErrPayloadAboveCap, c.PayloadSize, g.fibreMaxDataBytes())
 	}
 
 	// Registry epoch.
@@ -334,9 +352,13 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	if err := commitment.CheckAnchorTime(c, blockTime, p); err != nil {
 		return res, err
 	}
-	within, err := g.retentionHolds(ctx, c, anchor, blockTime, latest)
+	within, atH, err := g.retentionHolds(ctx, c, anchor, blockTime, latest)
 	if err != nil {
 		return res, err
+	}
+	res.K2 = K2Inputs{Now: now, BlockTime: blockTime}
+	if c.PayloadRef.DA == commitment.DAFibre {
+		res.K2.RetentionStart, res.K2.RetentionLatestS, res.K2.RetentionAtHeightS = anchor.RetentionStart, latest, atH
 	}
 
 	// Payload.
@@ -537,24 +559,33 @@ func (g *Gate) anchorErr(ctx context.Context, what string, err error) error {
 
 // retentionHolds reports whether the signed validity window ends before the payload can be pruned. For da = 1 it reads the retention at the anchor
 // height and never substitutes the latest value when that read fails.
-func (g *Gate) retentionHolds(ctx context.Context, c *commitment.Commitment, a Anchor, blockTime, latest uint64) (bool, error) {
+func (g *Gate) retentionHolds(ctx context.Context, c *commitment.Commitment, a Anchor, blockTime, latest uint64) (within bool, atH uint64, err error) {
 	switch c.PayloadRef.DA {
 	case commitment.DAFibre:
 		atH, err := g.fibreRetention(ctx, c.PayloadRef.Height)
 		if err != nil {
 			if cerr := ctx.Err(); cerr != nil {
-				return false, fmt.Errorf("gate: %w", cerr)
+				return false, 0, fmt.Errorf("gate: %w", cerr)
 			}
-			return false, fmt.Errorf("%w: height %d: %w", ErrRetentionUnavailable, c.PayloadRef.Height, err)
+			return false, 0, fmt.Errorf("%w: height %d: %w", ErrRetentionUnavailable, c.PayloadRef.Height, err)
 		}
 		if a.RetentionStart == 0 {
-			return false, nil
+			return false, atH, nil
 		}
-		return commitment.WithinRetention(c, min(blockTime, a.RetentionStart), min(latest, atH)), nil
+		return commitment.WithinRetention(c, min(blockTime, a.RetentionStart), min(latest, atH)), atH, nil
 	case commitment.DACelestiaBlob:
-		return commitment.WithinRetention(c, blockTime, g.cfg.BlobRetentionS), nil
+		return commitment.WithinRetention(c, blockTime, g.cfg.BlobRetentionS), 0, nil
 	}
-	return false, nil
+	return false, 0, nil
+}
+
+const defaultFibreMaxDataBytes = 16 << 20
+
+func (g *Gate) fibreMaxDataBytes() uint64 {
+	if g.cfg.FibreMaxDataBytes == 0 {
+		return defaultFibreMaxDataBytes
+	}
+	return g.cfg.FibreMaxDataBytes
 }
 
 func (g *Gate) chainCtx(ctx context.Context) (context.Context, context.CancelFunc) {
