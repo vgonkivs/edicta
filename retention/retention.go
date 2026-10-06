@@ -62,7 +62,8 @@ const (
 	DefaultMaxSampleAge = 5
 
 	maxGapBlocksCap = 1000
-	maxGapSCap      = 3600
+	maxGapSCap      = 900
+	maxSampleAgeCap = 60
 )
 
 // Policy zero values mean the defaults.
@@ -106,6 +107,8 @@ func (p Policy) Normalize() (Policy, error) {
 		return p, fmt.Errorf("%w: max gap %d blocks is above %d", ErrBadPolicy, p.MaxGapBlocks, maxGapBlocksCap)
 	case p.MaxGapS > maxGapSCap:
 		return p, fmt.Errorf("%w: max gap %d s is above %d", ErrBadPolicy, p.MaxGapS, maxGapSCap)
+	case p.MaxSampleAge > maxSampleAgeCap:
+		return p, fmt.Errorf("%w: max sample age %d s is above %d", ErrBadPolicy, p.MaxSampleAge, maxSampleAgeCap)
 	case p.KeepS < DefaultKeepS:
 		return p, fmt.Errorf("%w: keep %d s is below %d", ErrBadPolicy, p.KeepS, DefaultKeepS)
 	case p.SampleTimeout < 0:

@@ -191,7 +191,10 @@ func (p *Params) sample(ctx context.Context, reuse bool) (s Sample, persistErr, 
 	p.mu.Lock()
 	bound := p.chain
 	p.mu.Unlock()
-	if bound != "" && s.ChainID != bound {
+	if bound == "" {
+		return Sample{}, nil, fmt.Errorf("%w: no chain bound", ErrChainMismatch)
+	}
+	if s.ChainID != bound {
 		return Sample{}, nil, fmt.Errorf("%w: endpoint reports %q, bound to %q", ErrChainMismatch, s.ChainID, bound)
 	}
 	s.ToHeight = satAdd(s.ToHeight, p.policy.AssumedLagBlocks)
@@ -218,7 +221,7 @@ func (p *Params) Observe(ctx context.Context) error {
 }
 
 // FibreRetention returns the latest value for height 0, even when recording
-// it failed: only reads at a height depend on the store. For a height it
+// a valid sample of the bound chain failed: only reads at a height depend on the store. For a height it
 // returns the minimum of the direct read, when trusted, and the recorded
 // samples, or an error; the latest value is never used for a past height.
 func (p *Params) FibreRetention(ctx context.Context, height uint64) (uint64, error) {
