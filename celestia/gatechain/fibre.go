@@ -32,6 +32,13 @@ var ErrInvalidConfig = errors.New("gatechain: invalid config")
 // DefaultFibreMaxReadBytes is the answer size limit WithDefaults sets.
 const DefaultFibreMaxReadBytes = 16 << 20
 
+// Upper bounds of the options: the archive holds an anchor proof of at most
+// 2^22 bytes, and a cache of whole proofs must stay a bounded amount of memory.
+const (
+	maxFibreMaxReadBytes = 1 << 30
+	maxFibreCacheEntries = 1024
+)
+
 // FibreAnchorOptions configures FibreAnchors.
 type FibreAnchorOptions struct {
 	// MaxReadBytes bounds the encoded namespace data of one lookup; a larger
@@ -59,8 +66,14 @@ func (o FibreAnchorOptions) ValidateBasic() error {
 	if o.MaxReadBytes == 0 {
 		return fmt.Errorf("%w: max read bytes is zero", ErrInvalidConfig)
 	}
+	if o.MaxReadBytes > maxFibreMaxReadBytes {
+		return fmt.Errorf("%w: max read bytes %d above %d", ErrInvalidConfig, o.MaxReadBytes, uint64(maxFibreMaxReadBytes))
+	}
 	if o.CacheEntries < 0 {
 		return fmt.Errorf("%w: negative cache entries", ErrInvalidConfig)
+	}
+	if o.CacheEntries > maxFibreCacheEntries {
+		return fmt.Errorf("%w: cache entries %d above %d", ErrInvalidConfig, o.CacheEntries, maxFibreCacheEntries)
 	}
 	return nil
 }
@@ -146,11 +159,8 @@ func (a *FibreAnchors) Lookup(ctx context.Context, ref commitment.PayloadRef) (F
 	if a.cfgErr != nil {
 		return FibreAnchor{}, unavailable(a.cfgErr)
 	}
-	if ref.DA != commitment.DAFibre {
-		return FibreAnchor{}, fmt.Errorf("%w: da %d", gate.ErrAnchorNotFound, ref.DA)
-	}
-	if len(ref.Commitment) != len([32]byte{}) {
-		return FibreAnchor{}, fmt.Errorf("%w: commitment is %d bytes", gate.ErrAnchorNotFound, len(ref.Commitment))
+	if err := checkRef(ref); err != nil {
+		return FibreAnchor{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return FibreAnchor{}, unavailable(err)
@@ -165,6 +175,22 @@ func (a *FibreAnchors) Lookup(ctx context.Context, ref commitment.PayloadRef) (F
 	}
 	a.store(key, fa)
 	return fa, nil
+}
+
+// checkRef refuses a reference that cannot name a da = 1 blob before any chain
+// read: that is a bad argument, not a statement about the chain.
+func checkRef(ref commitment.PayloadRef) error {
+	switch {
+	case ref.DA != commitment.DAFibre:
+		return fmt.Errorf("%w: da %d", commitment.ErrInvalidEnum, ref.DA)
+	case ref.Height == 0:
+		return fmt.Errorf("%w: height", commitment.ErrZeroValue)
+	case len(ref.Namespace) != libshare.NamespaceSize:
+		return fmt.Errorf("%w: namespace is %d bytes", commitment.ErrInvalidNamespace, len(ref.Namespace))
+	case len(ref.Commitment) != len([32]byte{}):
+		return fmt.Errorf("%w: commitment is %d bytes", commitment.ErrFieldSize, len(ref.Commitment))
+	}
+	return nil
 }
 
 func (a *FibreAnchors) cached(k anchorKey) (FibreAnchor, bool) {
@@ -231,7 +257,6 @@ func (a *FibreAnchors) find(ctx context.Context, ref commitment.PayloadRef) (Fib
 	sort.SliceStable(cands, func(i, j int) bool {
 		return cands[i].pff.Promise.CreationTime.Before(cands[j].pff.Promise.CreationTime)
 	})
-	last := fmt.Errorf("%w: no candidate with result code 0 at height %d", gate.ErrAnchorNotFound, ref.Height)
 	for _, c := range cands {
 		// A code that cannot be read stops the lookup: this candidate may be
 		// the anchor, and a later one must not stand in for it.
@@ -242,18 +267,16 @@ func (a *FibreAnchors) find(ctx context.Context, ref commitment.PayloadRef) (Fib
 		if code != 0 {
 			continue
 		}
+		// The first candidate with code 0 is the anchor. If its certificate
+		// fails there is no anchor; a later promise must not take its place.
 		if !a.o.SkipCertificate {
 			if err := a.certificate(ctx, c, bindingFor(a.chainID, ref.Namespace, want, c.pff)); err != nil {
-				if errors.Is(err, gate.ErrChainUnavailable) {
-					return FibreAnchor{}, err
-				}
-				last = err
-				continue
+				return FibreAnchor{}, err
 			}
 		}
 		return FibreAnchor{Height: ref.Height, TxHash: c.hash, Promise: c.pff.Promise, Proof: vb.proof}, nil
 	}
-	return FibreAnchor{}, last
+	return FibreAnchor{}, fmt.Errorf("%w: no candidate with result code 0 at height %d", gate.ErrAnchorNotFound, ref.Height)
 }
 
 // verifyNamespace runs the proof steps: the header from the consensus
@@ -270,6 +293,9 @@ func (a *FibreAnchors) verifyNamespace(ctx context.Context, height uint64) (veri
 	}
 	if len(hdr.DataHash) == 0 {
 		return verifiedBlock{}, unavailable(fmt.Errorf("header at %d has no data hash", height))
+	}
+	if hdr.AppVersion != node.FibreAppVersion {
+		return verifiedBlock{}, unavailable(fmt.Errorf("header at %d has app version %d, want %d", height, hdr.AppVersion, node.FibreAppVersion))
 	}
 	raw, err := a.r.DAH(ctx, height)
 	if err != nil {
@@ -429,7 +455,14 @@ func (a *FibreAnchors) certificate(ctx context.Context, c candidate, b fibrecert
 	if err := evidenceHeights(hist, hdr, p.Height); err != nil {
 		return unavailable(err)
 	}
-	rep, _, err := fibrecert.Verify(c.raw, b, hist, fibrecert.ValsetEvidence{PromiseHeader: hdr})
+	// The list and the evidence come from the chain endpoint: a list that
+	// does not bind to the promise is an endpoint failure, whatever the
+	// signatures on it say.
+	ev := fibrecert.ValsetEvidence{PromiseHeader: hdr}
+	if _, _, err := fibrecert.ValidatorsFor(hist, p, ev); err != nil {
+		return unavailable(fmt.Errorf("validator list at %d: %w", p.Height, err))
+	}
+	rep, _, err := fibrecert.Verify(c.raw, b, hist, ev)
 	if errors.Is(err, fibrecert.ErrValsetMismatch) {
 		// The list and the header both come from the chain, not from the tx.
 		return unavailable(err)
@@ -444,8 +477,8 @@ func (a *FibreAnchors) certificate(ctx context.Context, c candidate, b fibrecert
 	return nil
 }
 
-// evidenceHeights requires the historical info and the header to decode and
-// to name the promise height.
+// evidenceHeights requires the historical info and the header to decode, to
+// name the promise height and the header to carry the pinned app version.
 func evidenceHeights(histRaw, hdrRaw []byte, height uint64) error {
 	var hi stakingtypes.HistoricalInfo
 	if err := hi.Unmarshal(histRaw); err != nil {
@@ -454,6 +487,9 @@ func evidenceHeights(histRaw, hdrRaw []byte, height uint64) error {
 	var h cmtproto.Header
 	if err := h.Unmarshal(hdrRaw); err != nil {
 		return fmt.Errorf("promise header: %w", err)
+	}
+	if h.Version.App != node.FibreAppVersion {
+		return fmt.Errorf("promise header has app version %d, want %d", h.Version.App, node.FibreAppVersion)
 	}
 	if height > math.MaxInt64 || hi.Header.Height != int64(height) || h.Height != int64(height) {
 		return fmt.Errorf("%w: evidence at heights %d and %d, promise at %d",
@@ -506,14 +542,18 @@ func (s *fibreBlobs) Fetch(ctx context.Context, ref commitment.PayloadRef, maxSi
 	var errs []error
 	var oversize []byte
 	transport := false
-	for _, src := range []node.FibreDownloader{s.direct, s.bridge} {
-		if src == nil {
+	for _, src := range []struct {
+		d      node.FibreDownloader
+		direct bool
+	}{{s.direct, true}, {s.bridge, false}} {
+		if src.d == nil {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
 			return nil, unavailable(err)
 		}
-		data, err := src.Download(ctx, id, fa.Promise.Height)
+		// The promise names the upload size, which bounds any honest blob.
+		data, err := src.d.Download(ctx, id, fa.Promise.Height, uint64(fa.Promise.BlobSize))
 		if err != nil {
 			transport = transport || !errors.Is(err, node.ErrNotFound)
 			errs = append(errs, err)
@@ -525,8 +565,14 @@ func (s *fibreBlobs) Fetch(ctx context.Context, ref commitment.PayloadRef, maxSi
 			continue
 		}
 		if uint64(len(data)) > maxSize {
-			// The caller refuses it by size, so encoding it for the committer
-			// would only spend memory.
+			// Only the direct client is bound to the commitment, so only its
+			// answer settles that the blob is too big. Encoding it for the
+			// committer would only spend memory.
+			if !src.direct {
+				transport = true
+				errs = append(errs, fmt.Errorf("bridge blob of %d bytes is above %d and cannot be verified", len(data), maxSize))
+				continue
+			}
 			if oversize == nil {
 				oversize = append([]byte(nil), data[:maxSize+1]...)
 			}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"runtime/debug"
 	"time"
 
@@ -122,6 +123,19 @@ func (e FibreExpect) ValidateBasic() error {
 	return nil
 }
 
+// isNil reports a nil interface or one that holds a nil pointer, map, slice,
+// func or channel.
+func isNil(v any) bool {
+	if v == nil {
+		return true
+	}
+	switch rv := reflect.ValueOf(v); rv.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan, reflect.Interface:
+		return rv.IsNil()
+	}
+	return false
+}
+
 // FibreStart is what CheckFibre learned.
 type FibreStart struct {
 	// Head is the latest header the generic check validated.
@@ -147,10 +161,10 @@ func CheckFibre(ctx context.Context, r Reader, c Consensus, e FibreExpect) (Fibr
 	if log == nil {
 		log = slog.Default()
 	}
-	if r == nil {
+	if isNil(r) {
 		return FibreStart{}, fmt.Errorf("%w: a fibre gate needs a bridge for the anchor proof", ErrUnsupported)
 	}
-	if c == nil {
+	if isNil(c) {
 		return FibreStart{}, fmt.Errorf("%w: reader and consensus are required", ErrUnsupported)
 	}
 	if err := e.CheckBuild(); err != nil {

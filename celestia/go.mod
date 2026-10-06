@@ -132,7 +132,7 @@ require (
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/filecoin-project/go-clock v0.1.0 // indirect
-	github.com/filecoin-project/go-jsonrpc v0.10.2 // indirect
+	github.com/filecoin-project/go-jsonrpc v0.10.2
 	github.com/flynn/noise v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.4 // indirect

@@ -201,6 +201,20 @@ func TestCheckFibreNeedsBridgeAndConsensus(t *testing.T) {
 		require.ErrorIs(t, err, node.ErrUnsupported)
 		assert.Zero(t, r.reader.headers.Load())
 	})
+	t.Run("typed nil bridge", func(t *testing.T) {
+		r := newFibreRig(t)
+		var nilChain *nodefake.Chain
+		_, err := node.CheckFibre(context.Background(), nilChain, r.cons, r.e)
+		require.ErrorIs(t, err, node.ErrUnsupported)
+		assert.Zero(t, r.cons.canaries.Load())
+	})
+	t.Run("typed nil consensus", func(t *testing.T) {
+		r := newFibreRig(t)
+		var nilCons *nodefake.Consensus
+		_, err := node.CheckFibre(context.Background(), r.reader, nilCons, r.e)
+		require.ErrorIs(t, err, node.ErrUnsupported)
+		assert.Zero(t, r.reader.headers.Load())
+	})
 	t.Run("tx index off stops before the canaries", func(t *testing.T) {
 		r := newFibreRig(t)
 		r.cons.txIndexErr = node.ErrTxIndexDisabled

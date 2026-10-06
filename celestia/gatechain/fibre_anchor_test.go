@@ -15,7 +15,9 @@ import (
 	fibretypes "github.com/celestiaorg/celestia-app/v10/x/fibre/types"
 	"github.com/celestiaorg/celestia-node/share/shwap"
 	libshare "github.com/celestiaorg/go-square/v4/share"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/cosmos/cosmos-sdk/types/bech32"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
 	"github.com/vgonkivs/edicta/celestia/fibrecert"
 	"github.com/vgonkivs/edicta/celestia/gatechain"
@@ -228,21 +230,37 @@ func TestFibreFindAnchorRejectsWhatIsNotTheCommittedPFF(t *testing.T) {
 		_, err := anchorsOver(c, mochaID).Lookup(bg, l.ref())
 		requireNotFound(t, err)
 	})
-	t.Run("not da 1", func(t *testing.T) {
-		ref := l.ref()
-		ref.DA = commitment.DACelestiaBlob
-		c := liveBlock(t).chain(t, l)
-		_, err := anchorsOver(c, mochaID).Lookup(bg, ref)
-		requireNotFound(t, err)
-		assert.Zero(t, c.HeaderReads())
-	})
-	t.Run("commitment of the wrong length", func(t *testing.T) {
-		ref := l.ref()
-		ref.Commitment = ref.Commitment[:31]
-		c := liveBlock(t).chain(t, l)
-		_, err := anchorsOver(c, mochaID).Lookup(bg, ref)
-		requireNotFound(t, err)
-		assert.Zero(t, c.HeaderReads())
+	t.Run("a malformed reference is an invalid argument before any chain read", func(t *testing.T) {
+		cases := []struct {
+			name string
+			ref  func(r *commitment.PayloadRef)
+			want error
+		}{
+			{"not da 1", func(r *commitment.PayloadRef) { r.DA = commitment.DACelestiaBlob }, commitment.ErrInvalidEnum},
+			{"da unknown", func(r *commitment.PayloadRef) { r.DA = 99 }, commitment.ErrInvalidEnum},
+			{"height zero", func(r *commitment.PayloadRef) { r.Height = 0 }, commitment.ErrZeroValue},
+			{"short namespace", func(r *commitment.PayloadRef) { r.Namespace = r.Namespace[:28] }, commitment.ErrInvalidNamespace},
+			{"empty namespace", func(r *commitment.PayloadRef) { r.Namespace = nil }, commitment.ErrInvalidNamespace},
+			{"short commitment", func(r *commitment.PayloadRef) { r.Commitment = r.Commitment[:31] }, commitment.ErrFieldSize},
+			{"long commitment", func(r *commitment.PayloadRef) { r.Commitment = append(r.Commitment, 0) }, commitment.ErrFieldSize},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				ref := l.ref()
+				ref.Namespace = append([]byte(nil), ref.Namespace...)
+				ref.Commitment = append([]byte(nil), ref.Commitment...)
+				tc.ref(&ref)
+				c := liveBlock(t).chain(t, l)
+				a := anchorsOver(c, mochaID)
+				_, err := a.Lookup(bg, ref)
+				require.ErrorIs(t, err, tc.want)
+				assert.NotErrorIs(t, err, gate.ErrAnchorNotFound)
+				assert.NotErrorIs(t, err, gate.ErrChainUnavailable)
+				_, err = a.FindAnchor(bg, ref)
+				require.ErrorIs(t, err, tc.want)
+				assert.Zero(t, c.HeaderReads())
+			})
+		}
 	})
 }
 
@@ -528,6 +546,92 @@ func TestFibreFindAnchorCertificate(t *testing.T) {
 		_, err := gatechain.NewFibreAnchors(c, mochaID, gatechain.FibreAnchorOptions{}).Lookup(bg, l.ref())
 		requireNotFound(t, err)
 		assert.ErrorIs(t, err, fibrecert.ErrCertificateInsufficient)
+	})
+}
+
+func TestFibreFirstCodeZeroCandidateDecides(t *testing.T) {
+	l := loadLive(t)
+	failing := mutateTx(t, l.pff, func(m *fibretypes.MsgPayForFibre) {
+		m.Signer = bech32Addr(t, 1)
+		for i := range m.ValidatorSignatures {
+			m.ValidatorSignatures[i] = nil
+		}
+	})
+	t.Run("a failed certificate does not hand over to a later valid candidate", func(t *testing.T) {
+		h := &hooks{FibreAnchorReader: buildBlock(t, l.pffHeight, failing, l.pff).chain(t, l)}
+		_, err := anchorsOver(h, mochaID).Lookup(bg, l.ref())
+		requireNotFound(t, err)
+		assert.ErrorIs(t, err, fibrecert.ErrCertificateInsufficient)
+		assert.Equal(t, [][32]byte{txHash(failing)}, h.calls(), "the later candidate is not even read")
+	})
+	t.Run("the valid candidate first is the anchor", func(t *testing.T) {
+		c := buildBlock(t, l.pffHeight, l.pff, failing).chain(t, l)
+		a, err := anchorsOver(c, mochaID).Lookup(bg, l.ref())
+		require.NoError(t, err)
+		assert.Equal(t, txHash(l.pff), a.TxHash)
+	})
+	t.Run("a failed execution is skipped and the next candidate decides", func(t *testing.T) {
+		c := buildBlock(t, l.pffHeight, failing, l.pff).chain(t, l)
+		c.SetTxCode(l.pffHeight, txHash(failing), 7)
+		a, err := anchorsOver(c, mochaID).Lookup(bg, l.ref())
+		require.NoError(t, err)
+		assert.Equal(t, txHash(l.pff), a.TxHash)
+	})
+}
+
+func TestFibreValidatorListThatDoesNotBindIsUnavailable(t *testing.T) {
+	l := loadLive(t)
+	cases := map[string]func(hi *stakingtypes.HistoricalInfo){
+		"a validator dropped": func(hi *stakingtypes.HistoricalInfo) { hi.Valset = hi.Valset[:len(hi.Valset)-1] },
+		"a validator duplicated": func(hi *stakingtypes.HistoricalInfo) {
+			hi.Valset = append(hi.Valset, hi.Valset[0])
+		},
+		"no validators": func(hi *stakingtypes.HistoricalInfo) { hi.Valset = nil },
+	}
+	for name, mod := range cases {
+		t.Run(name, func(t *testing.T) {
+			hi := parseHist(t, l.hist)
+			mod(&hi)
+			c := liveBlock(t).chain(t, l)
+			c.SetHistoricalInfo(l.promiseH, marshalHist(t, hi))
+			_, err := anchorsOver(c, mochaID).Lookup(bg, l.ref())
+			requireUnavailable(t, err)
+		})
+	}
+}
+
+func TestFibreAppVersionIsPinned(t *testing.T) {
+	l := loadLive(t)
+	t.Run("the fixtures carry app version 10", func(t *testing.T) {
+		for h, raw := range l.headers {
+			var hdr cmtproto.Header
+			require.NoError(t, hdr.Unmarshal(raw))
+			assert.EqualValues(t, node.FibreAppVersion, hdr.Version.App, "header at %d", h)
+		}
+		var hdr cmtproto.Header
+		require.NoError(t, hdr.Unmarshal(l.promiseHdr))
+		assert.EqualValues(t, node.FibreAppVersion, hdr.Version.App)
+	})
+	t.Run("the anchor header", func(t *testing.T) {
+		for _, v := range []uint64{0, 3, 9, 11} {
+			c := liveBlock(t).chain(t, l)
+			c.SetAppVersion(l.pffHeight, v)
+			_, err := anchorsOver(c, mochaID).Lookup(bg, l.ref())
+			requireUnavailable(t, err)
+			assert.ErrorContains(t, err, "app version")
+		}
+	})
+	t.Run("the promise header", func(t *testing.T) {
+		var hdr cmtproto.Header
+		require.NoError(t, hdr.Unmarshal(l.promiseHdr))
+		hdr.Version.App = 9
+		raw, err := hdr.Marshal()
+		require.NoError(t, err)
+		c := liveBlock(t).chain(t, l)
+		c.SetSignedHeader(l.promiseH, raw)
+		_, err = anchorsOver(c, mochaID).Lookup(bg, l.ref())
+		requireUnavailable(t, err)
+		assert.ErrorContains(t, err, "app version")
 	})
 }
 
@@ -833,6 +937,11 @@ func TestFibreAnchorOptionsValidateBasic(t *testing.T) {
 		{"one byte limit", func(o *gatechain.FibreAnchorOptions) { o.MaxReadBytes = 1 }, true},
 		{"zero limit", func(o *gatechain.FibreAnchorOptions) { o.MaxReadBytes = 0 }, false},
 		{"negative cache", func(o *gatechain.FibreAnchorOptions) { o.CacheEntries = -1 }, false},
+		{"limit at the upper bound", func(o *gatechain.FibreAnchorOptions) { o.MaxReadBytes = 1 << 30 }, true},
+		{"limit above the upper bound", func(o *gatechain.FibreAnchorOptions) { o.MaxReadBytes = 1<<30 + 1 }, false},
+		{"limit of the whole address space", func(o *gatechain.FibreAnchorOptions) { o.MaxReadBytes = ^uint64(0) }, false},
+		{"cache at the upper bound", func(o *gatechain.FibreAnchorOptions) { o.CacheEntries = 1024 }, true},
+		{"cache above the upper bound", func(o *gatechain.FibreAnchorOptions) { o.CacheEntries = 1025 }, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

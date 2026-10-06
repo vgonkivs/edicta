@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	coregrpc "github.com/cometbft/cometbft/rpc/grpc"
 	"github.com/cosmos/cosmos-sdk/client/grpc/cmtservice"
 	nodeservice "github.com/cosmos/cosmos-sdk/client/grpc/node"
 	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
@@ -78,6 +79,9 @@ type ConsensusClient struct {
 	cfg     nodeservice.ServiceClient
 	bank    banktypes.QueryClient
 
+	blocks coregrpc.BlockAPIClient
+	hdrs   headerCache
+
 	canary CanaryConfig
 	flag   heightcheck.Flag
 
@@ -142,7 +146,7 @@ func NewConsensusConn(conn *grpc.ClientConn) *ConsensusClient {
 		conn: conn, cmt: cmtservice.NewServiceClient(conn), auth: authtypes.NewQueryClient(conn),
 		staking: stakingtypes.NewQueryClient(conn), tx: txtypes.NewServiceClient(conn),
 		fibre: fibretypes.NewQueryClient(conn), cfg: nodeservice.NewServiceClient(conn),
-		bank: banktypes.NewQueryClient(conn), canary: CanaryConfig{}.withDefaults(),
+		bank: banktypes.NewQueryClient(conn), blocks: coregrpc.NewBlockAPIClient(conn), canary: CanaryConfig{}.withDefaults(),
 	}
 }
 

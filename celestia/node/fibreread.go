@@ -1,16 +1,20 @@
 package node
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
-	"github.com/cosmos/cosmos-sdk/client/grpc/cmtservice"
+	coregrpc "github.com/cometbft/cometbft/rpc/grpc"
+	core "github.com/cometbft/cometbft/types"
 	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
@@ -27,9 +31,10 @@ var ErrInvalidConfig = errors.New("node: invalid config")
 // FibreHeader is the part of the consensus header at a height that the anchor
 // lookup uses.
 type FibreHeader struct {
-	Height   uint64
-	DataHash []byte
-	Time     time.Time
+	Height     uint64
+	DataHash   []byte
+	Time       time.Time
+	AppVersion uint64
 }
 
 // FibreChainReader reads the consensus-endpoint evidence of a Fibre anchor.
@@ -81,8 +86,14 @@ func NewFibreAnchorReader(chain FibreChainReader, bridge FibreBridgeReader) (Fib
 // FibreDownloader downloads a Fibre blob by its 33-byte blob id. A missing
 // blob is ErrNotFound.
 type FibreDownloader interface {
-	Download(ctx context.Context, id [33]byte, promiseHeight uint64) ([]byte, error)
+	// Download returns the blob, or an error wrapping ErrTooLarge when it
+	// holds more than maxSize bytes. Implementations bound what they read
+	// from the source by maxSize.
+	Download(ctx context.Context, id [33]byte, promiseHeight uint64, maxSize uint64) ([]byte, error)
 }
+
+// ErrTooLarge means a blob is larger than the size the caller allowed.
+var ErrTooLarge = errors.New("node: blob above the size limit")
 
 var _ FibreChainReader = (*ConsensusClient)(nil)
 
@@ -93,34 +104,140 @@ func int64Height(height uint64) (int64, error) {
 	return int64(height), nil
 }
 
-// blockHeader reads the block at height through the block query and returns
-// its header once the header names that height.
+// headerCacheEntries is how many verified headers are kept.
+const headerCacheEntries = 128
+
+type headerCache struct {
+	mu    sync.Mutex
+	m     map[uint64]cmtproto.Header
+	order []uint64
+}
+
+func (c *headerCache) get(height uint64) (cmtproto.Header, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	h, ok := c.m[height]
+	return h, ok
+}
+
+func (c *headerCache) put(height uint64, h cmtproto.Header) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil {
+		c.m = map[uint64]cmtproto.Header{}
+	}
+	if _, ok := c.m[height]; !ok {
+		for len(c.order) >= headerCacheEntries {
+			delete(c.m, c.order[0])
+			c.order = c.order[1:]
+		}
+		c.order = append(c.order, height)
+	}
+	c.m[height] = h
+}
+
+// blockHeader returns the header at height, read once and then kept: a header
+// of a Celestia block is final. Only the first message of the block stream is
+// read, so the cost does not grow with the size of the block.
 func (c *ConsensusClient) blockHeader(ctx context.Context, height uint64) (cmtproto.Header, error) {
 	h, err := int64Height(height)
 	if err != nil {
 		return cmtproto.Header{}, err
 	}
-	r, err := c.cmt.GetBlockByHeight(ctx, &cmtservice.GetBlockByHeightRequest{Height: h})
+	if hdr, ok := c.hdrs.get(height); ok {
+		return hdr, nil
+	}
+	hdr, err := c.streamHeader(ctx, height, h)
+	if err != nil {
+		return cmtproto.Header{}, err
+	}
+	c.hdrs.put(height, hdr)
+	return hdr, nil
+}
+
+// streamHeader reads the first message of the block stream: the first block
+// part, which starts with the header, and the commit. The header must name
+// height and hash to the block id of that commit, and the part must prove into
+// the part set hash of the same block id. The commit signatures are not
+// checked: the node is trusted for the header.
+func (c *ConsensusClient) streamHeader(ctx context.Context, height uint64, h int64) (cmtproto.Header, error) {
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	st, err := c.blocks.BlockByHeight(sctx, &coregrpc.BlockByHeightRequest{Height: h, Prove: true})
 	if err != nil {
 		return cmtproto.Header{}, classifyGRPC(ctx, err)
 	}
-	b := r.GetBlock()
-	if b == nil {
-		return cmtproto.Header{}, fmt.Errorf("%w: no block at height %d", ErrUnavailable, height)
+	m, err := st.Recv()
+	if err != nil {
+		return cmtproto.Header{}, classifyGRPC(ctx, err)
 	}
-	if b.Header.Height < 0 {
+	part, err := core.PartFromProto(m.GetBlockPart())
+	if err != nil {
+		return cmtproto.Header{}, fmt.Errorf("%w: block part at height %d: %w", ErrUnavailable, height, err)
+	}
+	if part.Index != 0 {
+		return cmtproto.Header{}, fmt.Errorf("%w: first block part at height %d has index %d", ErrUnavailable, height, part.Index)
+	}
+	hdr, err := headerFromPart(part.Bytes)
+	if err != nil {
+		return cmtproto.Header{}, fmt.Errorf("%w: block at height %d: %w", ErrUnavailable, height, err)
+	}
+	if hdr.Height < 0 {
 		c.flag.Mark()
-		return cmtproto.Header{}, heightIgnored(fmt.Errorf("%w: header at height %d", heightcheck.ErrHeightIgnored, b.Header.Height))
+		return cmtproto.Header{}, heightIgnored(fmt.Errorf("%w: header at height %d", heightcheck.ErrHeightIgnored, hdr.Height))
 	}
-	if err := heightcheck.HeaderHeight(uint64(b.Header.Height), height); err != nil {
+	if err := heightcheck.HeaderHeight(uint64(hdr.Height), height); err != nil {
 		c.flag.Mark()
 		return cmtproto.Header{}, heightIgnored(err)
 	}
-	return b.Header, nil
+	if err := verifyHeaderBlockID(hdr, part, m.GetCommit()); err != nil {
+		return cmtproto.Header{}, fmt.Errorf("%w: block at height %d: %w", ErrUnavailable, height, err)
+	}
+	return hdr, nil
 }
 
-// Header reads the header at height. The block query carries the whole block;
-// only the header is used.
+func verifyHeaderBlockID(hdr cmtproto.Header, part *core.Part, commit *cmtproto.Commit) error {
+	if commit == nil {
+		return errors.New("no commit")
+	}
+	if commit.Height != hdr.Height {
+		return fmt.Errorf("commit at height %d, header at %d", commit.Height, hdr.Height)
+	}
+	bid, err := core.BlockIDFromProto(&commit.BlockID)
+	if err != nil {
+		return fmt.Errorf("block id: %w", err)
+	}
+	ch, err := core.HeaderFromProto(&hdr)
+	if err != nil {
+		return fmt.Errorf("header: %w", err)
+	}
+	if got := ch.Hash(); len(got) == 0 || !bytes.Equal(got, bid.Hash) {
+		return errors.New("header does not hash to the block id")
+	}
+	if err := part.Proof.Verify(bid.PartSetHeader.Hash, part.Bytes); err != nil {
+		return fmt.Errorf("block part proof: %w", err)
+	}
+	return nil
+}
+
+// headerFromPart decodes the header at the start of a serialized block, where
+// it is field 1.
+func headerFromPart(b []byte) (cmtproto.Header, error) {
+	var hdr cmtproto.Header
+	if len(b) == 0 || b[0] != 0x0a {
+		return hdr, errors.New("first part does not start with a header")
+	}
+	n, k := binary.Uvarint(b[1:])
+	if k <= 0 || n > uint64(len(b)-1-k) {
+		return hdr, errors.New("header is not inside the first part")
+	}
+	if err := hdr.Unmarshal(b[1+k : 1+k+int(n)]); err != nil {
+		return hdr, fmt.Errorf("header: %w", err)
+	}
+	return hdr, nil
+}
+
+// Header reads the header at height.
 func (c *ConsensusClient) Header(ctx context.Context, height uint64) (FibreHeader, error) {
 	hdr, err := c.blockHeader(ctx, height)
 	if err != nil {
@@ -129,7 +246,9 @@ func (c *ConsensusClient) Header(ctx context.Context, height uint64) (FibreHeade
 	if len(hdr.DataHash) == 0 {
 		return FibreHeader{}, fmt.Errorf("%w: header at height %d has no data hash", ErrUnavailable, height)
 	}
-	return FibreHeader{Height: height, DataHash: append([]byte(nil), hdr.DataHash...), Time: hdr.Time}, nil
+	return FibreHeader{
+		Height: height, DataHash: append([]byte(nil), hdr.DataHash...), Time: hdr.Time, AppVersion: hdr.Version.App,
+	}, nil
 }
 
 // SignedHeader reads the raw header at height.

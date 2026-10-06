@@ -189,6 +189,29 @@ func TestFibreChainConcurrentUse(t *testing.T) {
 	assert.Equal(t, 400, dr)
 }
 
+func TestDownloaderRefusesAboveMaxSize(t *testing.T) {
+	d := nodefake.NewDownloader()
+	var id [33]byte
+	d.Put(id, []byte("blob"))
+	_, err := d.Download(context.Background(), id, 1, 3)
+	require.ErrorIs(t, err, node.ErrTooLarge)
+	got, err := d.Download(context.Background(), id, 1, 4)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("blob"), got)
+}
+
+func TestAddHeaderCarriesTheFibreAppVersion(t *testing.T) {
+	c := nodefake.NewFibreChain()
+	c.AddHeader(5, []byte{1}, time.Unix(1, 0))
+	h, err := c.Header(context.Background(), 5)
+	require.NoError(t, err)
+	assert.EqualValues(t, node.FibreAppVersion, h.AppVersion)
+	c.SetAppVersion(5, 9)
+	h, err = c.Header(context.Background(), 5)
+	require.NoError(t, err)
+	assert.EqualValues(t, 9, h.AppVersion)
+}
+
 func TestDownloaderServesByBlobID(t *testing.T) {
 	ctx := context.Background()
 	d := nodefake.NewDownloader()
@@ -196,15 +219,15 @@ func TestDownloaderServesByBlobID(t *testing.T) {
 	id[1], other[1] = 1, 2
 	d.Put(id, []byte("blob"))
 
-	got, err := d.Download(ctx, id, 99)
+	got, err := d.Download(ctx, id, 99, 1<<20)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("blob"), got)
-	_, err = d.Download(ctx, other, 99)
+	_, err = d.Download(ctx, other, 99, 1<<20)
 	assert.ErrorIs(t, err, node.ErrNotFound)
 	assert.Equal(t, 2, d.Calls())
 
 	d.Fail = nodefake.ErrInjected
-	_, err = d.Download(ctx, id, 99)
+	_, err = d.Download(ctx, id, 99, 1<<20)
 	assert.ErrorIs(t, err, nodefake.ErrInjected)
 	assert.Equal(t, 3, d.Calls(), "failed calls are counted too")
 }
@@ -215,6 +238,6 @@ func TestDownloaderCanceledContext(t *testing.T) {
 	d.Put(id, []byte("blob"))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := d.Download(ctx, id, 1)
+	_, err := d.Download(ctx, id, 1, 1<<20)
 	assert.ErrorIs(t, err, context.Canceled)
 }

@@ -26,16 +26,18 @@ type fakeDL struct {
 	calls   int
 	ids     [][33]byte
 	heights []uint64
+	limits  []uint64
 }
 
 var _ node.FibreDownloader = (*fakeDL)(nil)
 
-func (d *fakeDL) Download(_ context.Context, id [33]byte, promiseHeight uint64) ([]byte, error) {
+func (d *fakeDL) Download(_ context.Context, id [33]byte, promiseHeight, maxSize uint64) ([]byte, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.calls++
 	d.ids = append(d.ids, id)
 	d.heights = append(d.heights, promiseHeight)
+	d.limits = append(d.limits, maxSize)
 	if d.err != nil {
 		return nil, d.err
 	}
@@ -74,6 +76,7 @@ func TestFibreFetchDirectFirst(t *testing.T) {
 	assert.Zero(t, bridge.count(), "the bridge is only a fallback")
 	assert.Equal(t, fibrecommit.BlobID([32]byte(l.commit)), direct.ids[0], "download by 0x00 || commitment")
 	assert.Equal(t, l.promiseH, direct.heights[0], "the promise height, not the PFF height")
+	assert.EqualValues(t, l.blobSize, direct.limits[0], "the downloader is bounded by the promised upload size")
 }
 
 func TestFibreFetchFallsBackToTheBridge(t *testing.T) {
@@ -251,6 +254,21 @@ func TestFibreFetchHonoursMaxSize(t *testing.T) {
 		require.NoError(t, err)
 		got[0] ^= 0xff
 		assert.Equal(t, byte(0x65), src[0])
+	})
+	t.Run("an oversized bridge answer is never returned and is not absence", func(t *testing.T) {
+		bridge := &fakeDL{data: big}
+		got, err := blobsOver(t, l, &fakeDL{}, bridge).Fetch(bg, l.ref(), max)
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, gate.ErrBlobNotFound)
+		assert.Empty(t, got)
+		assert.Equal(t, 1, bridge.count())
+	})
+	t.Run("a too-large error of the bridge is not absence", func(t *testing.T) {
+		bridge := &fakeDL{err: fmt.Errorf("%w: %w", node.ErrUnavailable, node.ErrTooLarge)}
+		got, err := blobsOver(t, l, &fakeDL{}, bridge).Fetch(bg, l.ref(), max)
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, gate.ErrBlobNotFound)
+		assert.Empty(t, got)
 	})
 	t.Run("an oversized direct answer does not stop the fallback from being tried", func(t *testing.T) {
 		direct, bridge := &fakeDL{data: big}, &fakeDL{data: l.payload}

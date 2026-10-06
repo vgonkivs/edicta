@@ -7,13 +7,13 @@ import (
 
 	appfibre "github.com/celestiaorg/celestia-app/v10/fibre"
 	"github.com/celestiaorg/celestia-app/v10/fibre/state"
-	"github.com/celestiaorg/celestia-node/api/client"
 )
 
 // FibreDirect downloads blobs from the storage providers through a
 // download-only Fibre client: no keyring, no escrow, no submission.
 type FibreDirect struct {
-	c *appfibre.Client
+	c      *appfibre.Client
+	states []state.Client
 }
 
 var _ FibreDownloader = (*FibreDirect)(nil)
@@ -22,24 +22,46 @@ var _ FibreDownloader = (*FibreDirect)(nil)
 // queries go through the consensus endpoint g, with its TLS and token. Close
 // the result.
 func NewFibreDirect(ctx context.Context, g GRPCConfig) (*FibreDirect, error) {
+	d := &FibreDirect{}
 	cfg := appfibre.DefaultClientConfig()
-	cfg.StateClientFn = func() (state.Client, error) { return dialStateClient(g.Addr, g.TLS, g.Token) }
+	// The library's Stop does not close the state client it was given.
+	cfg.StateClientFn = func() (state.Client, error) {
+		sc, err := dialStateClient(g.Addr, g.TLS, g.Token)
+		if err == nil {
+			d.states = append(d.states, sc)
+		}
+		return sc, err
+	}
 	c, err := appfibre.NewClient(nil, cfg)
 	if err != nil {
+		_ = d.stopStates(ctx)
 		return nil, fmt.Errorf("%w: fibre download client: %w", ErrUnavailable, err)
 	}
+	d.c = c
 	if err := c.Start(ctx); err != nil {
 		_ = c.Stop(ctx)
+		_ = d.stopStates(ctx)
 		return nil, wrapCtx(ctx, fmt.Errorf("start fibre download client: %w", err))
 	}
-	return &FibreDirect{c: c}, nil
+	return d, nil
 }
 
-// Close stops the client and its consensus connection.
-func (d *FibreDirect) Close(ctx context.Context) error { return d.c.Stop(ctx) }
+func (d *FibreDirect) stopStates(ctx context.Context) error {
+	var errs []error
+	for _, sc := range d.states {
+		errs = append(errs, sc.Stop(ctx))
+	}
+	d.states = nil
+	return errors.Join(errs...)
+}
+
+// Close stops the client and closes its consensus connection.
+func (d *FibreDirect) Close(ctx context.Context) error {
+	return errors.Join(d.c.Stop(ctx), d.stopStates(ctx))
+}
 
 // Download reconstructs the blob with the validator set at promiseHeight.
-func (d *FibreDirect) Download(ctx context.Context, id [33]byte, promiseHeight uint64) ([]byte, error) {
+func (d *FibreDirect) Download(ctx context.Context, id [33]byte, promiseHeight, maxSize uint64) ([]byte, error) {
 	b, err := d.c.Download(ctx, appfibre.BlobID(id[:]), appfibre.WithHeight(promiseHeight))
 	if err != nil {
 		if errors.Is(err, appfibre.ErrNotFound) {
@@ -47,10 +69,12 @@ func (d *FibreDirect) Download(ctx context.Context, id [33]byte, promiseHeight u
 		}
 		return nil, wrapCtxNotFound(ctx, err)
 	}
+	defer b.Free()
+	if uint64(len(b.Data())) > maxSize {
+		return nil, fmt.Errorf("%w: blob of %d bytes, limit %d", ErrTooLarge, len(b.Data()), maxSize)
+	}
 	// The blob's buffers are pooled, so the bytes are copied out first.
-	data := append([]byte(nil), b.Data()...)
-	b.Free()
-	return data, nil
+	return append([]byte(nil), b.Data()...), nil
 }
 
 // wrapCtxNotFound classifies a download error as unavailable unless the
@@ -60,30 +84,4 @@ func wrapCtxNotFound(ctx context.Context, err error) error {
 		return fmt.Errorf("%w: %w", ErrUnavailable, errors.Join(cerr, err))
 	}
 	return fmt.Errorf("%w: %w", ErrUnavailable, err)
-}
-
-type bridgeDownloader struct {
-	rc *client.ReadClient
-}
-
-// NewFibreBridgeDownloader downloads through the Fibre module of a bridge
-// node. The caller keeps ownership of rc and closes it.
-func NewFibreBridgeDownloader(rc *client.ReadClient) (FibreDownloader, error) {
-	if rc == nil {
-		return nil, errors.New("node: nil read client")
-	}
-	return bridgeDownloader{rc: rc}, nil
-}
-
-// Download asks the bridge, which has no height option and uses the head
-// validator set.
-func (d bridgeDownloader) Download(ctx context.Context, id [33]byte, _ uint64) ([]byte, error) {
-	r, err := d.rc.Fibre.Download(ctx, appfibre.BlobID(id[:]))
-	if err != nil {
-		return nil, wrapCtx(ctx, err)
-	}
-	if r == nil {
-		return nil, fmt.Errorf("%w: empty bridge download", ErrUnavailable)
-	}
-	return r.Data, nil
 }

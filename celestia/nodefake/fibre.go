@@ -56,14 +56,23 @@ func NewFibreChain() *FibreChain {
 func (c *FibreChain) AddHeader(height uint64, dataHash []byte, t time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.headers[height] = node.FibreHeader{Height: height, DataHash: bytes.Clone(dataHash), Time: t}
+	c.headers[height] = node.FibreHeader{Height: height, DataHash: bytes.Clone(dataHash), Time: t, AppVersion: node.FibreAppVersion}
+}
+
+// SetAppVersion changes the app version of the stored header at height.
+func (c *FibreChain) SetAppVersion(height uint64, v uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	h := c.headers[height]
+	h.AppVersion = v
+	c.headers[height] = h
 }
 
 // SetDAH stores the data availability header the bridge serves at height.
 func (c *FibreChain) SetDAH(height uint64, rows, cols [][]byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.dahs[height] = &da.DataAvailabilityHeader{RowRoots: cloneTxs(rows), ColumnRoots: cloneTxs(cols)}
+	c.dahs[height] = &da.DataAvailabilityHeader{RowRoots: cloneByteSlices(rows), ColumnRoots: cloneByteSlices(cols)}
 }
 
 // SetNamespaceData stores the namespace data the bridge serves at height.
@@ -116,7 +125,7 @@ func (c *FibreChain) BridgeReads() (dah, namespaceData int) {
 	return c.dahReads, c.nsReads
 }
 
-func cloneTxs(txs [][]byte) [][]byte {
+func cloneByteSlices(txs [][]byte) [][]byte {
 	out := make([][]byte, len(txs))
 	for i, t := range txs {
 		out[i] = bytes.Clone(t)
@@ -138,7 +147,7 @@ func (c *FibreChain) Header(_ context.Context, height uint64) (node.FibreHeader,
 	if !ok {
 		return node.FibreHeader{}, fmt.Errorf("%w: header %d", node.ErrNotFound, height)
 	}
-	return node.FibreHeader{Height: h.Height, DataHash: bytes.Clone(h.DataHash), Time: h.Time}, nil
+	return node.FibreHeader{Height: h.Height, DataHash: bytes.Clone(h.DataHash), Time: h.Time, AppVersion: h.AppVersion}, nil
 }
 
 func (c *FibreChain) DAH(_ context.Context, height uint64) (*da.DataAvailabilityHeader, error) {
@@ -152,13 +161,16 @@ func (c *FibreChain) DAH(_ context.Context, height uint64) (*da.DataAvailability
 	if !ok {
 		return nil, fmt.Errorf("%w: dah %d", node.ErrNotFound, height)
 	}
-	return &da.DataAvailabilityHeader{RowRoots: cloneTxs(d.RowRoots), ColumnRoots: cloneTxs(d.ColumnRoots)}, nil
+	return &da.DataAvailabilityHeader{RowRoots: cloneByteSlices(d.RowRoots), ColumnRoots: cloneByteSlices(d.ColumnRoots)}, nil
 }
 
-func (c *FibreChain) NamespaceData(_ context.Context, height uint64, _ libshare.Namespace) (shwap.NamespaceData, error) {
+func (c *FibreChain) NamespaceData(_ context.Context, height uint64, ns libshare.Namespace) (shwap.NamespaceData, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.nsReads++
+	if !ns.Equals(libshare.PayForFibreNamespace) {
+		return nil, fmt.Errorf("%w: namespace %x", node.ErrNotFound, ns.Bytes())
+	}
 	if c.FailBridge != nil {
 		return nil, c.FailBridge
 	}
@@ -230,7 +242,7 @@ func (d *Downloader) Calls() int {
 	return d.calls
 }
 
-func (d *Downloader) Download(ctx context.Context, id [33]byte, _ uint64) ([]byte, error) {
+func (d *Downloader) Download(ctx context.Context, id [33]byte, _, maxSize uint64) ([]byte, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.calls++
@@ -243,6 +255,9 @@ func (d *Downloader) Download(ctx context.Context, id [33]byte, _ uint64) ([]byt
 	b, ok := d.blobs[id]
 	if !ok {
 		return nil, node.ErrNotFound
+	}
+	if uint64(len(b)) > maxSize {
+		return nil, fmt.Errorf("%w: blob of %d bytes, limit %d", node.ErrTooLarge, len(b), maxSize)
 	}
 	return bytes.Clone(b), nil
 }
