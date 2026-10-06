@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 
@@ -25,7 +27,7 @@ type BridgeConfig struct {
 // newClientFn and dialStateClient are seams for tests.
 var (
 	newClientFn     = client.New
-	dialStateClient = defaultDialStateClient
+	dialStateClient = defaultDialStateClient // takes the consensus config as given
 )
 
 // BridgeURL turns addr into the URL the bridge client needs. A bare host:port
@@ -73,8 +75,9 @@ func NewReadOnly(ctx context.Context, b BridgeConfig) (*client.ReadClient, Reade
 
 // NewSigning connects to the bridge node for reads and to the consensus gRPC
 // endpoint for submissions, signing with key keyName of kr. network is the
-// chain id the consensus node reports (ConsensusClient.Network). Close the result.
-func NewSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Keyring, keyName, network string) (*client.Client, Reader, Submitter, error) {
+// chain id the consensus node reports (ConsensusClient.Network). Close the
+// result: it closes the client and the state clients dialed for it.
+func NewSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Keyring, keyName, network string) (io.Closer, Reader, Submitter, error) {
 	if kr == nil {
 		return nil, nil, nil, errors.New("node: no keyring")
 	}
@@ -82,7 +85,10 @@ func NewSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Ke
 		return nil, nil, nil, errors.New("node: no chain id; read it from the consensus node first")
 	}
 	fibreCfg := appfibre.DefaultClientConfig()
-	fibreCfg.StateClientFn = func() (state.Client, error) { return dialStateClient(g.Addr, g.TLS, g.Token) }
+	// The Recorder never moves funds; escrow is funded by the operator.
+	fibreCfg.Escrow.AutoFund = false
+	states := &stateTracker{}
+	fibreCfg.StateClientFn = func() (state.Client, error) { return states.dial(g) }
 	c, err := newClientFn(ctx, client.Config{
 		ReadConfig: client.ReadConfig{BridgeDAAddr: b.Addr, DAAuthToken: b.Token, EnableDATLS: b.TLS},
 		SubmitConfig: client.SubmitConfig{
@@ -93,17 +99,35 @@ func NewSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Ke
 		},
 	}, kr)
 	if err != nil {
+		_ = states.stop(ctx)
 		return nil, nil, nil, wrapCtx(ctx, err)
 	}
+	sc := &signingCloser{c: c, states: states}
 	r, err := NewReader(&c.ReadClient)
 	if err != nil {
-		_ = c.Close()
+		_ = sc.Close()
 		return nil, nil, nil, err
 	}
 	s, err := NewSubmitter(c)
 	if err != nil {
-		_ = c.Close()
+		_ = sc.Close()
 		return nil, nil, nil, err
 	}
-	return c, r, s, nil
+	return sc, r, s, nil
+}
+
+// signingCloser closes the signing client, then the state clients dialed for
+// its Fibre client.
+type signingCloser struct {
+	c      *client.Client
+	states *stateTracker
+	once   sync.Once
+	err    error
+}
+
+func (s *signingCloser) Close() error {
+	s.once.Do(func() {
+		s.err = errors.Join(s.c.Close(), s.states.stop(context.Background()))
+	})
+	return s.err
 }

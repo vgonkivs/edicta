@@ -33,8 +33,8 @@ func TestNewSigningFibreStateClientUsesConsensusTLSAndToken(t *testing.T) {
 			}
 			var dAddr, dTok string
 			var dTLS bool
-			dialStateClient = func(addr string, tls bool, token string) (state.Client, error) {
-				dAddr, dTLS, dTok = addr, tls, token
+			dialStateClient = func(g GRPCConfig) (state.Client, error) {
+				dAddr, dTLS, dTok = g.Addr, g.TLS, g.Token
 				return nil, errStop
 			}
 			kr := keyring.NewInMemory(nil)

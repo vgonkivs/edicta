@@ -42,7 +42,7 @@ func TestFibreStateStartsOnAChainWithoutFibre(t *testing.T) {
 
 	oldNew, oldDial := newClientFn, dialStateClient
 	t.Cleanup(func() { newClientFn, dialStateClient = oldNew, oldDial })
-	dialStateClient = func(string, bool, string) (state.Client, error) {
+	dialStateClient = func(GRPCConfig) (state.Client, error) {
 		return &fibreState{
 			conn: conn, blocks: coregrpc.NewBlockAPIClient(conn), query: fibretypes.NewQueryClient(conn),
 			vals: valtypes.NewQueryClient(conn), hosts: map[string]validator.Host{},

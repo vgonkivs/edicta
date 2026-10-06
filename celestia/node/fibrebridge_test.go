@@ -204,7 +204,7 @@ func TestFibreDirectClosesTheStateClientOnConstructorErrors(t *testing.T) {
 	t.Run("the dial fails", func(t *testing.T) {
 		old := dialStateClient
 		t.Cleanup(func() { dialStateClient = old })
-		dialStateClient = func(string, bool, string) (state.Client, error) { return nil, errors.New("dial") }
+		dialStateClient = func(GRPCConfig) (state.Client, error) { return nil, errors.New("dial") }
 		_, err := NewFibreDirect(tctx(t), GRPCConfig{Addr: "127.0.0.1:1"})
 		require.Error(t, err)
 	})
@@ -212,7 +212,7 @@ func TestFibreDirectClosesTheStateClientOnConstructorErrors(t *testing.T) {
 		old := dialStateClient
 		t.Cleanup(func() { dialStateClient = old })
 		sc := &stopCounter{startErr: errors.New("start")}
-		dialStateClient = func(string, bool, string) (state.Client, error) { return sc, nil }
+		dialStateClient = func(GRPCConfig) (state.Client, error) { return sc, nil }
 		_, err := NewFibreDirect(tctx(t), GRPCConfig{Addr: "127.0.0.1:1"})
 		require.Error(t, err)
 		assert.GreaterOrEqual(t, sc.stops, 1, "the consensus connection is not leaked")
@@ -223,7 +223,7 @@ func TestFibreDirectCloseStopsTheStateClient(t *testing.T) {
 	old := dialStateClient
 	t.Cleanup(func() { dialStateClient = old })
 	sc := &stopCounter{}
-	dialStateClient = func(string, bool, string) (state.Client, error) { return sc, nil }
+	dialStateClient = func(GRPCConfig) (state.Client, error) { return sc, nil }
 	d, err := NewFibreDirect(tctx(t), GRPCConfig{Addr: "127.0.0.1:1"})
 	require.NoError(t, err)
 	assert.Zero(t, sc.stops)
@@ -235,7 +235,7 @@ func TestFibreDirectClosePropagatesTheStateStopError(t *testing.T) {
 	old := dialStateClient
 	t.Cleanup(func() { dialStateClient = old })
 	errStop := errors.New("stop failed")
-	dialStateClient = func(string, bool, string) (state.Client, error) { return &stopCounter{err: errStop}, nil }
+	dialStateClient = func(GRPCConfig) (state.Client, error) { return &stopCounter{err: errStop}, nil }
 	d, err := NewFibreDirect(tctx(t), GRPCConfig{Addr: "127.0.0.1:1"})
 	require.NoError(t, err)
 	require.ErrorIs(t, d.Close(tctx(t)), errStop)

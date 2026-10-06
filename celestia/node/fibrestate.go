@@ -40,8 +40,8 @@ type fibreState struct {
 
 var _ state.Client = (*fibreState)(nil)
 
-func defaultDialStateClient(addr string, tls bool, token string) (state.Client, error) {
-	conn, err := DialGRPC(GRPCConfig{Addr: addr, TLS: tls, Token: token, AllowInsecureToken: true})
+func defaultDialStateClient(g GRPCConfig) (state.Client, error) {
+	conn, err := DialGRPC(g)
 	if err != nil {
 		return nil, err
 	}
@@ -156,4 +156,34 @@ func (s *fibreState) FullStakeStorageBudget(ctx context.Context) (int64, error) 
 		return math.MaxInt64, nil
 	}
 	return int64(r.Params.FullStakeStorageBudget), nil
+}
+
+// stateTracker records the state clients dialed for a library client, whose
+// Stop does not close the one it was given.
+type stateTracker struct {
+	mu     sync.Mutex
+	states []state.Client
+}
+
+func (t *stateTracker) dial(g GRPCConfig) (state.Client, error) {
+	sc, err := dialStateClient(g)
+	if err != nil {
+		return nil, err
+	}
+	t.mu.Lock()
+	t.states = append(t.states, sc)
+	t.mu.Unlock()
+	return sc, nil
+}
+
+func (t *stateTracker) stop(ctx context.Context) error {
+	t.mu.Lock()
+	states := t.states
+	t.states = nil
+	t.mu.Unlock()
+	var errs []error
+	for _, sc := range states {
+		errs = append(errs, sc.Stop(ctx))
+	}
+	return errors.Join(errs...)
 }

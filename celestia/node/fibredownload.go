@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	appfibre "github.com/celestiaorg/celestia-app/v10/fibre"
 	"github.com/celestiaorg/celestia-app/v10/fibre/state"
@@ -13,7 +14,10 @@ import (
 // download-only Fibre client: no keyring, no escrow, no submission.
 type FibreDirect struct {
 	c      *appfibre.Client
-	states []state.Client
+	states stateTracker
+
+	once sync.Once
+	err  error
 }
 
 var _ FibreDownloader = (*FibreDirect)(nil)
@@ -24,40 +28,26 @@ var _ FibreDownloader = (*FibreDirect)(nil)
 func NewFibreDirect(ctx context.Context, g GRPCConfig) (*FibreDirect, error) {
 	d := &FibreDirect{}
 	cfg := appfibre.DefaultClientConfig()
-	// The library's Stop does not close the state client it was given.
-	cfg.StateClientFn = func() (state.Client, error) {
-		sc, err := dialStateClient(g.Addr, g.TLS, g.Token)
-		if err == nil {
-			d.states = append(d.states, sc)
-		}
-		return sc, err
-	}
+	cfg.StateClientFn = func() (state.Client, error) { return d.states.dial(g) }
 	c, err := appfibre.NewClient(nil, cfg)
 	if err != nil {
-		_ = d.stopStates(ctx)
+		_ = d.states.stop(ctx)
 		return nil, fmt.Errorf("%w: fibre download client: %w", ErrUnavailable, err)
 	}
 	d.c = c
 	if err := c.Start(ctx); err != nil {
 		_ = c.Stop(ctx)
-		_ = d.stopStates(ctx)
+		_ = d.states.stop(ctx)
 		return nil, wrapCtx(ctx, fmt.Errorf("start fibre download client: %w", err))
 	}
 	return d, nil
 }
 
-func (d *FibreDirect) stopStates(ctx context.Context) error {
-	var errs []error
-	for _, sc := range d.states {
-		errs = append(errs, sc.Stop(ctx))
-	}
-	d.states = nil
-	return errors.Join(errs...)
-}
-
-// Close stops the client and closes its consensus connection.
+// Close stops the client and closes its consensus connection. It runs once;
+// later calls return the first result.
 func (d *FibreDirect) Close(ctx context.Context) error {
-	return errors.Join(d.c.Stop(ctx), d.stopStates(ctx))
+	d.once.Do(func() { d.err = errors.Join(d.c.Stop(ctx), d.states.stop(ctx)) })
+	return d.err
 }
 
 // Download reconstructs the blob with the validator set at promiseHeight.

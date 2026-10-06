@@ -48,6 +48,7 @@ type FibreBridge struct {
 	fibre   fibreapi.API
 	closers []jsonrpc.ClientCloser
 	nsWire  uint64
+	limits  BridgeLimits
 }
 
 var _ FibreBridgeReader = (*FibreBridge)(nil)
@@ -65,7 +66,7 @@ func NewFibreBridge(ctx context.Context, b BridgeConfig, lim BridgeLimits) (*Fib
 	if b.Token != "" {
 		hdr.Set("Authorization", "Bearer "+b.Token)
 	}
-	fb := &FibreBridge{nsWire: wireSize(lim.NamespaceDataBytes)}
+	fb := &FibreBridge{nsWire: wireSize(lim.NamespaceDataBytes), limits: lim}
 	hc := &http.Client{Transport: cappedTransport{rt: http.DefaultTransport, limit: headerAnswerBytes}}
 	for _, c := range []struct {
 		ns  string
@@ -80,6 +81,9 @@ func NewFibreBridge(ctx context.Context, b BridgeConfig, lim BridgeLimits) (*Fib
 	}
 	return fb, nil
 }
+
+// Limits returns the limits in force, defaults applied.
+func (b *FibreBridge) Limits() BridgeLimits { return b.limits }
 
 // Close releases the clients.
 func (b *FibreBridge) Close() {
