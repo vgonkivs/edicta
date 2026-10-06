@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/da/fibre_cert.json (v0-draft.18) without Go and
+"""Verifies spec/vectors/da/fibre_cert.json (v0-draft.21) without Go and
 without the network.
 
 The expected values come from upstream celestia-app, celestia-core and
@@ -15,7 +15,8 @@ from the raw bytes with its own code:
   a walk, and the list conditions under which CometBFT refuses to build a
   validator set;
 - CometBFT header and validator-set hashes (RFC 6962 Merkle), the list's own
-  CometBFT set (sorted and hashed here), CV7 with the next-header binding and
+  CometBFT set (sorted and hashed here) against next_validators_hash of the
+  promise header (CV7), and
   the backward last_block_id chain from the trusted header (HT2, HT3);
 - every valset case (synthetic and live validator-set evidence);
 - every mutation, re-evaluated after its byte flip; every boundary case and
@@ -39,7 +40,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
 FORMAT = "edicta-vectors/v0"
-REVISION = "v0-draft.18"
+REVISION = "v0-draft.21"
 PFF_URL = "/celestia.fibre.v1.MsgPayForFibre"
 ED_URL = "/cosmos.crypto.ed25519.PubKey"
 POWER_REDUCTION = 10**6
@@ -534,10 +535,9 @@ def evaluate(inp: dict, binding: dict, full_report: bool) -> tuple:
             fail("CV3")
     ph = p["height"] if p is not None else LIVE_PROMISE_HEIGHT
     chain = p["chain_id"] if p is not None else "mocha-5"
-    ev = (inp["header"].get(ph), inp["header"].get(ph + 1), inp["cometbft_valset"].get(ph + 1))
     vf, vals, rep, via = eval_valset(inp["historical_info"], chain, ph,
                                      p["sign_bytes"] if p is not None else None,
-                                     p["sigs"] if p is not None else [], ev)
+                                     p["sigs"] if p is not None else [], inp["header"].get(ph))
     for r in vf:
         fail(r)
     if not full_report:
@@ -558,9 +558,9 @@ def evaluate(inp: dict, binding: dict, full_report: bool) -> tuple:
     return fails, p, vals, rep, via
 
 
-def eval_valset(hist: bytes, chain: str, ph: int, msg, sigs: list, ev: tuple):
-    """CV4 to CV7 over an archived HistoricalInfo and its evidence
-    (promise header, next header, CometBFT set at ph + 1)."""
+def eval_valset(hist: bytes, chain: str, ph: int, msg, sigs: list, promise_header):
+    """CV4 to CV7 over an archived HistoricalInfo and the header at the
+    promise height."""
     fails = []
     try:
         hdr, vals = parse_hist(hist)
@@ -573,7 +573,7 @@ def eval_valset(hist: bytes, chain: str, ph: int, msg, sigs: list, ev: tuple):
         if rule:
             fails.append(rule)
         rep = report(msg, vals, sigs)
-    via = cv7(chain, ph, vals, ev)
+    via = cv7(chain, ph, vals, promise_header)
     if not via:
         fails.append("CV7")
     return fails, vals, rep, via
@@ -594,25 +594,16 @@ def list_set_hash(vals: list):
     return merkle(simple)
 
 
-def cv7(chain: str, ph: int, vals: list, ev: tuple) -> str:
-    ph_bytes, nh_bytes, vs_bytes = ev
+def cv7(chain: str, ph: int, vals: list, promise_header) -> str:
+    """The list's own set hashes to next_validators_hash of a header with the
+    promise's height and chain id. Nothing else is consulted."""
     want = list_set_hash(vals)
     try:
-        expect(want is not None and vs_bytes is not None, "no set")
-        vs = valset(vs_bytes)
-        expect(not set_rejects([(pk, pw) for pk, pw, _ in vs]), "archived set")
-        expect(valset_hash(vs) == want, "archived set differs")
-        pi = header_info(ph_bytes)
-        expect(pi["height"] == ph and pi["chain_id"] == chain, "promise header")
-        if pi["next_validators_hash"] == want:
-            return f"next_validators_hash@{ph}"
-        ni = header_info(nh_bytes)
-        expect(ni["height"] == ph + 1 and ni["chain_id"] == chain
-               and ni["last_block_hash"] == header_hash(ph_bytes), "next header not bound")
-        if ni["validators_hash"] == want:
-            return f"validators_hash@{ph + 1}"
+        pi = header_info(promise_header)
     except (Failure, TypeError, UnicodeDecodeError):
-        pass
+        return ""
+    if want is not None and pi["height"] == ph and pi["chain_id"] == chain and pi["next_validators_hash"] == want:
+        return f"next_validators_hash@{ph}"
     return ""
 
 
@@ -706,7 +697,7 @@ def check_live(f: dict, commit_file: dict) -> tuple:
 
 
 def check_mutations(f: dict, inp: dict, binding: dict, live_rep: dict) -> int:
-    targets = set()
+    targets = {m["target"] for m in f["undetected_mutations"]}
     ids = set()
     for m in f["mutations"]:
         expect(m["id"] not in ids, f"duplicate id {m['id']}")
@@ -777,8 +768,8 @@ def check_valset(f: dict, p: dict, inp: dict) -> int:
     expect(vd["message"] == "live.derived.sign_bytes_hex", "valset message")
     prefix = b"edicta/v0/vectors/fibre_cert/validator/"
     need = {"valset_synthetic_ok", "valset_honest_insufficient", "valset_duplicate_signer", "valset_zero_power",
-            "valset_total_above_max", "valset_bad_key_length", "next_header_wrong_height", "next_header_other_chain",
-            "next_header_wrong_last_block_id", "valset_duplicate_signer_live"}
+            "valset_total_above_max", "valset_bad_key_length", "promise_header_other_set", "promise_header_wrong_height",
+            "promise_header_other_chain", "valset_duplicate_signer_live"}
     seen = set()
     for c in vd["cases"]:
         cid = c["id"]
@@ -792,13 +783,12 @@ def check_valset(f: dict, p: dict, inp: dict) -> int:
                    f"{cid}: validators vs historical_info_hex")
         else:
             expect(cid.endswith("_live"), f"{cid}: no validators")
-            expect(bytes.fromhex(c["promise_header_hex"]) == inp["header"][p["height"]]
-                   and bytes.fromhex(c["next_header_hex"]) == inp["header"][p["height"] + 1]
-                   and bytes.fromhex(c["next_valset_hex"]) == inp["cometbft_valset"][p["height"] + 1],
-                   f"{cid}: live evidence")
+            expect(bytes.fromhex(c["promise_header_hex"]) == inp["header"][p["height"]], f"{cid}: live header")
         sigs = [bytes.fromhex(s) for s in c["signatures_hex"]]
-        ev = (bytes.fromhex(c["promise_header_hex"]), bytes.fromhex(c["next_header_hex"]), bytes.fromhex(c["next_valset_hex"]))
-        fails, vals, rep, via = eval_valset(hist, p["chain_id"], p["height"], p["sign_bytes"], sigs, ev)
+        expect(set(c) == {"id", "description", "validators", "historical_info_hex", "promise_header_hex", "signatures_hex", "expect"}
+               - ({"validators"} if cid.endswith("_live") else set()), f"{cid}: fields")
+        fails, vals, rep, via = eval_valset(hist, p["chain_id"], p["height"], p["sign_bytes"], sigs,
+                                            bytes.fromhex(c["promise_header_hex"]))
         e = c["expect"]
         expect(e["fails"] == fails and e["verdict"] == ("reject" if fails else "accept"),
                f"{cid}: recomputed {fails}, vector {e['verdict']} {e['fails']}")

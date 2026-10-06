@@ -39,8 +39,6 @@ type valsetCase struct {
 	Validators        []valsetVal  `json:"validators,omitempty"`
 	HistoricalInfoHex string       `json:"historical_info_hex"`
 	PromiseHeaderHex  string       `json:"promise_header_hex"`
-	NextHeaderHex     string       `json:"next_header_hex"`
-	NextValsetHex     string       `json:"next_valset_hex"`
 	SignaturesHex     []string     `json:"signatures_hex"`
 	Expect            valsetExpect `json:"expect"`
 }
@@ -110,34 +108,25 @@ func headerBytes(h core.Header) ([]byte, error) {
 	return h.ToProto().Marshal()
 }
 
-func valsetBytes(vs *core.ValidatorSet) ([]byte, error) {
-	pv, err := vs.ToProto()
-	if err != nil {
-		return nil, err
-	}
-	return pv.Marshal()
-}
-
 type vspec struct {
-	id, desc  string
-	list      []vmember
-	sigs      []string // per list position: "s" signs with that position's key, "" empty
-	evidence  []vmember
-	promiseNV []vmember // set behind the promise header's next_validators_hash; nil means evidence
-	next      func(n *core.Header, p, live core.Header)
-	fails     []string
-	network   string // keeper rule, "" accepts
+	id, desc string
+	list     []vmember
+	sigs     []string  // per list position: "s" signs with that position's key, "" empty
+	evidence []vmember // set behind the promise header's next_validators_hash
+	promise  func(p *core.Header)
+	fails    []string
+	network  string // keeper rule, "" accepts
 }
 
 func valsetCases(base inputs, live evaluation) (valsetDoc, error) {
 	msg := live.pff.signBytes
 	ph := int64(livePromiseHeight)
 	doc := valsetDoc{
-		Description: "Validator-set evidence cases (CV4 to CV7) for the live promise: each case gives the archived HistoricalInfo, the promise header, the header at promise height + 1, the CometBFT set behind it and the signature list; the owner signature and binding are the live ones. fails lists the rules that fail; network is the keeper's answer with this list as its state.",
+		Description: "Validator-set evidence cases (CV4 to CV7) for the live promise: each case gives the archived HistoricalInfo, the header at the promise height and the signature list; the owner signature and binding are the live ones. fails lists the rules that fail; network is the keeper's answer with this list as its state.",
 		Message:     "live.derived.sign_bytes_hex",
 		Promise:     "live.derived.promise (chain_id mocha-5, height 1402813)",
 		KeySeedRule: "as boundary.key_seed_rule",
-		Headers:     "Synthetic cases: the live headers at 1402813 and 1402814 with validators_hash and next_validators_hash replaced by the case's sets, and the next header's last_block_id.hash set to the synthetic promise header's hash (unless the case says otherwise). They do not chain to the live trusted header, so header trust (HT2, HT3) is out of scope for them; the fails list covers CV4 to CV7 only. Cases ending in _live use the live headers and CometBFT set unchanged, so HT2 and HT3 hold.",
+		Headers:     "Synthetic cases: the live header at 1402813 with validators_hash and next_validators_hash replaced by the case's evidence set (and height or chain id changed where the case says so). It does not chain to the live trusted header, so header trust (HT2, HT3) is out of scope for them; the fails list covers CV4 to CV7 only. Cases ending in _live use the live header unchanged, so HT2 and HT3 hold.",
 	}
 
 	A := vmember{key: 0, tokens: 34_000_000}
@@ -163,60 +152,41 @@ func valsetCases(base inputs, live evaluation) (valsetDoc, error) {
 
 	specs := []vspec{
 		{"valset_synthetic_ok", "Control: A 34e6, B 33e6, C 33e6 tokens; A and B sign; the promise header's next_validators_hash commits to the set. Accepted.",
-			abc, signAB(abc), abc, nil, nil, nil, ""},
+			abc, signAB(abc), abc, nil, nil, ""},
 		{"valset_honest_insufficient", "The audit's real set (A 34%, B 33%, C 33%) with only A's signature: 34e6 below the requirement 66666666. Rejected by the network and here. valset_duplicate_signer forges this certificate.",
-			abc, []string{"s"}, abc, nil, nil, []string{"CV6"}, "CV6"},
+			abc, []string{"s"}, abc, nil, []string{"CV6"}, "CV6"},
 		{"valset_duplicate_signer", "The audit example: the archived list repeats A four times ([A, A, A, A, B, C]) and the signature list holds A's signature in each A slot; the headers and CometBFT set are the genuine {A, B, C}. Counting each copy would give 136e6 of 202e6, above the requirement. core.NewValidatorSet panics on the duplicate address, so the keeper rejects the tx (CV4), and the list stands for no CometBFT set, so CV7 fails as well.",
-			[]vmember{A, A, A, A, B, C}, []string{"s", "s", "s", "s"}, abc, nil, nil, []string{"CV4", "CV7"}, "CV4"},
+			[]vmember{A, A, A, A, B, C}, []string{"s", "s", "s", "s"}, abc, nil, []string{"CV4", "CV7"}, "CV4"},
 		{"valset_zero_power", "Archived list A 34e6, B 33e6, C 0 tokens; headers commit to {A, B}. core.NewValidatorSet refuses power 0, so the keeper rejects the list (CV4), and CV7 fails because the list stands for no CometBFT set.",
-			[]vmember{A, B, cZero}, []string{"s", "s"}, ab, nil, nil, []string{"CV4", "CV7"}, "CV4"},
+			[]vmember{A, B, cZero}, []string{"s", "s"}, ab, nil, []string{"CV4", "CV7"}, "CV4"},
 		{"valset_total_above_max", "Archived list A with MaxTotalVotingPower tokens and B with 10^6; the headers commit to the consensus powers (1152921504606, 1), which CometBFT accepts, so CV7 holds. The keeper counts tokens: the total exceeds MaxTotalVotingPower, core.NewValidatorSet panics and the tx fails. Only CV4 fails.",
-			[]vmember{big, one}, []string{"s"}, []vmember{big, one}, nil, nil, []string{"CV4"}, "CV4"},
+			[]vmember{big, one}, []string{"s"}, []vmember{big, one}, nil, []string{"CV4"}, "CV4"},
 		{"valset_bad_key_length", "Archived list A, B, C with B's key cut to 31 bytes; headers commit to the genuine {A, B, C}. The keeper rejects any key that is not 32 bytes (CV4) and the list matches no CometBFT set (CV7).",
-			[]vmember{A, bShort, C}, []string{"s", "s"}, abc, nil, nil, []string{"CV4", "CV7"}, "CV4"},
-		{"next_header_wrong_height", "The promise header commits to another set ({A, B}); the next header carries validators_hash of {A, B, C} and last_block_id = promise header hash, but its height is promise height + 2. It cannot stand in for the promise header. CV7 fails; the network accepts the certificate.",
-			abc, signAB(abc), abc, ab, func(n *core.Header, _, _ core.Header) { n.Height++ }, []string{"CV7"}, ""},
-		{"next_header_other_chain", "As next_header_wrong_height, the next header at promise height + 1 but with chain id mocha-4. CV7 fails; the network accepts.",
-			abc, signAB(abc), abc, ab, func(n *core.Header, _, _ core.Header) { n.ChainID = "mocha-4" }, []string{"CV7"}, ""},
-		{"next_header_wrong_last_block_id", "As next_header_wrong_height, the next header at promise height + 1 on mocha-5, but its last_block_id.hash is the hash of the live header at the promise height, not of this promise header. CV7 fails; the network accepts.",
-			abc, signAB(abc), abc, ab, func(n *core.Header, _, l core.Header) { n.LastBlockID.Hash = l.Hash() }, []string{"CV7"}, ""},
+			[]vmember{A, bShort, C}, []string{"s", "s"}, abc, nil, []string{"CV4", "CV7"}, "CV4"},
+		{"promise_header_other_set", "The promise header's next_validators_hash commits to {A, B}, not to the list {A, B, C}. A header at promise height + 1 that carries {A, B, C} cannot help: on a valid chain its validators_hash equals this field. CV7 fails; the network accepts the certificate.",
+			abc, signAB(abc), ab, nil, []string{"CV7"}, ""},
+		{"promise_header_wrong_height", "The header commits to the list but its height is promise height + 1. CV7 fails; the network accepts.",
+			abc, signAB(abc), abc, func(p *core.Header) { p.Height++ }, []string{"CV7"}, ""},
+		{"promise_header_other_chain", "The header commits to the list but its chain id is mocha-4. CV7 fails; the network accepts.",
+			abc, signAB(abc), abc, func(p *core.Header) { p.ChainID = "mocha-4" }, []string{"CV7"}, ""},
 	}
 
 	livePH, err := decodeHeader(base.headers[ph])
 	if err != nil {
 		return doc, err
 	}
-	liveNH, err := decodeHeader(base.headers[ph+1])
-	if err != nil {
-		return doc, err
-	}
 	for _, s := range specs {
-		evSet := cometSet(s.evidence)
-		pnv := evSet.Hash()
-		if s.promiseNV != nil {
-			pnv = cometSet(s.promiseNV).Hash()
-		}
+		pnv := cometSet(s.evidence).Hash()
 		p := livePH
 		p.ValidatorsHash, p.NextValidatorsHash = pnv, pnv
-		n := liveNH
-		n.ValidatorsHash, n.NextValidatorsHash = evSet.Hash(), evSet.Hash()
-		n.LastBlockID.Hash = p.Hash()
-		if s.next != nil {
-			s.next(&n, p, livePH)
+		if s.promise != nil {
+			s.promise(&p)
 		}
 		hist, err := histBytes(live.hist, pnv, s.list)
 		if err != nil {
 			return doc, err
 		}
 		pb, err := headerBytes(p)
-		if err != nil {
-			return doc, err
-		}
-		nb, err := headerBytes(n)
-		if err != nil {
-			return doc, err
-		}
-		vb, err := valsetBytes(evSet)
 		if err != nil {
 			return doc, err
 		}
@@ -228,7 +198,7 @@ func valsetCases(base inputs, live evaluation) (valsetDoc, error) {
 			}
 			sigs = append(sigs, sig)
 		}
-		c, err := valsetCase1(s.id, s.desc, msg, ph, hist, evidence{pb, nb, vb}, sigs, s.fails, s.network)
+		c, err := valsetCase1(s.id, s.desc, msg, ph, hist, pb, sigs, s.fails, s.network)
 		if err != nil {
 			return doc, err
 		}
@@ -267,9 +237,9 @@ func sortedMembers(ms []vmember) []vmember {
 	return out
 }
 
-func valsetCase1(id, desc string, msg []byte, ph int64, hist []byte, ev evidence, sigs [][]byte, wantFails []string, wantNetwork string) (valsetCase, error) {
+func valsetCase1(id, desc string, msg []byte, ph int64, hist, promiseHeader []byte, sigs [][]byte, wantFails []string, wantNetwork string) (valsetCase, error) {
 	var e evaluation
-	evalValset(&e, liveChainID, ph, msg, sigs, hist, ev)
+	evalValset(&e, liveChainID, ph, msg, sigs, hist, promiseHeader)
 	fails := e.fails
 	if fails == nil {
 		fails = []string{}
@@ -281,8 +251,7 @@ func valsetCase1(id, desc string, msg []byte, ph int64, hist []byte, ev evidence
 		return valsetCase{}, fmt.Errorf("%s: upstream gives fails %v, keeper %q (%s); expected %v, %q", id, fails, e.keeperRule, e.keeperNote, wantFails, wantNetwork)
 	}
 	c := valsetCase{ID: id, Description: desc, HistoricalInfoHex: hex.EncodeToString(hist),
-		PromiseHeaderHex: hex.EncodeToString(ev.promiseHeader), NextHeaderHex: hex.EncodeToString(ev.nextHeader),
-		NextValsetHex: hex.EncodeToString(ev.nextValset), SignaturesHex: []string{}}
+		PromiseHeaderHex: hex.EncodeToString(promiseHeader), SignaturesHex: []string{}}
 	for _, s := range sigs {
 		c.SignaturesHex = append(c.SignaturesHex, hex.EncodeToString(s))
 	}
@@ -327,7 +296,6 @@ func duplicateLive(base inputs, live evaluation) (valsetCase, error) {
 		return valsetCase{}, err
 	}
 	ph := int64(livePromiseHeight)
-	ev := evidence{base.headers[ph], base.headers[ph+1], base.valsets[ph+1]}
-	desc := fmt.Sprintf("The live HistoricalInfo with validator %d (the first that signed) repeated three more times right after itself, and its signature repeated in the same slots; live headers and CometBFT set, so the header binding is the real one. The keeper's core.NewValidatorSet panics on the duplicate (CV4); the list stands for no CometBFT set (CV7).", f)
-	return valsetCase1("valset_duplicate_signer_live", desc, live.pff.signBytes, ph, hist, ev, nsigs, []string{"CV4", "CV7"}, "CV4")
+	desc := fmt.Sprintf("The live HistoricalInfo with validator %d (the first that signed) repeated three more times right after itself, and its signature repeated in the same slots; the live header at the promise height, so the header binding is the real one. The keeper's core.NewValidatorSet panics on the duplicate (CV4); the list stands for no CometBFT set (CV7).", f)
+	return valsetCase1("valset_duplicate_signer_live", desc, live.pff.signBytes, ph, hist, base.headers[ph], nsigs, []string{"CV4", "CV7"}, "CV4")
 }

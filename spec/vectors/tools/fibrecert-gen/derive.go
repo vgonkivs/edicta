@@ -438,8 +438,7 @@ func evaluate(in inputs) evaluation {
 	if e.pff != nil {
 		chainID, ph, signBytes, sigs = e.pff.pp.ChainID, int64(e.pff.pp.Height), e.pff.signBytes, e.pff.msg.ValidatorSignatures
 	}
-	ev := evidence{promiseHeader: in.headers[ph], nextHeader: in.headers[ph+1], nextValset: in.valsets[ph+1]}
-	evalValset(&e, chainID, ph, signBytes, sigs, in.hist, ev)
+	evalValset(&e, chainID, ph, signBytes, sigs, in.hist, in.headers[ph])
 
 	th, err := decodeHeader(in.headers[in.trustedHeight])
 	if err != nil || !bytes.Equal(th.Hash(), in.trustedHash) {
@@ -456,14 +455,10 @@ func evaluate(in inputs) evaluation {
 	return e
 }
 
-type evidence struct {
-	promiseHeader, nextHeader, nextValset []byte
-}
-
-// evalValset runs CV4 to CV7 on an archived HistoricalInfo and its header
-// evidence. signBytes is nil when the PFF did not parse: then only the list
-// and its header binding are checked.
-func evalValset(e *evaluation, chainID string, ph int64, signBytes []byte, sigs [][]byte, hist []byte, ev evidence) {
+// evalValset runs CV4 to CV7 on an archived HistoricalInfo and the header at
+// the promise height. signBytes is nil when the PFF did not parse: then only
+// the list and its header binding are checked.
+func evalValset(e *evaluation, chainID string, ph int64, signBytes []byte, sigs [][]byte, hist, promiseHeader []byte) {
 	hi, vals, err := decodeHist(hist)
 	if err != nil || hi.Header.Height != ph {
 		addFail(e, "CV4")
@@ -478,7 +473,7 @@ func evalValset(e *evaluation, chainID string, ph int64, signBytes []byte, sigs 
 		}
 		e.report = report(signBytes, vals, sigs)
 	}
-	e.valsetVia = cv7(chainID, ph, vals, ev)
+	e.valsetVia = cv7(chainID, ph, vals, promiseHeader)
 	if e.valsetVia == "" {
 		addFail(e, "CV7")
 	}
@@ -501,46 +496,19 @@ func consensusSetHash(vals []valEntry) (h []byte) {
 	return core.NewValidatorSet(cv).Hash()
 }
 
-// archivedSetHash is the hash of the archived CometBFT set; ValidatorSetFromProto
-// can panic on adversarial voting power.
-func archivedSetHash(b []byte) (h []byte) {
-	defer func() {
-		if recover() != nil {
-			h = nil
-		}
-	}()
-	vs, err := decodeValset(b)
-	if err != nil {
-		return nil
-	}
-	return vs.Hash()
-}
-
-// cv7 ties the HistoricalInfo list to a header with upstream hashes only: the
-// list's own CometBFT set (consensusSetHash) and the archived CometBFT set must
-// hash to the same value, and that value must be next_validators_hash of the
-// promise header (height and chain id equal to the promise's), or
-// validators_hash of a next header that is bound to the promise header: height
-// + 1, same chain id, last_block_id.hash == promise header hash. It returns
-// which header field matched, or "".
-func cv7(chainID string, ph int64, vals []valEntry, ev evidence) string {
+// cv7 ties the HistoricalInfo list to the chain with upstream hashes only: the
+// list's own CometBFT set must hash to next_validators_hash of the header at
+// the promise height, on the promise's chain. No fallback to validators_hash
+// at height + 1: once that header must chain to the promise header, CometBFT
+// makes the two fields equal, so it could never match where this one failed.
+func cv7(chainID string, ph int64, vals []valEntry, promiseHeader []byte) string {
 	want := consensusSetHash(vals)
-	if want == nil || !bytes.Equal(archivedSetHash(ev.nextValset), want) {
+	if want == nil {
 		return ""
 	}
-	p, err := decodeHeader(ev.promiseHeader)
-	if err != nil || p.Height != ph || p.ChainID != chainID {
+	p, err := decodeHeader(promiseHeader)
+	if err != nil || p.Height != ph || p.ChainID != chainID || !bytes.Equal(p.NextValidatorsHash, want) {
 		return ""
 	}
-	if bytes.Equal(p.NextValidatorsHash, want) {
-		return fmt.Sprintf("next_validators_hash@%d", ph)
-	}
-	n, err := decodeHeader(ev.nextHeader)
-	if err != nil || n.Height != ph+1 || n.ChainID != chainID || !bytes.Equal(n.LastBlockID.Hash, p.Hash()) {
-		return ""
-	}
-	if bytes.Equal(n.ValidatorsHash, want) {
-		return fmt.Sprintf("validators_hash@%d", ph+1)
-	}
-	return ""
+	return fmt.Sprintf("next_validators_hash@%d", ph)
 }

@@ -21,7 +21,7 @@ import (
 
 const histHeaderNote = "partial: x/staking stores the SDK context header, which carries chain_id, height, time, next_validators_hash, app_hash and proposer_address equal to the header at the promise height, and no version, last_block_id or validators_hash; it does not hash to the block id and is not a trust anchor"
 
-const revision = "v0-draft.18"
+const revision = "v0-draft.21"
 
 type file struct {
 	Format     string            `json:"format"`
@@ -212,12 +212,12 @@ func build(in liveInput) (*file, error) {
 			"at_most_two_thirds": "true iff 3 * signed_power <= 2 * total_power, with signed_power summed over every valid entry of the whole list. Never changes the verdict; the gate, Recorder and verifier log it as a warning.",
 			"length":             "len(signatures) > len(validators) rejects before any signature is checked; a shorter list is walked as is.",
 			"list":               "The keeper rejects the whole list (rule CV4, no walk, no certificate in the vector) on a consensus key that is not 32 bytes, and wherever core.NewValidatorSet panics over (key, tokens): a duplicate address, power 0, a validator or a total above MaxTotalVotingPower (MaxInt64 / 8).",
-			"cv7":                "core.NewValidatorSet over (key, floor(tokens / 10^6)) of the list must not panic, and its hash must equal the hash of the archived CometBFT set and next_validators_hash of the promise header (height and chain id equal to the promise's), or validators_hash of the next header if that header has height promise height + 1, the same chain id and last_block_id.hash equal to the promise header's hash.",
+			"cv7":                "core.NewValidatorSet over (key, floor(tokens / 10^6)) of the HistoricalInfo list must not panic, and its hash must equal next_validators_hash of the header at the promise height, whose height and chain id equal the promise's. There is no fallback to validators_hash at promise height + 1, and the archived CometBFT set is not read.",
 			"report":             "From upstream validator.SignatureSet: every non-empty entry offered to Add in list order; stop_index is the first Add that returns true (none if no Add does, even when an empty walk meets a requirement of 0); invalid_after_stop counts failed entries after it; signed_power is the power Signatures reports as collected.",
 			"valset":             "valset.cases: network is the keeper's answer with the case's list as its state; verdict and fails cover CV4 to CV7 over the archived bytes. A list the network accepts can still fail CV7 when the evidence headers do not bind it.",
 			"positions":          "Signature i belongs to HistoricalInfo.valset[i] as stored by x/staking (consensus power floor(tokens / 10^6) descending, then address ascending); the keeper does not re-sort.",
 			"fails":              "Rule ids of spec section 10.6.1 (CV1..CV7) and 10.6.2 (HT2 trusted header hash, HT3 backward last_block_id chain to the promise height). Every rule that fails is listed, in check order.",
-			"mutation":           "Flip: byte at offset of the target's raw bytes (live.raw, hex-decoded) XOR xor. Targets: pff_tx, historical_info, cometbft_valset (at height), header (header_hex at height). commit_hex is archived with the headers but v0 checks no commit signatures (header trust comes from the trusted hash and the hash chain), so no mutation targets it.",
+			"mutation":           "Flip: byte at offset of the target's raw bytes (live.raw, hex-decoded) XOR xor. Targets: pff_tx, historical_info, cometbft_valset (at height; no check reads it, so its flip is an undetected mutation), header (header_hex at height). commit_hex is archived with the headers but v0 checks no commit signatures (header trust comes from the trusted hash and the hash chain), so no mutation targets it.",
 		},
 		Live: liveDoc{
 			Description: "PayForFibre at height 1402819 on mocha-5 (one byte 0x65 in namespace popsmin1), the x/staking HistoricalInfo at its promise height 1402813, the CometBFT validator sets at 1402813 and 1402814, and headers 1402813..1402819 with the commits of 1402813, 1402814 and 1402819. Trusted header: 1402819.",
@@ -459,8 +459,6 @@ func mutations(base inputs, e evaluation) ([]mutation, []mutation, error) {
 			"historical_info", 0, valKey("historical_info", 0, func(int) int { return first }), []string{"CV6", "CV7"}},
 		{"valset_last_key", "One byte of the consensus key of the last validator in the archived HistoricalInfo (not needed for the quorum): only the header cross-check catches it.",
 			"historical_info", 0, valKey("historical_info", 0, func(n int) int { return n - 1 }), []string{"CV7"}},
-		{"cometbft_valset_key", "One byte of a validator key in the CometBFT set at promise height + 1: its hash no longer equals next_validators_hash / validators_hash.",
-			"cometbft_valset", livePromiseHeight + 1, valKey("cometbft_valset", livePromiseHeight+1, func(int) int { return 0 }), []string{"CV7"}},
 		{"header_promise_next_validators_hash", "One byte of next_validators_hash in the header at the promise height: it no longer matches, and validators_hash at promise height + 1 cannot stand in, because that header's last_block_id no longer equals the promise header's hash; the backward hash chain breaks at the same place.",
 			"header", livePromiseHeight, inHeader(livePromiseHeight, 0x4a, func(h core.Header) []byte { return h.NextValidatorsHash }, 3), []string{"CV7", "HT3"}},
 		{"header_next_validators_hash", "One byte of validators_hash in the header at promise height + 1.",
@@ -473,6 +471,8 @@ func mutations(base inputs, e evaluation) ([]mutation, []mutation, error) {
 	undetected := []flip{
 		{"sig_after_quorum", "Last non-empty validator signature, one byte flipped. It lies after the point where the walk reaches the requirement, so neither the chain nor the network rule checks it: the verdict stays accept; the verifier report counts it as invalid_after_stop (a warning) and leaves its power out of signed_power.",
 			"pff_tx", 0, sigAt(last), nil},
+		{"cometbft_valset_key", "One byte of a validator key in the archived CometBFT set at promise height + 1. CV7 hashes the HistoricalInfo list itself against next_validators_hash of the promise header and does not read this set, so the verdict stays accept; the set is kept in the archive for audit only.",
+			"cometbft_valset", livePromiseHeight + 1, valKey("cometbft_valset", livePromiseHeight+1, func(int) int { return 0 }), nil},
 		{"valset_tokens_low_digit", "Last decimal digit of one validator's tokens in the archived HistoricalInfo. Token amounts are not committed by any header: CV7 sees only floor(tokens / 10^6), which this flip leaves unchanged, and the verdict here does not move. The archive is trusted for availability only, so a forger with write access could move total and signed power within each 10^6 bucket; at the exact two-thirds edge that could flip a verdict.",
 			"historical_info", 0, tokensOf, nil},
 	}
@@ -521,7 +521,7 @@ func mutations(base inputs, e evaluation) ([]mutation, []mutation, error) {
 		m.Expect.Certificate = me.report
 		und = append(und, m)
 	}
-	if und[0].Expect.Certificate == nil || und[0].Expect.Certificate.InvalidAfterStop != 1 {
+	if und[0].ID != "sig_after_quorum" || und[0].Expect.Certificate == nil || und[0].Expect.Certificate.InvalidAfterStop != 1 {
 		return nil, nil, errors.New("sig_after_quorum: report does not count the invalid entry")
 	}
 	return out, und, nil
