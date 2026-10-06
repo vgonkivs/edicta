@@ -16,6 +16,7 @@ import (
 	"github.com/cometbft/cometbft/light/provider"
 	lighthttp "github.com/cometbft/cometbft/light/provider/http"
 
+	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/inclusion"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/railtx"
@@ -40,6 +41,11 @@ type runEnv struct {
 	Feed pricefeed.Feed
 	// Collected receives each verified decision's evidence.
 	Collected func(*Evidence)
+
+	// newFibreReader replaces the reader of the da=fibre anchor check; a test
+	// sets it. The command never does: the default reads the bridge and the
+	// consensus node of the run.
+	newFibreReader func(ctx context.Context, cfg Config, bridgeToken string, cons *node.ConsensusClient) (node.FibreAnchorReader, func(), error)
 }
 
 func (e runEnv) logf(format string, a ...any) {
@@ -194,11 +200,31 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 	logf("executor account %s (denom %s)", dom.Sender, dom.Denom)
 
 	// inclusion verifier
-	verifier, trust, level, closeVerifier, err := buildVerifier(ctx, cfg, head.ChainID, rd)
-	if err != nil {
-		return err
+	var (
+		verifier sdk.InclusionVerifier
+		trust    sdk.SubmitterTrust
+		level    string
+	)
+	if cfg.DA == "fibre" {
+		open := env.newFibreReader
+		if open == nil {
+			open = openFibreReader
+		}
+		fr, closeReader, err := open(ctx, cfg, bridgeTok, cons)
+		if err != nil {
+			return fmt.Errorf("fibre reader: %w", err)
+		}
+		defer closeReader()
+		if verifier, trust, level, err = buildFibreVerifier(cfg, head.ChainID, fr); err != nil {
+			return err
+		}
+	} else {
+		var closeVerifier func()
+		if verifier, trust, level, closeVerifier, err = buildVerifier(ctx, cfg, head.ChainID, rd); err != nil {
+			return err
+		}
+		defer closeVerifier()
 	}
-	defer closeVerifier()
 	logf("inclusion check: %s", level)
 
 	started := false
@@ -448,6 +474,38 @@ func buildVerifier(ctx context.Context, cfg Config, chainID string, rd node.Read
 		}
 		return cv, sdk.SubmitterUntrusted, inclusion.LevelCrossCheck.String(), closeFn, nil
 	}
+}
+
+// openFibreReader joins the run's consensus client with a bridge reader for
+// the namespace data of the anchor block.
+func openFibreReader(ctx context.Context, cfg Config, bridgeToken string, cons *node.ConsensusClient) (node.FibreAnchorReader, func(), error) {
+	fb, err := node.NewFibreBridge(ctx, node.BridgeConfig{Addr: cfg.BridgeAddr, Token: bridgeToken, TLS: cfg.BridgeTLS}, node.BridgeLimits{})
+	if err != nil {
+		return nil, nil, err
+	}
+	r, err := node.NewFibreAnchorReader(cons, fb)
+	if err != nil {
+		fb.Close()
+		return nil, nil, err
+	}
+	return r, fb.Close, nil
+}
+
+// buildFibreVerifier returns the da=fibre inclusion verifier: the PayForFibre
+// tx and its certificate are checked through r, and the SDK refuses to sign
+// without them, so the submitter is not trusted.
+func buildFibreVerifier(cfg Config, chainID string, r node.FibreAnchorReader) (sdk.InclusionVerifier, sdk.SubmitterTrust, string, error) {
+	if r == nil {
+		return nil, 0, "", cfgErr("da=fibre needs a chain reader")
+	}
+	if chainID == "" {
+		return nil, 0, "", cfgErr("da=fibre needs the chain id")
+	}
+	v, err := inclusion.NewFibre(inclusion.FibreConfig{Anchors: gatechain.NewFibreAnchors(r, chainID, gatechain.FibreAnchorOptions{})})
+	if err != nil {
+		return nil, 0, "", err
+	}
+	return v, sdk.SubmitterUntrusted, inclusion.LevelFibre.String(), nil
 }
 
 // resolveFee returns the explicit --fee, or derives one from the node's

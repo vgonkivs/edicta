@@ -3,11 +3,13 @@ package recorder
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/dacommit/sharev1"
@@ -65,6 +67,15 @@ type Config struct {
 	MaxPending int
 	// Now is the clock for entry expiry; nil means time.Now.
 	Now func() time.Time
+	// Archive receives the payload before the submit and the anchor
+	// evidence after the read-back. Nil means no archive writes.
+	Archive archive.Store
+}
+
+// headerReader is implemented by readers that can return the raw header the
+// evidence record stores.
+type headerReader interface {
+	SignedHeader(ctx context.Context, height uint64) ([]byte, error)
 }
 
 type pendingKey string
@@ -210,6 +221,36 @@ func (r *Recorder) Publish(ctx context.Context, blob []byte) (sdk.Published, err
 	e.scanned = head.Height - 1
 	r.mu.Unlock()
 
+	if r.cfg.Archive != nil {
+		intent, existed, err := r.archivePayload(ctx, comm, signer, blob, head.Height)
+		if err != nil {
+			r.forget(key, e)
+			return sdk.Published{}, err
+		}
+		if existed {
+			// An earlier process may have submitted: search from its intent
+			// before paying again.
+			r.mu.Lock()
+			e.scanned = intent - 1
+			r.mu.Unlock()
+			h, found, err := r.scan(ctx, e, comm)
+			if err != nil {
+				r.release(e)
+				return sdk.Published{}, err
+			}
+			if found {
+				return r.confirm(ctx, key, e, h, signer, comm, blob)
+			}
+			r.mu.Lock()
+			complete := e.scanned >= head.Height
+			r.mu.Unlock()
+			if !complete {
+				r.release(e)
+				return sdk.Published{}, fmt.Errorf("%w: an earlier submit of this blob may still be pending", ErrOutcomeUnknown)
+			}
+		}
+	}
+
 	sctx, cancel := context.WithTimeout(ctx, r.cfg.SubmitTimeout)
 	res, err := r.sub.Submit(sctx, r.cfg.Namespace, blob)
 	cancel()
@@ -322,6 +363,12 @@ func (r *Recorder) confirm(ctx context.Context, key pendingKey, e *entry, h uint
 		r.release(e)
 		return sdk.Published{}, err
 	}
+	if r.cfg.Archive != nil {
+		if err := r.archiveEvidence(ctx, h, comm); err != nil {
+			r.release(e)
+			return sdk.Published{}, err
+		}
+	}
 	r.finish(key, e, pub)
 	return clonePublished(pub), nil
 }
@@ -399,4 +446,60 @@ func (r *Recorder) poll(ctx context.Context, deadline time.Time, fn func() error
 		case <-t.C:
 		}
 	}
+}
+
+func archiveFault(what string, err error) error {
+	return fmt.Errorf("%w: %s: %w", ErrArchiveUnavailable, what, err)
+}
+
+// archivePayload makes sure the archive holds the payload record and returns
+// its intent height. A stored record is kept as it is, so a restart keeps the
+// first intent height.
+func (r *Recorder) archivePayload(ctx context.Context, comm, signer, blob []byte, head uint64) (intent uint64, existed bool, err error) {
+	old, err := r.cfg.Archive.Payload(ctx, commitment.DACelestiaBlob, comm)
+	switch {
+	case err == nil:
+		if !bytes.Equal(old.Blob, blob) || !bytes.Equal(old.Namespace, r.cfg.Namespace) || !bytes.Equal(old.Signer, signer) {
+			return 0, false, archiveFault("payload record", archive.ErrConflict)
+		}
+		return old.IntentHeight, true, nil
+	case !errors.Is(err, archive.ErrNotFound):
+		return 0, false, archiveFault("read payload record", err)
+	}
+	rec := &archive.PayloadRecord{
+		DA: commitment.DACelestiaBlob, Commitment: bytes.Clone(comm), Namespace: bytes.Clone(r.cfg.Namespace),
+		Signer: bytes.Clone(signer), Blob: bytes.Clone(blob), IntentHeight: head,
+	}
+	if _, err := r.cfg.Archive.Put(ctx, rec); err != nil {
+		return 0, false, archiveFault("write payload record", err)
+	}
+	return head, false, nil
+}
+
+// archiveEvidence stores the header at h and the blob commitment proof.
+func (r *Recorder) archiveEvidence(ctx context.Context, h uint64, comm []byte) error {
+	hr, ok := r.rd.(headerReader)
+	if !ok {
+		return archiveFault("evidence", errors.New("the reader cannot return signed headers"))
+	}
+	hdr, err := hr.SignedHeader(ctx, h)
+	if err != nil {
+		return archiveFault("signed header", err)
+	}
+	proof, err := r.rd.CommitmentProof(ctx, h, r.cfg.Namespace, comm)
+	if err != nil {
+		return archiveFault("commitment proof", err)
+	}
+	pb, err := json.Marshal(proof)
+	if err != nil {
+		return archiveFault("commitment proof", err)
+	}
+	rec := &archive.EvidenceRecord{
+		DA: commitment.DACelestiaBlob, Commitment: bytes.Clone(comm), Namespace: bytes.Clone(r.cfg.Namespace),
+		Height: h, Header: hdr, BlobProof: pb,
+	}
+	if _, err := r.cfg.Archive.Put(ctx, rec); err != nil {
+		return archiveFault("write evidence record", err)
+	}
+	return nil
 }

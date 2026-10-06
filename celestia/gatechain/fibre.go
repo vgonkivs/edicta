@@ -10,6 +10,7 @@ import (
 	"math"
 	"sort"
 	"sync"
+	"time"
 
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -81,9 +82,11 @@ func (o FibreAnchorOptions) ValidateBasic() error {
 
 // FibreAnchor is the PayForFibre tx that anchors a reference.
 type FibreAnchor struct {
-	Height  uint64
-	TxHash  [32]byte
-	Promise fibrecert.Promise
+	Height uint64
+	// BlockTime is the time of the verified header at Height, Unix seconds.
+	BlockTime uint64
+	TxHash    [32]byte
+	Promise   fibrecert.Promise
 	// Proof is the anchor proof as the archive stores it: the verified DAH and
 	// namespace data of the block.
 	Proof []byte
@@ -231,8 +234,9 @@ func (a *FibreAnchors) store(k anchorKey, fa FibreAnchor) {
 // verifiedBlock is what the proof steps established about the PayForFibre
 // namespace of one block.
 type verifiedBlock struct {
-	txs   [][]byte
-	proof []byte
+	txs       [][]byte
+	proof     []byte
+	blockTime time.Time
 }
 
 func (a *FibreAnchors) find(ctx context.Context, ref commitment.PayloadRef) (FibreAnchor, error) {
@@ -275,7 +279,7 @@ func (a *FibreAnchors) find(ctx context.Context, ref commitment.PayloadRef) (Fib
 				return FibreAnchor{}, err
 			}
 		}
-		return FibreAnchor{Height: ref.Height, TxHash: c.hash, Promise: c.pff.Promise, Proof: vb.proof}, nil
+		return FibreAnchor{Height: ref.Height, BlockTime: blockUnix(vb.blockTime), TxHash: c.hash, Promise: c.pff.Promise, Proof: vb.proof}, nil
 	}
 	return FibreAnchor{}, fmt.Errorf("%w: no candidate with result code 0 at height %d", gate.ErrAnchorNotFound, ref.Height)
 }
@@ -331,7 +335,7 @@ func (a *FibreAnchors) verifyNamespace(ctx context.Context, height uint64) (veri
 	if err != nil {
 		return verifiedBlock{}, unavailable(fmt.Errorf("dah at %d: %w", height, err))
 	}
-	return verifiedBlock{txs: txs, proof: fibreproof.EncodeProof(dahProto, stream)}, nil
+	return verifiedBlock{txs: txs, proof: fibreproof.EncodeProof(dahProto, stream), blockTime: hdr.Time}, nil
 }
 
 var errReadLimit = errors.New("answer above the read limit")
@@ -517,4 +521,11 @@ func (s *fibreBlobs) Fetch(ctx context.Context, ref commitment.PayloadRef, maxSi
 		return nil, fmt.Errorf("gatechain: blob download: %w", errors.Join(errs...))
 	}
 	return nil, fmt.Errorf("%w: %w", gate.ErrBlobNotFound, errors.Join(errs...))
+}
+
+func blockUnix(t time.Time) uint64 {
+	if s := t.Unix(); s > 0 {
+		return uint64(s)
+	}
+	return 0
 }

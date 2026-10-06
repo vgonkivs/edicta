@@ -16,7 +16,8 @@ var (
 
 	ErrPayloadAboveCap = errors.New("gate: payload above the Fibre payload limit")
 	// ErrArchiveUnavailable means the decision record could not be written
-	// durably; nothing was signed and the nonce is unused.
+	// durably, or the archive could not serve the payload record (unreadable
+	// or damaged); nothing was signed and the nonce is unused.
 	ErrArchiveUnavailable = errors.New("gate: archive unavailable")
 
 	ErrNonceUsed           = errors.New("gate: nonce already used")

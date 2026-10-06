@@ -38,6 +38,12 @@ func WithBeforePublish(f func(finalPath string) error) Option {
 	return func(s *Store) { s.before = f }
 }
 
+// WithSyncHook sets a hook that runs after each file fsync with the final
+// path of the record, including the re-sync of a record that already exists.
+func WithSyncHook(f func(path string)) Option {
+	return func(s *Store) { s.syncHook = f }
+}
+
 // WithStaleAge sets how old a temp file must be before Open removes it. The
 // default is one hour; a younger file may belong to a live writer.
 func WithStaleAge(d time.Duration) Option {
@@ -50,6 +56,7 @@ type Store struct {
 	committers map[commitment.DA]gate.DACommitter
 	before     func(string) error
 	readOnly   bool
+	syncHook   func(string)
 	// mu serializes marker and Authorization writes in this process; lockDir
 	// does it across processes.
 	mu sync.Mutex
@@ -314,6 +321,12 @@ func (s *Store) create(rel string, r archive.Record, b []byte) (archive.Outcome,
 	return 0, fmt.Errorf("fsarchive: %s keeps changing under the writer", rel)
 }
 
+func (s *Store) synced(path string) {
+	if s.syncHook != nil {
+		s.syncHook(path)
+	}
+}
+
 func (s *Store) syncExisting(final string) error {
 	f, err := os.Open(final)
 	if err != nil {
@@ -323,6 +336,7 @@ func (s *Store) syncExisting(final string) error {
 		_ = f.Close()
 		return fmt.Errorf("fsarchive: sync: %w", err)
 	}
+	s.synced(final)
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("fsarchive: %w", err)
 	}
@@ -352,6 +366,7 @@ func (s *Store) publish(final string, b []byte) (err error) {
 		_ = f.Close()
 		return fmt.Errorf("fsarchive: sync: %w", err)
 	}
+	s.synced(final)
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("fsarchive: %w", err)
 	}

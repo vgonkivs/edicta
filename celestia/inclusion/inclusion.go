@@ -23,6 +23,9 @@ const (
 	LevelCrossCheck
 	// LevelSelfCheck trusts the operator's own node.
 	LevelSelfCheck
+	// LevelFibre checks the PayForFibre tx and its validator certificate
+	// through the consensus endpoint, for da = 1.
+	LevelFibre
 )
 
 func (l Level) String() string {
@@ -33,6 +36,8 @@ func (l Level) String() string {
 		return "cross-check (weaker: no signature checked, relies on provider non-collusion)"
 	case LevelSelfCheck:
 		return "self-check (operator's own node)"
+	case LevelFibre:
+		return "fibre (PayForFibre namespace data and validator certificate checked)"
 	}
 	return fmt.Sprintf("unknown level %d", uint8(l))
 }

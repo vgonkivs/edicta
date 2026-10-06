@@ -73,6 +73,11 @@ func (g *Gate) tryPath(ctx context.Context, c *commitment.Commitment, path regis
 	defer cancel()
 	blob, err := src.Fetch(pctx, ref, c.PayloadSize)
 	if err != nil {
+		// A fault of the source says nothing about the payload: it keeps its
+		// chain and is not the availability verdict.
+		if errors.Is(err, ErrArchiveUnavailable) {
+			return fmt.Errorf("fetch: %w", err)
+		}
 		return fmt.Errorf("%w: fetch: %v", ErrPayloadUnavailable, err)
 	}
 	if err := commitment.CheckPayload(c, blob); err != nil {
@@ -90,7 +95,7 @@ func (g *Gate) tryPath(ctx context.Context, c *commitment.Commitment, path regis
 }
 
 // pickPayloadError reports the failure with the highest precedence: size,
-// hash, DA commitment, unsupported, too old, unavailable. The other causes
+// hash, DA commitment, unsupported, archive fault, too old, unavailable. The other causes
 // stay in the message only, so a lower-precedence sentinel never matches.
 func pickPayloadError(within bool, errs []error) error {
 	rank := func(err error) int {
@@ -103,6 +108,8 @@ func pickPayloadError(within bool, errs []error) error {
 			return 3
 		case errors.Is(err, ErrArchiveRecomputeUnsupported):
 			return 4
+		case errors.Is(err, ErrArchiveUnavailable):
+			return 5
 		}
 		return 6
 	}
@@ -112,7 +119,7 @@ func pickPayloadError(within bool, errs []error) error {
 			best, bestRank = e, r
 		}
 	}
-	if bestRank == 6 && !within {
+	if bestRank > 5 && !within {
 		return fmt.Errorf("%w: %v", ErrAnchorTooOld, best)
 	}
 	if len(errs) == 1 {

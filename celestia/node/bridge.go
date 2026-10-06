@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -138,6 +139,30 @@ func (b bridge) CommitmentProof(ctx context.Context, height uint64, namespace, c
 }
 
 type proof struct{ p *blob.CommitmentProof }
+
+// MarshalJSON lets a caller archive the proof; the library type serializes
+// itself.
+func (p proof) MarshalJSON() ([]byte, error) { return json.Marshal(p.p) }
+
+// SignedHeader returns the raw consensus header at height, as the protobuf
+// bytes the archive stores.
+func (b bridge) SignedHeader(ctx context.Context, height uint64) ([]byte, error) {
+	h, err := b.rc.Header.GetByHeight(ctx, height)
+	if err != nil {
+		return nil, wrapCtx(ctx, err)
+	}
+	if h == nil {
+		return nil, fmt.Errorf("%w: bridge returned no header at height %d", ErrUnavailable, height)
+	}
+	if err := heightcheck.HeaderHeight(uint64(h.Height()), height); err != nil {
+		return nil, heightIgnored(err)
+	}
+	raw, err := h.RawHeader.ToProto().Marshal()
+	if err != nil {
+		return nil, fmt.Errorf("%w: header: %w", ErrUnavailable, err)
+	}
+	return raw, nil
+}
 
 func (p proof) Verify(dataRoot, commitment []byte) error { return p.p.Verify(dataRoot, commitment) }
 

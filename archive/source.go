@@ -37,6 +37,31 @@ func (s gateSource) Fetch(ctx context.Context, ref commitment.PayloadRef, maxSiz
 	return p.Blob, nil
 }
 
+// ErrNoStreamer means the store cannot stream payload records.
+var ErrNoStreamer = errors.New("archive: store does not stream payload records")
+
+type streamSource struct{ st PayloadStreamer }
+
+// NewStreamGateSource is NewGateSource for a store that must stream: the
+// record is never decoded whole. A record that is unreadable or damaged is
+// reported as gate.ErrArchiveUnavailable, never as a missing blob.
+func NewStreamGateSource(r Store) (gate.BlobSource, error) {
+	st, ok := r.(PayloadStreamer)
+	if !ok {
+		return nil, ErrNoStreamer
+	}
+	return streamSource{st}, nil
+}
+
+func (s streamSource) Fetch(ctx context.Context, ref commitment.PayloadRef, maxSize uint64) ([]byte, error) {
+	b, err := fetchStream(ctx, s.st, ref, maxSize)
+	switch {
+	case err == nil, errors.Is(err, gate.ErrBlobNotFound), ctx.Err() != nil:
+		return b, err
+	}
+	return nil, fmt.Errorf("%w: %w", gate.ErrArchiveUnavailable, err)
+}
+
 const readChunk = 64 << 10
 
 func fetchStream(ctx context.Context, st PayloadStreamer, ref commitment.PayloadRef, maxSize uint64) ([]byte, error) {
@@ -73,7 +98,35 @@ func fetchStream(ctx context.Context, st PayloadStreamer, ref commitment.Payload
 		}
 		off = end
 	}
+	if want == n {
+		if err := checkTail(rc); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrCorrupt, err)
+		}
+	}
 	return out, nil
+}
+
+// checkTail checks what follows the blob: the intent height and nothing else.
+func checkTail(r io.Reader) error {
+	t, err := io.ReadAll(io.LimitReader(r, 11))
+	if err != nil {
+		return fmt.Errorf("record tail: %w", err)
+	}
+	if len(t) < 2 || t[0] != 8 || t[1]>>5 != majUint {
+		return errors.New("record tail is not the intent height")
+	}
+	w := 0
+	switch ai := t[1] & 31; {
+	case ai < 24:
+	case ai > 27:
+		return errors.New("intent height encoding")
+	default:
+		w = 1 << (ai - 24)
+	}
+	if len(t) != 2+w {
+		return errors.New("record has bytes after the intent height")
+	}
+	return nil
 }
 
 // readPayloadHead consumes the canonical payload record up to the first blob

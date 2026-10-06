@@ -230,3 +230,27 @@ func TestStoredRecordReads(t *testing.T) {
 		})
 	}
 }
+
+func TestFetchTrailingGarbageIsCorrupt(t *testing.T) {
+	fx := archivefix.Load(t)
+	blob := make([]byte, 5000)
+	for name, tail := range map[string][]byte{"one byte": {0xff}, "two bytes": {0x00, 0x00}, "an item": {0x01, 0x02}} {
+		t.Run(name, func(t *testing.T) {
+			s, dir := open(t, fx)
+			p, enc := plantBlob(t, fx, dir, blob)
+			key, err := archive.KeyPath(p)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, filepath.FromSlash(key)), append(append([]byte(nil), enc...), tail...), 0o644))
+
+			_, err = archive.NewGateSource(s).Fetch(bg, refOf(p), 1<<20)
+			require.ErrorIs(t, err, archive.ErrCorrupt)
+			assert.NotErrorIs(t, err, gate.ErrBlobNotFound)
+
+			src, err := archive.NewStreamGateSource(s)
+			require.NoError(t, err)
+			_, err = src.Fetch(bg, refOf(p), 1<<20)
+			require.ErrorIs(t, err, archive.ErrCorrupt)
+			assert.ErrorIs(t, err, gate.ErrArchiveUnavailable)
+		})
+	}
+}
