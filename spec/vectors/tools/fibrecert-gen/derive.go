@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -29,6 +28,8 @@ const (
 	powerReduction   = 1_000_000
 )
 
+// ed25519FromAny leaves the key length to the keeper, which rejects the whole
+// tx on a key that is not 32 bytes.
 func ed25519FromAny(a *codectypes.Any) ([]byte, error) {
 	if a == nil || a.TypeUrl != ed25519PubKeyURL {
 		return nil, errors.New("consensus key is not an ed25519 key")
@@ -36,9 +37,6 @@ func ed25519FromAny(a *codectypes.Any) ([]byte, error) {
 	var pk sdked25519.PubKey
 	if err := pk.Unmarshal(a.Value); err != nil {
 		return nil, err
-	}
-	if len(pk.Key) != ed25519.PublicKeySize {
-		return nil, errors.New("ed25519 key of the wrong size")
 	}
 	return pk.Key, nil
 }
@@ -178,7 +176,9 @@ func decodeHist(b []byte) (stakingtypes.HistoricalInfo, []valEntry, error) {
 		if err != nil {
 			return hi, nil, err
 		}
-		if !v.Tokens.IsInt64() || v.Tokens.Sign() <= 0 {
+		// The keeper calls Tokens.Int64(), which panics outside int64. Zero
+		// tokens pass here: NewValidatorSet rejects them in keeperVerdict.
+		if !v.Tokens.IsInt64() || v.Tokens.Sign() < 0 {
 			return hi, nil, errors.New("tokens out of range")
 		}
 		t := v.Tokens.Int64()
@@ -189,8 +189,13 @@ func decodeHist(b []byte) (stakingtypes.HistoricalInfo, []valEntry, error) {
 }
 
 // keeperVerdict is the keeper's validateValidatorSignatures at the pin, with
-// the staking read replaced by the archived list: power = tokens, positions
-// over the list as stored, threshold from validator.SignatureSet.
+// the staking read replaced by the archived list: the key-size check, power =
+// tokens, positions over the list as stored, the set and threshold from
+// core.NewValidatorSet and validator.SignatureSet. The keeper itself cannot be
+// called (unexported, needs a full sdk.Context), so its body is transcribed
+// here; every decision inside it is an upstream call. A panic in
+// NewValidatorSet (duplicate, zero power, total above MaxTotalVotingPower)
+// fails the tx on chain, so it is a rejection here.
 func keeperVerdict(signBytes []byte, height int64, vals []valEntry, sigs [][]byte) (rule string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -199,6 +204,9 @@ func keeperVerdict(signBytes []byte, height int64, vals []valEntry, sigs [][]byt
 	}()
 	cmtVals := make([]*core.Validator, len(vals))
 	for i, v := range vals {
+		if len(v.pubKey) != cmted25519.PubKeySize {
+			return "CV4", fmt.Errorf("invalid ed25519 public key size at index %d", i)
+		}
 		cmtVals[i] = core.NewValidator(cmted25519.PubKey(v.pubKey), v.tokens)
 	}
 	set := validator.Set{ValidatorSet: core.NewValidatorSet(cmtVals), Height: uint64(height)}
@@ -239,47 +247,85 @@ type certReport struct {
 	AtMostTwoThirds  bool   `json:"at_most_two_thirds"`
 }
 
-// report walks the whole list (the verifier report), independent of the
-// keeper's early stop. The stop index is where the running sum of valid
-// entries first reaches the requirement; "none" if it never does.
-func report(signBytes []byte, vals []valEntry, sigs [][]byte) certReport {
-	var total, signed, running int64
-	for _, v := range vals {
-		total += v.tokens
+// upstreamSet builds the keeper's CometBFT set from the list (power = tokens),
+// or reports that the keeper would reject the list as a whole.
+func upstreamSet(vals []valEntry) (cmtVals []*core.Validator, set validator.Set, ok bool) {
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+	cmtVals = make([]*core.Validator, len(vals))
+	for i, v := range vals {
+		if len(v.pubKey) != cmted25519.PubKeySize {
+			return nil, set, false
+		}
+		cmtVals[i] = core.NewValidator(cmted25519.PubKey(v.pubKey), v.tokens)
 	}
-	required := total * 2 / 3
+	return cmtVals, validator.Set{ValidatorSet: core.NewValidatorSet(cmtVals), Height: 1}, true
+}
+
+// report is the verifier report over the whole list, taken from upstream
+// validator.SignatureSet: every non-empty entry is offered to Add in list
+// order (an entry beyond the list has no validator and counts as invalid);
+// the stop index is the first Add that returns true, which is where the
+// keeper returns; signed power is what Signatures reports as collected; the
+// requirement is the one an empty SignatureSet reports as missing. nil when
+// the keeper rejects the list itself, because no walk happens then.
+func report(signBytes []byte, vals []valEntry, sigs [][]byte) *certReport {
+	cmtVals, set, ok := upstreamSet(vals)
+	if !ok {
+		return nil
+	}
+	twoThirds := cmtmath.Fraction{Numerator: 2, Denominator: 3}
+	ss := set.NewSignatureSet(twoThirds, signBytes)
 	r := certReport{SignaturesLen: len(sigs), ValidatorsLen: len(vals), StopIndex: "none"}
 	stopped := false
-	if required <= 0 {
-		r.StopIndex, stopped = "-1", true
-	}
 	for i, s := range sigs {
-		switch {
-		case len(s) == 0:
+		if len(s) == 0 {
 			r.Empty++
-		case i >= len(vals) || !ed25519.Verify(vals[i].pubKey, signBytes, s):
+			continue
+		}
+		var enough bool
+		var err error = errors.New("no validator at this index")
+		if i < len(cmtVals) {
+			enough, err = ss.Add(cmtVals[i], s)
+		}
+		if err != nil {
 			r.Invalid++
 			if stopped {
 				r.InvalidAfterStop++
 			}
-		default:
-			r.Valid++
-			signed += vals[i].tokens
-			if !stopped {
-				running += vals[i].tokens
-				if running >= required {
-					r.StopIndex, stopped = strconv.Itoa(i), true
-				}
-			}
+			continue
+		}
+		r.Valid++
+		if enough && !stopped {
+			r.StopIndex, stopped = strconv.Itoa(i), true
 		}
 	}
+	collected, err := ss.Signatures()
+	var short *validator.NotEnoughSignaturesError
+	if errors.As(err, &short) {
+		collected = short.Collected
+	}
+	var signed int64
+	for j, sig := range collected {
+		if sig != nil {
+			signed += set.Validators[j].VotingPower
+		}
+	}
+	var required int64
+	if _, err := set.NewSignatureSet(twoThirds, signBytes).Signatures(); errors.As(err, &short) {
+		required = short.RequiredPower
+	}
+	total := set.TotalVotingPower()
 	r.SignedPower = strconv.FormatInt(signed, 10)
 	r.TotalPower = strconv.FormatInt(total, 10)
 	r.Required = strconv.FormatInt(required, 10)
 	r.SignedShare = share(signed, total)
 	r.AtMostTwoThirds = big.NewInt(0).Mul(big.NewInt(3), big.NewInt(signed)).Cmp(
 		big.NewInt(0).Mul(big.NewInt(2), big.NewInt(total))) <= 0
-	return r
+	return &r
 }
 
 func share(signed, total int64) string {
@@ -350,6 +396,7 @@ type evaluation struct {
 	hist       stakingtypes.HistoricalInfo
 	report     *certReport
 	valsetVia  string
+	keeperRule string
 	keeperNote string
 }
 
@@ -384,33 +431,15 @@ func evaluate(in inputs) evaluation {
 		}
 	}
 
-	hi, vals, err := decodeHist(in.hist)
-	if err != nil || (e.pff != nil && uint64(hi.Header.Height) != e.pff.pp.Height) {
-		addFail(&e, "CV4")
-	} else {
-		e.vals, e.hist = vals, hi
-	}
-
-	if e.pff != nil && e.vals != nil {
-		rule, err := keeperVerdict(e.pff.signBytes, int64(e.pff.pp.Height), e.vals, e.pff.msg.ValidatorSignatures)
-		if err != nil {
-			addFail(&e, rule)
-			e.keeperNote = err.Error()
-		}
-		r := report(e.pff.signBytes, e.vals, e.pff.msg.ValidatorSignatures)
-		e.report = &r
-	}
-
+	chainID := liveChainID
 	var ph int64 = livePromiseHeight
+	var signBytes []byte
+	var sigs [][]byte
 	if e.pff != nil {
-		ph = int64(e.pff.pp.Height)
+		chainID, ph, signBytes, sigs = e.pff.pp.ChainID, int64(e.pff.pp.Height), e.pff.signBytes, e.pff.msg.ValidatorSignatures
 	}
-	if e.vals != nil {
-		e.valsetVia = cv7(in, ph, e.vals)
-		if e.valsetVia == "" {
-			addFail(&e, "CV7")
-		}
-	}
+	ev := evidence{promiseHeader: in.headers[ph], nextHeader: in.headers[ph+1], nextValset: in.valsets[ph+1]}
+	evalValset(&e, chainID, ph, signBytes, sigs, in.hist, ev)
 
 	th, err := decodeHeader(in.headers[in.trustedHeight])
 	if err != nil || !bytes.Equal(th.Hash(), in.trustedHash) {
@@ -427,33 +456,90 @@ func evaluate(in inputs) evaluation {
 	return e
 }
 
-// cv7 ties the HistoricalInfo list to a header: the CometBFT set behind
-// next_validators_hash at the promise height (equivalently validators_hash at
-// the next height) must hold exactly the same keys, with consensus power
-// floor(tokens / 10^6). It returns which header field matched, or "".
-func cv7(in inputs, ph int64, vals []valEntry) string {
-	vs, err := decodeValset(in.valsets[ph+1])
-	if err != nil {
-		return ""
+type evidence struct {
+	promiseHeader, nextHeader, nextValset []byte
+}
+
+// evalValset runs CV4 to CV7 on an archived HistoricalInfo and its header
+// evidence. signBytes is nil when the PFF did not parse: then only the list
+// and its header binding are checked.
+func evalValset(e *evaluation, chainID string, ph int64, signBytes []byte, sigs [][]byte, hist []byte, ev evidence) {
+	hi, vals, err := decodeHist(hist)
+	if err != nil || hi.Header.Height != ph {
+		addFail(e, "CV4")
+		return
 	}
-	want := map[string]int64{}
-	for _, v := range vals {
-		want[string(v.pubKey)] = v.consPower
-	}
-	if len(vs.Validators) != len(want) {
-		return ""
-	}
-	for _, v := range vs.Validators {
-		p, ok := want[string(v.PubKey.Bytes())]
-		if !ok || p != v.VotingPower {
-			return ""
+	e.vals, e.hist = vals, hi
+	if signBytes != nil {
+		rule, err := keeperVerdict(signBytes, ph, vals, sigs)
+		if err != nil {
+			addFail(e, rule)
+			e.keeperRule, e.keeperNote = rule, err.Error()
 		}
+		e.report = report(signBytes, vals, sigs)
 	}
-	hash := vs.Hash()
-	if h, err := decodeHeader(in.headers[ph]); err == nil && bytes.Equal(h.NextValidatorsHash, hash) {
+	e.valsetVia = cv7(chainID, ph, vals, ev)
+	if e.valsetVia == "" {
+		addFail(e, "CV7")
+	}
+}
+
+// consensusSetHash is the hash of the CometBFT set the list stands for:
+// core.NewValidatorSet over (key, floor(tokens / 10^6)), so duplicates, zero
+// consensus power and bad keys (all panics upstream) give no hash, and the
+// hash binds both the size and the multiplicity of the list.
+func consensusSetHash(vals []valEntry) (h []byte) {
+	defer func() {
+		if recover() != nil {
+			h = nil
+		}
+	}()
+	cv := make([]*core.Validator, len(vals))
+	for i, v := range vals {
+		cv[i] = core.NewValidator(cmted25519.PubKey(v.pubKey), v.consPower)
+	}
+	return core.NewValidatorSet(cv).Hash()
+}
+
+// archivedSetHash is the hash of the archived CometBFT set; ValidatorSetFromProto
+// can panic on adversarial voting power.
+func archivedSetHash(b []byte) (h []byte) {
+	defer func() {
+		if recover() != nil {
+			h = nil
+		}
+	}()
+	vs, err := decodeValset(b)
+	if err != nil {
+		return nil
+	}
+	return vs.Hash()
+}
+
+// cv7 ties the HistoricalInfo list to a header with upstream hashes only: the
+// list's own CometBFT set (consensusSetHash) and the archived CometBFT set must
+// hash to the same value, and that value must be next_validators_hash of the
+// promise header (height and chain id equal to the promise's), or
+// validators_hash of a next header that is bound to the promise header: height
+// + 1, same chain id, last_block_id.hash == promise header hash. It returns
+// which header field matched, or "".
+func cv7(chainID string, ph int64, vals []valEntry, ev evidence) string {
+	want := consensusSetHash(vals)
+	if want == nil || !bytes.Equal(archivedSetHash(ev.nextValset), want) {
+		return ""
+	}
+	p, err := decodeHeader(ev.promiseHeader)
+	if err != nil || p.Height != ph || p.ChainID != chainID {
+		return ""
+	}
+	if bytes.Equal(p.NextValidatorsHash, want) {
 		return fmt.Sprintf("next_validators_hash@%d", ph)
 	}
-	if h, err := decodeHeader(in.headers[ph+1]); err == nil && bytes.Equal(h.ValidatorsHash, hash) {
+	n, err := decodeHeader(ev.nextHeader)
+	if err != nil || n.Height != ph+1 || n.ChainID != chainID || !bytes.Equal(n.LastBlockID.Hash, p.Hash()) {
+		return ""
+	}
+	if bytes.Equal(n.ValidatorsHash, want) {
 		return fmt.Sprintf("validators_hash@%d", ph+1)
 	}
 	return ""
