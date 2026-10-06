@@ -104,8 +104,11 @@ func Threshold(signed, total int64) (required int64, accept, atMostTwoThirds boo
 // it claims to be one but is broken.
 func ParsePFF(rawTx []byte) (pff PFF, ok bool, err error) {
 	_, ok, err = fibretypes.TryParseFibreTx(rawTx)
-	if !ok || err != nil {
-		return PFF{}, ok, err
+	if !ok {
+		return PFF{}, false, err
+	}
+	if err != nil {
+		return PFF{}, true, fmt.Errorf("%w: %w", ErrCertificateMalformed, err)
 	}
 	var raw cosmostx.TxRaw
 	if err := raw.Unmarshal(rawTx); err != nil {
@@ -120,11 +123,11 @@ func ParsePFF(rawTx []byte) (pff PFF, ok bool, err error) {
 	}
 	var msg fibretypes.MsgPayForFibre
 	if err := msg.Unmarshal(body.Messages[0].Value); err != nil {
-		return PFF{}, true, fmt.Errorf("unmarshalling MsgPayForFibre: %w", err)
+		return PFF{}, true, fmt.Errorf("%w: unmarshalling MsgPayForFibre: %w", ErrCertificateMalformed, err)
 	}
 	var pp fibre.PaymentPromise
 	if err := pp.FromProto(&msg.PaymentPromise); err != nil {
-		return PFF{}, true, fmt.Errorf("decoding payment promise: %w", err)
+		return PFF{}, true, fmt.Errorf("%w: decoding payment promise: %w", ErrPromiseInvalid, err)
 	}
 	p := Promise{
 		ChainID:      pp.ChainID,
@@ -355,10 +358,12 @@ type ValsetEvidence struct {
 	PromiseHeader []byte // header at the promise height
 }
 
-// CheckValset requires the CometBFT validator set built from the archived keys
+// checkValset requires the CometBFT validator set built from the archived keys
 // with consensus power floor(tokens/10^6) to hash to the promise header's
-// next_validators_hash. It returns which header field matched.
-func CheckValset(vals []Validator, e ValsetEvidence) (matched string, err error) {
+// next_validators_hash, and the archived list to be in that set's order: the
+// keeper reads signatures positionally against the stored order. It returns
+// which header field matched.
+func checkValset(vals []Validator, e ValsetEvidence) (matched string, err error) {
 	// NewValidatorSet panics on inputs it rejects, such as a total consensus
 	// power above its limit.
 	defer func() {
@@ -381,7 +386,13 @@ func CheckValset(vals []Validator, e ValsetEvidence) (matched string, err error)
 		}
 		cv = append(cv, core.NewValidator(cmted25519.PubKey(v.PubKey), p))
 	}
-	if !bytes.Equal(h.NextValidatorsHash, core.NewValidatorSet(cv).Hash()) {
+	set := core.NewValidatorSet(cv)
+	for i, v := range set.Validators {
+		if !bytes.Equal(v.PubKey.Bytes(), vals[i].PubKey) {
+			return "", fmt.Errorf("%w: archived list is not in validator set order", ErrValsetMismatch)
+		}
+	}
+	if !bytes.Equal(h.NextValidatorsHash, set.Hash()) {
 		return "", fmt.Errorf("%w: promise header does not commit to the set", ErrValsetMismatch)
 	}
 	return fmt.Sprintf("next_validators_hash@%d", h.Height), nil
@@ -395,9 +406,18 @@ func decodeHeader(b []byte) (core.Header, error) {
 	return core.HeaderFromProto(&ph)
 }
 
+// checkListHeight requires the archived list to be recorded at the promise
+// height.
+func checkListHeight(p Promise, listHeight int64) error {
+	if p.Height > uint64(1<<63-1) || listHeight != int64(p.Height) {
+		return fmt.Errorf("%w: historical info at height %d, promise at %d", ErrCertificateMalformed, listHeight, p.Height)
+	}
+	return nil
+}
+
 // checkPromiseHeader requires the promise header to sit at the promise height
-// and chain, and the archived list to be recorded at that height.
-func checkPromiseHeader(p Promise, listHeight int64, e ValsetEvidence) error {
+// and chain.
+func checkPromiseHeader(p Promise, e ValsetEvidence) error {
 	h, err := decodeHeader(e.PromiseHeader)
 	if err != nil {
 		return fmt.Errorf("%w: decoding promise header: %w", ErrValsetMismatch, err)
@@ -407,8 +427,6 @@ func checkPromiseHeader(p Promise, listHeight int64, e ValsetEvidence) error {
 		return fmt.Errorf("%w: promise header at %d, promise at %d", ErrValsetMismatch, h.Height, p.Height)
 	case h.ChainID != p.ChainID:
 		return fmt.Errorf("%w: promise header chain id differs", ErrValsetMismatch)
-	case h.Height != listHeight:
-		return fmt.Errorf("%w: historical info at height %d, promise header at %d", ErrValsetMismatch, listHeight, h.Height)
 	}
 	return nil
 }
@@ -420,10 +438,13 @@ func ValidatorsFor(historicalInfo []byte, p Promise, e ValsetEvidence) ([]Valida
 	if err != nil {
 		return nil, "", err
 	}
-	if err := checkPromiseHeader(p, height, e); err != nil {
+	if err := checkListHeight(p, height); err != nil {
 		return nil, "", err
 	}
-	matched, err := CheckValset(vals, e)
+	if err := checkPromiseHeader(p, e); err != nil {
+		return nil, "", err
+	}
+	matched, err := checkValset(vals, e)
 	if err != nil {
 		return nil, "", err
 	}
@@ -452,14 +473,17 @@ func Verify(rawTx []byte, b Binding, historicalInfo []byte, e ValsetEvidence) (r
 	if err != nil {
 		return rep, "", err
 	}
-	if err := checkPromiseHeader(f.Promise, height, e); err != nil {
+	if err := checkListHeight(f.Promise, height); err != nil {
+		return rep, "", err
+	}
+	if err := checkPromiseHeader(f.Promise, e); err != nil {
 		return rep, "", err
 	}
 	rep, err = VerifyCertificate(f, vals)
 	if err != nil {
 		return rep, "", err
 	}
-	matched, err = CheckValset(vals, e)
+	matched, err = checkValset(vals, e)
 	if err != nil {
 		return rep, "", err
 	}

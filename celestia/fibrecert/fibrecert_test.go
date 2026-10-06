@@ -3,6 +3,7 @@ package fibrecert_test
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"io/fs"
 	"math"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -368,7 +370,11 @@ func TestValidatorsFor_Rejects(t *testing.T) {
 		require.Equal(t, byte(0x18), hi[13], "height field tag")
 		hi[14] ^= 1
 		_, _, err := fibrecert.ValidatorsFor(hi, p, evidence(in))
-		require.ErrorIs(t, err, fibrecert.ErrValsetMismatch)
+		require.ErrorIs(t, err, fibrecert.ErrCertificateMalformed)
+		require.NotErrorIs(t, err, fibrecert.ErrValsetMismatch)
+
+		_, _, err = fibrecert.Verify(in.tx, v.binding(t), hi, evidence(in))
+		require.ErrorIs(t, err, fibrecert.ErrCertificateMalformed)
 	})
 
 	t.Run("promise header from another height", func(t *testing.T) {
@@ -382,7 +388,7 @@ func TestValidatorsFor_Rejects(t *testing.T) {
 		q := p
 		q.Height++
 		_, _, err := fibrecert.ValidatorsFor(in.historicalInfo, q, evidence(in))
-		require.ErrorIs(t, err, fibrecert.ErrValsetMismatch)
+		require.ErrorIs(t, err, fibrecert.ErrCertificateMalformed)
 	})
 
 	t.Run("promise chain differs from header", func(t *testing.T) {
@@ -463,7 +469,7 @@ func TestVerify_BindingChecked(t *testing.T) {
 
 func TestValsetCases(t *testing.T) {
 	v := loadVectors(t)
-	require.Len(t, v.Valset.Cases, 10)
+	require.Len(t, v.Valset.Cases, 11)
 	live := v.liveInputs(t)
 	base := parseOK(t, live.tx)
 
@@ -493,7 +499,7 @@ func TestValsetCases(t *testing.T) {
 					assert.Equal(t, int64(want.Tokens), vals[i].Power, "power %d", i)
 				}
 				rep, err := fibrecert.VerifyCertificate(f, vals)
-				if c.Expect.Network.Rule == "CV6" {
+				if contains(c.Expect.Fails, "CV6") {
 					require.ErrorIs(t, err, fibrecert.ErrCertificateInsufficient)
 				} else {
 					require.NoError(t, err)
@@ -554,8 +560,6 @@ func TestVerifyCertificate_DuplicateSignerNeverAccepted(t *testing.T) {
 	f.Signatures = [][]byte{sigA, sigA, sigA, sigA}
 
 	_, err = fibrecert.VerifyCertificate(f, vals)
-	require.ErrorIs(t, err, fibrecert.ErrCertificateMalformed)
-	_, err = fibrecert.CheckValset(vals, fibrecert.ValsetEvidence{})
 	require.ErrorIs(t, err, fibrecert.ErrCertificateMalformed)
 
 	// The distinct set is honest: A alone is a minority.
@@ -645,4 +649,130 @@ func FuzzValidatorsFor(f *testing.F) {
 			seen[string(x.PubKey)] = true
 		}
 	})
+}
+
+// keeperOrder is the order SDK NewHistoricalInfo stores a set in: consensus
+// power descending, then address.
+func keeperOrder(vals []fibrecert.Validator) []fibrecert.Validator {
+	out := append([]fibrecert.Validator(nil), vals...)
+	addr := func(v fibrecert.Validator) []byte { h := sha256.Sum256(v.PubKey); return h[:20] }
+	sort.SliceStable(out, func(i, j int) bool {
+		pi, pj := out[i].Power/1_000_000, out[j].Power/1_000_000
+		if pi != pj {
+			return pi > pj
+		}
+		return bytes.Compare(addr(out[i]), addr(out[j])) < 0
+	})
+	return out
+}
+
+func TestValsetOutOfOrder_Vector(t *testing.T) {
+	v := loadVectors(t)
+	var c *valsetCase
+	for i := range v.Valset.Cases {
+		if v.Valset.Cases[i].ID == "valset_out_of_order" {
+			c = &v.Valset.Cases[i]
+		}
+	}
+	require.NotNil(t, c)
+	require.Equal(t, "reject", c.Expect.Verdict)
+	require.Equal(t, []string{"CV7"}, c.Expect.Fails)
+	require.Equal(t, "reject", c.Expect.Network.Verdict)
+	require.Equal(t, "CV6", c.Expect.Network.Rule)
+
+	live := v.liveInputs(t)
+	in := inputs{
+		tx:             withSignatures(t, live.tx, decodeSigs(t, c.SignaturesHex)),
+		historicalInfo: unhex(t, c.HistoricalInfoHex),
+		promiseHeader:  unhex(t, c.PromiseHeaderHex),
+	}
+	f := parseOK(t, in.tx)
+	archived, err := fibrecert.ParseHistoricalInfo(in.historicalInfo)
+	require.NoError(t, err)
+
+	t.Run("network walks the stored order and rejects", func(t *testing.T) {
+		stored := keeperOrder(archived)
+		require.NotEqual(t, archived, stored)
+		_, err := fibrecert.VerifyCertificate(f, stored)
+		require.ErrorIs(t, err, fibrecert.ErrCertificateInvalid)
+	})
+
+	t.Run("walk over the archived order alone accepts", func(t *testing.T) {
+		_, err := fibrecert.VerifyCertificate(f, archived)
+		require.NoError(t, err)
+	})
+
+	t.Run("verifier fails on the order", func(t *testing.T) {
+		vals, matched, err := fibrecert.ValidatorsFor(in.historicalInfo, f.Promise, evidence(in))
+		require.ErrorIs(t, err, fibrecert.ErrValsetMismatch)
+		assert.Nil(t, vals)
+		assert.Empty(t, matched)
+
+		_, matched, err = fibrecert.Verify(in.tx, v.binding(t), in.historicalInfo, evidence(in))
+		require.ErrorIs(t, err, fibrecert.ErrValsetMismatch)
+		assert.Empty(t, matched)
+	})
+}
+
+func mutateMsg(t *testing.T, tx []byte, mod func(*fibretypes.MsgPayForFibre)) []byte {
+	t.Helper()
+	var raw cosmostx.TxRaw
+	require.NoError(t, raw.Unmarshal(tx))
+	var body cosmostx.TxBody
+	require.NoError(t, body.Unmarshal(raw.BodyBytes))
+	require.Len(t, body.Messages, 1)
+	var msg fibretypes.MsgPayForFibre
+	require.NoError(t, msg.Unmarshal(body.Messages[0].Value))
+	mod(&msg)
+	val, err := msg.Marshal()
+	require.NoError(t, err)
+	body.Messages[0].Value = val
+	raw.BodyBytes, err = body.Marshal()
+	require.NoError(t, err)
+	out, err := raw.Marshal()
+	require.NoError(t, err)
+	return out
+}
+
+func TestParsePFF_BrokenAfterClassification(t *testing.T) {
+	v := loadVectors(t)
+	live := v.pffTx(t)
+
+	var raw cosmostx.TxRaw
+	require.NoError(t, raw.Unmarshal(live))
+	var body cosmostx.TxBody
+	require.NoError(t, body.Unmarshal(raw.BodyBytes))
+	garbageMsg := func(val []byte) []byte {
+		body.Messages[0].Value = val
+		bb, err := body.Marshal()
+		require.NoError(t, err)
+		r := raw
+		r.BodyBytes = bb
+		out, err := r.Marshal()
+		require.NoError(t, err)
+		return out
+	}
+
+	for name, tc := range map[string]struct {
+		tx   []byte
+		want error
+	}{
+		"undecodable message": {garbageMsg([]byte{0xff, 0xff}), fibrecert.ErrCertificateMalformed},
+		"short namespace": {mutateMsg(t, live, func(m *fibretypes.MsgPayForFibre) {
+			m.PaymentPromise.Namespace = m.PaymentPromise.Namespace[:5]
+		}), fibrecert.ErrCertificateMalformed},
+		"short commitment": {mutateMsg(t, live, func(m *fibretypes.MsgPayForFibre) {
+			m.PaymentPromise.Commitment = m.PaymentPromise.Commitment[:5]
+		}), fibrecert.ErrCertificateMalformed},
+	} {
+		t.Run(name, func(t *testing.T) {
+			pff, ok, err := fibrecert.ParsePFF(tc.tx)
+			assert.True(t, ok, "still classified as Fibre")
+			require.ErrorIs(t, err, tc.want)
+			assert.Equal(t, fibrecert.PFF{}, pff)
+
+			_, _, err = fibrecert.Verify(tc.tx, v.binding(t), v.liveInputs(t).historicalInfo, evidence(v.liveInputs(t)))
+			require.ErrorIs(t, err, tc.want)
+		})
+	}
 }
