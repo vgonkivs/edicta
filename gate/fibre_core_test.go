@@ -171,10 +171,10 @@ func TestFibrePayloadCap(t *testing.T) {
 // The da = 1 recompute holds the blob and its encoding in memory, so a
 // da = 1 check is charged about 13 times its payload size.
 func TestFibreFetchBudgetIsWeighted(t *testing.T) {
-	const budget = 20000 // two plain payloads fit, two weighted ones do not
+	const budget = 20000 // two plain 1 KiB payloads fit, two weighted ones (13 KiB each) do not
 	run := func(t *testing.T, fibre bool) (maxStarted int) {
 		fc := &fibreCommitter{want: gatefix.FibreBlob()}
-		opts := []gatefix.Option{withFibreCommitter(fc), gatefix.WithConfig(func(c *gate.Config) { c.MaxFetchBytes = budget })}
+		opts := []gatefix.Option{withFibreCommitter(fc), gatefix.WithConfig(func(c *gate.Config) { c.MaxFetchBytes = budget; c.FibreMaxDataBytes = 1024 })}
 		e := gatefix.New(t, opts...)
 		hold := make(chan struct{})
 		var first sync.Once
@@ -260,7 +260,7 @@ func TestResultCarriesK2Inputs(t *testing.T) {
 		res, err := e.Authorize(b)
 		require.NoError(t, err)
 		assert.Equal(t, gate.K2Inputs{
-			Now:                gatefix.Now,
+			CheckedAt:          gatefix.Now,
 			BlockTime:          blockTime,
 			RetentionStart:     start,
 			RetentionLatestS:   14400,
@@ -274,7 +274,7 @@ func TestResultCarriesK2Inputs(t *testing.T) {
 		b, _ := gatefix.Sign(t, "agent1", c)
 		res, err := e.Authorize(b)
 		require.NoError(t, err)
-		assert.EqualValues(t, gatefix.Now, res.K2.Now)
+		assert.EqualValues(t, gatefix.Now, res.K2.CheckedAt)
 		assert.Equal(t, gatefix.BlockTime(c), res.K2.BlockTime)
 	})
 }

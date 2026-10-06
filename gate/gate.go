@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"math"
 	"math/bits"
+	"reflect"
 	"slices"
 	"sync/atomic"
 
@@ -49,7 +50,7 @@ type Result struct {
 // K2Inputs are the values the path selection used. The retention fields are
 // set for da = 1 only.
 type K2Inputs struct {
-	Now                uint64
+	CheckedAt          uint64 // the clock reading the checks ran at
 	BlockTime          uint64
 	RetentionStart     uint64
 	RetentionLatestS   uint64
@@ -89,38 +90,38 @@ type hasKey interface{ HasKey(key [32]byte) bool }
 
 // New validates the configuration and loads the registry metadata.
 func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
+	cfg = cfg.withDefaults()
+	if err := cfg.ValidateBasic(); err != nil {
+		return nil, err
+	}
 	bad := func(format string, a ...any) error {
 		return fmt.Errorf("%w: %s", ErrInvalidConfig, fmt.Sprintf(format, a...))
 	}
-	switch {
-	case cfg.SkewS > maxSkewS:
-		return nil, bad("skew_s %d above %d", cfg.SkewS, maxSkewS)
-	case cfg.BlobRetentionS < 1 || cfg.BlobRetentionS > math.MaxInt64:
-		return nil, bad("blob_retention_s %d", cfg.BlobRetentionS)
-	case cfg.DATimeout <= 0 || cfg.ArchiveTimeout <= 0 || cfg.SignTimeout <= 0 || cfg.ChainTimeout <= 0:
-		return nil, bad("timeouts must be positive")
-	case cfg.MaxFetchBytes == 0:
-		return nil, bad("max_fetch_bytes is zero")
-	case cfg.PruneGrace <= cfg.ClockTolerance:
-		return nil, bad("prune_grace %d must be above clock_tolerance %d", cfg.PruneGrace, cfg.ClockTolerance)
-	case cfg.MaxAuthorizationTTL <= cfg.SkewS || cfg.MaxAuthorizationTTL > math.MaxInt64:
-		return nil, bad("max_authorization_ttl %d must be above skew_s %d", cfg.MaxAuthorizationTTL, cfg.SkewS)
-	case d.Clock == nil || d.Params == nil || d.Headers == nil || d.Anchors == nil || d.DA == nil ||
-		d.Archive == nil || d.Allowlist == nil || d.Registry == nil || d.Signer == nil:
+	if d.Clock == nil || d.Params == nil || d.Headers == nil || d.Anchors == nil || d.DA == nil ||
+		d.Archive == nil || d.Allowlist == nil || d.Registry == nil || d.Signer == nil {
 		return nil, bad("missing dependency")
 	}
+	committers := make(map[commitment.DA]DACommitter, len(d.Committers))
+	for da, c := range d.Committers {
+		if !isNilCommitter(c) {
+			committers[da] = c
+		}
+	}
+	d.Committers = committers
 	if d.Committers[commitment.DACelestiaBlob] == nil {
 		return nil, bad("a committer for da = 2 is required")
 	}
-	if err := checkScope(cfg.Scope); err != nil {
-		return nil, bad("%v", err)
+	if fc := d.Committers[commitment.DAFibre]; fc != nil {
+		if mc, ok := fc.(interface{ MaxDataSize() uint64 }); ok && cfg.FibreMaxDataBytes > mc.MaxDataSize() {
+			return nil, bad("fibre_max_data_bytes %d above the committer cap %d", cfg.FibreMaxDataBytes, mc.MaxDataSize())
+		}
+		if cfg.MaxFetchBytes/fibreFetchFactor < cfg.FibreMaxDataBytes {
+			return nil, bad("max_fetch_bytes %d below %d times fibre_max_data_bytes %d",
+				cfg.MaxFetchBytes, fibreFetchFactor, cfg.FibreMaxDataBytes)
+		}
 	}
 	cfg.Scope.ActionTypes = slices.Clone(cfg.Scope.ActionTypes)
-	allowed, err := normalizeDA(cfg.AllowedDA)
-	if err != nil {
-		return nil, bad("%v", err)
-	}
-	cfg.AllowedDA = allowed
+	cfg.AllowedDA = slices.Clone(cfg.AllowedDA)
 
 	g := &Gate{cfg: cfg, d: d, log: d.Logger, gateKeys: make(map[[32]byte]struct{}), sem: newWeightedSem(cfg.MaxFetchBytes)}
 	if g.log == nil {
@@ -244,6 +245,7 @@ func (g *Gate) Authorize(ctx context.Context, envelope, action []byte) (res Resu
 }
 
 func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *AdmissionEvent) (Result, error) {
+	envelope = bytes.Clone(envelope)
 	if g.closed.Load() {
 		return Result{}, ErrClosed
 	}
@@ -285,8 +287,8 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 		return res, fmt.Errorf("%w: da %d", ErrDANotAllowed, c.PayloadRef.DA)
 	}
 	if c.PayloadRef.DA == commitment.DAFibre && g.d.Committers[commitment.DAFibre] != nil &&
-		c.PayloadSize > g.fibreMaxDataBytes() {
-		return res, fmt.Errorf("%w: payload_size %d, limit %d", ErrPayloadAboveCap, c.PayloadSize, g.fibreMaxDataBytes())
+		c.PayloadSize > g.cfg.FibreMaxDataBytes {
+		return res, fmt.Errorf("%w: payload_size %d, limit %d", ErrPayloadAboveCap, c.PayloadSize, g.cfg.FibreMaxDataBytes)
 	}
 
 	// Registry epoch.
@@ -356,7 +358,7 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	if err != nil {
 		return res, err
 	}
-	res.K2 = K2Inputs{Now: now, BlockTime: blockTime}
+	res.K2 = K2Inputs{CheckedAt: now, BlockTime: blockTime}
 	if c.PayloadRef.DA == commitment.DAFibre {
 		res.K2.RetentionStart, res.K2.RetentionLatestS, res.K2.RetentionAtHeightS = anchor.RetentionStart, latest, atH
 	}
@@ -562,7 +564,7 @@ func (g *Gate) anchorErr(ctx context.Context, what string, err error) error {
 func (g *Gate) retentionHolds(ctx context.Context, c *commitment.Commitment, a Anchor, blockTime, latest uint64) (within bool, atH uint64, err error) {
 	switch c.PayloadRef.DA {
 	case commitment.DAFibre:
-		atH, err := g.fibreRetention(ctx, c.PayloadRef.Height)
+		atH, err = g.fibreRetention(ctx, c.PayloadRef.Height)
 		if err != nil {
 			if cerr := ctx.Err(); cerr != nil {
 				return false, 0, fmt.Errorf("gate: %w", cerr)
@@ -577,15 +579,6 @@ func (g *Gate) retentionHolds(ctx context.Context, c *commitment.Commitment, a A
 		return commitment.WithinRetention(c, blockTime, g.cfg.BlobRetentionS), 0, nil
 	}
 	return false, 0, nil
-}
-
-const defaultFibreMaxDataBytes = 16 << 20
-
-func (g *Gate) fibreMaxDataBytes() uint64 {
-	if g.cfg.FibreMaxDataBytes == 0 {
-		return defaultFibreMaxDataBytes
-	}
-	return g.cfg.FibreMaxDataBytes
 }
 
 func (g *Gate) chainCtx(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -691,6 +684,18 @@ func (g *Gate) Prune(ctx context.Context) (int, error) {
 func (g *Gate) PublicKey() ed25519.PublicKey { return bytes.Clone(g.signerPub) }
 
 // normalizeDA returns a private copy of the allowed set; empty means {1, 2}.
+func isNilCommitter(c DACommitter) bool {
+	if c == nil {
+		return true
+	}
+	v := reflect.ValueOf(c)
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan, reflect.Interface:
+		return v.IsNil()
+	}
+	return false
+}
+
 func normalizeDA(in []commitment.DA) ([]commitment.DA, error) {
 	if len(in) == 0 {
 		return []commitment.DA{commitment.DAFibre, commitment.DACelestiaBlob}, nil

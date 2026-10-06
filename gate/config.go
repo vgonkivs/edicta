@@ -1,12 +1,22 @@
 package gate
 
 import (
+	"fmt"
+	"math"
 	"time"
 
 	"github.com/vgonkivs/edicta/commitment"
 )
 
-const maxSkewS = 300
+const (
+	maxSkewS                 = 300
+	defaultFibreMaxDataBytes = 16 << 20
+	// maxFibreDataBytes is the largest blob the Fibre encoder accepts.
+	maxFibreDataBytes = 1<<27 - 5
+	// fibreFetchFactor is how many times a Fibre payload's size the fetch
+	// budget must cover.
+	fibreFetchFactor = 13
+)
 
 type Config struct {
 	Scope          commitment.GateScope
@@ -49,4 +59,46 @@ func DefaultConfig() Config {
 		PruneGrace:          3600,
 		MaxAuthorizationTTL: 300,
 	}
+}
+
+// withDefaults fills the fields whose zero value means a default.
+func (c Config) withDefaults() Config {
+	if c.FibreMaxDataBytes == 0 {
+		c.FibreMaxDataBytes = defaultFibreMaxDataBytes
+	}
+	if len(c.AllowedDA) == 0 {
+		c.AllowedDA = []commitment.DA{commitment.DAFibre, commitment.DACelestiaBlob}
+	}
+	return c
+}
+
+// ValidateBasic checks the fields that need no dependency. Defaults are not
+// applied here.
+func (c Config) ValidateBasic() error {
+	bad := func(format string, a ...any) error {
+		return fmt.Errorf("%w: %s", ErrInvalidConfig, fmt.Sprintf(format, a...))
+	}
+	switch {
+	case c.SkewS > maxSkewS:
+		return bad("skew_s %d above %d", c.SkewS, maxSkewS)
+	case c.BlobRetentionS < 1 || c.BlobRetentionS > math.MaxInt64:
+		return bad("blob_retention_s %d", c.BlobRetentionS)
+	case c.DATimeout <= 0 || c.ArchiveTimeout <= 0 || c.SignTimeout <= 0 || c.ChainTimeout <= 0:
+		return bad("timeouts must be positive")
+	case c.MaxFetchBytes == 0:
+		return bad("max_fetch_bytes is zero")
+	case c.PruneGrace <= c.ClockTolerance:
+		return bad("prune_grace %d must be above clock_tolerance %d", c.PruneGrace, c.ClockTolerance)
+	case c.MaxAuthorizationTTL <= c.SkewS || c.MaxAuthorizationTTL > math.MaxInt64:
+		return bad("max_authorization_ttl %d must be above skew_s %d", c.MaxAuthorizationTTL, c.SkewS)
+	case c.FibreMaxDataBytes > maxFibreDataBytes:
+		return bad("fibre_max_data_bytes %d above %d", c.FibreMaxDataBytes, uint64(maxFibreDataBytes))
+	}
+	if err := checkScope(c.Scope); err != nil {
+		return bad("%v", err)
+	}
+	if _, err := normalizeDA(c.AllowedDA); err != nil {
+		return bad("%v", err)
+	}
+	return nil
 }
