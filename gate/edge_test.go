@@ -105,5 +105,47 @@ func TestBothSourcesHangUntilTheirTimeouts(t *testing.T) {
 	e.DA.Hang()
 	e.Archive.Hang()
 	_, err := e.Authorize(b)
+	e.RequireRejected(c, err, gate.ErrArchiveUnavailable)
+	require.NotErrorIs(t, err, gate.ErrPayloadUnavailable)
+	require.ErrorContains(t, err, "other path")
+}
+
+func TestArchiveTimeoutOutsideTheWindowIsOperational(t *testing.T) {
+	e := gatefix.New(t, gatefix.WithConfig(func(cfg *gate.Config) {
+		cfg.ArchiveTimeout = 20 * time.Millisecond
+	}))
+	c := gatefix.Template(t)
+	th := c.ValidUntil + 600 - 14400 - 1
+	e.StageChain(c, th, th)
+	e.Archive.Hang()
+	b, _ := gatefix.Sign(t, "agent1", c)
+	_, err := e.Authorize(b)
+	e.RequireRejected(c, err, gate.ErrArchiveUnavailable)
+	require.NotErrorIs(t, err, gate.ErrAnchorTooOld)
+	require.NotErrorIs(t, err, gate.ErrPayloadUnavailable)
+}
+
+func TestArchiveTimeoutInsideTheWindowWithoutTheDABlobIsOperational(t *testing.T) {
+	e := gatefix.New(t, gatefix.WithConfig(func(cfg *gate.Config) {
+		cfg.ArchiveTimeout = 20 * time.Millisecond
+	}))
+	c := gatefix.Template(t)
+	th := gatefix.BlockTime(c)
+	e.StageChain(c, th, th)
+	e.Archive.Hang()
+	b, _ := gatefix.Sign(t, "agent1", c)
+	_, err := e.Authorize(b)
+	e.RequireRejected(c, err, gate.ErrArchiveUnavailable)
+	require.NotErrorIs(t, err, gate.ErrPayloadUnavailable)
+}
+
+func TestArchiveAbsentBlobStaysTheAvailabilityVerdict(t *testing.T) {
+	e := gatefix.New(t)
+	c := gatefix.Template(t)
+	th := gatefix.BlockTime(c)
+	e.StageChain(c, th, th)
+	b, _ := gatefix.Sign(t, "agent1", c)
+	_, err := e.Authorize(b)
 	e.RequireRejected(c, err, gate.ErrPayloadUnavailable)
+	require.NotErrorIs(t, err, gate.ErrArchiveUnavailable)
 }

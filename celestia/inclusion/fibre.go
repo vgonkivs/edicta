@@ -25,7 +25,8 @@ func (c FibreConfig) ValidateBasic() error {
 }
 
 // Fibre is an sdk.InclusionVerifier for da = 1: the reference must be anchored
-// by a PayForFibre tx at its height with a valid certificate, on this chain.
+// by a PayForFibre tx at its height with a valid certificate, on this chain,
+// as the operator's consensus endpoint reports it.
 type Fibre struct{ a *gatechain.FibreAnchors }
 
 var _ sdk.InclusionVerifier = (*Fibre)(nil)
@@ -54,7 +55,12 @@ func (f *Fibre) VerifyInclusion(ctx context.Context, ref commitment.PayloadRef) 
 	return fa.BlockTime, nil
 }
 
-// Independent reports true: the anchor needs a validator certificate that the
-// submitter cannot forge, read through endpoints the caller configured for
-// verification.
-func (*Fibre) Independent() bool { return true }
+// Independent reports false. The anchor, the validator set and the promise
+// header all come from the operator's own consensus endpoint, and the
+// certificate is checked against that endpoint's validator set, with no light
+// client or second witness behind it. That is a self-check: it holds only when
+// the submitter is under the same operator as the producer.
+func (*Fibre) Independent() bool { return false }
+
+// Level reports LevelFibre.
+func (*Fibre) Level() Level { return LevelFibre }

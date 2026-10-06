@@ -74,9 +74,14 @@ func (g *Gate) tryPath(ctx context.Context, c *commitment.Commitment, path regis
 	blob, err := src.Fetch(pctx, ref, c.PayloadSize)
 	if err != nil {
 		// A fault of the source says nothing about the payload: it keeps its
-		// chain and is not the availability verdict.
-		if errors.Is(err, ErrArchiveUnavailable) {
+		// chain and is not the availability verdict. On the archive path
+		// only an absent blob is a verdict; a timeout or any other failure
+		// is operational.
+		switch {
+		case errors.Is(err, ErrArchiveUnavailable):
 			return fmt.Errorf("fetch: %w", err)
+		case path == registry.PathArchive && !errors.Is(err, ErrBlobNotFound):
+			return fmt.Errorf("%w: fetch: %w", ErrArchiveUnavailable, err)
 		}
 		return fmt.Errorf("%w: fetch: %v", ErrPayloadUnavailable, err)
 	}

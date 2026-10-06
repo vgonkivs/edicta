@@ -40,6 +40,8 @@ func WithBeforePublish(f func(finalPath string) error) Option {
 
 // WithSyncHook sets a hook that runs after each file fsync with the final
 // path of the record, including the re-sync of a record that already exists.
+// It exists for tests; the hook runs on the write path, so a slow one slows
+// every write.
 func WithSyncHook(f func(path string)) Option {
 	return func(s *Store) { s.syncHook = f }
 }

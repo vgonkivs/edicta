@@ -497,7 +497,7 @@ func TestFibreFindAnchorCertificate(t *testing.T) {
 	})
 	t.Run("the promise header is not for the promise height", func(t *testing.T) {
 		c := liveBlock(t).chain(t, l)
-		c.SetSignedHeader(l.promiseH, l.headers[l.promiseH+1])
+		c.SetSignedHeader(l.promiseH, signedHeader(t, l.headers[l.promiseH+1]))
 		_, err := anchorsOver(c, mochaID).Lookup(bg, l.ref())
 		requireUnavailable(t, err)
 	})
@@ -621,6 +621,21 @@ func TestFibreAppVersionIsPinned(t *testing.T) {
 			assert.ErrorContains(t, err, "app version")
 		}
 	})
+	t.Run("the promise header must be a signed header", func(t *testing.T) {
+		empty, err := (&cmtproto.SignedHeader{}).Marshal()
+		require.NoError(t, err)
+		for name, raw := range map[string][]byte{
+			"a bare header":    l.promiseHdr,
+			"no header inside": empty,
+			"garbage":          {0xff, 0xff, 0xff},
+		} {
+			c := liveBlock(t).chain(t, l)
+			c.SetSignedHeader(l.promiseH, raw)
+			_, err := anchorsOver(c, mochaID).Lookup(bg, l.ref())
+			requireUnavailable(t, err)
+			assert.ErrorContains(t, err, "promise header", name)
+		}
+	})
 	t.Run("the promise header", func(t *testing.T) {
 		var hdr cmtproto.Header
 		require.NoError(t, hdr.Unmarshal(l.promiseHdr))
@@ -628,7 +643,7 @@ func TestFibreAppVersionIsPinned(t *testing.T) {
 		raw, err := hdr.Marshal()
 		require.NoError(t, err)
 		c := liveBlock(t).chain(t, l)
-		c.SetSignedHeader(l.promiseH, raw)
+		c.SetSignedHeader(l.promiseH, signedHeader(t, raw))
 		_, err = anchorsOver(c, mochaID).Lookup(bg, l.ref())
 		requireUnavailable(t, err)
 		assert.ErrorContains(t, err, "app version")

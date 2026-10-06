@@ -15,16 +15,28 @@ type gateSource struct{ r Store }
 // NewGateSource serves the gate's archive path from the payload records of r.
 // It ignores the namespace and signer of the reference: the gate's recompute
 // with the reference fails on any difference. When r is a PayloadStreamer
-// the record is read as a stream and never decoded whole.
+// the record is read as a stream and never decoded whole. A record that is
+// unreadable or damaged is reported as gate.ErrArchiveUnavailable, never as a
+// missing blob.
 func NewGateSource(r Store) gate.BlobSource {
 	return gateSource{r}
 }
 
 func (s gateSource) Fetch(ctx context.Context, ref commitment.PayloadRef, maxSize uint64) ([]byte, error) {
+	var (
+		b   []byte
+		err error
+	)
 	if st, ok := s.r.(PayloadStreamer); ok {
-		return fetchStream(ctx, st, ref, maxSize)
+		b, err = fetchStream(ctx, st, ref, maxSize)
+	} else {
+		b, err = fetchDecoded(ctx, s.r, ref, maxSize)
 	}
-	p, err := s.r.Payload(ctx, ref.DA, ref.Commitment)
+	return b, sourceFault(ctx, err)
+}
+
+func fetchDecoded(ctx context.Context, r Store, ref commitment.PayloadRef, maxSize uint64) ([]byte, error) {
+	p, err := r.Payload(ctx, ref.DA, ref.Commitment)
 	if errors.Is(err, ErrNotFound) {
 		return nil, fmt.Errorf("%w: %w", gate.ErrBlobNotFound, err)
 	}
@@ -37,14 +49,23 @@ func (s gateSource) Fetch(ctx context.Context, ref commitment.PayloadRef, maxSiz
 	return p.Blob, nil
 }
 
+// sourceFault leaves success, an absent blob and a finished caller context
+// as they are and reports every other failure as an archive fault.
+func sourceFault(ctx context.Context, err error) error {
+	switch {
+	case err == nil, errors.Is(err, gate.ErrBlobNotFound), errors.Is(err, gate.ErrArchiveUnavailable), ctx.Err() != nil:
+		return err
+	}
+	return fmt.Errorf("%w: %w", gate.ErrArchiveUnavailable, err)
+}
+
 // ErrNoStreamer means the store cannot stream payload records.
 var ErrNoStreamer = errors.New("archive: store does not stream payload records")
 
 type streamSource struct{ st PayloadStreamer }
 
 // NewStreamGateSource is NewGateSource for a store that must stream: the
-// record is never decoded whole. A record that is unreadable or damaged is
-// reported as gate.ErrArchiveUnavailable, never as a missing blob.
+// record is never decoded whole.
 func NewStreamGateSource(r Store) (gate.BlobSource, error) {
 	st, ok := r.(PayloadStreamer)
 	if !ok {
@@ -55,11 +76,7 @@ func NewStreamGateSource(r Store) (gate.BlobSource, error) {
 
 func (s streamSource) Fetch(ctx context.Context, ref commitment.PayloadRef, maxSize uint64) ([]byte, error) {
 	b, err := fetchStream(ctx, s.st, ref, maxSize)
-	switch {
-	case err == nil, errors.Is(err, gate.ErrBlobNotFound), ctx.Err() != nil:
-		return b, err
-	}
-	return nil, fmt.Errorf("%w: %w", gate.ErrArchiveUnavailable, err)
+	return b, sourceFault(ctx, err)
 }
 
 const readChunk = 64 << 10
@@ -115,16 +132,30 @@ func checkTail(r io.Reader) error {
 	if len(t) < 2 || t[0] != 8 || t[1]>>5 != majUint {
 		return errors.New("record tail is not the intent height")
 	}
+	var v uint64
 	w := 0
 	switch ai := t[1] & 31; {
 	case ai < 24:
+		v = uint64(ai)
 	case ai > 27:
 		return errors.New("intent height encoding")
 	default:
 		w = 1 << (ai - 24)
+		if len(t) != 2+w {
+			return errors.New("record has bytes after the intent height")
+		}
+		for _, x := range t[2:] {
+			v = v<<8 | uint64(x)
+		}
+		if v < 24 || w > 1 && v>>(4*w) == 0 {
+			return errors.New("intent height not in shortest form")
+		}
 	}
-	if len(t) != 2+w {
+	if w == 0 && len(t) != 2 {
 		return errors.New("record has bytes after the intent height")
+	}
+	if v == 0 {
+		return errors.New("intent height is zero")
 	}
 	return nil
 }

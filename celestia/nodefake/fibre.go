@@ -96,7 +96,7 @@ func (c *FibreChain) SetHistoricalInfo(height uint64, raw []byte) {
 	c.hist[height] = bytes.Clone(raw)
 }
 
-// SetSignedHeader stores the raw header at height.
+// SetSignedHeader stores the protobuf SignedHeader at height.
 func (c *FibreChain) SetSignedHeader(height uint64, raw []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -32,6 +32,14 @@ func TestFibreAcceptsTheLivePFF(t *testing.T) {
 	assert.EqualValues(t, fbHeaderTime.Unix(), bt, "block time of the verified header")
 }
 
+func TestFibreIsASelfCheck(t *testing.T) {
+	v := fibreVerifier(t, nodefake.NewFibreChain(), fbChain)
+	assert.False(t, v.Independent(), "one consensus endpoint, no light client or witness")
+	assert.Equal(t, inclusion.LevelFibre, v.Level())
+	assert.Contains(t, inclusion.LevelFibre.String(), "self-check")
+	assert.NotEqual(t, inclusion.LevelLight, v.Level())
+}
+
 func TestFibreRefusesWhatIsNotAnchored(t *testing.T) {
 	l := loadFbLive(t)
 	cases := []struct {

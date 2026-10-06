@@ -16,6 +16,7 @@ import (
 	"github.com/celestiaorg/celestia-node/share/eds"
 	"github.com/celestiaorg/celestia-node/share/shwap"
 	libshare "github.com/celestiaorg/go-square/v4/share"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	cosmostx "github.com/cosmos/cosmos-sdk/types/tx"
 
 	"github.com/vgonkivs/edicta/celestia/nodefake"
@@ -50,7 +51,7 @@ func fbU(t testing.TB, s string) uint64 {
 type fbLive struct {
 	pff        []byte
 	hist       []byte
-	promiseHdr []byte
+	promiseHdr []byte // a SignedHeader
 	pffHeight  uint64
 	promiseH   uint64
 	ns, commit []byte
@@ -96,7 +97,7 @@ func loadFbLive(t testing.TB) fbLive {
 	}
 	for _, h := range cv.Live.Raw.Headers {
 		if fbU(t, h.Height) == l.promiseH {
-			l.promiseHdr = fbHex(t, h.Hex)
+			l.promiseHdr = fbSigned(t, fbHex(t, h.Hex))
 		}
 	}
 	require.NotEmpty(t, l.promiseHdr)
@@ -209,4 +210,14 @@ func (l fbLive) strippedPFF(t testing.TB, keep int) []byte {
 	out, err := tr.Marshal()
 	require.NoError(t, err)
 	return out
+}
+
+// fbSigned wraps a bare protobuf Header in the SignedHeader the chain reader serves.
+func fbSigned(t testing.TB, rawHeader []byte) []byte {
+	t.Helper()
+	var h cmtproto.Header
+	require.NoError(t, h.Unmarshal(rawHeader))
+	raw, err := (&cmtproto.SignedHeader{Header: &h, Commit: &cmtproto.Commit{Height: h.Height}}).Marshal()
+	require.NoError(t, err)
+	return raw
 }

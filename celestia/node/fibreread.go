@@ -47,7 +47,7 @@ type FibreChainReader interface {
 	TxCode(ctx context.Context, height uint64, txHash [32]byte) (uint32, error)
 	// HistoricalInfo is the raw staking HistoricalInfo recorded at height.
 	HistoricalInfo(ctx context.Context, height uint64) ([]byte, error)
-	// SignedHeader is the raw CometBFT header at height.
+	// SignedHeader is the protobuf tendermint.types.SignedHeader at height.
 	SignedHeader(ctx context.Context, height uint64) ([]byte, error)
 }
 
@@ -110,6 +110,7 @@ const headerCacheEntries = 128
 type headerCache struct {
 	mu    sync.Mutex
 	m     map[uint64]cmtproto.Header
+	c     map[uint64]*cmtproto.Commit
 	order []uint64
 }
 
@@ -120,20 +121,35 @@ func (c *headerCache) get(height uint64) (cmtproto.Header, bool) {
 	return h, ok
 }
 
-func (c *headerCache) put(height uint64, h cmtproto.Header) {
+func (c *headerCache) getSigned(height uint64) (cmtproto.Header, *cmtproto.Commit, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	h, ok := c.m[height]
+	cm := c.c[height]
+	return h, cm, ok && cm != nil
+}
+
+func (c *headerCache) put(height uint64, h cmtproto.Header) { c.putSigned(height, h, nil) }
+
+func (c *headerCache) putSigned(height uint64, h cmtproto.Header, commit *cmtproto.Commit) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.m == nil {
 		c.m = map[uint64]cmtproto.Header{}
+		c.c = map[uint64]*cmtproto.Commit{}
 	}
 	if _, ok := c.m[height]; !ok {
 		for len(c.order) >= headerCacheEntries {
 			delete(c.m, c.order[0])
+			delete(c.c, c.order[0])
 			c.order = c.order[1:]
 		}
 		c.order = append(c.order, height)
 	}
 	c.m[height] = h
+	if commit != nil {
+		c.c[height] = commit
+	}
 }
 
 // blockHeader returns the header at height, read once and then kept: a header
@@ -147,11 +163,11 @@ func (c *ConsensusClient) blockHeader(ctx context.Context, height uint64) (cmtpr
 	if hdr, ok := c.hdrs.get(height); ok {
 		return hdr, nil
 	}
-	hdr, err := c.streamHeader(ctx, height, h)
+	hdr, commit, err := c.streamHeader(ctx, height, h)
 	if err != nil {
 		return cmtproto.Header{}, err
 	}
-	c.hdrs.put(height, hdr)
+	c.hdrs.putSigned(height, hdr, commit)
 	return hdr, nil
 }
 
@@ -160,40 +176,40 @@ func (c *ConsensusClient) blockHeader(ctx context.Context, height uint64) (cmtpr
 // height and hash to the block id of that commit, and the part must prove into
 // the part set hash of the same block id. The commit signatures are not
 // checked: the node is trusted for the header.
-func (c *ConsensusClient) streamHeader(ctx context.Context, height uint64, h int64) (cmtproto.Header, error) {
+func (c *ConsensusClient) streamHeader(ctx context.Context, height uint64, h int64) (cmtproto.Header, *cmtproto.Commit, error) {
 	sctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	st, err := c.blocks.BlockByHeight(sctx, &coregrpc.BlockByHeightRequest{Height: h, Prove: true})
 	if err != nil {
-		return cmtproto.Header{}, classifyGRPC(ctx, err)
+		return cmtproto.Header{}, nil, classifyGRPC(ctx, err)
 	}
 	m, err := st.Recv()
 	if err != nil {
-		return cmtproto.Header{}, classifyGRPC(ctx, err)
+		return cmtproto.Header{}, nil, classifyGRPC(ctx, err)
 	}
 	part, err := core.PartFromProto(m.GetBlockPart())
 	if err != nil {
-		return cmtproto.Header{}, fmt.Errorf("%w: block part at height %d: %w", ErrUnavailable, height, err)
+		return cmtproto.Header{}, nil, fmt.Errorf("%w: block part at height %d: %w", ErrUnavailable, height, err)
 	}
 	if part.Index != 0 {
-		return cmtproto.Header{}, fmt.Errorf("%w: first block part at height %d has index %d", ErrUnavailable, height, part.Index)
+		return cmtproto.Header{}, nil, fmt.Errorf("%w: first block part at height %d has index %d", ErrUnavailable, height, part.Index)
 	}
 	hdr, err := headerFromPart(part.Bytes)
 	if err != nil {
-		return cmtproto.Header{}, fmt.Errorf("%w: block at height %d: %w", ErrUnavailable, height, err)
+		return cmtproto.Header{}, nil, fmt.Errorf("%w: block at height %d: %w", ErrUnavailable, height, err)
 	}
 	if hdr.Height < 0 {
 		c.flag.Mark()
-		return cmtproto.Header{}, heightIgnored(fmt.Errorf("%w: header at height %d", heightcheck.ErrHeightIgnored, hdr.Height))
+		return cmtproto.Header{}, nil, heightIgnored(fmt.Errorf("%w: header at height %d", heightcheck.ErrHeightIgnored, hdr.Height))
 	}
 	if err := heightcheck.HeaderHeight(uint64(hdr.Height), height); err != nil {
 		c.flag.Mark()
-		return cmtproto.Header{}, heightIgnored(err)
+		return cmtproto.Header{}, nil, heightIgnored(err)
 	}
 	if err := verifyHeaderBlockID(hdr, part, m.GetCommit()); err != nil {
-		return cmtproto.Header{}, fmt.Errorf("%w: block at height %d: %w", ErrUnavailable, height, err)
+		return cmtproto.Header{}, nil, fmt.Errorf("%w: block at height %d: %w", ErrUnavailable, height, err)
 	}
-	return hdr, nil
+	return hdr, m.GetCommit(), nil
 }
 
 func verifyHeaderBlockID(hdr cmtproto.Header, part *core.Part, commit *cmtproto.Commit) error {
@@ -251,15 +267,25 @@ func (c *ConsensusClient) Header(ctx context.Context, height uint64) (FibreHeade
 	}, nil
 }
 
-// SignedHeader reads the raw header at height.
+// SignedHeader reads the header and its commit at height as a protobuf
+// tendermint.types.SignedHeader. The header is checked against the commit's
+// block id as in blockHeader; the commit signatures are not checked.
 func (c *ConsensusClient) SignedHeader(ctx context.Context, height uint64) ([]byte, error) {
-	hdr, err := c.blockHeader(ctx, height)
+	h, err := int64Height(height)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := hdr.Marshal()
+	hdr, commit, ok := c.hdrs.getSigned(height)
+	if !ok {
+		if hdr, commit, err = c.streamHeader(ctx, height, h); err != nil {
+			return nil, err
+		}
+		c.hdrs.putSigned(height, hdr, commit)
+	}
+	sh := cmtproto.SignedHeader{Header: &hdr, Commit: commit}
+	raw, err := sh.Marshal()
 	if err != nil {
-		return nil, fmt.Errorf("%w: header: %w", ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: signed header: %w", ErrUnavailable, err)
 	}
 	return raw, nil
 }

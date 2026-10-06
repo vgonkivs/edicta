@@ -248,7 +248,7 @@ func (b block) chain(t testing.TB, l live) *nodefake.FibreChain {
 	c.SetDAH(b.height, b.rows, b.cols)
 	c.SetNamespaceData(b.height, b.nd)
 	c.SetHistoricalInfo(l.promiseH, l.hist)
-	c.SetSignedHeader(l.promiseH, l.promiseHdr)
+	c.SetSignedHeader(l.promiseH, signedHeader(t, l.promiseHdr))
 	return c
 }
 

@@ -161,3 +161,13 @@ func marshalHist(t testing.TB, hi stakingtypes.HistoricalInfo) []byte {
 	require.NoError(t, err)
 	return b
 }
+
+// signedHeader wraps a bare protobuf Header in the SignedHeader the chain reader serves.
+func signedHeader(t testing.TB, rawHeader []byte) []byte {
+	t.Helper()
+	var h cmtproto.Header
+	require.NoError(t, h.Unmarshal(rawHeader))
+	raw, err := (&cmtproto.SignedHeader{Header: &h, Commit: &cmtproto.Commit{Height: h.Height}}).Marshal()
+	require.NoError(t, err)
+	return raw
+}

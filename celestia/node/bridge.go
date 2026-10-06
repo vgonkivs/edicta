@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	libshare "github.com/celestiaorg/go-square/v4/share"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 
 	"github.com/celestiaorg/celestia-node/api/client"
 	"github.com/celestiaorg/celestia-node/blob"
@@ -144,8 +145,9 @@ type proof struct{ p *blob.CommitmentProof }
 // itself.
 func (p proof) MarshalJSON() ([]byte, error) { return json.Marshal(p.p) }
 
-// SignedHeader returns the raw consensus header at height, as the protobuf
-// bytes the archive stores.
+// SignedHeader returns the consensus header and its commit at height as a
+// protobuf tendermint.types.SignedHeader, the form the archive stores. The
+// commit is the one the bridge holds; verifiers do not trust it.
 func (b bridge) SignedHeader(ctx context.Context, height uint64) ([]byte, error) {
 	h, err := b.rc.Header.GetByHeight(ctx, height)
 	if err != nil {
@@ -157,9 +159,13 @@ func (b bridge) SignedHeader(ctx context.Context, height uint64) ([]byte, error)
 	if err := heightcheck.HeaderHeight(uint64(h.Height()), height); err != nil {
 		return nil, heightIgnored(err)
 	}
-	raw, err := h.RawHeader.ToProto().Marshal()
+	if h.Commit == nil {
+		return nil, fmt.Errorf("%w: bridge returned no commit at height %d", ErrUnavailable, height)
+	}
+	sh := cmtproto.SignedHeader{Header: h.RawHeader.ToProto(), Commit: h.Commit.ToProto()}
+	raw, err := sh.Marshal()
 	if err != nil {
-		return nil, fmt.Errorf("%w: header: %w", ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: signed header: %w", ErrUnavailable, err)
 	}
 	return raw, nil
 }

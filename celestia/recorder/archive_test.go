@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -12,6 +11,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/celestiaorg/celestia-app/v10/pkg/da"
+	nodeblob "github.com/celestiaorg/celestia-node/blob"
+	libshare "github.com/celestiaorg/go-square/v4/share"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/archive/fsarchive"
@@ -22,38 +26,97 @@ import (
 	"github.com/vgonkivs/edicta/gate/dacommit/blobv1"
 )
 
-// fakeProof is a commitment proof a test can serialize and check again.
-type fakeProof struct {
-	Root       []byte
-	Commitment []byte
+// square is a real one-share square holding the blob, so the header, the
+// signed header and the commitment proof of a test agree with each other.
+type square struct {
+	root  []byte
+	comm  []byte
+	proof *nodeblob.CommitmentProof
 }
 
-func (p fakeProof) Verify(dataRoot, commit []byte) error {
-	if !bytes.Equal(p.Root, dataRoot) || !bytes.Equal(p.Commitment, commit) {
-		return errors.New("fake proof: does not match")
+func realSquare(t testing.TB, data []byte) square {
+	t.Helper()
+	nsv, err := libshare.NewNamespaceFromBytes(ns)
+	require.NoError(t, err)
+	bl, err := nodeblob.NewBlobV1(nsv, data, signer)
+	require.NoError(t, err)
+	shares, err := nodeblob.BlobsToShares(bl)
+	require.NoError(t, err)
+	require.Len(t, shares, 1)
+	raw := make([][]byte, len(shares))
+	for i, s := range shares {
+		raw[i] = s.ToBytes()
 	}
-	return nil
+	eds, err := da.ExtendShares(raw)
+	require.NoError(t, err)
+	dah, err := da.NewDataAvailabilityHeader(eds)
+	require.NoError(t, err)
+	root := dah.Hash()
+	p, err := nodeblob.ProveCommitment(eds, nsv, shares)
+	require.NoError(t, err)
+	require.NoError(t, p.Verify(root, bl.Commitment))
+	require.Equal(t, realCommitment(t, ns, signer, data), []byte(bl.Commitment))
+	return square{root: root, comm: bytes.Clone(bl.Commitment), proof: p}
 }
 
-func signedHeaderBytes(h uint64) []byte { return []byte{'s', 'h', byte(h)} }
+func signedHeaderOf(t testing.TB, hd node.Header) []byte {
+	t.Helper()
+	raw, err := (&cmtproto.SignedHeader{
+		Header: &cmtproto.Header{ChainID: hd.ChainID, Height: int64(hd.Height), DataHash: bytes.Clone(hd.DataRoot)},
+		Commit: &cmtproto.Commit{Height: int64(hd.Height)},
+	}).Marshal()
+	require.NoError(t, err)
+	return raw
+}
 
 // evReader serves what the Recorder needs for the evidence record on top of a
-// node.Reader: the signed header bytes and a commitment proof.
-type evReader struct{ node.Reader }
-
-func (r evReader) SignedHeader(ctx context.Context, h uint64) ([]byte, error) {
-	if _, err := r.Reader.HeaderAt(ctx, h); err != nil {
-		return nil, err
-	}
-	return signedHeaderBytes(h), nil
+// node.Reader: headers whose data root is the real square's, the signed header
+// and a commitment proof. The knobs bend one of the three.
+type evReader struct {
+	node.Reader
+	t  testing.TB
+	sq square
+	// signed replaces the signed header bytes.
+	signed func(hd node.Header) ([]byte, error)
+	// proof replaces the commitment proof.
+	proof func() (node.CommitmentProof, error)
 }
 
-func (r evReader) CommitmentProof(ctx context.Context, h uint64, _, c []byte) (node.CommitmentProof, error) {
+func ev(t testing.TB, rd node.Reader, data []byte) *evReader {
+	return &evReader{Reader: rd, t: t, sq: realSquare(t, data)}
+}
+
+func (r *evReader) HeaderAt(ctx context.Context, h uint64) (node.Header, error) {
 	hd, err := r.Reader.HeaderAt(ctx, h)
+	if err != nil {
+		return node.Header{}, err
+	}
+	hd.DataRoot = bytes.Clone(r.sq.root)
+	return hd, nil
+}
+
+func (r *evReader) SignedHeader(ctx context.Context, h uint64) ([]byte, error) {
+	hd, err := r.HeaderAt(ctx, h)
 	if err != nil {
 		return nil, err
 	}
-	return fakeProof{Root: hd.DataRoot, Commitment: bytes.Clone(c)}, nil
+	if r.signed != nil {
+		return r.signed(hd)
+	}
+	return signedHeaderOf(r.t, hd), nil
+}
+
+func (r *evReader) CommitmentProof(ctx context.Context, h uint64, _, c []byte) (node.CommitmentProof, error) {
+	if _, err := r.HeaderAt(ctx, h); err != nil {
+		return nil, err
+	}
+	if r.proof != nil {
+		return r.proof()
+	}
+	if !bytes.Equal(c, r.sq.comm) {
+		return nil, node.ErrNotFound
+	}
+	return r.sq.proof, nil
 }
 
 func openArchive(t *testing.T, dir string) *fsarchive.Store {
@@ -112,7 +175,7 @@ func TestPayloadRecordIsArchivedBeforeSubmit(t *testing.T) {
 		assert.Equal(t, signer, p.Signer)
 		assert.EqualValues(t, genesis, p.IntentHeight, "chain head before the submit")
 	}
-	rec := mk(t, archCfg(st), sub, evReader{ch})
+	rec := mk(t, archCfg(st), sub, ev(t, ch, blob))
 	_, err := rec.Publish(bg, blob)
 	require.NoError(t, err)
 	assert.True(t, seen)
@@ -128,19 +191,26 @@ func TestEvidenceIsArchivedAfterReadBack(t *testing.T) {
 		_, err := st.Evidence(bg, commitment.DACelestiaBlob, comm)
 		assert.ErrorIs(t, err, archive.ErrNotFound, "no evidence before the anchor is read back")
 	}
-	rec := mk(t, archCfg(st), sub, evReader{ch})
+	rec := mk(t, archCfg(st), sub, ev(t, ch, blob))
 	p, err := rec.Publish(bg, blob)
 	require.NoError(t, err)
 
-	ev, err := st.Evidence(bg, commitment.DACelestiaBlob, comm)
+	evd, err := st.Evidence(bg, commitment.DACelestiaBlob, comm)
 	require.NoError(t, err)
-	assert.Equal(t, p.Ref.Height, ev.Height)
-	assert.Equal(t, ns, ev.Namespace)
-	assert.Equal(t, signedHeaderBytes(p.Ref.Height), ev.Header, "signed header at H")
+	assert.Equal(t, p.Ref.Height, evd.Height)
+	assert.Equal(t, ns, evd.Namespace)
+	var sh cmtproto.SignedHeader
+	require.NoError(t, sh.Unmarshal(evd.Header))
+	require.NotNil(t, sh.Header)
+	require.NotNil(t, sh.Commit, "the stored header carries its commit")
+	assert.EqualValues(t, p.Ref.Height, sh.Header.Height)
+	assert.EqualValues(t, p.Ref.Height, sh.Commit.Height)
+	root := realSquare(t, blob).root
+	assert.Equal(t, root, sh.Header.DataHash)
 
-	var proof fakeProof
-	require.NoError(t, json.Unmarshal(ev.BlobProof, &proof))
-	require.NoError(t, proof.Verify(blockAt(p.Ref.Height).DataRoot, comm), "the stored proof verifies against the header at H")
+	var proof nodeblob.CommitmentProof
+	require.NoError(t, json.Unmarshal(evd.BlobProof, &proof))
+	require.NoError(t, proof.Verify(root, comm), "the stored proof verifies against the data root at H")
 }
 
 func TestNoEvidenceWhenTheAnchorIsNotVisible(t *testing.T) {
@@ -149,7 +219,7 @@ func TestNoEvidenceWhenTheAnchorIsNotVisible(t *testing.T) {
 	sub := newLanding(ch)
 	blob := []byte("x")
 	comm := realCommitment(t, ns, signer, blob)
-	rec := mk(t, archCfg(st), sub, evReader{&lagReader{Reader: ch, hdrMiss: 1 << 30}})
+	rec := mk(t, archCfg(st), sub, ev(t, &lagReader{Reader: ch, hdrMiss: 1 << 30}, blob))
 	_, err := rec.Publish(bg, blob)
 	require.ErrorIs(t, err, recorder.ErrNotVisible)
 
@@ -170,8 +240,9 @@ func TestArchiveFailureBeforeSubmitSubmitsNothing(t *testing.T) {
 			ch := newChain()
 			sub := newLanding(ch)
 			fs := &failStore{Store: openArchive(t, t.TempDir()), err: cause, kinds: map[archive.Kind]bool{archive.KindPayload: true}}
-			rec := mk(t, archCfg(fs), sub, evReader{ch})
-			_, err := rec.Publish(bg, []byte("x"))
+			blob := []byte("x")
+			rec := mk(t, archCfg(fs), sub, ev(t, ch, blob))
+			_, err := rec.Publish(bg, blob)
 			require.ErrorIs(t, err, recorder.ErrArchiveUnavailable)
 			require.ErrorIs(t, err, cause, "the cause stays visible")
 			assert.NotErrorIs(t, err, gate.ErrPayloadUnavailable)
@@ -192,8 +263,9 @@ func TestUnwritableArchiveDirectorySubmitsNothing(t *testing.T) {
 
 	ch := newChain()
 	sub := newLanding(ch)
-	rec := mk(t, archCfg(st), sub, evReader{ch})
-	_, err := rec.Publish(bg, []byte("x"))
+	blob := []byte("x")
+	rec := mk(t, archCfg(st), sub, ev(t, ch, blob))
+	_, err := rec.Publish(bg, blob)
 	require.ErrorIs(t, err, recorder.ErrArchiveUnavailable)
 	assert.Zero(t, sub.Calls)
 }
@@ -202,8 +274,8 @@ func TestEvidenceWriteFailureResumesWithoutPayingAgain(t *testing.T) {
 	ch := newChain()
 	sub := newLanding(ch)
 	fs := &failStore{Store: openArchive(t, t.TempDir()), err: errBoom, kinds: map[archive.Kind]bool{archive.KindEvidence: true}}
-	rec := mk(t, archCfg(fs), sub, evReader{ch})
 	blob := []byte("x")
+	rec := mk(t, archCfg(fs), sub, ev(t, ch, blob))
 
 	_, err := rec.Publish(bg, blob)
 	require.ErrorIs(t, err, recorder.ErrArchiveUnavailable)
@@ -224,35 +296,58 @@ func TestEvidenceConflictIsAnArchiveFault(t *testing.T) {
 	ch := newChain()
 	sub := newLanding(ch)
 	fs := &failStore{Store: openArchive(t, t.TempDir()), err: archive.ErrConflict, kinds: map[archive.Kind]bool{archive.KindEvidence: true}}
-	rec := mk(t, archCfg(fs), sub, evReader{ch})
-	_, err := rec.Publish(bg, []byte("x"))
+	blob := []byte("x")
+	rec := mk(t, archCfg(fs), sub, ev(t, ch, blob))
+	_, err := rec.Publish(bg, blob)
 	require.ErrorIs(t, err, recorder.ErrArchiveUnavailable)
 	require.ErrorIs(t, err, archive.ErrConflict)
 }
 
 func TestRestartBeforeSubmitKeepsOneRecordAndSubmitsOnce(t *testing.T) {
+	const settle = 256
 	dir := t.TempDir()
 	ch := newChain()
 	blob := []byte("decision payload")
 	comm := realCommitment(t, ns, signer, blob)
+	cf := func(st archive.Store) recorder.Config {
+		c := archCfg(st)
+		c.SettleBlocks = settle
+		return c
+	}
 
 	// The first process dies after the payload write: the submit never lands.
 	first := newLanding(ch)
 	first.NoLand, first.Err = true, context.Canceled
-	_, err := mk(t, archCfg(openArchive(t, dir)), first, evReader{ch}).Publish(bg, blob)
+	_, err := mk(t, cf(openArchive(t, dir)), first, ev(t, ch, blob)).Publish(bg, blob)
 	require.Error(t, err)
 	before, err := os.ReadFile(payloadPath(t, dir, comm))
 	require.NoError(t, err)
 
-	// A new process over the same archive.
+	// A new process over the same archive waits out the settle window: an
+	// earlier submit may still sit in a mempool.
+	second := newLanding(ch)
+	st := openArchive(t, dir)
+	rec := mk(t, cf(st), second, ev(t, ch, blob))
 	for h := genesis + 1; h <= genesis+3; h++ {
 		ch.AddHeader(blockAt(h))
 	}
-	second := newLanding(ch)
-	st := openArchive(t, dir)
-	p, err := mk(t, archCfg(st), second, evReader{ch}).Publish(bg, blob)
+	_, err = rec.Publish(bg, blob)
+	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
+	assert.Zero(t, second.Calls, "inside the window nothing is submitted")
+
+	// The head at the end of the window is still inside it.
+	for h := genesis + 4; h <= genesis+settle; h++ {
+		ch.AddHeader(blockAt(h))
+	}
+	_, err = rec.Publish(bg, blob)
+	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
+	assert.Zero(t, second.Calls, "the window ends after intent + SettleBlocks")
+
+	ch.AddHeader(blockAt(genesis + settle + 1))
+	p, err := rec.Publish(bg, blob)
 	require.NoError(t, err)
 	assert.Equal(t, 1, second.Calls)
+	assert.Equal(t, genesis+settle+2, p.Ref.Height)
 
 	after, err := os.ReadFile(payloadPath(t, dir, comm))
 	require.NoError(t, err)
@@ -260,9 +355,9 @@ func TestRestartBeforeSubmitKeepsOneRecordAndSubmitsOnce(t *testing.T) {
 	pr, err := st.Payload(bg, commitment.DACelestiaBlob, comm)
 	require.NoError(t, err)
 	assert.EqualValues(t, genesis, pr.IntentHeight)
-	ev, err := st.Evidence(bg, commitment.DACelestiaBlob, comm)
+	evd, err := st.Evidence(bg, commitment.DACelestiaBlob, comm)
 	require.NoError(t, err)
-	assert.Equal(t, p.Ref.Height, ev.Height)
+	assert.Equal(t, p.Ref.Height, evd.Height)
 }
 
 func TestRestartAfterSubmitFindsTheEarlierBlobAndDoesNotPayAgain(t *testing.T) {
@@ -274,12 +369,12 @@ func TestRestartAfterSubmitFindsTheEarlierBlobAndDoesNotPayAgain(t *testing.T) {
 	// The first process lost the answer after the blob landed.
 	first := newLanding(ch)
 	first.Err, first.ErrAfterLand = context.DeadlineExceeded, true
-	_, err := mk(t, archCfg(openArchive(t, dir)), first, evReader{ch}).Publish(bg, blob)
+	_, err := mk(t, archCfg(openArchive(t, dir)), first, ev(t, ch, blob)).Publish(bg, blob)
 	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
 
 	second := newLanding(ch)
 	st := openArchive(t, dir)
-	p, err := mk(t, archCfg(st), second, evReader{ch}).Publish(bg, blob)
+	p, err := mk(t, archCfg(st), second, ev(t, ch, blob)).Publish(bg, blob)
 	require.NoError(t, err)
 	assert.Zero(t, second.Calls, "found by the scan from the intent height, never submitted twice")
 	assert.Equal(t, genesis+1, p.Ref.Height)
@@ -296,13 +391,13 @@ func TestCorruptPayloadRecordIsOperational(t *testing.T) {
 	comm := realCommitment(t, ns, signer, blob)
 
 	// Archive the payload once, then damage the stored record.
-	_, err := mk(t, archCfg(st), newLanding(ch), evReader{ch}).Publish(bg, blob)
+	_, err := mk(t, archCfg(st), newLanding(ch), ev(t, ch, blob)).Publish(bg, blob)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(payloadPath(t, dir, comm), []byte("not a record"), 0o644))
 
 	ch2 := newChain()
 	sub := newLanding(ch2)
-	_, err = mk(t, archCfg(st), sub, evReader{ch2}).Publish(bg, blob)
+	_, err = mk(t, archCfg(st), sub, ev(t, ch2, blob)).Publish(bg, blob)
 	require.ErrorIs(t, err, recorder.ErrArchiveUnavailable)
 	require.ErrorIs(t, err, archive.ErrCorrupt)
 	assert.NotErrorIs(t, err, gate.ErrPayloadUnavailable)
@@ -314,8 +409,8 @@ func TestConcurrentPublishesOfOneBlobArchiveAndSubmitOnce(t *testing.T) {
 	ch := newChain()
 	st := openArchive(t, t.TempDir())
 	sub := newLanding(ch)
-	rec := mk(t, archCfg(st), sub, evReader{ch})
 	blob := []byte("one blob")
+	rec := mk(t, archCfg(st), sub, ev(t, ch, blob))
 
 	var wg sync.WaitGroup
 	refs := make([]uint64, 4)

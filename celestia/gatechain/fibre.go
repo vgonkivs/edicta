@@ -378,11 +378,12 @@ func (a *FibreAnchors) certificate(ctx context.Context, c candidate, b fibrecert
 	if err != nil {
 		return unavailable(fmt.Errorf("historical info at %d: %w", p.Height, err))
 	}
-	hdr, err := a.r.SignedHeader(ctx, p.Height)
+	sh, err := a.r.SignedHeader(ctx, p.Height)
 	if err != nil {
 		return unavailable(fmt.Errorf("header at %d: %w", p.Height, err))
 	}
-	if err := evidenceHeights(hist, hdr, p.Height); err != nil {
+	hdr, err := evidenceHeights(hist, sh, p.Height)
+	if err != nil {
 		return unavailable(err)
 	}
 	// The list and the evidence come from the chain endpoint: a list that
@@ -407,25 +408,34 @@ func (a *FibreAnchors) certificate(ctx context.Context, c candidate, b fibrecert
 	return nil
 }
 
-// evidenceHeights requires the historical info and the header to decode, to
-// name the promise height and the header to carry the pinned app version.
-func evidenceHeights(histRaw, hdrRaw []byte, height uint64) error {
+// evidenceHeights requires the historical info and the signed header to
+// decode, to name the promise height and the header to carry the pinned app
+// version. It returns the bare header bytes the certificate check reads.
+func evidenceHeights(histRaw, signedRaw []byte, height uint64) ([]byte, error) {
 	var hi stakingtypes.HistoricalInfo
 	if err := hi.Unmarshal(histRaw); err != nil {
-		return fmt.Errorf("historical info: %w", err)
+		return nil, fmt.Errorf("historical info: %w", err)
 	}
-	var h cmtproto.Header
-	if err := h.Unmarshal(hdrRaw); err != nil {
-		return fmt.Errorf("promise header: %w", err)
+	var sh cmtproto.SignedHeader
+	if err := sh.Unmarshal(signedRaw); err != nil {
+		return nil, fmt.Errorf("promise header: %w", err)
+	}
+	h := sh.Header
+	if h == nil {
+		return nil, errors.New("promise header: signed header has no header")
 	}
 	if h.Version.App != node.FibreAppVersion {
-		return fmt.Errorf("promise header has app version %d, want %d", h.Version.App, node.FibreAppVersion)
+		return nil, fmt.Errorf("promise header has app version %d, want %d", h.Version.App, node.FibreAppVersion)
 	}
 	if height > math.MaxInt64 || hi.Header.Height != int64(height) || h.Height != int64(height) {
-		return fmt.Errorf("%w: evidence at heights %d and %d, promise at %d",
+		return nil, fmt.Errorf("%w: evidence at heights %d and %d, promise at %d",
 			heightcheck.ErrHeightIgnored, hi.Header.Height, h.Height, height)
 	}
-	return nil
+	raw, err := h.Marshal()
+	if err != nil {
+		return nil, fmt.Errorf("promise header: %w", err)
+	}
+	return raw, nil
 }
 
 type fibreBlobs struct {

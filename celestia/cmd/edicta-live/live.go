@@ -492,8 +492,8 @@ func openFibreReader(ctx context.Context, cfg Config, bridgeToken string, cons *
 }
 
 // buildFibreVerifier returns the da=fibre inclusion verifier: the PayForFibre
-// tx and its certificate are checked through r, and the SDK refuses to sign
-// without them, so the submitter is not trusted.
+// tx and its certificate are checked through r, the operator's own consensus
+// endpoint. That is a self-check, so the submitter must be the operator's.
 func buildFibreVerifier(cfg Config, chainID string, r node.FibreAnchorReader) (sdk.InclusionVerifier, sdk.SubmitterTrust, string, error) {
 	if r == nil {
 		return nil, 0, "", cfgErr("da=fibre needs a chain reader")
@@ -505,7 +505,7 @@ func buildFibreVerifier(cfg Config, chainID string, r node.FibreAnchorReader) (s
 	if err != nil {
 		return nil, 0, "", err
 	}
-	return v, sdk.SubmitterUntrusted, inclusion.LevelFibre.String(), nil
+	return v, sdk.SubmitterSameOperator, inclusion.LevelFibre.String(), nil
 }
 
 // resolveFee returns the explicit --fee, or derives one from the node's

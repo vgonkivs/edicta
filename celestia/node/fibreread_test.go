@@ -304,10 +304,16 @@ func TestFibreSignedHeader(t *testing.T) {
 	}})
 	raw, err := c.SignedHeader(tctx(t), 50)
 	require.NoError(t, err)
-	var hdr cmtproto.Header
-	require.NoError(t, hdr.Unmarshal(raw))
-	assert.EqualValues(t, 50, hdr.Height)
-	assert.EqualValues(t, 10, hdr.Version.App)
+	var sh cmtproto.SignedHeader
+	require.NoError(t, sh.Unmarshal(raw))
+	require.NotNil(t, sh.Header)
+	require.NotNil(t, sh.Commit)
+	assert.EqualValues(t, 50, sh.Header.Height)
+	assert.EqualValues(t, 10, sh.Header.Version.App)
+	assert.EqualValues(t, 50, sh.Commit.Height)
+	ch, err := core.HeaderFromProto(sh.Header)
+	require.NoError(t, err)
+	assert.Equal(t, ch.Hash().Bytes(), []byte(sh.Commit.BlockID.Hash), "the commit names the header")
 
 	_, err = c.SignedHeader(tctx(t), 60)
 	require.ErrorIs(t, err, ErrUnavailable)

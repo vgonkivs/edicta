@@ -12,6 +12,7 @@ import (
 	libshare "github.com/celestiaorg/go-square/v4/share"
 
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	core "github.com/cometbft/cometbft/types"
 
 	"github.com/celestiaorg/celestia-node/api/client"
 	"github.com/celestiaorg/celestia-node/blob"
@@ -27,18 +28,28 @@ func headerBridge(get func(context.Context, uint64) (*header.ExtendedHeader, err
 	return bridge{rc: &client.ReadClient{Header: &h}}
 }
 
+func signedExtHeader(h uint64) *header.ExtendedHeader {
+	e := extHeader(h)
+	e.Commit = &core.Commit{Height: int64(h), Round: 2}
+	return e
+}
+
 func TestBridgeSignedHeader(t *testing.T) {
 	b := headerBridge(func(_ context.Context, h uint64) (*header.ExtendedHeader, error) {
-		return extHeader(h), nil
+		return signedExtHeader(h), nil
 	})
 	raw, err := b.SignedHeader(tctx(t), 77)
 	require.NoError(t, err)
 
-	var got cmtproto.Header
+	var got cmtproto.SignedHeader
 	require.NoError(t, got.Unmarshal(raw))
-	assert.Equal(t, int64(77), got.Height)
-	assert.Equal(t, "mocha-4", got.ChainID)
-	assert.Equal(t, []byte{77}, got.DataHash)
+	require.NotNil(t, got.Header)
+	require.NotNil(t, got.Commit)
+	assert.Equal(t, int64(77), got.Header.Height)
+	assert.Equal(t, "mocha-4", got.Header.ChainID)
+	assert.Equal(t, []byte{77}, got.Header.DataHash)
+	assert.Equal(t, int64(77), got.Commit.Height)
+	assert.Equal(t, int32(2), got.Commit.Round)
 }
 
 func TestBridgeSignedHeaderRefusals(t *testing.T) {
@@ -49,6 +60,7 @@ func TestBridgeSignedHeaderRefusals(t *testing.T) {
 	}{
 		{"other height", func(context.Context, uint64) (*header.ExtendedHeader, error) { return extHeader(78), nil }, heightcheck.ErrHeightIgnored},
 		{"nil header", func(context.Context, uint64) (*header.ExtendedHeader, error) { return nil, nil }, ErrUnavailable},
+		{"no commit", func(_ context.Context, h uint64) (*header.ExtendedHeader, error) { return extHeader(h), nil }, ErrUnavailable},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

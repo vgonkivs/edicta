@@ -301,7 +301,9 @@ func TestGateAttack5PayloadUnavailable(t *testing.T) {
 		e.DA.Fail(errors.New("down"))
 		e.Archive.Fail(errors.New("down"))
 		_, err := e.Authorize(b)
-		e.RequireRejected(c, err, gate.ErrPayloadUnavailable)
+		e.RequireRejected(c, err, gate.ErrArchiveUnavailable)
+		require.NotErrorIs(t, err, gate.ErrPayloadUnavailable)
+		require.ErrorContains(t, err, "other path")
 	})
 	t.Run("pruned by the DA layer and the archive lost it", func(t *testing.T) {
 		e := gatefix.New(t)

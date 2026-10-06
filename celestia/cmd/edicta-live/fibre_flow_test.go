@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/celestiaorg/celestia-node/share/shwap"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 
 	"github.com/vgonkivs/edicta/celestia/nodefake"
 	"github.com/vgonkivs/edicta/commitment"
@@ -134,7 +135,7 @@ func (l liveFibre) chain(t *testing.T) *nodefake.FibreChain {
 	var nd = decodeNamespaceData(t, l.nsData)
 	c.SetNamespaceData(l.pffH, nd)
 	c.SetHistoricalInfo(l.promiseH, l.hist)
-	c.SetSignedHeader(l.promiseH, l.promHdr)
+	c.SetSignedHeader(l.promiseH, signedHeader(t, l.promHdr))
 	return c
 }
 
@@ -163,6 +164,13 @@ func (acceptCommit) Check(commitment.PayloadRef, []byte) error { return nil }
 
 func fibreBuilder(t *testing.T, pub sdk.Publisher, v sdk.InclusionVerifier, trust sdk.SubmitterTrust) (*sdk.Builder, *sdkfix.Vectors) {
 	t.Helper()
+	b, vec, err := fibreNew(t, pub, v, trust)
+	require.NoError(t, err)
+	return b, vec
+}
+
+func fibreNew(t *testing.T, pub sdk.Publisher, v sdk.InclusionVerifier, trust sdk.SubmitterTrust) (*sdk.Builder, *sdkfix.Vectors, error) {
+	t.Helper()
 	vec := sdkfix.Load(t)
 	signer, err := sdk.NewEd25519Signer(gatefix.Key(t, "agent1"))
 	require.NoError(t, err)
@@ -177,16 +185,16 @@ func fibreBuilder(t *testing.T, pub sdk.Publisher, v sdk.InclusionVerifier, trus
 		Chain: gatetest.NewChainParams(14400), Inclusion: v,
 		Committers: map[commitment.DA]sdk.Committer{commitment.DAFibre: acceptCommit{}},
 	})
-	require.NoError(t, err)
-	return b, vec
+	return b, vec, err
 }
 
-func TestFibreFlowCommitsAfterTheIndependentInclusionCheck(t *testing.T) {
+func TestFibreFlowCommitsAfterTheSameOperatorSelfCheck(t *testing.T) {
 	l := loadLiveFibre(t)
 	v, trust, level, err := buildFibreVerifier(Config{DA: "fibre"}, fibreChainID, l.chain(t))
 	require.NoError(t, err)
 	require.NotNil(t, v)
-	assert.NotEmpty(t, level)
+	assert.Equal(t, sdk.SubmitterSameOperator, trust, "the check reads the operator's own endpoint")
+	assert.Contains(t, level, "self-check")
 
 	pub := &fibrePublisher{ref: l.ref}
 	b, vec := fibreBuilder(t, pub, v, trust)
@@ -201,6 +209,17 @@ func TestFibreFlowCommitsAfterTheIndependentInclusionCheck(t *testing.T) {
 	assert.Equal(t, l.pffH, ev.BlobHeight)
 	assert.Equal(t, hex.EncodeToString(l.ref.Commitment), ev.ShareCommitment)
 	assert.Equal(t, level, ev.InclusionLevel)
+}
+
+func TestFibreVerifierIsRefusedForAnUntrustedSubmitter(t *testing.T) {
+	l := loadLiveFibre(t)
+	v, _, _, err := buildFibreVerifier(Config{DA: "fibre"}, fibreChainID, l.chain(t))
+	require.NoError(t, err)
+	pub := &fibrePublisher{ref: l.ref}
+	b, _, err := fibreNew(t, pub, v, sdk.SubmitterUntrusted)
+	require.ErrorIs(t, err, sdk.ErrInvalidConfig)
+	assert.Nil(t, b)
+	assert.Zero(t, pub.calls)
 }
 
 func TestFibreFlowSignsNothingWhenTheAnchorIsNotThere(t *testing.T) {
@@ -249,4 +268,14 @@ func decodeNamespaceData(t *testing.T, stream []byte) shwap.NamespaceData {
 	_, err := nd.ReadFrom(bytes.NewReader(stream))
 	require.NoError(t, err)
 	return nd
+}
+
+// signedHeader wraps a bare protobuf Header in the SignedHeader the chain reader serves.
+func signedHeader(t testing.TB, rawHeader []byte) []byte {
+	t.Helper()
+	var h cmtproto.Header
+	require.NoError(t, h.Unmarshal(rawHeader))
+	raw, err := (&cmtproto.SignedHeader{Header: &h, Commit: &cmtproto.Commit{Height: h.Height}}).Marshal()
+	require.NoError(t, err)
+	return raw
 }
