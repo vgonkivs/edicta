@@ -2,7 +2,7 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v0-draft.22` (2026-10-06). Working draft, subject to change.
+Status: revision `v0-draft.23` (2026-10-06). Working draft, subject to change.
 Wire version: `version = 0`. Domain tags: `edicta/v0/...`.
 
 The core knows no rail, broker or chain. An action is an opaque byte string
@@ -54,6 +54,7 @@ signature even if the byte layout were identical.
 | `v0-draft.20` | 2026-10-06 | Archive record format 0, additive (`v0-draft.19` is a separate revision of sections 10.9 and 11.2). (1) New section 19: the byte layout of archive records, deterministic CBOR with integer keys: five kinds (payload, evidence, decision, Authorization, rejection marker), their fields per `da`, the encodings of the opaque Celestia objects, strict decoding and its precedence (`archive.ErrCorrupt` with the core sentinel as cause), logical keys `(kind, da, commitment)` and `(kind, commitment_hash[, error])` with a canonical path, write-once storage with a per-kind identity (same identity: success and the stored record stays; other identity: `archive.ErrConflict`), write preconditions (the DA recompute before a payload is stored; evidence needs the payload, Authorization and markers need the decision record: `archive.ErrNotFound`; an Authorization whose K2 inputs carry a `da` other than the decision's is refused with `archive.ErrCorrupt`, before the identity comparison), and the record state of AR6 derived from the records present. (2) Section 10.7: the format is no longer out of scope; for `da = 2` the PFB tx with its index and proof is SHOULD, not MUST, because the commitment proof of the share-version-1 blob against `data_hash` already binds namespace, commitment and signer to block `height` (pending the human's confirmation). (3) Section 8.7 AR5: the marker is still unsigned and in no message between parties; its archive layout is section 19. (4) Section 11.3: pointer to section 19. (5) Section 10.6.1, from the task 016 vectors: CV4 corrected: `V` is `HistoricalInfo.valset` in its stored order, which SDK `NewHistoricalInfo` sorts by consensus power `floor(tokens / 10^6)` descending, then consensus address, and the keeper does not re-sort (draft.17 said: sorted by tokens); a verifier checks that order (VERIFIED, code). The power reduction `10^6`, and `next_validators_hash` at `h` = `validators_hash` at `h + 1` = the `HistoricalInfo` set, are VERIFIED (live Mocha data, 2026-10-06); the header inside `HistoricalInfo` is partial and not a trust anchor. New threat note on token precision (no header commits to exact tokens; an archive writer can shift tokens inside a `10^6` bucket and flip a verdict at the edge) and new report field `cert_token_precision` (`robust` or `bucket-dependent`, a warning that never changes the verdict); an independent second copy of the evidence is SHOULD for operators who rely on the archived set. No new section 12 sentinel: `archive.ErrNotFound`, `archive.ErrConflict` and `archive.ErrCorrupt` are archive package errors, never a gate verdict, and never cross the API (an archive failure at the gate stays `ErrArchiveUnavailable`). | Unchanged: every message, tag and gate check outcome. Verifier: CV4 now checks the stored order, new report field `cert_token_precision`. New: archive record bytes | Every existing file byte-identical. New: `spec/vectors/archive/records.json` and `state.json` (`v0-draft.20`), generator `gen_archive.py`, checker `check_archive.py` (run by `check_vectors.py`), rules module `archive_v0.py`. |
 | `v0-draft.21` | 2026-10-06 | Fibre certificate rule review (section 10.6.1 only), no wire change. (1) CV4: a validator list the keeper would reject is rejected as a whole before any signature is checked: a key that is not 32 bytes, or a list on which CometBFT `NewValidatorSet` fails (duplicate address, power `<= 0`, a power or the total above `MaxInt64 / 8`). Before this a verifier could count a repeated validator once per copy and accept a certificate the chain rejects. (2) CV7: `NewValidatorSet` over `V` with consensus powers must hash to `next_validators_hash` of the header at `promise.height`, whose height and chain id equal the promise's; the fallback to `validators_hash` of `promise.height + 1` and the key-by-key comparison with an archived CometBFT set are removed (the fallback is redundant on a valid chain and, unbound, accepted a header of any height); CV7 also compares `V` position by position with that set, which enforces the stored order of CV4 (draft.20), because the hash alone is order-free. (3) `cert_valset_header` has one form. (4) Merged with draft.20: one CV4 row (draft.20's stored order MUST, consensus power then address, plus the list conditions and the `HistoricalInfo` height), one CV7 row, one `cert_valset_header` row; the "accept either header" sentence is removed. Verdicts change only for inputs the chain would not accept or whose header evidence does not bind. | Unchanged | `spec/vectors/da/fibre_cert.json` regenerated as `"revision": "v0-draft.21"`: new `boundary` cases (`total_one_invalid_first`, `duplicate_signer`, `zero_power`, `total_above_max`, `total_at_max`, `bad_key_length`) and a `valset` section; `promise_chain_id` and `header_promise_next_validators_hash` now also fail CV7; `cometbft_valset_key` moves to `undetected_mutations`; `zero_signatures_total_one` reports `stop_index` none; `valset_out_of_order` (two validators of equal power swapped: the walk accepts, the keeper over the stored order rejects, CV7 fails). Expectations come from upstream code (keeper transcription over `validator.SignatureSet`, `NewValidatorSet`, header hashes) and the Python checker is an independent implementation. Every other file byte-identical. |
 | `v0-draft.22` | 2026-10-06 | Cleanup after draft.21 dropped the CV7 fallback; no wire change. (1) Section 10.6.2: the verifier needs a trusted header at `promise.height` only, not at `promise.height + 1`; HT1 requires `T >= max(payload_ref.height, promise.height)` (before: `promise.height + 1` if higher). A header at `promise.height + 1` is still read where the HT3 backward chain passes through it, from any source, like every header between. (2) Section 10.7: the `da = 1` header row asks for the signed header at `PaymentPromise.height` only; the CometBFT validator set and the `validators_hash` of `promise.height + 1` are no longer needed by CV7. (3) Section 19.2, evidence field 18 `promise_valset`: still R1 for `da = 1` in archive format 0 (its decoder requires it, and its bytes do not change), but kept for audit only: no v0 check reads it. (4) Section 1, PFF certificate row: the archived list is tied to the chain by `next_validators_hash` of the header at `PaymentPromise.height`, not by `validators_hash`. Verdicts unchanged: no v0 check read the items dropped here since draft.21. | Unchanged. Verifier: HT1 accepts a trusted header at `promise.height` | Every file byte-identical. |
+| `v0-draft.23` | 2026-10-06 | `da = 1` anchor proof from namespace data (human decision of 2026-10-06); no wire change. (1) Section 10.4, K0 for `da = 1`: rules NA1 to NA7 replace the block scan. The header at `height` comes from the consensus endpoint (AH1) and gives `data_hash` and `T_H`; the DAH comes from a bridge and must pass `ValidateBasic` and hash to `data_hash`; `share.GetNamespaceData(height, PayForFibreNamespace)` comes from a bridge and must pass `NamespaceData.Verify` (one complete NMT namespace proof per row the DAH says holds the namespace); txs are reassembled with `ParseTxs` and accepted only if splitting them again gives the same shares; candidates as before; code 0 from gRPC `GetTx` with the echoed height (node-attested; needs the node's tx index, which the draft.17 lookup avoided); the anchor is the earliest `creation_timestamp` with code 0, ties by position in the namespace (before: block order). A failure of the bridge's answer, an unreadable code or a missing bridge at request time is `ErrChainUnavailable`; `ErrAnchorNotFound` only for complete namespace data without an anchor. No whole-block read for `da = 1`. A `fibre` gate without a configured bridge refuses to start. Threat notes on the lookup and on `ShareProof.Validate` (no row index, total or original-row check, no completeness; not used on this path, extra checks for anyone who does). (2) Section 10.9: `share.GetNamespaceData` is a block read bound through AH2 (DAH, row roots); `GetTx` is not a read at a height, its echoed height is checked, and a mismatch fails the read without marking the endpoint height-ignoring; AH5 names NA1 to NA4. (3) Section 10.6.1 CV8 and section 10.7: for `da = 1` the archived anchor proof (DAH plus namespace data, form 1) is the inclusion evidence, MUST; the system blob stays (format 0 requires it) and is checked only for equality with `NewV2Blob` of the archived PFF; the PFF `ShareProof` goes from SHOULD to MAY and is not used; a form-1 proof above `2^22` bytes cannot be archived (`recorder.ErrArchiveUnavailable`). New report fields `anchor_proof_form` and `anchor_candidates_earlier` (a warning). (4) Section 19.2: `system_blob_proof` holds form 1 (deterministic CBOR `{1: 1, 2: DAH protobuf, 3: NamespaceData.WriteTo stream}`) or, in records written before, form 0 (the `CommitmentProof` JSON), told apart by the first byte; `anchor_tx_index` for `da = 1` is the node's report, informational. Archive format 0 bytes and strict decoding unchanged. (5) Section 10.8: SC1 also pins nmt `v0.24.5` (NA3 needs the completeness fix of `v0.24.3`); SC6 covers the anchor-proof bridge (verified answers, so no version gate; the version is logged). Section 10.1: nmt pin row. Section 1: a row for the anchor proof. Outcomes change only in the `da = 1` lookup: a gate whose node has no tx index now answers `ErrChainUnavailable` where draft.22 scanned the block, a gate without a bridge does not start, and the tie order between equal timestamps is the namespace order. | Unchanged. Archive format 0 unchanged; the opaque `system_blob_proof` for `da = 1` gains form 1. Verifier: CV8 on form 1, two new report fields | New: `spec/vectors/da/fibre_anchor.json` (`"revision": "v0-draft.23"`: live Mocha namespace data and DAH at heights 1,402,819 and 1,439,696, 12 mutations, 14 reassembly cases, the form-1 archive proof), generated by `spec/vectors/tools/fibreanchor-gen` from upstream code and checked by the new `check_fibre_anchor.py` (independent NMT, RFC 6962, protobuf, compact-share parser and splitter), run by `check_vectors.py`. Every existing file byte-identical. |
 
 ## 1. Threat model in one table
 
@@ -80,6 +81,7 @@ Each mechanism below names what it defends against and what it assumes.
 | DA commitment recompute, rule P3 (section 8.5) | "Anchor X, sign H(Y)": an agent or Recorder anchors blob X, archives blob Y and signs `ciphertext_hash = H(Y)`, so a hash-only check accepts bytes that were never public | SHA-256 collision resistance; the recompute is the upstream code at the pin (`fibre.NewBlob` for `da = 1`, go-square for `da = 2`), checked by vectors generated from that code alone |
 | Anchor-relative time, rules K1 and K2 (section 11.2) | A commitment signed before its payload was public; a commitment whose validity outlives the DA retention window being executed as if the DA layer still served the payload | The gate reads true header time from a node it trusts (the operator's own node is recommended; a public endpoint is allowed). Every read at a past height, on every module and on both `da` paths, is used only if the response echoes the requested height and, where the content allows, is bound to the header at that height (AH1 to AH5, section 10.9). At-height retention comes from such a read on an endpoint that passed the canary, or from the gate's own persisted observations (observations-only mode when the endpoint ignores heights); a non-monotone pair of changes between two observations (for example a change and its revert) is missed (RS1 to RS6, section 11.2) |
 | PFF certificate check, one rule for gate, Recorder and verifiers (section 10.6.1) | A forged or under-signed availability certificate presented after the chain pruned the state that could re-check it | More than 2/3 of voting power honest at `PaymentPromise.height`; the archived validator set is the one the chain used, tied by `next_validators_hash` to the header at `PaymentPromise.height` and that header to the chain by the hash chain of section 10.6.2; Ed25519 |
+| Fibre anchor proof from namespace data, rules NA1 to NA7 (section 10.4) | A bridge or an archive presenting a PFF that was not in block `height`, hiding one that was (a false `ErrAnchorNotFound`, or an earlier promise that would move K2's `start`), or a cut or padded tx | The header at `height` is the chain's: the gate's trusted node or the W5 verifier (section 10.9), and for verifiers the header trust of section 10.6.2; SHA-256; NMT completeness as in nmt `v0.24.3` or later; more than 2/3 of voting power honest, so the square follows the protocol. Result code 0 stays `node-attested` |
 | Startup compatibility check (section 10.8) | Silent divergence after an upstream change: another Fibre encoding, another sign-bytes layout, another chain or a node that answers in another format | The pinned versions and the known-answer vectors describe the network; the check runs before the gate serves |
 | Registry epoch, rule E1 (section 8.7) | Replay after the nonce registry was lost or recreated | The gate clock did not step back across the recreation |
 | Signed receipt and record request (section 14) | A fabricated `commitment_hash -> rail_ref` mapping in an archive or report; two different mappings for one decision; a third party who holds the (non-secret) envelope recording a bogus `rail_ref` first and so owning the decision's only receipt | Gate and executor private keys are secret; the gate admits a claim only if it is signed by a key in its executor allowlist, over a message that names this gate, this decision and this `rail_ref`; the receipt carries the executor key and signature, so a verifier needs no trust in the gate for who claimed what; the gate stores at most one receipt per authorized decision. **Not proof of execution**: the receipt attests that a known executor claimed `rail_ref`, and that the gate recorded that claim; whether the rail executed anything is only in the rail's own records. A compromised or malicious allowlisted executor can still claim a false `rail_ref` first |
@@ -736,7 +738,7 @@ a later stage's sentinel when an earlier stage fails.
 | 4 | A | A0, A1 | `CheckAction(c, action_bytes)` on the supplied bytes (section 8.4) | `ErrActionSize`, `ErrActionMismatch` | 3 |
 | 4a | AR | AR1 to AR4 | Archive the decision before any Authorization exists (below): write `envelope` and `action_bytes` under `commitment_hash`, idempotently, and wait until the write is durable. Required for a gate with an archive configured (every `edictad` gate); a library gate without one skips this stage. Writes nothing to the nonce registry | `ErrArchiveUnavailable` (503, `Retry-After`) | 2, 5 |
 | 5 | N0 | N1 | No registry entry exists for `(agent_pubkey, nonce)`. Advisory; stage 12 is authoritative. If one exists, the retry rule below applies | `ErrNonceUsed` | 5 |
-| 6 | K | K0 | The anchor tx exists at `payload_ref.height` (section 10.4 for `da = 1`: found by scanning that block, result code 0; 10.5 for `da = 2`), and the header time `T_H` is readable | `ErrAnchorNotFound` | 2 |
+| 6 | K | K0 | The anchor tx exists at `payload_ref.height` (section 10.4 for `da = 1`: proven from the PayForFibre namespace data of that block, result code 0, rules NA1 to NA7; 10.5 for `da = 2`), and the header time `T_H` is readable | `ErrAnchorNotFound` | 2 |
 | 7 | K1 | K1 | Section 11.2 | `ErrIssuedBeforeAnchor` | 4 |
 | 8 | K2 | K2 | Section 11.2. Selects the DA or archive path only, never a rejection by itself | none | 2, 4 |
 | 9 | P | P1, P2, P3 | Section 8.5, per path | P sentinels, precedence in 8.5 | 2 |
@@ -1256,6 +1258,7 @@ published payload" and avoids two commitments over one payload.
 | celestiaorg/celestia-app | `v10.4.0-mocha` | `5187d2fb5eb8bc4b534c74724882943c54253ae9` | Latest v10 tag on 2026-10-03; contains `x/fibre`, `fibre/`, `x/blob`. Same commit as `v10.4.0-corto`. |
 | celestiaorg/go-square | `v4.0.1` | `948e81207e45d7daa9b4c68a8a4931b9118eae9f` | Version required by the app pin's `go.mod`. Namespace and share commitment code. |
 | celestiaorg/celestia-node | `v0.34.2-mocha` | `cd6cd46f00a572a7010fecc7e0dacf8a456982d2` | Latest node tag; pruning windows; Fibre and blob client APIs. |
+| celestiaorg/nmt | `v0.24.5` | `a2ba47691cbda955ca24fb9fa97b2a12ceb2ff91` | Added in `v0-draft.23`: the version the node pin resolves; NMT namespace proofs for the `da = 1` anchor lookup (section 10.4). SHA from the Go module proxy's origin record, 2026-10-06. |
 
 The SHAs come from `git ls-remote` against GitHub on 2026-10-03; the tags are
 lightweight, so each SHA is the tagged commit. `UNVERIFIED`: the pins are a
@@ -1386,42 +1389,104 @@ that spending. The
 gate's reads (anchor, retention, download) may still use other endpoints
 under the rules of section 10.9.
 
-Anchor lookup (rule K0 for `da = 1`, normative since `v0-draft.17`). The gate
-does not use the tx index (it may be disabled on a node, and the event query
-needs a JSON-quoted base64 value):
+Anchor lookup (rule K0 for `da = 1`; normative since `v0-draft.17`, procedure
+since `v0-draft.23`). The gate proves the anchor from the PayForFibre
+namespace of block `height` and never reads the whole block. Sources: the
+gate's consensus endpoint for the header at `height` and for result codes; a
+celestia-node bridge for the data availability header (DAH) and the namespace
+data. `PFF_NS` is go-square `PayForFibreNamespace`, `0x00 || 0^27 || 0x05`
+(VERIFIED, `SQ/share/consts.go` and the live vectors).
 
-1. Read block `height` (header and txs) and the results of its txs from the
-   gate's node, under the at-height rules of section 10.9 (the block and the
-   results echo `height`, the txs hash to the header's `data_hash`).
-2. A tx is a candidate iff upstream `fibretypes.TryParseFibreTx` (`APP/x/fibre/types/classified_tx.go`)
-   classifies it as a Fibre tx, its single `MsgPayForFibre` carries a
-   `PaymentPromise` with `namespace == payload_ref.namespace`,
-   `commitment == payload_ref.commitment`, `blob_version == 0` and
-   `chain_id` equal to the gate's configured chain id.
-3. A candidate counts only if its result code at `height` is 0. A PFF that
-   failed in execution (for example an escrow too small to pay) settled no
-   payment and is not an anchor. `UNVERIFIED`: whether such a tx can be
-   included at all, given that the promise is checked in CheckTx and
-   ProcessProposal, and whether its system blob still appears in the square.
-4. If several candidates have code 0 (one blob paid twice in one block),
-   the anchor is the one with the earliest `creation_timestamp`, ties broken
-   by block order. They attest the same blob; the earliest timestamp gives
-   the earliest `start` in K2, which is the conservative side.
-5. No candidate: `ErrAnchorNotFound`. A transport or node failure, or a
-   response that fails the at-height rules (section 10.9), is operational
-   (`ErrChainUnavailable`), never `ErrAnchorNotFound`.
+| Rule | Requirement | On failure |
+|---|---|---|
+| NA1 Header | The header at `height` is read from the consensus endpoint under AH1 (section 10.9): its height equals `height`. `data_hash` and `T_H` (K1, K2) come from this one header. A header returned by a bridge never stands in for it. | `ErrChainUnavailable` (AH3 and AH5 as for any header read) |
+| NA2 DAH | The DAH (row roots and column roots) comes from a bridge (`header.GetByHeight(height)`, field `dah`; the returned header's height MUST equal `height`, AH1) or from any other source. It is accepted iff upstream `DataAvailabilityHeader.ValidateBasic` passes (as many row roots as column roots, each count from 2 to 1024) and `Hash()`, the RFC 6962 root over `row_roots \|\| column_roots`, equals `data_hash` of NA1. | `ErrChainUnavailable` |
+| NA3 Namespace data | `share.GetNamespaceData(height, PFF_NS)` from a bridge. Accepted iff upstream `NamespaceData.Verify(dah, PFF_NS)` passes (celestia-node at the pin, nmt `v0.24.5`): with `R` the rows, ascending, whose row root's namespace range `[min, max]` contains `PFF_NS` (`RowsWithNamespace`; parity rows never qualify), the answer has exactly `len(R)` entries, and entry `j` is a complete NMT namespace proof against `row_roots[R[j]]`: an inclusion proof with the row's shares of the namespace, or an absence proof without shares. `VerifyNamespace` checks the leaf namespaces, the range and completeness (no leaf of the namespace left or right of the range). `R` empty with no entries is a valid proof that the block holds no PFF. The gate bounds the bytes it reads per answer (`fibre_anchor_read_max_bytes`, configuration, default 16 MiB); a larger answer fails. | `ErrChainUnavailable` |
+| NA4 Reassembly | `S` = the shares of all entries, in order. If `S` is empty, `T` is empty. Otherwise `T = ParseTxs(S)` (go-square compact-share parsing), and splitting `T` again with `NewCompactShareSplitter(PFF_NS, 0)` MUST give exactly `S` (same count, every share byte-equal). | `ErrChainUnavailable` |
+| NA5 Candidates | A tx of `T` is a candidate iff upstream `fibretypes.TryParseFibreTx` (`APP/x/fibre/types/classified_tx.go`) classifies it as a Fibre tx and its single `MsgPayForFibre` carries a `PaymentPromise` with `namespace == payload_ref.namespace`, `commitment == payload_ref.commitment`, `blob_version == 0` and `chain_id` equal to the gate's configured chain id. Any other tx of `T` is not a candidate. | - |
+| NA6 Code | The result code of a candidate `x` comes from the consensus endpoint's gRPC `cosmos.tx.v1beta1.Service/GetTx` with the hash `SHA-256(x)` (upper-case hex). It is used only if `tx_response.height == height` and `tx_response.txhash` is that hash (AH1). Settlement level `node-attested` (section 10.6.1). | Error, not found, or another height: `ErrChainUnavailable` |
+| NA7 Selection | Candidates are taken in order of `creation_timestamp`, then of position in `T`. The anchor is the first whose code (NA6) is 0. A candidate whose code cannot be read stops the lookup if no candidate before it had code 0: it may be the anchor. | No candidate, or every candidate has a non-zero code: `ErrAnchorNotFound` |
+
+`ErrAnchorNotFound` is answered only after NA1 to NA4 held, so "no anchor" is
+a statement about the complete namespace data of the block whose header has
+`data_hash`, not about a bridge's answer. Every other failure is operational
+and retryable (`ErrChainUnavailable`, 503, nonce untouched; `valid_until`
+bounds the retries). A gate whose configured DA is `fibre` MUST have at least
+one bridge configured for NA2 and NA3 and refuses to start otherwise (a
+configuration error, like a missing committer); a configured bridge that is
+unreachable at request time gives `ErrChainUnavailable`. With several bridges
+the gate MAY try the next one after a failure of NA2, NA3 or NA4: those
+failures belong to the bridge's answer, never to the chain. The NA1 header,
+the DAH and the namespace data MAY be cached per height once verified; `T`
+depends on nothing else. The tx index of the node is needed for NA6 only
+(draft.17 to draft.22 read codes from the block results and needed none).
+
+| Fact behind NA1 to NA7 | Status |
+|---|---|
+| `data_hash` of a Celestia header is the DAH hash (`DataAvailabilityHeader.Hash`: RFC 6962 over the row roots, then the column roots) | VERIFIED (code `APP/pkg/da/data_availability_header.go`; live: at both vector heights the bridge's DAH hashes to the `data_hash` of the consensus node's `/header`) |
+| `ValidateBasic` checks only the counts (equal, 2 to 1024); root lengths and a power-of-two width are not checked, and need not be: once the hash matches, the roots are the chain's | VERIFIED (code) |
+| With unequal counts `Hash()` does not hash the concatenation (it allocates `2 * len(row_roots)` slots), so the count check must come first; an implementation that hashes `row_roots \|\| column_roots` directly would accept a shifted split (one column root moved into the row roots) against the same `data_hash` and then read the wrong row roots | VERIFIED (code; vector `dah_split_shifted`) |
+| NMT completeness needs nmt `v0.24.3` or later: earlier versions skip the right-side check when the proof's nodes run out before the range start (GHSA-r9fq-g486-v8pg). celestia-node `v0.34.2-mocha` resolves `v0.24.5` | VERIFIED (code: the guard is in `proof.go` of `v0.24.3` to `v0.24.5`, absent in `v0.24.2`) |
+| The PayForFibre shares of a block are exactly what `NewCompactShareSplitter(PFF_NS, 0)` makes of its txs (one sequence, canonical reserved bytes, zero padding), so NA4 accepts real blocks | VERIFIED (live: Mocha heights 1,402,819 and 1,439,696). `UNVERIFIED` as a protocol guarantee: that the square builder at the pin never lays out this namespace differently |
+| `ParseTxs` alone drops a cut last unit, stops at zero bytes inside the sequence, and checks neither the share count, the reserved bytes of continuation shares nor a second sequence start, all without an error | VERIFIED (code `SQ/share/parse_compact_shares.go`; vectors `reassembly`) |
+| Because splitting is injective, any parser that returns `T` for `S = split(T)` gives the same NA4 verdict as `ParseTxs`, except on a zero-length unit, which `ParseTxs` reads as the end of the data; a second implementation mirrors that | VERIFIED (code; the Python checker's own parser and splitter agree on every vector) |
+| The order of `T` equals the relative order of those txs in the block's `data.txs` | `UNVERIFIED` (expected from square construction). NA7 uses the order only to break a tie of equal timestamps between promises for one blob |
+| gRPC `GetTx` answers for a PayForFibre tx with its height and code; it needs the node's tx index (`tx_index.indexer = "kv"`) | VERIFIED (live, `grpc-mocha.pops.one`, both vector heights, 2026-10-06) |
+| The node-reported index of a PFF (CometBFT `/tx` `index`) is its position in `data.txs` | VERIFIED (one live sample, height 1,402,819: index 1 of 2) |
+| Whether a PFF can be included with a non-zero code, and whether its system blob is then in the square (the promise is checked in CheckTx and ProcessProposal) | `UNVERIFIED` (NA7 handles either answer) |
 
 From the anchor the gate takes `PaymentPromise.creation_timestamp` for K2
-(section 11.2) and `T_H` from the header of `height`. It MAY also check that
+(section 11.2) and `T_H` from the NA1 header. It MAY also check that
 `PaymentPromise.blob_size` equals the upload size of `payload_size` and run
-the certificate rule of section 10.6.1; P3 already implies the first, and
-inclusion with code 0 implies that the chain accepted the second.
+the certificate rule of section 10.6.1 on the anchor's bytes from `T`; P3
+already implies the first, and inclusion with code 0 implies that the chain
+accepted the second.
 
-Threat note (lookup). Scanning one block costs at most one block of txs and
-needs no index the operator may not run. Requiring code 0 keeps a PFF that
-the chain rejected in execution from serving as evidence; matching
-`chain_id` keeps a promise signed for another chain from matching, although
-inclusion on this chain already implies it.
+The Recorder reads its anchor back with the same procedure (one shared
+function in the Go code, as for the certificate rule), with its own node as
+the consensus endpoint, and archives exactly the DAH and namespace data it
+verified (section 10.7).
+
+Threat note (lookup). The bridge is untrusted. NA2 to NA4 make everything it
+returns self-checking against `data_hash`, which comes from the header the
+gate already trusts for `T_H` (section 10.9). A bridge can withhold or garble
+an answer, which gives `ErrChainUnavailable`, but it cannot add a PFF, drop
+one or reorder the namespace without breaking an NMT proof or the DAH hash,
+and a cut or padded sequence fails NA4 even where `ParseTxs` would not
+complain. Completeness matters twice: it makes `ErrAnchorNotFound` a proof of
+absence instead of a bridge's word, and it shows every earlier candidate, so
+nobody can hide the PFF with the earliest `creation_timestamp` and move K2's
+`start` later. What is not proven: code 0 (NA6) is the consensus node's word,
+as before (`node-attested`), and a node can hide a code-0 result by answering
+"not found", which is a retryable refusal, never an Authorization. The header
+is trusted from the node (or from the W5 light verifier), as in section 10.9:
+a node that serves a false header together with a matching false DAH and
+namespace data defeats NA1 to NA4, as it would have defeated the block scan.
+Requiring code 0 keeps a PFF that the chain rejected in execution from
+serving as evidence; matching `chain_id` keeps a promise signed for another
+chain from matching, although inclusion on this chain already implies it.
+Cost: the namespace data grows with the PFFs in the block, not with the block
+(live: 6.9 KB for one PFF in a 4 x 4 square, 15.4 KB for four PFFs in a
+64 x 64 square; the task 017 probe read about 74 times less than the whole
+1.1 MB block it compared with), plus the DAH (90 bytes per root: 1.5 KB and
+23.5 KB in the vectors, about 185 KB at the 512 x 512 bound).
+
+Threat note (`ShareProof`, not used on this path). celestia-app
+`pkg/proof.ShareProof.Validate` (the type of `NewTxInclusionProof`, CometBFT
+`/tx?prove=true` and `prove_shares_v2`) checks the Merkle proof of each row
+root against the data root and each share range against its row root, but
+not that the Merkle proof of row `i` has index `start_row + i`, nor that its
+total is the number of DAH roots (`4k` for a `k x k` square), nor that the
+row is an original row (`< k`). A prover can present a column root, or a row
+at another position, as "row `start_row`", and the shares it proves are then
+not the contiguous range the proof claims. `ShareProof` also verifies with
+`VerifyInclusion`, which has no completeness, so it cannot show that no other
+PFF is in the namespace. VERIFIED (code `APP/pkg/proof/row_proof.go`,
+`APP/pkg/proof/share_proof.go`). Edicta takes no position or absence claim
+from a `ShareProof`. A component that checks one anyway (the optional
+`anchor_tx_proof`, section 19.2) MUST, given a DAH that passed NA2, also
+require `row_roots[i] == dah.row_roots[start_row + i]`, `index ==
+start_row + i` and `total == 4k` for every row proof, and `end_row < k`.
 
 ### 10.5 celestia_blob locator (`da = 2`)
 
@@ -1567,7 +1632,7 @@ verification failure; the verifier reports the first rule that failed.
 | CV5 | `len(validator_signatures) <= len(V)`. |
 | CV6 | Quorum, exactly as the chain: `required = floor(2 * total / 3)` with `total` the sum of `V`'s powers. Walk `i = 0, 1, ...`; skip empty entries; a non-empty entry MUST verify as an Ed25519 signature by `V[i]` over `sign_bytes` (the Go `crypto/ed25519.Verify` equation, as rule G1) or the certificate is rejected; add `V[i]`'s power once; as soon as the sum is `>= required`, accept and stop (entries after that point are not checked, as on chain). If the walk ends below `required`, reject. |
 | CV7 | `V` is the chain's list in the chain's order (since `v0-draft.21`): the header at `promise.height` has `height == promise.height` and `chain_id == promise.chain_id`; CometBFT `NewValidatorSet` over `V` with power `floor(tokens / 10^6)` for each key succeeds, its `ValidatorSet.Hash()` equals that header's `next_validators_hash`, and for every `i` the key of its `i`-th validator equals the key of `V[i]` (the stored order of CV4). Otherwise CV7 fails. No other header and no archived CometBFT set stands in for it. The header is tied to the chain by the header trust rules of section 10.6.2. |
-| CV8 | Anchor (settlement), v0 level `node-attested` (below): the share-version-2 system blob for `(payload_ref.namespace, payload_ref.commitment)` is included in block `payload_ref.height` (proof against the data root of that header, trusted by section 10.6.2); the archived result of the PFF tx at that height has code 0; if the archive holds an inclusion proof of the PFF tx against `data_hash`, it MUST verify. |
+| CV8 | Anchor (settlement), v0 level `node-attested` (below). Form 1 of the archived anchor proof (section 19.2, written since `v0-draft.23`): its DAH passes NA2 against `data_hash` of the archived header at `payload_ref.height` (trusted by section 10.6.2), its namespace data passes NA3 and NA4 (section 10.4), the archived PFF tx is byte-equal to a tx of `T` and is a candidate for `payload_ref` (NA5), and the archived system blob equals `NewV2Blob(namespace, 0, commitment, pff_signer)` of that tx. Form 0 (records written before `v0-draft.23`): the share-version-2 system blob for `(payload_ref.namespace, payload_ref.commitment)` is included in block `payload_ref.height` (proof against the data root of that header, trusted by section 10.6.2). Both forms: the archived result of the PFF tx at that height has code 0. The optional `anchor_tx_proof` is not part of CV8 (section 10.4, threat note on `ShareProof`). |
 
 Sign bytes (byte-exact; `APP/fibre/payment_promise.go` `SignBytes`,
 celestia-core `types.RawBytesMessageSignBytes`):
@@ -1664,23 +1729,26 @@ verdict, `verify` and `replay` report:
 | `cert_token_precision` | `robust` iff CV6 gives the same verdict for every assignment of tokens that keeps each validator's consensus power (each `tokens` anywhere in `[10^6 * p, 10^6 * p + 10^6 - 1]`): the walk accepts with the lowest tokens for signers and the highest for the rest, or rejects with the opposite. Otherwise `bucket-dependent` (a warning; the verdict stays the one computed from the archived tokens). |
 | `cert_valset_header` | The header that committed to `V` in CV7: `next_validators_hash` at `promise.height` (the only form since `v0-draft.21`). |
 | `settlement` | `node-attested` in v0 (below); `failed` if CV8 fails. |
+| `anchor_proof_form` | `1` (namespace data and DAH) or `0` (system blob commitment proof), section 19.2. |
+| `anchor_candidates_earlier` | Form 1 only: the number of other candidates in `T` (NA5) whose `creation_timestamp` is earlier than the archived anchor's. Their result codes are not archived, so the verifier cannot tell whether the gate's NA7 picked one of them; a non-zero value is a warning that K2 replay rests on the `promise_created` the gate recorded. It never changes the verdict. |
 | `header_trust` | Section 10.6.2: the trusted header's height and hash, and the cross-check result. |
 
 Settlement level `node-attested` (v0). Settlement means the PFF executed
 with code 0 at `height`, so the escrow paid and the promise is on chain. In
 v0 the verifier establishes it from three parts: the certificate (CV1 to
-CV7, cryptographic given the validator set), the system blob at `height`
-(cryptographic given the header), and code 0, which is only what the
+CV7, cryptographic given the validator set), the PFF tx in block `height`
+(form 1; for form 0 the system blob; cryptographic given the header), and
+code 0, which is only what the
 Recorder's node reported when the archive was written. A verifier MUST
 report it as `node-attested` and MUST NOT call it proven. Planned right after
 v0 Fibre: a proof of code 0 against `last_results_hash` of the header at
 `height + 1`, by recomputing the results Merkle root from the archived
 results of block `height`; that level will be reported as `proven`.
 Threat note: a node that lies about code 0 can make a PFF that failed in
-execution look settled. The certificate and the system blob still show that
-validators attested the blob and that the blob was in block `height`; what
+execution look settled. The certificate and the anchor proof still show that
+validators attested the blob and that the PFF was in block `height`; what
 is not proven is the payment. `UNVERIFIED`: whether a PFF with a nonzero
-code can be included with its system blob at all (section 10.4, step 3).
+code can be included with its system blob at all (section 10.4, facts).
 
 Threat note (token precision). No header commits to exact token amounts:
 `validators_hash` commits to the keys and to `floor(tokens / 10^6)`. Whoever
@@ -1772,7 +1840,9 @@ reasons:
 |---|---|---|---|
 | The blob bytes, written before the anchor tx is submitted | both | MUST | Fibre prunes after `pruneAt` (about 4 h); L1 pruned nodes after 7d + 1h. P2 and P3 tie the bytes to the commitment. |
 | The signed envelope and the action bytes, written by the gate before it signs (stage 4a, rules AR1 to AR4); the SignedAuthorization, written after stage 12 (a crash between the two is repaired from the registry at the next start); for a refused decision, the rejection marker with the error name (AR5 to AR8) | both | MUST | The object being verified, and which path the gate used (section 15). Writing the decision first means no Authorization exists for a decision the archive lacks. |
-| The PFF tx bytes exactly as included and its index in block `height`; its inclusion proof against `data_hash` of that header is SHOULD (the system blob below is the v0 inclusion evidence, CV8) | 1 | MUST | Carries the `PaymentPromise` and the positional certificate (section 10.6.1). About 5.3 KB at 83 validators. |
+| The PFF tx bytes exactly as included, and its index in block `height` as the node reports it (CometBFT `/tx` `index`; informational, no v0 check reads it) | 1 | MUST | Carries the `PaymentPromise` and the positional certificate (section 10.6.1). About 5.3 KB at 83 validators. |
+| The anchor proof (since `v0-draft.23`): the DAH of the header at `height` and the namespace data of `PFF_NS` at `height`, exactly as NA2 to NA4 verified them (section 10.4), in form 1 (section 19.2) | 1 | MUST | CV8: proves that the PFF tx, and with it namespace and commitment, was in block `height`, and shows every other candidate of that block. Self-contained: it is checked against the archived header alone. |
+| A `ShareProof` of the PFF tx against `data_hash` | 1 | MAY (SHOULD before `v0-draft.23`) | Not used by CV8; see the threat note on `ShareProof` (section 10.4) before relying on one. |
 | The commitment proof of the share-version-1 blob against the data root of the header at `height` | 2 | MUST | Proves that namespace, commitment and, through the commitment, `signer` were in block `height`: the v0 inclusion evidence for `da = 2`. |
 | The PFB tx bytes exactly as included, its index in block `height` and its inclusion proof against `data_hash` | 2 | SHOULD (MUST before `v0-draft.20`) | Adds the fee payer's tx, which no v0 check uses: the commitment proof above already binds the blob to `height`, and the chain rejects a share-version-1 blob whose signer is not the PFB signer (section 10.5). |
 | The signed header (header and commit) of block `height` | both | MUST | Root of the inclusion proof, `T_H` for K1 and K2. |
@@ -1781,7 +1851,7 @@ reasons:
 | The retention inputs the gate used: `shard_retention` latest and at `height`, and which source gave the at-height value (section 11.2, RS rules), next to the Authorization (section 19.2, K2 inputs) | 1 | MUST | K2 replay; the at-height value cannot be read back reliably later. |
 | The result of the anchor tx (code 0) as the node reported it | 1 | MUST | CV8, settlement `node-attested` (section 10.6.1). |
 | The results of all txs of block `height` and the header at `height + 1`, for a proof of code 0 against `last_results_hash` | 1 | SHOULD | Lets the planned `proven` settlement level be checked later for decisions archived now. |
-| The share-version-2 system blob and its inclusion proof against the data root of the header at `height` | 1 | MUST | CV8: the v0 evidence that `(namespace, commitment)` was in block `height`; it has no timestamp and no signatures, which the PFF tx and the certificate supply. |
+| The share-version-2 system blob | 1 | MUST (archive format 0 requires it) | Since `v0-draft.23` checked only for equality with `NewV2Blob` of the archived PFF (CV8). Up to `v0-draft.22` its inclusion proof against the data root was the CV8 evidence (form 0, still accepted for records written then). |
 
 Headers the verifier needs between the trusted header and `height` (section
 10.6.2) need not be archived: the hash chain checks them from any source.
@@ -1792,10 +1862,19 @@ returning `payload_ref` to the producer, so a signed
 commitment never exists without them. For `da = 1` this is also before the
 `historical_entries` horizon, which is hours away at that point.
 
-`UNVERIFIED`: an API that serves a PFF tx inclusion proof at the pin. The
-upstream `pkg/proof.NewTxInclusionProof` handles Fibre txs (code), so an
-archiver can build the proof from the block's txs with upstream code when no
-node serves it. The archive task settles which.
+Since `v0-draft.23` no tx inclusion proof is needed: the anchor proof is the
+bridge's namespace data plus the DAH, both verified before they are
+archived. If the encoded form-1 proof is larger than an opaque field of
+format 0 allows (`2^22` bytes; a block with roughly 750 or more PFFs), the
+Recorder cannot archive it: it answers `recorder.ErrArchiveUnavailable` and
+returns no `payload_ref`; the producer can publish a new blob (a fresh salt
+gives a new commitment and a new anchor). A later archive format lifts the
+limit.
+
+Threat note (archived anchor proof). The anchor proof is no more trusted
+than the rest of the archive; a verifier re-runs NA2 to NA4 on it against
+the header it trusts by section 10.6.2, so a forged proof fails CV8 instead
+of passing.
 
 Recompute on read (verification after Fibre or L1 pruning). The archive is
 trusted for availability only. A verifier that reads the blob from the
@@ -1824,12 +1903,12 @@ error, not a sentinel.
 
 | Check | Requirement |
 |---|---|
-| SC1 Build pin | The linked celestia-app module is exactly the pinned version (section 10.1, read from the build information). |
+| SC1 Build pin | The linked celestia-app module is exactly the pinned version (section 10.1, read from the build information). Since `v0-draft.23` also the linked nmt module: `v0.24.5`, the version celestia-node `v0.34.2-mocha` resolves (NA3 needs the completeness fix of `v0.24.3`). |
 | SC2 Known answers | The `da = 1` committer reproduces the commitments of `fibre_commit.json` it embeds: at least `fibre_live_mocha_popsmin1`, `fibre_size_262139`, `fibre_size_262140` and one row size above 128. |
 | SC3 Chain | The node's chain id is in the configured `da = 1` chain allowlist, and the app version in the latest header is 10. The allowlist is configuration; its default, and the only value validated for v0, is `["mocha-5"]`. Adding a chain (for example Arabica or Corto) is an operator decision after checking that the pins and `fibre_commit.json` hold there. |
 | SC4 Parameters | x/fibre `Params` is readable and `shard_retention` is within the governance bounds (10 min to 168 h). |
 | SC5 Retention source and at-height reads | The retention store is bound to this chain id and gets its first sample; the canary runs (section 11.2, RS2; section 10.9). A failing canary disables only the direct at-height read, never the start: the gate then runs in observations-only mode for retention and MUST log the mode and the reason at startup at warning level (and again whenever a later canary changes it). |
-| SC6 Fallback node | A bridge used as a download fallback reports the pinned celestia-node version, otherwise the fallback is disabled (logged); it is never trusted for P3, which the gate computes itself. |
+| SC6 Bridges | A bridge used as a download fallback reports the pinned celestia-node version, otherwise the fallback is disabled (logged); it is never trusted for P3, which the gate computes itself. A bridge used for the anchor proof (NA2, NA3; since `v0-draft.23`) is not gated on its version, because its answers are verified with the pinned code; the gate logs the version it reports at startup, at warning level if it differs from the pin. A gate whose configured DA is `fibre` with no bridge configured for the anchor proof refuses to start. |
 
 An app version change seen at runtime (an upgrade) stops `da = 1` service
 (`ErrChainUnavailable`) until a restart has re-run the checks.
@@ -1855,16 +1934,23 @@ Recorder or verifier is therefore suspect until checked. Two classes:
   an object that names its own height: a header, a block, block results, a
   commit, a validator set at `h`, `HistoricalInfo(h)`, a celestia-node
   `header.GetByHeight(h)`, `blob.Get(h, namespace, commitment)` and its
-  proof. This covers the `celestia_blob` path (K0 and `T_H` for `da = 2`)
-  as much as `da = 1`.
+  proof, `share.GetNamespaceData(h, namespace)`. This covers the
+  `celestia_blob` path (K0 and `T_H` for `da = 2`) as much as `da = 1`.
+- Not a read at a height: gRPC `GetTx(hash)` (NA6, section 10.4). It asks by
+  hash; the answer names a height, which AH1 compares with the expected one.
+  A mismatch fails that read only and does not mark the endpoint
+  height-ignoring under AH3: the request carried no height, and the tx index
+  keeps one result per hash, so if the same tx bytes were included twice an
+  honest node reports the later inclusion (`UNVERIFIED` for the pin: that a
+  tx that failed before its sequence was consumed can be included again).
 
 | Rule | Requirement |
 |---|---|
 | AH1 Echo | A response is used only if it carries the requested height and that height equals `h`: for a state read the response header `x-cosmos-block-height`; for a block read the height inside the returned object (`header.height`, `block.header.height`, the results' height, `HistoricalInfo.header.height`). A response without a height (for example `blob.Get`) is used only through AH2. Missing or different: the response is discarded as a failure of that endpoint. |
-| AH2 Binding | Where the content can be tied to the header at `h`, it MUST be, and the header itself MUST pass AH1: txs to its `data_hash`; a blob or its share commitment to its data root through the inclusion proof; a validator set to `validators_hash` or `next_validators_hash`. A block read that passes AH1 and AH2 does not depend on whether the endpoint honours heights. |
+| AH2 Binding | Where the content can be tied to the header at `h`, it MUST be, and the header itself MUST pass AH1: txs to its `data_hash`; a DAH to its `data_hash` (NA2); namespace data to the row roots of that DAH (NA3); a blob or its share commitment to its data root through the inclusion proof; a validator set to `validators_hash` or `next_validators_hash`. Result codes (NA6) have no binding in v0 (`node-attested`). A block read that passes AH1 and AH2 does not depend on whether the endpoint honours heights. |
 | AH3 Canary per endpoint | The RS2 canary (section 11.2) is a property of the endpoint, not of a module: a canary that does not pass marks the consensus endpoint height-ignoring for every state read, whatever the module. Block reads are checked by AH1 and AH2 on every response. A block or header read on a consensus endpoint whose returned height is missing or differs from the requested one also marks that endpoint height-ignoring for state reads (retention goes to observations-only mode, AH4) until a later canary on it passes (Honoured). Bridge (celestia-node) endpoints do no state reads, so they have their own canary: read the header at `head - canary_offset` (RS2) and compare its height with the requested one: equal is Honoured, a header at another height is Ignoring, anything else (error, not found, timeout) is Inconclusive. The bridge result is logged (warning level unless Honoured, again on every change) and MUST NOT drive the retention mode; a bridge AH1 mismatch discards that response only. |
 | AH4 On failure, retention | The x/fibre retention at `height` comes only from the gate's own observations (RS4 to RS6): observations-only mode, logged at startup and on every change (SC5). A height the observations do not cover gives `ErrRetentionUnavailable`. |
-| AH5 On failure, other reads | Any other read at a height that fails AH1 or AH2 on every configured source gives nothing: the check that needed it is not evaluated from latest state or from another height. The gate answers `ErrChainUnavailable` (503, nonce untouched), never `ErrAnchorNotFound`, never a K1 or K2 verdict from the wrong block. It MAY instead use a source that does not depend on the endpoint honouring heights: a header verified by the W5 light verifier (section 9.5), or a block read from another endpoint that passes AH1 and AH2. A state read other than x/fibre `Params` from a height-ignoring endpoint MUST NOT be used; v0 defines no other. A header or block read that answers "not found" for a height the chain must have (at or below a head the gate has observed on any configured source) is a failed at-height read under this rule, on both `da` paths (K0 and `T_H`): `ErrChainUnavailable`, never `ErrAnchorNotFound`. A pruned or trailing backend answers "not found" for blocks that exist, so the answer says nothing about the chain. A height above every observed head gives `ErrChainUnavailable` too (retryable, nonce untouched; `valid_until` bounds the retries). `ErrAnchorNotFound` is given only after the block at `height` was read and passed AH1 and AH2 and holds no anchor. |
+| AH5 On failure, other reads | Any other read at a height that fails AH1 or AH2 on every configured source gives nothing: the check that needed it is not evaluated from latest state or from another height. The gate answers `ErrChainUnavailable` (503, nonce untouched), never `ErrAnchorNotFound`, never a K1 or K2 verdict from the wrong block. It MAY instead use a source that does not depend on the endpoint honouring heights: a header verified by the W5 light verifier (section 9.5), or a block read from another endpoint that passes AH1 and AH2. A state read other than x/fibre `Params` from a height-ignoring endpoint MUST NOT be used; v0 defines no other. A header or block read that answers "not found" for a height the chain must have (at or below a head the gate has observed on any configured source) is a failed at-height read under this rule, on both `da` paths (K0 and `T_H`): `ErrChainUnavailable`, never `ErrAnchorNotFound`. A pruned or trailing backend answers "not found" for blocks that exist, so the answer says nothing about the chain. A height above every observed head gives `ErrChainUnavailable` too (retryable, nonce untouched; `valid_until` bounds the retries). `ErrAnchorNotFound` is given only after the block at `height` was read and passed AH1 and AH2 and holds no anchor (for `da = 1`: after NA1 to NA4 held and NA7 found no anchor, section 10.4). |
 
 The Recorder applies AH1, AH2 and AH5 to its read-back (an AH failure is
 `recorder.ErrNodeUnavailable`); the verifier applies them to HT6
@@ -2065,8 +2151,9 @@ Threat notes:
   E1, section 8.7). Each K2 case carries the expected `r`, `start`, `margin`,
   verdict and route.
 
-Settled in `v0-draft.17`: the PFF is found by scanning block `height`
-(section 10.4); x/fibre params at a past height are served by honest nodes
+Settled in `v0-draft.17`, procedure replaced in `v0-draft.23`: the PFF is
+proven from the PayForFibre namespace data of block `height` (section 10.4,
+NA1 to NA7); x/fibre params at a past height are served by honest nodes
 and are not by the QuickNode public endpoint (RS rules above). Still
 `UNVERIFIED`: header time final at commit for the pinned celestia-core.
 
@@ -2152,7 +2239,7 @@ Package is where the Go sentinel lives.
 | L | `ErrAgentNotAllowed` | `gate` | L1 | none (stateful) |
 | L | `ErrAgentKeyMismatch` | `gate` | L2 | none (stateful) |
 | N0, N | `ErrNonceUsed` | `gate` | N1 | none (stateful) |
-| K | `ErrAnchorNotFound` | `gate` | K0 (for `da = 1`: no PFF with result code 0 in block `height`, section 10.4) | none (stateful) |
+| K | `ErrAnchorNotFound` | `gate` | K0 (for `da = 1`: no PFF with result code 0 among the txs of the PayForFibre namespace of block `height`, proven complete by NA1 to NA4, section 10.4) | none (stateful) |
 | K1 | `ErrIssuedBeforeAnchor` | `commitment` | K1 | `anchor.json` `k1` |
 | K2 | `ErrRetentionUnavailable` | `gate` | K2: `fibre_retention_s` at `height` not established by RS3 or RS6 (`da = 1`, section 11.2) | `anchor.json` `k2_fibre_at_height_unreadable` |
 | P | `ErrDACommitmentMismatch` | `gate` | P3 | `da_blob.json` `reject`, `da/fibre_commit.json` `reject` (Go only) |
@@ -2311,6 +2398,10 @@ keeps its bytes and its `"revision": "v0-draft.9"` field):
 
 Archive vectors: `encode(input) == record bytes`; strict decoding returns `input`; the store files the record under `key`; every reject fails decoding with `archive.ErrCorrupt` (and SHOULD wrap `cause`); a store replaying each scenario from empty gives each `expect`, each `state_after` and exactly `final_records`, with the DA check of `da_check` (a Go store uses the real committers, which accept the same pairs). Generated by `gen_archive.py`, checked by `check_archive.py`, which also regenerates both files and compares bytes. Opaque Celestia fields are stand-ins: the files fix the record layout, not the upstream encodings, which the implementing tasks test against live data.
 
+| File (`v0-draft.23`) | Contents |
+|---|---|
+| `spec/vectors/da/fibre_anchor.json` | Section 10.4 (NA2 to NA7) and anchor-proof form 1 (section 19.2). `revision`, `generator`, `upstream`, `rules` (including the mutation operations), `pff_namespace`. `live.source`: the read-only reads (bridge `header.GetByHeight` and `share.GetNamespaceData`, and the consensus node's `/header` whose `data_hash` must agree). `live.cases`: `h1402819` (the PFF of `fibre_cert.json`, one PFF in a 4 x 4 square, four rows) and `h1439696` (four PFFs of one namespace in a 64 x 64 square, one row), each with `raw` (`height`, `data_hash`, `row_roots`, `column_roots`, `namespace_data_hex` in the `WriteTo` stream form) and `expect` (`square_size`, `rows`, `share_count`, `txs` with `position`, `length`, `sha256`, `fibre`, the parsed `promise` and `system_blob_hex`; `queries` with `candidates` and `anchor` when every candidate has code 0, `none` meaning `ErrAnchorNotFound`; `archive_proof` with `hex`, `sha256`, `size`; `sizes`). `mutations`: `id`, `description`, `case`, `op`, `expect` (`verdict`; for a reject the first failing rule `fails` and an informational `upstream_error`; for an accept `same_txs`). `reassembly`: synthetic share sequences for NA4 alone, `expect` (`verdict`, `txs_sha256` or `fails`) and `upstream_parse_txs`, what `ParseTxs` alone returns (several rejects parse without an error). 2 live cases, 12 mutations, 14 reassembly cases. Generated by upstream code only in `spec/vectors/tools/fibreanchor-gen` (`go run . -fetch` reads Mocha, read-only; `go run .` regenerates offline from the stored raw inputs; `go run . -check`); checked by `check_fibre_anchor.py`, an independent implementation (its own RFC 6962 root, protobuf decoding, NMT hashing and namespace-proof verification, compact-share parser and splitter, strict CBOR), which also ties `h1402819` to the PFF of `fibre_cert.json`. |
+
 Bank-send profile vectors are in `spec/vectors/profiles/bank-send/` (profile
 document, section "Vectors"). `check_vectors.py` without `--dir` runs the
 API and both profile checkers too.
@@ -2381,6 +2472,15 @@ How an implementation uses them:
   committer routes each `anchor_k2_with_fibre_committer` entry to the
   archive, a gate without it keeps the `anchor.json` sentinel. Regenerate or
   check with `cd spec/vectors/tools/fibrecommit-gen && go run . -check`.
+- `da/fibre_anchor.json`: the gate's `da = 1` anchor lookup, given each live
+  case's `data_hash`, DAH and namespace data, returns `txs` and, with every
+  NA6 code 0, each query's `anchor`; every mutation is rejected at `fails`
+  (the lookup answers `ErrChainUnavailable`) or accepted with the same txs;
+  the NA4 function accepts or rejects each `reassembly` case as stated; the
+  Recorder's archive writer produces `archive_proof` byte for byte from the
+  DAH and the namespace data, and the verifier's CV8 accepts it against
+  `data_hash`. Regenerate or check with
+  `cd spec/vectors/tools/fibreanchor-gen && go run . -check`.
 
 Stage D vectors whose defect is inside the commitment are signed over
 `tag || <malformed commitment bytes>`, so the encoding defect is the only
@@ -3224,12 +3324,12 @@ before it returns `payload_ref` (section 10.7).
 | 6 | `height` | uint | `> 0` | R | `payload_ref.height`. |
 | 7 | `header` | bstr | opaque | R | Signed header (header and commit) of block `height`. |
 | 8 | `anchor_tx` | bstr | opaque | R1, O for `da = 2` | The anchor tx (PFF, or PFB) exactly as in block `height`. |
-| 9 | `anchor_tx_index` | uint | | with `anchor_tx` | Its index in the block's txs. |
-| 10 | `anchor_tx_proof` | bstr | opaque | O, only with `anchor_tx` | Its inclusion proof against `data_hash` (SHOULD, section 10.7). |
+| 9 | `anchor_tx_index` | uint | | with `anchor_tx` | Its index in the block's txs. For `da = 1` as the node reports it; informational, no v0 check reads it. |
+| 10 | `anchor_tx_proof` | bstr | opaque | O, only with `anchor_tx` | Its inclusion proof against `data_hash` (section 10.7: SHOULD for `da = 2`; MAY for `da = 1`, not used by CV8). |
 | 11 | `blob_proof` | bstr | opaque | R2 | Commitment proof of the share-version-1 blob against the data root of `header`. |
 | 12 | `tx_code` | uint | `= 0` | R1 | The PFF result code as the node reported it (CV8, `node-attested`). Only code 0 is archived: any other code means no anchor. |
 | 13 | `system_blob` | bstr | opaque | R1 | The share-version-2 system blob. |
-| 14 | `system_blob_proof` | bstr | opaque | R1 | Commitment proof of the system blob against the data root of `header`. |
+| 14 | `system_blob_proof` | bstr | opaque | R1 | The CV8 inclusion evidence, in one of two forms (below): form 1, the anchor proof (DAH and PayForFibre namespace data at `height`), which writers MUST use since `v0-draft.23`; form 0, the commitment proof of the system blob against the data root of `header`, in records written before. |
 | 15 | `promise_height` | uint | `> 0` | R1 | `PaymentPromise.height`. |
 | 16 | `promise_header` | bstr | opaque | R1 | Signed header at `promise_height` (CV7). |
 | 17 | `historical_info` | bstr | opaque | R1 | x/staking `HistoricalInfo` at `promise_height` (CV4, CV6). |
@@ -3247,8 +3347,42 @@ passes it.
 | `historical_info` | protobuf `cosmos.staking.v1beta1.HistoricalInfo` (the `hist` field of the x/staking `HistoricalInfo` query response at the pin's cosmos-sdk fork), `valset` in the stored order (CV4); its embedded header is partial and never a trust anchor (section 10.6.1) | Message VERIFIED (code, cosmos-sdk `v0.50` proto: `header`, `valset`); at the fork `UNVERIFIED` |
 | `anchor_tx` | Raw bytes of the element of the block's `data.txs` | VERIFIED (definition) |
 | `anchor_tx_proof` | protobuf `celestia.core.v1.proof.ShareProof`, as `pkg/proof.NewTxInclusionProof` returns it | VERIFIED (code, `APP/pkg/proof/proof.go`) |
-| `blob_proof`, `system_blob_proof` | JSON of celestia-node `blob.CommitmentProof` (`MarshalJSON`, the CometBFT JSON encoder), the form the node API returns; verified with `CommitmentProof.Verify(data_root, commitment)` | VERIFIED (code: celestia-node `v0.34.2-mocha` `blob/commitment_proof.go` has no protobuf form). `UNVERIFIED`: that the node serves this proof for a share-version-2 system blob; if not, the Recorder builds it from the block shares with upstream code |
-| `system_blob` | protobuf `BlobProto` of go-square `v4` `share.Blob.Marshal`; MUST equal `NewV2Blob(namespace, 0, commitment, pff_signer)`, where `pff_signer` is the 20-byte signer of the archived PFF | VERIFIED (code, go-square `v4.0.1` `share/blob.go`) |
+| `system_blob_proof` form 1 | Anchor proof, deterministic CBOR (below) | VERIFIED (vectors `spec/vectors/da/fibre_anchor.json`, `archive_proof`, live Mocha data) |
+| `blob_proof`, `system_blob_proof` form 0 | JSON of celestia-node `blob.CommitmentProof` (`MarshalJSON`, the CometBFT JSON encoder), the form the node API returns; verified with `CommitmentProof.Verify(data_root, commitment)` | VERIFIED (code: celestia-node `v0.34.2-mocha` `blob/commitment_proof.go` has no protobuf form). `UNVERIFIED`: that the node serves this proof for a share-version-2 system blob; if not, the Recorder builds it from the block shares with upstream code |
+| `system_blob` | protobuf `BlobProto` of go-square `v4` `share.Blob.Marshal`; MUST equal `NewV2Blob(namespace, 0, commitment, pff_signer)`, where `pff_signer` is the 20-byte signer of the archived PFF; upstream `TryParseFibreTx` returns this blob with the tx (`FibreTx.SystemBlob`) | VERIFIED (code, go-square `v4.0.1` `share/blob.go`; vectors `fibre_anchor.json` `system_blob_hex`, from `FibreTx.SystemBlob`) |
+
+Anchor-proof forms (`system_blob_proof`, `da = 1`; since `v0-draft.23`). A
+reader tells the forms apart by the first byte: `0x7b` (`{`, the JSON object
+of a `CommitmentProof`) is form 0; `0xa3` (a CBOR map of three entries) is
+form 1; any other first byte fails CV8. The record itself still decodes:
+the field is opaque to section 19.1, which is why form 1 fits archive format
+0 without a byte change. Form 1 is a deterministic CBOR map under the
+profile of section 19.1 (shortest heads, definite lengths, keys ascending,
+no other key, no tag, float or simple value; re-encoding gives the same
+bytes):
+
+| Key | Name | Type | Rule |
+|---|---|---|---|
+| 1 | `form` | uint | `= 1`. |
+| 2 | `dah` | bstr | protobuf `celestia.core.v1.da.DataAvailabilityHeader` (`row_roots`, field 1, and `column_roots`, field 2, both repeated bytes; celestia-app at the pin, `DataAvailabilityHeader.ToProto`): the DAH of `header`. |
+| 3 | `namespace_data` | bstr | celestia-node `shwap.NamespaceData.WriteTo` of the namespace data of `PFF_NS` at `height`: per row, in row order, a uvarint length followed by protobuf `shwap.RowNamespaceData` (`shares`, field 1, each a `Share` with `data` in field 1; `proof`, field 2, nmt `proof.pb.Proof`), nothing after the last row. Never empty in an evidence record, which needs a PFF. |
+
+A reader decodes `dah` with `DataAvailabilityHeaderFromProto` (which runs
+`ValidateBasic`) and `namespace_data` with `NamespaceData.ReadFrom` (a
+partial row is an error), and then applies NA2 to NA5 of section 10.4
+against `data_hash` of `header` (CV8). The protobuf parts are upstream
+encodings and need not be canonical: identity (AW2) does not cover them,
+and every byte is re-checked through the DAH hash and the NMT proofs. The
+CBOR envelope fixes the layout independently of protobuf libraries and
+leaves room for another form. Sizes in the vectors: 8,379 and 38,964 bytes.
+
+Threat note (forms). A writer that stores form 0 after `v0-draft.23` does
+not break decoding, but its record carries the weaker evidence (the system
+blob, not the PFF tx, and no completeness), and `verify` reports
+`anchor_proof_form: 0`. Telling the forms apart by one byte is unambiguous
+because a `CommitmentProof` from the CometBFT JSON encoder is a JSON object
+and form 1 is a CBOR map with exactly three entries; a form that is neither
+is never guessed at.
 
 Decision (kind 3). Written by the gate at stage 4a (AR1 to AR4).
 
