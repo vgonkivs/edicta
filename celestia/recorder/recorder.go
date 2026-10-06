@@ -3,6 +3,7 @@ package recorder
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	cmttypes "github.com/cometbft/cometbft/types"
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/node"
@@ -65,12 +67,13 @@ type Config struct {
 	// submit reads per call, counted from the height before that submit. The
 	// search resumes where it stopped. It cannot go below 1024.
 	ScanBlocks uint64
-	// SettleBlocks is the window after an archived intent height in which an
-	// earlier process may still have a submit pending in a mempool. After a
-	// restart the Recorder submits again only once the head is past
-	// intent_height + SettleBlocks and no earlier submit was found in
-	// between, so the window must exceed the mempool TTL with room to spare.
-	// Default 1024; a smaller non-zero value is refused.
+	// SettleBlocks is the window in which an earlier process may still have
+	// a submit pending in a mempool. After a restart the Recorder submits
+	// only once the head is past max(intent height, the head this Recorder
+	// first saw for the blob) + SettleBlocks and no earlier submit was found
+	// in [intent height, that bound]. The window must exceed the mempool TTL
+	// and, for a remote Submitter, its own retries, with room to spare.
+	// Default 1024; a non-zero value below 256 is refused.
 	SettleBlocks uint64
 	// MaxPending caps blobs whose outcome is unresolved; a new blob is
 	// refused with ErrTooManyPending at the cap. Default 4096.
@@ -78,7 +81,11 @@ type Config struct {
 	// Now is the clock for entry expiry; nil means time.Now.
 	Now func() time.Time
 	// Archive receives the payload before the submit and the anchor
-	// evidence after the read-back. Nil means no archive writes.
+	// evidence after the read-back. Nil means no archive writes, and then a
+	// restart, which loses all memory of earlier submits, may submit a blob
+	// again. With an archive there must be a single writer per (signer,
+	// archive): two live Recorders on one archive can both submit once the
+	// settle window has passed.
 	Archive archive.Store
 }
 
@@ -103,8 +110,12 @@ type entry struct {
 	// a submit of it may be pending, so submitting waits for the settle window.
 	windowed bool
 	// submitted is set once a submit call was made; from then on an entry is
-	// only searched, never submitted again.
+	// only searched, never submitted again, and it is not evicted.
 	submitted bool
+	// firstSeen is the head at this entry's first call. Any submit by an
+	// earlier process happened at or below it, so a settle window that
+	// reaches past it cannot miss one.
+	firstSeen uint64
 }
 
 // Recorder implements sdk.Publisher.
@@ -117,9 +128,10 @@ type Recorder struct {
 	// entries holds a blob from the moment it is claimed for submit until it
 	// is verified. An unresolved entry is never resubmitted: after an
 	// ambiguous outcome the first tx may still be in a mempool, so a later
-	// call only searches the chain for it. Unresolved entries are dropped
-	// after pendingTTL, which bounds memory and is the only way a blob is
-	// submitted again. Verified entries stay in a small FIFO so that callers
+	// call only searches the chain for it. An unresolved entry that never
+	// submitted is dropped after pendingTTL, which bounds memory; one that
+	// submitted is kept until it is verified, because forgetting it would
+	// allow a second submit. Verified entries stay in a small FIFO so that callers
 	// racing on the same blob get the same ref instead of a second submit.
 	entries    map[pendingKey]*entry
 	unresolved int
@@ -266,11 +278,14 @@ func (r *Recorder) Publish(ctx context.Context, blob []byte) (sdk.Published, err
 		r.unwind(key, e)
 		return sdk.Published{}, fmt.Errorf("%w: head at height 0", ErrNodeUnavailable)
 	}
-	if e.intent == 0 {
-		r.mu.Lock()
-		e.scanned = head - 1
-		r.mu.Unlock()
+	r.mu.Lock()
+	if e.firstSeen == 0 {
+		e.firstSeen = head
 	}
+	if e.intent == 0 {
+		e.scanned = head - 1
+	}
+	r.mu.Unlock()
 
 	if r.cfg.Archive != nil {
 		intent, existed, err := r.archivePayload(ctx, comm, signer, blob, head)
@@ -346,7 +361,7 @@ func (r *Recorder) claim(key pendingKey) (e *entry, resume bool, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := r.cfg.Now()
-	if old, ok := r.entries[key]; ok && old.done == nil && !old.inflight && now.Sub(old.created) > pendingTTL {
+	if old, ok := r.entries[key]; ok && old.evictable(now) {
 		delete(r.entries, key)
 		r.unresolved--
 	}
@@ -362,7 +377,7 @@ func (r *Recorder) claim(key pendingKey) (e *entry, resume bool, err error) {
 	}
 	if r.unresolved >= r.cfg.MaxPending {
 		for k, old := range r.entries {
-			if old.done == nil && !old.inflight && now.Sub(old.created) > pendingTTL {
+			if old.evictable(now) {
 				delete(r.entries, k)
 				r.unresolved--
 			}
@@ -375,6 +390,10 @@ func (r *Recorder) claim(key pendingKey) (e *entry, resume bool, err error) {
 	r.entries[key] = e
 	r.unresolved++
 	return e, false, nil
+}
+
+func (e *entry) evictable(now time.Time) bool {
+	return e.done == nil && !e.inflight && !e.submitted && now.Sub(e.created) > pendingTTL
 }
 
 func (r *Recorder) release(e *entry) {
@@ -414,8 +433,9 @@ func (r *Recorder) head(ctx context.Context) (uint64, error) {
 	return h.Height, nil
 }
 
-// settle searches the settle window after the archived intent height for an
-// earlier submit. ready reports that the whole window was read and the head is
+// settle searches [intent, max(intent, first seen head) + SettleBlocks] for an
+// earlier submit; the window reaches past the first seen head because an
+// earlier process may have submitted any time after the intent. ready reports that the whole window was read and the head is
 // past it, so a submit that may have been pending is either found or gone.
 func (r *Recorder) settle(ctx context.Context, e *entry, comm []byte) (h uint64, found, ready bool, err error) {
 	head, err := r.head(ctx)
@@ -424,12 +444,13 @@ func (r *Recorder) settle(ctx context.Context, e *entry, comm []byte) (h uint64,
 	}
 	r.mu.Lock()
 	intent := e.intent
+	from := max(intent, e.firstSeen)
 	r.mu.Unlock()
 	if head < intent {
 		return 0, false, false, fmt.Errorf("%w: node at height %d is behind the archived intent height %d", ErrNodeUnavailable, head, intent)
 	}
-	end := intent + r.cfg.SettleBlocks
-	if end < intent {
+	end := from + r.cfg.SettleBlocks
+	if end < from {
 		end = math.MaxUint64
 	}
 	h, found, err = r.scan(ctx, e, comm, head, end)
@@ -673,6 +694,20 @@ func checkSignedHeader(raw []byte, hdr node.Header) error {
 	}
 	if len(sh.Header.DataHash) == 0 || !bytes.Equal(sh.Header.DataHash, hdr.DataRoot) {
 		return errors.New("header data hash differs from the served header")
+	}
+	if sh.Commit.Height != sh.Header.Height {
+		return fmt.Errorf("commit at height %d, header at %d", sh.Commit.Height, sh.Header.Height)
+	}
+	h, err := cmttypes.HeaderFromProto(sh.Header)
+	if err != nil {
+		return fmt.Errorf("header: %w", err)
+	}
+	want := h.Hash()
+	if len(want) != sha256.Size || len(sh.Commit.BlockID.Hash) != sha256.Size {
+		return errors.New("header or commit block hash is not 32 bytes")
+	}
+	if !bytes.Equal(sh.Commit.BlockID.Hash, want) {
+		return errors.New("commit is for another block than the header")
 	}
 	return nil
 }

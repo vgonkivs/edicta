@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/nodefake"
 	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/sdk"
 )
 
 var decisionBlob = []byte("decision payload")
@@ -45,7 +47,7 @@ func settleCfg(st archive.Store, settle uint64) recorder.Config {
 }
 
 func TestStaleIntentIsEventuallySubmittedExactlyOnce(t *testing.T) {
-	t.Run("one scan covers the window", func(t *testing.T) {
+	t.Run("a submit waits for the head to pass the window", func(t *testing.T) {
 		dir := t.TempDir()
 		ch := newChain()
 		diedAfterPayloadWrite(t, dir, ch, decisionBlob)
@@ -53,10 +55,20 @@ func TestStaleIntentIsEventuallySubmittedExactlyOnce(t *testing.T) {
 		grow(ch, genesis+400)
 		sub := newLanding(ch)
 		rec := mk(t, settleCfg(openArchive(t, dir), 256), sub, ev(t, ch, decisionBlob))
+		_, err := rec.Publish(bg, decisionBlob)
+		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown, "the window reaches past the first seen head")
+		assert.Zero(t, sub.Calls)
+
+		grow(ch, genesis+400+256)
+		_, err = rec.Publish(bg, decisionBlob)
+		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown, "the head at the end of the window is inside it")
+		assert.Zero(t, sub.Calls)
+
+		grow(ch, genesis+400+256+1)
 		p, err := rec.Publish(bg, decisionBlob)
 		require.NoError(t, err)
 		assert.Equal(t, 1, sub.Calls)
-		assert.Equal(t, genesis+401, p.Ref.Height)
+		assert.Equal(t, genesis+400+256+2, p.Ref.Height)
 	})
 
 	t.Run("the scan resumes across calls", func(t *testing.T) {
@@ -69,13 +81,25 @@ func TestStaleIntentIsEventuallySubmittedExactlyOnce(t *testing.T) {
 		sub := newLanding(ch)
 		rec := mk(t, settleCfg(openArchive(t, dir), settle), sub, ev(t, ch, decisionBlob))
 		_, err := rec.Publish(bg, decisionBlob)
-		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown, "one call reads at most the scan cap")
+		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
 		assert.Zero(t, sub.Calls)
 
-		p, err := rec.Publish(bg, decisionBlob)
-		require.NoError(t, err, "the second call finishes the window instead of starting over")
+		end := genesis + 2500 + settle
+		grow(ch, end+1)
+		var p sdk.Published
+		calls := 0
+		for ; calls < 10; calls++ {
+			p, err = rec.Publish(bg, decisionBlob)
+			if err == nil {
+				break
+			}
+			require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
+			require.Zero(t, sub.Calls, "nothing is submitted while the window is being read")
+		}
+		require.NoError(t, err)
+		assert.Positive(t, calls, "one call reads at most the scan cap")
 		assert.Equal(t, 1, sub.Calls)
-		assert.Equal(t, genesis+2501, p.Ref.Height)
+		assert.Equal(t, end+2, p.Ref.Height)
 
 		p2, err := rec.Publish(bg, decisionBlob)
 		require.NoError(t, err)
@@ -224,6 +248,18 @@ func TestEvidenceCheckFailureArchivesNothingAndFinishesNothing(t *testing.T) {
 		}
 	}
 	cases := map[string]func(*evReader){
+		"commit of another height": signedWith(func(sh *cmtproto.SignedHeader) { sh.Commit.Height++ }),
+		"commit for another block": signedWith(func(sh *cmtproto.SignedHeader) { sh.Commit.BlockID.Hash[0] ^= 1 }),
+		"commit without a block id": signedWith(func(sh *cmtproto.SignedHeader) {
+			sh.Commit.BlockID = cmtproto.BlockID{}
+		}),
+		"header without validators hash and commit without a block id": signedWith(func(sh *cmtproto.SignedHeader) {
+			sh.Header.ValidatorsHash = nil
+			sh.Commit.BlockID = cmtproto.BlockID{}
+		}),
+		"commit hash shorter than 32 bytes": signedWith(func(sh *cmtproto.SignedHeader) {
+			sh.Commit.BlockID.Hash = sh.Commit.BlockID.Hash[:31]
+		}),
 		"header of another height": signedWith(func(sh *cmtproto.SignedHeader) { sh.Header.Height++ }),
 		"no commit":                signedWith(func(sh *cmtproto.SignedHeader) { sh.Commit = nil }),
 		"no header":                signedWith(func(sh *cmtproto.SignedHeader) { sh.Header = nil }),
@@ -359,4 +395,91 @@ func TestUnchangedPayloadPutReReadsTheRecord(t *testing.T) {
 	pr, err := inner.Payload(bg, commitment.DACelestiaBlob, realCommitment(t, ns, signer, decisionBlob))
 	require.NoError(t, err)
 	assert.EqualValues(t, genesis-50, pr.IntentHeight)
+}
+
+func TestSubmitAfterTheIntentIsNeverRepeatedByALaterProcess(t *testing.T) {
+	const settle = 256
+	dir := t.TempDir()
+	ch := newChain()
+	comm := realCommitment(t, ns, signer, decisionBlob)
+
+	// P1 archives the intent at the genesis head and dies before submitting.
+	diedAfterPayloadWrite(t, dir, ch, decisionBlob)
+
+	// P2 starts long after the intent, waits out its own window, submits and
+	// dies before the evidence is archived.
+	grow(ch, 2000)
+	p2 := newLanding(ch)
+	fs := &failStore{Store: openArchive(t, dir), err: errBoom, kinds: map[archive.Kind]bool{archive.KindEvidence: true}}
+	rec2 := mk(t, settleCfg(fs, settle), p2, ev(t, ch, decisionBlob))
+	_, err := rec2.Publish(bg, decisionBlob)
+	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
+	require.Zero(t, p2.Calls)
+	grow(ch, 2000+settle+1)
+	for i := 0; i < 10 && p2.Calls == 0; i++ {
+		_, err = rec2.Publish(bg, decisionBlob)
+	}
+	require.ErrorIs(t, err, recorder.ErrArchiveUnavailable)
+	require.Equal(t, 1, p2.Calls)
+	landed := uint64(2000 + settle + 2)
+
+	// P3 sees the stale intent from P1 but must find the blob P2 paid for.
+	grow(ch, 2500)
+	p3 := newLanding(ch)
+	st := openArchive(t, dir)
+	rec3 := mk(t, settleCfg(st, settle), p3, ev(t, ch, decisionBlob))
+	var pub sdk.Published
+	for i := 0; i < 10; i++ {
+		pub, err = rec3.Publish(bg, decisionBlob)
+		if err == nil {
+			break
+		}
+		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
+		require.Zero(t, p3.Calls)
+	}
+	require.NoError(t, err)
+	assert.Zero(t, p3.Calls, "the earlier submit is found, never paid again")
+	assert.Equal(t, landed, pub.Ref.Height)
+	evd, err := st.Evidence(bg, commitment.DACelestiaBlob, comm)
+	require.NoError(t, err)
+	assert.Equal(t, landed, evd.Height)
+	assert.Equal(t, 1, p2.Calls+p3.Calls)
+}
+
+func TestSubmittedEntrySurvivesTTLAndPressureWithoutResubmitting(t *testing.T) {
+	cases := map[string]bool{
+		"the blob landed":     true,
+		"the blob never came": false,
+	}
+	for name, lands := range cases {
+		t.Run(name, func(t *testing.T) {
+			const settle = 256
+			ch := newChain()
+			sub := newLanding(ch)
+			sub.Err, sub.ErrAfterLand, sub.NoLand = errBoom, true, !lands
+			clk := &testClock{t: t0}
+			c := settleCfg(openArchive(t, t.TempDir()), settle)
+			c.MaxPending = 1
+			c.Now = clk.Now
+			rec := mk(t, c, sub, ev(t, ch, decisionBlob))
+
+			_, err := rec.Publish(bg, decisionBlob)
+			require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
+			require.Equal(t, 1, sub.Calls)
+
+			clk.add(2 * time.Hour)
+			grow(ch, genesis+settle+50)
+			_, err = rec.Publish(bg, []byte("another blob"))
+			require.ErrorIs(t, err, recorder.ErrTooManyPending, "a submitted entry is not evicted")
+
+			p, err := rec.Publish(bg, decisionBlob)
+			assert.Equal(t, 1, sub.Calls, "the retry never submits again")
+			if lands {
+				require.NoError(t, err)
+				assert.Equal(t, genesis+1, p.Ref.Height)
+				return
+			}
+			require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
+		})
+	}
 }

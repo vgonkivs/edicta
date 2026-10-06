@@ -84,23 +84,49 @@ func TestBlobAcrossTheTTLWhileInflightIsNotSubmittedTwice(t *testing.T) {
 }
 
 func TestTTLEvictionOfAnIdleEntryCountsOnce(t *testing.T) {
-	ch := newChain()
-	sub := newLanding(ch)
-	sub.Err, sub.NoLand = errBoom, true
-	clk := &testClock{t: t0}
-	c := cfg()
-	c.MaxPending = 1
-	c.Now = clk.Now
-	rec := mk(t, c, sub, ch)
-	blob := []byte{1, 0xaa}
+	t.Run("a submitted entry is kept and never submitted again", func(t *testing.T) {
+		ch := newChain()
+		sub := newLanding(ch)
+		sub.Err, sub.NoLand = errBoom, true
+		clk := &testClock{t: t0}
+		c := cfg()
+		c.MaxPending = 1
+		c.Now = clk.Now
+		rec := mk(t, c, sub, ch)
+		blob := []byte{1, 0xaa}
 
-	_, err := rec.Publish(bg, blob)
-	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
-	clk.add(2 * time.Hour)
-	_, err = rec.Publish(bg, blob)
-	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
-	assert.Equal(t, 2, sub.Calls, "after the TTL the blob is submitted again")
+		_, err := rec.Publish(bg, blob)
+		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
+		clk.add(2 * time.Hour)
+		_, err = rec.Publish(bg, blob)
+		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
+		assert.Equal(t, 1, sub.Calls, "the TTL does not allow a second submit")
 
-	_, err = rec.Publish(bg, []byte{9, 0xaa})
-	require.ErrorIs(t, err, recorder.ErrTooManyPending, "one unresolved entry, not two")
+		_, err = rec.Publish(bg, []byte{9, 0xaa})
+		require.ErrorIs(t, err, recorder.ErrTooManyPending, "the submitted entry still counts, once")
+	})
+
+	t.Run("an entry that never submitted is dropped and counts once", func(t *testing.T) {
+		dir := t.TempDir()
+		ch := newChain()
+		diedAfterPayloadWrite(t, dir, ch, decisionBlob)
+		grow(ch, genesis+10)
+
+		sub := newLanding(ch)
+		clk := &testClock{t: t0}
+		c := settleCfg(openArchive(t, dir), 256)
+		c.MaxPending = 1
+		c.Now = clk.Now
+		rec := mk(t, c, sub, ev(t, ch, decisionBlob))
+
+		_, err := rec.Publish(bg, decisionBlob)
+		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown, "inside the settle window")
+		clk.add(2 * time.Hour)
+		_, err = rec.Publish(bg, decisionBlob)
+		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
+		assert.Zero(t, sub.Calls)
+
+		_, err = rec.Publish(bg, []byte("another blob"))
+		require.ErrorIs(t, err, recorder.ErrTooManyPending, "one unresolved entry, not two")
+	})
 }

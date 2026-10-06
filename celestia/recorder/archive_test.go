@@ -16,6 +16,8 @@ import (
 	nodeblob "github.com/celestiaorg/celestia-node/blob"
 	libshare "github.com/celestiaorg/go-square/v4/share"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	cmtversion "github.com/cometbft/cometbft/proto/tendermint/version"
+	cmttypes "github.com/cometbft/cometbft/types"
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/archive/fsarchive"
@@ -59,11 +61,35 @@ func realSquare(t testing.TB, data []byte) square {
 	return square{root: root, comm: bytes.Clone(bl.Commitment), proof: p}
 }
 
+// protoHeaderOf is a header that passes the block-level sanity checks, so its
+// hash is defined.
+func protoHeaderOf(hd node.Header) *cmtproto.Header {
+	return &cmtproto.Header{
+		Version:            cmtversion.Consensus{Block: 11, App: hd.AppVersion},
+		ChainID:            hd.ChainID,
+		Height:             int64(hd.Height),
+		Time:               hd.Time,
+		DataHash:           bytes.Clone(hd.DataRoot),
+		ValidatorsHash:     bytes.Repeat([]byte{1}, 32),
+		NextValidatorsHash: bytes.Repeat([]byte{1}, 32),
+		ConsensusHash:      bytes.Repeat([]byte{2}, 32),
+		ProposerAddress:    bytes.Repeat([]byte{3}, 20),
+	}
+}
+
+func headerHash(t testing.TB, ph *cmtproto.Header) []byte {
+	t.Helper()
+	h, err := cmttypes.HeaderFromProto(ph)
+	require.NoError(t, err)
+	return h.Hash()
+}
+
 func signedHeaderOf(t testing.TB, hd node.Header) []byte {
 	t.Helper()
+	ph := protoHeaderOf(hd)
 	raw, err := (&cmtproto.SignedHeader{
-		Header: &cmtproto.Header{ChainID: hd.ChainID, Height: int64(hd.Height), DataHash: bytes.Clone(hd.DataRoot)},
-		Commit: &cmtproto.Commit{Height: int64(hd.Height)},
+		Header: ph,
+		Commit: &cmtproto.Commit{Height: int64(hd.Height), BlockID: cmtproto.BlockID{Hash: headerHash(t, ph)}},
 	}).Marshal()
 	require.NoError(t, err)
 	return raw
@@ -335,19 +361,21 @@ func TestRestartBeforeSubmitKeepsOneRecordAndSubmitsOnce(t *testing.T) {
 	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
 	assert.Zero(t, second.Calls, "inside the window nothing is submitted")
 
-	// The head at the end of the window is still inside it.
-	for h := genesis + 4; h <= genesis+settle; h++ {
+	// The window runs from the head this process first saw, not from the
+	// archived intent: the head at its end is still inside it.
+	first3 := uint64(genesis + 3)
+	for h := first3 + 1; h <= first3+settle; h++ {
 		ch.AddHeader(blockAt(h))
 	}
 	_, err = rec.Publish(bg, blob)
 	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
-	assert.Zero(t, second.Calls, "the window ends after intent + SettleBlocks")
+	assert.Zero(t, second.Calls, "the window ends after first seen head + SettleBlocks")
 
-	ch.AddHeader(blockAt(genesis + settle + 1))
+	ch.AddHeader(blockAt(first3 + settle + 1))
 	p, err := rec.Publish(bg, blob)
 	require.NoError(t, err)
 	assert.Equal(t, 1, second.Calls)
-	assert.Equal(t, genesis+settle+2, p.Ref.Height)
+	assert.Equal(t, first3+settle+2, p.Ref.Height)
 
 	after, err := os.ReadFile(payloadPath(t, dir, comm))
 	require.NoError(t, err)
