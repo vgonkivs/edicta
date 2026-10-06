@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/cosmos/cosmos-sdk/client/grpc/cmtservice"
 	nodeservice "github.com/cosmos/cosmos-sdk/client/grpc/node"
@@ -79,21 +80,35 @@ type ConsensusClient struct {
 
 	canary CanaryConfig
 	flag   heightcheck.Flag
+
+	mu       sync.Mutex
+	resolved canaryHeights
 }
 
-// Canary defaults. The recent offset must stay inside every node's retained
-// state; the pre-activation height is the last Mocha height before x/fibre.
-const (
-	DefaultCanaryOffset        = 10
-	DefaultPreActivationHeight = 1_082_619
-)
+// canaryHeights are the heights the last canary run used.
+type canaryHeights struct {
+	chainID string
+	recent  uint64
+	pre     uint64
+}
 
-// CanaryConfig sets the heights the consensus canary asks for. Zero fields take
-// the defaults.
+// DefaultCanaryOffset is the recent offset k. It must stay inside every node's
+// retained state.
+const DefaultCanaryOffset = 10
+
+// DefaultPreActivationHeight is the last Mocha height before x/fibre existed.
+const DefaultPreActivationHeight = 1_082_619
+
+// defaultPreActivation holds the pre-activation heights known per chain id.
+// Other chains have none unless configured.
+var defaultPreActivation = map[string]uint64{"mocha-5": DefaultPreActivationHeight}
+
+// CanaryConfig sets the heights the consensus canary asks for.
 type CanaryConfig struct {
-	// RecentOffset is k: the canary reads at head - k.
+	// RecentOffset is k: the canary reads at head - k. Zero takes the default.
 	RecentOffset uint64
-	// PreActivationHeight is a height before x/fibre existed on the chain.
+	// PreActivationHeight is a height before x/fibre existed on the chain. Zero
+	// takes the default for the node's chain id, and none when there is none.
 	PreActivationHeight uint64
 }
 
@@ -101,17 +116,13 @@ func (c CanaryConfig) withDefaults() CanaryConfig {
 	if c.RecentOffset == 0 {
 		c.RecentOffset = DefaultCanaryOffset
 	}
-	if c.PreActivationHeight == 0 {
-		c.PreActivationHeight = DefaultPreActivationHeight
-	}
 	return c
 }
 
 // SetCanary sets the canary heights; call it before the client is shared.
 func (c *ConsensusClient) SetCanary(cfg CanaryConfig) { c.canary = cfg.withDefaults() }
 
-// HeightFlag is the flag the canary sets and clears. Hand it to NewReaderFlag so
-// a height mismatch on a block read also marks this endpoint.
+// HeightFlag is the flag the canary and TxAt set; the canary clears it.
 func (c *ConsensusClient) HeightFlag() *heightcheck.Flag { return &c.flag }
 
 var _ Consensus = (*ConsensusClient)(nil)
@@ -206,14 +217,31 @@ func (c *ConsensusClient) FibreParamsAt(ctx context.Context, height uint64) (Fib
 // the echo, or an x/fibre query that succeeds at a height before the module
 // existed, means the node drops the height. Anything else proves nothing.
 func (c *ConsensusClient) HeightCanary(ctx context.Context) (heightcheck.Status, error) {
+	gen := c.flag.Generation()
 	st, err := c.heightCanary(ctx)
 	switch st {
 	case heightcheck.Honoured:
-		c.flag.Clear()
+		c.flag.ClearIf(gen)
 	case heightcheck.Ignoring:
 		c.flag.Mark()
 	}
 	return st, err
+}
+
+// preActivation returns the configured pre-activation height, else the default
+// for the node's chain id; zero means there is none.
+func (c *ConsensusClient) preActivation(ctx context.Context, cfg CanaryConfig) (uint64, error) {
+	if cfg.PreActivationHeight != 0 {
+		return cfg.PreActivationHeight, nil
+	}
+	id, err := c.Network(ctx)
+	if err != nil {
+		return 0, err
+	}
+	c.mu.Lock()
+	c.resolved.chainID = id
+	c.mu.Unlock()
+	return defaultPreActivation[id], nil
 }
 
 func (c *ConsensusClient) heightCanary(ctx context.Context) (heightcheck.Status, error) {
@@ -226,25 +254,48 @@ func (c *ConsensusClient) heightCanary(ctx context.Context) (heightcheck.Status,
 		return heightcheck.Inconclusive, fmt.Errorf("height canary: head %d is not above offset %d", head, cfg.RecentOffset)
 	}
 	recent := head - cfg.RecentOffset
+	pre, preErr := c.preActivation(ctx, cfg)
+	c.mu.Lock()
+	c.resolved.recent, c.resolved.pre = cfg.RecentOffset, pre
+	c.mu.Unlock()
+
+	// A failed recent read must not hide a node that answers before activation:
+	// Ignoring wins over Inconclusive.
+	var recentErr error
 	pctx, md := pinned(ctx, recent)
 	if _, err := c.bank.Params(pctx, &banktypes.QueryParamsRequest{}, grpc.Header(md)); err != nil {
-		return heightcheck.Inconclusive, fmt.Errorf("height canary: recent read at %d: %w", recent, classifyGRPC(ctx, err))
-	}
-	if heightcheck.EchoHeight(*md, recent) != nil {
+		recentErr = fmt.Errorf("height canary: recent read at %d: %w", recent, classifyGRPC(ctx, err))
+	} else if heightcheck.EchoHeight(*md, recent) != nil {
 		return heightcheck.Ignoring, nil
 	}
-	if cfg.PreActivationHeight >= recent {
-		return heightcheck.Honoured, nil
+	if preErr == nil && pre != 0 && pre < recent {
+		pctx, md = pinned(ctx, pre)
+		r, err := c.fibre.Params(pctx, &fibretypes.QueryParamsRequest{}, grpc.Header(md))
+		if err == nil && r != nil {
+			return heightcheck.Ignoring, nil
+		}
+		if cerr := ctx.Err(); cerr != nil {
+			return heightcheck.Inconclusive, fmt.Errorf("height canary: %w", classifyGRPC(ctx, cerr))
+		}
 	}
-	pctx, md = pinned(ctx, cfg.PreActivationHeight)
-	r, err := c.fibre.Params(pctx, &fibretypes.QueryParamsRequest{}, grpc.Header(md))
-	if err == nil && r != nil {
-		return heightcheck.Ignoring, nil
+	if recentErr != nil {
+		return heightcheck.Inconclusive, recentErr
 	}
-	if cerr := ctx.Err(); cerr != nil {
-		return heightcheck.Inconclusive, fmt.Errorf("height canary: %w", classifyGRPC(ctx, cerr))
+	if preErr == nil && pre != 0 && pre >= recent {
+		return heightcheck.Inconclusive, fmt.Errorf("height canary: pre-activation height %d is not below recent height %d", pre, recent)
+	}
+	if preErr != nil {
+		return heightcheck.Inconclusive, fmt.Errorf("height canary: chain id: %w", preErr)
 	}
 	return heightcheck.Honoured, nil
+}
+
+// CanaryHeights reports the offset and pre-activation height the last canary
+// run used, with the chain id when it was needed. Pre is zero when there is none.
+func (c *ConsensusClient) CanaryHeights() (offset, pre uint64, chainID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.resolved.recent, c.resolved.pre, c.resolved.chainID
 }
 
 func (c *ConsensusClient) BondDenom(ctx context.Context) (string, error) {
@@ -414,6 +465,18 @@ func ConsensusEndpoint(name string, c Consensus) heightcheck.Endpoint {
 }
 
 func (e consensusEndpoint) Name() string { return e.name }
+
+// Details reports the canary heights when the client exposes them.
+func (e consensusEndpoint) Details() []any {
+	h, ok := e.c.(interface {
+		CanaryHeights() (uint64, uint64, string)
+	})
+	if !ok {
+		return nil
+	}
+	offset, pre, id := h.CanaryHeights()
+	return []any{"canary_offset", offset, "canary_pre_activation", pre, "chain_id", id}
+}
 
 func (e consensusEndpoint) Role() heightcheck.Role { return heightcheck.RoleConsensus }
 

@@ -25,8 +25,9 @@ type ChainParams interface {
 }
 
 type HeaderSource interface {
-	// BlockTime is the header time (Unix seconds) of a committed block. It
-	// returns ErrAnchorNotFound if the block does not exist yet.
+	// BlockTime is the header time (Unix seconds) of a committed block. A block
+	// that cannot be read, including one that does not exist yet, is
+	// ErrChainUnavailable: an at-height read cannot prove absence.
 	BlockTime(ctx context.Context, height uint64) (uint64, error)
 }
 

@@ -15,21 +15,16 @@ import (
 
 // bridge adapts a celestia-node ReadClient to Reader.
 type bridge struct {
-	rc   *client.ReadClient
-	flag *heightcheck.Flag
+	rc *client.ReadClient
 }
 
 // NewReader wraps the read side of an api/client. The caller keeps ownership
 // of rc and closes it.
-func NewReader(rc *client.ReadClient) (Reader, error) { return NewReaderFlag(rc, nil) }
-
-// NewReaderFlag is NewReader that also marks flag, normally the consensus
-// endpoint's, when a header comes back for another height.
-func NewReaderFlag(rc *client.ReadClient, flag *heightcheck.Flag) (Reader, error) {
+func NewReader(rc *client.ReadClient) (Reader, error) {
 	if rc == nil {
 		return nil, errors.New("node: nil read client")
 	}
-	return bridge{rc: rc, flag: flag}, nil
+	return bridge{rc: rc}, nil
 }
 
 func (b bridge) Head(ctx context.Context) (Header, error) {
@@ -49,7 +44,6 @@ func (b bridge) HeaderAt(ctx context.Context, height uint64) (Header, error) {
 		return Header{}, wrapCtx(ctx, err)
 	}
 	if err := heightcheck.HeaderHeight(uint64(h.Height()), height); err != nil {
-		b.flag.Mark()
 		return Header{}, heightIgnored(err)
 	}
 	return Header{
@@ -75,6 +69,8 @@ func BridgeEndpoint(name string, r Reader, cfg ...CanaryConfig) heightcheck.Endp
 }
 
 func (e bridgeEndpoint) Name() string { return e.name }
+
+func (e bridgeEndpoint) Details() []any { return []any{"canary_offset", e.offset} }
 
 func (e bridgeEndpoint) Role() heightcheck.Role { return heightcheck.RoleBridge }
 

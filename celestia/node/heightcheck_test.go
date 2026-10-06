@@ -20,6 +20,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
+	cmtp2p "github.com/cometbft/cometbft/proto/tendermint/p2p"
+	cmtservice "github.com/cosmos/cosmos-sdk/client/grpc/cmtservice"
 	nodeservice "github.com/cosmos/cosmos-sdk/client/grpc/node"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
@@ -115,11 +117,26 @@ func (s *fibreHC) heights() []string {
 	return append([]string(nil), s.pinned...)
 }
 
+// infoHC answers GetNodeInfo with a fixed chain id, or fails.
+type infoHC struct {
+	cmtservice.UnimplementedServiceServer
+	chainID string
+	err     error
+}
+
+func (s *infoHC) GetNodeInfo(context.Context, *cmtservice.GetNodeInfoRequest) (*cmtservice.GetNodeInfoResponse, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &cmtservice.GetNodeInfoResponse{DefaultNodeInfo: &cmtp2p.DefaultNodeInfo{Network: s.chainID}}, nil
+}
+
 type hcRig struct {
 	fibre  *fibreHC
 	bank   *bankHC
 	status *statusHC
 	chain  *fakeChain
+	info   *infoHC
 }
 
 func (r *hcRig) start(t *testing.T) *ConsensusClient {
@@ -132,6 +149,9 @@ func (r *hcRig) start(t *testing.T) *ConsensusClient {
 	}
 	if r.status != nil {
 		nodeservice.RegisterServiceServer(srv, r.status)
+	}
+	if r.info != nil {
+		cmtservice.RegisterServiceServer(srv, r.info)
 	}
 	if r.chain != nil {
 		txtypes.RegisterServiceServer(srv, &txSvc{f: r.chain})
@@ -160,7 +180,7 @@ type (
 const head0 = 2_000_000
 
 func newRig(head uint64, bank bankFn, fibre fibreFn) *hcRig {
-	r := &hcRig{fibre: &fibreHC{fn: fibre}, bank: &bankHC{fn: bank}, status: &statusHC{}}
+	r := &hcRig{fibre: &fibreHC{fn: fibre}, bank: &bankHC{fn: bank}, status: &statusHC{}, info: &infoHC{chainID: "mocha-5"}}
 	r.status.head.Store(head)
 	return r
 }
@@ -257,7 +277,7 @@ func TestHeightCanaryClassification(t *testing.T) {
 		{"recent read fails with unavailable", head0, bankErr(codes.Unavailable), fibreErr(codes.Internal), heightcheck.Inconclusive},
 		{"head at the offset", 10, bankEcho, fibreErr(codes.Internal), heightcheck.Inconclusive},
 		{"head below the offset", 3, bankEcho, quicknode, heightcheck.Inconclusive},
-		{"recent height below pre-activation needs no x/fibre read", 11, bankEcho, quicknode, heightcheck.Honoured},
+		{"pre-activation height not below the recent height", 11, bankEcho, quicknode, heightcheck.Inconclusive},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -276,6 +296,15 @@ func TestHeightCanaryAsksConfiguredHeights(t *testing.T) {
 		assert.Equal(t, heightcheck.Honoured, got)
 		assert.Equal(t, []uint64{head0 - 10}, r.bank.heights())
 		assert.Equal(t, []string{"1082619"}, r.fibre.heights())
+	})
+	t.Run("another chain id has no default and no pre-activation query", func(t *testing.T) {
+		r := newRig(head0, bankEcho, quicknode)
+		r.info.chainID = "mainnet-1"
+		got, err := r.start(t).HeightCanary(tctx(t))
+		require.NoError(t, err)
+		assert.Equal(t, heightcheck.Honoured, got)
+		assert.Equal(t, []uint64{head0 - 10}, r.bank.heights())
+		assert.Empty(t, r.fibre.heights())
 	})
 	t.Run("configured", func(t *testing.T) {
 		r := newRig(head0, bankEcho, fibreErr(codes.Internal))
@@ -296,6 +325,83 @@ func TestHeightCanaryAsksConfiguredHeights(t *testing.T) {
 		assert.Equal(t, []uint64{head0 - DefaultCanaryOffset}, r.bank.heights())
 		assert.Equal(t, []string{strconv.Itoa(DefaultPreActivationHeight)}, r.fibre.heights())
 	})
+}
+
+func TestHeightCanaryFailedRecentReadStillRunsThePreActivationQuery(t *testing.T) {
+	t.Run("ignoring wins", func(t *testing.T) {
+		r := newRig(head0, bankErr(codes.Unavailable), quicknode)
+		got, err := r.start(t).HeightCanary(tctx(t))
+		assert.Equal(t, heightcheck.Ignoring, got)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"1082619"}, r.fibre.heights())
+	})
+	t.Run("otherwise inconclusive", func(t *testing.T) {
+		r := newRig(head0, bankErr(codes.Unavailable), fibreErr(codes.Internal))
+		got, err := r.start(t).HeightCanary(tctx(t))
+		assert.Equal(t, heightcheck.Inconclusive, got)
+		require.Error(t, err)
+		assert.Equal(t, []string{"1082619"}, r.fibre.heights())
+	})
+}
+
+func TestHeightCanaryPreActivationNotBelowRecentIsInconclusive(t *testing.T) {
+	for _, pre := range []uint64{head0 - 10, head0 - 5, head0 + 1} {
+		r := newRig(head0, bankEcho, quicknode)
+		c := r.start(t)
+		c.SetCanary(CanaryConfig{PreActivationHeight: pre})
+		got, err := c.HeightCanary(tctx(t))
+		assert.Equal(t, heightcheck.Inconclusive, got, "pre %d", pre)
+		require.Error(t, err)
+		assert.Empty(t, r.fibre.heights(), "no query at a height that may have the module")
+		assert.False(t, c.HeightFlag().Ignoring())
+	}
+}
+
+func TestHeightCanaryChainIDFailureIsInconclusive(t *testing.T) {
+	r := newRig(head0, bankEcho, fibreErr(codes.Internal))
+	r.info.err = status.Error(codes.Unavailable, "down")
+	c := r.start(t)
+	got, err := c.HeightCanary(tctx(t))
+	assert.Equal(t, heightcheck.Inconclusive, got)
+	require.Error(t, err)
+	assert.Empty(t, r.fibre.heights())
+
+	c.SetCanary(CanaryConfig{PreActivationHeight: 50})
+	got, err = c.HeightCanary(tctx(t))
+	require.NoError(t, err)
+	assert.Equal(t, heightcheck.Honoured, got, "a configured height needs no chain id")
+}
+
+func TestHeightCanaryKeepsAMarkMadeWhileItRuns(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	bank := func(ctx context.Context, p uint64) (*banktypes.QueryParamsResponse, error) {
+		once.Do(func() { close(started) })
+		<-release
+		return bankEcho(ctx, p)
+	}
+	c := newRig(head0, bank, fibreErr(codes.Internal)).start(t)
+	type res struct {
+		st  heightcheck.Status
+		err error
+	}
+	done := make(chan res, 1)
+	go func() {
+		st, err := c.HeightCanary(context.Background())
+		done <- res{st, err}
+	}()
+	<-started
+	c.HeightFlag().Mark()
+	close(release)
+	got := <-done
+	require.NoError(t, got.err)
+	assert.Equal(t, heightcheck.Honoured, got.st)
+	assert.True(t, c.HeightFlag().Ignoring(), "the later mark survives the earlier canary")
+
+	st, err := c.HeightCanary(tctx(t))
+	require.NoError(t, err)
+	assert.Equal(t, heightcheck.Honoured, st)
+	assert.False(t, c.HeightFlag().Ignoring(), "a canary that began after the mark clears it")
 }
 
 // An honest pruned node cannot serve old pinned state, and the codes it uses
@@ -439,9 +545,10 @@ func TestTxAtMatchLeavesTheFlagAlone(t *testing.T) {
 }
 
 type capture struct {
-	mu   sync.Mutex
-	msgs []string
-	lvl  []slog.Level
+	mu    sync.Mutex
+	msgs  []string
+	lvl   []slog.Level
+	attrs []map[string]any
 }
 
 func (c *capture) Enabled(context.Context, slog.Level) bool { return true }
@@ -449,6 +556,9 @@ func (c *capture) Handle(_ context.Context, r slog.Record) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.msgs, c.lvl = append(c.msgs, r.Message), append(c.lvl, r.Level)
+	a := map[string]any{}
+	r.Attrs(func(at slog.Attr) bool { a[at.Key] = at.Value.Any(); return true })
+	c.attrs = append(c.attrs, a)
 	return nil
 }
 func (c *capture) WithAttrs([]slog.Attr) slog.Handler { return c }
@@ -479,6 +589,17 @@ func TestStartupWithHonestConsensusEndpoint(t *testing.T) {
 	assert.False(t, obs)
 	require.Len(t, cap.msgs, 1)
 	assert.Equal(t, "own: height honoured", cap.msgs[0])
+}
+
+func TestStartupLogsTheCanaryHeights(t *testing.T) {
+	c := newRig(head0, bankEcho, honest).start(t)
+	cap := &capture{}
+	_, err := heightcheck.Startup(tctx(t), slog.New(cap), ConsensusEndpoint("own", c))
+	require.NoError(t, err)
+	require.Len(t, cap.attrs, 1)
+	assert.EqualValues(t, DefaultCanaryOffset, cap.attrs[0]["canary_offset"])
+	assert.EqualValues(t, DefaultPreActivationHeight, cap.attrs[0]["canary_pre_activation"])
+	assert.Equal(t, "mocha-5", cap.attrs[0]["chain_id"])
 }
 
 func TestStartupWithInconclusiveConsensusEndpoint(t *testing.T) {
@@ -679,34 +800,29 @@ func TestBridgeCancelledContextIsInconclusive(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestBridgeHeaderAtMismatchMarksTheSharedFlag(t *testing.T) {
-	var flag heightcheck.Flag
-	f := &fakeHeaders{head: 500}
-	f.byH = func(uint64) (*header.ExtendedHeader, error) { return extHeader(f.head), nil }
-	r, err := NewReaderFlag(&client.ReadClient{Header: f}, &flag)
-	require.NoError(t, err)
-
-	_, err = r.HeaderAt(tctx(t), 500)
-	require.NoError(t, err)
-	assert.False(t, flag.Ignoring(), "a matching header leaves the flag")
-
-	_, err = r.HeaderAt(tctx(t), 120)
-	require.ErrorIs(t, err, heightcheck.ErrHeightIgnored)
-	assert.True(t, flag.Ignoring())
-}
-
-func TestConsensusFlagSharedWithTheBridgeReader(t *testing.T) {
+// A bridge mismatch discards that response only; the consensus flag is a
+// different endpoint's state.
+func TestBridgeHeaderAtMismatchDoesNotMarkTheConsensusFlag(t *testing.T) {
 	c := newRig(head0, bankEcho, func(ctx context.Context, p uint64) (*fibretypes.QueryParamsResponse, error) {
 		echo(ctx, p)
 		return paramsOK(), nil
 	}).start(t)
 	f := &fakeHeaders{head: 500}
 	f.byH = func(uint64) (*header.ExtendedHeader, error) { return extHeader(f.head), nil }
-	r, err := NewReaderFlag(&client.ReadClient{Header: f}, c.HeightFlag())
-	require.NoError(t, err)
+	r := bridgeOver(t, f)
 
-	_, err = r.HeaderAt(tctx(t), 120)
+	_, err := r.HeaderAt(tctx(t), 120)
 	require.ErrorIs(t, err, heightcheck.ErrHeightIgnored)
+	assert.False(t, c.HeightFlag().Ignoring())
 	_, err = c.FibreParamsAt(tctx(t), 1234)
-	require.ErrorIs(t, err, heightcheck.ErrHeightIgnored)
+	require.NoError(t, err)
+}
+
+func TestBridgeCanaryIgnoringDoesNotMarkTheConsensusFlag(t *testing.T) {
+	c := newRig(head0, bankEcho, honest).start(t)
+	f := &fakeHeaders{head: 500}
+	f.byH = func(uint64) (*header.ExtendedHeader, error) { return extHeader(f.head), nil }
+	got, _ := BridgeEndpoint("bridge", bridgeOver(t, f)).Canary(tctx(t))
+	assert.Equal(t, heightcheck.Ignoring, got)
+	assert.False(t, c.HeightFlag().Ignoring())
 }

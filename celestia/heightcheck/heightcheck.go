@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
-	"sync/atomic"
+	"sync"
 
 	"google.golang.org/grpc/metadata"
 )
@@ -61,26 +61,68 @@ func HeaderHeight(got, want uint64) error {
 }
 
 // Flag records that a consensus endpoint was seen ignoring heights. The canary
-// and the block readers share one; a passing canary clears it. The zero value
-// is ready and a nil Flag is never set.
-type Flag struct{ ignoring atomic.Bool }
+// and the at-height readers share one; a passing canary clears it unless a mark
+// landed after the canary began. The zero value is ready and a nil Flag is
+// never set.
+type Flag struct {
+	mu      sync.Mutex
+	ignored bool
+	gen     uint64
+}
 
 // Mark sets the flag.
 func (f *Flag) Mark() {
-	if f != nil {
-		f.ignoring.Store(true)
+	if f == nil {
+		return
 	}
+	f.mu.Lock()
+	f.ignored = true
+	f.gen++
+	f.mu.Unlock()
 }
 
-// Clear resets the flag.
-func (f *Flag) Clear() {
-	if f != nil {
-		f.ignoring.Store(false)
+// Generation counts the marks so far. Read it before a canary starts and pass it
+// to ClearIf.
+func (f *Flag) Generation() uint64 {
+	if f == nil {
+		return 0
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.gen
+}
+
+// ClearIf resets the flag unless it was marked after gen was read.
+func (f *Flag) ClearIf(gen uint64) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	if f.gen == gen {
+		f.ignored = false
+	}
+	f.mu.Unlock()
+}
+
+// Clear resets the flag unconditionally.
+func (f *Flag) Clear() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	f.ignored = false
+	f.mu.Unlock()
 }
 
 // Ignoring reports whether the endpoint is marked height-ignoring.
-func (f *Flag) Ignoring() bool { return f != nil && f.ignoring.Load() }
+func (f *Flag) Ignoring() bool {
+	if f == nil {
+		return false
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ignored
+}
 
 // Role tells Startup what an endpoint's canary decides.
 type Role int
@@ -100,6 +142,12 @@ type Endpoint interface {
 	Canary(ctx context.Context) (Status, error)
 }
 
+// Described is an optional Endpoint extension. Details returns slog key-value
+// pairs, valid after Canary ran, that Startup adds to the endpoint's log line.
+type Described interface {
+	Details() []any
+}
+
 // Startup runs every canary and logs one line per endpoint. It reports
 // observations-only mode when any consensus endpoint did not pass; bridge
 // endpoints are logged only. A canary never makes it fail.
@@ -110,19 +158,23 @@ func Startup(ctx context.Context, log *slog.Logger, eps ...Endpoint) (observatio
 	for _, ep := range eps {
 		st, cerr := ep.Canary(ctx)
 		consensus := ep.Role() == RoleConsensus
+		var details []any
+		if d, ok := ep.(Described); ok {
+			details = d.Details()
+		}
 		switch {
 		case st == Honoured && cerr == nil:
-			log.Info(ep.Name() + ": height honoured")
+			log.Info(ep.Name()+": height honoured", details...)
 		case st == Ignoring && consensus:
 			observationsOnly = true
-			log.Warn(ep.Name() + ": height-ignoring, observations-only mode")
+			log.Warn(ep.Name()+": height-ignoring, observations-only mode", details...)
 		case st == Ignoring:
-			log.Warn(ep.Name() + ": height-ignoring")
+			log.Warn(ep.Name()+": height-ignoring", details...)
 		case consensus:
 			observationsOnly = true
-			log.Warn(ep.Name()+": height check inconclusive, observations-only mode", "err", cerr)
+			log.Warn(ep.Name()+": height check inconclusive, observations-only mode", append([]any{"err", cerr}, details...)...)
 		default:
-			log.Warn(ep.Name()+": height check inconclusive", "err", cerr)
+			log.Warn(ep.Name()+": height check inconclusive", append([]any{"err", cerr}, details...)...)
 		}
 	}
 	return observationsOnly, nil

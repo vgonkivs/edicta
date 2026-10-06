@@ -432,7 +432,7 @@ func TestClockAndChainErrors(t *testing.T) {
 		e.Anchors.Set(c.PayloadRef, gate.Anchor{Height: c.PayloadRef.Height})
 		b, _ := gatefix.Sign(t, "agent1", c)
 		_, err := e.Authorize(b)
-		e.RequireRejected(c, err, gate.ErrAnchorNotFound)
+		e.RequireRejected(c, err, gate.ErrChainUnavailable)
 	})
 	t.Run("cancelled context writes nothing", func(t *testing.T) {
 		e, c, b, _ := happy(t)

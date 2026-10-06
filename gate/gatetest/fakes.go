@@ -110,7 +110,7 @@ func (h *Headers) BlockTime(_ context.Context, height uint64) (uint64, error) {
 	}
 	t, ok := h.times[height]
 	if !ok {
-		return 0, gate.ErrAnchorNotFound
+		return 0, fmt.Errorf("%w: no block at height %d", gate.ErrChainUnavailable, height)
 	}
 	return t, nil
 }
