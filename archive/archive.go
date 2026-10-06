@@ -6,6 +6,7 @@ package archive
 import (
 	"context"
 	"errors"
+	"io"
 
 	"github.com/vgonkivs/edicta/commitment"
 )
@@ -178,7 +179,8 @@ type DecisionState struct {
 // when the record it depends on is missing, and the DA committer's error for
 // a payload that fails the recompute. Readers return ErrNotFound for an absent
 // key and an ErrCorrupt error for a stored record that does not decode or
-// does not carry its key.
+// does not carry its key. A key that cannot exist (a malformed commitment or
+// an unknown da or verdict name) is an absent key: ErrNotFound.
 type Store interface {
 	Put(ctx context.Context, r Record) (Outcome, error)
 	Payload(ctx context.Context, da commitment.DA, commit []byte) (*PayloadRecord, error)
@@ -187,4 +189,11 @@ type Store interface {
 	Authorization(ctx context.Context, h commitment.Hash) (*AuthorizationRecord, error)
 	Rejection(ctx context.Context, h commitment.Hash, name string) (*RejectionRecord, error)
 	State(ctx context.Context, h commitment.Hash) (DecisionState, error)
+}
+
+// PayloadStreamer is implemented by stores that can hand out the encoded
+// payload record without decoding it, so a reader can bound its memory. The
+// bytes are untrusted: the reader validates what it uses.
+type PayloadStreamer interface {
+	PayloadReader(ctx context.Context, da commitment.DA, commit []byte) (io.ReadCloser, error)
 }

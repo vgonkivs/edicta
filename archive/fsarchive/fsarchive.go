@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
@@ -27,14 +28,21 @@ const tempPrefix = ".tmp-"
 // Option configures a Store.
 type Option func(*Store)
 
-// WithBeforeRename sets a hook that runs after the temp file is written and
+// WithBeforePublish sets a hook that runs after the temp file is written and
 // synced, right before it is published. An error aborts the write. It exists
 // to simulate crashes.
-func WithBeforeRename(f func(finalPath string) error) Option {
+func WithBeforePublish(f func(finalPath string) error) Option {
 	return func(s *Store) { s.before = f }
 }
 
+// WithStaleAge sets how old a temp file must be before Open removes it. The
+// default is one hour; a younger file may belong to a live writer.
+func WithStaleAge(d time.Duration) Option {
+	return func(s *Store) { s.staleAge = d }
+}
+
 type Store struct {
+	staleAge   time.Duration
 	dir        string
 	committers map[commitment.DA]gate.DACommitter
 	before     func(string) error
@@ -43,10 +51,14 @@ type Store struct {
 	mu sync.Mutex
 }
 
-var _ archive.Store = (*Store)(nil)
+var (
+	_ archive.Store           = (*Store)(nil)
+	_ archive.PayloadStreamer = (*Store)(nil)
+)
 
 // Open uses dir as the archive, creating it if needed. A payload is accepted
-// only for a da that has a committer.
+// only for a da that has a committer. Temp files left by a crashed writer
+// are removed once older than the stale age. Open fails on a platform without directory locks.
 func Open(dir string, committers map[commitment.DA]gate.DACommitter, opts ...Option) (*Store, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -55,19 +67,64 @@ func Open(dir string, committers map[commitment.DA]gate.DACommitter, opts ...Opt
 	if err := os.MkdirAll(abs, 0o755); err != nil {
 		return nil, fmt.Errorf("fsarchive: %w", err)
 	}
-	s := &Store{dir: abs, committers: make(map[commitment.DA]gate.DACommitter, len(committers))}
+	if err := checkPlatform(); err != nil {
+		return nil, err
+	}
+	s := &Store{staleAge: time.Hour, dir: abs, committers: make(map[commitment.DA]gate.DACommitter, len(committers))}
 	for da, c := range committers {
 		s.committers[da] = c
 	}
 	for _, o := range opts {
 		o(s)
 	}
+	if err := s.removeStale(); err != nil {
+		return nil, err
+	}
 	return s, nil
+}
+
+// removeStale deletes old temp files a crashed writer left behind. They are never
+// linked to a key, so no reader can see them. Young ones are kept: payload
+// writes take no lock, so they may belong to a live writer.
+func (s *Store) removeStale() error {
+	unlock, err := lockDir(context.Background(), s.dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	err = filepath.WalkDir(s.dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if !d.IsDir() && strings.HasPrefix(d.Name(), tempPrefix) {
+			info, err := d.Info()
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					return nil
+				}
+				return err
+			}
+			if time.Since(info.ModTime()) < s.staleAge {
+				return nil
+			}
+			if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("fsarchive: clean temp files: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) path(rel string) string { return filepath.Join(s.dir, filepath.FromSlash(rel)) }
 
-func (s *Store) Put(_ context.Context, r archive.Record) (archive.Outcome, error) {
+func (s *Store) Put(ctx context.Context, r archive.Record) (archive.Outcome, error) {
 	b, err := archive.Encode(r)
 	if err != nil {
 		return 0, err
@@ -90,12 +147,12 @@ func (s *Store) Put(_ context.Context, r archive.Record) (archive.Outcome, error
 			return 0, err
 		}
 	case *archive.AuthorizationRecord, *archive.RejectionRecord:
-		return s.putDependent(r, rel, b)
+		return s.putDependent(ctx, r, rel, b)
 	}
 	return s.create(rel, r, b)
 }
 
-func (s *Store) putDependent(r archive.Record, rel string, b []byte) (archive.Outcome, error) {
+func (s *Store) putDependent(ctx context.Context, r archive.Record, rel string, b []byte) (archive.Outcome, error) {
 	var h commitment.Hash
 	switch r := r.(type) {
 	case *archive.RejectionRecord:
@@ -109,7 +166,7 @@ func (s *Store) putDependent(r archive.Record, rel string, b []byte) (archive.Ou
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	unlock, err := lockDir(s.dir)
+	unlock, err := lockDir(ctx, s.dir)
 	if err != nil {
 		return 0, err
 	}
@@ -117,6 +174,11 @@ func (s *Store) putDependent(r archive.Record, rel string, b []byte) (archive.Ou
 
 	if err := s.require(archive.HashPath(archive.KindDecision, h)); err != nil {
 		return 0, err
+	}
+	if a, ok := r.(*archive.AuthorizationRecord); ok {
+		if err := s.checkK2(h, a); err != nil {
+			return 0, err
+		}
 	}
 	if r.Kind() == archive.KindRejection {
 		ok, err := s.exists(archive.HashPath(archive.KindAuthorization, h))
@@ -128,6 +190,34 @@ func (s *Store) putDependent(r archive.Record, rel string, b []byte) (archive.Ou
 		}
 	}
 	return s.create(rel, r, b)
+}
+
+// checkK2 compares the da of the K2 inputs with the da of the stored
+// decision. An absent decision is not checked here.
+func (s *Store) checkK2(h commitment.Hash, a *archive.AuthorizationRecord) error {
+	if a.K2 == nil {
+		return nil
+	}
+	rel := archive.HashPath(archive.KindDecision, h)
+	rec, err := s.read(rel)
+	if err != nil {
+		if errors.Is(err, archive.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	d, ok := rec.(*archive.DecisionRecord)
+	if !ok {
+		return corruptType(rel)
+	}
+	sc, err := commitment.DecodeSigned(d.Envelope)
+	if err != nil {
+		return fmt.Errorf("%w: %s: %w", archive.ErrCorrupt, rel, err)
+	}
+	if sc.Commitment.PayloadRef.DA != a.K2.DA {
+		return fmt.Errorf("%w: k2 da %d differs from the decision's da %d", archive.ErrCorrupt, a.K2.DA, sc.Commitment.PayloadRef.DA)
+	}
+	return nil
 }
 
 func (s *Store) checkDA(p *archive.PayloadRecord) error {
@@ -173,6 +263,10 @@ func (s *Store) create(rel string, r archive.Record, b []byte) (archive.Outcome,
 		switch {
 		case err == nil:
 			if archive.SameIdentity(old, r) {
+				// The earlier writer may have died between link and fsync.
+				if err := s.syncExisting(final); err != nil {
+					return 0, err
+				}
 				return archive.Unchanged, nil
 			}
 			return 0, fmt.Errorf("%w: %s", archive.ErrConflict, rel)
@@ -188,6 +282,21 @@ func (s *Store) create(rel string, r archive.Record, b []byte) (archive.Outcome,
 		}
 	}
 	return 0, fmt.Errorf("fsarchive: %s keeps changing under the writer", rel)
+}
+
+func (s *Store) syncExisting(final string) error {
+	f, err := os.Open(final)
+	if err != nil {
+		return fmt.Errorf("fsarchive: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("fsarchive: sync: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("fsarchive: %w", err)
+	}
+	return syncDir(filepath.Dir(final))
 }
 
 func (s *Store) publish(final string, b []byte) (err error) {
@@ -218,7 +327,7 @@ func (s *Store) publish(final string, b []byte) (err error) {
 	}
 	if s.before != nil {
 		if err := s.before(final); err != nil {
-			return fmt.Errorf("fsarchive: before rename: %w", err)
+			return fmt.Errorf("fsarchive: before publish: %w", err)
 		}
 	}
 	// A hard link fails when the final path exists, where a rename would
@@ -245,7 +354,12 @@ func (s *Store) ensureDir(dir string) error {
 			if err := syncDir(cur); err != nil {
 				return err
 			}
-		case !errors.Is(err, fs.ErrExist):
+		case errors.Is(err, fs.ErrExist):
+			// A crashed writer may have created it without syncing the parent.
+			if err := syncDir(cur); err != nil {
+				return err
+			}
+		default:
 			return fmt.Errorf("fsarchive: %w", err)
 		}
 		cur = next
@@ -315,6 +429,26 @@ func (s *Store) Payload(_ context.Context, da commitment.DA, commit []byte) (*ar
 	return p, nil
 }
 
+// PayloadReader opens the encoded payload record for streaming. The caller
+// must validate the bytes.
+func (s *Store) PayloadReader(ctx context.Context, da commitment.DA, commit []byte) (io.ReadCloser, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	rel, err := archive.DataPath(archive.KindPayload, da, commit)
+	if err != nil {
+		return nil, notFound(err)
+	}
+	f, err := os.Open(s.path(rel))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %s", archive.ErrNotFound, rel)
+		}
+		return nil, fmt.Errorf("fsarchive: %w", err)
+	}
+	return f, nil
+}
+
 func (s *Store) Evidence(_ context.Context, da commitment.DA, commit []byte) (*archive.EvidenceRecord, error) {
 	rel, err := archive.DataPath(archive.KindEvidence, da, commit)
 	if err != nil {
@@ -353,6 +487,9 @@ func (s *Store) Authorization(_ context.Context, h commitment.Hash) (*archive.Au
 	a, ok := rec.(*archive.AuthorizationRecord)
 	if !ok {
 		return nil, corruptType(rel)
+	}
+	if err := s.checkK2(h, a); err != nil {
+		return nil, err
 	}
 	return a, nil
 }

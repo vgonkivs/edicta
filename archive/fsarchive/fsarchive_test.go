@@ -295,7 +295,7 @@ func TestFailedWriteLeavesNothing(t *testing.T) {
 	boom := errors.New("injected")
 	var calls int
 	var paths []string
-	s, dir := open(t, fx, fsarchive.WithBeforeRename(func(finalPath string) error {
+	s, dir := open(t, fx, fsarchive.WithBeforePublish(func(finalPath string) error {
 		calls++
 		paths = append(paths, finalPath)
 		return boom
@@ -326,7 +326,7 @@ func TestFailedWriteLeavesNothing(t *testing.T) {
 func TestWriteRecoversAfterFailure(t *testing.T) {
 	fx := archivefix.Load(t)
 	fail := true
-	s, dir := open(t, fx, fsarchive.WithBeforeRename(func(string) error {
+	s, dir := open(t, fx, fsarchive.WithBeforePublish(func(string) error {
 		if fail {
 			return errors.New("injected")
 		}
@@ -347,7 +347,7 @@ func TestWriteRecoversAfterFailure(t *testing.T) {
 func TestInterruptedWriteIsInvisible(t *testing.T) {
 	fx := archivefix.Load(t)
 	var interrupt = true
-	s, dir := open(t, fx, fsarchive.WithBeforeRename(func(string) error {
+	s, dir := open(t, fx, fsarchive.WithBeforePublish(func(string) error {
 		if interrupt {
 			runtime.Goexit()
 		}

@@ -2,6 +2,13 @@
 
 package fsarchive
 
-// lockDir has no cross-process lock on this platform; writers in one process
-// still serialize.
-func lockDir(string) (func(), error) { return func() {}, nil }
+import (
+	"context"
+	"errors"
+)
+
+func checkPlatform() error {
+	return errors.New("fsarchive: unsupported platform: no directory locks")
+}
+
+func lockDir(context.Context, string) (func(), error) { return nil, checkPlatform() }

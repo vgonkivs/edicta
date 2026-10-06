@@ -36,6 +36,39 @@ type Reject struct {
 	Cause string
 }
 
+// RejectLarge is a reject vector given by a prefix and a generated suffix.
+type RejectLarge struct {
+	ID     string
+	Prefix []byte
+	Size   int
+	SHA256 string
+	Cause  string
+}
+
+// Bytes builds the record: the prefix followed by byte i = (7*i+3) mod 256
+// up to Size, and checks the vector hash.
+func (r RejectLarge) Bytes(t testing.TB) []byte {
+	t.Helper()
+	b := make([]byte, r.Size)
+	n := copy(b, r.Prefix)
+	for i := 0; n+i < r.Size; i++ {
+		b[n+i] = byte(7*i + 3)
+	}
+	sum := sha256.Sum256(b)
+	require.Equal(t, r.SHA256, hex.EncodeToString(sum[:]), r.ID)
+	return b
+}
+
+// Read is a stored-records scenario: the records are written without any
+// write check and then read back.
+type Read struct {
+	ID     string
+	Stored []string
+	Kind   string
+	Hash   string
+	Expect string
+}
+
 type After struct {
 	Hash       string
 	State      string
@@ -57,6 +90,8 @@ type Scenario struct {
 type Fixture struct {
 	Cases     map[string]Case
 	Rejects   []Reject
+	Large     []RejectLarge
+	Reads     []Read
 	Scenarios []Scenario
 	// Fibre maps the SHA-256 of a da = 1 blob to its commitment.
 	Fibre map[[32]byte][]byte
@@ -67,14 +102,14 @@ func vectorDir() string {
 	return filepath.Join(filepath.Dir(file), "..", "..", "spec", "vectors", "archive")
 }
 
-func readJSON(t *testing.T, name string, v any) {
+func readJSON(t testing.TB, name string, v any) {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(vectorDir(), name))
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(b, v))
 }
 
-func Load(t *testing.T) *Fixture {
+func Load(t testing.TB) *Fixture {
 	t.Helper()
 	var rec struct {
 		Cases []struct {
@@ -91,6 +126,13 @@ func Load(t *testing.T) *Fixture {
 			CBORHex string `json:"record_cbor_hex"`
 			Cause   string `json:"cause"`
 		} `json:"reject"`
+		RejectLarge []struct {
+			ID     string `json:"id"`
+			Prefix string `json:"record_prefix_hex"`
+			Size   string `json:"record_size"`
+			SHA    string `json:"record_sha256_hex"`
+			Cause  string `json:"cause"`
+		} `json:"reject_large"`
 	}
 	readJSON(t, "records.json", &rec)
 	var st struct {
@@ -99,6 +141,15 @@ func Load(t *testing.T) *Fixture {
 			Commitment string `json:"commitment_hex"`
 			BlobSHA    string `json:"blob_sha256_hex"`
 		} `json:"da_check"`
+		Reads []struct {
+			ID     string   `json:"id"`
+			Stored []string `json:"stored"`
+			Read   struct {
+				Kind string `json:"kind"`
+				Hash string `json:"commitment_hash_hex"`
+			} `json:"read"`
+			Expect string `json:"expect"`
+		} `json:"reads"`
 		Scenarios []struct {
 			ID    string   `json:"id"`
 			Final []string `json:"final_records"`
@@ -128,6 +179,14 @@ func Load(t *testing.T) *Fixture {
 	}
 	for _, r := range rec.Reject {
 		fx.Rejects = append(fx.Rejects, Reject{ID: r.ID, CBOR: unhex(t, r.CBORHex), Cause: r.Cause})
+	}
+	for _, r := range rec.RejectLarge {
+		fx.Large = append(fx.Large, RejectLarge{
+			ID: r.ID, Prefix: unhex(t, r.Prefix), Size: int(num(t, r.Size)), SHA256: r.SHA, Cause: r.Cause,
+		})
+	}
+	for _, r := range st.Reads {
+		fx.Reads = append(fx.Reads, Read{ID: r.ID, Stored: r.Stored, Kind: r.Read.Kind, Hash: r.Read.Hash, Expect: r.Expect})
 	}
 	for _, d := range st.DACheck {
 		if d.DA == "1" {
@@ -179,15 +238,17 @@ var Causes = map[string]error{
 
 // ExpectedErr maps a step expectation to a sentinel; nil for written and
 // unchanged.
-func ExpectedErr(t *testing.T, s string) error {
+func ExpectedErr(t testing.TB, s string) error {
 	t.Helper()
 	switch s {
-	case "written", "unchanged":
+	case "written", "unchanged", "ok":
 		return nil
 	case "archive.ErrConflict":
 		return archive.ErrConflict
 	case "archive.ErrNotFound":
 		return archive.ErrNotFound
+	case "archive.ErrCorrupt":
+		return archive.ErrCorrupt
 	case "gate.ErrDACommitmentMismatch":
 		return gate.ErrDACommitmentMismatch
 	}
@@ -209,7 +270,7 @@ func (f fibreCommitter) Check(ref commitment.PayloadRef, blob []byte) error {
 }
 
 // Files returns the slash-separated paths of the regular files under dir.
-func Files(t *testing.T, dir string) []string {
+func Files(t testing.TB, dir string) []string {
 	t.Helper()
 	var out []string
 	require.NoError(t, filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
@@ -229,21 +290,21 @@ func Files(t *testing.T, dir string) []string {
 	return out
 }
 
-func unhex(t *testing.T, s string) []byte {
+func unhex(t testing.TB, s string) []byte {
 	t.Helper()
 	b, err := hex.DecodeString(s)
 	require.NoError(t, err)
 	return b
 }
 
-func num(t *testing.T, s string) uint64 {
+func num(t testing.TB, s string) uint64 {
 	t.Helper()
 	n, err := strconv.ParseUint(s, 10, 64)
 	require.NoError(t, err)
 	return n
 }
 
-func bytesOf(t *testing.T, m map[string]any, key string) []byte {
+func bytesOf(t testing.TB, m map[string]any, key string) []byte {
 	t.Helper()
 	v, ok := m[key]
 	if !ok {
@@ -266,7 +327,7 @@ func bytesOf(t *testing.T, m map[string]any, key string) []byte {
 	return nil
 }
 
-func numOf(t *testing.T, m map[string]any, key string) uint64 {
+func numOf(t testing.TB, m map[string]any, key string) uint64 {
 	t.Helper()
 	s, ok := m[key].(string)
 	if !ok {
@@ -276,7 +337,7 @@ func numOf(t *testing.T, m map[string]any, key string) uint64 {
 }
 
 // Build makes a record from a vector input object.
-func Build(t *testing.T, in map[string]any) archive.Record {
+func Build(t testing.TB, in map[string]any) archive.Record {
 	t.Helper()
 	switch in["kind"] {
 	case "payload":

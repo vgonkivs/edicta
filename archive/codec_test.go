@@ -160,3 +160,18 @@ func TestSentinelsDistinct(t *testing.T) {
 	require.NotErrorIs(t, archive.ErrCorrupt, archive.ErrNotFound)
 	require.NotErrorIs(t, archive.ErrCorrupt, commitment.ErrMalformed)
 }
+
+func TestVectorsRejectLarge(t *testing.T) {
+	fx := archivefix.Load(t)
+	require.NotEmpty(t, fx.Large)
+	for _, r := range fx.Large {
+		t.Run(r.ID, func(t *testing.T) {
+			cause, ok := archivefix.Causes[r.Cause]
+			require.True(t, ok, "unmapped cause %s", r.Cause)
+			rec, err := archive.Decode(r.Bytes(t))
+			require.Nil(t, rec)
+			require.ErrorIs(t, err, archive.ErrCorrupt)
+			require.ErrorIs(t, err, cause)
+		})
+	}
+}
