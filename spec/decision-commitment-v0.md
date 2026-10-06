@@ -2,7 +2,7 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v0-draft.23` (2026-10-06). Working draft, subject to change.
+Status: revision `v0-draft.25` (2026-10-06). Working draft, subject to change.
 Wire version: `version = 0`. Domain tags: `edicta/v0/...`.
 
 The core knows no rail, broker or chain. An action is an opaque byte string
@@ -56,6 +56,7 @@ signature even if the byte layout were identical.
 | `v0-draft.22` | 2026-10-06 | Cleanup after draft.21 dropped the CV7 fallback; no wire change. (1) Section 10.6.2: the verifier needs a trusted header at `promise.height` only, not at `promise.height + 1`; HT1 requires `T >= max(payload_ref.height, promise.height)` (before: `promise.height + 1` if higher). A header at `promise.height + 1` is still read where the HT3 backward chain passes through it, from any source, like every header between. (2) Section 10.7: the `da = 1` header row asks for the signed header at `PaymentPromise.height` only; the CometBFT validator set and the `validators_hash` of `promise.height + 1` are no longer needed by CV7. (3) Section 19.2, evidence field 18 `promise_valset`: still R1 for `da = 1` in archive format 0 (its decoder requires it, and its bytes do not change), but kept for audit only: no v0 check reads it. (4) Section 1, PFF certificate row: the archived list is tied to the chain by `next_validators_hash` of the header at `PaymentPromise.height`, not by `validators_hash`. Verdicts unchanged: no v0 check read the items dropped here since draft.21. | Unchanged. Verifier: HT1 accepts a trusted header at `promise.height` | Every file byte-identical. |
 | `v0-draft.23` | 2026-10-06 | `da = 1` anchor proof from namespace data (human decision of 2026-10-06); no wire change. (1) Section 10.4, K0 for `da = 1`: rules NA1 to NA7 replace the block scan. The header at `height` comes from the consensus endpoint (AH1) and gives `data_hash` and `T_H`; the DAH comes from a bridge and must pass `ValidateBasic` and hash to `data_hash`; `share.GetNamespaceData(height, PayForFibreNamespace)` comes from a bridge and must pass `NamespaceData.Verify` (one complete NMT namespace proof per row the DAH says holds the namespace); txs are reassembled with `ParseTxs` and accepted only if splitting them again gives the same shares; candidates as before; code 0 from gRPC `GetTx` with the echoed height (node-attested; needs the node's tx index, which the draft.17 lookup avoided); the anchor is the earliest `creation_timestamp` with code 0, ties by position in the namespace (before: block order). A failure of the bridge's answer, an unreadable code or a missing bridge at request time is `ErrChainUnavailable`; `ErrAnchorNotFound` only for complete namespace data without an anchor. No whole-block read for `da = 1`. A `fibre` gate without a configured bridge refuses to start. Threat notes on the lookup and on `ShareProof.Validate` (no row index, total or original-row check, no completeness; not used on this path, extra checks for anyone who does). (2) Section 10.9: `share.GetNamespaceData` is a block read bound through AH2 (DAH, row roots); `GetTx` is not a read at a height, its echoed height is checked, and a mismatch fails the read without marking the endpoint height-ignoring; AH5 names NA1 to NA4. (3) Section 10.6.1 CV8 and section 10.7: for `da = 1` the archived anchor proof (DAH plus namespace data, form 1) is the inclusion evidence, MUST; the system blob stays (format 0 requires it) and is checked only for equality with `NewV2Blob` of the archived PFF; the PFF `ShareProof` goes from SHOULD to MAY and is not used; a form-1 proof above `2^22` bytes cannot be archived (`recorder.ErrArchiveUnavailable`). New report fields `anchor_proof_form` and `anchor_candidates_earlier` (a warning). (4) Section 19.2: `system_blob_proof` holds form 1 (deterministic CBOR `{1: 1, 2: DAH protobuf, 3: NamespaceData.WriteTo stream}`) or, in records written before, form 0 (the `CommitmentProof` JSON), told apart by the first byte; `anchor_tx_index` for `da = 1` is the node's report, informational. Archive format 0 bytes and strict decoding unchanged. (5) Section 10.8: SC1 also pins nmt `v0.24.5` (NA3 needs the completeness fix of `v0.24.3`); SC6 covers the anchor-proof bridge (verified answers, so no version gate; the version is logged). Section 10.1: nmt pin row. Section 1: a row for the anchor proof. Outcomes change only in the `da = 1` lookup: a gate whose node has no tx index now answers `ErrChainUnavailable` where draft.22 scanned the block, a gate without a bridge does not start, and the tie order between equal timestamps is the namespace order. | Unchanged. Archive format 0 unchanged; the opaque `system_blob_proof` for `da = 1` gains form 1. Verifier: CV8 on form 1, two new report fields | New: `spec/vectors/da/fibre_anchor.json` (`"revision": "v0-draft.23"`: live Mocha namespace data and DAH at heights 1,402,819 and 1,439,696, 12 mutations, 14 reassembly cases, the form-1 archive proof), generated by `spec/vectors/tools/fibreanchor-gen` from upstream code and checked by the new `check_fibre_anchor.py` (independent NMT, RFC 6962, protobuf, compact-share parser and splitter), run by `check_vectors.py`. Every existing file byte-identical. |
 | `v0-draft.24` | 2026-10-06 | Verifier fixes from the task 023 re-audit; no wire change. (1) Sections 10.4 (NA5) and 10.6.1 (CV2): a `da = 1` promise height MUST be at most the anchor height: `PaymentPromise.height <= payload_ref.height`, equality allowed. On chain this always holds (the keeper reads `HistoricalInfo` at the promise height, which does not exist yet above the current block), so the gate's candidates do not change; a verifier now rejects an archived promise above `height` instead of trusting a header above it. (2) Section 10.6.2: the header at `payload_ref.height` and the header at `promise.height` are checked through header trust separately; at equal heights both archived headers MUST have the same hash, and one never stands in for the other (before, an implementation keyed by height could let the genuine promise header vouch for a forged anchor header). (3) Section 19.2, K2 replay: `promise_created` is consistent iff it equals the creation time of a candidate created at or before the archived anchor (NA7 picks the earliest code-0 candidate, which need not be the archived one); with `anchor_candidates_earlier = 0` that is equality. Form 0 shows no other candidate: a smaller value is not checked. An absent `promise_created` is consistent iff the authorized path is the archive (`path = 2`). Before, the rule was unstated and an implementation that required equality reported a legitimate earlier candidate as a gate inconsistency. (4) CV2: the `blob_size` arithmetic is written out, from the committed `payload_size`. Verdicts change only in `verify` and `replay`: a promise above `height` fails CV2, a forged anchor header at the promise height fails header trust, and K2 replay accepts an earlier candidate and an absent `promise_created` on the archive path. | Unchanged | Every file byte-identical. |
+| `v0-draft.25` | 2026-10-06 | Bridge fallback, Fibre cost and archive read faults; no wire change (`v0-draft.24` is a separate verifier revision whose status line was not bumped). (1) Section 10.8, SC6 (human decision of 2026-10-06): at the pin the only version method, `node.Info`, needs an admin token, so the download fallback is now enabled after compatibility is verified by version (BV, permitted, not recommended) or by a capability probe (BP1 to BP5: download one retained, anchored blob found through NA1 to NA6, check the raw `fibre.Download` answer's shape strictly, recompute P3). A version or capability declared in configuration is never a substitute. A failed or inconclusive probe disables the fallback with a warning, never the start. The anchor-proof bridge's version log is best effort (a read token gets a permission error). Rationale note: integrity comes from the P3 recompute of every answer; the check is about compatibility only. (2) Section 10.2 and the section 17.3 threat notes: a `PaymentPromise` handed to validators but never settled is charged once through `MsgPaymentPromiseTimeout` after the promise timeout (verified in x/fibre at the pin), so a failed `da = 1` upload may cost one fee without creating an anchor; earlier design notes said partial signatures cost nothing. (3) Sections 8.7 (stage 9), 8.5, 12 and 19.6: an unreadable or corrupt archive payload record on the archive path is `ErrArchiveUnavailable` (operational, 503, no rejection marker, nonce not consumed), never a P verdict or `gate.ErrBlobNotFound`. Verdicts change only for a corrupt archive payload record (before: an unnamed operational error that implementations could map to `ErrPayloadUnavailable`). | Unchanged. Gate: a probe hook for the bridge fallback; the archive source's read fault maps to `ErrArchiveUnavailable` | Every file byte-identical. |
 
 ## 1. Threat model in one table
 
@@ -714,6 +715,17 @@ cause a fall back to the archive are not reported unless the archive path
 also fails; when both fail, the sentinel with the higher precedence is
 reported and the other cause MAY be attached.
 
+Archive read faults (normative since `v0-draft.25`). When the archive path
+is taken and the archive payload record exists but cannot be read or fails
+strict decoding (section 19.6), the gate answers `ErrArchiveUnavailable`
+instead of any sentinel above: the archive path did not finish, so there is
+no verdict, and the copy that could have passed P1 to P3 may still be
+readable on a retry. Like every operational failure it marks nothing (AR5)
+and consumes no nonce. Threat note: reporting a corrupt record as
+`ErrPayloadUnavailable` would record a verdict, and a rejection marker,
+against a decision whose payload is only unreadable on this gate's disk;
+reporting it as absent would let a damaged archive look like a pruned one.
+
 ### 8.6 Normative pipeline (stateless part)
 
 `VerifyForGate(envelope, now, gate, params)` = `params.Validate()`, then
@@ -742,7 +754,7 @@ a later stage's sentinel when an earlier stage fails.
 | 6 | K | K0 | The anchor tx exists at `payload_ref.height` (section 10.4 for `da = 1`: proven from the PayForFibre namespace data of that block, result code 0, rules NA1 to NA7; 10.5 for `da = 2`), and the header time `T_H` is readable | `ErrAnchorNotFound` | 2 |
 | 7 | K1 | K1 | Section 11.2 | `ErrIssuedBeforeAnchor` | 4 |
 | 8 | K2 | K2 | Section 11.2. Selects the DA or archive path only, never a rejection by itself | none | 2, 4 |
-| 9 | P | P1, P2, P3 | Section 8.5, per path | P sentinels, precedence in 8.5 | 2 |
+| 9 | P | P1, P2, P3 | Section 8.5, per path. On the archive path, an archive payload record that is unreadable or corrupt (section 19.6) is an operational failure, not a verdict | P sentinels, precedence in 8.5; `ErrArchiveUnavailable` (operational, 503, `Retry-After`) for an unreadable or corrupt archive payload record: no rejection marker (AR5), nonce not consumed | 2 |
 | 10 | T' | T1, T2 | `CheckTime` again with a fresh clock reading `authorized_at`, because fetches take time | `ErrNotYetValid`, `ErrExpired` | 4 |
 | 11 | Z | Z1 | Build the Authorization (section 15.1): `commitment_hash`, `action_hash = c.action.hash`, the gate's `gate_id`, `expires = min(valid_until, authorized_at + MaxAuthorizationTTL)`, `path` of stage 9. Sign it with the gate key under `TagAuthorizationSig` and verify the signature before use. Nothing is stored yet | (operational: signer error, timeout) | 7 |
 | 12 | N | N1 | Atomically create the registry entry for `(agent_pubkey, nonce)` holding `commitment_hash` and the canonical SignedAuthorization; fails if the key exists. Committed durably before stage 13 | `ErrNonceUsed` | 5 |
@@ -1305,6 +1317,7 @@ Sources below use these prefixes:
 | L1 max blob size | Bounded by `MaxTxSize = 8 MiB` per PFB tx and by the square size (`GovMaxSquareSize` default 256) | VERIFIED (bound), exact usable maximum `UNVERIFIED` | `APP/pkg/appconsts/app_consts.go`, `APP/pkg/appconsts/initial_consts.go` |
 | `shard_retention` | Default 4h, governance bounds 10m to 168h | VERIFIED | `APP/x/fibre/types/params.go`, `APP/x/fibre/README.md` |
 | Shard prune time | `pruneAt = max(promise expiry, creation_timestamp + shard_retention)`, computed once at upload from the retention value at that moment | VERIFIED at pin | `APP/fibre/server_upload.go` (`shardPruneAt`), `APP/specs/src/fibre_server.md` |
+| Unsettled promise is charged | A `PaymentPromise` handed to validators but never settled by a PFF (fewer than 2/3 signatures, a crash, a lost connection) can be settled by anyone holding it with `MsgPaymentPromiseTimeout`, once block time reaches `creation_timestamp + payment_promise_timeout` (default 1 h, bounds 10 min to 12 h) and while the promise is still fresh (`creation_timestamp` after `block time - withdrawal_delay`, default 24 h). Only the payer's promise signature is checked, no validator signatures. The escrow pays `PaymentAmount(blob_size)`, the same as for a PFF, and the promise is marked processed, so it can never anchor afterwards. A failed upload can therefore cost one fee and never creates an anchor | VERIFIED (code) | `APP/x/fibre/keeper/msg_server.go` (`PaymentPromiseTimeout`), `APP/x/fibre/keeper/keeper.go` (`validatePaymentPromiseStatefulInternal`), `APP/x/fibre/types/params.go`, `APP/x/fibre/types/gas.go` (`PaymentAmount`) |
 | `height` for Fibre | The block height in which `MsgPayForFibre` was included (`SubmitResult.Height`). Not `PaymentPromise.height`, which selects the validator set | VERIFIED | `NODE/nodebuilder/fibre/types.go`, `APP/proto/celestia/fibre/v1/fibre.proto` |
 | `height` for L1 blobs | The block height in which the PFB was included (`blob.Submit` returns it; `blob.Get(height, namespace, commitment)` reads it) | VERIFIED | `NODE/nodebuilder/blob/blob.go` |
 | L1 blob retention | Pruned nodes keep `7d + 1h` (`StorageWindow`); light nodes sample 7d (CIP-036). Archival nodes keep everything | VERIFIED | `NODE/share/availability/window.go`, `NODE/nodebuilder/pruner/module.go` |
@@ -1914,7 +1927,7 @@ error, not a sentinel.
 | SC3 Chain | The node's chain id is in the configured `da = 1` chain allowlist, and the app version in the latest header is 10. The allowlist is configuration; its default, and the only value validated for v0, is `["mocha-5"]`. Adding a chain (for example Arabica or Corto) is an operator decision after checking that the pins and `fibre_commit.json` hold there. |
 | SC4 Parameters | x/fibre `Params` is readable and `shard_retention` is within the governance bounds (10 min to 168 h). |
 | SC5 Retention source and at-height reads | The retention store is bound to this chain id and gets its first sample; the canary runs (section 11.2, RS2; section 10.9). A failing canary disables only the direct at-height read, never the start: the gate then runs in observations-only mode for retention and MUST log the mode and the reason at startup at warning level (and again whenever a later canary changes it). |
-| SC6 Bridges | A bridge used as a download fallback reports the pinned celestia-node version, otherwise the fallback is disabled (logged); it is never trusted for P3, which the gate computes itself. A bridge used for the anchor proof (NA2, NA3; since `v0-draft.23`) is not gated on its version, because its answers are verified with the pinned code; the gate logs the version it reports at startup, at warning level if it differs from the pin. A gate whose configured DA is `fibre` with no bridge configured for the anchor proof refuses to start. |
+| SC6 Bridges | A bridge used as a download fallback is enabled only after its compatibility is verified, by version (BV) or by a capability probe (BP), below (since `v0-draft.25`; before, by version only). Otherwise the fallback is disabled and the gate logs the reason at warning level; this is never a refusal to start, because the fallback is optional. A version or capability declared in operator configuration is never accepted in place of BV or BP. The fallback is never trusted for P3, which the gate computes itself on every answer. A bridge used for the anchor proof (NA2, NA3; since `v0-draft.23`) is not gated on its version, because its answers are verified with the pinned code; the gate logs the version at startup if it can read it, at warning level if it differs from the pin. At the pin `node.Info` needs an admin token, so with a read token its permission error is the normal case: it is logged as "version unknown", never a refusal. A gate whose configured DA is `fibre` with no bridge configured for the anchor proof refuses to start. |
 
 An app version change seen at runtime (an upgrade) stops `da = 1` service
 (`ErrChainUnavailable`) until a restart has re-run the checks.
@@ -1924,6 +1937,42 @@ upstream definitions that a new tag may change; the vectors are the only
 independent memory of what the network did at the pin. Refusing to start on
 any difference turns a silent divergence (accepting bytes the network never
 committed, rejecting every anchor) into a visible configuration error.
+
+Bridge fallback compatibility (normative since `v0-draft.25`). Facts at the
+pin (celestia-node `v0.34.2-mocha`, go-jsonrpc `v0.10.2`; VERIFIED in code,
+not probed live): the only method that returns the node version is
+`node.Info`, tagged `perm:"admin"`; its `api_version` is set from build
+flags (UNVERIFIED: the exact string a release build of the pinned tag
+reports). No `public` or `read` method returns a version. An admin token
+also mints tokens of any permission (`node.AuthNew`), so a gate SHOULD NOT
+hold one. Read methods need a token: without one the server grants only
+`public`. The fallback uses exactly one method, `fibre.Download(BlobID)`
+(`perm:"read"`), whose result is `GetBlobResult`, JSON `{"data": <base64>}`.
+The pinned client decodes it with `encoding/json`, which ignores unknown
+members and leaves `data` empty when it is missing, so a renamed field
+looks like an empty blob, not like an error.
+
+| Rule | Requirement |
+|---|---|
+| BV By version | `node.Info` answers and its `api_version` equals the pinned celestia-node version exactly. Permitted, NOT RECOMMENDED: it needs an admin token. A permission error, an empty or different version, or no answer fails BV; the gate MAY then run BP. |
+| BP1 Probe blob | The gate finds one blob that is anchored and still retained: a `MsgPayForFibre` candidate (NA5) in the PayForFibre namespace data at a height `h` with `head - probe_window <= h <= head - canary_offset`, read and verified through NA1 to NA4 (the namespace data from the anchor-proof bridge), with result code 0 (NA6), whose promise `creation_timestamp + shard_retention` is at least `probe_margin` after the gate clock. The newest such candidate is used. `probe_window` (default 600 blocks) and `probe_margin` (default 600 s) are gate configuration; the defaults are UNVERIFIED for Mocha traffic. No candidate in the window: inconclusive (BP5). |
+| BP2 Method | The gate calls `fibre.Download` with the probe blob's BlobID (`0x00 \|\| promise.commitment`) on the fallback bridge, with the same token, transport and size cap the fallback uses (cap from `promise.blob_size`). |
+| BP3 Shape | The raw JSON-RPC `result` is a JSON object with exactly one member, `data`, holding a standard base64 string (no other members, no `null`). It is decoded from the raw bytes, not through the struct decoder. An error answer, a missing or extra member, a non-string `data` or invalid base64 fails BP3. |
+| BP4 Content | The decoded bytes pass P3 with the gate's `da = 1` committer against the probe blob's commitment. |
+| BP5 Outcome | BP1 to BP4 pass: the fallback is enabled and the gate logs the probe height and BlobID. A failure of BP2 to BP4 (HTTP 401, a missing-permission error, method not found `-32601`, wrong parameters `-32602` or `-32700`, a shape or P3 failure): incompatible, fallback disabled, warning. No probe blob, a timeout or a transport error: inconclusive, fallback disabled, warning. The gate MAY repeat the probe, at most every `canary_interval`, and enables the fallback only after a pass; a later failure does not disable a fallback that passed, because every answer is checked by P3 anyway. |
+
+Rationale (bridge fallback). Integrity never depends on the bridge: every
+fallback answer is checked by the gate's own DA-commitment recompute (P3,
+section 8.5), so a lying, outdated or malicious bridge can cost
+availability (the gate falls back to the archive) but cannot make the gate
+accept other bytes. The version or capability check is about compatibility
+only: it finds a bridge whose API or encoding changed at startup, where the
+operator sees it, instead of near the end of the retention window, when the
+fallback is the last DA source. A configured version proves nothing about
+the node that answers, hence never a substitute. Threat assumptions: the
+bridge is untrusted; BP shows that it served one retained blob correctly
+once, nothing about later answers; BP spends one blob download of bridge
+bandwidth per run.
 
 ### 10.9 At-height reads (all modules, both `da`; normative since `v0-draft.17`)
 
@@ -2314,7 +2363,7 @@ have stable names, because the API reports them as codes:
 | `ErrRegistryUnavailable` (package `gate`) | The nonce registry could not be read or written | 503 |
 | `ErrClockRegression` (package `gate`) | The gate clock is before the registry watermark | 503 |
 | `ErrClosed` (package `gate`) | The gate is shutting down | 503 |
-| `ErrArchiveUnavailable` (package `gate`) | The decision record could not be written durably before signing (section 8.7, stage 4a, AR3); nothing signed, nonce not consumed | 503 |
+| `ErrArchiveUnavailable` (package `gate`) | Operational. The decision record could not be written durably before signing (section 8.7, stage 4a, AR3), or the archive payload record on the archive path is unreadable or corrupt (stage 9, section 19.6); nothing signed, nonce not consumed, no rejection marker | 503 |
 | `recorder.ErrTooLarge` | The blob is above the Recorder's own limit | 413 |
 | `recorder.ErrOutcomeUnknown` | A submission may or may not have reached the chain; a retry of the same blob does not submit again while the outcome is unresolved (PR8), and is charged quota (PR7) | 503 |
 | `recorder.ErrNotVisible` | The anchor was not visible on the read node in time | 503 |
@@ -3049,6 +3098,16 @@ Threat notes:
   new hash and is never deduplicated against the late one.
 - A dedupe record lost in a restart costs at most one extra submission of the
   same bytes, which gives the same commitment (and one extra fee).
+- Fee of a failed `da = 1` upload. The upload hands the signed
+  `PaymentPromise` to validators before any signature set exists. A promise
+  that never settles through a PFF (fewer than 2/3 signatures, a crash, a
+  timeout) can still be charged once by anyone holding it, through
+  `MsgPaymentPromiseTimeout` after the promise timeout (section 10.2,
+  "Unsettled promise is charged"). So a failed upload is not free: it may
+  cost one fee and never creates an anchor, and every new upload attempt
+  signs a new promise that may be charged once. Operators size the escrow
+  and quotas with this in mind; "nothing was submitted" in section 12 means
+  that no promise left the Recorder.
 - The Recorder is untrusted for integrity (section 1): the request protects
   the operator's fees, not the agent. The agent's protection is W4 to W6.
 - Quotas held in memory reset on restart; a restart therefore restores a
@@ -3564,7 +3623,8 @@ authorized or executed (AR8).
 
 The gate's `BlobSource` over the archive reads the payload record under
 `(ref.da, ref.commitment)`: none, `gate.ErrBlobNotFound`; unreadable or
-corrupt, an operational error. It returns at most `maxSize + 1` bytes of
+corrupt, an operational error, which the gate reports as
+`ErrArchiveUnavailable` (section 8.7, stage 9). It returns at most `maxSize + 1` bytes of
 `blob` and bounds its read of the record accordingly. It does not compare
 `namespace` or `signer` with `ref`: the gate's P3 recompute with `ref`
 (section 8.5) does, and fails with `ErrDACommitmentMismatch` on any
