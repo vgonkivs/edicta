@@ -40,7 +40,8 @@ type Result struct {
 	Path           registry.Path   // 0 until a payload path was accepted
 	// DecisionArchived is set once the archive stage succeeded.
 	DecisionArchived bool
-	// AuthorizedAt is the clock reading of the Authorization; zero on a refusal.
+	// AuthorizedAt is the clock reading of the Authorization; zero unless an
+	// Authorization is returned.
 	AuthorizedAt uint64
 	// Authorization is the canonical SignedAuthorization. It is set on
 	// success, and with ErrNonceUsed when the same commitment is presented
@@ -51,8 +52,8 @@ type Result struct {
 	K2 K2Inputs
 }
 
-// K2Inputs are the values the path selection used. The retention fields are
-// set for da = 1 only.
+// K2Inputs are the values the path selection used. BlobRetentionS is set for
+// da = 2; the Retention fields and RetentionSource for da = 1.
 type K2Inputs struct {
 	DA                 commitment.DA
 	BlobRetentionS     uint64          // da = 2 only
@@ -108,9 +109,12 @@ func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
 		d.Archive == nil || d.Allowlist == nil || d.Registry == nil || d.Signer == nil {
 		return nil, bad("missing dependency")
 	}
+	if d.Archiver != nil && isNilDep(d.Archiver) {
+		return nil, bad("archiver is a typed nil; leave it nil to skip the archive stage")
+	}
 	committers := make(map[commitment.DA]DACommitter, len(d.Committers))
 	for da, c := range d.Committers {
-		if !isNilCommitter(c) {
+		if !isNilDep(c) {
 			committers[da] = c
 		}
 	}
@@ -741,7 +745,9 @@ func (g *Gate) Prune(ctx context.Context) (int, error) {
 func (g *Gate) PublicKey() ed25519.PublicKey { return bytes.Clone(g.signerPub) }
 
 // normalizeDA returns a private copy of the allowed set; empty means {1, 2}.
-func isNilCommitter(c DACommitter) bool {
+// isNilDep reports an untyped nil or a nil pointer, map, slice, func or chan
+// held in an interface.
+func isNilDep(c any) bool {
 	if c == nil {
 		return true
 	}

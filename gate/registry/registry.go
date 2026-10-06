@@ -63,6 +63,10 @@ var (
 	ErrBelowWatermark = errors.New("registry: authorization below the watermark")
 	// ErrCorruptMeta means a stored metadata value is missing, malformed or of an unknown schema.
 	ErrCorruptMeta = errors.New("registry: corrupt metadata")
+	// ErrCorruptEntry means a stored entry cannot be decoded or does not match its storage key.
+	ErrCorruptEntry = errors.New("registry: corrupt entry")
+	// ErrInvalidPage means List was asked for a page size below one.
+	ErrInvalidPage = errors.New("registry: invalid page size")
 	// ErrInUse means another owner holds the registry.
 	ErrInUse = errors.New("registry: in use by another gate")
 	// ErrPrunedWindow means a decision expires inside a window that was already pruned.
@@ -99,7 +103,7 @@ type Registry interface {
 
 // Lister pages through entries in key order; a nil after starts at the first.
 // Entries come back in ascending order of public key, then nonce, and each
-// call is one short read.
+// call is one short read. A page size n below one is ErrInvalidPage.
 type Lister interface {
 	List(ctx context.Context, after *Key, n int) ([]Entry, error)
 }

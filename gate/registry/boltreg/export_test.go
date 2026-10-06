@@ -1,6 +1,29 @@
 package boltreg
 
-import bolt "go.etcd.io/bbolt"
+import (
+	bolt "go.etcd.io/bbolt"
+
+	"github.com/vgonkivs/edicta/gate/registry"
+)
+
+// PutEntryRaw stores e under the storage key of at, bypassing Consume, so
+// tests can build an entry whose key differs from its storage key.
+func (r *Registry) PutEntryRaw(at registry.Key, e registry.Entry) error {
+	val, err := encode(e)
+	if err != nil {
+		return err
+	}
+	return r.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketEntries).Put(dbKey(at), val)
+	})
+}
+
+// PutEntryBytes stores raw bytes under the storage key of at.
+func (r *Registry) PutEntryBytes(at registry.Key, val []byte) error {
+	return r.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketEntries).Put(dbKey(at), val)
+	})
+}
 
 // NoSync reports the bbolt NoSync flag of the underlying database. The
 // registry keeps its handle in the unexported field db.

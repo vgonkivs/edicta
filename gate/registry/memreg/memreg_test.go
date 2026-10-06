@@ -108,6 +108,14 @@ func TestList(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, want[3:], got)
 	})
+	t.Run("a page size below one is refused", func(t *testing.T) {
+		r := fill(t)
+		for _, n := range []int{0, -1} {
+			page, err := r.List(ctx, nil, n)
+			require.ErrorIs(t, err, registry.ErrInvalidPage, "n=%d", n)
+			assert.Nil(t, page)
+		}
+	})
 	t.Run("a returned entry is a copy", func(t *testing.T) {
 		r := fill(t)
 		got, err := r.List(ctx, nil, 1)

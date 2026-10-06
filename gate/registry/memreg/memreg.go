@@ -88,17 +88,24 @@ func (r *Registry) List(ctx context.Context, after *registry.Key, n int) ([]regi
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if n <= 0 {
+		return nil, fmt.Errorf("%w: %d", registry.ErrInvalidPage, n)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var out []registry.Entry
-	for _, e := range r.entries {
-		if after == nil || compareKeys(e.Key, *after) > 0 {
-			out = append(out, e.Clone())
+	var keys []registry.Key
+	for k := range r.entries {
+		if after == nil || compareKeys(k, *after) > 0 {
+			keys = append(keys, k)
 		}
 	}
-	slices.SortFunc(out, func(a, b registry.Entry) int { return compareKeys(a.Key, b.Key) })
-	if n >= 0 && len(out) > n {
-		out = out[:n]
+	slices.SortFunc(keys, compareKeys)
+	if len(keys) > n {
+		keys = keys[:n]
+	}
+	out := make([]registry.Entry, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, r.entries[k].Clone())
 	}
 	return out, nil
 }

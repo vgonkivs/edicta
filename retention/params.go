@@ -221,11 +221,11 @@ func (p *Params) Observe(ctx context.Context) error {
 }
 
 // FibreRetentionSourced is FibreRetention plus where the value came from.
-// Height 0 is the latest chain value and reports SourceDirect.
-// It returns the latest value for height 0, even when recording
-// a valid sample of the bound chain failed: only reads at a height depend on the store. For a height it
-// returns the minimum of the direct read, when trusted, and the recorded
-// samples, or an error; the latest value is never used for a past height.
+// Height 0 is the latest chain value, reports SourceDirect and is returned
+// even when recording a valid sample of the bound chain failed: only reads
+// at a height depend on the store. For a height it returns the minimum of
+// the direct read, when trusted, and the recorded samples, or an error; the
+// latest value is never used for a past height.
 func (p *Params) FibreRetentionSourced(ctx context.Context, height uint64) (uint64, Source, error) {
 	if height == 0 {
 		s, persistErr, err := p.sample(ctx, true)

@@ -133,7 +133,7 @@ func encode(e registry.Entry) ([]byte, error) { return cbor.Marshal(e) }
 func decode(b []byte) (registry.Entry, error) {
 	var e registry.Entry
 	if err := cbor.Unmarshal(b, &e); err != nil {
-		return registry.Entry{}, fmt.Errorf("boltreg: corrupt entry: %w", err)
+		return registry.Entry{}, fmt.Errorf("%w: %w", registry.ErrCorruptEntry, err)
 	}
 	return e, nil
 }
@@ -198,6 +198,9 @@ func (r *Registry) List(ctx context.Context, after *registry.Key, n int) ([]regi
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if n <= 0 {
+		return nil, fmt.Errorf("%w: %d", registry.ErrInvalidPage, n)
+	}
 	var out []registry.Entry
 	err := r.db.View(func(tx *bolt.Tx) error {
 		c := tx.Bucket(bucketEntries).Cursor()
@@ -216,11 +219,18 @@ func (r *Registry) List(ctx context.Context, after *registry.Key, n int) ([]regi
 			if err != nil {
 				return err
 			}
+			// A pager resumes from the last entry's key, so a mismatch could skip or repeat entries.
+			if !bytes.Equal(k, dbKey(e.Key)) {
+				return fmt.Errorf("%w: key does not match its storage key", registry.ErrCorruptEntry)
+			}
 			out = append(out, e)
 		}
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *Registry) AttachReceipt(_ context.Context, k registry.Key, h commitment.Hash, receipt []byte) error {

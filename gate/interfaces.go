@@ -55,7 +55,13 @@ type DecisionRecord struct {
 // action bytes check, so only signed, allowlisted decisions with their
 // committed action bytes reach the archive; unsigned or unlisted input
 // cannot fill it. A request refused after this stage leaves the record
-// behind. Any error becomes ErrArchiveUnavailable.
+// behind. Any error while the request's context is live becomes
+// ErrArchiveUnavailable.
+//
+// A record whose commitment hash and action bytes equal the stored ones and
+// whose envelope differs only in the agent signature MUST return nil and
+// keep the stored record: the gate has verified that signature, and a
+// re-signed retry must not become a permanent refusal.
 type Archiver interface {
 	Put(ctx context.Context, rec DecisionRecord) error
 }

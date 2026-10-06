@@ -119,3 +119,39 @@ func TestList(t *testing.T) {
 		assert.Len(t, pageAll(t, r, 10), len(want)+1)
 	})
 }
+
+func TestListInvalidPageAndCorruption(t *testing.T) {
+	open := func(t *testing.T) *boltreg.Registry {
+		r, err := boltreg.Open(filepath.Join(t.TempDir(), "n.db"), 100)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = r.Close() })
+		require.NoError(t, r.Consume(ctx, listEntry(1, 1), regtest.Tolerance))
+		return r
+	}
+	t.Run("a page size below one is refused", func(t *testing.T) {
+		r := open(t)
+		for _, n := range []int{0, -1} {
+			page, err := r.List(ctx, nil, n)
+			require.ErrorIs(t, err, registry.ErrInvalidPage, "n=%d", n)
+			assert.Nil(t, page)
+		}
+	})
+	t.Run("an entry whose key differs from its storage key", func(t *testing.T) {
+		r := open(t)
+		require.NoError(t, r.PutEntryRaw(listEntry(2, 2).Key, listEntry(7, 7)))
+		page, err := r.List(ctx, nil, 10)
+		require.ErrorIs(t, err, registry.ErrCorruptEntry)
+		assert.Nil(t, page)
+		k := listEntry(1, 1).Key
+		page, err = r.List(ctx, &k, 1)
+		require.ErrorIs(t, err, registry.ErrCorruptEntry)
+		assert.Nil(t, page)
+	})
+	t.Run("an undecodable entry", func(t *testing.T) {
+		r := open(t)
+		require.NoError(t, r.PutEntryBytes(listEntry(2, 2).Key, []byte{0xff, 0xfe}))
+		page, err := r.List(ctx, nil, 10)
+		require.ErrorIs(t, err, registry.ErrCorruptEntry)
+		assert.Nil(t, page)
+	})
+}

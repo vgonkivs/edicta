@@ -40,8 +40,9 @@ func (l *callLog) events() []string {
 	return append([]string(nil), l.ev...)
 }
 
-// fakeArchiver is idempotent per commitment hash and refuses different bytes
-// under a stored key.
+// fakeArchiver follows the Archiver contract: a record with the same hash and
+// action is accepted and the stored one stays, whatever the envelope; another
+// action under the hash conflicts.
 type fakeArchiver struct {
 	log *callLog
 
@@ -94,7 +95,7 @@ func (a *fakeArchiver) Put(ctx context.Context, rec gate.DecisionRecord) error {
 	switch {
 	case !exists:
 		a.stored[rec.CommitmentHash] = rec
-	case !bytes.Equal(old.Envelope, rec.Envelope) || !bytes.Equal(old.Action, rec.Action):
+	case !bytes.Equal(old.Action, rec.Action):
 		a.mu.Unlock()
 		return errors.New("conflict")
 	}
@@ -595,4 +596,49 @@ func TestRetentionSourceValuesMatchTheArchiveEnum(t *testing.T) {
 	assert.EqualValues(t, 1, retention.SourceDirect)
 	assert.EqualValues(t, 2, retention.SourceObserved)
 	assert.EqualValues(t, 3, retention.SourceBoth)
+}
+
+func TestFakeArchiverFollowsTheContract(t *testing.T) {
+	ctx := context.Background()
+	a := newFakeArchiver(nil)
+	h := commitment.Hash{1}
+	require.NoError(t, a.Put(ctx, gate.DecisionRecord{CommitmentHash: h, Envelope: []byte{1}, Action: []byte{9}}))
+	require.NoError(t, a.Put(ctx, gate.DecisionRecord{CommitmentHash: h, Envelope: []byte{2}, Action: []byte{9}}))
+	assert.Equal(t, []byte{1}, a.stored[h].Envelope, "the stored record stays")
+	require.Error(t, a.Put(ctx, gate.DecisionRecord{CommitmentHash: h, Envelope: []byte{1}, Action: []byte{8}}))
+	assert.Equal(t, 1, a.records())
+}
+
+// Ed25519 signatures are deterministic and the decoder is strict, so no
+// second valid envelope for one commitment can be built; the gate is shown
+// to hand the archiver exactly the presented bytes, and a retry with the
+// archive holding another envelope is not a refusal.
+func TestArchiveHoldingAnotherEnvelopeIsNotAnError(t *testing.T) {
+	a := newFakeArchiver(nil)
+	e, _, b, h := happy(t, withArchiver(a))
+	require.NoError(t, a.Put(context.Background(), gate.DecisionRecord{
+		CommitmentHash: h, Envelope: []byte{0xde, 0xad}, Action: gatefix.Action(t),
+	}))
+	res, err := e.Authorize(b)
+	require.NoError(t, err)
+	assert.True(t, res.DecisionArchived)
+	assert.Equal(t, []byte{0xde, 0xad}, a.stored[h].Envelope)
+}
+
+func TestNewTypedNilArchiver(t *testing.T) {
+	t.Run("typed nil is refused", func(t *testing.T) {
+		for name, a := range map[string]gate.Archiver{
+			"fake":     (*fakeArchiver)(nil),
+			"mutating": (*mutatingArchiver)(nil),
+		} {
+			_, err := gatefix.TryNew(t, withArchiver(a))
+			require.ErrorIs(t, err, gate.ErrInvalidConfig, name)
+		}
+	})
+	t.Run("nil interface skips the stage", func(t *testing.T) {
+		e, _, b, _ := happy(t, withArchiver(nil))
+		res, err := e.Authorize(b)
+		require.NoError(t, err)
+		assert.False(t, res.DecisionArchived)
+	})
 }
