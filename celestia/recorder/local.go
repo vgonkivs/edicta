@@ -9,6 +9,11 @@ import (
 
 // Submitter puts one share version 1 blob on chain under its own account. It
 // is trusted for liveness only: the Recorder re-verifies everything it claims.
+//
+// Submit may return node.ErrUnsupported only before anything was broadcast:
+// the Recorder then treats the call as never made and may submit again. Any
+// error after a broadcast started must be another error, which the Recorder
+// treats as an unknown outcome and only searches the chain for.
 type Submitter interface {
 	// Signer is the 20-byte address embedded in every blob it submits.
 	Signer(ctx context.Context) ([]byte, error)

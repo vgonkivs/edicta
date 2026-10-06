@@ -27,7 +27,7 @@ var (
 )
 
 func blockAt(h uint64) node.Header {
-	return node.Header{ChainID: "devnet-1", Height: h, Time: t0.Add(time.Duration(h) * 6 * time.Second),
+	return node.Header{ChainID: "devnet-1", Height: h, Time: t0.Add(time.Duration(h) * time.Second),
 		AppVersion: 8, DataRoot: bytes.Repeat([]byte{byte(h)}, 32)}
 }
 

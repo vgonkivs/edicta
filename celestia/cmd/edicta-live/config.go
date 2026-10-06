@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"net"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -112,6 +113,13 @@ func (l *listFlag) Set(v string) error {
 	return nil
 }
 
+// blobOnlyFlags configure the blob inclusion checks, which da=fibre does not
+// run. Accepting them would let an operator believe a light-client check ran.
+var blobOnlyFlags = map[string]bool{
+	"inclusion": true, "rpc-primary": true, "rpc-witness": true,
+	"trust-height": true, "trust-hash": true, "crosscheck-bridge": true,
+}
+
 // parseFlags parses args (without the program name) and validates the result.
 func parseFlags(args []string, usage io.Writer) (Config, error) {
 	var c Config
@@ -193,6 +201,18 @@ func parseFlags(args []string, usage io.Writer) (Config, error) {
 	if fs.NArg() != 0 {
 		return Config{}, cfgErr("unexpected arguments %q", fs.Args())
 	}
+	if c.DA == "fibre" {
+		var set []string
+		fs.Visit(func(f *flag.Flag) {
+			if blobOnlyFlags[f.Name] {
+				set = append(set, "--"+f.Name)
+			}
+		})
+		if len(set) > 0 {
+			sort.Strings(set)
+			return Config{}, cfgErr("%s applies to --da blob only; da=fibre uses the same-operator Fibre check", strings.Join(set, ", "))
+		}
+	}
 	c.RPCWitnesses, c.CrossBridges, c.Recipients = wit, cb, rec
 	if c.BridgeAddr != "" {
 		u, err := node.BridgeURL(c.BridgeAddr, c.BridgeTLS)
@@ -221,50 +241,8 @@ func cfgErr(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", ErrConfig, fmt.Sprintf(format, a...))
 }
 
-// Validate checks the configuration without touching the network or files.
-func (c Config) Validate() error {
-	u, err := url.Parse(c.APIURL)
-	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-		return cfgErr("--api-url must be an absolute http or https URL")
-	}
-	if c.APITokenFile != "" && u.Scheme == "http" && !loopbackHost(u.Hostname()) {
-		return cfgErr("--api-token-file over plain HTTP to a non-loopback host is refused; use https")
-	}
-	if c.RecordTokenFile != "" && u.Scheme == "http" && !loopbackHost(u.Hostname()) {
-		return cfgErr("--record-token-file over plain HTTP to a non-loopback host is refused; use https")
-	}
-	if c.GateID != "" && !validID(c.GateID) {
-		return cfgErr("--gate-id is not a valid id")
-	}
-	if c.GatePubKey != "" && !isHexLen(c.GatePubKey, 32) {
-		return cfgErr("--gate-pubkey must be 64 hex characters")
-	}
-	if c.Namespace != "" && !isHexLen(c.Namespace, 29) {
-		return cfgErr("--namespace must be 58 hex characters")
-	}
-
-	if c.BridgeAddr == "" {
-		return cfgErr("--bridge-addr is required")
-	}
-	if _, err := node.BridgeURL(c.BridgeAddr, c.BridgeTLS); err != nil {
-		return cfgErr("--bridge-addr: %v", err)
-	}
-	if c.BridgeTokenFile != "" && !c.BridgeTLS && !loopbackAddr(c.BridgeAddr) {
-		return cfgErr("--bridge-token-file over plain HTTP to a non-loopback address is refused; set --bridge-tls")
-	}
-	if c.GRPCAddr == "" {
-		return cfgErr("--grpc-addr is required")
-	}
-	if c.GRPCTokenFile != "" && !c.GRPCTLS && !loopbackAddr(c.GRPCAddr) {
-		return cfgErr("--grpc-token-file over plain gRPC to a non-loopback address is refused; set --grpc-tls")
-	}
-	if c.DA != "" && c.DA != "blob" && c.DA != "fibre" {
-		return cfgErr("--da must be blob or fibre")
-	}
-	if c.MinAppVersion != 0 && c.MaxAppVersion != 0 && c.MinAppVersion > c.MaxAppVersion {
-		return cfgErr("--min-app-version above --max-app-version")
-	}
-
+// validateInclusion checks the blob inclusion mode and its fields.
+func (c Config) validateInclusion() error {
 	switch c.Inclusion {
 	case "self":
 	case "light":
@@ -321,6 +299,60 @@ func (c Config) Validate() error {
 		}
 	default:
 		return cfgErr("--inclusion must be self, light or crosscheck")
+	}
+	return nil
+}
+
+// Validate checks the configuration without touching the network or files.
+func (c Config) Validate() error {
+	u, err := url.Parse(c.APIURL)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return cfgErr("--api-url must be an absolute http or https URL")
+	}
+	if c.APITokenFile != "" && u.Scheme == "http" && !loopbackHost(u.Hostname()) {
+		return cfgErr("--api-token-file over plain HTTP to a non-loopback host is refused; use https")
+	}
+	if c.RecordTokenFile != "" && u.Scheme == "http" && !loopbackHost(u.Hostname()) {
+		return cfgErr("--record-token-file over plain HTTP to a non-loopback host is refused; use https")
+	}
+	if c.GateID != "" && !validID(c.GateID) {
+		return cfgErr("--gate-id is not a valid id")
+	}
+	if c.GatePubKey != "" && !isHexLen(c.GatePubKey, 32) {
+		return cfgErr("--gate-pubkey must be 64 hex characters")
+	}
+	if c.Namespace != "" && !isHexLen(c.Namespace, 29) {
+		return cfgErr("--namespace must be 58 hex characters")
+	}
+
+	if c.BridgeAddr == "" {
+		return cfgErr("--bridge-addr is required")
+	}
+	if _, err := node.BridgeURL(c.BridgeAddr, c.BridgeTLS); err != nil {
+		return cfgErr("--bridge-addr: %v", err)
+	}
+	if c.BridgeTokenFile != "" && !c.BridgeTLS && !loopbackAddr(c.BridgeAddr) {
+		return cfgErr("--bridge-token-file over plain HTTP to a non-loopback address is refused; set --bridge-tls")
+	}
+	if c.GRPCAddr == "" {
+		return cfgErr("--grpc-addr is required")
+	}
+	if c.GRPCTokenFile != "" && !c.GRPCTLS && !loopbackAddr(c.GRPCAddr) {
+		return cfgErr("--grpc-token-file over plain gRPC to a non-loopback address is refused; set --grpc-tls")
+	}
+	if c.DA != "" && c.DA != "blob" && c.DA != "fibre" {
+		return cfgErr("--da must be blob or fibre")
+	}
+	if c.MinAppVersion != 0 && c.MaxAppVersion != 0 && c.MinAppVersion > c.MaxAppVersion {
+		return cfgErr("--min-app-version above --max-app-version")
+	}
+
+	// da=fibre runs the same-operator Fibre check and reads none of the blob
+	// inclusion fields.
+	if c.DA != "fibre" {
+		if err := c.validateInclusion(); err != nil {
+			return err
+		}
 	}
 	if c.PublishWait < 0 {
 		return cfgErr("--publish-wait is negative")

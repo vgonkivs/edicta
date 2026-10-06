@@ -132,9 +132,7 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 	}
 	defer func() { _ = cons.Close() }()
 
-	head, err := node.Check(ctx, rd, cons, node.Expect{
-		ChainID: cfg.ChainID, MinAppVersion: cfg.MinAppVersion, MaxAppVersion: cfg.MaxAppVersion,
-	})
+	head, err := startupCheck(ctx, cfg, rd, cons)
 	if err != nil {
 		return fmt.Errorf("compatibility check: %w", err)
 	}
@@ -152,6 +150,9 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 	pins, err := checkHealth(cfg, hl, head.ChainID)
 	if err != nil {
 		return err
+	}
+	if cfg.DA == "fibre" {
+		logEscrow(ctx, logf, cons, hl.RecorderSigner)
 	}
 	if !pins.keyPinned {
 		logf("WARNING: gate public key learned from edictad, not pinned; pass --gate-pubkey")

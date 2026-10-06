@@ -135,6 +135,8 @@ type ConsensusClient struct {
 	blocks coregrpc.BlockAPIClient
 	hdrs   headerCache
 
+	addr string
+
 	canary CanaryConfig
 	flag   heightcheck.Flag
 
@@ -190,8 +192,14 @@ func NewConsensus(c GRPCConfig) (*ConsensusClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewConsensusConn(conn), nil
+	cc := NewConsensusConn(conn)
+	cc.addr = c.Addr
+	return cc, nil
 }
+
+// Addr is the address the client was dialled with; empty for a client built
+// from a bare connection.
+func (c *ConsensusClient) Addr() string { return c.addr }
 
 // NewConsensusConn wraps an existing connection, which Close will close.
 func NewConsensusConn(conn *grpc.ClientConn) *ConsensusClient {
@@ -239,7 +247,7 @@ func fibreParams(r *fibretypes.QueryParamsResponse) (FibreParams, error) {
 	if d <= 0 {
 		return FibreParams{}, fmt.Errorf("%w: x/fibre shard retention is not positive", ErrUnsupported)
 	}
-	return FibreParams{RetentionS: uint64(d.Seconds())}, nil
+	return FibreParams{RetentionS: uint64(d.Seconds()), PromiseHeightWindow: r.Params.PaymentPromiseHeightWindow}, nil
 }
 
 // pinned sends the height in x-cosmos-block-height and returns the response

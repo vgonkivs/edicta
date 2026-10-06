@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
-	"sync"
 	"time"
 
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
@@ -37,12 +35,21 @@ var (
 	// ErrEscrowInsufficient means the escrow cannot pay for the upload;
 	// nothing was submitted.
 	ErrEscrowInsufficient = errors.New("recorder: escrow balance too low for this upload")
-	// ErrSubmitMismatch means the node returned a blob ID other than the one
-	// computed locally; a fee may have been spent.
+	// ErrSubmitMismatch means the node returned another blob id or promise
+	// fields than computed locally; a fee may have been spent. It is sticky
+	// per blob.
 	ErrSubmitMismatch = errors.New("recorder: node returned another blob id than computed")
+	// ErrAnchorRejected means a successful pay-for-fibre tx of the blob is on
+	// chain but fails the certificate rule. It is sticky per blob: the escrow
+	// was charged, so the blob is never submitted again.
+	ErrAnchorRejected = errors.New("recorder: anchor on chain fails the certificate rule")
+	// ErrClockSkew means the local clock, which dates the promise, is off the
+	// chain head time by more than the allowed skew; nothing was submitted.
+	ErrClockSkew = errors.New("recorder: local clock skewed against the chain")
 
 	errBlobDiffers  = errors.New("recorder: anchored blob differs from the submitted one")
 	errInvalidInput = errors.New("recorder: invalid configuration")
+	errClosed       = errors.New("recorder: closed")
 )
 
 const (
@@ -95,57 +102,13 @@ type headerReader interface {
 	SignedHeader(ctx context.Context, height uint64) ([]byte, error)
 }
 
-type pendingKey string
-
-// entry is the state of one blob that has been, or is being, submitted.
-type entry struct {
-	scanned  uint64 // highest height already searched; starts at the head before the submit
-	created  time.Time
-	inflight bool
-	done     *sdk.Published
-	// intent is the archived intent height this entry works from; zero when
-	// no payload record was written.
-	intent uint64
-	// windowed is set when the payload record came from an earlier process:
-	// a submit of it may be pending, so submitting waits for the settle window.
-	windowed bool
-	// submitted is set once a submit call was made; from then on an entry is
-	// only searched, never submitted again, and it is not evicted.
-	submitted bool
-	// firstSeen is the head at this entry's first call. Any submit by an
-	// earlier process happened at or below it, so a settle window that
-	// reaches past it cannot miss one.
-	firstSeen uint64
-}
-
-// Recorder implements sdk.Publisher.
+// Recorder implements sdk.Publisher for da = 2.
 type Recorder struct {
 	cfg Config
 	sub Submitter
 	rd  node.Reader
-
-	mu sync.Mutex
-	// entries holds a blob from the moment it is claimed for submit until it
-	// is verified. An unresolved entry is never resubmitted: after an
-	// ambiguous outcome the first tx may still be in a mempool, so a later
-	// call only searches the chain for it. An unresolved entry that never
-	// submitted is dropped after pendingTTL, which bounds memory; one that
-	// submitted is kept until it is verified, because forgetting it would
-	// allow a second submit. Verified entries stay in a small FIFO so that callers
-	// racing on the same blob get the same ref instead of a second submit.
-	entries    map[pendingKey]*entry
-	unresolved int
-	finished   []pendingKey
+	eng *engine
 }
-
-const (
-	defaultMaxPending = 4096
-	pendingTTL        = time.Hour
-	finishedKeep      = 256
-	scanFloor         = 1024
-	settleDefault     = 1024
-	settleFloor       = 256
-)
 
 var _ sdk.Publisher = (*Recorder)(nil)
 
@@ -198,7 +161,7 @@ func New(cfg Config, sub Submitter, rd node.Reader) (*Recorder, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	return &Recorder{cfg: cfg, sub: sub, rd: rd, entries: map[pendingKey]*entry{}}, nil
+	return &Recorder{cfg: cfg, sub: sub, rd: rd, eng: newEngine(cfg.Archive, cfg.Now, cfg.MaxPending, cfg.ScanBlocks)}, nil
 }
 
 // checkNamespace accepts only user namespaces: version 0, 18 zero bytes, and a
@@ -242,273 +205,100 @@ func (r *Recorder) Publish(ctx context.Context, blob []byte) (sdk.Published, err
 	if err != nil {
 		return sdk.Published{}, fmt.Errorf("recorder: commitment: %w", err)
 	}
-	key := pendingKey(comm)
+	return r.eng.publish(ctx, blobBackend{r: r, signer: signer}, comm, blob)
+}
 
-	e, resume, err := r.claim(key)
+// blobBackend is the da = 2 side of the engine for one call.
+type blobBackend struct {
+	r      *Recorder
+	signer []byte
+}
+
+func (blobBackend) da() commitment.DA { return commitment.DACelestiaBlob }
+
+// A failed submit is only searched for, never submitted again by the same
+// process: the first tx may still be in a mempool.
+func (blobBackend) retries() bool { return false }
+
+func (b blobBackend) head(ctx context.Context) (uint64, time.Time, error) {
+	h, err := b.r.rd.Head(ctx)
 	if err != nil {
-		return sdk.Published{}, err
+		return 0, time.Time{}, fmt.Errorf("%w: head: %w", ErrNodeUnavailable, err)
 	}
-	if e.done != nil {
-		return clonePublished(*e.done), nil
-	}
-	if resume && e.submitted {
-		head, err := r.head(ctx)
-		if err != nil {
-			r.release(e)
-			return sdk.Published{}, err
-		}
-		h, found, err := r.scan(ctx, e, comm, head, math.MaxUint64)
-		if err != nil {
-			r.release(e)
-			return sdk.Published{}, err
-		}
-		if !found {
-			r.release(e)
-			return sdk.Published{}, fmt.Errorf("%w: an earlier submit of this blob may still be pending", ErrOutcomeUnknown)
-		}
-		return r.confirm(ctx, key, e, h, signer, comm, blob)
-	}
+	return h.Height, h.Time, nil
+}
 
-	head, err := r.head(ctx)
-	if err != nil {
-		r.unwind(key, e)
-		return sdk.Published{}, err
+func (b blobBackend) payloadRecord(comm, blob []byte, intent uint64) *archive.PayloadRecord {
+	return &archive.PayloadRecord{
+		DA: commitment.DACelestiaBlob, Commitment: bytes.Clone(comm), Namespace: bytes.Clone(b.r.cfg.Namespace),
+		Signer: bytes.Clone(b.signer), Blob: bytes.Clone(blob), IntentHeight: intent,
 	}
-	if head == 0 {
-		r.unwind(key, e)
-		return sdk.Published{}, fmt.Errorf("%w: head at height 0", ErrNodeUnavailable)
-	}
-	r.mu.Lock()
-	if e.firstSeen == 0 {
-		e.firstSeen = head
-	}
-	if e.intent == 0 {
-		e.scanned = head - 1
-	}
-	r.mu.Unlock()
+}
 
-	if r.cfg.Archive != nil {
-		intent, existed, err := r.archivePayload(ctx, comm, signer, blob, head)
-		if err != nil {
-			r.unwind(key, e)
-			return sdk.Published{}, err
-		}
-		r.mu.Lock()
-		if e.intent == 0 {
-			e.intent, e.windowed = intent, existed
-			e.scanned = intent - 1
-		}
-		windowed := e.windowed
-		r.mu.Unlock()
-
-		// An anchor archived by an earlier run is the one to answer from;
-		// paying for another would leave two anchors of one blob.
-		ah, anchored, err := r.archivedAnchor(ctx, comm)
-		if err != nil {
-			r.unwind(key, e)
-			return sdk.Published{}, err
-		}
-		if anchored {
-			return r.confirm(ctx, key, e, ah, signer, comm, blob)
-		}
-		if windowed {
-			h, found, ready, err := r.settle(ctx, e, comm)
-			if err != nil {
-				r.release(e)
-				return sdk.Published{}, err
-			}
-			if found {
-				return r.confirm(ctx, key, e, h, signer, comm, blob)
-			}
-			if !ready {
-				r.release(e)
-				return sdk.Published{}, fmt.Errorf("%w: an earlier submit of this blob may still be pending", ErrOutcomeUnknown)
-			}
-		}
+func (b blobBackend) samePayload(old *archive.PayloadRecord, blob []byte) error {
+	if !bytes.Equal(old.Blob, blob) || !bytes.Equal(old.Namespace, b.r.cfg.Namespace) || !bytes.Equal(old.Signer, b.signer) {
+		return archive.ErrConflict
 	}
+	return nil
+}
 
-	r.mu.Lock()
-	e.submitted = true
-	r.mu.Unlock()
-	sctx, cancel := context.WithTimeout(ctx, r.cfg.SubmitTimeout)
-	res, err := r.sub.Submit(sctx, r.cfg.Namespace, blob)
+// span is the settle window, which must exceed the mempool TTL.
+func (b blobBackend) span(context.Context) (uint64, error) { return b.r.cfg.SettleBlocks, nil }
+
+func (b blobBackend) present(ctx context.Context, comm []byte, height uint64) (bool, error) {
+	_, err := b.r.rd.Blob(ctx, height, b.r.cfg.Namespace, comm)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, node.ErrNotFound):
+		return false, nil
+	case ctx.Err() != nil:
+		return false, ctx.Err()
+	default:
+		return false, err
+	}
+}
+
+func (blobBackend) preflight(context.Context, []byte, time.Time) (func(), error) {
+	return func() {}, nil
+}
+
+func (b blobBackend) submit(ctx context.Context, _, blob []byte, release func()) (uint64, error) {
+	release()
+	sctx, cancel := context.WithTimeout(ctx, b.r.cfg.SubmitTimeout)
+	res, err := b.r.sub.Submit(sctx, b.r.cfg.Namespace, blob)
 	cancel()
 	if err != nil {
 		if errors.Is(err, node.ErrUnsupported) {
-			r.mu.Lock()
-			e.submitted = false
-			r.mu.Unlock()
-			r.unwind(key, e)
-			return sdk.Published{}, fmt.Errorf("recorder: submit: %w", err)
+			return 0, &notBroadcastError{err: err}
 		}
-		r.release(e)
-		return sdk.Published{}, fmt.Errorf("%w: %w", ErrOutcomeUnknown, err)
+		return 0, fmt.Errorf("%w: %w", ErrOutcomeUnknown, err)
 	}
-	return r.confirm(ctx, key, e, res.Height, signer, comm, blob)
+	return res.Height, nil
 }
 
-func clonePublished(p sdk.Published) sdk.Published {
-	p.Ref.Namespace = bytes.Clone(p.Ref.Namespace)
-	p.Ref.Commitment = bytes.Clone(p.Ref.Commitment)
-	p.Ref.Signer = bytes.Clone(p.Ref.Signer)
-	return p
-}
-
-// claim takes ownership of key for this call. resume is true when an earlier
-// call already submitted it. The check and the insert share one lock hold, so
-// two callers can never both submit.
-func (r *Recorder) claim(key pendingKey) (e *entry, resume bool, err error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	now := r.cfg.Now()
-	if old, ok := r.entries[key]; ok && old.evictable(now) {
-		delete(r.entries, key)
-		r.unresolved--
-	}
-	if e, ok := r.entries[key]; ok {
-		switch {
-		case e.done != nil:
-			return e, false, nil
-		case e.inflight:
-			return nil, false, fmt.Errorf("%w: another publish of this blob is in progress", ErrOutcomeUnknown)
-		}
-		e.inflight = true
-		return e, true, nil
-	}
-	if r.unresolved >= r.cfg.MaxPending {
-		for k, old := range r.entries {
-			if old.evictable(now) {
-				delete(r.entries, k)
-				r.unresolved--
-			}
-		}
-	}
-	if r.unresolved >= r.cfg.MaxPending {
-		return nil, false, fmt.Errorf("%w: %d", ErrTooManyPending, r.unresolved)
-	}
-	e = &entry{created: now, inflight: true}
-	r.entries[key] = e
-	r.unresolved++
-	return e, false, nil
-}
-
-func (e *entry) evictable(now time.Time) bool {
-	return e.done == nil && !e.inflight && !e.submitted && now.Sub(e.created) > pendingTTL
-}
-
-func (r *Recorder) release(e *entry) {
-	r.mu.Lock()
-	e.inflight = false
-	r.mu.Unlock()
-}
-
-func (r *Recorder) forget(key pendingKey, e *entry) {
-	r.mu.Lock()
-	if r.entries[key] == e && e.done == nil {
-		delete(r.entries, key)
-		r.unresolved--
-	}
-	r.mu.Unlock()
-}
-
-// unwind ends a call that failed before or without a submit. An entry that
-// already has archived state or a submit behind it is kept, so its search
-// progress and the knowledge that nothing is pending survive.
-func (r *Recorder) unwind(key pendingKey, e *entry) {
-	r.mu.Lock()
-	keep := e.submitted || e.intent != 0
-	r.mu.Unlock()
-	if keep {
-		r.release(e)
-		return
-	}
-	r.forget(key, e)
-}
-
-func (r *Recorder) head(ctx context.Context) (uint64, error) {
-	h, err := r.rd.Head(ctx)
+func (b blobBackend) confirm(ctx context.Context, comm, blob []byte, h uint64, _ bool) (sdk.Published, error) {
+	pub, hdr, err := b.verify(ctx, h, comm, blob)
 	if err != nil {
-		return 0, fmt.Errorf("%w: head: %w", ErrNodeUnavailable, err)
-	}
-	return h.Height, nil
-}
-
-// settle searches [intent, max(intent, first seen head) + SettleBlocks] for an
-// earlier submit; the window reaches past the first seen head because an
-// earlier process may have submitted any time after the intent. ready reports that the whole window was read and the head is
-// past it, so a submit that may have been pending is either found or gone.
-func (r *Recorder) settle(ctx context.Context, e *entry, comm []byte) (h uint64, found, ready bool, err error) {
-	head, err := r.head(ctx)
-	if err != nil {
-		return 0, false, false, err
-	}
-	r.mu.Lock()
-	intent := e.intent
-	from := max(intent, e.firstSeen)
-	r.mu.Unlock()
-	if head < intent {
-		return 0, false, false, fmt.Errorf("%w: node at height %d is behind the archived intent height %d", ErrNodeUnavailable, head, intent)
-	}
-	end := from + r.cfg.SettleBlocks
-	if end < from {
-		end = math.MaxUint64
-	}
-	h, found, err = r.scan(ctx, e, comm, head, end)
-	if err != nil || found {
-		return h, found, false, err
-	}
-	r.mu.Lock()
-	covered := e.scanned >= end
-	r.mu.Unlock()
-	return 0, false, covered && head > end, nil
-}
-
-// scan looks for the blob in the blocks after e.scanned up to min(head,
-// limit), resuming where the last search stopped. It reads at most ScanBlocks
-// blocks per call.
-func (r *Recorder) scan(ctx context.Context, e *entry, comm []byte, head, limit uint64) (uint64, bool, error) {
-	r.mu.Lock()
-	lo, hi := e.scanned+1, min(head, limit)
-	r.mu.Unlock()
-	if hi >= lo && hi-lo >= r.cfg.ScanBlocks {
-		hi = lo + r.cfg.ScanBlocks - 1
-	}
-	for h := lo; h <= hi; h++ {
-		_, err := r.rd.Blob(ctx, h, r.cfg.Namespace, comm)
-		switch {
-		case err == nil:
-			return h, true, nil
-		case errors.Is(err, node.ErrNotFound):
-		case ctx.Err() != nil:
-			return 0, false, fmt.Errorf("%w: scan: %w", ErrNodeUnavailable, ctx.Err())
-		default:
-			return 0, false, fmt.Errorf("%w: scan: %w", ErrNodeUnavailable, err)
-		}
-		r.mu.Lock()
-		e.scanned = h
-		r.mu.Unlock()
-	}
-	return 0, false, nil
-}
-
-// confirm waits for the header and blob at h and checks them byte for byte.
-func (r *Recorder) confirm(ctx context.Context, key pendingKey, e *entry, h uint64, signer, comm, blob []byte) (sdk.Published, error) {
-	pub, hdr, err := r.verify(ctx, h, signer, comm, blob)
-	if err != nil {
-		r.release(e)
 		return sdk.Published{}, err
 	}
-	if r.cfg.Archive != nil {
-		if err := r.archiveEvidence(ctx, hdr, comm); err != nil {
-			r.release(e)
+	if b.r.cfg.Archive != nil {
+		if err := b.r.archiveEvidence(ctx, hdr, comm); err != nil {
 			return sdk.Published{}, err
 		}
 	}
-	r.finish(key, e, pub)
-	return clonePublished(pub), nil
+	return pub, nil
 }
 
-func (r *Recorder) verify(ctx context.Context, h uint64, signer, comm, blob []byte) (sdk.Published, node.Header, error) {
+func (b blobBackend) fromEvidence(ctx context.Context, comm, blob []byte, ev *archive.EvidenceRecord) (sdk.Published, error) {
+	if ev.Height == 0 || !bytes.Equal(ev.Namespace, b.r.cfg.Namespace) {
+		return sdk.Published{}, archiveFault("evidence record", archive.ErrConflict)
+	}
+	return b.confirm(ctx, comm, blob, ev.Height, false)
+}
+
+func (b blobBackend) verify(ctx context.Context, h uint64, comm, blob []byte) (sdk.Published, node.Header, error) {
+	r, signer := b.r, b.signer
 	deadline := time.Now().Add(r.cfg.VisibleTimeout)
 	var hdr node.Header
 	err := r.poll(ctx, deadline, func() error {
@@ -519,19 +309,19 @@ func (r *Recorder) verify(ctx context.Context, h uint64, signer, comm, blob []by
 	if err != nil {
 		return sdk.Published{}, node.Header{}, fmt.Errorf("recorder: header %d: %w", h, err)
 	}
-	var b node.Blob
+	var bl node.Blob
 	err = r.poll(ctx, deadline, func() error {
 		var err error
-		b, err = r.rd.Blob(ctx, h, r.cfg.Namespace, comm)
+		bl, err = r.rd.Blob(ctx, h, r.cfg.Namespace, comm)
 		return err
 	})
 	if err != nil {
 		return sdk.Published{}, node.Header{}, fmt.Errorf("recorder: blob at %d: %w", h, err)
 	}
-	if b.ShareVersion != 1 || !bytes.Equal(b.Signer, signer) {
+	if bl.ShareVersion != 1 || !bytes.Equal(bl.Signer, signer) {
 		return sdk.Published{}, node.Header{}, ErrSignerMismatch
 	}
-	if !bytes.Equal(b.Namespace, r.cfg.Namespace) || !bytes.Equal(b.Commitment, comm) || !bytes.Equal(b.Data, blob) {
+	if !bytes.Equal(bl.Namespace, r.cfg.Namespace) || !bytes.Equal(bl.Commitment, comm) || !bytes.Equal(bl.Data, blob) {
 		return sdk.Published{}, node.Header{}, errBlobDiffers
 	}
 	return sdk.Published{
@@ -539,21 +329,6 @@ func (r *Recorder) verify(ctx context.Context, h uint64, signer, comm, blob []by
 			Commitment: bytes.Clone(comm), Height: h, Signer: bytes.Clone(signer)},
 		BlockTime: uint64(hdr.Time.Unix()),
 	}, hdr, nil
-}
-
-func (r *Recorder) finish(key pendingKey, e *entry, pub sdk.Published) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	e.done, e.inflight = &pub, false
-	if r.entries[key] != e {
-		return
-	}
-	r.unresolved--
-	r.finished = append(r.finished, key)
-	if len(r.finished) > finishedKeep {
-		delete(r.entries, r.finished[0])
-		r.finished = r.finished[1:]
-	}
 }
 
 // poll repeats fn while it reports ErrNotFound, until the deadline
@@ -581,67 +356,6 @@ func (r *Recorder) poll(ctx context.Context, deadline time.Time, fn func() error
 		case <-t.C:
 		}
 	}
-}
-
-func archiveFault(what string, err error) error {
-	return fmt.Errorf("%w: %s: %w", ErrArchiveUnavailable, what, err)
-}
-
-// archivePayload makes sure the archive holds the payload record and returns
-// its intent height. A stored record is kept as it is, so a restart keeps the
-// first intent height; existed is true when the record is not this call's.
-func (r *Recorder) archivePayload(ctx context.Context, comm, signer, blob []byte, head uint64) (intent uint64, existed bool, err error) {
-	old, err := r.cfg.Archive.Payload(ctx, commitment.DACelestiaBlob, comm)
-	switch {
-	case err == nil:
-		return r.sameRecord(old, signer, blob)
-	case !errors.Is(err, archive.ErrNotFound):
-		return 0, false, archiveFault("read payload record", err)
-	}
-	rec := &archive.PayloadRecord{
-		DA: commitment.DACelestiaBlob, Commitment: bytes.Clone(comm), Namespace: bytes.Clone(r.cfg.Namespace),
-		Signer: bytes.Clone(signer), Blob: bytes.Clone(blob), IntentHeight: head,
-	}
-	out, err := r.cfg.Archive.Put(ctx, rec)
-	if err != nil {
-		return 0, false, archiveFault("write payload record", err)
-	}
-	if out == archive.Unchanged {
-		// Another writer stored the same payload first; its intent height
-		// is the one that counts.
-		old, err := r.cfg.Archive.Payload(ctx, commitment.DACelestiaBlob, comm)
-		if err != nil {
-			return 0, false, archiveFault("read payload record", err)
-		}
-		return r.sameRecord(old, signer, blob)
-	}
-	return head, false, nil
-}
-
-func (r *Recorder) sameRecord(old *archive.PayloadRecord, signer, blob []byte) (uint64, bool, error) {
-	if !bytes.Equal(old.Blob, blob) || !bytes.Equal(old.Namespace, r.cfg.Namespace) || !bytes.Equal(old.Signer, signer) {
-		return 0, false, archiveFault("payload record", archive.ErrConflict)
-	}
-	if old.IntentHeight == 0 {
-		return 0, false, archiveFault("payload record", archive.ErrCorrupt)
-	}
-	return old.IntentHeight, true, nil
-}
-
-// archivedAnchor returns the height of the anchor already archived for comm.
-func (r *Recorder) archivedAnchor(ctx context.Context, comm []byte) (uint64, bool, error) {
-	ev, err := r.cfg.Archive.Evidence(ctx, commitment.DACelestiaBlob, comm)
-	switch {
-	case err == nil:
-	case errors.Is(err, archive.ErrNotFound):
-		return 0, false, nil
-	default:
-		return 0, false, archiveFault("read evidence record", err)
-	}
-	if ev.Height == 0 || !bytes.Equal(ev.Namespace, r.cfg.Namespace) {
-		return 0, false, archiveFault("evidence record", archive.ErrConflict)
-	}
-	return ev.Height, true, nil
 }
 
 // archiveEvidence stores the signed header at hdr.Height and the blob

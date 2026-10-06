@@ -18,8 +18,11 @@ import (
 type Evidence struct {
 	DryRun bool `json:"dry_run"`
 
-	ChainID         string `json:"chain_id"`
-	Namespace       string `json:"namespace"`
+	ChainID   string `json:"chain_id"`
+	Namespace string `json:"namespace"`
+	// AnchorDA is "fibre" for da = 1, where the height is that of the
+	// PayForFibre tx and there is no signer; empty for a blob.
+	AnchorDA        string `json:"anchor_da,omitempty"`
 	BlobHeight      uint64 `json:"blob_height"`
 	BlobTime        uint64 `json:"blob_time"`
 	BlobTimeRFC3339 string `json:"blob_time_rfc3339"`
@@ -157,10 +160,18 @@ func (e *Evidence) Text() string {
 	w("chain_id:          %s", e.ChainID)
 	w("-- decision published before the action --")
 	w("namespace:         %s", e.Namespace)
-	w("blob height H:     %d", e.BlobHeight)
+	if e.fibre() {
+		w("PFF at height H:   %d", e.BlobHeight)
+	} else {
+		w("blob height H:     %d", e.BlobHeight)
+	}
 	w("block time at H:   %s (%d)", e.BlobTimeRFC3339, e.BlobTime)
-	w("share commitment:  %s", e.ShareCommitment)
-	w("signer:            %s (%s)", e.SignerBech32, e.SignerHex)
+	if e.fibre() {
+		w("blob commitment:   %s", e.ShareCommitment)
+	} else {
+		w("share commitment:  %s", e.ShareCommitment)
+		w("signer:            %s (%s)", e.SignerBech32, e.SignerHex)
+	}
 	w("inclusion check:   %s", e.InclusionLevel)
 	w("-- commitment --")
 	w("commitment_hash:   %s", e.CommitmentHash)
@@ -199,6 +210,8 @@ func (e *Evidence) Text() string {
 	return b.String()
 }
 
+func (e *Evidence) fibre() bool { return e.AnchorDA == "fibre" }
+
 func okText(ok bool) string {
 	if ok {
 		return "OK"
@@ -229,13 +242,17 @@ func cmpText(tx, blob uint64) string {
 
 // hintsFor returns look-up instructions that name no explorer.
 func hintsFor(e *Evidence) []string {
-	h := []string{
+	anchor := fmt.Sprintf("blob: ask a bridge node for blob.Get(height=%d, namespace=%s, commitment=%s); its signer must be %s",
+		e.BlobHeight, e.Namespace, e.ShareCommitment, e.SignerBech32)
+	if e.fibre() {
+		anchor = fmt.Sprintf("anchor: the PayForFibre tx of namespace %s and commitment %s is in the block at height %d; edicta-verify checks it from the archived evidence",
+			e.Namespace, e.ShareCommitment, e.BlobHeight)
+	}
+	return []string{
 		fmt.Sprintf("transfer: query tx %s on chain %s with any explorer or node (tx query by hash)", e.Transfer.TxHash, e.ChainID),
-		fmt.Sprintf("blob: ask a bridge node for blob.Get(height=%d, namespace=%s, commitment=%s); its signer must be %s",
-			e.BlobHeight, e.Namespace, e.ShareCommitment, e.SignerBech32),
+		anchor,
 		"binding: the transfer memo is the commitment_hash; search transactions by memo to find it",
 	}
-	return h
 }
 
 func rfc3339(unix uint64) string {

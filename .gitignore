@@ -21,3 +21,8 @@ spec/vectors/tools/*/dacommit-gen
 spec/vectors/tools/*/fibrecommit-gen
 __pycache__/
 spec/vectors/tools/*/fibrecert-gen
+
+# Built command binaries
+celestia/cmd/*/edicta-*
+celestia/cmd/*/edictad
+!celestia/cmd/*/*.go

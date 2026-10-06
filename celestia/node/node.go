@@ -86,6 +86,9 @@ type AccountInfo struct {
 type FibreParams struct {
 	// RetentionS is the Fibre blob retention in seconds.
 	RetentionS uint64
+	// PromiseHeightWindow is the number of blocks after a payment promise's
+	// height in which its pay-for-fibre tx can still be accepted.
+	PromiseHeightWindow uint64
 }
 
 // TxStatus is the on-chain state of a broadcast transaction.

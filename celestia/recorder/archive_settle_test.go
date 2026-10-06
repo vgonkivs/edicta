@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -445,42 +444,4 @@ func TestSubmitAfterTheIntentIsNeverRepeatedByALaterProcess(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, landed, evd.Height)
 	assert.Equal(t, 1, p2.Calls+p3.Calls)
-}
-
-func TestSubmittedEntrySurvivesTTLAndPressureWithoutResubmitting(t *testing.T) {
-	cases := map[string]bool{
-		"the blob landed":     true,
-		"the blob never came": false,
-	}
-	for name, lands := range cases {
-		t.Run(name, func(t *testing.T) {
-			const settle = 256
-			ch := newChain()
-			sub := newLanding(ch)
-			sub.Err, sub.ErrAfterLand, sub.NoLand = errBoom, true, !lands
-			clk := &testClock{t: t0}
-			c := settleCfg(openArchive(t, t.TempDir()), settle)
-			c.MaxPending = 1
-			c.Now = clk.Now
-			rec := mk(t, c, sub, ev(t, ch, decisionBlob))
-
-			_, err := rec.Publish(bg, decisionBlob)
-			require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
-			require.Equal(t, 1, sub.Calls)
-
-			clk.add(2 * time.Hour)
-			grow(ch, genesis+settle+50)
-			_, err = rec.Publish(bg, []byte("another blob"))
-			require.ErrorIs(t, err, recorder.ErrTooManyPending, "a submitted entry is not evicted")
-
-			p, err := rec.Publish(bg, decisionBlob)
-			assert.Equal(t, 1, sub.Calls, "the retry never submits again")
-			if lands {
-				require.NoError(t, err)
-				assert.Equal(t, genesis+1, p.Ref.Height)
-				return
-			}
-			require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
-		})
-	}
 }

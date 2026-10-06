@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/celestia/nodefake"
 	"github.com/vgonkivs/edicta/celestia/recorder"
 )
 
@@ -23,6 +24,16 @@ func (c *testClock) add(d time.Duration) {
 	c.mu.Lock()
 	c.t = c.t.Add(d)
 	c.mu.Unlock()
+}
+
+// advance moves the clock and the chain together: a new head dated at the new
+// time, as a live chain would have after that long.
+func advance(ch *nodefake.Chain, clk *testClock, d time.Duration) {
+	clk.add(d)
+	head, _ := ch.Head(bg)
+	hd := blockAt(head.Height + 1)
+	hd.Time = clk.Now()
+	ch.AddHeader(hd)
 }
 
 // gated blocks its first Submit until release is closed.
@@ -48,7 +59,7 @@ func newGated(l *landing) *gated {
 func TestBlobAcrossTheTTLWhileInflightIsNotSubmittedTwice(t *testing.T) {
 	ch := newChain()
 	sub := newGated(newLanding(ch))
-	clk := &testClock{t: t0}
+	clk := &testClock{t: blockAt(genesis).Time}
 	c := cfg()
 	c.MaxPending = 1
 	c.Now = clk.Now
@@ -59,7 +70,7 @@ func TestBlobAcrossTheTTLWhileInflightIsNotSubmittedTwice(t *testing.T) {
 	go func() { _, err := rec.Publish(bg, blob); first <- err }()
 	<-sub.started
 
-	clk.add(2 * time.Hour)
+	advance(ch, clk, 2*time.Hour)
 	for i := 0; i < 2; i++ {
 		_, err := rec.Publish(bg, blob)
 		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown, "the first call still owns the blob")
@@ -68,6 +79,7 @@ func TestBlobAcrossTheTTLWhileInflightIsNotSubmittedTwice(t *testing.T) {
 
 	close(sub.release)
 	require.NoError(t, <-first)
+	advance(ch, clk, time.Second)
 
 	pub, err := rec.Publish(bg, blob)
 	require.NoError(t, err, "the verified blob answers from the cache")
@@ -88,7 +100,7 @@ func TestTTLEvictionOfAnIdleEntryCountsOnce(t *testing.T) {
 		ch := newChain()
 		sub := newLanding(ch)
 		sub.Err, sub.NoLand = errBoom, true
-		clk := &testClock{t: t0}
+		clk := &testClock{t: blockAt(genesis).Time}
 		c := cfg()
 		c.MaxPending = 1
 		c.Now = clk.Now
@@ -97,7 +109,7 @@ func TestTTLEvictionOfAnIdleEntryCountsOnce(t *testing.T) {
 
 		_, err := rec.Publish(bg, blob)
 		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
-		clk.add(2 * time.Hour)
+		advance(ch, clk, 2*time.Hour)
 		_, err = rec.Publish(bg, blob)
 		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
 		assert.Equal(t, 1, sub.Calls, "the TTL does not allow a second submit")
@@ -113,7 +125,7 @@ func TestTTLEvictionOfAnIdleEntryCountsOnce(t *testing.T) {
 		grow(ch, genesis+10)
 
 		sub := newLanding(ch)
-		clk := &testClock{t: t0}
+		clk := &testClock{t: blockAt(genesis + 10).Time}
 		c := settleCfg(openArchive(t, dir), 256)
 		c.MaxPending = 1
 		c.Now = clk.Now
@@ -121,7 +133,7 @@ func TestTTLEvictionOfAnIdleEntryCountsOnce(t *testing.T) {
 
 		_, err := rec.Publish(bg, decisionBlob)
 		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown, "inside the settle window")
-		clk.add(2 * time.Hour)
+		advance(ch, clk, 2*time.Hour)
 		_, err = rec.Publish(bg, decisionBlob)
 		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
 		assert.Zero(t, sub.Calls)

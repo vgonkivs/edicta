@@ -23,8 +23,23 @@ func cfg() recorder.Config {
 		VisibleTimeout: 50 * time.Millisecond, PollInterval: time.Millisecond, ScanBlocks: 16}
 }
 
+// followHead is a clock that reads the time of the reader's head, so a block
+// is never older than the Recorder's own clock allows.
+func followHead(r node.Reader) func() time.Time {
+	return func() time.Time {
+		h, err := r.Head(bg)
+		if err != nil {
+			return t0
+		}
+		return h.Time
+	}
+}
+
 func mk(t *testing.T, c recorder.Config, s recorder.Submitter, r node.Reader) *recorder.Recorder {
 	t.Helper()
+	if c.Now == nil {
+		c.Now = followHead(r)
+	}
 	rec, err := recorder.New(c, s, r)
 	require.NoError(t, err)
 	return rec

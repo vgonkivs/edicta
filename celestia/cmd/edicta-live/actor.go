@@ -207,8 +207,13 @@ func (a *actor) act(ctx context.Context, d agent.Decision) (*Evidence, error) {
 func (a *actor) baseEvidence(res *sdk.Result) *Evidence {
 	ref := res.Published.Ref
 	signer, _ := bankmsg.EncodeAddress(a.dom.HRP, ref.Signer)
+	var anchorDA string
+	if ref.DA == commitment.DAFibre {
+		anchorDA, signer = "fibre", ""
+	}
 	return &Evidence{
-		DryRun: a.cfg.DryRun, ChainID: a.dom.ChainID,
+		AnchorDA: anchorDA,
+		DryRun:   a.cfg.DryRun, ChainID: a.dom.ChainID,
 		Namespace: hex.EncodeToString(ref.Namespace), BlobHeight: ref.Height,
 		BlobTime: res.Published.BlockTime, BlobTimeRFC3339: rfc3339(res.Published.BlockTime),
 		ShareCommitment: hex.EncodeToString(ref.Commitment),
