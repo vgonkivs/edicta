@@ -88,7 +88,15 @@ func TestBlockTime(t *testing.T) {
 	assert.EqualValues(t, t0.Unix(), got, "floored to seconds")
 
 	_, err = h.BlockTime(bg, H+10)
-	require.ErrorIs(t, err, gate.ErrAnchorNotFound, "future block")
+	require.ErrorIs(t, err, gate.ErrChainUnavailable, "a missing header is a failed read")
+	assert.NotErrorIs(t, err, gate.ErrAnchorNotFound)
+}
+
+func TestFindAnchorMissingHeaderIsChainUnavailable(t *testing.T) {
+	c := nodefake.NewChain(signer)
+	_, err := gatechain.NewAnchors(c).FindAnchor(bg, ref(t))
+	require.ErrorIs(t, err, gate.ErrChainUnavailable)
+	assert.NotErrorIs(t, err, gate.ErrAnchorNotFound)
 }
 
 func TestLookupsMapNodeErrors(t *testing.T) {
@@ -154,7 +162,7 @@ func TestFindAnchor(t *testing.T) {
 		{"node data differs from commitment", func(b *node.Blob) { b.Data = append(bytes.Clone(b.Data), 1) }, nil, false},
 		{"node commitment field differs", func(b *node.Blob) { b.Commitment = bytes.Repeat([]byte{1}, 32) }, nil, false},
 		{"da 1 ref", nil, func(r *commitment.PayloadRef) { r.DA = commitment.DAFibre }, false},
-		{"other height", nil, func(r *commitment.PayloadRef) { r.Height = H + 1 }, false},
+		{"other height has no header", nil, func(r *commitment.PayloadRef) { r.Height = H + 1 }, false},
 		{"other namespace", nil, func(r *commitment.PayloadRef) {
 			r.Namespace = append(append([]byte{0}, make([]byte, 18)...), bytes.Repeat([]byte{8}, 10)...)
 		}, false},
@@ -170,6 +178,11 @@ func TestFindAnchor(t *testing.T) {
 			if tc.ok {
 				require.NoError(t, err)
 				assert.Equal(t, gate.Anchor{Height: H, RetentionStart: 0}, a)
+				return
+			}
+			if tc.name == "other height has no header" {
+				require.ErrorIs(t, err, gate.ErrChainUnavailable)
+				assert.NotErrorIs(t, err, gate.ErrAnchorNotFound)
 				return
 			}
 			require.ErrorIs(t, err, gate.ErrAnchorNotFound)
@@ -287,4 +300,18 @@ func TestPreflightWithChainParams(t *testing.T) {
 			assert.Equal(t, tc.calls, cs.fibreCalls.Load())
 		})
 	}
+}
+
+type panicProof struct{}
+
+func (panicProof) Verify([]byte, []byte) error { panic("malformed proof") }
+
+func TestFindAnchorPanickingProofIsChainUnavailable(t *testing.T) {
+	c := nodefake.NewChain(signer)
+	c.AddHeader(node.Header{ChainID: "devnet-1", Height: H, Time: t0, DataRoot: rootAt(H)})
+	c.AddBlob(H, node.Blob{Namespace: ns, Data: bytes.Clone(data), ShareVersion: 1, Signer: signer, Commitment: comm(t, data)}, panicProof{})
+	require.NotPanics(t, func() {
+		_, err := gatechain.NewAnchors(c).FindAnchor(bg, ref(t))
+		require.ErrorIs(t, err, gate.ErrChainUnavailable)
+	})
 }

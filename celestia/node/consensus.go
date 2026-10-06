@@ -15,6 +15,7 @@ import (
 	nodeservice "github.com/cosmos/cosmos-sdk/client/grpc/node"
 	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -74,7 +75,44 @@ type ConsensusClient struct {
 	tx      txtypes.ServiceClient
 	fibre   fibretypes.QueryClient
 	cfg     nodeservice.ServiceClient
+	bank    banktypes.QueryClient
+
+	canary CanaryConfig
+	flag   heightcheck.Flag
 }
+
+// Canary defaults. The recent offset must stay inside every node's retained
+// state; the pre-activation height is the last Mocha height before x/fibre.
+const (
+	DefaultCanaryOffset        = 10
+	DefaultPreActivationHeight = 1_082_619
+)
+
+// CanaryConfig sets the heights the consensus canary asks for. Zero fields take
+// the defaults.
+type CanaryConfig struct {
+	// RecentOffset is k: the canary reads at head - k.
+	RecentOffset uint64
+	// PreActivationHeight is a height before x/fibre existed on the chain.
+	PreActivationHeight uint64
+}
+
+func (c CanaryConfig) withDefaults() CanaryConfig {
+	if c.RecentOffset == 0 {
+		c.RecentOffset = DefaultCanaryOffset
+	}
+	if c.PreActivationHeight == 0 {
+		c.PreActivationHeight = DefaultPreActivationHeight
+	}
+	return c
+}
+
+// SetCanary sets the canary heights; call it before the client is shared.
+func (c *ConsensusClient) SetCanary(cfg CanaryConfig) { c.canary = cfg.withDefaults() }
+
+// HeightFlag is the flag the canary sets and clears. Hand it to NewReaderFlag so
+// a height mismatch on a block read also marks this endpoint.
+func (c *ConsensusClient) HeightFlag() *heightcheck.Flag { return &c.flag }
 
 var _ Consensus = (*ConsensusClient)(nil)
 
@@ -93,6 +131,7 @@ func NewConsensusConn(conn *grpc.ClientConn) *ConsensusClient {
 		conn: conn, cmt: cmtservice.NewServiceClient(conn), auth: authtypes.NewQueryClient(conn),
 		staking: stakingtypes.NewQueryClient(conn), tx: txtypes.NewServiceClient(conn),
 		fibre: fibretypes.NewQueryClient(conn), cfg: nodeservice.NewServiceClient(conn),
+		bank: banktypes.NewQueryClient(conn), canary: CanaryConfig{}.withDefaults(),
 	}
 }
 
@@ -148,6 +187,9 @@ func heightIgnored(err error) error {
 // FibreParamsAt reads x/fibre params at height and requires the node to echo
 // that height.
 func (c *ConsensusClient) FibreParamsAt(ctx context.Context, height uint64) (FibreParams, error) {
+	if c.flag.Ignoring() {
+		return FibreParams{}, heightIgnored(fmt.Errorf("%w: endpoint marked height-ignoring", heightcheck.ErrHeightIgnored))
+	}
 	pctx, md := pinned(ctx, height)
 	r, err := c.fibre.Params(pctx, &fibretypes.QueryParamsRequest{}, grpc.Header(md))
 	if err != nil {
@@ -159,32 +201,50 @@ func (c *ConsensusClient) FibreParamsAt(ctx context.Context, height uint64) (Fib
 	return fibreParams(r)
 }
 
-// canaryHeights are far below any x/fibre activation; an honest node cannot
-// load state there.
-var canaryHeights = []uint64{1, 2, 3}
-
-// HeightCanary pins x/fibre params to heights below activation. A node that
-// fails them looks at the height; one that answers any of them does not.
+// HeightCanary decides from the node's answers alone, never from error codes.
+// A bank query at head - k must succeed and echo that height; success without
+// the echo, or an x/fibre query that succeeds at a height before the module
+// existed, means the node drops the height. Anything else proves nothing.
 func (c *ConsensusClient) HeightCanary(ctx context.Context) (heightcheck.Status, error) {
-	var first error
-	out := heightcheck.Honoured
-	for _, h := range canaryHeights {
-		pctx, md := pinned(ctx, h)
-		_, err := c.fibre.Params(pctx, &fibretypes.QueryParamsRequest{}, grpc.Header(md))
-		switch st := heightcheck.ClassifyGRPC(err); st {
-		case heightcheck.Ignoring:
-			return st, nil
-		case heightcheck.Inconclusive:
-			out = st
-			if first == nil {
-				first = err
-			}
-		}
+	st, err := c.heightCanary(ctx)
+	switch st {
+	case heightcheck.Honoured:
+		c.flag.Clear()
+	case heightcheck.Ignoring:
+		c.flag.Mark()
 	}
-	if out == heightcheck.Inconclusive {
-		return out, fmt.Errorf("height canary: %w", classifyGRPC(ctx, first))
+	return st, err
+}
+
+func (c *ConsensusClient) heightCanary(ctx context.Context) (heightcheck.Status, error) {
+	cfg := c.canary.withDefaults()
+	head, err := c.LatestHeight(ctx)
+	if err != nil {
+		return heightcheck.Inconclusive, fmt.Errorf("height canary: %w", err)
 	}
-	return out, nil
+	if head <= cfg.RecentOffset {
+		return heightcheck.Inconclusive, fmt.Errorf("height canary: head %d is not above offset %d", head, cfg.RecentOffset)
+	}
+	recent := head - cfg.RecentOffset
+	pctx, md := pinned(ctx, recent)
+	if _, err := c.bank.Params(pctx, &banktypes.QueryParamsRequest{}, grpc.Header(md)); err != nil {
+		return heightcheck.Inconclusive, fmt.Errorf("height canary: recent read at %d: %w", recent, classifyGRPC(ctx, err))
+	}
+	if heightcheck.EchoHeight(*md, recent) != nil {
+		return heightcheck.Ignoring, nil
+	}
+	if cfg.PreActivationHeight >= recent {
+		return heightcheck.Honoured, nil
+	}
+	pctx, md = pinned(ctx, cfg.PreActivationHeight)
+	r, err := c.fibre.Params(pctx, &fibretypes.QueryParamsRequest{}, grpc.Header(md))
+	if err == nil && r != nil {
+		return heightcheck.Ignoring, nil
+	}
+	if cerr := ctx.Err(); cerr != nil {
+		return heightcheck.Inconclusive, fmt.Errorf("height canary: %w", classifyGRPC(ctx, cerr))
+	}
+	return heightcheck.Honoured, nil
 }
 
 func (c *ConsensusClient) BondDenom(ctx context.Context) (string, error) {
@@ -317,6 +377,7 @@ func (c *ConsensusClient) TxAt(ctx context.Context, hash [32]byte, height uint64
 	}
 	if st.Found {
 		if err := heightcheck.HeaderHeight(st.Height, height); err != nil {
+			c.flag.Mark()
 			return TxStatus{}, heightIgnored(err)
 		}
 	}
@@ -353,6 +414,8 @@ func ConsensusEndpoint(name string, c Consensus) heightcheck.Endpoint {
 }
 
 func (e consensusEndpoint) Name() string { return e.name }
+
+func (e consensusEndpoint) Role() heightcheck.Role { return heightcheck.RoleConsensus }
 
 func (e consensusEndpoint) Canary(ctx context.Context) (heightcheck.Status, error) {
 	return e.c.HeightCanary(ctx)

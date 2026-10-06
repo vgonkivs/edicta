@@ -111,7 +111,8 @@ type Consensus interface {
 	// response echoes that height; the failure is ErrUnavailable and
 	// heightcheck.ErrHeightIgnored.
 	FibreParamsAt(ctx context.Context, height uint64) (FibreParams, error)
-	// HeightCanary asks for state at heights that cannot hold it.
+	// HeightCanary reads a recent past height and requires the node to echo it;
+	// see heightcheck.Status for the outcomes.
 	HeightCanary(ctx context.Context) (heightcheck.Status, error)
 	BondDenom(ctx context.Context) (string, error)
 	Bech32Prefix(ctx context.Context) (string, error)

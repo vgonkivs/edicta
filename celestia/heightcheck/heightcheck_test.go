@@ -3,7 +3,6 @@ package heightcheck_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -11,9 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 
 	"github.com/vgonkivs/edicta/celestia/heightcheck"
 )
@@ -38,6 +35,12 @@ func TestEchoHeight(t *testing.T) {
 		{"not a number", metadata.Pairs(heightKey, "five"), 5, false},
 		{"negative", metadata.Pairs(heightKey, "-5"), 5, false},
 		{"overflow", metadata.Pairs(heightKey, "18446744073709551621"), 5, false},
+		{"leading zero", metadata.Pairs(heightKey, "05"), 5, false},
+		{"leading zeros on a long height", metadata.Pairs(heightKey, "0001082620"), 1082620, false},
+		{"zero is canonical", metadata.Pairs(heightKey, "0"), 0, true},
+		{"plus sign", metadata.Pairs(heightKey, "+5"), 5, false},
+		{"surrounding space", metadata.Pairs(heightKey, " 5"), 5, false},
+		{"hex", metadata.Pairs(heightKey, "0x5"), 5, false},
 		{"conflicting values", metadata.Pairs(heightKey, "5", heightKey, "6"), 5, false},
 	}
 	for _, tc := range cases {
@@ -58,39 +61,59 @@ func TestHeaderHeight(t *testing.T) {
 	require.ErrorIs(t, heightcheck.HeaderHeight(0, 77), heightcheck.ErrHeightIgnored)
 }
 
-func TestClassifyGRPC(t *testing.T) {
-	cases := []struct {
-		name string
-		err  error
-		want heightcheck.Status
-	}{
-		{"query succeeded at a height that cannot hold the state", nil, heightcheck.Ignoring},
-		{"internal error from the node", status.Error(codes.Internal, "failed to load state at height 1"), heightcheck.Honoured},
-		{"not found from the node", status.Error(codes.NotFound, "no state"), heightcheck.Honoured},
-		{"invalid argument from the node", status.Error(codes.InvalidArgument, "bad height"), heightcheck.Honoured},
-		{"wrapped node error", fmt.Errorf("canary: %w", status.Error(codes.Internal, "x")), heightcheck.Honoured},
-		{"unavailable", status.Error(codes.Unavailable, "connection refused"), heightcheck.Inconclusive},
-		{"deadline code", status.Error(codes.DeadlineExceeded, "slow"), heightcheck.Inconclusive},
-		{"canceled code", status.Error(codes.Canceled, "gone"), heightcheck.Inconclusive},
-		{"context deadline", context.DeadlineExceeded, heightcheck.Inconclusive},
-		{"wrapped context canceled", fmt.Errorf("x: %w", context.Canceled), heightcheck.Inconclusive},
-		{"plain transport error", errors.New("dial tcp: refused"), heightcheck.Inconclusive},
+func TestFlag(t *testing.T) {
+	var f heightcheck.Flag
+	assert.False(t, f.Ignoring())
+	f.Mark()
+	assert.True(t, f.Ignoring())
+	f.Mark()
+	assert.True(t, f.Ignoring())
+	f.Clear()
+	assert.False(t, f.Ignoring())
+}
+
+func TestFlagNilIsSafeAndNeverSet(t *testing.T) {
+	var f *heightcheck.Flag
+	require.NotPanics(t, func() {
+		f.Mark()
+		f.Clear()
+	})
+	assert.False(t, f.Ignoring())
+}
+
+func TestFlagConcurrent(t *testing.T) {
+	var f heightcheck.Flag
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				f.Mark()
+				_ = f.Ignoring()
+				f.Clear()
+			}
+		}()
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, heightcheck.ClassifyGRPC(tc.err))
-		})
-	}
+	wg.Wait()
+	assert.False(t, f.Ignoring())
 }
 
 type fakeEndpoint struct {
 	name   string
+	role   heightcheck.Role
 	status heightcheck.Status
 	err    error
 	calls  int
 }
 
 func (f *fakeEndpoint) Name() string { return f.name }
+func (f *fakeEndpoint) Role() heightcheck.Role {
+	if f.role == 0 {
+		return heightcheck.RoleConsensus
+	}
+	return f.role
+}
 func (f *fakeEndpoint) Canary(context.Context) (heightcheck.Status, error) {
 	f.calls++
 	return f.status, f.err
@@ -158,7 +181,7 @@ func TestStartupInconclusiveCountsAsNotPassedAndNeverBlocksStart(t *testing.T) {
 func TestStartupOneLinePerEndpointAndWorstWins(t *testing.T) {
 	h := &captureHandler{}
 	eps := []heightcheck.Endpoint{
-		&fakeEndpoint{name: "bridge", status: heightcheck.Honoured},
+		&fakeEndpoint{name: "bridge", role: heightcheck.RoleBridge, status: heightcheck.Honoured},
 		&fakeEndpoint{name: "consensus", status: heightcheck.Ignoring},
 		&fakeEndpoint{name: "backup", status: heightcheck.Honoured},
 	}
@@ -179,4 +202,45 @@ func TestStartupAllHonouredIsNotObservationsOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, obs)
 	assert.Len(t, h.lines(), 2)
+}
+
+func TestStartupFailingBridgeIsLoggedButNotObservationsOnly(t *testing.T) {
+	cases := []struct {
+		name string
+		st   heightcheck.Status
+		err  error
+	}{
+		{"ignoring", heightcheck.Ignoring, nil},
+		{"inconclusive", heightcheck.Inconclusive, errors.New("timeout")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &captureHandler{}
+			br := &fakeEndpoint{name: "bridge", role: heightcheck.RoleBridge, status: tc.st, err: tc.err}
+			obs, err := heightcheck.Startup(context.Background(), slog.New(h), br)
+			require.NoError(t, err)
+			assert.False(t, obs, "a bridge never drives observations-only")
+			require.Len(t, h.lines(), 1)
+			assert.Equal(t, slog.LevelWarn, h.lines()[0].level)
+			assert.True(t, strings.HasPrefix(h.lines()[0].msg, "bridge:"))
+		})
+	}
+}
+
+func TestStartupFailingBridgeDoesNotHideHealthyConsensus(t *testing.T) {
+	h := &captureHandler{}
+	obs, err := heightcheck.Startup(context.Background(), slog.New(h),
+		&fakeEndpoint{name: "cons", status: heightcheck.Honoured},
+		&fakeEndpoint{name: "bridge", role: heightcheck.RoleBridge, status: heightcheck.Ignoring})
+	require.NoError(t, err)
+	assert.False(t, obs)
+	assert.Len(t, h.lines(), 2)
+}
+
+func TestStartupFailingConsensusWithHonestBridgeIsObservationsOnly(t *testing.T) {
+	obs, err := heightcheck.Startup(context.Background(), slog.New(&captureHandler{}),
+		&fakeEndpoint{name: "bridge", role: heightcheck.RoleBridge, status: heightcheck.Honoured},
+		&fakeEndpoint{name: "cons", status: heightcheck.Inconclusive, err: errors.New("x")})
+	require.NoError(t, err)
+	assert.True(t, obs)
 }

@@ -184,7 +184,7 @@ func newScripted(at uint64, canary func(int32) heightcheck.Status) *scripted {
 
 func startParams(t *testing.T, s *scripted) *retention.Params {
 	t.Helper()
-	latest, direct := gatechain.NewRetentionSources(s, 0)
+	latest, direct := gatechain.NewRetentionSources(s)
 	p, err := retention.NewParams(retention.Policy{}, latest, direct, memstore.New(), fixedClock{})
 	require.NoError(t, err)
 	require.NoError(t, p.Start(bg))
@@ -246,7 +246,7 @@ func TestRetentionSourcesDirectReadFailureIsNotAValue(t *testing.T) {
 	s.at = func(uint64) (node.FibreParams, error) {
 		return node.FibreParams{}, errors.Join(node.ErrUnavailable, heightcheck.ErrHeightIgnored)
 	}
-	_, direct := gatechain.NewRetentionSources(s, 0)
+	_, direct := gatechain.NewRetentionSources(s)
 	_, err := direct.RetentionAt(bg, 1000)
 	require.ErrorIs(t, err, heightcheck.ErrHeightIgnored)
 
@@ -267,7 +267,7 @@ func TestRetentionSourcesCanaryMapping(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, direct := gatechain.NewRetentionSources(newScripted(1, always(tc.st)), 0)
+			_, direct := gatechain.NewRetentionSources(newScripted(1, always(tc.st)))
 			ok, err := direct.HonoursHeight(bg)
 			assert.Equal(t, tc.honours, ok)
 			assert.Equal(t, tc.err, err != nil)
@@ -277,7 +277,7 @@ func TestRetentionSourcesCanaryMapping(t *testing.T) {
 
 func TestRetentionLatestSourceReadsHeadValueHead(t *testing.T) {
 	s := newScripted(1, always(heightcheck.Honoured))
-	latest, _ := gatechain.NewRetentionSources(s, 0)
+	latest, _ := gatechain.NewRetentionSources(s)
 	id, err := latest.ChainID(bg)
 	require.NoError(t, err)
 	assert.Equal(t, "devnet-1", id)

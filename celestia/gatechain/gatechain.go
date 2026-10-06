@@ -39,9 +39,6 @@ func (h headers) BlockTime(ctx context.Context, height uint64) (uint64, error) {
 		return 0, unavailable(err)
 	}
 	hd, err := h.r.HeaderAt(ctx, height)
-	if errors.Is(err, node.ErrNotFound) {
-		return 0, fmt.Errorf("%w: block %d: %w", gate.ErrAnchorNotFound, height, err)
-	}
 	if err != nil {
 		return 0, unavailable(err)
 	}
@@ -92,10 +89,9 @@ func (a anchors) FindAnchor(ctx context.Context, ref commitment.PayloadRef) (gat
 		return gate.Anchor{}, unavailable(err)
 	}
 	hd, err := a.r.HeaderAt(ctx, ref.Height)
-	if errors.Is(err, node.ErrNotFound) {
-		return gate.Anchor{}, fmt.Errorf("%w: block %d: %w", gate.ErrAnchorNotFound, ref.Height, err)
-	}
 	if err != nil {
+		// A missing header is a failed read, not an absent anchor: the real
+		// bridge only says not found for a block it should have served.
 		return gate.Anchor{}, unavailable(err)
 	}
 	if hd.Height != ref.Height || len(hd.DataRoot) == 0 {
@@ -112,10 +108,20 @@ func (a anchors) FindAnchor(ctx context.Context, ref commitment.PayloadRef) (gat
 	if p == nil {
 		return gate.Anchor{}, unavailable(errors.New("commitment proof: none"))
 	}
-	if err := p.Verify(hd.DataRoot, ref.Commitment); err != nil {
+	if err := verifyProof(p, hd.DataRoot, ref.Commitment); err != nil {
 		return gate.Anchor{}, unavailable(fmt.Errorf("commitment proof against data root at height %d: %w", ref.Height, err))
 	}
 	return gate.Anchor{Height: ref.Height}, nil
+}
+
+// verifyProof turns a panic in the proof library into an error.
+func verifyProof(p node.CommitmentProof, dataRoot, commit []byte) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	return p.Verify(dataRoot, commit)
 }
 
 type blobSource struct{ r node.Reader }
@@ -160,10 +166,8 @@ func (p params) FibreRetention(ctx context.Context, height uint64) (uint64, erro
 type latestSource struct{ c node.Consensus }
 
 // NewRetentionSources reads x/fibre retention from c: the latest value for
-// the observer, and a pinned read paired with the height canary. The sample
-// bracket is widened by the retention policy's lag, so lag is not applied
-// here.
-func NewRetentionSources(c node.Consensus, _ uint64) (retention.LatestSource, retention.AtHeightSource) {
+// the observer, and a pinned read paired with the height canary.
+func NewRetentionSources(c node.Consensus) (retention.LatestSource, retention.AtHeightSource) {
 	return latestSource{c: c}, atHeightSource{c: c}
 }
 

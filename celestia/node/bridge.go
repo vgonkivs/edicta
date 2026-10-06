@@ -14,15 +14,22 @@ import (
 )
 
 // bridge adapts a celestia-node ReadClient to Reader.
-type bridge struct{ rc *client.ReadClient }
+type bridge struct {
+	rc   *client.ReadClient
+	flag *heightcheck.Flag
+}
 
 // NewReader wraps the read side of an api/client. The caller keeps ownership
 // of rc and closes it.
-func NewReader(rc *client.ReadClient) (Reader, error) {
+func NewReader(rc *client.ReadClient) (Reader, error) { return NewReaderFlag(rc, nil) }
+
+// NewReaderFlag is NewReader that also marks flag, normally the consensus
+// endpoint's, when a header comes back for another height.
+func NewReaderFlag(rc *client.ReadClient, flag *heightcheck.Flag) (Reader, error) {
 	if rc == nil {
 		return nil, errors.New("node: nil read client")
 	}
-	return bridge{rc: rc}, nil
+	return bridge{rc: rc, flag: flag}, nil
 }
 
 func (b bridge) Head(ctx context.Context) (Header, error) {
@@ -42,6 +49,7 @@ func (b bridge) HeaderAt(ctx context.Context, height uint64) (Header, error) {
 		return Header{}, wrapCtx(ctx, err)
 	}
 	if err := heightcheck.HeaderHeight(uint64(h.Height()), height); err != nil {
+		b.flag.Mark()
 		return Header{}, heightIgnored(err)
 	}
 	return Header{
@@ -50,37 +58,48 @@ func (b bridge) HeaderAt(ctx context.Context, height uint64) (Header, error) {
 	}, nil
 }
 
-// canaryAhead is how far above the head the bridge canary asks; no header
-// exists there.
-const canaryAhead = 1_000_000
-
 type bridgeEndpoint struct {
-	name string
-	r    Reader
+	name   string
+	r      Reader
+	offset uint64
 }
 
-// BridgeEndpoint exposes the height canary of r to heightcheck.Startup.
-func BridgeEndpoint(name string, r Reader) heightcheck.Endpoint {
-	return bridgeEndpoint{name: name, r: r}
+// BridgeEndpoint exposes the height canary of r to heightcheck.Startup. The
+// optional config sets the recent offset; the pre-activation height is unused.
+func BridgeEndpoint(name string, r Reader, cfg ...CanaryConfig) heightcheck.Endpoint {
+	var c CanaryConfig
+	if len(cfg) > 0 {
+		c = cfg[0]
+	}
+	return bridgeEndpoint{name: name, r: r, offset: c.withDefaults().RecentOffset}
 }
 
 func (e bridgeEndpoint) Name() string { return e.name }
 
-// Canary asks for a header far above the head: an honest bridge says not
-// found, one that ignores the height answers some other header.
+func (e bridgeEndpoint) Role() heightcheck.Role { return heightcheck.RoleBridge }
+
+// Canary reads the header at head - k and requires the one returned to be for
+// that height. The result is informational: block reads are checked on every
+// response anyway.
 func (e bridgeEndpoint) Canary(ctx context.Context) (heightcheck.Status, error) {
 	head, err := e.r.Head(ctx)
 	if err != nil {
 		return heightcheck.Inconclusive, fmt.Errorf("height canary: head: %w", err)
 	}
-	_, err = e.r.HeaderAt(ctx, head.Height+canaryAhead)
-	switch {
-	case err == nil, errors.Is(err, heightcheck.ErrHeightIgnored):
-		return heightcheck.Ignoring, nil
-	case errors.Is(err, ErrNotFound):
-		return heightcheck.Honoured, nil
+	if head.Height <= e.offset {
+		return heightcheck.Inconclusive, fmt.Errorf("height canary: head %d is not above offset %d", head.Height, e.offset)
 	}
-	return heightcheck.Inconclusive, fmt.Errorf("height canary: %w", err)
+	want := head.Height - e.offset
+	h, err := e.r.HeaderAt(ctx, want)
+	switch {
+	case errors.Is(err, heightcheck.ErrHeightIgnored):
+		return heightcheck.Ignoring, nil
+	case err != nil:
+		return heightcheck.Inconclusive, fmt.Errorf("height canary: %w", err)
+	case h.Height != want:
+		return heightcheck.Ignoring, nil
+	}
+	return heightcheck.Honoured, nil
 }
 
 func (b bridge) Blob(ctx context.Context, height uint64, namespace, commitment []byte) (Blob, error) {

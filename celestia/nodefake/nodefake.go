@@ -217,7 +217,8 @@ func (c *Consensus) FibreParamsAt(ctx context.Context, _ uint64) (node.FibrePara
 	return c.FibreParams(ctx)
 }
 
-// HeightCanary reports CanaryStatus, honoured by default.
+// HeightCanary reports CanaryStatus, honoured by default. The fake has no
+// response headers to echo, so the outcome is scripted instead of derived.
 func (c *Consensus) HeightCanary(context.Context) (heightcheck.Status, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
