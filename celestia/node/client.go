@@ -22,6 +22,14 @@ type BridgeConfig struct {
 	Addr  string
 	Token string
 	TLS   bool
+	// AllowInsecureToken permits a token over plain HTTP to a loopback
+	// address (a local devnet).
+	AllowInsecureToken bool
+}
+
+// ValidateBasic checks the stateless fields.
+func (b BridgeConfig) ValidateBasic() error {
+	return checkTokenTransport("bridge", b.Addr, b.Token, b.TLS, b.AllowInsecureToken)
 }
 
 // newClientFn and dialStateClient are seams for tests.
@@ -61,6 +69,9 @@ func BridgeURL(addr string, tls bool) (string, error) {
 
 // NewReadOnly connects to the bridge node only. Close the result.
 func NewReadOnly(ctx context.Context, b BridgeConfig) (*client.ReadClient, Reader, error) {
+	if err := b.ValidateBasic(); err != nil {
+		return nil, nil, err
+	}
 	rc, err := client.NewReadClient(ctx, client.ReadConfig{BridgeDAAddr: b.Addr, DAAuthToken: b.Token, EnableDATLS: b.TLS})
 	if err != nil {
 		return nil, nil, wrapCtx(ctx, err)
@@ -78,6 +89,12 @@ func NewReadOnly(ctx context.Context, b BridgeConfig) (*client.ReadClient, Reade
 // chain id the consensus node reports (ConsensusClient.Network). Close the
 // result: it closes the client and the state clients dialed for it.
 func NewSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Keyring, keyName, network string) (io.Closer, Reader, Submitter, error) {
+	if err := g.ValidateBasic(); err != nil {
+		return nil, nil, nil, err
+	}
+	if err := b.ValidateBasic(); err != nil {
+		return nil, nil, nil, err
+	}
 	if kr == nil {
 		return nil, nil, nil, errors.New("node: no keyring")
 	}

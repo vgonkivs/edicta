@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,19 +37,54 @@ type GRPCConfig struct {
 	// Token is sent as the x-token header; empty sends none. It is refused
 	// without TLS unless the address is passed through AllowInsecureToken.
 	Token string
-	// AllowInsecureToken permits a token over plain gRPC (a local devnet).
+	// AllowInsecureToken permits a token over plain gRPC to a loopback
+	// address (a local devnet).
 	AllowInsecureToken bool
+}
+
+// LoopbackAddr reports whether addr, a host:port or a URL, names the local
+// machine.
+func LoopbackAddr(addr string) bool {
+	if i := strings.Index(addr, "://"); i >= 0 {
+		addr = addr[i+3:]
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// checkTokenTransport enforces that a bearer token only travels over TLS or,
+// with the explicit opt-in, to a loopback address.
+func checkTokenTransport(what, addr, token string, tls, allowInsecure bool) error {
+	if allowInsecure && !LoopbackAddr(addr) {
+		return fmt.Errorf("node: %s: insecure token opt-in for non-loopback address %q refused", what, addr)
+	}
+	if token != "" && !tls && !allowInsecure {
+		return fmt.Errorf("node: %s token over plain connection refused", what)
+	}
+	return nil
+}
+
+// ValidateBasic checks the stateless fields.
+func (c GRPCConfig) ValidateBasic() error {
+	if c.Addr == "" {
+		return errors.New("node: no consensus gRPC address")
+	}
+	return checkTokenTransport("consensus", c.Addr, c.Token, c.TLS, c.AllowInsecureToken)
 }
 
 const maxGRPCMessage = 64 << 20
 
 // DialGRPC opens a lazy connection; nothing is sent until the first call.
 func DialGRPC(c GRPCConfig) (*grpc.ClientConn, error) {
-	if c.Addr == "" {
-		return nil, errors.New("node: no consensus gRPC address")
-	}
-	if c.Token != "" && !c.TLS && !c.AllowInsecureToken {
-		return nil, errors.New("node: consensus token over plain gRPC refused")
+	if err := c.ValidateBasic(); err != nil {
+		return nil, err
 	}
 	creds := insecure.NewCredentials()
 	if c.TLS {

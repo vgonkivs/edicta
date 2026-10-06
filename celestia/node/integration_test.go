@@ -49,9 +49,9 @@ func liveCfg(t *testing.T) (BridgeConfig, GRPCConfig) {
 		require.NoError(t, err)
 		return s.RevealString()
 	}
-	return BridgeConfig{Addr: bn, Token: tok("EDICTA_BN_TOKEN_FILE"), TLS: os.Getenv("EDICTA_BN_TLS") == "1"},
+	return BridgeConfig{Addr: bn, Token: tok("EDICTA_BN_TOKEN_FILE"), TLS: os.Getenv("EDICTA_BN_TLS") == "1", AllowInsecureToken: LoopbackAddr(bn)},
 		GRPCConfig{Addr: core, Token: tok("EDICTA_CORE_TOKEN_FILE"), TLS: os.Getenv("EDICTA_CORE_TLS") == "1",
-			AllowInsecureToken: os.Getenv("EDICTA_CORE_TLS") != "1"}
+			AllowInsecureToken: LoopbackAddr(core)}
 }
 
 func TestLiveCheck(t *testing.T) {

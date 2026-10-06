@@ -133,7 +133,7 @@ func TestLiveEndToEnd(t *testing.T) {
 	assert.Equal(t, ev.Transfer.Height, st.Height)
 	assert.Zero(t, st.Code)
 
-	rc, rd, err := node.NewReadOnly(ctx, node.BridgeConfig{Addr: c.BridgeAddr, Token: tok(c.BridgeTokenFile), TLS: c.BridgeTLS})
+	rc, rd, err := node.NewReadOnly(ctx, node.BridgeConfig{Addr: c.BridgeAddr, Token: tok(c.BridgeTokenFile), TLS: c.BridgeTLS, AllowInsecureToken: loopbackAddr(c.BridgeAddr)})
 	require.NoError(t, err)
 	defer rc.Close()
 	hd, err := rd.HeaderAt(ctx, ev.BlobHeight)

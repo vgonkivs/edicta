@@ -9,10 +9,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -107,9 +105,10 @@ func adapters(ctx context.Context, cfg edictad.Config, log *slog.Logger) (node.R
 	if err != nil {
 		return nil, nil, nil, noop, fmt.Errorf("consensus token: %w", err)
 	}
-	b := node.BridgeConfig{Addr: cfg.Network.Bridge.Addr, Token: bridgeTok, TLS: cfg.Network.Bridge.TLS}
-	if b.Token != "" && !b.TLS && !loopbackAddr(b.Addr) {
-		return nil, nil, nil, noop, errors.New("bridge token over plain HTTP to a non-loopback address refused; set network.bridge.tls")
+	b := node.BridgeConfig{Addr: cfg.Network.Bridge.Addr, Token: bridgeTok, TLS: cfg.Network.Bridge.TLS,
+		AllowInsecureToken: loopbackAddr(cfg.Network.Bridge.Addr)}
+	if err := b.ValidateBasic(); err != nil {
+		return nil, nil, nil, noop, err
 	}
 	g := node.GRPCConfig{Addr: cfg.Network.ConsensusGRPC.Addr, TLS: cfg.Network.ConsensusGRPC.TLS, Token: consTok,
 		AllowInsecureToken: loopbackAddr(cfg.Network.ConsensusGRPC.Addr)}
@@ -191,17 +190,4 @@ func readToken(path string) (string, error) {
 	return s.RevealString(), nil
 }
 
-func loopbackAddr(addr string) bool {
-	if i := strings.Index(addr, "://"); i >= 0 {
-		addr = addr[i+3:]
-	}
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		host = addr
-	}
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
+func loopbackAddr(addr string) bool { return node.LoopbackAddr(addr) }

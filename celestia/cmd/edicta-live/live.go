@@ -119,7 +119,7 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 	if err != nil {
 		return cfgErr("--bridge-addr: %v", err)
 	}
-	rc, rd, err := node.NewReadOnly(ctx, node.BridgeConfig{Addr: bridgeURL, Token: bridgeTok, TLS: cfg.BridgeTLS})
+	rc, rd, err := node.NewReadOnly(ctx, node.BridgeConfig{Addr: bridgeURL, Token: bridgeTok, TLS: cfg.BridgeTLS, AllowInsecureToken: loopbackAddr(bridgeURL)})
 	if err != nil {
 		return fmt.Errorf("bridge node: %w", err)
 	}
@@ -456,7 +456,7 @@ func buildVerifier(ctx context.Context, cfg Config, chainID string, rd node.Read
 			if err != nil {
 				return nil, 0, "", closeFn, cfgErr("--crosscheck-bridge %s: %v", a, err)
 			}
-			c, r, err := node.NewReadOnly(ctx, node.BridgeConfig{Addr: u, Token: tok, TLS: cfg.CrossTLS})
+			c, r, err := node.NewReadOnly(ctx, node.BridgeConfig{Addr: u, Token: tok, TLS: cfg.CrossTLS, AllowInsecureToken: loopbackAddr(u)})
 			if err != nil {
 				return nil, 0, "", closeFn, fmt.Errorf("crosscheck bridge %s: %w", a, err)
 			}
@@ -479,7 +479,7 @@ func buildVerifier(ctx context.Context, cfg Config, chainID string, rd node.Read
 // openFibreReader joins the run's consensus client with a bridge reader for
 // the namespace data of the anchor block.
 func openFibreReader(ctx context.Context, cfg Config, bridgeToken string, cons *node.ConsensusClient) (node.FibreAnchorReader, func(), error) {
-	fb, err := node.NewFibreBridge(ctx, node.BridgeConfig{Addr: cfg.BridgeAddr, Token: bridgeToken, TLS: cfg.BridgeTLS}, node.BridgeLimits{})
+	fb, err := node.NewFibreBridge(ctx, node.BridgeConfig{Addr: cfg.BridgeAddr, Token: bridgeToken, TLS: cfg.BridgeTLS, AllowInsecureToken: loopbackAddr(cfg.BridgeAddr)}, node.BridgeLimits{})
 	if err != nil {
 		return nil, nil, err
 	}

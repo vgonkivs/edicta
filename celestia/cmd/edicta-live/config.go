@@ -452,16 +452,7 @@ func loopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-func loopbackAddr(addr string) bool {
-	if i := strings.Index(addr, "://"); i >= 0 {
-		addr = addr[i+3:]
-	}
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		host = addr
-	}
-	return loopbackHost(host)
-}
+func loopbackAddr(addr string) bool { return node.LoopbackAddr(addr) }
 
 // parseRecipient reads kid=<hex X25519 public key>.
 func parseRecipient(s string) (blob.Recipient, error) {

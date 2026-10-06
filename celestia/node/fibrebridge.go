@@ -55,6 +55,9 @@ var _ FibreBridgeReader = (*FibreBridge)(nil)
 
 // NewFibreBridge connects to the bridge node b. Close the result.
 func NewFibreBridge(ctx context.Context, b BridgeConfig, lim BridgeLimits) (*FibreBridge, error) {
+	if err := b.ValidateBasic(); err != nil {
+		return nil, err
+	}
 	addr, err := BridgeURL(b.Addr, b.TLS)
 	if err != nil {
 		return nil, err
