@@ -121,38 +121,38 @@ func TestFibreFailedSubmitResubmitsOnlyAfterTheWindow(t *testing.T) {
 		},
 		{
 			name: "a raised window widens the end and a lowered one never narrows it",
-			land: startHead + 605,
+			land: startHead + 1569,
 			run: func(t *testing.T, f *fibreFx, rec *recorder.FibreRecorder) {
-				f.node.SetFibreParams(node.FibreParams{RetentionS: 14400, PromiseHeightWindow: 600})
+				f.node.SetFibreParams(node.FibreParams{RetentionS: 14400, PromiseHeightWindow: 1500})
 				_, err := rec.Publish(bg, f.blob)
 				require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
 
 				f.node.SetFibreParams(node.FibreParams{RetentionS: 14400, PromiseHeightWindow: 50})
-				for _, h := range []uint64{startHead + fibreSpan + 1, startHead + 602} {
+				for _, h := range []uint64{startHead + fibreSpan + 1, startHead + 1566} {
 					f.grow(h)
 					_, err = rec.Publish(bg, f.blob)
 					require.ErrorIs(t, err, recorder.ErrOutcomeUnknown, "head %d", h)
 					require.Equal(t, 1, f.sub.Calls())
 				}
-				f.grow(startHead + 603)
+				f.grow(startHead + 1567)
 				pub, err := publishUntil(t, f, rec, 5)
 				require.NoError(t, err)
 				assert.Equal(t, 2, f.sub.Calls())
-				assert.Equal(t, startHead+605, pub.Ref.Height)
+				assert.Equal(t, startHead+1569, pub.Ref.Height)
 			},
 		},
 		{
 			name: "settle blocks above the chain window win",
-			cfg:  func(c *recorder.FibreConfig) { c.SettleBlocks = 400 },
-			land: startHead + 404,
+			cfg:  func(c *recorder.FibreConfig) { c.SettleBlocks = 1500 },
+			land: startHead + 1504,
 			run: func(t *testing.T, f *fibreFx, rec *recorder.FibreRecorder) {
-				for _, h := range []uint64{startHead, startHead + fibreSpan + 1, startHead + 400} {
+				for _, h := range []uint64{startHead, startHead + fibreSpan + 1, startHead + 1500} {
 					f.grow(h)
 					_, err := rec.Publish(bg, f.blob)
 					require.ErrorIs(t, err, recorder.ErrOutcomeUnknown, "head %d", h)
 					require.Equal(t, 1, f.sub.Calls())
 				}
-				f.grow(startHead + 401)
+				f.grow(startHead + 1501)
 				_, err := publishUntil(t, f, rec, 5)
 				require.NoError(t, err)
 				assert.Equal(t, 2, f.sub.Calls())

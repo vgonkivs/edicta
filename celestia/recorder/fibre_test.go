@@ -67,7 +67,7 @@ func TestFibreConfigValidateBasic(t *testing.T) {
 	}
 	t.Run("the settle floor is accepted", func(t *testing.T) {
 		c := good
-		c.SettleBlocks = 256
+		c.SettleBlocks = 1024
 		require.NoError(t, c.ValidateBasic())
 	})
 	t.Run("the own node refusal says what to set", func(t *testing.T) {

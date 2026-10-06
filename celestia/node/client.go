@@ -100,21 +100,61 @@ func NewReadOnly(ctx context.Context, b BridgeConfig) (*client.ReadClient, Reade
 // chain id the consensus node reports (ConsensusClient.Network). Close the
 // result: it closes the client and the state clients dialed for it.
 func NewSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Keyring, keyName, network string) (io.Closer, Reader, Submitter, error) {
-	if err := g.ValidateBasic(); err != nil {
+	c, sc, err := dialSigning(ctx, b, g, kr, keyName, network)
+	if err != nil {
 		return nil, nil, nil, err
+	}
+	r, err := NewReader(&c.ReadClient)
+	if err != nil {
+		_ = sc.Close()
+		return nil, nil, nil, err
+	}
+	s, err := newSubmitter(c)
+	if err != nil {
+		_ = sc.Close()
+		return nil, nil, nil, err
+	}
+	return sc, r, s, nil
+}
+
+// NewFibreSigning is NewSigning for da = 1: the same validated dial, with a
+// FibreSubmitter in place of the Submitter. The client never leaves this
+// package, so a caller cannot reach the Fibre module's funds calls or skip
+// the token and TLS checks, and Endpoint is the address that was dialled.
+func NewFibreSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Keyring, keyName, network string) (io.Closer, Reader, FibreSubmitter, error) {
+	c, sc, err := dialSigning(ctx, b, g, kr, keyName, network)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	r, err := NewReader(&c.ReadClient)
+	if err != nil {
+		_ = sc.Close()
+		return nil, nil, nil, err
+	}
+	s, err := newClientFibreSubmitter(c, g.Addr)
+	if err != nil {
+		_ = sc.Close()
+		return nil, nil, nil, err
+	}
+	return sc, r, s, nil
+}
+
+func dialSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Keyring, keyName, network string) (*client.Client, *signingCloser, error) {
+	if err := g.ValidateBasic(); err != nil {
+		return nil, nil, err
 	}
 	if err := b.ValidateBasic(); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	if kr == nil {
-		return nil, nil, nil, errors.New("node: no keyring")
+		return nil, nil, errors.New("node: no keyring")
 	}
 	if network == "" {
-		return nil, nil, nil, errors.New("node: no chain id; read it from the consensus node first")
+		return nil, nil, errors.New("node: no chain id; read it from the consensus node first")
 	}
 	bridgeAddr, err := BridgeURL(b.Addr, b.TLS)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	fibreCfg := appfibre.DefaultClientConfig()
 	// The Recorder never moves funds; escrow is funded by the operator.
@@ -132,20 +172,9 @@ func NewSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Ke
 	}, kr)
 	if err != nil {
 		_ = states.stop(ctx)
-		return nil, nil, nil, wrapCtx(ctx, err)
+		return nil, nil, wrapCtx(ctx, err)
 	}
-	sc := &signingCloser{c: c, states: states}
-	r, err := NewReader(&c.ReadClient)
-	if err != nil {
-		_ = sc.Close()
-		return nil, nil, nil, err
-	}
-	s, err := NewSubmitter(c)
-	if err != nil {
-		_ = sc.Close()
-		return nil, nil, nil, err
-	}
-	return sc, r, s, nil
+	return c, &signingCloser{c: c, states: states}, nil
 }
 
 // signingCloser closes the signing client, then the state clients dialed for

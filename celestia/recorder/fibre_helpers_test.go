@@ -31,11 +31,11 @@ const (
 	fibreChainID  = "mocha-5"
 	fibreEndpoint = "consensus.example:9090"
 	// fibreWindow is the PaymentPromiseHeightWindow of the fake chain, small
-	// enough to scan in a test; the settle span is fibreWindow+2 unless the
-	// configured settle blocks are larger.
+	// enough to scan in a test; the settle span is the configured settle
+	// blocks unless fibreWindow plus the freshness margin is larger.
 	fibreWindow = 300
-	fibreSettle = 256
-	fibreSpan   = fibreWindow + 2
+	fibreSettle = 1024
+	fibreSpan   = fibreSettle
 	// startHead is above the promise height of the live PFF.
 	startHead = uint64(1402815)
 	// pendingTTLBlocks is more than the one hour a pending entry lives, at one

@@ -37,6 +37,15 @@ const (
 	fibreBaseGas   = 650_000
 	fibreGasPerRow = 45_000
 	fibreRowBytes  = 262_144
+
+	// fibreSettleFloor is above the promise height window of the known
+	// networks (1000 blocks) by more than fibreFreshnessBlocks.
+	fibreSettleFloor = 1024
+	// fibreFreshnessBlocks covers how far the first head seen for a blob may
+	// lag the head an earlier process read (headFreshness plus the clock
+	// skew bound, at the fastest expected block time).
+	fibreFreshnessBlocks = 64
+	maxFibreClockSkew    = 2 * time.Minute
 )
 
 // FibreCostUtia is the escrow charge of one pay-for-fibre tx for an upload of
@@ -76,18 +85,21 @@ type FibreConfig struct {
 	// go below 1024.
 	ScanBlocks uint64
 	// SettleBlocks is the floor of the settle span; the span is at least the
-	// chain's promise height window plus 2. Default 1024; a non-zero value
-	// below 256 is refused.
+	// chain's promise height window plus a margin for a lagging first head.
+	// Default 1024; a non-zero value below 1024 is refused.
 	SettleBlocks uint64
 	// MaxClockSkew bounds the distance between the local clock, which dates
-	// the promise, and the chain head time; default 60s.
+	// the promise, and the chain head time; default 60s, at most 2m. The
+	// gate's retention margin must exceed it.
 	MaxClockSkew time.Duration
 	// MaxPending caps blobs whose outcome is unresolved; default 4096.
 	MaxPending int
 	// OwnNode attests that the submit node is the operator's own.
 	OwnNode bool
 	// Archive receives the payload before the submit and the evidence after
-	// it. Required: without it a restart could pay twice.
+	// it. Required: without it a restart could pay twice. There must be one
+	// writer per (signer, archive): two recorders on the same signer and
+	// archive, in one process or two, can both pay for one blob.
 	Archive archive.Store
 	// Now is the clock for entry expiry and the clock check; nil means time.Now.
 	Now func() time.Time
@@ -138,8 +150,11 @@ func (c FibreConfig) ValidateBasic() error {
 	if err := checkNamespace(c.Namespace); err != nil {
 		return err
 	}
-	if c.SettleBlocks != 0 && c.SettleBlocks < settleFloor {
-		return fmt.Errorf("%w: settle window of %d blocks is below %d", errInvalidInput, c.SettleBlocks, settleFloor)
+	if c.SettleBlocks != 0 && c.SettleBlocks < fibreSettleFloor {
+		return fmt.Errorf("%w: settle window of %d blocks is below %d", errInvalidInput, c.SettleBlocks, fibreSettleFloor)
+	}
+	if c.MaxClockSkew > maxFibreClockSkew {
+		return fmt.Errorf("%w: max clock skew %s is above %s", errInvalidInput, c.MaxClockSkew, maxFibreClockSkew)
 	}
 	if !c.OwnNode {
 		return fmt.Errorf("%w: da = 1 submits only through the operator's own node; set OwnNode", errInvalidInput)
@@ -197,7 +212,9 @@ var (
 
 // NewFibre validates cfg and the wiring. Submitting and reading must go to
 // the same consensus node, so that the heads the settle logic reads and the
-// valset heights the promise uses come from one node.
+// valset heights the promise uses come from one node: the consensus endpoint
+// must name one node, not a load balancer. Build the Submitter with
+// node.NewFibreSigning.
 func NewFibre(cfg FibreConfig, d FibreDeps) (*FibreRecorder, error) {
 	cfg = cfg.WithDefaults()
 	if err := cfg.ValidateBasic(); err != nil {
@@ -330,7 +347,7 @@ func (r *FibreRecorder) span(ctx context.Context) (uint64, error) {
 	if p.PromiseHeightWindow == 0 {
 		return 0, fmt.Errorf("%w: the node reports no promise height window", ErrNodeUnavailable)
 	}
-	return max(r.cfg.SettleBlocks, p.PromiseHeightWindow+2), nil
+	return max(r.cfg.SettleBlocks, p.PromiseHeightWindow+2+fibreFreshnessBlocks), nil
 }
 
 func (r *FibreRecorder) present(ctx context.Context, comm []byte, height uint64) (bool, error) {

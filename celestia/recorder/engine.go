@@ -26,6 +26,9 @@ const (
 	// first-seen height below an earlier process's submit and shrink the
 	// settle window past it.
 	headFreshness = 2 * time.Minute
+	// postSubmitHeadTimeout bounds the head read after a submit, which runs
+	// detached from the caller's context.
+	postSubmitHeadTimeout = 30 * time.Second
 )
 
 type pendingKey string
@@ -55,6 +58,10 @@ type entry struct {
 	// ceil is the head after this process's last submit returned; the
 	// promise of that attempt was read at or below it.
 	ceil uint64
+	// ceilUnknown is set when the head could not be read after a submit
+	// returned. The pre-submit head is below the promise height, so it must
+	// not stand in; the next call's head, read after the attempt, does.
+	ceilUnknown bool
 	// span only grows, so a smaller window parameter cannot shorten a wait
 	// already in use.
 	span uint64
@@ -306,12 +313,15 @@ func (g *engine) run(ctx context.Context, b backend, key pendingKey, e *entry, c
 	if b.retries() {
 		// The attempt read its promise height at or below this head, also
 		// after a failed call, whose upload may still land.
-		later, _, herr := b.head(context.WithoutCancel(ctx))
-		if herr != nil {
-			later = head
-		}
+		hctx, hcancel := context.WithTimeout(context.WithoutCancel(ctx), postSubmitHeadTimeout)
+		later, _, herr := b.head(hctx)
+		hcancel()
 		g.mu.Lock()
-		e.ceil = max(e.ceil, later)
+		if herr != nil {
+			e.ceilUnknown = true
+		} else {
+			e.ceil = max(e.ceil, later)
+		}
 		g.mu.Unlock()
 	}
 	if err != nil {
@@ -347,6 +357,10 @@ func (g *engine) observe(e *entry, head uint64, headTime time.Time) error {
 		e.firstSeen = head
 	}
 	e.maxHead = head
+	if e.ceilUnknown {
+		e.ceil = max(e.ceil, head)
+		e.ceilUnknown = false
+	}
 	if e.intent == 0 && !e.submitted {
 		e.scanned = head - 1
 	}

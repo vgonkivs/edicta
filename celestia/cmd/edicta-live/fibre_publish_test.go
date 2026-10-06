@@ -159,23 +159,26 @@ func TestFibreRefusesBlobOnlyFlagsSetExplicitly(t *testing.T) {
 	hash := strings.Repeat("ab", 32)
 	tests := []struct {
 		flag string
-		val  string
+		args []string
 	}{
-		{"--inclusion", "self"},
-		{"--rpc-primary", "https://rpc.example.invalid:26657"},
-		{"--rpc-witness", "https://witness.example.invalid:26657"},
-		{"--trust-height", "5"},
-		{"--trust-hash", hash},
-		{"--crosscheck-bridge", "other.example.invalid:26658"},
+		{"--inclusion", []string{"--inclusion", "self"}},
+		{"--rpc-primary", []string{"--rpc-primary", "https://rpc.example.invalid:26657"}},
+		{"--rpc-witness", []string{"--rpc-witness", "https://witness.example.invalid:26657"}},
+		{"--trust-height", []string{"--trust-height", "5"}},
+		{"--trust-hash", []string{"--trust-hash", hash}},
+		{"--crosscheck-bridge", []string{"--crosscheck-bridge", "other.example.invalid:26658"}},
+		{"--trust-period", []string{"--trust-period", "2h"}},
+		{"--crosscheck-token-file", []string{"--crosscheck-token-file", "/nonexistent/token"}},
+		{"--crosscheck-tls", []string{"--crosscheck-tls=true"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.flag, func(t *testing.T) {
-			_, err := parse(t, "--da", "fibre", tc.flag, tc.val)
+			_, err := parse(t, append([]string{"--da", "fibre"}, tc.args...)...)
 			require.ErrorIs(t, err, ErrConfig)
 			assert.ErrorContains(t, err, tc.flag)
 			assert.ErrorContains(t, err, "da=fibre", "the refusal says why: nobody should believe they got a light-client check")
 
-			_, err = parse(t, "--da", "blob", tc.flag, tc.val)
+			_, err = parse(t, append([]string{"--da", "blob"}, tc.args...)...)
 			if tc.flag == "--inclusion" {
 				require.NoError(t, err, "the same flag is fine for da=blob")
 			}
@@ -191,7 +194,8 @@ func TestFibreAcceptsTheDefaultsAndDoesNotValidateBlobOnlyFields(t *testing.T) {
 	c.Inclusion = ""
 	require.NoError(t, c.Validate(), "the inclusion mode is not read for da=fibre")
 	c.Inclusion = "light"
-	require.NoError(t, c.Validate(), "a light check with nothing configured is not validated for da=fibre")
+	require.Error(t, c.Validate(), "a light check is refused for da=fibre")
+	c.Inclusion = ""
 
 	c.DA = "blob"
 	require.Error(t, c.Validate(), "for da=blob the same fields are still validated")

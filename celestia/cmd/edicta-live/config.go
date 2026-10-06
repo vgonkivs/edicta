@@ -118,6 +118,7 @@ func (l *listFlag) Set(v string) error {
 var blobOnlyFlags = map[string]bool{
 	"inclusion": true, "rpc-primary": true, "rpc-witness": true,
 	"trust-height": true, "trust-hash": true, "crosscheck-bridge": true,
+	"trust-period": true, "crosscheck-token-file": true, "crosscheck-tls": true,
 }
 
 // parseFlags parses args (without the program name) and validates the result.
@@ -353,6 +354,10 @@ func (c Config) Validate() error {
 		if err := c.validateInclusion(); err != nil {
 			return err
 		}
+	} else if c.Inclusion != "" && c.Inclusion != "self" ||
+		c.RPCPrimary != "" || len(c.RPCWitnesses) > 0 || c.TrustHeight != 0 || c.TrustHash != "" ||
+		len(c.CrossBridges) > 0 || c.CrossTokenFile != "" || c.CrossTLS {
+		return cfgErr("blob inclusion settings apply to --da blob only; da=fibre uses the same-operator Fibre check")
 	}
 	if c.PublishWait < 0 {
 		return cfgErr("--publish-wait is negative")

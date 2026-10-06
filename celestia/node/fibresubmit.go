@@ -70,14 +70,14 @@ type fibreSubmitter struct {
 	endpoint string
 }
 
-// NewFibreSubmitter wraps a client built by NewSigning together with the
-// endpoint it was built with. Submit passes no TxConfig, so the promise
+// newClientFibreSubmitter wraps a client built by dialSigning together with
+// the endpoint it was dialled with. Submit passes no TxConfig, so the promise
 // signer, the pay-for-fibre signer and Address are the client's default key.
-func NewFibreSubmitter(c *client.Client, g GRPCConfig) (FibreSubmitter, error) {
+func newClientFibreSubmitter(c *client.Client, endpoint string) (FibreSubmitter, error) {
 	if c == nil || c.State == nil || c.Fibre == nil {
 		return nil, errors.New("node: client has no fibre submit side")
 	}
-	if g.Addr == "" {
+	if endpoint == "" {
 		return nil, errors.New("node: no consensus address")
 	}
 	address := func(ctx context.Context) ([]byte, error) {
@@ -87,7 +87,7 @@ func NewFibreSubmitter(c *client.Client, g GRPCConfig) (FibreSubmitter, error) {
 		}
 		return a.Bytes(), nil
 	}
-	return newFibreSubmitter(c.Fibre, address, g.Addr), nil
+	return newFibreSubmitter(c.Fibre, address, endpoint), nil
 }
 
 func newFibreSubmitter(m fibreModule, address func(context.Context) ([]byte, error), endpoint string) FibreSubmitter {

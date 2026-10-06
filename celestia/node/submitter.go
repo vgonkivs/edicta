@@ -22,10 +22,10 @@ type blobSubmitter interface {
 
 type clientSubmitter struct{ s blobSubmitter }
 
-// NewSubmitter submits share v1 blobs through c, signed client-side with the
+// newSubmitter submits share v1 blobs through c, signed client-side with the
 // keyring key c was built with (its DefaultKeyName) and broadcast to the
 // consensus gRPC endpoint. The caller keeps ownership of c and closes it.
-func NewSubmitter(c *client.Client) (Submitter, error) {
+func newSubmitter(c *client.Client) (Submitter, error) {
 	if c == nil || c.State == nil || c.Blob == nil {
 		return nil, errors.New("node: client has no submit side")
 	}
