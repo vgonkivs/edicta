@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"strings"
 	"sync"
@@ -29,6 +30,9 @@ type BridgeConfig struct {
 
 // ValidateBasic checks the stateless fields.
 func (b BridgeConfig) ValidateBasic() error {
+	if _, err := BridgeURL(b.Addr, b.TLS); err != nil {
+		return err
+	}
 	return checkTokenTransport("bridge", b.Addr, b.Token, b.TLS, b.AllowInsecureToken)
 }
 
@@ -49,6 +53,9 @@ func BridgeURL(addr string, tls bool) (string, error) {
 		return "", errors.New("node: no bridge address")
 	}
 	if !strings.Contains(addr, "://") {
+		if ip := net.ParseIP(addr); ip != nil && strings.Contains(addr, ":") {
+			addr = "[" + addr + "]"
+		}
 		addr = want + "://" + addr
 	}
 	u, err := url.Parse(addr)
@@ -72,7 +79,11 @@ func NewReadOnly(ctx context.Context, b BridgeConfig) (*client.ReadClient, Reade
 	if err := b.ValidateBasic(); err != nil {
 		return nil, nil, err
 	}
-	rc, err := client.NewReadClient(ctx, client.ReadConfig{BridgeDAAddr: b.Addr, DAAuthToken: b.Token, EnableDATLS: b.TLS})
+	addr, err := BridgeURL(b.Addr, b.TLS)
+	if err != nil {
+		return nil, nil, err
+	}
+	rc, err := client.NewReadClient(ctx, client.ReadConfig{BridgeDAAddr: addr, DAAuthToken: b.Token, EnableDATLS: b.TLS})
 	if err != nil {
 		return nil, nil, wrapCtx(ctx, err)
 	}
@@ -101,13 +112,17 @@ func NewSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Ke
 	if network == "" {
 		return nil, nil, nil, errors.New("node: no chain id; read it from the consensus node first")
 	}
+	bridgeAddr, err := BridgeURL(b.Addr, b.TLS)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	fibreCfg := appfibre.DefaultClientConfig()
 	// The Recorder never moves funds; escrow is funded by the operator.
 	fibreCfg.Escrow.AutoFund = false
 	states := &stateTracker{}
 	fibreCfg.StateClientFn = func() (state.Client, error) { return states.dial(g) }
 	c, err := newClientFn(ctx, client.Config{
-		ReadConfig: client.ReadConfig{BridgeDAAddr: b.Addr, DAAuthToken: b.Token, EnableDATLS: b.TLS},
+		ReadConfig: client.ReadConfig{BridgeDAAddr: bridgeAddr, DAAuthToken: b.Token, EnableDATLS: b.TLS},
 		SubmitConfig: client.SubmitConfig{
 			DefaultKeyName: keyName,
 			Network:        p2p.Network(network), // the core accessor refuses a node on another chain

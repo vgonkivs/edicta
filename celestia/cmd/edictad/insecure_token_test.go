@@ -84,7 +84,7 @@ func TestAdaptersPassLoopbackOptInOnly(t *testing.T) {
 		loopback   bool
 	}{
 		{"loopback", "127.0.0.1:9090", true},
-		{"localhost", "localhost:9090", true},
+		{"localhost", "localhost:9090", false},
 		{"remote", "grpc.invalid:9090", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

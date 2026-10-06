@@ -26,8 +26,12 @@ var _ FibreDownloader = (*FibreDirect)(nil)
 // queries go through the consensus endpoint g, with its TLS and token. Close
 // the result.
 func NewFibreDirect(ctx context.Context, g GRPCConfig) (*FibreDirect, error) {
+	if err := g.ValidateBasic(); err != nil {
+		return nil, err
+	}
 	d := &FibreDirect{}
 	cfg := appfibre.DefaultClientConfig()
+	cfg.Escrow.AutoFund = false
 	cfg.StateClientFn = func() (state.Client, error) { return d.states.dial(g) }
 	c, err := appfibre.NewClient(nil, cfg)
 	if err != nil {

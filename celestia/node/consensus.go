@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,18 +43,34 @@ type GRPCConfig struct {
 	AllowInsecureToken bool
 }
 
-// LoopbackAddr reports whether addr, a host:port or a URL, names the local
-// machine.
+// LoopbackAddr reports whether addr names the local machine by a literal
+// loopback IP: a plain host:port or an http(s) URL without userinfo or path.
+// Host names, including localhost, are not trusted because a resolver
+// decides where they point. Anything unrecognised is not loopback.
 func LoopbackAddr(addr string) bool {
-	if i := strings.Index(addr, "://"); i >= 0 {
-		addr = addr[i+3:]
-	}
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		host = addr
-	}
-	if host == "localhost" {
-		return true
+	host := addr
+	if strings.Contains(addr, "://") {
+		u, err := url.Parse(addr)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil ||
+			(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+			return false
+		}
+		host = u.Hostname()
+	} else {
+		if strings.ContainsAny(addr, "@/?#\\") {
+			return false
+		}
+		if h, port, err := net.SplitHostPort(addr); err == nil {
+			if port == "" {
+				return false
+			}
+			for _, r := range port {
+				if r < '0' || r > '9' {
+					return false
+				}
+			}
+			host = h
+		}
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
@@ -63,7 +80,7 @@ func LoopbackAddr(addr string) bool {
 // with the explicit opt-in, to a loopback address.
 func checkTokenTransport(what, addr, token string, tls, allowInsecure bool) error {
 	if allowInsecure && !LoopbackAddr(addr) {
-		return fmt.Errorf("node: %s: insecure token opt-in for non-loopback address %q refused", what, addr)
+		return fmt.Errorf("node: %s: insecure token opt-in for non-loopback address %q refused; only literal loopback IPs such as 127.0.0.1 qualify", what, addr)
 	}
 	if token != "" && !tls && !allowInsecure {
 		return fmt.Errorf("node: %s token over plain connection refused", what)
