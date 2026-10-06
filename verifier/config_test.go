@@ -80,5 +80,5 @@ func TestGateKeysAreCopiedAtNew(t *testing.T) {
 	r.deps.Config.GateKeys[0][0] ^= 1
 	rep, err := v.Verify(t.Context(), r.p.hash)
 	require.NoError(t, err)
-	assert.True(t, rep.Authorized, "later changes of the caller's key slice do not reach the verifier")
+	assert.True(t, rep.AuthorizationVerified, "later changes of the caller's key slice do not reach the verifier")
 }

@@ -325,3 +325,51 @@ func TestCrossCheck(t *testing.T) {
 		require.ErrorIs(t, err, headertrust.ErrChainBroken)
 	})
 }
+
+func TestTrustedSeparatesAuditorInputProblemsFromForgery(t *testing.T) {
+	const top = firstHeight + 10
+	c := buildChain(firstHeight, top)
+	ctx := context.Background()
+
+	t.Run("input problems wrap the verifier sentinel and report the checkpoint", func(t *testing.T) {
+		boom := errors.New("node unreachable")
+		tooLong := headertrust.Checkpoint{Height: firstHeight + headertrust.MaxChainLength + 1, Hash: c.hash(top)}
+		tests := []struct {
+			name string
+			tr   verifier.HeaderTrust
+			cp   headertrust.Checkpoint
+			at   uint64
+			want error
+		}{
+			{"checkpoint too low", headertrust.New(c.checkpoint(t, firstHeight+3), c.serve(t, firstHeight, top), nil), c.checkpoint(t, firstHeight+3), firstHeight + 4, headertrust.ErrCheckpointTooLow},
+			{"chain too long", headertrust.New(tooLong, c.serve(t, firstHeight, top), nil), tooLong, firstHeight, headertrust.ErrChainTooLong},
+			{"headers not available", headertrust.New(c.checkpoint(t, top), &fakeChain{t: t, err: boom}, nil), c.checkpoint(t, top), firstHeight + 4, boom},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				res, err := tc.tr.Trusted(ctx, tc.at, c.hash(tc.at))
+				require.ErrorIs(t, err, verifier.ErrTrustInput)
+				require.ErrorIs(t, err, tc.want)
+				assert.False(t, res.Checked)
+				assert.Equal(t, tc.cp.Height, res.CheckpointH)
+				assert.Equal(t, tc.cp.Hash, res.CheckpointHash)
+			})
+		}
+	})
+	t.Run("a forged chain is not an input problem", func(t *testing.T) {
+		src := c.serve(t, firstHeight, top-1)
+		src.byH[firstHeight+4] = encode(t, forged(c, firstHeight+4))
+		tr := headertrust.New(c.checkpoint(t, top), src, nil)
+		res, err := tr.Trusted(ctx, firstHeight, c.hash(firstHeight))
+		require.ErrorIs(t, err, headertrust.ErrChainBroken)
+		assert.NotErrorIs(t, err, verifier.ErrTrustInput)
+		assert.Equal(t, top, res.CheckpointH, "the checkpoint is reported on failure too")
+	})
+	t.Run("a forged checkpoint is not an input problem", func(t *testing.T) {
+		cp := c.checkpoint(t, top)
+		cp.Header = encode(t, forged(c, top))
+		_, err := headertrust.New(cp, c.serve(t, firstHeight, top-1), nil).Trusted(ctx, firstHeight, c.hash(firstHeight))
+		require.ErrorIs(t, err, headertrust.ErrCheckpointMismatch)
+		assert.NotErrorIs(t, err, verifier.ErrTrustInput)
+	})
+}

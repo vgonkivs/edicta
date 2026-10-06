@@ -1,15 +1,21 @@
 // Command edicta-verify re-checks an archived decision offline.
 //
-//	edicta-verify verify|replay --archive DIR --gate-key HEX [--trusted FILE] [--json] <commitment_hash>
+//	edicta-verify verify|replay --archive DIR --gate-key HEX [--trusted FILE]
+//	    [--skew SECONDS] [--blob-retention SECONDS] [--json] <commitment_hash>
 //
-// Exit codes: 0 valid, 1 invalid, 2 unchecked (no trusted header), 3 not
-// authorized (pending or rejected), 4 usage or unreadable input.
+// The archive is only read, never created, locked or cleaned.
+//
+// Exit codes: 0 valid, 1 invalid, 2 unchecked (something could not be
+// checked, such as no trusted header), 3 not authorized (pending or
+// rejected), 4 usage or unreadable input. With --json an error is printed as
+// {"error": "..."}.
 package main
 
 import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -51,21 +57,51 @@ func usagef(format string, a ...any) error { return usageError{fmt.Errorf(format
 func run(args []string, out io.Writer) int {
 	code, err := execute(args, out)
 	if err != nil {
+		if wantsJSON(args) {
+			b, merr := json.Marshal(struct {
+				Error string `json:"error"`
+			}{err.Error()})
+			if merr == nil {
+				fmt.Fprintf(out, "%s\n", b)
+				return code
+			}
+		}
 		fmt.Fprintf(out, "edicta-verify: %v\n", err)
 	}
 	return code
 }
 
+// wantsJSON looks for the flag before flag parsing, so that a usage error is
+// also printed as JSON.
+func wantsJSON(args []string) bool {
+	for _, a := range args {
+		switch a {
+		case "--json", "-json", "--json=true", "-json=true":
+			return true
+		case "--":
+			return false
+		}
+	}
+	return false
+}
+
 func execute(args []string, out io.Writer) (int, error) {
 	if len(args) == 0 || (args[0] != "verify" && args[0] != "replay") {
-		return codeUsage, usagef("usage: edicta-verify verify|replay --archive DIR --gate-key HEX [--trusted FILE] [--json] <commitment_hash>")
+		return codeUsage, usagef("usage: edicta-verify verify|replay --archive DIR --gate-key HEX [--trusted FILE] [--skew SECONDS] [--blob-retention SECONDS] [--json] <commitment_hash>")
 	}
 	cmd := args[0]
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
-	fs.SetOutput(out)
+	if wantsJSON(args) {
+		fs.SetOutput(io.Discard)
+	} else {
+		fs.SetOutput(out)
+	}
+	def := commitment.DefaultParams()
 	archiveDir := fs.String("archive", "", "archive directory")
 	gateKeys := fs.String("gate-key", "", "gate public key, hex; several separated by commas")
 	trustedPath := fs.String("trusted", "", "trusted header file")
+	skew := fs.Uint64("skew", def.SkewS, "clock skew the gate allowed, seconds")
+	blobRetention := fs.Uint64("blob-retention", def.BlobRetentionS, "blob retention the gate assumed, seconds")
 	asJSON := fs.Bool("json", false, "print one JSON document")
 	if err := fs.Parse(args[1:]); err != nil {
 		return codeUsage, usagef("%v", err)
@@ -88,7 +124,9 @@ func execute(args []string, out io.Writer) (int, error) {
 		return codeUsage, usagef("archive %q is not a directory", *archiveDir)
 	}
 
-	deps, err := buildDeps(*archiveDir, keys, *trustedPath)
+	params := def
+	params.SkewS, params.BlobRetentionS = *skew, *blobRetention
+	deps, err := buildDeps(*archiveDir, keys, *trustedPath, params)
 	if err != nil {
 		return codeUsage, usageError{err}
 	}
@@ -116,11 +154,6 @@ func execute(args []string, out io.Writer) (int, error) {
 		k := viewOfK2(rr.K2)
 		view.K2 = &k
 		code = codeFor(rr.Report.Verdict)
-		if rr.K2.Replayable && !rr.K2.Consistent && code == codeValid {
-			// A gate that contradicts its own recorded inputs does not verify.
-			view.Verdict = string(verifier.VerdictInvalid)
-			code = codeInvalid
-		}
 	}
 
 	if *asJSON {
@@ -170,7 +203,7 @@ func parseKeys(s string) ([]ed25519.PublicKey, error) {
 	return keys, nil
 }
 
-func buildDeps(dir string, keys []ed25519.PublicKey, trustedPath string) (verifier.Deps, error) {
+func buildDeps(dir string, keys []ed25519.PublicKey, trustedPath string, params commitment.Params) (verifier.Deps, error) {
 	fibreCommitter, err := fibrecommit.New(fibrecommit.DefaultMaxDataSize)
 	if err != nil {
 		return verifier.Deps{}, err
@@ -179,12 +212,12 @@ func buildDeps(dir string, keys []ed25519.PublicKey, trustedPath string) (verifi
 		commitment.DACelestiaBlob: blobv1.New(),
 		commitment.DAFibre:        fibreCommitter,
 	}
-	store, err := fsarchive.Open(dir, committers)
+	store, err := fsarchive.OpenReadOnly(dir, committers)
 	if err != nil {
 		return verifier.Deps{}, fmt.Errorf("open archive: %w", err)
 	}
 	deps := verifier.Deps{
-		Config:     verifier.Config{Params: commitment.DefaultParams(), GateKeys: keys},
+		Config:     verifier.Config{Params: params, GateKeys: keys},
 		Archive:    store,
 		Committers: committers,
 		Anchors:    newAnchors(),

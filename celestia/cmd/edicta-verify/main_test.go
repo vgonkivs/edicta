@@ -81,8 +81,8 @@ func TestVerifyHeaderTrustFailures(t *testing.T) {
 		s := newScenario(t, scenarioOpts{})
 		trusted := s.chain.trustedFile(t, anchorHeight-1, nil)
 		code, out := exec(t, s.args("verify", "--trusted", trusted))
-		assert.Equal(t, exitInvalid, code, out)
-		assert.Contains(t, out, "[FAIL] header_trust")
+		assert.Equal(t, exitUnchecked, code, out)
+		assert.Contains(t, out, "[unchecked] header_trust")
 		assert.Contains(t, out, "checkpoint")
 	})
 }
@@ -138,7 +138,7 @@ func TestVerifyJSON(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &rep), "the output is one JSON document")
 	assert.Equal(t, "valid", rep["verdict"])
 	assert.Equal(t, "authorized", rep["state"])
-	assert.Equal(t, true, rep["authorized"])
+	assert.Equal(t, true, rep["authorization_verified"])
 	assert.Equal(t, hexOf(s.hash[:]), rep["commitment_hash"])
 	checks, ok := rep["checks"].([]any)
 	require.True(t, ok)
@@ -180,7 +180,7 @@ func TestReplay(t *testing.T) {
 
 	code, out := exec(t, s.args("replay", "--trusted", trusted))
 	assert.Equal(t, exitValid, code, out)
-	assert.Contains(t, out, "[ok] k2")
+	assert.Contains(t, out, "[ok] retention replay")
 	assert.Contains(t, out, "consistent")
 
 	code, out = exec(t, s.args("replay", "--json", "--trusted", trusted))
@@ -194,5 +194,5 @@ func TestReplay(t *testing.T) {
 }
 
 func TestDA1EndToEnd(t *testing.T) {
-	t.Skip("needs 017: the da = 1 anchor verifier (form-1 proof: namespace data and the data availability header) is not merged; build a da = 1 archive from spec/vectors/da/fibre_anchor.json and expect exit 0 with a certificate section")
+	t.Skip("no da = 1 anchor verifier is wired into the command yet")
 }

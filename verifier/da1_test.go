@@ -16,12 +16,11 @@ import (
 func TestDA1CompleteArchive(t *testing.T) {
 	p := newFibreParts(t)
 	r := newRig(t, p)
-	r.anchor.precision = "robust"
 	rep := r.verify(t)
 
 	assert.Equal(t, verifier.VerdictValid, rep.Verdict)
 	assert.Equal(t, commitment.DAFibre, rep.DA)
-	assert.True(t, rep.Authorized)
+	assert.True(t, rep.AuthorizationVerified)
 	assert.Equal(t, "node-attested", rep.Settlement)
 	require.NotNil(t, rep.Cert)
 	assert.Equal(t, int64(3), rep.Cert.SignedPower)
@@ -86,7 +85,7 @@ func TestDA1ReplayUsesFibreInputs(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, rr.K2.Replayable)
 	assert.Equal(t, uint64(14400), rr.K2.R)
-	assert.Equal(t, blockTime-10, rr.K2.Start, "start is min(T_H, promise creation)")
+	assert.Equal(t, blockTime, rr.K2.Start)
 	assert.Equal(t, commitment.PathDA, rr.K2.Route)
 	assert.True(t, rr.K2.Consistent)
 }
@@ -100,12 +99,10 @@ func TestDA1PayloadMissingIsIncomplete(t *testing.T) {
 	require.ErrorIs(t, c.Err, archive.ErrNotFound)
 }
 
-// The real da = 1 anchor verifier arrives with the form-1 anchor proof
-// (namespace data and the data availability header).
 func TestDA1RealAnchorVectors(t *testing.T) {
 	path := filepath.Join("..", "spec", "vectors", "da", "fibre_anchor.json")
 	if _, err := os.Stat(path); err != nil {
-		t.Skip("needs 017: spec/vectors/da/fibre_anchor.json and the form-1 anchor verifier are not merged yet")
+		t.Skip("spec/vectors/da/fibre_anchor.json is not present")
 	}
-	t.Skip("needs 017: enable once the form-1 AnchorVerifier lands in celestia/; fibre_anchor.json drives it with fibre_cert.json")
+	t.Skip("the real da = 1 anchor verifier is tested in the celestia module")
 }

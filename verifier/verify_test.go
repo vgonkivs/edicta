@@ -23,7 +23,7 @@ func TestVerifyCompleteArchive(t *testing.T) {
 	assert.Equal(t, verifier.VerdictValid, rep.Verdict)
 	assert.Equal(t, r.p.hash, rep.CommitmentHash)
 	assert.Equal(t, archive.StateAuthorized, rep.State)
-	assert.True(t, rep.Authorized)
+	assert.True(t, rep.AuthorizationVerified)
 	assert.Equal(t, commitment.DACelestiaBlob, rep.DA)
 	assert.Equal(t, anchorHeight, rep.Height)
 	assert.Equal(t, blockTime, rep.BlockTime)
@@ -193,7 +193,7 @@ func TestVerifyBadAuthorizationIsNeverReportedAuthorized(t *testing.T) {
 	p := newParts(t)
 	p.auth[len(p.auth)-1] ^= 1
 	rep := newRig(t, p).verify(t)
-	assert.False(t, rep.Authorized)
+	assert.False(t, rep.AuthorizationVerified)
 	assert.Nil(t, rep.Authorization)
 	assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
 }
@@ -206,7 +206,7 @@ func TestVerifyUnknownDecision(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, archive.StateAbsent, rep.State)
 	assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
-	assert.False(t, rep.Authorized)
+	assert.False(t, rep.AuthorizationVerified)
 	c := failed(t, rep, verifier.CheckDecision)
 	requireOnly(t, c.Err, verifier.ErrDecisionNotFound)
 }
@@ -229,7 +229,7 @@ func TestVerifyPendingAndRejectedAreNotAuthorized(t *testing.T) {
 
 			assert.Equal(t, tc.state, rep.State)
 			assert.Equal(t, verifier.VerdictNotAuthorized, rep.Verdict)
-			assert.False(t, rep.Authorized)
+			assert.False(t, rep.AuthorizationVerified)
 			assert.Nil(t, rep.Authorization)
 			assert.Nil(t, rep.Receipt, "no receipt of a decision that was not authorized")
 			assert.Equal(t, tc.markers, rep.Rejections)
@@ -242,7 +242,7 @@ func TestVerifyRejectedDecisionWithForgedAuthorizationAfterMarkers(t *testing.T)
 	p.markers = []string{"ErrExpired"}
 	p.auth[len(p.auth)-1] ^= 1
 	rep := newRig(t, p).verify(t)
-	assert.False(t, rep.Authorized)
+	assert.False(t, rep.AuthorizationVerified)
 	assert.NotEqual(t, verifier.VerdictValid, rep.Verdict)
 }
 
@@ -257,7 +257,7 @@ func TestHeaderTrust(t *testing.T) {
 		c, ok := rep.Check(verifier.CheckHeaderTrust)
 		require.True(t, ok)
 		assert.Equal(t, verifier.StatusUnchecked, c.Status)
-		assert.True(t, rep.Authorized, "the authorization itself is checked without header trust")
+		assert.True(t, rep.AuthorizationVerified, "the authorization itself is checked without header trust")
 	})
 	t.Run("trust that did not check is unchecked", func(t *testing.T) {
 		r := newRig(t, newParts(t))
@@ -342,7 +342,10 @@ func TestNoAnchorVerifierForDA(t *testing.T) {
 	r := newRig(t, newParts(t))
 	r.deps.Anchors = map[commitment.DA]verifier.AnchorVerifier{commitment.DAFibre: r.anchor}
 	rep := r.verify(t)
-	c := failed(t, rep, verifier.CheckAnchor)
+	assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict, "an anchor nobody can check is not an invalid decision")
+	c, ok := rep.Check(verifier.CheckAnchor)
+	require.True(t, ok)
+	assert.Equal(t, verifier.StatusUnchecked, c.Status)
 	requireOnly(t, c.Err, verifier.ErrAnchorUnsupported)
 }
 

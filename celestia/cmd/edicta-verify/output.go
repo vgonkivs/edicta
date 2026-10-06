@@ -19,9 +19,9 @@ type checkView struct {
 
 type trustView struct {
 	Status         string            `json:"status"`
-	CheckpointH    uint64            `json:"checkpoint_height,omitempty"`
-	CheckpointHash string            `json:"checkpoint_hash,omitempty"`
-	CrossCheck     string            `json:"cross_check,omitempty"`
+	CheckpointH    uint64            `json:"checkpoint_height"`
+	CheckpointHash string            `json:"checkpoint_hash"`
+	CrossCheck     string            `json:"cross_check"`
 	Hashes         map[uint64]string `json:"hashes,omitempty"`
 }
 
@@ -47,6 +47,12 @@ type receiptView struct {
 	ProvenExecution bool   `json:"proven_execution"`
 }
 
+type paramsView struct {
+	SkewS           uint64 `json:"skew_s"`
+	BlobRetentionS  uint64 `json:"blob_retention_s"`
+	FibreRetentionS uint64 `json:"fibre_retention_s"`
+}
+
 type k2View struct {
 	Replayable     bool   `json:"replayable"`
 	Reason         string `json:"reason,omitempty"`
@@ -65,7 +71,8 @@ type reportView struct {
 	Verdict        string       `json:"verdict"`
 	CommitmentHash string       `json:"commitment_hash"`
 	State          string       `json:"state"`
-	Authorized     bool         `json:"authorized"`
+	AuthVerified   bool         `json:"authorization_verified"`
+	Params         paramsView   `json:"params"`
 	Rejections     []string     `json:"rejections,omitempty"`
 	DA             uint64       `json:"da,omitempty"`
 	Height         uint64       `json:"height,omitempty"`
@@ -105,7 +112,10 @@ func viewOf(r verifier.Report) reportView {
 		Verdict:        string(r.Verdict),
 		CommitmentHash: hex.EncodeToString(r.CommitmentHash[:]),
 		State:          r.State.String(),
-		Authorized:     r.Authorized,
+		AuthVerified:   r.AuthorizationVerified,
+		Params: paramsView{
+			SkewS: r.Params.SkewS, BlobRetentionS: r.Params.BlobRetentionS, FibreRetentionS: r.Params.FibreRetentionS,
+		},
 		Rejections:     r.Rejections,
 		DA:             uint64(r.DA),
 		Height:         r.Height,
@@ -201,6 +211,7 @@ func writeText(out io.Writer, v reportView, colour bool) {
 	for _, r := range v.Rejections {
 		p("  refused: %s", r)
 	}
+	p("parameters: skew %ds, blob retention %ds, fibre retention %ds", v.Params.SkewS, v.Params.BlobRetentionS, v.Params.FibreRetentionS)
 	if v.GateID != "" {
 		p("gate: %s  action type: %s  da: %d  height: %d", v.GateID, v.ActionType, v.DA, v.Height)
 	}
@@ -215,12 +226,12 @@ func writeText(out io.Writer, v reportView, colour bool) {
 		k := v.K2
 		switch {
 		case !k.Replayable:
-			p("%s k2: not replayable: %s", tag(string(verifier.StatusUnchecked)), k.Reason)
+			p("%s retention replay: not replayable: %s", tag(string(verifier.StatusUnchecked)), k.Reason)
 		case k.Consistent:
-			p("%s k2 consistent: retention %ds, start %d, margin %ds, window holds: %t, route %s, authorized path %s",
+			p("%s retention replay consistent: retention %ds, start %d, margin %ds, window holds: %t, route %s, authorized path %s",
 				tag(string(verifier.StatusPass)), k.R, k.Start, k.Margin, k.Within, k.Route, k.AuthorizedPath)
 		default:
-			p("%s k2: %s", tag(string(verifier.StatusFail)), k.Error)
+			p("%s retention replay: %s", tag(string(verifier.StatusFail)), k.Error)
 		}
 	}
 	if v.Authorization != nil {

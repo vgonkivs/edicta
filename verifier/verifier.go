@@ -32,6 +32,10 @@ var (
 	ErrReceiptInvalid       = errors.New("verifier: receipt invalid")
 	ErrAnchorUnsupported    = errors.New("verifier: no anchor verifier for this da")
 	ErrGateInconsistent     = errors.New("verifier: gate result contradicts the recorded inputs")
+	// ErrTrustInput marks a header trust that could not run for lack of
+	// auditor input (checkpoint too low, chain too long, headers not
+	// available). The decision is then unchecked, not invalid.
+	ErrTrustInput = errors.New("verifier: header trust input is insufficient")
 )
 
 // Config is what the verifier needs to know about the gate it audits.

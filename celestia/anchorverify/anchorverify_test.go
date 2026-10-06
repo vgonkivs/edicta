@@ -187,3 +187,27 @@ func TestFibreSlotRefuses(t *testing.T) {
 	_, err := anchorverify.Fibre().VerifyAnchor(commitment.PayloadRef{DA: commitment.DAFibre}, &archive.EvidenceRecord{})
 	require.ErrorIs(t, err, verifier.ErrAnchorUnsupported)
 }
+
+func TestBlobDecodeIsPanicGuarded(t *testing.T) {
+	for _, in := range []string{
+		"null", "[]", `{"row_proof":null}`, `{"subtree_root_proofs":[null]}`, `{"row_proof":{"proofs":[null]}}`,
+		`{"row_proof":{"proofs":[{}]},"subtree_root_proofs":[{}]}`, `{"namespace":null}`,
+		`{"subtree_roots":[null]}`, `{"row_proof":{"row_roots":[null],"proofs":[null]}}`,
+	} {
+		f := newFixture(t)
+		f.ev.BlobProof = []byte(in)
+		require.NotPanics(t, func() {
+			_, err := anchorverify.Blob().VerifyAnchor(f.ref, f.ev)
+			require.Error(t, err, in)
+		}, in)
+	}
+}
+
+func TestBlobRefusesHeaderTimeBeforeTheEpoch(t *testing.T) {
+	f := newFixture(t)
+	f.header.Time = time.Unix(-5, 0).UTC()
+	f.ev.Header = signedHeader(t, f.header)
+	facts, err := anchorverify.Blob().VerifyAnchor(f.ref, f.ev)
+	require.ErrorContains(t, err, "before 1970")
+	assert.Zero(t, facts.BlockTime)
+}

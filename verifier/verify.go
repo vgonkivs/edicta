@@ -13,7 +13,11 @@ import (
 	"github.com/vgonkivs/edicta/gate"
 )
 
-const settlementNodeAttested = "node-attested"
+const (
+	settlementNodeAttested   = "node-attested"
+	precisionRobust          = "robust"
+	precisionBucketDependent = "bucket-dependent"
+)
 
 type options struct{ receipt []byte }
 
@@ -21,7 +25,7 @@ type options struct{ receipt []byte }
 type Option func(*options)
 
 // WithReceipt also checks a SignedReceipt of the decision. It is checked
-// only for a decision that verified as authorized.
+// only for a decision with no failed check.
 func WithReceipt(signed []byte) Option {
 	return func(o *options) { o.receipt = bytes.Clone(signed) }
 }
@@ -78,6 +82,7 @@ func (v *Verifier) verify(ctx context.Context, h commitment.Hash, opts []Option)
 	}
 	r := &run{v: v, ctx: ctx, h: h}
 	r.rep.CommitmentHash = h
+	r.rep.Params = v.cfg.Params
 	if err := r.alive(); err != nil {
 		return nil, err
 	}
@@ -87,9 +92,14 @@ func (v *Verifier) verify(ctx context.Context, h commitment.Hash, opts []Option)
 		if !soft(err) {
 			return nil, fmt.Errorf("verifier: archive state: %w", err)
 		}
-		r.fail(CheckDecision, fmt.Errorf("%w: %w", ErrArchiveIncomplete, err))
-		r.finish()
-		return r, nil
+		if !r.corruptAuthorization(ctx) {
+			r.fail(CheckDecision, fmt.Errorf("%w: %w", ErrArchiveIncomplete, err))
+			r.finish()
+			return r, nil
+		}
+		// The decision reads; its Authorization record is what is damaged,
+		// and the authorization step reports that under its own name.
+		st = archive.DecisionState{State: archive.StateAuthorized}
 	}
 	r.rep.State = st.State
 	if len(st.Rejections) > 0 {
@@ -134,11 +144,21 @@ func (v *Verifier) verify(ctx context.Context, h commitment.Hash, opts []Option)
 			return nil, err
 		}
 	}
-	if o.receipt != nil && r.rep.Authorized {
+	if o.receipt != nil && r.rep.AuthorizationVerified && !r.anyStatus(StatusFail) {
 		r.receipt(o.receipt)
 	}
 	r.finish()
 	return r, nil
+}
+
+// corruptAuthorization reports whether the decision record reads but its
+// Authorization record is present and damaged.
+func (r *run) corruptAuthorization(ctx context.Context) bool {
+	if _, err := r.v.archive.Decision(ctx, r.h); err != nil {
+		return false
+	}
+	_, err := r.v.archive.Authorization(ctx, r.h)
+	return errors.Is(err, archive.ErrCorrupt)
 }
 
 func (r *run) alive() error {
@@ -163,6 +183,11 @@ func (r *run) envelope(dec *archive.DecisionRecord) bool {
 	got, err := commitment.Verify(sc)
 	if err != nil {
 		return bad(err)
+	}
+	for _, k := range r.v.cfg.GateKeys {
+		if bytes.Equal(k, sc.Commitment.AgentPubKey) {
+			return bad(errors.New("the agent key is a gate key"))
+		}
 	}
 	if got != r.h {
 		return bad(errors.New("envelope hashes to another commitment"))
@@ -235,7 +260,7 @@ func (r *run) authorization() error {
 		return bad(ErrAuthorizationInvalid, errors.New(problem))
 	}
 	r.auth, r.sa = rec, sa
-	r.rep.Authorized = true
+	r.rep.AuthorizationVerified = true
 	r.rep.Authorization = &AuthorizationInfo{Path: a.Path, Expires: a.Expires, AuthorizedAt: rec.AuthorizedAt}
 	r.pass(CheckAuthorization)
 	return nil
@@ -296,7 +321,7 @@ func (r *run) anchor() (*archive.EvidenceRecord, bool, error) {
 	}
 	av := r.v.anchors[ref.DA]
 	if av == nil {
-		r.fail(CheckAnchor, fmt.Errorf("%w: da %d", ErrAnchorUnsupported, ref.DA))
+		r.unchecked(CheckAnchor, fmt.Errorf("%w: da %d", ErrAnchorUnsupported, ref.DA))
 		return nil, false, nil
 	}
 	ev, err := r.v.archive.Evidence(r.ctx, ref.DA, ref.Commitment)
@@ -312,7 +337,7 @@ func (r *run) anchor() (*archive.EvidenceRecord, bool, error) {
 	}
 	facts, err := av.VerifyAnchor(ref, ev)
 	if errors.Is(err, ErrAnchorUnsupported) {
-		r.fail(CheckAnchor, err)
+		r.unchecked(CheckAnchor, err)
 		return nil, false, nil
 	}
 	if err != nil {
@@ -320,6 +345,14 @@ func (r *run) anchor() (*archive.EvidenceRecord, bool, error) {
 	}
 	if facts.Settlement != "" && facts.Settlement != settlementNodeAttested {
 		return bad(fmt.Errorf("settlement level %q is not one v0 reports", facts.Settlement))
+	}
+	if ref.DA == commitment.DAFibre {
+		if facts.Settlement != settlementNodeAttested {
+			return bad(errors.New("a da = 1 anchor must report the node-attested settlement"))
+		}
+		if p := facts.CertTokenPrecision; p != precisionRobust && p != precisionBucketDependent {
+			return bad(fmt.Errorf("certificate token precision %q is neither %s nor %s", p, precisionRobust, precisionBucketDependent))
+		}
 	}
 	for _, height := range r.neededHeights(ev) {
 		if len(facts.HeaderHashes[height]) == 0 {
@@ -359,7 +392,7 @@ func (r *run) cert(f AnchorFacts) {
 	if c.QuorumWarning {
 		r.warn("certificate: signed power %d of %d is not more than two thirds", c.SignedPower, c.TotalPower)
 	}
-	if c.TokenPrecision == "bucket-dependent" {
+	if c.TokenPrecision == precisionBucketDependent {
 		r.warn("certificate: the verdict depends on token amounts inside a power bucket, which only the archive vouches for")
 	}
 }
@@ -404,11 +437,19 @@ func (r *run) headerTrust(ev *archive.EvidenceRecord) error {
 		if cerr := r.ctx.Err(); cerr != nil {
 			return fmt.Errorf("verifier: %w", cerr)
 		}
+		if i == 0 || res.CheckpointH != 0 {
+			ht.CheckpointH, ht.CheckpointHash = res.CheckpointH, bytes.Clone(res.CheckpointHash)
+		}
+		if res.CrossCheck != "" {
+			ht.CrossCheck = res.CrossCheck
+		}
+		if errors.Is(err, ErrTrustInput) {
+			ht.Status = TrustUnchecked
+			r.unchecked(CheckHeaderTrust, fmt.Errorf("height %d: %w", height, err))
+			return nil
+		}
 		if err != nil {
 			return failTrust(fmt.Errorf("height %d: %w", height, err))
-		}
-		if i == 0 {
-			ht.CheckpointH, ht.CheckpointHash = res.CheckpointH, res.CheckpointHash
 		}
 		if !res.Checked {
 			checked = false
@@ -490,10 +531,25 @@ func (r *run) finish() {
 		verdict = VerdictInvalid
 	case r.rep.State != archive.StateAuthorized:
 		verdict = VerdictNotAuthorized
-	case r.anyStatus(StatusUnchecked):
+	case r.anyStatus(StatusUnchecked), !r.allRequiredPassed():
 		verdict = VerdictUnchecked
 	}
 	r.rep.Verdict = verdict
+}
+
+// allRequiredPassed holds only if every step a valid decision needs has run
+// and passed, so a step that was never recorded cannot pass by omission.
+func (r *run) allRequiredPassed() bool {
+	for _, n := range []CheckName{
+		CheckDecision, CheckEnvelope, CheckAction, CheckAuthorization,
+		CheckPayload, CheckAnchor, CheckAnchorTime, CheckHeaderTrust,
+	} {
+		c, ok := r.rep.Check(n)
+		if !ok || c.Status != StatusPass {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *run) anyStatus(s Status) bool {

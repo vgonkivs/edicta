@@ -86,7 +86,7 @@ func TestReceipt(t *testing.T) {
 			c := failed(t, rep, verifier.CheckReceipt)
 			requireOnly(t, c.Err, verifier.ErrReceiptInvalid)
 			assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
-			assert.True(t, rep.Authorized, "a bad receipt does not undo the authorization")
+			assert.True(t, rep.AuthorizationVerified, "a bad receipt does not undo the authorization")
 			assert.Nil(t, rep.Receipt)
 		})
 	}

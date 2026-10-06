@@ -34,6 +34,7 @@ const (
 	CheckAnchorTime    CheckName = "anchor_time"
 	CheckHeaderTrust   CheckName = "header_trust"
 	CheckReceipt       CheckName = "receipt"
+	CheckRetention     CheckName = "retention_replay"
 )
 
 // Check is one named step. Err is set for a failed step and, for an
@@ -53,7 +54,7 @@ const (
 )
 
 // HeaderTrustReport carries the trusted header and the cross-check result
-// whatever the status is.
+// whatever the status is, also when the trust failed or could not run.
 type HeaderTrustReport struct {
 	Status         TrustStatus
 	CheckpointH    uint64
@@ -93,9 +94,12 @@ type Report struct {
 	CommitmentHash commitment.Hash
 	State          archive.State
 	Rejections     []string
-	// Authorized is true only for an authorized record whose Authorization
-	// verified.
-	Authorized     bool
+	// AuthorizationVerified is true only for an authorized record whose
+	// Authorization verified. It says nothing about the other checks; the
+	// verdict does.
+	AuthorizationVerified bool
+	// Params are the retention and skew parameters the verification used.
+	Params         commitment.Params
 	DA             commitment.DA
 	Height         uint64
 	BlockTime      uint64

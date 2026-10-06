@@ -6,6 +6,7 @@ package anchorverify
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/celestiaorg/celestia-node/blob"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
@@ -43,12 +44,11 @@ func (blobAnchor) VerifyAnchor(ref commitment.PayloadRef, ev *archive.EvidenceRe
 	if len(ev.BlobProof) == 0 {
 		return verifier.AnchorFacts{}, errors.New("evidence has no commitment proof")
 	}
-	var p blob.CommitmentProof
-	if err := p.UnmarshalJSON(ev.BlobProof); err != nil {
-		return verifier.AnchorFacts{}, fmt.Errorf("commitment proof: %w", err)
-	}
-	if err := verifyProof(&p, hd.DataHash, ref.Commitment); err != nil {
+	if err := verifyProof(ev.BlobProof, hd.DataHash, ref.Commitment); err != nil {
 		return verifier.AnchorFacts{}, fmt.Errorf("commitment proof against data root at height %d: %w", ref.Height, err)
+	}
+	if hd.Time.Unix() < 0 {
+		return verifier.AnchorFacts{}, fmt.Errorf("header time %s is before 1970", hd.Time.UTC().Format(time.RFC3339))
 	}
 	ts := uint64(hd.Time.Unix())
 	return verifier.AnchorFacts{
@@ -58,14 +58,19 @@ func (blobAnchor) VerifyAnchor(ref commitment.PayloadRef, ev *archive.EvidenceRe
 	}, nil
 }
 
-// verifyProof turns a panic in the proof library into an error: the proof is
-// attacker-supplied archive data.
-func verifyProof(p *blob.CommitmentProof, dataRoot, commit []byte) (err error) {
+// verifyProof decodes and checks the proof. A panic in the proof library
+// becomes an error: the proof is attacker-supplied archive data, and decoding
+// it is as exposed as verifying it.
+func verifyProof(raw, dataRoot, commit []byte) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)
 		}
 	}()
+	var p blob.CommitmentProof
+	if err := p.UnmarshalJSON(raw); err != nil {
+		return fmt.Errorf("decode: %w", err)
+	}
 	return p.Verify(dataRoot, commit)
 }
 

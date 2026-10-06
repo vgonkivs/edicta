@@ -124,7 +124,9 @@ type parts struct {
 	ev         *archive.EvidenceRecord
 	auth       []byte // nil: pending
 	k2         *archive.K2Inputs
-	markers    []string
+	// authAt overrides the recorded issue time.
+	authAt  uint64
+	markers []string
 	// permissive stores the payload without the DA check, as a store that
 	// was damaged after the write would hold it.
 	permissive bool
@@ -200,7 +202,7 @@ func newFibreParts(t testing.TB) *parts {
 		k2: &archive.K2Inputs{
 			DA: commitment.DAFibre, CheckedAt: authorizedAt, BlockTime: blockTime,
 			RetentionLatestS: 14400, RetentionAtHeightS: 14400, RetentionSource: archive.RetentionBoth,
-			PromiseCreated: blockTime - 10,
+			PromiseCreated: blockTime,
 		},
 	}
 	p.ev.Height = c.PayloadRef.Height
@@ -244,7 +246,11 @@ func (p *parts) write(t testing.TB) *fsarchive.Store {
 		put(&archive.RejectionRecord{CommitmentHash: p.hash, Error: m, GateID: gatefix.GateID, RejectedAt: authorizedAt - 10})
 	}
 	if p.auth != nil {
-		put(&archive.AuthorizationRecord{SignedAuthorization: p.auth, AuthorizedAt: authorizedAt, K2: p.k2})
+		issued := authorizedAt
+		if p.authAt != 0 {
+			issued = p.authAt
+		}
+		put(&archive.AuthorizationRecord{SignedAuthorization: p.auth, AuthorizedAt: issued, K2: p.k2})
 	}
 	return s
 }
@@ -268,6 +274,7 @@ func newRig(t testing.TB, p *parts) *rig {
 		ph := sha256.Sum256([]byte("promise-header"))
 		hashes[p.ev.PromiseHeight] = ph[:]
 		r.anchor.settlement, r.anchor.signed, r.anchor.total = "node-attested", 3, 4
+		r.anchor.precision = "robust"
 	}
 	r.trust = &fakeTrust{
 		hashes: hashes,

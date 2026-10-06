@@ -43,7 +43,11 @@ func TestReplayReproducesThePath(t *testing.T) {
 			r.anchor.blockTime = tc.blockTime
 
 			rr := replay(t, r)
-			assert.Equal(t, verifier.VerdictValid, rr.Report.Verdict)
+			if tc.ok {
+				assert.Equal(t, verifier.VerdictValid, rr.Report.Verdict)
+			} else {
+				assert.Equal(t, verifier.VerdictInvalid, rr.Report.Verdict)
+			}
 			k := rr.K2
 			require.True(t, k.Replayable)
 			assert.Equal(t, uint64(14400), k.R)
@@ -84,7 +88,7 @@ func TestReplayOfPendingDecision(t *testing.T) {
 	p.auth, p.k2 = nil, nil
 	rr := replay(t, newRig(t, p))
 	assert.Equal(t, verifier.VerdictNotAuthorized, rr.Report.Verdict)
-	assert.False(t, rr.Report.Authorized)
+	assert.False(t, rr.Report.AuthorizationVerified)
 	assert.False(t, rr.K2.Replayable)
 }
 

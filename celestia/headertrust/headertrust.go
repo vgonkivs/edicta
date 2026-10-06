@@ -133,33 +133,37 @@ func New(cp Checkpoint, chain HeaderChain, cross []HeaderChain) verifier.HeaderT
 	return &trust{cp: cp, chain: chain, cross: cross}
 }
 
+// Trusted reports the checkpoint in the result on every path, so the report
+// can name the header the verdict hung from. A checkpoint that is too low, a
+// chain that is too long and headers that cannot be fetched are auditor
+// input problems and wrap verifier.ErrTrustInput.
 func (t *trust) Trusted(ctx context.Context, height uint64, hash []byte) (verifier.TrustResult, error) {
+	res := verifier.TrustResult{
+		CheckpointH:    t.cp.Height,
+		CheckpointHash: bytes.Clone(t.cp.Hash),
+	}
 	if err := ctx.Err(); err != nil {
-		return verifier.TrustResult{}, fmt.Errorf("headertrust: %w", err)
+		return res, fmt.Errorf("headertrust: %w", err)
 	}
 	if t.cp.Height < height {
-		return verifier.TrustResult{}, fmt.Errorf("%w: checkpoint %d, needed %d", ErrCheckpointTooLow, t.cp.Height, height)
+		return res, fmt.Errorf("%w: %w: checkpoint %d, needed %d", verifier.ErrTrustInput, ErrCheckpointTooLow, t.cp.Height, height)
 	}
 	if t.cp.Height-height > MaxChainLength {
-		return verifier.TrustResult{}, fmt.Errorf("%w: %d links", ErrChainTooLong, t.cp.Height-height)
+		return res, fmt.Errorf("%w: %w: %d links", verifier.ErrTrustInput, ErrChainTooLong, t.cp.Height-height)
 	}
 	headers := make([][]byte, 0, t.cp.Height-height)
 	for h := height; h < t.cp.Height; h++ {
 		b, err := t.chain.Header(ctx, h)
 		if err != nil {
-			return verifier.TrustResult{}, fmt.Errorf("headertrust: header %d: %w", h, err)
+			return res, fmt.Errorf("%w: headertrust: header %d: %w", verifier.ErrTrustInput, h, err)
 		}
 		headers = append(headers, b)
 	}
 	if err := VerifyBackwards(t.cp, headers, height, hash); err != nil {
-		return verifier.TrustResult{}, err
+		return res, err
 	}
-	res := verifier.TrustResult{
-		Checked:        true,
-		CheckpointH:    t.cp.Height,
-		CheckpointHash: bytes.Clone(t.cp.Hash),
-		CrossCheck:     "off",
-	}
+	res.Checked = true
+	res.CrossCheck = "off"
 	if len(t.cross) == 0 {
 		return res, nil
 	}

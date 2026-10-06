@@ -25,6 +25,9 @@ import (
 
 const tempPrefix = ".tmp-"
 
+// ErrReadOnly is returned by a write on a store opened with OpenReadOnly.
+var ErrReadOnly = errors.New("fsarchive: store is read-only")
+
 // Option configures a Store.
 type Option func(*Store)
 
@@ -46,6 +49,7 @@ type Store struct {
 	dir        string
 	committers map[commitment.DA]gate.DACommitter
 	before     func(string) error
+	readOnly   bool
 	// mu serializes marker and Authorization writes in this process; lockDir
 	// does it across processes.
 	mu sync.Mutex
@@ -79,6 +83,29 @@ func Open(dir string, committers map[commitment.DA]gate.DACommitter, opts ...Opt
 	}
 	if err := s.removeStale(); err != nil {
 		return nil, err
+	}
+	return s, nil
+}
+
+// OpenReadOnly uses an existing dir for reading only. It never creates,
+// locks, writes or deletes anything, so it works on a read-only mount and
+// beside a live writer; Put fails with ErrReadOnly. Readers need no lock
+// because a record is published whole by a hard link.
+func OpenReadOnly(dir string, committers map[commitment.DA]gate.DACommitter) (*Store, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("fsarchive: %w", err)
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		return nil, fmt.Errorf("fsarchive: %w", err)
+	}
+	if !st.IsDir() {
+		return nil, fmt.Errorf("fsarchive: %s is not a directory", abs)
+	}
+	s := &Store{dir: abs, readOnly: true, committers: make(map[commitment.DA]gate.DACommitter, len(committers))}
+	for da, c := range committers {
+		s.committers[da] = c
 	}
 	return s, nil
 }
@@ -125,6 +152,9 @@ func (s *Store) removeStale() error {
 func (s *Store) path(rel string) string { return filepath.Join(s.dir, filepath.FromSlash(rel)) }
 
 func (s *Store) Put(ctx context.Context, r archive.Record) (archive.Outcome, error) {
+	if s.readOnly {
+		return 0, ErrReadOnly
+	}
 	b, err := archive.Encode(r)
 	if err != nil {
 		return 0, err
