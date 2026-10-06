@@ -2329,7 +2329,7 @@
     }
   ],
   "valset": {
-    "description": "Validator-set evidence cases (CV4 to CV7) for the live promise: each case gives the archived HistoricalInfo, the header at the promise height and the signature list; the owner signature and binding are the live ones. fails lists the rules that fail; network is the keeper's answer with this list as its state.",
+    "description": "Validator-set evidence cases (CV4 to CV7) for the live promise: each case gives the archived HistoricalInfo, the header at the promise height and the signature list; the owner signature and binding are the live ones. fails lists the rules that fail; network is the keeper's answer with the chain's state for these entries: the same entries in the order SDK NewHistoricalInfo stores them (consensus power descending, then address). For every case but valset_out_of_order that is the archived list itself.",
     "message": "live.derived.sign_bytes_hex",
     "promise": "live.derived.promise (chain_id mocha-5, height 1402813)",
     "key_seed_rule": "as boundary.key_seed_rule",
@@ -2756,6 +2756,60 @@
             "empty": 1,
             "invalid_after_stop": 0,
             "stop_index": "2",
+            "signed_power": "67000000",
+            "total_power": "100000000",
+            "required": "66666666",
+            "signed_share": "0.670000",
+            "at_most_two_thirds": false
+          }
+        }
+      },
+      {
+        "id": "valset_out_of_order",
+        "description": "The audit's permutation: the stored order is A 34e6 then the two 33e6 validators by address (X, Y); the archived list swaps them ([A, Y, X]) and the signatures are [A's, Y's, 64 garbage bytes]. NewValidatorSet sorts, so the list hashes to the promise header's next_validators_hash. Walked over the archived list it reaches 67e6 \u003e= 66666666 at index 1 and never checks the garbage. The keeper walks the stored order [A, X, Y]: index 1 is not X's signature, so the chain rejects (CV6). The verifier fails CV7, which compares the list position by position with the sorted set.",
+        "validators": [
+          {
+            "key_index": "0",
+            "pubkey_hex": "22f58d0a8f2ee306c0d125ef0bbe4b99e8ecc2e36b6a0c6f783abd4150f30ab5",
+            "tokens": "34000000"
+          },
+          {
+            "key_index": "1",
+            "pubkey_hex": "3cd5f04c5e7e5e77dd0393ee810e9f20f0fcf031b55b34bb1080df219b300ee3",
+            "tokens": "33000000"
+          },
+          {
+            "key_index": "2",
+            "pubkey_hex": "fc2774fbf251c37b85cefeded0df1c8afb45ba701984608a6568aa62b564ffb7",
+            "tokens": "33000000"
+          }
+        ],
+        "historical_info_hex": "0a7b0a0012076d6f6368612d3518bdcf55220c08ddfc8dd606109596e5bb012a0212004a20ca72989986009d2152f7fdab35b00bfcd47d62c5ce497583ffd33d09b2f082345a205320e5a7490874a9f163fbf5e2a50be72ca6e7f9ae927649a7c55f75cf4ae76f7214c8ed0bf9eba19efe0a85c1ec986a670c6ce4536212990112430a1d2f636f736d6f732e63727970746f2e656432353531392e5075624b657912220a2022f58d0a8f2ee306c0d125ef0bbe4b99e8ecc2e36b6a0c6f783abd4150f30ab520032a083334303030303030321a33343030303030303030303030303030303030303030303030303a004a0b088092b8c398feffffff0152180a090a01301201301a0130120b088092b8c398feffffff015a013112990112430a1d2f636f736d6f732e63727970746f2e656432353531392e5075624b657912220a203cd5f04c5e7e5e77dd0393ee810e9f20f0fcf031b55b34bb1080df219b300ee320032a083333303030303030321a33333030303030303030303030303030303030303030303030303a004a0b088092b8c398feffffff0152180a090a01301201301a0130120b088092b8c398feffffff015a013112990112430a1d2f636f736d6f732e63727970746f2e656432353531392e5075624b657912220a20fc2774fbf251c37b85cefeded0df1c8afb45ba701984608a6568aa62b564ffb720032a083333303030303030321a33333030303030303030303030303030303030303030303030303a004a0b088092b8c398feffffff0152180a090a01301201301a0130120b088092b8c398feffffff015a0131",
+        "promise_header_hex": "0a04080b100a12076d6f6368612d3518bdcf55220c08ddfc8dd606109596e5bb012a480a2077c185f758f1b21ae7739b534b8ce143da4df1a2dfa3a214af6b7a79086acfee122408011220c41a4ece65deef13c2e4734188a68eb4423d3f1f330d3fbefd551d5481271a053220e1015a1fb0739655866bd43caea9aeef7af36de3397f7d0f5ce1df5a0bcf08533a20f43e28c4a8bdc51a9bcc1830b1a6413c730e9ed003fc56d40d803fadfeb1350e4220ca72989986009d2152f7fdab35b00bfcd47d62c5ce497583ffd33d09b2f082344a20ca72989986009d2152f7fdab35b00bfcd47d62c5ce497583ffd33d09b2f0823452203010bce4084e97d799470df8de72f6983dd8af1b7eb5050d29b7c541165dd1d65a205320e5a7490874a9f163fbf5e2a50be72ca6e7f9ae927649a7c55f75cf4ae76f6220681fdf0a7498dfba2964577a273a9384af1f127e7bde6ebd811e1edb887c5e606a20e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8557214c8ed0bf9eba19efe0a85c1ec986a670c6ce45362",
+        "signatures_hex": [
+          "0684e9ec8a7263a1669b9f7dd720e73d74b7e8932a66fd7c8ccd7fd5ede5ae60e10ae1b915113b2ae3f37bb513ad874558167ea83559f58a8b459c7f9a39c307",
+          "2fdf3745f89c136b966c6b1fc261dc38aa6b4466c1f993e29f8ddb89181b11658f9939736161e1ff1715353987d05e619c8d1cd3eaac979995a4c937a2a09304",
+          "36581338bccc0ae667743bffa4d42664e7ebe1022ce55da48ef66f41a5511df5df0c44aa3087964e39f415af61a5d02b166752da36be3e6f24b528d6d3633e68"
+        ],
+        "expect": {
+          "verdict": "reject",
+          "fails": [
+            "CV7"
+          ],
+          "network": {
+            "verdict": "reject",
+            "rule": "CV6",
+            "reason": "invalid signature at index 1: invalid signature from validator A38E81EF1ADD15D8BD5318593F13F9C895D01305"
+          },
+          "cv7_matched": "",
+          "certificate": {
+            "signatures_len": 3,
+            "validators_len": 3,
+            "valid": 2,
+            "invalid": 1,
+            "empty": 0,
+            "invalid_after_stop": 1,
+            "stop_index": "1",
             "signed_power": "67000000",
             "total_power": "100000000",
             "required": "66666666",

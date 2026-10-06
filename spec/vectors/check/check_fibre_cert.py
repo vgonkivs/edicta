@@ -16,7 +16,7 @@ from the raw bytes with its own code:
   validator set;
 - CometBFT header and validator-set hashes (RFC 6962 Merkle), the list's own
   CometBFT set (sorted and hashed here) against next_validators_hash of the
-  promise header (CV7), and
+  promise header, and the list's order against that sort (CV7), and
   the backward last_block_id chain from the trusted header (HT2, HT3);
 - every valset case (synthetic and live validator-set evidence);
 - every mutation, re-evaluated after its byte flip; every boundary case and
@@ -579,12 +579,21 @@ def eval_valset(hist: bytes, chain: str, ph: int, msg, sigs: list, promise_heade
     return fails, vals, rep, via
 
 
+def stored_order(vals: list) -> list:
+    """The entries as x/staking stores them: consensus power descending, then
+    address ascending."""
+    return sorted(vals, key=lambda v: (-v["power"], v["addr"]))
+
+
 def list_set_hash(vals: list):
     """Hash of the CometBFT set the list stands for (consensus power
     tokens // 10^6, sorted by power descending then address), or None if
-    CometBFT would refuse to build it."""
+    CometBFT would refuse to build it or the list is not in that order: the
+    hash does not depend on the order, the keeper's walk does."""
     entries = [(v["pk"], v["power"]) for v in vals]
     if set_rejects(entries):
+        return None
+    if [v["pk"] for v in stored_order(vals)] != [v["pk"] for v in vals]:
         return None
     entries.sort(key=lambda e: (-e[1], sha256(e[0])[:20]))
     simple = []
@@ -769,7 +778,7 @@ def check_valset(f: dict, p: dict, inp: dict) -> int:
     prefix = b"edicta/v0/vectors/fibre_cert/validator/"
     need = {"valset_synthetic_ok", "valset_honest_insufficient", "valset_duplicate_signer", "valset_zero_power",
             "valset_total_above_max", "valset_bad_key_length", "promise_header_other_set", "promise_header_wrong_height",
-            "promise_header_other_chain", "valset_duplicate_signer_live"}
+            "promise_header_other_chain", "valset_out_of_order", "valset_duplicate_signer_live"}
     seen = set()
     for c in vd["cases"]:
         cid = c["id"]
@@ -792,7 +801,9 @@ def check_valset(f: dict, p: dict, inp: dict) -> int:
         e = c["expect"]
         expect(e["fails"] == fails and e["verdict"] == ("reject" if fails else "accept"),
                f"{cid}: recomputed {fails}, vector {e['verdict']} {e['fails']}")
-        net = keeper(p["sign_bytes"], vals, sigs) if vals is not None else "CV4"
+        # The chain holds these entries in the stored order, whatever order
+        # the archive gives them in.
+        net = keeper(p["sign_bytes"], stored_order(vals), sigs) if vals is not None else "CV4"
         expect(e["network"]["verdict"] == ("reject" if net else "accept") and e["network"].get("rule") == net,
                f"{cid}: network {net}, vector {e['network']}")
         expect(e["cv7_matched"] == via, f"{cid}: cv7 {via}")

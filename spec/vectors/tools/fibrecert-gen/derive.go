@@ -482,7 +482,10 @@ func evalValset(e *evaluation, chainID string, ph int64, signBytes []byte, sigs 
 // consensusSetHash is the hash of the CometBFT set the list stands for:
 // core.NewValidatorSet over (key, floor(tokens / 10^6)), so duplicates, zero
 // consensus power and bad keys (all panics upstream) give no hash, and the
-// hash binds both the size and the multiplicity of the list.
+// hash binds both the size and the multiplicity of the list. The hash is
+// order-free because NewValidatorSet sorts, so the list must also be in the
+// set's own order (the stored order, which the keeper walks): otherwise no
+// hash either.
 func consensusSetHash(vals []valEntry) (h []byte) {
 	defer func() {
 		if recover() != nil {
@@ -493,7 +496,13 @@ func consensusSetHash(vals []valEntry) (h []byte) {
 	for i, v := range vals {
 		cv[i] = core.NewValidator(cmted25519.PubKey(v.pubKey), v.consPower)
 	}
-	return core.NewValidatorSet(cv).Hash()
+	set := core.NewValidatorSet(cv)
+	for i, v := range set.Validators {
+		if !bytes.Equal(v.PubKey.Bytes(), vals[i].pubKey) {
+			return nil
+		}
+	}
+	return set.Hash()
 }
 
 // cv7 ties the HistoricalInfo list to the chain with upstream hashes only: the
