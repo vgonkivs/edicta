@@ -314,10 +314,10 @@ func ParseHistoricalInfo(b []byte) ([]Validator, error) {
 func parseHistoricalInfo(b []byte) ([]Validator, int64, error) {
 	var hi stakingtypes.HistoricalInfo
 	if err := hi.Unmarshal(b); err != nil {
-		return nil, 0, fmt.Errorf("%w: decoding historical info: %w", ErrCertificateMalformed, err)
+		return nil, 0, fmt.Errorf("decoding historical info: %w", err)
 	}
 	if len(hi.Valset) == 0 {
-		return nil, 0, fmt.Errorf("%w: historical info has an empty validator set", ErrCertificateMalformed)
+		return nil, 0, errors.New("historical info has an empty validator set")
 	}
 	out := make([]Validator, 0, len(hi.Valset))
 	for _, v := range hi.Valset {
@@ -326,7 +326,7 @@ func parseHistoricalInfo(b []byte) ([]Validator, int64, error) {
 			return nil, 0, err
 		}
 		if !v.Tokens.IsInt64() || v.Tokens.Sign() <= 0 {
-			return nil, 0, fmt.Errorf("%w: validator tokens out of range", ErrCertificateMalformed)
+			return nil, 0, errors.New("validator tokens out of range")
 		}
 		out = append(out, Validator{PubKey: key, Power: v.Tokens.Int64()})
 	}
@@ -338,14 +338,14 @@ func parseHistoricalInfo(b []byte) ([]Validator, int64, error) {
 
 func ed25519FromAny(a *codectypes.Any) (ed25519.PublicKey, error) {
 	if a == nil || a.TypeUrl != ed25519PubKeyURL {
-		return nil, fmt.Errorf("%w: consensus key is not an ed25519 key", ErrCertificateMalformed)
+		return nil, errors.New("consensus key is not an ed25519 key")
 	}
 	var pk sdked25519.PubKey
 	if err := pk.Unmarshal(a.Value); err != nil {
-		return nil, fmt.Errorf("%w: decoding consensus key: %w", ErrCertificateMalformed, err)
+		return nil, fmt.Errorf("decoding consensus key: %w", err)
 	}
 	if len(pk.Key) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("%w: ed25519 key of the wrong size", ErrCertificateMalformed)
+		return nil, errors.New("ed25519 key of the wrong size")
 	}
 	return pk.Key, nil
 }

@@ -43,11 +43,18 @@ type certWant struct {
 	AtMostTwoThirds  bool   `json:"at_most_two_thirds"`
 }
 
+type networkWant struct {
+	Verdict string `json:"verdict"`
+	Rule    string `json:"rule"`
+}
+
 type expectWant struct {
-	Verdict     string    `json:"verdict"`
-	Rule        string    `json:"rule"`
-	Fails       []string  `json:"fails"`
-	Certificate *certWant `json:"certificate"`
+	Verdict     string       `json:"verdict"`
+	Rule        string       `json:"rule"`
+	Fails       []string     `json:"fails"`
+	Certificate *certWant    `json:"certificate"`
+	Network     *networkWant `json:"network"`
+	Cv7Matched  string       `json:"cv7_matched"`
 }
 
 type mutation struct {
@@ -67,6 +74,18 @@ type boundaryCase struct {
 	} `json:"validators"`
 	SignaturesHex []string   `json:"signatures_hex"`
 	Expect        expectWant `json:"expect"`
+}
+
+type valsetCase struct {
+	ID         string `json:"id"`
+	Validators []struct {
+		PubKeyHex string `json:"pubkey_hex"`
+		Tokens    num    `json:"tokens"`
+	} `json:"validators"`
+	HistoricalInfoHex string     `json:"historical_info_hex"`
+	PromiseHeaderHex  string     `json:"promise_header_hex"`
+	SignaturesHex     []string   `json:"signatures_hex"`
+	Expect            expectWant `json:"expect"`
 }
 
 type thresholdRow struct {
@@ -91,10 +110,6 @@ type vectorFile struct {
 			HistoricalInfo struct {
 				Hex string `json:"hex"`
 			} `json:"historical_info"`
-			CometValsets []struct {
-				Height num    `json:"height"`
-				Hex    string `json:"hex"`
-			} `json:"cometbft_valsets"`
 			Headers []hexHeader `json:"headers"`
 		} `json:"raw"`
 		Derived struct {
@@ -130,6 +145,9 @@ type vectorFile struct {
 		Cases []boundaryCase `json:"cases"`
 	} `json:"boundary"`
 	Threshold []thresholdRow `json:"threshold"`
+	Valset    struct {
+		Cases []valsetCase `json:"cases"`
+	} `json:"valset"`
 }
 
 func loadVectors(t *testing.T) *vectorFile {
@@ -161,20 +179,9 @@ func (v *vectorFile) header(t *testing.T, h num) []byte {
 	return nil
 }
 
-func (v *vectorFile) cometValset(t *testing.T, h num) []byte {
-	t.Helper()
-	for _, x := range v.Live.Raw.CometValsets {
-		if x.Height == h {
-			return unhex(t, x.Hex)
-		}
-	}
-	require.FailNowf(t, "missing valset", "height %d", h)
-	return nil
-}
-
 // inputs is everything the verifier feeds into the package for one case.
 type inputs struct {
-	tx, historicalInfo, promiseHeader, nextHeader, nextValset []byte
+	tx, historicalInfo, promiseHeader []byte
 }
 
 func (v *vectorFile) liveInputs(t *testing.T) inputs {
@@ -184,8 +191,6 @@ func (v *vectorFile) liveInputs(t *testing.T) inputs {
 		tx:             v.pffTx(t),
 		historicalInfo: unhex(t, v.Live.Raw.HistoricalInfo.Hex),
 		promiseHeader:  v.header(t, h),
-		nextHeader:     v.header(t, h+1),
-		nextValset:     v.cometValset(t, h+1),
 	}
 }
 
@@ -219,14 +224,10 @@ func (v *vectorFile) applyMutation(t *testing.T, in inputs, m mutation) inputs {
 	case "historical_info":
 		in.historicalInfo = flip(t, in.historicalInfo, m)
 	case "cometbft_valset":
-		require.Equal(t, p+1, m.Height)
-		in.nextValset = flip(t, in.nextValset, m)
+		// The package no longer reads the archived CometBFT set.
 	case "header":
-		switch m.Height {
-		case p:
+		if m.Height == p {
 			in.promiseHeader = flip(t, in.promiseHeader, m)
-		case p + 1:
-			in.nextHeader = flip(t, in.nextHeader, m)
 		}
 	default:
 		require.FailNowf(t, "unknown target", "%s", m.Target)
