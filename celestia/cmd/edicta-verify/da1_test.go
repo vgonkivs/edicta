@@ -76,7 +76,7 @@ func TestDA1ReplayEndToEnd(t *testing.T) {
 	require.Equal(t, exitValid, code, out)
 	var rep map[string]any
 	require.NoError(t, json.Unmarshal([]byte(out), &rep))
-	k2, ok := rep["k2"].(map[string]any)
+	k2, ok := rep["retention_replay"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, true, k2["replayable"])
 	assert.Equal(t, true, k2["consistent"])
@@ -138,8 +138,10 @@ func TestDA1TamperedEvidenceIsInvalid(t *testing.T) {
 			})
 			ev.SystemBlob = fibrefix.SystemBlobOf(t, ev.AnchorTx)
 		}},
-		{"promise header", func(_ *testing.T, l *fibrefix.Live, ev *archive.EvidenceRecord) {
-			ev.PromiseHeader = l.Headers[l.PromiseHeight+1]
+		{"promise header", func(t *testing.T, l *fibrefix.Live, ev *archive.EvidenceRecord) {
+			var h cmtproto.Header
+			require.NoError(t, h.Unmarshal(l.Headers[l.PromiseHeight+1]))
+			ev.PromiseHeader = fibrefix.SignedHeader(t, h)
 		}},
 	}
 	for _, tc := range tests {
@@ -200,4 +202,20 @@ func TestDA1HeaderTrustFailures(t *testing.T) {
 		assert.NotEqual(t, exitValid, code, out)
 		assert.NotContains(t, out, "verdict: valid")
 	})
+}
+
+func TestDA1ForgedAnchorHeaderAtThePromiseHeightIsNotValid(t *testing.T) {
+	s := newDA1(t, func(l *fibrefix.Live) *archive.EvidenceRecord {
+		l.Ref.Height = l.PromiseHeight
+		ev := l.EvidenceFor(t, fibrefix.BuildBlock(t, l.PFFTx), l.PFFTx)
+		var sh cmtproto.SignedHeader
+		require.NoError(t, sh.Unmarshal(ev.Header))
+		sh.Header.Height = int64(l.PromiseHeight)
+		ev.Header, ev.Height = fibrefix.SignedHeader(t, *sh.Header), l.PromiseHeight
+		return ev
+	})
+	code, out := exec(t, s.args("verify", "--trusted", s.live.TrustedFile(t, nil)))
+	assert.Equal(t, exitInvalid, code, out)
+	assert.NotContains(t, out, "verdict: valid")
+	assert.Contains(t, out, "differ")
 }

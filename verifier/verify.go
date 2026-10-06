@@ -294,7 +294,7 @@ func (r *run) payload() error {
 }
 
 func (r *run) anchorAndTrust() error {
-	ev, ok, err := r.anchor()
+	ok, err := r.anchor()
 	if err != nil {
 		return err
 	}
@@ -308,29 +308,29 @@ func (r *run) anchorAndTrust() error {
 	} else {
 		r.pass(CheckAnchorTime)
 	}
-	return r.headerTrust(ev)
+	return r.headerTrust()
 }
 
 // anchor runs the DA's anchor verifier and holds its facts to the rules that
 // do not depend on the DA.
-func (r *run) anchor() (*archive.EvidenceRecord, bool, error) {
+func (r *run) anchor() (bool, error) {
 	ref := r.c.PayloadRef
-	bad := func(err error) (*archive.EvidenceRecord, bool, error) {
+	bad := func(err error) (bool, error) {
 		r.fail(CheckAnchor, fmt.Errorf("%w: %w", ErrAnchorInvalid, err))
-		return nil, false, nil
+		return false, nil
 	}
 	av := r.v.anchors[ref.DA]
 	if av == nil {
 		r.unchecked(CheckAnchor, fmt.Errorf("%w: da %d", ErrAnchorUnsupported, ref.DA))
-		return nil, false, nil
+		return false, nil
 	}
 	ev, err := r.v.archive.Evidence(r.ctx, ref.DA, ref.Commitment)
 	if err != nil {
 		if !soft(err) {
-			return nil, false, fmt.Errorf("verifier: archive evidence: %w", err)
+			return false, fmt.Errorf("verifier: archive evidence: %w", err)
 		}
 		r.fail(CheckAnchor, fmt.Errorf("%w: %w", ErrArchiveIncomplete, err))
-		return nil, false, nil
+		return false, nil
 	}
 	if ev.Height != ref.Height {
 		return bad(fmt.Errorf("evidence is for height %d, the decision names %d", ev.Height, ref.Height))
@@ -338,7 +338,7 @@ func (r *run) anchor() (*archive.EvidenceRecord, bool, error) {
 	facts, err := av.VerifyAnchor(ref, ev)
 	if errors.Is(err, ErrAnchorUnsupported) {
 		r.unchecked(CheckAnchor, err)
-		return nil, false, nil
+		return false, nil
 	}
 	if err != nil {
 		return bad(err)
@@ -354,14 +354,27 @@ func (r *run) anchor() (*archive.EvidenceRecord, bool, error) {
 			return bad(fmt.Errorf("certificate token precision %q is neither %s nor %s", p, precisionRobust, precisionBucketDependent))
 		}
 	}
-	for _, height := range r.neededHeights(ev) {
-		if len(facts.HeaderHashes[height]) == 0 {
-			return bad(fmt.Errorf("no header hash for height %d", height))
-		}
+	if len(facts.AnchorHeaderHash) == 0 {
+		return bad(fmt.Errorf("no header hash for height %d", ref.Height))
 	}
 	if ref.DA == commitment.DAFibre {
 		if ev.PromiseHeight == 0 {
 			return bad(errors.New("evidence has no promise height"))
+		}
+		if facts.PromiseHeight != ev.PromiseHeight {
+			return bad(fmt.Errorf("promise height %d, the evidence names %d", facts.PromiseHeight, ev.PromiseHeight))
+		}
+		if facts.PromiseHeight > ref.Height {
+			return bad(fmt.Errorf("promise height %d is above the anchor height %d", facts.PromiseHeight, ref.Height))
+		}
+		if len(facts.PromiseHeaderHash) == 0 {
+			return bad(fmt.Errorf("no header hash for height %d", facts.PromiseHeight))
+		}
+		if facts.PromiseHeight == ref.Height && !bytes.Equal(facts.PromiseHeaderHash, facts.AnchorHeaderHash) {
+			return bad(fmt.Errorf("two different headers at height %d", ref.Height))
+		}
+		if want, ok := uploadSize(r.c.PayloadSize); !ok || facts.PromiseBlobSize != want {
+			return bad(fmt.Errorf("promise blob size %d does not match the committed payload size %d", facts.PromiseBlobSize, r.c.PayloadSize))
 		}
 		if facts.ProofForm != 0 && facts.ProofForm != 1 {
 			return bad(fmt.Errorf("anchor proof form %d", facts.ProofForm))
@@ -390,7 +403,7 @@ func (r *run) anchor() (*archive.EvidenceRecord, bool, error) {
 		}
 	}
 	r.pass(CheckAnchor)
-	return ev, true, nil
+	return true, nil
 }
 
 func (r *run) cert(f AnchorFacts) {
@@ -419,24 +432,43 @@ func atMostTwoThirds(signed, total int64) bool {
 	return sh < th || sh == th && sl <= tl
 }
 
-func (r *run) neededHeights(ev *archive.EvidenceRecord) []uint64 {
-	if r.c.PayloadRef.DA == commitment.DAFibre {
-		return []uint64{ev.Height, ev.PromiseHeight}
+// uploadSize is the paid upload size of a blob: 4096 bytes times the row
+// size, which is the encoded length (5-byte header included) in 4096-byte
+// rows, rounded up to a multiple of 64 rows.
+func uploadSize(payloadSize uint64) (uint64, bool) {
+	const maxPayload = 1 << 27
+	if payloadSize == 0 || payloadSize > maxPayload {
+		return 0, false
 	}
-	return []uint64{ev.Height}
+	row := (payloadSize + 5 + 4095) / 4096
+	row = (row + 63) / 64 * 64
+	return row * 4096, true
 }
 
-func (r *run) headerTrust(ev *archive.EvidenceRecord) error {
+type headerAt struct {
+	height uint64
+	hash   []byte
+}
+
+func (r *run) neededHeaders() []headerAt {
+	hs := []headerAt{{r.c.PayloadRef.Height, r.facts.AnchorHeaderHash}}
+	if r.c.PayloadRef.DA == commitment.DAFibre {
+		hs = append(hs, headerAt{r.facts.PromiseHeight, r.facts.PromiseHeaderHash})
+	}
+	return hs
+}
+
+func (r *run) headerTrust() error {
 	ht := &r.rep.HeaderTrust
 	if r.v.trust == nil {
 		ht.Status = TrustUnchecked
 		r.unchecked(CheckHeaderTrust, errors.New("no trusted header supplied"))
 		return nil
 	}
-	heights := r.neededHeights(ev)
-	ht.Hashes = make(map[uint64][]byte, len(heights))
-	for _, height := range heights {
-		ht.Hashes[height] = r.facts.HeaderHashes[height]
+	headers := r.neededHeaders()
+	ht.Hashes = make(map[uint64][]byte, len(headers))
+	for _, h := range headers {
+		ht.Hashes[h.height] = h.hash
 	}
 	failTrust := func(err error) error {
 		ht.Status = TrustFailed
@@ -446,8 +478,10 @@ func (r *run) headerTrust(ev *archive.EvidenceRecord) error {
 
 	checked := true
 	cross := ""
-	for i, height := range heights {
-		res, err := r.v.trust.Trusted(r.ctx, height, ht.Hashes[height])
+	var noInput error
+	for i, h := range headers {
+		height := h.height
+		res, err := r.v.trust.Trusted(r.ctx, height, h.hash)
 		if cerr := r.ctx.Err(); cerr != nil {
 			return fmt.Errorf("verifier: %w", cerr)
 		}
@@ -458,9 +492,10 @@ func (r *run) headerTrust(ev *archive.EvidenceRecord) error {
 			ht.CrossCheck = res.CrossCheck
 		}
 		if errors.Is(err, ErrTrustInput) {
-			ht.Status = TrustUnchecked
-			r.unchecked(CheckHeaderTrust, fmt.Errorf("height %d: %w", height, err))
-			return nil
+			if noInput == nil {
+				noInput = fmt.Errorf("height %d: %w", height, err)
+			}
+			continue
 		}
 		if err != nil {
 			return failTrust(fmt.Errorf("height %d: %w", height, err))
@@ -478,6 +513,11 @@ func (r *run) headerTrust(ev *archive.EvidenceRecord) error {
 		default:
 			return failTrust(fmt.Errorf("height %d: unknown cross-check result %q", height, res.CrossCheck))
 		}
+	}
+	if noInput != nil {
+		ht.Status = TrustUnchecked
+		r.unchecked(CheckHeaderTrust, noInput)
+		return nil
 	}
 	ht.CrossCheck = cross
 	if !checked {

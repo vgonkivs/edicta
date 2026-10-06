@@ -60,8 +60,9 @@ func TestFibreLiveEvidenceVerifies(t *testing.T) {
 	assert.Equal(t, uint64(l.Header.Time.Unix()), facts.BlockTime)
 	assert.Equal(t, uint64(l.Created.Unix()), facts.RetentionStart, "floor of the promise creation time")
 	assert.Equal(t, uint64(1791196769), facts.RetentionStart)
-	assert.Equal(t, l.HeaderHashes[l.Height], facts.HeaderHashes[l.Height])
-	assert.Equal(t, l.HeaderHashes[l.PromiseHeight], facts.HeaderHashes[l.PromiseHeight])
+	assert.Equal(t, l.HeaderHashes[l.Height], facts.AnchorHeaderHash)
+	assert.Equal(t, l.HeaderHashes[l.PromiseHeight], facts.PromiseHeaderHash)
+	assert.Equal(t, l.PromiseHeight, facts.PromiseHeight)
 	assert.Equal(t, int64(282969545202534), facts.CertSignedPower)
 	assert.Equal(t, int64(371550350184936), facts.CertTotalPower)
 	assert.Equal(t, "next_validators_hash@1402813", facts.CertValsetHeader)
@@ -80,7 +81,7 @@ func TestFibreForm0ProofIsUnchecked(t *testing.T) {
 			require.ErrorIs(t, err, verifier.ErrAnchorUnsupported)
 			assert.ErrorContains(t, err, "form-0")
 			assert.Empty(t, facts.Settlement)
-			assert.Empty(t, facts.HeaderHashes)
+			assert.Empty(t, facts.AnchorHeaderHash)
 		})
 	}
 }
@@ -108,7 +109,7 @@ func TestFibreProofRefusals(t *testing.T) {
 			facts, err := verifyFibre(l, ev)
 			require.Error(t, err)
 			require.NotErrorIs(t, err, verifier.ErrAnchorUnsupported)
-			assert.Empty(t, facts.HeaderHashes)
+			assert.Empty(t, facts.AnchorHeaderHash)
 			assert.Empty(t, facts.Settlement)
 		})
 	}
@@ -177,7 +178,7 @@ func TestFibreBlockProofTampering(t *testing.T) {
 			facts, err := verifyFibre(l, ev)
 			require.Error(t, err)
 			assert.ErrorContains(t, err, tc.want)
-			assert.Empty(t, facts.HeaderHashes)
+			assert.Empty(t, facts.AnchorHeaderHash)
 		})
 	}
 }
@@ -250,7 +251,7 @@ func TestFibreEvidenceRefusals(t *testing.T) {
 			if tc.is != nil {
 				require.ErrorIs(t, err, tc.is)
 			}
-			assert.Empty(t, facts.HeaderHashes)
+			assert.Empty(t, facts.AnchorHeaderHash)
 			assert.Empty(t, facts.Settlement)
 		})
 	}
@@ -380,7 +381,7 @@ func TestFibreReassemblyAttacksInASignedBlock(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.ErrorContains(t, err, "namespace data")
-			assert.Empty(t, facts.HeaderHashes)
+			assert.Empty(t, facts.AnchorHeaderHash)
 		})
 	}
 }
@@ -420,7 +421,7 @@ func TestFibreCertificateFailures(t *testing.T) {
 			tx := fibrefix.MutateTx(t, l.PFFTx, func(m *fibretypes.MsgPayForFibre) { m.ValidatorSignatures = tc.sigs() })
 			facts, err := verifyFibre(l, withBlock(t, l, tx, tx))
 			require.ErrorIs(t, err, tc.is)
-			assert.Empty(t, facts.HeaderHashes)
+			assert.Empty(t, facts.AnchorHeaderHash)
 		})
 	}
 
@@ -482,15 +483,13 @@ func TestFibreValidatorListFailures(t *testing.T) {
 			h.Valset = h.Valset[:len(h.Valset)-1]
 			ev.HistoricalInfo = marshal(h)
 		}, fibrecert.ErrCertificateMalformed},
-		{"promise header of another height", func(ev *archive.EvidenceRecord) { ev.PromiseHeader = l.Headers[l.PromiseHeight+1] }, fibrecert.ErrValsetMismatch},
+		{"promise header of another height", func(ev *archive.EvidenceRecord) { ev.PromiseHeader = signBare(t, l.Headers[l.PromiseHeight+1]) }, fibrecert.ErrValsetMismatch},
 		{"promise header with another valset hash", func(ev *archive.EvidenceRecord) {
 			var h cmtproto.Header
 			require.NoError(t, h.Unmarshal(l.PromiseHeader))
 			h.NextValidatorsHash = bytes.Clone(h.NextValidatorsHash)
 			h.NextValidatorsHash[0] ^= 1
-			b, err := h.Marshal()
-			require.NoError(t, err)
-			ev.PromiseHeader = b
+			ev.PromiseHeader = fibrefix.SignedHeader(t, h)
 		}, fibrecert.ErrValsetMismatch},
 		{"promise header absent", func(ev *archive.EvidenceRecord) { ev.PromiseHeader = nil }, nil},
 		{"historical info absent", func(ev *archive.EvidenceRecord) { ev.HistoricalInfo = nil }, nil},
@@ -505,7 +504,7 @@ func TestFibreValidatorListFailures(t *testing.T) {
 			if tc.is != nil {
 				require.ErrorIs(t, err, tc.is)
 			}
-			assert.Empty(t, facts.HeaderHashes)
+			assert.Empty(t, facts.AnchorHeaderHash)
 		})
 	}
 }
@@ -547,8 +546,7 @@ func TestFibreTokenPrecisionBucketDependent(t *testing.T) {
 	var ph cmtproto.Header
 	require.NoError(t, ph.Unmarshal(l.PromiseHeader))
 	ph.NextValidatorsHash = core.NewValidatorSet(cv).Hash()
-	promiseHdr, err := ph.Marshal()
-	require.NoError(t, err)
+	promiseHdr := fibrefix.SignedHeader(t, ph)
 
 	ev := l.Evidence(t)
 	ev.HistoricalInfo, ev.PromiseHeader = hist, promiseHdr
@@ -591,7 +589,7 @@ func TestFibrePanicGuard(t *testing.T) {
 			require.NotPanics(t, func() {
 				facts, err := verifyFibre(l, ev)
 				require.Error(t, err)
-				assert.Empty(t, facts.HeaderHashes)
+				assert.Empty(t, facts.AnchorHeaderHash)
 			})
 		})
 	}
@@ -664,7 +662,7 @@ func TestFibreThroughTheVerifierWarnsAboutEarlierCandidates(t *testing.T) {
 	ev := withBlock(t, l, l.PFFTx, earlier, l.PFFTx)
 	facts, err := verifyFibre(l, ev)
 	require.NoError(t, err)
-	v, d := fibreVerifier(t, l, ev, mapTrust(facts.HeaderHashes))
+	v, d := fibreVerifier(t, l, ev, mapTrust(map[uint64][]byte{l.Height: facts.AnchorHeaderHash, facts.PromiseHeight: facts.PromiseHeaderHash}))
 	rep, err := v.Verify(context.Background(), d.Hash)
 	require.NoError(t, err)
 	assert.Equal(t, verifier.VerdictValid, rep.Verdict, "a warning never changes the verdict")
@@ -705,4 +703,44 @@ func TestFibreTamperedEvidenceThroughTheVerifierIsInvalid(t *testing.T) {
 func openStore(t *testing.T, dir string, cm map[commitment.DA]gate.DACommitter) (*fsarchive.Store, error) {
 	t.Helper()
 	return fsarchive.Open(dir, cm)
+}
+
+func signBare(t testing.TB, raw []byte) []byte {
+	t.Helper()
+	var h cmtproto.Header
+	require.NoError(t, h.Unmarshal(raw))
+	return fibrefix.SignedHeader(t, h)
+}
+
+// forgedAtPromiseHeight points the decision at the promise height and gives
+// that height a header of the attacker's making: the time of the real anchor
+// block and a data root over a synthetic square holding the real PayForFibre.
+func forgedAtPromiseHeight(t testing.TB, l *fibrefix.Live) *archive.EvidenceRecord {
+	t.Helper()
+	l.Ref.Height = l.PromiseHeight
+	ev := l.EvidenceFor(t, fibrefix.BuildBlock(t, l.PFFTx), l.PFFTx)
+	var sh cmtproto.SignedHeader
+	require.NoError(t, sh.Unmarshal(ev.Header))
+	sh.Header.Height = int64(l.PromiseHeight)
+	require.Equal(t, l.Header.Time, sh.Header.Time)
+	ev.Header, ev.Height = fibrefix.SignedHeader(t, *sh.Header), l.PromiseHeight
+	return ev
+}
+
+func TestFibreForgedAnchorHeaderAtThePromiseHeightIsNotValid(t *testing.T) {
+	l := fibrefix.LoadLive(t)
+	ev := forgedAtPromiseHeight(t, l)
+
+	_, err := verifyFibre(l, ev)
+	require.ErrorContains(t, err, "differ")
+
+	v, d := fibreVerifier(t, l, ev, mapTrust(l.HeaderHashes))
+	rep, err := v.Verify(context.Background(), d.Hash)
+	require.NoError(t, err)
+	assert.NotEqual(t, verifier.VerdictValid, rep.Verdict)
+	assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
+	c, ok := rep.Check(verifier.CheckAnchor)
+	require.True(t, ok)
+	assert.Equal(t, verifier.StatusFail, c.Status)
+	require.ErrorIs(t, c.Err, verifier.ErrAnchorInvalid)
 }

@@ -96,7 +96,7 @@ func TestBlobAcceptsARealCommitmentProof(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint64(blockTime.Unix()), facts.BlockTime)
 	assert.Equal(t, uint64(blockTime.Unix()), facts.RetentionStart)
-	assert.Equal(t, f.header.Hash().Bytes(), facts.HeaderHashes[height])
+	assert.Equal(t, f.header.Hash().Bytes(), facts.AnchorHeaderHash)
 	assert.Empty(t, facts.Settlement)
 }
 
@@ -148,7 +148,7 @@ func TestBlobRefusals(t *testing.T) {
 			tc.mod(t, f)
 			facts, err := anchorverify.Blob().VerifyAnchor(f.ref, f.ev)
 			require.Error(t, err)
-			assert.Empty(t, facts.HeaderHashes)
+			assert.Empty(t, facts.AnchorHeaderHash)
 		})
 	}
 }

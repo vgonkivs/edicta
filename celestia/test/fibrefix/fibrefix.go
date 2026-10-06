@@ -185,10 +185,19 @@ func (l *Live) Evidence(t testing.TB) *archive.EvidenceRecord {
 		SystemBlob:      SystemBlobOf(t, l.PFFTx),
 		SystemBlobProof: bytes.Clone(l.Proof),
 		PromiseHeight:   l.PromiseHeight,
-		PromiseHeader:   bytes.Clone(l.PromiseHeader),
+		PromiseHeader:   l.promiseSigned(t),
 		HistoricalInfo:  bytes.Clone(l.Hist),
 		PromiseValset:   bytes.Clone(l.PromiseValset),
 	}
+}
+
+// promiseSigned is the promise header as the archive stores it, a
+// SignedHeader around the bare header.
+func (l *Live) promiseSigned(t testing.TB) []byte {
+	t.Helper()
+	var h cmtproto.Header
+	require.NoError(t, h.Unmarshal(l.PromiseHeader))
+	return SignedHeader(t, h)
 }
 
 // EvidenceFor is the live evidence with the anchor tx and proof of a

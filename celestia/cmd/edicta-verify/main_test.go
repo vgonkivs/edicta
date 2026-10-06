@@ -187,7 +187,7 @@ func TestReplay(t *testing.T) {
 	require.Equal(t, exitValid, code, out)
 	var rep map[string]any
 	require.NoError(t, json.Unmarshal([]byte(out), &rep))
-	k2, ok := rep["k2"].(map[string]any)
+	k2, ok := rep["retention_replay"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, true, k2["replayable"])
 	assert.Equal(t, true, k2["consistent"])

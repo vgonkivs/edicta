@@ -89,7 +89,7 @@ type reportView struct {
 	HeaderTrust       trustView    `json:"header_trust"`
 	Checks            []checkView  `json:"checks"`
 	Warnings          []string     `json:"warnings,omitempty"`
-	K2                *k2View      `json:"k2,omitempty"`
+	K2                *k2View      `json:"retention_replay,omitempty"`
 }
 
 func pathName(p commitment.PayloadPath) string {
@@ -221,7 +221,11 @@ func writeText(out io.Writer, v reportView, colour bool) {
 	if v.GateID != "" {
 		p("gate: %s  action type: %s  da: %d  height: %d", v.GateID, v.ActionType, v.DA, v.Height)
 	}
+	replayFailed := v.K2 != nil && v.K2.Replayable && !v.K2.Consistent
 	for _, c := range v.Checks {
+		if replayFailed && c.Name == string(verifier.CheckRetention) {
+			continue
+		}
 		if c.Error != "" {
 			p("%s %s: %s", tag(c.Status), c.Name, c.Error)
 		} else {

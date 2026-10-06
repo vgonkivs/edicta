@@ -139,7 +139,10 @@ type K2Replay struct {
 	Route          commitment.PayloadPath
 	AuthorizedPath commitment.PayloadPath
 	Consistent     bool
-	Err            error
+	// Unconfirmed: consistent, but the recorded creation time is earlier
+	// than the archived one and no candidate list is there to confirm it.
+	Unconfirmed bool
+	Err         error
 }
 
 type ReplayReport struct {

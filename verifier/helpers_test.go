@@ -49,6 +49,19 @@ type fakeAnchor struct {
 	proofForm  int
 	earlier    int
 	calls      int
+
+	payloadSize   uint64
+	creations     []uint64
+	promiseHeight func(ev *archive.EvidenceRecord) uint64
+	blobSize      *uint64
+	promiseHash   []byte
+}
+
+// uploadSize is the paid upload size of a blob of n payload bytes.
+func uploadSize(n uint64) uint64 {
+	rows := (n + 5 + 4095) / 4096
+	rows = (rows + 63) / 64 * 64
+	return rows * 4096
 }
 
 func (f *fakeAnchor) VerifyAnchor(ref commitment.PayloadRef, ev *archive.EvidenceRecord) (verifier.AnchorFacts, error) {
@@ -66,7 +79,8 @@ func (f *fakeAnchor) VerifyAnchor(ref commitment.PayloadRef, ev *archive.Evidenc
 	facts := verifier.AnchorFacts{
 		BlockTime:          f.blockTime,
 		RetentionStart:     f.blockTime,
-		HeaderHashes:       map[uint64][]byte{ev.Height: h[:]},
+		AnchorHeaderHash:   h[:],
+		EarlierCreations:   f.creations,
 		Settlement:         f.settlement,
 		CertSignedPower:    f.signed,
 		CertTotalPower:     f.total,
@@ -76,7 +90,18 @@ func (f *fakeAnchor) VerifyAnchor(ref commitment.PayloadRef, ev *archive.Evidenc
 	}
 	if ref.DA == commitment.DAFibre {
 		ph := sha256.Sum256([]byte("promise-header"))
-		facts.HeaderHashes[ev.PromiseHeight] = ph[:]
+		facts.PromiseHeaderHash = ph[:]
+		if f.promiseHash != nil {
+			facts.PromiseHeaderHash = f.promiseHash
+		}
+		facts.PromiseHeight = ev.PromiseHeight
+		if f.promiseHeight != nil {
+			facts.PromiseHeight = f.promiseHeight(ev)
+		}
+		facts.PromiseBlobSize = uploadSize(f.payloadSize)
+		if f.blobSize != nil {
+			facts.PromiseBlobSize = *f.blobSize
+		}
 		facts.CertValsetHeader = "next_validators_hash@promise"
 	}
 	return facts, nil
@@ -271,7 +296,7 @@ type rig struct {
 
 func newRig(t testing.TB, p *parts) *rig {
 	t.Helper()
-	r := &rig{p: p, store: p.write(t), anchor: &fakeAnchor{blockTime: blockTime}}
+	r := &rig{p: p, store: p.write(t), anchor: &fakeAnchor{blockTime: blockTime, payloadSize: p.c.PayloadSize}}
 	h := sha256.Sum256(goodHeader())
 	hashes := map[uint64][]byte{p.ev.Height: h[:]}
 	if p.da == commitment.DAFibre {

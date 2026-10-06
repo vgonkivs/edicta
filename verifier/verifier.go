@@ -70,9 +70,14 @@ func (c Config) ValidateBasic() error {
 type AnchorFacts struct {
 	BlockTime      uint64
 	RetentionStart uint64
-	// HeaderHashes holds the hash of every header the verification relied
-	// on: the anchor height and, for da = 1, the promise height.
-	HeaderHashes       map[uint64][]byte
+	// AnchorHeaderHash is the hash of the header at the decision's height.
+	AnchorHeaderHash []byte
+	// PromiseHeaderHash, PromiseHeight and PromiseBlobSize describe the
+	// payment promise (da = 1). The promise height never exceeds the anchor
+	// height; the two headers are checked through header trust separately.
+	PromiseHeaderHash  []byte
+	PromiseHeight      uint64
+	PromiseBlobSize    uint64
 	CertSignedPower    int64
 	CertTotalPower     int64
 	CertTokenPrecision string
@@ -84,6 +89,8 @@ type AnchorFacts struct {
 	// CandidatesEarlier counts the other candidates with an earlier promise
 	// creation time than the archived anchor (da = 1, form 1).
 	CandidatesEarlier int
+	// EarlierCreations are the promise creation times of those candidates.
+	EarlierCreations []uint64
 }
 
 // AnchorVerifier checks the anchor evidence of one da against the headers

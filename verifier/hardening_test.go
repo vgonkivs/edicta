@@ -271,6 +271,7 @@ func TestReplayConsistencyRules(t *testing.T) {
 			}
 			tc.tweak(t, p)
 			r := newRig(t, p)
+			r.anchor.proofForm = 1
 
 			rr := replay(t, r)
 			require.True(t, rr.K2.Replayable)

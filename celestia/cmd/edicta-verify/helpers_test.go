@@ -116,7 +116,7 @@ func (f fakeAnchors) VerifyAnchor(ref commitment.PayloadRef, ev *archive.Evidenc
 	}
 	return verifier.AnchorFacts{
 		BlockTime: blockTime, RetentionStart: blockTime,
-		HeaderHashes: map[uint64][]byte{ev.Height: f.c.hash(ev.Height)},
+		AnchorHeaderHash: f.c.hash(ev.Height),
 	}, nil
 }
 

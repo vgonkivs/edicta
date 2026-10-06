@@ -2,7 +2,9 @@ package verifier
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/vgonkivs/edicta/commitment"
 )
@@ -27,8 +29,12 @@ func (v *Verifier) Replay(ctx context.Context, h commitment.Hash) (ReplayReport,
 		out.K2.Reason = "the Authorization record has no retention inputs"
 	default:
 		out.K2 = replayK2(r)
-		if !out.K2.Consistent {
+		switch {
+		case !out.K2.Consistent:
 			r.fail(CheckRetention, out.K2.Err)
+			r.finish()
+		case out.K2.Unconfirmed:
+			r.unchecked(CheckRetention, errors.New("an earlier promise creation time cannot be checked against a form-0 record"))
 			r.finish()
 		}
 	}
@@ -68,7 +74,7 @@ func replayK2(r *run) K2Replay {
 		rep.Err = fmt.Errorf("%w: archived block time %d, verified %d", ErrGateInconsistent, k.BlockTime, r.facts.BlockTime)
 	case r.c.PayloadRef.DA != commitment.DAFibre && k.BlobRetentionS != p.BlobRetentionS:
 		rep.Err = fmt.Errorf("%w: archived blob retention %d, configured %d", ErrGateInconsistent, k.BlobRetentionS, p.BlobRetentionS)
-	case r.c.PayloadRef.DA == commitment.DAFibre && k.PromiseCreated != r.facts.RetentionStart:
+	case r.c.PayloadRef.DA == commitment.DAFibre && !creationAccepted(k.PromiseCreated, r.facts, rep.AuthorizedPath):
 		rep.Err = fmt.Errorf("%w: archived promise creation %d, verified %d", ErrGateInconsistent, k.PromiseCreated, r.facts.RetentionStart)
 	case k.CheckedAt >= r.c.ValidUntil:
 		rep.Err = fmt.Errorf("%w: checked at %d, not before valid until %d", ErrGateInconsistent, k.CheckedAt, r.c.ValidUntil)
@@ -80,5 +86,24 @@ func replayK2(r *run) K2Replay {
 		rep.Err = fmt.Errorf("%w: the DA path was authorized outside the retention window", ErrGateInconsistent)
 	}
 	rep.Consistent = rep.Err == nil
+	rep.Unconfirmed = rep.Consistent && r.c.PayloadRef.DA == commitment.DAFibre &&
+		k.PromiseCreated != 0 && k.PromiseCreated != r.facts.RetentionStart &&
+		!slices.Contains(r.facts.EarlierCreations, k.PromiseCreated)
 	return rep
+}
+
+// creationAccepted: the gate recorded the creation time of the candidate it
+// anchored, which is the archived one or an earlier candidate's. An absent
+// time is only consistent with the archive path.
+func creationAccepted(created uint64, f *AnchorFacts, path commitment.PayloadPath) bool {
+	if created == 0 {
+		return path == commitment.PathArchive
+	}
+	return created == f.RetentionStart || slices.Contains(f.EarlierCreations, created) || formZeroEarlier(created, f)
+}
+
+// formZeroEarlier: a form-0 record shows no other candidates, so a smaller
+// recorded time cannot be confirmed or refuted; it is reported as unchecked.
+func formZeroEarlier(created uint64, f *AnchorFacts) bool {
+	return f.ProofForm == 0 && created < f.RetentionStart
 }

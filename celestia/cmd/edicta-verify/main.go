@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/vgonkivs/edicta/archive/fsarchive"
@@ -75,11 +76,18 @@ func run(args []string, out io.Writer) int {
 // also printed as JSON.
 func wantsJSON(args []string) bool {
 	for _, a := range args {
-		switch a {
-		case "--json", "-json", "--json=true", "-json=true":
-			return true
-		case "--":
+		if a == "--" {
 			return false
+		}
+		name, val, hasVal := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if name != "json" || !strings.HasPrefix(a, "-") || strings.HasPrefix(a, "---") {
+			continue
+		}
+		if !hasVal {
+			return true
+		}
+		if b, err := strconv.ParseBool(val); err == nil && b {
+			return true
 		}
 	}
 	return false
