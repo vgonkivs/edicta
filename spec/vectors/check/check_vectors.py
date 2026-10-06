@@ -623,6 +623,7 @@ def main() -> int:
     rc |= run_script(HERE / "check_api_vectors.py")
     rc |= run_script(HERE / "check_api_errors.py")
     rc |= run_script(HERE / "check_fibre_commit.py")
+    rc |= run_script(HERE / "check_archive.py")
     return rc
 
 

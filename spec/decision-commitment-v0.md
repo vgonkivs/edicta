@@ -2,7 +2,7 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v0-draft.19` (2026-10-06). Working draft, subject to change.
+Status: revision `v0-draft.20` (2026-10-06). Working draft, subject to change.
 Wire version: `version = 0`. Domain tags: `edicta/v0/...`.
 
 The core knows no rail, broker or chain. An action is an opaque byte string
@@ -51,6 +51,7 @@ signature even if the byte layout were identical.
 | `v0-draft.17` | 2026-10-05 | Fibre (`da = 1`) as a first-class v0 mode; no wire change. (1) Section 8.5, 10.4: the Fibre commitment recompute exists (`fibre.NewBlob` at the pin, in a module separate from the core); a gate with a `da = 1` committer runs P3 itself on both paths, so the `da = 1` archive path is no longer refused. `ErrArchiveRecomputeUnsupported` keeps its name and now means only "no committer is configured for this `da`"; a gate whose configured DA is `fibre` MUST have one and refuses to start otherwise. (2) Section 10.4: the anchor is found by scanning block `height` (no tx index), and the PFF tx MUST have result code 0. (3) Section 10.6.1: the certificate rule for verifiers, byte-exact sign bytes, positional signatures over the keeper's validator order, and the chain's quorum test. (4) Section 10.7: archive MUST contents for `da = 1` (payload, PFF tx and inclusion proof, validator set and header at the promise height, header at `height`). (5) Section 10.8: startup compatibility check against pinned versions, MUST. (6) Section 11.2: where `fibre_retention_s` at `height` comes from (rules RS1 to RS6): echoed-height reads, a canary for height-ignoring endpoints at start and periodically, persisted observations; never the current value. (7) Section 9.5 W4: `da = 1` producers recompute with the same committer. Amended in place before merge (human decisions of 2026-10-05): (8) new section 10.9, at-height reads AH1 to AH5 for every module and both `da` (echoed height, binding to the header, canary per endpoint; observations-only retention mode, otherwise `ErrChainUnavailable` or a height-independent source; never a verdict from latest state). (9) Section 8.7 stage 4a, rules AR1 to AR4: the gate archives the envelope and action bytes, idempotently, after G, L and A and before signing; archive down gives `ErrArchiveUnavailable` (503, `Retry-After`), nonce not consumed. (10) Section 10.6.2: verifier header trust HT1 to HT7 (trusted header at `T >= H`, backward `last_block_id` hash chain, no signatures, optional cross-check; forward verification out of scope). (11) Section 10.6.1: settlement reported as `node-attested` (certificate, system blob, code 0); CV8 and section 10.7 updated (system blob MUST). (12) Section 10.4 and rule C4: Fibre payload limit, default 16 MiB, `ErrPayloadAboveCap`. (13) SC3: `da = 1` chain allowlist is configuration, default `mocha-5`. (14) Section 10.6.1: one certificate threshold rule for the gate, the Recorder and the verifier: the network threshold, the signed share reported, a warning when `3 * signed <= 2 * total`; all three MUST give the same verdict and warning. (15) Section 10.4: `da = 1` submission only through the operator's own node, which section 2 defines as a node the operator chose and controls, not necessarily self-hosted. (16) Sections 12 and 18.3: new codes `ErrPayloadAboveCap` (413), `recorder.ErrSubmitMismatch` (502), `ErrArchiveUnavailable`, `recorder.ErrArchiveUnavailable`, `recorder.ErrEscrowInsufficient` (503). (17) Section 8.7, rules AR5 to AR8: decisions archived at stage 4a and then refused stay in the archive, marked rejected with the section 12 error name; the marker is idempotent, conditional on no Authorization, and its write failure is fail-safe (verdict unchanged, nonce not consumed); verifiers report such records as rejected, never as authorized or executed. Archive-local metadata, no wire change and no new sentinel. | Unchanged | `spec/vectors/api/errors.json` regenerated additively: five new codes (79), `"revision": "v0-draft.17"`; every existing entry unchanged. Every other existing file byte-identical, including `anchor.json`: its `da = 1` cases that expect `ErrArchiveRecomputeUnsupported` describe a gate without a `da = 1` committer and keep that outcome there. New: `spec/vectors/da/fibre_commit.json` (`v0-draft.17`), generator module `spec/vectors/tools/fibrecommit-gen`, checker `check_fibre_commit.py`. |
 | `v0-draft.18` | 2026-10-06 | Erratum to section 11.2, no wire change. (1) RS4: a sample records the bracket `[a - lag, b + lag]` (both ends saturating) instead of `[a - lag, b]`. Behind a load-balanced endpoint the params read can come from a backend ahead of the one that answered head `b`; without the upper widening a retention increase could be dated too early and K2 could take a too high value at `height` (invariant 4). With `lag = 0` the outcome is unchanged; with `lag > 0` coverage starts up to `lag` blocks later and the value is never higher than under draft.17. The backend-spread assumption is now stated. (2) RS threat note and section 1: the missed case is any non-monotone pair of changes between two samples, not only a change and its revert (wording; the rule was already so). A separate revision rather than an in-place amendment because draft.17 is already merged. | Unchanged | Every file byte-identical (RS rules are stateful, no vectors); `spec/vectors/api/errors.json` keeps `"revision": "v0-draft.17"`. |
 | `v0-draft.19` | 2026-10-06 | At-height read review, no wire change. (1) Section 11.2, RS2: the canary is decided from success or failure and the echoed `x-cosmos-block-height` only, never from error codes or messages (an honest pruned node answers `codes.Unknown`, and grpc-go makes `codes.Internal` from transport faults, so the draft.17 rule kept honest pruned endpoints in observations-only mode and could pass a proxy). Configured heights per chain id: a recent `h_r = head - canary_offset` (default offset 10, greater than `lag`) whose bank `Params` query must succeed and echo `h_r`, and an optional pre-activation `h_pre` whose x/fibre `Params` query must fail, set per chain id (by default only `mocha-5`, 1,082,619; none elsewhere unless configured) and queried even when the `h_r` query fails; height 1 is dropped. Outcomes Honoured, Ignoring, Inconclusive. (2) Section 10.9, AH3: a missing or different height on a block or header read on a consensus endpoint marks it height-ignoring for state reads until a later canary passes; bridge endpoints get their own canary (header at `head - canary_offset`, returned height must equal the requested one), logged only, never driving the retention mode. (3) Section 10.9, AH5: a header or block "not found" at a height at or below an observed head, or above every observed head, is `ErrChainUnavailable` on both `da` paths; `ErrAnchorNotFound` only for a block read that passed AH1 and AH2 and holds no anchor. | Unchanged | Every file byte-identical (stateful rules, no vectors); `spec/vectors/api/errors.json` keeps `"revision": "v0-draft.17"`. |
+| `v0-draft.20` | 2026-10-06 | Archive record format 0, additive (`v0-draft.19` is a separate revision of sections 10.9 and 11.2). (1) New section 19: the byte layout of archive records, deterministic CBOR with integer keys: five kinds (payload, evidence, decision, Authorization, rejection marker), their fields per `da`, the encodings of the opaque Celestia objects, strict decoding and its precedence (`archive.ErrCorrupt` with the core sentinel as cause), logical keys `(kind, da, commitment)` and `(kind, commitment_hash[, error])` with a canonical path, write-once storage with a per-kind identity (same identity: success and the stored record stays; other identity: `archive.ErrConflict`), write preconditions (the DA recompute before a payload is stored; evidence needs the payload, Authorization and markers need the decision record: `archive.ErrNotFound`), and the record state of AR6 derived from the records present. (2) Section 10.7: the format is no longer out of scope; for `da = 2` the PFB tx with its index and proof is SHOULD, not MUST, because the commitment proof of the share-version-1 blob against `data_hash` already binds namespace, commitment and signer to block `height` (pending the human's confirmation). (3) Section 8.7 AR5: the marker is still unsigned and in no message between parties; its archive layout is section 19. (4) Section 11.3: pointer to section 19. No new section 12 sentinel: `archive.ErrNotFound`, `archive.ErrConflict` and `archive.ErrCorrupt` are archive package errors, never a gate verdict, and never cross the API (an archive failure at the gate stays `ErrArchiveUnavailable`). | Unchanged: every message, tag and check outcome. New: archive record bytes | Every existing file byte-identical. New: `spec/vectors/archive/records.json` and `state.json` (`v0-draft.20`), generator `gen_archive.py`, checker `check_archive.py` (run by `check_vectors.py`), rules module `archive_v0.py`. |
 
 ## 1. Threat model in one table
 
@@ -789,7 +790,7 @@ Archive before authorize (normative since `v0-draft.17`):
 | AR2 | Idempotent. The same bytes under an existing key succeed without a change. The archive never overwrites: different bytes under an existing key are a conflict. Because G and A1 run first, a conflict on the action bytes is impossible (equal `commitment_hash` fixes `action.hash`); envelopes can differ only by a second valid signature of the agent key over the same hash (G2 rules out malleated `S`), and the gate treats that conflict as success, keeping the stored record, which verifies equally. Any other conflict is an archive fault: `ErrArchiveUnavailable`, nothing signed. |
 | AR3 | Failure, timeout or an archive the gate cannot reach: answer `ErrArchiveUnavailable` (HTTP 503 with a `Retry-After` header, section 18.3). The nonce is not consumed and nothing is signed, so the same request can be retried unchanged. |
 | AR4 | No fallback: a gate with an archive configured MUST NOT issue an Authorization whose decision record is not durable, whatever its mode. |
-| AR5 | Rejection marker. When a request whose decision record exists (stage 4a passed) is then refused with a verdict, the gate marks that record rejected with the error name exactly as listed in section 12 (for example `ErrExpired`, `ErrIssuedBeforeAnchor`, `ErrNonceUsed`), its `gate_id` and the gate clock at refusal. Verdicts are the sentinels of stages 5 to 12. Operational failures (`ErrChainUnavailable`, `ErrArchiveUnavailable`, a signer error or timeout) say nothing about the decision and are not marked. The marker is archive metadata of the gate: not signed, not in any wire format, no vector changes. |
+| AR5 | Rejection marker. When a request whose decision record exists (stage 4a passed) is then refused with a verdict, the gate marks that record rejected with the error name exactly as listed in section 12 (for example `ErrExpired`, `ErrIssuedBeforeAnchor`, `ErrNonceUsed`), its `gate_id` and the gate clock at refusal. Verdicts are the sentinels of stages 5 to 12. Operational failures (`ErrChainUnavailable`, `ErrArchiveUnavailable`, a signer error or timeout) say nothing about the decision and are not marked. The marker is archive metadata of the gate: not signed and not part of any message between parties; its archive record layout is section 19 (since `v0-draft.20`). |
 | AR6 | States and idempotence. A record is in exactly one state: `pending` (no outcome recorded), `rejected` or `authorized`. Allowed transitions: `pending` to `rejected`, `pending` to `authorized`, `rejected` to `authorized` (a retry that passes, for example after `ErrNotYetValid` or `ErrPayloadUnavailable`). `authorized` is final. The marker write is atomic and conditional: it applies only if the record holds no Authorization, and is a no-op otherwise. Marking with a name already present is a no-op; a later refusal with another name adds that name; names are never removed or rewritten. The gate never writes a marker when its registry holds an Authorization for this `commitment_hash` (for example `ErrNonceUsed` on a same-commitment retry, retry rule above). So an authorized decision is never in state `rejected`; names marked before it was authorized stay as a history of refused attempts. |
 | AR7 | Marker write failure is fail-safe. The gate still refuses with the original verdict sentinel (the verdict never depends on the marker), signs nothing and does not consume the nonce, exactly as before. It logs the failure at error level and raises a metric, and SHOULD retry the write later. The record stays `pending`, which no verifier reports as authorized (AR8). A marker failure never turns into an Authorization or a consumed nonce. |
 | AR8 | Verifier report. `verify` and `replay` report the record state: `authorized` only with a SignedAuthorization for this `commitment_hash` that verifies (section 15.3); `rejected` with every marked error name when the record holds markers and no Authorization; `pending` otherwise. A `rejected` or `pending` record MUST NOT be reported as authorized or executed, and no receipt is accepted for it as evidence of anything (a gate issues none without an Authorization, section 14.3). |
@@ -1707,19 +1708,21 @@ after v0.
 
 ### 10.7 What must be archived for later verification
 
-Archive formats (the byte layout of an archive record) are out of scope for
-this document; a later revision that fixes one adds a new vector file.
-Contents and reasons:
+The byte layout of these items is archive record format 0 (section 19,
+since `v0-draft.20`); where each item lives is listed there. Contents and
+reasons:
 
 | Item | `da` | Level | Why |
 |---|---|---|---|
 | The blob bytes, written before the anchor tx is submitted | both | MUST | Fibre prunes after `pruneAt` (about 4 h); L1 pruned nodes after 7d + 1h. P2 and P3 tie the bytes to the commitment. |
 | The signed envelope and the action bytes, written by the gate before it signs (stage 4a, rules AR1 to AR4); the SignedAuthorization, written after stage 12 (a crash between the two is repaired from the registry at the next start); for a refused decision, the rejection marker with the error name (AR5 to AR8) | both | MUST | The object being verified, and which path the gate used (section 15). Writing the decision first means no Authorization exists for a decision the archive lacks. |
-| The anchor tx bytes exactly as included (PFF or PFB), its index in block `height`, and its inclusion proof against `data_hash` of that header (for `da = 1` the proof is SHOULD: the system blob below is the v0 inclusion evidence, CV8) | both | MUST | Proves namespace and commitment were committed on L1 at `height`; for `da = 1` it also carries the `PaymentPromise` and the positional certificate (section 10.6.1). About 5.3 KB at 83 validators. |
+| The PFF tx bytes exactly as included and its index in block `height`; its inclusion proof against `data_hash` of that header is SHOULD (the system blob below is the v0 inclusion evidence, CV8) | 1 | MUST | Carries the `PaymentPromise` and the positional certificate (section 10.6.1). About 5.3 KB at 83 validators. |
+| The commitment proof of the share-version-1 blob against the data root of the header at `height` | 2 | MUST | Proves that namespace, commitment and, through the commitment, `signer` were in block `height`: the v0 inclusion evidence for `da = 2`. |
+| The PFB tx bytes exactly as included, its index in block `height` and its inclusion proof against `data_hash` | 2 | SHOULD (MUST before `v0-draft.20`) | Adds the fee payer's tx, which no v0 check uses: the commitment proof above already binds the blob to `height`, and the chain rejects a share-version-1 blob whose signer is not the PFB signer (section 10.5). |
 | The signed header (header and commit) of block `height` | both | MUST | Root of the inclusion proof, `T_H` for K1 and K2. |
 | For PFF: the x/staking `HistoricalInfo` validator set at `PaymentPromise.height` (consensus keys and token amounts) | 1 | MUST | CV4 and CV6 need the keeper's order and powers. The chain keeps it only for `historical_entries` blocks (about 8 h), after which nobody can re-check the certificate without the archive. |
 | For PFF: the signed header at `PaymentPromise.height` and the CometBFT validator set its `next_validators_hash` (or the `validators_hash` of `promise.height + 1`) commits to | 1 | MUST | CV7: ties the `HistoricalInfo` set to the chain. |
-| The retention inputs the gate used: `shard_retention` latest and at `height`, and which source gave the at-height value (section 11.2, RS rules) | 1 | MUST | K2 replay; the at-height value cannot be read back reliably later. |
+| The retention inputs the gate used: `shard_retention` latest and at `height`, and which source gave the at-height value (section 11.2, RS rules), next to the Authorization (section 19.2, K2 inputs) | 1 | MUST | K2 replay; the at-height value cannot be read back reliably later. |
 | The result of the anchor tx (code 0) as the node reported it | 1 | MUST | CV8, settlement `node-attested` (section 10.6.1). |
 | The results of all txs of block `height` and the header at `height + 1`, for a proof of code 0 against `last_results_hash` | 1 | SHOULD | Lets the planned `proven` settlement level be checked later for decisions archived now. |
 | The share-version-2 system blob and its inclusion proof against the data root of the header at `height` | 1 | MUST | CV8: the v0 evidence that `(namespace, commitment)` was in block `height`; it has no timestamp and no signatures, which the PFF tx and the certificate supply. |
@@ -2020,6 +2023,7 @@ and are not by the QuickNode public endpoint (RS rules above). Still
 | Recorder duty | The Recorder writes the archive synchronously before submitting the anchor tx, so the archive copy exists whenever a valid commitment exists. Archive unavailable: `recorder.ErrArchiveUnavailable` (503), nothing submitted; after a submit the write is retried by resubmitting the same bytes, which pays nothing again (PR8). |
 | Gate duty | The gate writes the decision record (envelope, action bytes) before it signs and the Authorization after it commits the nonce (section 8.7, stage 4a, AR1 to AR4), and marks a record it then refuses as rejected with the error name (AR5 to AR8). Archive unavailable: `ErrArchiveUnavailable` (503, `Retry-After`), nonce not consumed. |
 | Residual risk | If the archive loses or withholds the blob after the DA layer pruned it, the gate rejects (`ErrAnchorTooOld` when K2 failed, otherwise `ErrPayloadUnavailable`), and later `verify` or `replay` cannot recover the payload. Mitigations post-v0: archive replication, archive health check before signing. |
+| Record format | Section 19: deterministic CBOR records, write-once, keyed by `(da, commitment)` for payloads and evidence and by `commitment_hash` for decisions, Authorizations and rejection markers. |
 | `da = 1` and the archive | Accepted since `v0-draft.17` by a gate with the `da = 1` committer, which every gate configured for `fibre` has (section 8.5). With 4 h retention the archive is the only source a few hours after the anchor, so for `da = 1` it is part of normal operation, not a rare fallback. |
 
 ## 12. Sentinel errors
@@ -2243,6 +2247,13 @@ keeps its bytes and its `"revision": "v0-draft.9"` field):
 | File (`v0-draft.17`) | Contents |
 |---|---|
 | `spec/vectors/da/fibre_commit.json` | Section 10.4. `revision`, `generator`, `upstream` (celestia-app `v10.4.0-mocha` functions; the replace set), `params` (`blob_version`, `original_rows`, `parity_rows`, `min_row_size`, `header_size`, `max_data_size`), `patterns`. `cases`: `id`, `description`, `size`, the blob as `blob_hex` or `blob_pattern`, `blob_sha256_hex`, `row_size`, `upload_size`, `blob_id_hex`, `commitment_hex`, and for the live Mocha blob `live` (`chain_id`, `height`, `tx_hash`, `namespace_hex`, `upload_size`, `observed_on`). `reject`: same blob fields, a `commitment_hex` that must not match, `expect_error` = `ErrDACommitmentMismatch` (includes empty and over-maximum blobs, for which no commitment exists). `anchor_k2_with_fibre_committer`: `anchor_ref` (an `anchor.json` `k2` id), `without_committer` (its expected sentinel there), `route` (`archive` for a gate with the committer). 11 cases, 7 rejects, 4 anchor routes. Generated only by upstream code in the separate module `spec/vectors/tools/fibrecommit-gen` (`go run .`, `go run . -check`); commitments are checked by Go only, `check_fibre_commit.py` checks structure, sizes, blob descriptions and cross-references. |
+
+| File (`v0-draft.20`) | Contents |
+|---|---|
+| `spec/vectors/archive/records.json` | Section 19. `revision`, `generator`, `refs`, `params` (format, kinds, size limits, depth, entries, the verdict names a marker may carry), `patterns`, `placeholder` (how stand-in bytes are derived). `cases`: `id`, `description`, `kind`, `input` (section 19.2 names; uints as decimal strings, byte strings as hex or, above 1024 bytes, `{pattern, size, sha256_hex}`), `key` (canonical path, section 19.3), `record_cbor_hex` (or `record_size` + `record_sha256_hex` above 4096 bytes), `refs` into `valid.json`, `authorization.json`, `da_blob.json` or `da/fibre_commit.json`, and `placeholders` (fields whose bytes are stand-ins, not upstream encodings). `reject`: `id`, `description`, `record_cbor_hex`, `expect_error` = `archive.ErrCorrupt`, `cause` (the core sentinel of the first failing check, section 19.1). 26 cases, 58 rejects. |
+| `spec/vectors/archive/state.json` | Sections 19.4 and 19.5. `da_check` (the `(da, commitment, blob)` pairs the DA committers accept, copied from the DA vector files). `scenarios`: `steps` (`put` a `records.json` case id on an empty store, `expect` = `written`, `unchanged`, `archive.ErrConflict`, `archive.ErrNotFound` or `gate.ErrDACommitmentMismatch`, optional `state_after`: `commitment_hash_hex`, `state`, `rejections`), and `final_records` (the case ids whose bytes the store holds at the end, nothing else). 7 scenarios. |
+
+Archive vectors: `encode(input) == record bytes`; strict decoding returns `input`; the store files the record under `key`; every reject fails decoding with `archive.ErrCorrupt` (and SHOULD wrap `cause`); a store replaying each scenario from empty gives each `expect`, each `state_after` and exactly `final_records`, with the DA check of `da_check` (a Go store uses the real committers, which accept the same pairs). Generated by `gen_archive.py`, checked by `check_archive.py`, which also regenerates both files and compares bytes. Opaque Celestia fields are stand-ins: the files fix the record layout, not the upstream encodings, which the implementing tasks test against live data.
 
 Bank-send profile vectors are in `spec/vectors/profiles/bank-send/` (profile
 document, section "Vectors"). `check_vectors.py` without `--dir` runs the
@@ -3061,3 +3072,289 @@ Threat notes:
   produce a second Authorization.
 - `message` is for operators. It MUST NOT contain tokens, keys or request
   bodies; for 500 it is a fixed redacted text.
+
+## 19. Archive records (format 0, normative since `v0-draft.20`)
+
+The archive store (a directory, an object store, a database) is
+implementation-defined; the bytes of each record are not. A Recorder, a gate,
+a verifier in another language and an auditor's tool read each other's
+records, so the record layout is fixed here, in the CBOR style of the rest of
+v0. Records are never signed and never hashed into a commitment, an
+Authorization or a receipt: the archive is trusted for availability only
+(section 11.3), and every reader re-checks what it uses.
+
+### 19.1 Encoding and strict decoding
+
+Profile: section 3 rules 2 to 7 (shortest heads, definite lengths, uint keys
+in `1..23` strictly ascending, optional fields absent when unset, required
+fields always present, text in the charsets below), restricted further:
+
+| Point | Rule |
+|---|---|
+| Data items | Major 0, 2, 3 and 5 only. No arrays, negative integers, tags, floats or simple values. |
+| Nesting | Depth at most 2 (the record is depth 1, the K2 inputs map depth 2). |
+| Entries | At most 24 per map. |
+| Record size | At most `MaxRecordSize = 2^27 + 4096` bytes before parsing; per kind at most: payload `2^27 + 4096`, evidence `2^25`, decision 69,632, Authorization 512, rejection 256. |
+| Opaque Celestia objects | Each 1 to `2^22` bytes (4 MiB). |
+
+Every record is a map with two common keys:
+
+| Key | Name | Type | Rule |
+|---|---|---|---|
+| 1 | `format` | uint | `= 0`. Archive record format, independent of the wire `version`. |
+| 2 | `kind` | uint enum | 1 payload, 2 evidence, 3 decision, 4 Authorization, 5 rejection. |
+
+Strict decoding, in this order; the first failure decides, and a reader
+reports every failure as `archive.ErrCorrupt` wrapping the cause named here
+(the vectors list the cause):
+
+1. Size above `MaxRecordSize`: `ErrTooLarge`, before parsing.
+2. Generic well-formedness as section 6.2 with the limits above (`ErrMalformed`,
+   `ErrTrailingData`, `ErrFloat`, `ErrSimpleValue`, `ErrTag`,
+   `ErrIndefiniteLength`, `ErrNonMinimalInt`, `ErrNestingTooDeep`,
+   `ErrTooLarge` for entries, `ErrUnsortedMap`, `ErrDuplicateKey`,
+   `ErrKeyType`, `ErrInvalidString` for UTF-8).
+3. The record is a map (`ErrWrongType`). Then `format` and then `kind`, each
+   missing (`ErrMissingField`) or not a uint (`ErrWrongType`); then
+   `format != 0` (`ErrUnsupportedVersion`); then `kind` outside 1..5
+   (`ErrInvalidEnum`).
+4. Size above the cap of the kind: `ErrTooLarge`.
+5. Schema, per key in encoded order: a key the kind does not define, or does
+   not define for the record's `da` (or, for `anchor_tx_index` and
+   `anchor_tx_proof`, without `anchor_tx`): `ErrUnknownKey`; wrong major
+   type: `ErrWrongType`; length outside the limit: `ErrFieldSize`;
+   characters outside the charset: `ErrInvalidString`. The same, recursively,
+   for the K2 inputs map.
+6. A required field absent (in key order): `ErrMissingField`.
+7. Values: any uint above `2^63 - 1`, or `tx_code != 0`: `ErrIntRange`; `da`
+   outside `{1, 2}`, `retention_source` outside `{1, 2, 3}`, or a marker name
+   that is not a verdict (19.2): `ErrInvalidEnum`; zero where the field is
+   `> 0`: `ErrZeroValue`; a namespace failing rule S8: `ErrInvalidNamespace`.
+8. Nested messages: `envelope` passes strict decoding of section 6 (stage D);
+   `signed_authorization` passes the decoding of section 15 and its `version`,
+   integer range, `path` and `expires` rules. Their own sentinels are the
+   cause.
+9. Re-encoding the decoded record gives the input bytes (`ErrNonCanonical`;
+   unreachable when 1 to 8 are implemented exactly, kept as a guard).
+
+A corrupt record is never read as absent and never as another record: the
+gate's archive source reports it as an operational error, not
+`gate.ErrBlobNotFound`, and `verify` names the corrupt item.
+
+### 19.2 Record kinds
+
+Presence: R required; O optional; R1 or R2 required for that `da` and not
+defined for the other; O1 optional for `da = 1`, not defined for `da = 2`.
+
+Payload (kind 1). Written by the Recorder before it submits the anchor tx.
+
+| Key | Name | Type | Limit | Presence | Semantics |
+|---|---|---|---|---|---|
+| 3 | `da` | uint enum | `{1, 2}` | R | As `payload_ref.da`. |
+| 4 | `commitment` | bstr | 32 | R | `payload_ref.commitment`. |
+| 5 | `namespace` | bstr | 29, S8 | R2 | The share commitment covers it (section 10.5). Not defined for `da = 1`: the Fibre commitment does not cover it, and the anchor's namespace is in the evidence record. |
+| 6 | `signer` | bstr | 20 | R2 | Covered by the share commitment, as `namespace`. |
+| 7 | `blob` | bstr | `1..2^27` | R | The exact blob bytes (`ciphertext_hash` preimage). |
+| 8 | `intent_height` | uint | `> 0` | R | Chain head when the Recorder archived the blob, before submitting: the lower bound of the search for an earlier submission of the same blob after a crash (section 17.3, PR8). |
+
+Evidence (kind 2). Written by the Recorder after it has read the anchor back,
+before it returns `payload_ref` (section 10.7).
+
+| Key | Name | Type | Limit | Presence | Semantics |
+|---|---|---|---|---|---|
+| 3 | `da` | uint enum | `{1, 2}` | R | |
+| 4 | `commitment` | bstr | 32 | R | |
+| 5 | `namespace` | bstr | 29, S8 | R | Namespace of the anchor (PaymentPromise or blob). |
+| 6 | `height` | uint | `> 0` | R | `payload_ref.height`. |
+| 7 | `header` | bstr | opaque | R | Signed header (header and commit) of block `height`. |
+| 8 | `anchor_tx` | bstr | opaque | R1, O for `da = 2` | The anchor tx (PFF, or PFB) exactly as in block `height`. |
+| 9 | `anchor_tx_index` | uint | | with `anchor_tx` | Its index in the block's txs. |
+| 10 | `anchor_tx_proof` | bstr | opaque | O, only with `anchor_tx` | Its inclusion proof against `data_hash` (SHOULD, section 10.7). |
+| 11 | `blob_proof` | bstr | opaque | R2 | Commitment proof of the share-version-1 blob against the data root of `header`. |
+| 12 | `tx_code` | uint | `= 0` | R1 | The PFF result code as the node reported it (CV8, `node-attested`). Only code 0 is archived: any other code means no anchor. |
+| 13 | `system_blob` | bstr | opaque | R1 | The share-version-2 system blob. |
+| 14 | `system_blob_proof` | bstr | opaque | R1 | Commitment proof of the system blob against the data root of `header`. |
+| 15 | `promise_height` | uint | `> 0` | R1 | `PaymentPromise.height`. |
+| 16 | `promise_header` | bstr | opaque | R1 | Signed header at `promise_height` (CV7). |
+| 17 | `historical_info` | bstr | opaque | R1 | x/staking `HistoricalInfo` at `promise_height` (CV4, CV6). |
+| 18 | `promise_valset` | bstr | opaque | R1 | The CometBFT validator set that `next_validators_hash` of `promise_header` commits to (equal to `validators_hash` at `promise_height + 1`; CV7). |
+
+Encodings of the opaque fields. A reader decodes them with upstream code at
+the pins of section 10.1 and checks each against the header it hangs from
+(section 10.6.2, HT5; AH2), so a wrong encoding fails verification, never
+passes it.
+
+| Field | Encoding | Status |
+|---|---|---|
+| `header`, `promise_header` | protobuf `tendermint.types.SignedHeader` (celestia-core at the pin) | `UNVERIFIED`: proto package name and field set at celestia-core `v0.42.x` |
+| `promise_valset` | protobuf `tendermint.types.ValidatorSet` | `UNVERIFIED`, as above |
+| `historical_info` | protobuf `cosmos.staking.v1beta1.HistoricalInfo` (the `hist` field of the x/staking `HistoricalInfo` query response at the pin's cosmos-sdk fork) | Message VERIFIED (code, cosmos-sdk `v0.50` proto: `header`, `valset`); at the fork `UNVERIFIED` |
+| `anchor_tx` | Raw bytes of the element of the block's `data.txs` | VERIFIED (definition) |
+| `anchor_tx_proof` | protobuf `celestia.core.v1.proof.ShareProof`, as `pkg/proof.NewTxInclusionProof` returns it | VERIFIED (code, `APP/pkg/proof/proof.go`) |
+| `blob_proof`, `system_blob_proof` | JSON of celestia-node `blob.CommitmentProof` (`MarshalJSON`, the CometBFT JSON encoder), the form the node API returns; verified with `CommitmentProof.Verify(data_root, commitment)` | VERIFIED (code: celestia-node `v0.34.2-mocha` `blob/commitment_proof.go` has no protobuf form). `UNVERIFIED`: that the node serves this proof for a share-version-2 system blob; if not, the Recorder builds it from the block shares with upstream code |
+| `system_blob` | protobuf `BlobProto` of go-square `v4` `share.Blob.Marshal`; MUST equal `NewV2Blob(namespace, 0, commitment, pff_signer)`, where `pff_signer` is the 20-byte signer of the archived PFF | VERIFIED (code, go-square `v4.0.1` `share/blob.go`) |
+
+Decision (kind 3). Written by the gate at stage 4a (AR1 to AR4).
+
+| Key | Name | Type | Limit | Presence | Semantics |
+|---|---|---|---|---|---|
+| 3 | `envelope` | bstr | `1..2176`, strict decoding | R | The signed envelope exactly as presented. |
+| 4 | `action` | bstr | `1..65536` | R | The action bytes exactly as presented. |
+
+No `commitment_hash` field: it is computed from `envelope` (invariant 6),
+never stored next to it.
+
+Authorization (kind 4). Written after stage 12, or later from the registry by
+the gate's repair (section 8.7, threat note on rejected records).
+
+| Key | Name | Type | Limit | Presence | Semantics |
+|---|---|---|---|---|---|
+| 3 | `signed_authorization` | bstr | `1..256`, section 15 decoding | R | The SignedAuthorization exactly as the registry holds it. |
+| 4 | `authorized_at` | uint | `> 0` | R | The gate clock at stage 10 (`T'`), as the registry keeps it (section 15.1). |
+| 5 | `k2` | map | K2 inputs, below | O | The inputs of rule K2 (section 11.2) as the gate used them. Absent when the record was repaired from the registry, which does not keep them; `replay` then reports K2 as not replayable. |
+
+K2 inputs (Authorization key 5), conditions on its own `da`:
+
+| Key | Name | Type | Presence | Semantics |
+|---|---|---|---|---|
+| 1 | `da` | uint enum `{1, 2}` | R | Equals the decision's `payload_ref.da` (a reader that finds otherwise reports the record corrupt). |
+| 2 | `checked_at` | uint `> 0` | R | The gate clock read once at stage 1 (`now`). |
+| 3 | `block_time` | uint `> 0` | R | `T_H`. |
+| 4 | `blob_retention_s` | uint `> 0` | R2 | `r` for `da = 2`. |
+| 5 | `retention_latest_s` | uint `> 0` | R1 | `fibre_retention_s(latest)`. |
+| 6 | `retention_at_height_s` | uint `> 0` | R1 | `fibre_retention_s(at height)` (always known when an Authorization exists: otherwise the gate refused with `ErrRetentionUnavailable`). |
+| 7 | `retention_source` | uint enum | R1 | Where the at-height value came from: 1 the direct read (RS3), 2 the observations (RS6), 3 both (the minimum was taken). |
+| 8 | `promise_created` | uint `> 0` | O1 | `floor(PaymentPromise.creation_timestamp)`; absent when unknown (then K2 is false). |
+
+Replay recomputes `r`, `start`, `margin` and K2 from these fields and the
+decision; a K2 that fails with `path = 1` in the Authorization is reported as
+an inconsistency of the gate.
+
+Rejection marker (kind 5). Written by the gate per AR5 to AR7.
+
+| Key | Name | Type | Limit | Presence | Semantics |
+|---|---|---|---|---|---|
+| 3 | `commitment_hash` | bstr | 32 | R | The refused decision. |
+| 4 | `error` | tstr | 4..64, `Err` followed by ASCII letters and digits, and one of the verdicts below | R | The refusal, by its section 12 name without package. |
+| 5 | `gate_id` | tstr | 1..64, ID charset | R | The refusing gate (equals the decision's `scope.gate_id`, since stage 4a runs after C1). |
+| 6 | `rejected_at` | uint | `> 0` | R | The gate clock at the refusal. |
+
+Verdicts (the sentinels of stages 5 to 12 in section 8.7):
+`ErrActionMismatch` (stage 5, retry rule condition 2), `ErrAnchorNotFound`,
+`ErrAnchorTooOld`, `ErrArchiveRecomputeUnsupported`,
+`ErrDACommitmentMismatch`, `ErrExpired`, `ErrIssuedBeforeAnchor`,
+`ErrNonceUsed`, `ErrNotYetValid`, `ErrPayloadHashMismatch`,
+`ErrPayloadSizeMismatch`, `ErrPayloadUnavailable`,
+`ErrRetentionUnavailable`. For an error that matches several (for example
+`ErrAnchorTooOld`, which also matches `ErrPayloadUnavailable`) the most
+specific one is written. Operational failures are never written (AR5); a
+decoder rejects them. A later revision that adds a verdict sentinel extends
+this list in a new revision.
+
+### 19.3 Keys
+
+The store derives the key from the record; a writer never supplies a key
+that the record does not determine, and a store whose API takes a key MUST
+check it against the record. A reader MUST check that a record read under a
+key carries that key (payload and evidence: `da`, `commitment`; decision:
+`commitment_hash` recomputed from `envelope`; Authorization: its
+`commitment_hash`; marker: `commitment_hash` and `error`), and otherwise
+reports it corrupt.
+
+| Kind | Logical key | Canonical path (RECOMMENDED for file and object stores) |
+|---|---|---|
+| Payload | `(da, payload_ref.commitment)` | `payload/<da>/<commitment hex>` |
+| Evidence | `(da, payload_ref.commitment)` | `evidence/<da>/<commitment hex>` |
+| Decision | `commitment_hash` | `decision/<commitment_hash hex>` |
+| Authorization | `commitment_hash` | `authorization/<commitment_hash hex>` |
+| Rejection | `(commitment_hash, error)` | `rejection/<commitment_hash hex>/<error>` |
+
+`da` is decimal, hex is lower case. Every path component is ASCII from a
+fixed charset, so no escaping is needed.
+
+`(da, commitment)` and not the full `payload_ref`: the payload is archived
+before the anchor exists, so its height is unknown then. For `da = 2` the key
+fixes namespace, signer and blob (the share commitment covers them); for
+`da = 1` it fixes the blob only, so one archive holds one anchor per Fibre
+blob. Payload blobs carry a fresh salt, DEK and nonce (section 9.1), so two
+publications of the same bytes are a replay that PR6 answers from the first.
+
+### 19.4 Write rules
+
+| Rule | Requirement |
+|---|---|
+| AW1 Write-once | A stored record is never overwritten or deleted in v0 (retention and cleanup are not specified). A write is atomic: the record is either fully present or absent, also after a crash (for files: temp file, fsync, rename, fsync of the directory). |
+| AW2 Identity | A write of a record whose key is already stored compares identities: equal, the write succeeds and the stored record stays unchanged; different, `archive.ErrConflict` and nothing is written. Identity per kind: payload, every field except `intent_height`; evidence, `da`, `commitment`, `namespace`, `height`; decision, the whole record; Authorization, `signed_authorization`; rejection, the key (`commitment_hash`, `error`). |
+| AW3 DA check | Before storing a payload, the store recomputes the DA commitment from `blob` (and, for `da = 2`, `namespace` and `signer`) with the committer for `da` (sections 10.4, 10.5) and compares it with `commitment`. Mismatch: `gate.ErrDACommitmentMismatch`, nothing written. A store has a committer for every `da` it accepts; a payload for any other `da` is refused with `gate.ErrArchiveRecomputeUnsupported`, nothing written. |
+| AW4 Order | Evidence needs the payload record of its key; an Authorization or a marker needs the decision record of its `commitment_hash`. Otherwise `archive.ErrNotFound`, nothing written. |
+| AW5 Conditional marker | A marker write and an Authorization write for the same `commitment_hash` are serialized. If an Authorization record exists, the marker write succeeds without writing (AR6). |
+
+Callers:
+
+| Writer | On `archive.ErrConflict` |
+|---|---|
+| Recorder, payload | Cannot occur after AW3 except by a SHA-256 collision; treated as an archive fault (`recorder.ErrArchiveUnavailable`). |
+| Recorder, evidence | Another anchor of the same blob is archived. The Recorder reads the archived evidence before it submits (as it resumes a search under PR8) and answers from it when it is valid, so it never pays for a second anchor; a conflict after a submit is `recorder.ErrArchiveUnavailable`, and the Recorder MUST NOT return a `payload_ref` whose evidence is not the archived one. |
+| Gate, decision | AR2: the envelopes differ only by a second valid agent signature over the same hash; the gate treats it as success and keeps the stored record. |
+| Gate, Authorization | Two valid Authorizations exist for one commitment (sign-before-consume threat note, remote signer after a crash). The registry's is authoritative for the gate; the gate logs at error level and raises a metric. The answer to the caller does not change. |
+
+Threat note (AW). First-write-wins on non-identity fields is deliberate: the
+earliest `intent_height` is the conservative start of a search; header and
+proof bytes of one anchor can differ between reads (a commit seen locally
+versus the canonical commit in the next block) and every copy is re-checked
+by the verifier, so the first durable copy serves; the repair writes an
+Authorization without K2 inputs, and a copy with them adds nothing the
+verifier depends on. Identity fields are the ones a different value of which
+would change a verdict: the blob, the anchor, the decision, the
+Authorization. A party with write access to the archive can store garbage
+first and so deny service (every later write conflicts); write access is the
+operator's, and the gate writes only after G, L and A (section 8.7), so an
+unauthenticated caller cannot squat a decision key.
+
+### 19.5 Record state (AR6 to AR8)
+
+The state of a decision is derived from the records present under its
+`commitment_hash`, never stored:
+
+| State | Records |
+|---|---|
+| absent | No decision record. |
+| `pending` | Decision record, no Authorization record, no marker. |
+| `rejected` | Decision record, at least one marker, no Authorization record. |
+| `authorized` | Decision record and Authorization record. |
+
+Transitions (by writes): `pending` to `rejected` (first marker), `rejected` to
+`rejected` (a marker with another name), `pending` or `rejected` to
+`authorized`. `authorized` is final: AW5 suppresses later markers, and
+markers written before stay as the history of refused attempts. Marker names
+are reported ordered by `rejected_at`, then by name.
+
+`verify` and `replay` report `authorized` only if the Authorization record
+decodes, its signature verifies under a configured gate key, its
+`commitment_hash` is the decision's and its `action_hash` equals the
+decision's `action.hash` (section 15.3); otherwise they report the
+Authorization record as invalid and MUST NOT report the decision as
+authorized or executed (AR8).
+
+### 19.6 Gate archive source
+
+The gate's `BlobSource` over the archive reads the payload record under
+`(ref.da, ref.commitment)`: none, `gate.ErrBlobNotFound`; unreadable or
+corrupt, an operational error. It returns at most `maxSize + 1` bytes of
+`blob` and bounds its read of the record accordingly. It does not compare
+`namespace` or `signer` with `ref`: the gate's P3 recompute with `ref`
+(section 8.5) does, and fails with `ErrDACommitmentMismatch` on any
+difference.
+
+### 19.7 Not in format 0
+
+- The header at `height + 1` and the results of block `height` (section
+  10.7, SHOULD): planned with the `proven` settlement level, as a new format.
+- The validator set at `height`: v0 checks no commit signatures (HT4).
+- The Recorder's own retention readings: the K2 inputs that matter are the
+  gate's, in the Authorization record.
+
+A new field is a new `format` value, because strict decoding rejects unknown
+keys; a reader of a later format keeps reading format 0.
+
+Vectors: `spec/vectors/archive/records.json` and `state.json` (section 13).

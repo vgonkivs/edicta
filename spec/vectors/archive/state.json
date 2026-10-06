@@ -1,0 +1,440 @@
+{
+  "format": "edicta-vectors/v0",
+  "revision": "v0-draft.20",
+  "generator": "spec/vectors/check/gen_archive.py",
+  "refs": {
+    "core": "spec/vectors/v0",
+    "fibre_commit": "spec/vectors/da/fibre_commit.json"
+  },
+  "records": "spec/vectors/archive/records.json",
+  "da_check": [
+    {
+      "da": "2",
+      "ref": "blob_v1_minimal_lmt_payload",
+      "commitment_hex": "5404489c5efaf6a092a115d978b919cf3bc809df136ddc4bf64be61784151a04",
+      "blob_sha256_hex": "9edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab"
+    },
+    {
+      "da": "2",
+      "ref": "blob_v1_size_1",
+      "commitment_hex": "91867dd324b2c46ef94206a909f2a4d3ca0be21b3ebf04ad80a2df624cde5799",
+      "blob_sha256_hex": "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5"
+    },
+    {
+      "da": "2",
+      "ref": "blob_v1_size_458",
+      "commitment_hex": "5b3e581f4bffa4a165f7544aa1cabdd2b20393d958a7c3cc54be7b391a0ce29d",
+      "blob_sha256_hex": "d0b7718fec47df2945e633e3052393e18c4ee317acc4c9ab643f581a2aaa6c3a"
+    },
+    {
+      "da": "2",
+      "ref": "blob_v1_size_459",
+      "commitment_hex": "ffc75683634a078387b74047c9bd4bf000c7225e5852016296babb1edb79baa4",
+      "blob_sha256_hex": "930171591926eccca206314cec61942d4009c3fbfcc11b1c46085048683b05a5"
+    },
+    {
+      "da": "2",
+      "ref": "blob_v1_size_940",
+      "commitment_hex": "2a4f4ec1637df5f5c3c9b8b240503eca33ed76d86b389cbc4a5f3bdbd1b13b5f",
+      "blob_sha256_hex": "d7d5359ac1f635edf75abbf7123631df1a0043a4acbb9e73b8ff32cbd4bc314b"
+    },
+    {
+      "da": "2",
+      "ref": "blob_v1_size_941",
+      "commitment_hex": "935826851777c68bfa583934fec589cf88119ee2ea1d6859962a4037a96ef042",
+      "blob_sha256_hex": "18a7026f7df7b006d16751f4932ece73aa30ca80e7f724d70c2fd6138b2be73e"
+    },
+    {
+      "da": "2",
+      "ref": "blob_v1_size_30824",
+      "commitment_hex": "49f8adb0ba22575a11c3457bca2cfbbff3d0462d6db276e832830caafd4f9c16",
+      "blob_sha256_hex": "47d168a71ad060f9f3dfcfddd0c7f8db1f1e7682bde534c876d4fd684fee4b75"
+    },
+    {
+      "da": "2",
+      "ref": "blob_v1_size_30825",
+      "commitment_hex": "996c85ac72f8751dec9b53fe912c37e7635ad03ae1640096833025303e34d811",
+      "blob_sha256_hex": "c93c636b26051846be250ec52dca446a7fcb9047d7422b4d01068ca108d0d444"
+    },
+    {
+      "da": "2",
+      "ref": "blob_v1_size_61672",
+      "commitment_hex": "0c67e93225999dd0df941439adb1caca457122f66857e4ab9c773101dd9e7a0a",
+      "blob_sha256_hex": "96766bf954a2f4bac79c63b6f1d7652c48c23886ca845c1f7b1f38fc616f5c9d"
+    },
+    {
+      "da": "2",
+      "ref": "blob_v1_size_61673",
+      "commitment_hex": "dd213e0cc2ef89b82bbbefb86543c9f8f50c5f392420ee046587f52ead82d5dc",
+      "blob_sha256_hex": "d592b941441ceb83c2f708b336d2311aeaab15307b743a4eb921ae81d867c299"
+    },
+    {
+      "da": "2",
+      "ref": "blob_v1_size_262144",
+      "commitment_hex": "085ce14d4296663220e5c62fcfdd40cd8d067a9719b3cca4c291c574a313fee4",
+      "blob_sha256_hex": "fc605e60859112505546770ab850bfbf0243484140b42d1f6ae9556bbaa7784e"
+    },
+    {
+      "da": "2",
+      "ref": "blob_v1_size_1048576",
+      "commitment_hex": "28450e258cbaf31de6c37da55105cb787f01e992cca52943d0cb002239468e18",
+      "blob_sha256_hex": "172c15dc2e12b50e523d8e657cbe7fbb11c1053252bbf1e1431077d57d8128fd"
+    },
+    {
+      "da": "1",
+      "ref": "fibre_live_mocha_popsmin1",
+      "commitment_hex": "0af738097b64a00bff6820c48a3ae26160b8054c9a9b79bd3cac2100d1833b2e",
+      "blob_sha256_hex": "3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea"
+    },
+    {
+      "da": "1",
+      "ref": "fibre_minimal_lmt_payload",
+      "commitment_hex": "ba7b74ce84c6d81d2ef6aafb4c61fcbf8c2f71718f371f12bd826156b303f56f",
+      "blob_sha256_hex": "9edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab"
+    },
+    {
+      "da": "1",
+      "ref": "fibre_size_1",
+      "commitment_hex": "1e1eb183e3b955a1e0687b9b0b5b924c92cc86b5bb4fb816c43fcfcb3bc87c59",
+      "blob_sha256_hex": "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5"
+    },
+    {
+      "da": "1",
+      "ref": "fibre_size_262139",
+      "commitment_hex": "c2f52f72723d3a23dca37e165297dcab888be28078578b12c0976b5ef08a939e",
+      "blob_sha256_hex": "592c379b77f54db54387730c6fc8983469d2b02521417e824bb4e6e38a56dfb3"
+    },
+    {
+      "da": "1",
+      "ref": "fibre_size_262140",
+      "commitment_hex": "f8ffcc4de8e10dd63b214cef0048b1c7aba8ee08614d538b6817da2a8b4c3087",
+      "blob_sha256_hex": "9ec693c3881896c9573920fff663a965d498c15b6b4ed36c42b0fee460be4f18"
+    },
+    {
+      "da": "1",
+      "ref": "fibre_size_262144",
+      "commitment_hex": "cefaa6d5feea8f359f3b3b1108dbe97cf71e1ef5e8094a503b90873647230234",
+      "blob_sha256_hex": "fc605e60859112505546770ab850bfbf0243484140b42d1f6ae9556bbaa7784e"
+    },
+    {
+      "da": "1",
+      "ref": "fibre_size_524283",
+      "commitment_hex": "bcb37439fceedc811a4e5e6f8e47c2a5f8106af07611f58ce5ca8f951792124a",
+      "blob_sha256_hex": "7379b3889478250e3ea9a9dff91bc1d0b8a49cc941e291bdff78cb9f52d613e4"
+    },
+    {
+      "da": "1",
+      "ref": "fibre_size_524284",
+      "commitment_hex": "6fee93b1c2540bbe58943ef43baf1eb566604095aebc140a74c6fb3c017d228f",
+      "blob_sha256_hex": "1bb97157d8ac9329f1e4a11539b3c1f2388ddd258d6a83cb698637b6aebacdb9"
+    },
+    {
+      "da": "1",
+      "ref": "fibre_size_1048571",
+      "commitment_hex": "45dbdcee44ef55822f87a172d8e18d33defde4adfbafa7b08fdbcf740d74c4b6",
+      "blob_sha256_hex": "e6a21f68c035fc9fbe9bb64371e5038de3d7b64d3f0ffda51faf2ff82cec0325"
+    },
+    {
+      "da": "1",
+      "ref": "fibre_size_1048572",
+      "commitment_hex": "ba57e02bddb624b31d5ace1a1295771792967dd6e0e997df66ed452a58c2f07c",
+      "blob_sha256_hex": "3fa96d2c0a913045d0ae6a72bed567d4a1cf82d49ab466a80b134fe7a829d3f0"
+    },
+    {
+      "da": "1",
+      "ref": "fibre_size_8388608",
+      "commitment_hex": "76b139c7b45f6c7496d7d746e941744984704998bf867a5c6bfc31197088bb9b",
+      "blob_sha256_hex": "67930bd55dbd6f8ce6d1ccf483b846c6f41cb480fcab7de24da712fe02abdc31"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "authorized_is_final",
+      "description": "Decision written once; an Authorization makes it final; a later refusal leaves no marker.",
+      "steps": [
+        {
+          "put": "decision_minimal_lmt",
+          "expect": "written",
+          "state_after": {
+            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "state": "pending",
+            "rejections": []
+          }
+        },
+        {
+          "put": "decision_minimal_lmt",
+          "expect": "unchanged"
+        },
+        {
+          "put": "decision_minimal_lmt_resigned",
+          "expect": "archive.ErrConflict"
+        },
+        {
+          "put": "authorization_minimal_lmt_da",
+          "expect": "written",
+          "state_after": {
+            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "state": "authorized",
+            "rejections": []
+          }
+        },
+        {
+          "put": "authorization_minimal_lmt_da_repaired",
+          "expect": "unchanged"
+        },
+        {
+          "put": "authorization_minimal_lmt_archive",
+          "expect": "archive.ErrConflict"
+        },
+        {
+          "put": "rejection_minimal_lmt_not_yet_valid",
+          "expect": "unchanged",
+          "state_after": {
+            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "state": "authorized",
+            "rejections": []
+          }
+        }
+      ],
+      "final_records": [
+        "decision_minimal_lmt",
+        "authorization_minimal_lmt_da"
+      ]
+    },
+    {
+      "id": "rejected_then_authorized",
+      "description": "Retryable refusals are marked; a later success authorizes and the names stay as history.",
+      "steps": [
+        {
+          "put": "decision_minimal_lmt",
+          "expect": "written"
+        },
+        {
+          "put": "rejection_minimal_lmt_not_yet_valid",
+          "expect": "written",
+          "state_after": {
+            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "state": "rejected",
+            "rejections": [
+              "ErrNotYetValid"
+            ]
+          }
+        },
+        {
+          "put": "rejection_minimal_lmt_not_yet_valid_later",
+          "expect": "unchanged",
+          "state_after": {
+            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "state": "rejected",
+            "rejections": [
+              "ErrNotYetValid"
+            ]
+          }
+        },
+        {
+          "put": "rejection_minimal_lmt_payload_unavailable",
+          "expect": "written",
+          "state_after": {
+            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "state": "rejected",
+            "rejections": [
+              "ErrNotYetValid",
+              "ErrPayloadUnavailable"
+            ]
+          }
+        },
+        {
+          "put": "authorization_minimal_lmt_da_repaired",
+          "expect": "written",
+          "state_after": {
+            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "state": "authorized",
+            "rejections": [
+              "ErrNotYetValid",
+              "ErrPayloadUnavailable"
+            ]
+          }
+        },
+        {
+          "put": "authorization_minimal_lmt_da",
+          "expect": "unchanged"
+        }
+      ],
+      "final_records": [
+        "decision_minimal_lmt",
+        "rejection_minimal_lmt_not_yet_valid",
+        "rejection_minimal_lmt_payload_unavailable",
+        "authorization_minimal_lmt_da_repaired"
+      ]
+    },
+    {
+      "id": "stays_rejected",
+      "description": "A final refusal: rejected, never authorized.",
+      "steps": [
+        {
+          "put": "decision_action_json_bytes",
+          "expect": "written",
+          "state_after": {
+            "commitment_hash_hex": "48834b7710c23b6c8b550ae505b1577198ddabe13914ef8a2a64ba9f49682a2d",
+            "state": "pending",
+            "rejections": []
+          }
+        },
+        {
+          "put": "rejection_action_json_bytes_expired",
+          "expect": "written",
+          "state_after": {
+            "commitment_hash_hex": "48834b7710c23b6c8b550ae505b1577198ddabe13914ef8a2a64ba9f49682a2d",
+            "state": "rejected",
+            "rejections": [
+              "ErrExpired"
+            ]
+          }
+        }
+      ],
+      "final_records": [
+        "decision_action_json_bytes",
+        "rejection_action_json_bytes_expired"
+      ]
+    },
+    {
+      "id": "da1_decision",
+      "description": "A da = 1 decision refused, then authorized.",
+      "steps": [
+        {
+          "put": "decision_fibre_small_payload",
+          "expect": "written"
+        },
+        {
+          "put": "rejection_fibre_small_payload_retention",
+          "expect": "written",
+          "state_after": {
+            "commitment_hash_hex": "476a1b65952e00d9cd36df2547b9c4404cb5f4b3606671f8e3c30cef5ec3249a",
+            "state": "rejected",
+            "rejections": [
+              "ErrRetentionUnavailable"
+            ]
+          }
+        },
+        {
+          "put": "authorization_fibre_small_payload",
+          "expect": "written",
+          "state_after": {
+            "commitment_hash_hex": "476a1b65952e00d9cd36df2547b9c4404cb5f4b3606671f8e3c30cef5ec3249a",
+            "state": "authorized",
+            "rejections": [
+              "ErrRetentionUnavailable"
+            ]
+          }
+        }
+      ],
+      "final_records": [
+        "decision_fibre_small_payload",
+        "rejection_fibre_small_payload_retention",
+        "authorization_fibre_small_payload"
+      ]
+    },
+    {
+      "id": "orphans",
+      "description": "Markers and Authorizations need the decision record; evidence needs the payload record.",
+      "steps": [
+        {
+          "put": "rejection_minimal_lmt_not_yet_valid",
+          "expect": "archive.ErrNotFound",
+          "state_after": {
+            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "state": "absent",
+            "rejections": []
+          }
+        },
+        {
+          "put": "authorization_minimal_lmt_da",
+          "expect": "archive.ErrNotFound",
+          "state_after": {
+            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "state": "absent",
+            "rejections": []
+          }
+        },
+        {
+          "put": "evidence_da2_minimal_lmt",
+          "expect": "archive.ErrNotFound"
+        },
+        {
+          "put": "evidence_da1_live",
+          "expect": "archive.ErrNotFound"
+        }
+      ],
+      "final_records": []
+    },
+    {
+      "id": "payload_and_evidence_da2",
+      "description": "Payload intent is first-write-wins; evidence identity is the anchor.",
+      "steps": [
+        {
+          "put": "payload_da2_wrong_commitment",
+          "expect": "gate.ErrDACommitmentMismatch"
+        },
+        {
+          "put": "payload_da2_minimal_lmt",
+          "expect": "written"
+        },
+        {
+          "put": "payload_da2_minimal_lmt_later_intent",
+          "expect": "unchanged"
+        },
+        {
+          "put": "payload_da2_256k",
+          "expect": "written"
+        },
+        {
+          "put": "evidence_da2_minimal_lmt",
+          "expect": "written"
+        },
+        {
+          "put": "evidence_da2_minimal_lmt_with_tx",
+          "expect": "unchanged"
+        },
+        {
+          "put": "evidence_da2_minimal_lmt_other_height",
+          "expect": "archive.ErrConflict"
+        }
+      ],
+      "final_records": [
+        "payload_da2_minimal_lmt",
+        "payload_da2_256k",
+        "evidence_da2_minimal_lmt"
+      ]
+    },
+    {
+      "id": "payload_and_evidence_da1",
+      "description": "The same rules for da = 1.",
+      "steps": [
+        {
+          "put": "payload_da1_live",
+          "expect": "written"
+        },
+        {
+          "put": "payload_da1_live_later_intent",
+          "expect": "unchanged"
+        },
+        {
+          "put": "evidence_da1_live",
+          "expect": "written"
+        },
+        {
+          "put": "evidence_da1_live",
+          "expect": "unchanged"
+        },
+        {
+          "put": "evidence_da1_live_other_height",
+          "expect": "archive.ErrConflict"
+        }
+      ],
+      "final_records": [
+        "payload_da1_live",
+        "evidence_da1_live"
+      ]
+    }
+  ]
+}
