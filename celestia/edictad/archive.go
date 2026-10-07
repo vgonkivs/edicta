@@ -134,6 +134,9 @@ type retryQueue struct {
 	// their record write or queueing, by decision. It is a count because
 	// identical requests overlap.
 	pending map[commitment.Hash]int
+	// dropAfter holds the decisions whose record failed for good while a
+	// request still held them; the flag is raised when the last hold ends.
+	dropAfter map[commitment.Hash]bool
 }
 
 // begin marks a decision as being authorized by a request of this process. It
@@ -152,17 +155,31 @@ func (q *retryQueue) begin(h commitment.Hash) {
 func (q *retryQueue) end(h commitment.Hash) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.pending[h] <= 1 {
-		delete(q.pending, h)
+	if q.pending[h] > 1 {
+		q.pending[h]--
 		return
 	}
-	q.pending[h]--
+	delete(q.pending, h)
+	if q.dropAfter[h] {
+		delete(q.dropAfter, h)
+		q.dropped = true
+	}
 }
 
-func (q *retryQueue) markDropped() {
+// markDroppedFor asks for a registry scan for h's record. While a request
+// holds h the flag waits for the hold to end: a tick in between could take it
+// and run a pass that skips the entry.
+func (q *retryQueue) markDroppedFor(h commitment.Hash) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.dropped = true
+	if q.pending[h] == 0 {
+		q.dropped = true
+		return
+	}
+	if q.dropAfter == nil {
+		q.dropAfter = map[commitment.Hash]bool{}
+	}
+	q.dropAfter[h] = true
 }
 
 const maxRetryQueue = 1024
@@ -204,6 +221,14 @@ func (q *retryQueue) holds(h commitment.Hash) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return q.auth[h] > 0 || q.pending[h] > 0
+}
+
+// queued reports whether the decision's Authorization record is in the queue,
+// which retries it itself.
+func (q *retryQueue) queued(h commitment.Hash) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.auth[h] > 0
 }
 
 // takeDropped reports and clears the drop flag.
@@ -284,10 +309,10 @@ func (w *writer) write(ctx context.Context, r archive.Record) {
 	case permanent(err):
 		w.log.Error("edictad: archive record cannot be written and is dropped", "kind", r.Kind(),
 			"commitment_hash", recordHash(r), "err", err)
-		if _, ok := authorizationHash(r); ok {
+		if h, ok := authorizationHash(r); ok {
 			// The registry still has the Authorization; a scan repairs the
 			// record without the retention inputs.
-			w.q.markDropped()
+			w.q.markDroppedFor(h)
 		}
 	default:
 		queued := w.q.add(r)

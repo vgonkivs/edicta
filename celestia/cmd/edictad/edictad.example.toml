@@ -22,7 +22,7 @@ tls = true
 # The [fibre] table exists only with da = "fibre" and must be absent (or all
 # zero) with "celestia_blob". Every key below shows its default. To switch,
 # change da, drop min_app_version and max_app_version, set fibre_chain_ids and
-# the recorder to enabled = false (the Fibre Recorder is not wired yet).
+# set the recorder keys below: own_node = true is required with da = "fibre".
 #
 # [fibre]
 # max_data_bytes = 16777216        # largest payload_size of a da = 1 decision, at most 16 MiB
@@ -47,6 +47,12 @@ keyring_backend = "file"
 key_name = "recorder"
 passphrase_file = "/etc/edictad/keyring.pass"
 max_blob_bytes = 1048576
+# Only with da = "fibre" (refused with celestia_blob); the defaults are shown.
+# own_node = true                  # required: submit and read only through the operator's own node
+# escrow_margin_utia = 0           # kept in the escrow on top of one upload's cost
+# submit_timeout_s = 300           # bound of one submit
+# upload_drain_s = 120             # shard uploads may continue this long after the submit returns
+# close_timeout_s = 150            # shutdown wait for draining uploads; not below upload_drain_s
 
 [recorder.quota]
 blobs_per_hour = 60

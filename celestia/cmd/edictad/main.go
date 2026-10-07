@@ -64,7 +64,7 @@ func run() error {
 	defer closeAll()
 	deps := edictad.Deps{Reader: rd, Consensus: cons, Submitter: sub, Logger: log}
 	if cfg.Network.DA == edictad.DAConfigFibre {
-		fd, closeFibre, err := fibreAdapters(ctx, cfg, cons, log)
+		fd, closeFibre, err := fibreWiring(ctx, cfg, rd, cons, log)
 		if err != nil {
 			return err
 		}
@@ -128,7 +128,9 @@ func adapters(ctx context.Context, cfg edictad.Config, log *slog.Logger) (node.R
 		return nil, nil, nil, noop, err
 	}
 	closers = append(closers, func() { _ = rc.Close() })
-	if !cfg.Recorder.Enabled {
+	if !cfg.Recorder.Enabled || cfg.Network.DA == edictad.DAConfigFibre {
+		// With da = fibre the signing client is built with the Fibre
+		// dependencies, after the Fibre compatibility check.
 		return rd, cons, nil, closeAll, nil
 	}
 

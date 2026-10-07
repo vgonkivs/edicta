@@ -13,8 +13,10 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/node"
+	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/fibre/fibrecommit"
 )
@@ -105,6 +107,23 @@ type RecorderConfig struct {
 	PassphraseFile   string      `toml:"passphrase_file"`
 	MaxBlobBytes     uint64      `toml:"max_blob_bytes"`
 	Quota            QuotaConfig `toml:"quota"`
+
+	// The keys below exist only with da = "fibre" and the Recorder enabled.
+	// OwnNode attests that the consensus endpoint is the operator's own: the
+	// Recorder submits and reads through it.
+	OwnNode bool `toml:"own_node"`
+	// EscrowMarginUtia is kept in the escrow on top of the cost of an upload.
+	EscrowMarginUtia uint64 `toml:"escrow_margin_utia"`
+	SubmitTimeoutS   uint64 `toml:"submit_timeout_s"`
+	// UploadDrainS is how long shard uploads may continue after a submit
+	// returns.
+	UploadDrainS uint64 `toml:"upload_drain_s"`
+	// CloseTimeoutS bounds the wait for draining uploads at shutdown.
+	CloseTimeoutS uint64 `toml:"close_timeout_s"`
+}
+
+func (r RecorderConfig) hasFibreKeys() bool {
+	return r.OwnNode || r.EscrowMarginUtia != 0 || r.SubmitTimeoutS != 0 || r.UploadDrainS != 0 || r.CloseTimeoutS != 0
 }
 
 // QuotaConfig is the per-agent publish quota.
@@ -145,6 +164,11 @@ const (
 	defaultLookupTimeoutS = 60
 	defaultSampleEveryS   = 30
 	defaultCanaryEveryS   = 600
+
+	defaultSubmitTimeoutS = 300
+	defaultUploadDrainS   = 120
+	defaultCloseTimeoutS  = 150
+	maxRecorderTimeoutS   = 3600
 
 	minFibreReadBytes = 64 << 10
 	maxFibreReadBytes = 1 << 30
@@ -214,8 +238,24 @@ func (c Config) WithDefaults() Config {
 	c.Archive = c.Archive.withDefaults()
 	if c.Network.DA == DAConfigFibre {
 		c.Fibre = c.Fibre.withDefaults()
+		if c.Recorder.Enabled {
+			c.Recorder = c.Recorder.withFibreDefaults()
+		}
 	}
 	return c
+}
+
+func (r RecorderConfig) withFibreDefaults() RecorderConfig {
+	if r.SubmitTimeoutS == 0 {
+		r.SubmitTimeoutS = defaultSubmitTimeoutS
+	}
+	if r.UploadDrainS == 0 {
+		r.UploadDrainS = defaultUploadDrainS
+	}
+	if r.CloseTimeoutS == 0 {
+		r.CloseTimeoutS = defaultCloseTimeoutS
+	}
+	return r
 }
 
 func (a ArchiveConfig) withDefaults() ArchiveConfig {
@@ -268,6 +308,20 @@ func (c Config) FibreAnchorOptions() gatechain.FibreAnchorOptions {
 // FibreBridgeLimits are the limits the bridge client must be built with: it
 // has to carry the largest namespace data the gate reads.
 func (c Config) FibreBridgeLimits() node.BridgeLimits { return c.FibreAnchorOptions().BridgeLimits() }
+
+// FibreRecorderConfig is the da = 1 Recorder's configuration. The caller adds
+// the clock.
+func (c Config) FibreRecorderConfig(ns []byte, st archive.Store) recorder.FibreConfig {
+	return recorder.FibreConfig{
+		Namespace:        bytes.Clone(ns),
+		MaxDataBytes:     c.Fibre.MaxDataBytes,
+		SubmitTimeout:    time.Duration(c.Recorder.SubmitTimeoutS) * time.Second,
+		UploadDrain:      time.Duration(c.Recorder.UploadDrainS) * time.Second,
+		EscrowMarginUtia: c.Recorder.EscrowMarginUtia,
+		OwnNode:          c.Recorder.OwnNode,
+		Archive:          st,
+	}
+}
 
 // FibreExpect is what the da = 1 compatibility check requires. A bridge
 // version is never part of it: the download fallback is enabled by a
@@ -358,6 +412,9 @@ func (c Config) validateFibre() error {
 		if f != (FibreConfig{}) || len(n.FibreChainIDs) != 0 {
 			return cfgErr(`the [fibre] table and network.fibre_chain_ids need network.da = "fibre"`)
 		}
+		if c.Recorder.hasFibreKeys() {
+			return cfgErr(`recorder.own_node, escrow_margin_utia, submit_timeout_s, upload_drain_s and close_timeout_s need network.da = "fibre"`)
+		}
 		return nil
 	}
 	if n.MinAppVersion != 0 || n.MaxAppVersion != 0 {
@@ -385,8 +442,26 @@ func (c Config) validateFibre() error {
 	case f.CanaryEveryS < 60 || f.CanaryEveryS > 3600:
 		return cfgErr("fibre.canary_every_s must be 60..3600")
 	}
-	if c.Recorder.Enabled {
-		return fmt.Errorf("%w: %w: da = fibre with the recorder enabled", ErrConfig, ErrDANotSupported)
+	r := c.Recorder
+	if !r.Enabled {
+		if r.hasFibreKeys() {
+			return cfgErr("recorder.own_node, escrow_margin_utia, submit_timeout_s, upload_drain_s and close_timeout_s need recorder.enabled")
+		}
+		return nil
+	}
+	switch {
+	case !r.OwnNode:
+		return cfgErr(`recorder.own_node must be true with da = "fibre": the Recorder submits only through the operator's own node`)
+	case r.maxBlob() > f.MaxDataBytes:
+		return cfgErr("recorder.max_blob_bytes above fibre.max_data_bytes")
+	case r.SubmitTimeoutS < 1 || r.SubmitTimeoutS > maxRecorderTimeoutS:
+		return cfgErr("recorder.submit_timeout_s must be 1..%d", maxRecorderTimeoutS)
+	case r.UploadDrainS < 1 || r.UploadDrainS > maxRecorderTimeoutS:
+		return cfgErr("recorder.upload_drain_s must be 1..%d", maxRecorderTimeoutS)
+	case r.CloseTimeoutS < 1 || r.CloseTimeoutS > maxRecorderTimeoutS:
+		return cfgErr("recorder.close_timeout_s must be 1..%d", maxRecorderTimeoutS)
+	case r.CloseTimeoutS < r.UploadDrainS:
+		return cfgErr("recorder.close_timeout_s below recorder.upload_drain_s")
 	}
 	return nil
 }

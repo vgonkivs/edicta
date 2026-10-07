@@ -206,3 +206,22 @@ func TestCheckHealthDA(t *testing.T) {
 		})
 	}
 }
+
+// With da = fibre the Recorder account is the 20-byte address of the submit
+// key, the same as with da = celestia_blob.
+func TestCheckHealthFibreRecorderAccount(t *testing.T) {
+	fibre := func(signer []byte) edictaapi.HealthInfo {
+		h := goodHealth()
+		h.AllowedDA = []uint64{uint64(commitment.DAFibre)}
+		h.RecorderSigner = signer
+		return h
+	}
+	_, err := checkHealth(Config{DA: "fibre"}, fibre(bytes.Repeat([]byte{5}, 20)), "test-1")
+	require.NoError(t, err)
+	for name, signer := range map[string][]byte{
+		"absent": nil, "short": bytes.Repeat([]byte{5}, 19), "long": bytes.Repeat([]byte{5}, 32),
+	} {
+		_, err := checkHealth(Config{DA: "fibre"}, fibre(signer), "test-1")
+		assert.Error(t, err, name)
+	}
+}

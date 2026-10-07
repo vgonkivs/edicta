@@ -153,19 +153,16 @@ func TestValidateBasicRefusals(t *testing.T) {
 	}
 }
 
-func TestFibreRecorderIsRefusedUntilTheFibreRecorderLands(t *testing.T) {
+// The Recorder is wired for da = fibre; without own_node it is still refused,
+// and no longer as an unsupported mode.
+func TestFibreRecorderNeedsOwnNode(t *testing.T) {
 	e, _ := newFibreEnv(t)
 	edits := fibreEdits()
 	edits = append(edits[:2:2], edits[3:]...) // keep enabled = true
-	cfg, err := edictad.ParseConfig([]byte(e.tomlOf(edits...)))
-	if err != nil {
-		require.ErrorIs(t, err, edictad.ErrDANotSupported)
-		return
-	}
-	srv, err := edictad.Start(bg, cfg, e.deps)
-	require.ErrorIs(t, err, edictad.ErrDANotSupported)
-	require.Nil(t, srv)
-	assert.Zero(t, e.listens)
+	_, err := edictad.ParseConfig([]byte(e.tomlOf(edits...)))
+	require.ErrorIs(t, err, edictad.ErrConfig)
+	assert.NotErrorIs(t, err, edictad.ErrDANotSupported)
+	assert.Contains(t, err.Error(), "recorder.own_node")
 }
 
 func TestNoBridgeVersionOrCapabilityInConfig(t *testing.T) {

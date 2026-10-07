@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"mime"
 	"net"
@@ -82,9 +83,48 @@ type FibreDeps struct {
 	// Committer recomputes the da = 1 commitment; nil means a committer
 	// capped at fibre.max_data_bytes.
 	Committer *fibrecommit.Committer
+	// Submitter, RecorderChain and SigningCloser are required with the
+	// Recorder enabled. Submitter pays and signs through the operator's own
+	// node and RecorderChain reads that same node. Start owns SigningCloser:
+	// it closes it once, on a refused start or at Shutdown after the Recorder.
+	Submitter     node.FibreSubmitter
+	RecorderChain recorder.FibreChain
+	SigningCloser io.Closer
+	// NewFibre builds the Recorder; nil means recorder.NewFibre.
+	NewFibre func(recorder.FibreConfig, recorder.FibreDeps) (FibreRecorder, error)
 	// SelfTest, CheckBuild and CheckNMT replace the pin checks in tests; nil
 	// runs the real ones.
 	SelfTest, CheckBuild, CheckNMT func() error
+}
+
+// FibreRecorder is the da = 1 Recorder the daemon publishes through.
+type FibreRecorder interface {
+	sdk.Publisher
+	// Close waits for draining uploads until ctx ends, then cancels them.
+	Close(ctx context.Context) error
+}
+
+func newFibreRecorder(cfg recorder.FibreConfig, d recorder.FibreDeps) (FibreRecorder, error) {
+	r, err := recorder.NewFibre(cfg, d)
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// onceCloser makes a closer safe to call from every exit path.
+type onceCloser struct {
+	once sync.Once
+	c    io.Closer
+	err  error
+}
+
+func (o *onceCloser) Close() error {
+	if o == nil || o.c == nil {
+		return nil
+	}
+	o.once.Do(func() { o.err = o.c.Close() })
+	return o.err
 }
 
 type systemClock struct{}
@@ -97,12 +137,18 @@ type Server struct {
 	http *http.Server
 	gate *gate.Gate
 	reg  interface{ Close() error }
+	// rec and signing are the da = 1 Recorder and the signing client it uses;
+	// both are nil for the other modes.
+	rec          FibreRecorder
+	closeTimeout time.Duration
+	signing      *onceCloser
+	log          *slog.Logger
 
 	// stop ends the background goroutines; they are waited for on shutdown.
 	stop context.CancelFunc
 	bg   sync.WaitGroup
 	// drain makes the last attempt to write what is still queued, within ctx.
-	drain  func(context.Context)
+	drain  func(context.Context) error
 	mu     sync.Mutex
 	closed bool
 	served chan struct{}
@@ -111,10 +157,14 @@ type Server struct {
 // Addr is the address the API listens on.
 func (s *Server) Addr() string { return s.addr }
 
-// Shutdown stops accepting, lets in-flight requests finish, then stops the
-// background work and releases the gate and the registry. If ctx ends first it
-// returns ctx's error and may be called again. After a clean shutdown it
-// returns nil. The last attempt to write queued records is bounded by ctx too.
+// Shutdown stops accepting and lets in-flight requests finish. Then it makes
+// the last attempt to write queued records, stops the background work, closes
+// the Recorder (bounded by recorder.close_timeout_s), the signing client, the
+// gate and the registry, in that order. If ctx ends during the HTTP phase or
+// the record drain it returns ctx's error; the rest is still closed after the
+// drain, and a failed HTTP phase may be retried. A Recorder close failure is
+// logged and returned and never skips what follows. After a shutdown that got
+// past the HTTP phase it returns nil.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -128,12 +178,36 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.closed = true
 	s.stop()
 	s.bg.Wait()
+	var errs []error
 	if s.drain != nil {
-		s.drain(ctx)
+		if err := s.drain(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("edictad: archive drain: %w", err))
+		}
+	}
+	if err := s.closeRecorder(ctx); err != nil {
+		errs = append(errs, err)
+	}
+	if err := s.signing.Close(); err != nil {
+		s.log.Error("edictad: closing the signing client", "err", err)
 	}
 	_ = s.gate.Close()
 	if err := s.reg.Close(); err != nil {
-		return fmt.Errorf("edictad: closing registry: %w", err)
+		errs = append(errs, fmt.Errorf("edictad: closing registry: %w", err))
+	}
+	return errors.Join(errs...)
+}
+
+// closeRecorder closes the da = 1 Recorder within recorder.close_timeout_s,
+// whether or not ctx has ended: the uploads still need their drain.
+func (s *Server) closeRecorder(ctx context.Context) error {
+	if s.rec == nil {
+		return nil
+	}
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.closeTimeout)
+	defer cancel()
+	if err := s.rec.Close(cctx); err != nil {
+		s.log.Error("edictad: closing the fibre recorder", "err", err)
+		return fmt.Errorf("edictad: closing the fibre recorder: %w", err)
 	}
 	return nil
 }
@@ -156,6 +230,9 @@ func checkFibreDeps(cfg Config, d Deps) error {
 	if f == nil || isNil(f.Chain) || isNil(f.Bridge) || isNil(f.Direct) {
 		return cfgErr(`da = "fibre" needs a consensus reader, a bridge reader and a download client`)
 	}
+	if cfg.Recorder.Enabled && (isNil(f.Submitter) || isNil(f.RecorderChain)) {
+		return cfgErr(`the da = "fibre" recorder needs a submitter and an own-node consensus reader`)
+	}
 	if l, ok := f.Bridge.(interface{ Limits() node.BridgeLimits }); ok && l.Limits() != cfg.FibreBridgeLimits() {
 		return cfgErr("the bridge client's namespace data limit differs from fibre.max_read_bytes")
 	}
@@ -168,6 +245,21 @@ func checkFibreDeps(cfg Config, d Deps) error {
 // returns a nil Server, with no listener bound, and the archive and the
 // registry are not even created before the check and preflight pass.
 func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
+	signing := &onceCloser{}
+	if d.Fibre != nil && !isNil(d.Fibre.SigningCloser) {
+		signing.c = d.Fibre.SigningCloser
+	}
+	srv, err := start(ctx, cfg, d, signing)
+	if err != nil {
+		if cerr := signing.Close(); cerr != nil {
+			slog.Default().Error("edictad: closing the signing client", "err", cerr)
+		}
+		return nil, err
+	}
+	return srv, nil
+}
+
+func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Server, error) {
 	cfg = cfg.WithDefaults()
 	if err := cfg.ValidateBasic(); err != nil {
 		return nil, err
@@ -290,10 +382,13 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 	}
 
 	runCtx, stop := context.WithCancel(context.Background())
-	s := &Server{stop: stop, reg: reg, served: make(chan struct{})}
+	s := &Server{stop: stop, reg: reg, served: make(chan struct{}), signing: signing, log: log,
+		closeTimeout: time.Duration(cfg.Recorder.CloseTimeoutS) * time.Second}
 	fail := func(err error) (*Server, error) {
 		stop()
 		s.bg.Wait()
+		_ = s.closeRecorder(context.Background())
+		_ = signing.Close()
 		if s.gate != nil {
 			_ = s.gate.Close()
 		}
@@ -314,8 +409,10 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 		Signer:     signer,
 		Logger:     log,
 	}
+	var reader node.FibreAnchorReader
 	if fibre {
-		reader, err := node.NewFibreAnchorReader(d.Fibre.Chain, d.Fibre.Bridge)
+		var err error
+		reader, err = node.NewFibreAnchorReader(d.Fibre.Chain, d.Fibre.Bridge)
 		if err != nil {
 			return fail(fmt.Errorf("edictad: fibre anchor reader: %w", err))
 		}
@@ -368,13 +465,16 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 		sw.loop(runCtx, d.SweepTick, time.Duration(cfg.Archive.SweepIntervalS)*time.Second,
 			first.scanFailed || first.incomplete)
 	}()
-	s.drain = func(ctx context.Context) {
+	s.drain = func(ctx context.Context) error {
 		dctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		sw.run(dctx, false)
-		if n := q.len(); n > 0 {
-			log.Error("edictad: records left in the archive retry queue at shutdown; the next start's sweep repairs them", "records", n)
+		n := q.len()
+		if n == 0 {
+			return nil
 		}
+		log.Error("edictad: records left in the archive retry queue at shutdown; the next start's sweep repairs them", "records", n)
+		return ctx.Err()
 	}
 
 	hcfg := edictaapi.HandlerConfig{
@@ -388,7 +488,20 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 	}
 	var pub sdk.Publisher
 	var quota edictaapi.Quota
-	if cfg.Recorder.Enabled {
+	switch {
+	case cfg.Recorder.Enabled && fibre:
+		rec, err := buildFibreRecorder(cfg, d, ns, store, clock, reader, head.ChainID, fibreCommitter, log)
+		if err != nil {
+			return fail(err)
+		}
+		s.rec = rec
+		addr, err := d.Fibre.Submitter.Address(ctx)
+		if err != nil {
+			return fail(fmt.Errorf("edictad: recorder signer: %w", err))
+		}
+		pub, hl.signer, hl.namespace = rec, addr, ns
+		quota = recorderQuota(cfg, clock)
+	case cfg.Recorder.Enabled:
 		if d.Submitter == nil {
 			return fail(cfgErr("recorder is enabled but no submitter is available"))
 		}
@@ -408,10 +521,7 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 			return fail(fmt.Errorf("edictad: recorder signer: %w", err))
 		}
 		pub, hl.signer, hl.namespace = rec, addr, ns
-		quota = edictaapi.NewQuota(edictaapi.QuotaConfig{
-			BlobsPerHour: cfg.Recorder.Quota.BlobsPerHour,
-			BytesPerDay:  cfg.Recorder.Quota.BytesPerDay,
-		}, clock)
+		quota = recorderQuota(cfg, clock)
 	}
 
 	var api edictaapi.Gate = &archivingGate{
@@ -460,6 +570,40 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 	log.Info("edictad: serving", "addr", s.addr, "chain_id", head.ChainID, "gate_id", cfg.Gate.GateID,
 		"da", cfg.Network.DA, "recorder", cfg.Recorder.Enabled)
 	return s, nil
+}
+
+func recorderQuota(cfg Config, clock gate.Clock) edictaapi.Quota {
+	return edictaapi.NewQuota(edictaapi.QuotaConfig{
+		BlobsPerHour: cfg.Recorder.Quota.BlobsPerHour,
+		BytesPerDay:  cfg.Recorder.Quota.BytesPerDay,
+	}, clock)
+}
+
+// buildFibreRecorder builds the da = 1 Recorder. Nothing is submitted or
+// broadcast here.
+func buildFibreRecorder(cfg Config, d Deps, ns []byte, store archive.Store, clock gate.Clock,
+	reader node.FibreAnchorReader, chainID string, committer *fibrecommit.Committer, log *slog.Logger) (FibreRecorder, error) {
+	fc := cfg.FibreRecorderConfig(ns, store)
+	fc.Now = clock.Now
+	build := d.Fibre.NewFibre
+	if build == nil {
+		build = newFibreRecorder
+	}
+	rec, err := build(fc, recorder.FibreDeps{
+		Submitter: d.Fibre.Submitter,
+		Reader:    reader,
+		Chain:     d.Fibre.RecorderChain,
+		ChainID:   chainID,
+		Committer: committer,
+		Log:       log,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("edictad: fibre recorder: %w", err)
+	}
+	if isNil(rec) {
+		return nil, errors.New("edictad: fibre recorder: the constructor returned no recorder")
+	}
+	return rec, nil
 }
 
 type signedHeaderReader interface {
@@ -618,16 +762,25 @@ type archivingGate struct {
 func (a *archivingGate) Authorize(ctx context.Context, envelope, action []byte) (gate.Result, error) {
 	// The hold starts before the gate can mark the registry and ends once the
 	// record is written or queued, so a scan never sees the entry in between.
+	finished := false
 	if sc, derr := commitment.DecodeSigned(envelope); derr == nil {
 		if h, herr := commitment.HashOf(&sc.Commitment); herr == nil {
 			a.q.begin(h)
-			defer a.q.end(h)
+			defer func() {
+				// A panic after the mark leaves no record behind; a later tick
+				// repairs it from the registry.
+				if !finished {
+					a.q.markDroppedFor(h)
+				}
+				a.q.end(h)
+			}()
 		}
 	}
 	// One scope per request: the anchor stage and the payload stage read the
 	// block once between them.
 	res, err := a.g.Authorize(gatechain.WithAnchorScope(ctx), envelope, action)
 	a.after(ctx, res, err)
+	finished = true
 	return res, err
 }
 

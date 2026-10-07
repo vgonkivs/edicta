@@ -119,8 +119,7 @@ refused; write `"celestia_blob"`. A decision for the other mode is refused with
   Every key has a default and the example config shows them. With `celestia_blob`
   these keys must be absent or zero, so a half-switched file never starts. The Fibre
   app version is pinned: `min_app_version` and `max_app_version` are refused.
-- The Fibre Recorder is not wired into edictad yet: `da = "fibre"` needs
-  `recorder.enabled = false`, and the start is refused otherwise.
+- With `da = "fibre"` the Recorder can be enabled too; see "Fibre Recorder" below.
 
 The gate writes the decision (the envelope and the action bytes exactly as
 presented) to the archive after the agent signature, the action type allowlist and the
@@ -134,11 +133,12 @@ before the listener has a 30 s budget; what it does not reach is finished in the
 background, and a sweep that left work is repeated every `sweep_interval_s`.
 Records the gate could not write after signing wait in a memory queue of 1024 for
 the next sweep. At shutdown one last attempt writes what is still queued, bounded
-by the shutdown context and by `write_timeout_s`. What is still queued after that,
-what was dropped because the queue was full, and a record that failed permanently
-is found again by the sweep, which repairs it from the registry. A record repaired
-that way has no retention inputs, because only the request that issued the
-Authorization has them. At most 64 archive calls run at once, and one more gets the
+by the shutdown context and by `write_timeout_s`; if the shutdown context ends
+first, `Shutdown` returns its error. A record still queued at exit is repaired by the
+sweep at the next start. A record that was dropped because the queue was full, or
+that failed permanently, is repaired by the next tick of the running process. Both
+repairs read the Authorization from the registry, so the record has no retention
+inputs, because only the request that issued the Authorization has them. At most 64 archive calls run at once, and one more gets the
 retryable 503.
 
 If the archive is down, `POST /v0/authorize` answers 503 with `ErrArchiveUnavailable`
@@ -276,11 +276,40 @@ recent, anchored blob through the same bridge client and token, checks that the 
 answer has exactly the expected shape and recomputes the blob's commitment. A node
 version, or any capability, written in the configuration is never accepted instead
 (the version method of the node needs an admin token, which a gate must not hold).
-A failed or inconclusive probe leaves the fallback off with a warning. Every blob from the fallback is recomputed anyway, so the probe only
-finds an incompatible bridge at start instead of when it is needed.
+A failed or inconclusive probe leaves the fallback off with a warning. Every blob
+from the fallback is recomputed anyway, so the probe only finds an incompatible
+bridge shortly after the start instead of when it is needed.
 
-Fibre submission by the Recorder (when it is wired) must go only through a node the
-operator controls, which is what `recorder.own_node = true` asserts.
+Submission by the Fibre Recorder goes only through a consensus node the operator
+controls, which `recorder.own_node = true` asserts.
+
+## Fibre Recorder
+
+With `da = "fibre"` and `recorder.enabled = true` edictad publishes through the
+Fibre Recorder. It submits only through the operator's own consensus node, which
+`recorder.own_node = true` asserts and which is required: the same node is read to
+confirm the anchor. The Fibre compatibility check runs before the signing client is
+dialled, so a chain it refuses is refused before any key is used. Keys, with the
+defaults that apply only to this mode:
+
+- `own_node`: must be `true`.
+- `escrow_margin_utia` (default 0): kept in the escrow on top of the cost of an
+  upload.
+- `submit_timeout_s` (default 300): bound of one submit.
+- `upload_drain_s` (default 120): how long shard uploads may continue after the
+  submit returns.
+- `close_timeout_s` (default 150, not below `upload_drain_s`): the bound of the wait
+  for draining uploads at shutdown.
+
+`recorder.max_blob_bytes` may not exceed `fibre.max_data_bytes`. With
+`celestia_blob`, or with the Recorder disabled, these keys must be absent. At
+shutdown edictad stops the HTTP server and waits for requests, then calls the
+Recorder's `Close`, which waits for draining uploads up to `close_timeout_s` and
+then cancels them, then closes the signing client and the registry. A `Close` error
+is logged and returned and does not skip the rest.
+
+The Recorder never deposits or withdraws; an escrow below the cost of an upload
+fails the publish with `recorder.ErrEscrowInsufficient` (see below).
 
 ## Fibre escrow
 
@@ -309,10 +338,8 @@ takes effect after the x/fibre `withdrawal_delay`, 24 h by default but a governa
 parameter that can be raised to 7 days; read the current value with
 `celestia-appd query fibre params`.
 
-This section describes the Fibre Recorder, which edictad does not wire until the
-Fibre Recorder task lands. An upload whose payment promise is handed to validators
-but never settled may still be charged once, so a failed upload can cost one fee
-without creating an anchor.
+An upload whose payment promise is handed to validators but never settled may still
+be charged once, so a failed upload can cost one fee without creating an anchor.
 
 ## Tests
 

@@ -24,7 +24,15 @@ type sweeper struct {
 	q       *retryQueue
 	log     *slog.Logger
 	timeout time.Duration
+	// recheck holds entries a scan skipped because their request was still at
+	// work; each tick looks at them again. A set that is full asks for a
+	// full pass instead.
+	recheck  map[registry.Key]registry.Entry
+	overflow bool
 }
+
+// maxRecheck bounds the entries kept for another look.
+const maxRecheck = 4096
 
 // sweepResult says what a pass left undone.
 type sweepResult struct {
@@ -46,17 +54,18 @@ func (s *sweeper) run(ctx context.Context, full bool) sweepResult {
 	for _, r := range s.q.drain() {
 		perm := st.permanent
 		done := s.put(ctx, r, st)
-		if _, ok := authorizationHash(r); ok && st.permanent > perm {
+		if h, ok := authorizationHash(r); ok && st.permanent > perm {
 			// Only the retry of a queued record raises the flag, never the
 			// scan's own repair, or a record that cannot be written would
 			// keep every tick scanning.
-			s.q.markDropped()
+			s.q.markDroppedFor(h)
 		}
 		if !done && !s.q.add(r) {
 			s.log.Error("edictad: archive retry queue is full; the record is left to the next registry scan",
 				"kind", r.Kind(), "commitment_hash", recordHash(r))
 		}
 	}
+	s.recheckHeld(ctx, st)
 	if full {
 		before := st.failed
 		res.incomplete = !s.scan(ctx, st)
@@ -91,24 +100,61 @@ func (s *sweeper) scan(ctx context.Context, st *sweepStats) bool {
 	return false
 }
 
-func (s *sweeper) entry(ctx context.Context, e registry.Entry, st *sweepStats) {
-	if s.q.holds(e.CommitmentHash) {
+// recheckHeld looks again at the entries a scan left to their requests. One
+// that is still at work stays; one that is settled, or that the queue now
+// carries, goes; one that could not be read stays for the next tick.
+func (s *sweeper) recheckHeld(ctx context.Context, st *sweepStats) {
+	for k, e := range s.recheck {
+		if ctx.Err() != nil {
+			return
+		}
+		if s.q.holds(e.CommitmentHash) {
+			if s.q.queued(e.CommitmentHash) {
+				delete(s.recheck, k)
+			}
+			continue
+		}
+		if s.entry(ctx, e, st) {
+			delete(s.recheck, k)
+		}
+	}
+}
+
+func (s *sweeper) hold(e registry.Entry) {
+	if _, ok := s.recheck[e.Key]; !ok && len(s.recheck) >= maxRecheck {
+		s.overflow = true
 		return
+	}
+	if s.recheck == nil {
+		s.recheck = map[registry.Key]registry.Entry{}
+	}
+	s.recheck[e.Key] = e
+}
+
+// entry repairs the archive record of one registry entry. It reports false
+// if the entry has to be looked at again.
+func (s *sweeper) entry(ctx context.Context, e registry.Entry, st *sweepStats) bool {
+	if s.q.queued(e.CommitmentHash) {
+		return true
+	}
+	if s.q.holds(e.CommitmentHash) {
+		s.hold(e)
+		return true
 	}
 	rctx, cancel := context.WithTimeout(ctx, s.timeout)
 	_, err := s.io.authorization(rctx, e.CommitmentHash)
 	cancel()
 	switch {
 	case err == nil:
-		return
+		return true
 	case errors.Is(err, archive.ErrCorrupt):
 		s.log.Error("edictad: archived Authorization is corrupt", "commitment_hash", hex.EncodeToString(e.CommitmentHash[:]), "err", err)
-		return
+		return true
 	case !errors.Is(err, archive.ErrNotFound):
 		st.failed++
-		return
+		return false
 	}
-	s.put(ctx, &archive.AuthorizationRecord{SignedAuthorization: e.Authorization, AuthorizedAt: e.AuthorizedAt}, st)
+	return s.put(ctx, &archive.AuthorizationRecord{SignedAuthorization: e.Authorization, AuthorizedAt: e.AuthorizedAt}, st)
 }
 
 // put reports whether the record needs no further retry.
@@ -158,11 +204,14 @@ func (s *sweeper) loop(ctx context.Context, tick <-chan time.Time, interval time
 		if s.q.takeDropped() {
 			needFull = true
 		}
-		if !needFull && s.q.len() == 0 {
+		if !needFull && s.q.len() == 0 && len(s.recheck) == 0 {
 			continue
 		}
 		res := s.run(ctx, needFull)
 		needFull = needFull && (res.scanFailed || res.incomplete)
+		if s.overflow {
+			s.overflow, needFull = false, true
+		}
 		if ctx.Err() != nil {
 			return
 		}
