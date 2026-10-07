@@ -17,6 +17,24 @@ reported, not proof of execution.
 Afterwards anyone can verify that the decision existed before the action,
 that exactly that action ran, and that the gate authorized it.
 
+## Try it: the demo
+
+One command runs the whole flow on the Celestia Mocha testnet in a few
+minutes: an agent decides on a TIA transfer, the decision is published and
+anchored on Celestia, the gate authorizes it, an executor sends exactly the
+committed transfer, and an independent verifier checks all of it. Then the
+demo tries to cheat (a different amount, a reused decision, a tampered
+archive, a rogue executor) and shows each attempt refused or caught.
+
+```sh
+go -C celestia build -o bin/edicta ./cmd/edicta
+celestia/bin/edicta demo
+```
+
+The demo prints an address to fund with testnet TIA and starts only after you
+press Enter. Using your own funded key, the trust root, the verdicts and how
+to re-verify a run offline: [celestia/demo/README.md](celestia/demo/README.md).
+
 ## What it does not do
 
 Edicta never evaluates the agent: not its logic, not the truth of its inputs

@@ -2,7 +2,7 @@
 
 One command, one Enter, about 3 to 5 minutes on the Mocha testnet. The demo
 runs the whole Edicta flow with a real agent decision, a real gate, a real
-transfer on chain and an independent verifier, then tries to cheat three ways.
+transfer on chain and an independent verifier, then tries to cheat four ways, grouped in three layers below.
 Testnet TIA only; keep the amounts small.
 
 ## What it proves
