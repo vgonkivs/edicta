@@ -43,6 +43,7 @@ type fakeFibreRec struct {
 	closeErr error
 	closes   atomic.Int32
 	deadline atomic.Pointer[time.Time]
+	ctxDone  atomic.Bool
 	hook     func()
 }
 
@@ -55,6 +56,7 @@ func (f *fakeFibreRec) Close(ctx context.Context) error {
 	if d, ok := ctx.Deadline(); ok {
 		f.deadline.Store(&d)
 	}
+	f.ctxDone.Store(ctx.Err() != nil)
 	f.log.add("recorder.close")
 	if f.hook != nil {
 		f.hook()
@@ -67,6 +69,7 @@ type fakeSigningCloser struct {
 	log    *eventLog
 	closes atomic.Int32
 	hook   func()
+	err    error
 }
 
 func (c *fakeSigningCloser) Close() error {
@@ -75,7 +78,7 @@ func (c *fakeSigningCloser) Close() error {
 	if c.hook != nil {
 		c.hook()
 	}
-	return nil
+	return c.err
 }
 
 type fibreRecFakes struct {
@@ -286,7 +289,9 @@ func TestFibrePublishEndToEnd(t *testing.T) {
 	ff.deps.Submitter, ff.deps.RecorderChain = w.Sub, w.Node
 	closer := &fakeSigningCloser{log: &eventLog{}}
 	ff.deps.SigningCloser = closer
-	e.start(fibreRecEdits(rep(hex.EncodeToString(nsBytes), hex.EncodeToString(w.Live.Ref.Namespace)))...)
+	// The Recorder's drain timer is real: short ones keep the final Shutdown quick.
+	e.start(fibreRecEdits(rep(hex.EncodeToString(nsBytes), hex.EncodeToString(w.Live.Ref.Namespace)),
+		rep("upload_drain_s = 100", "upload_drain_s = 1"), rep("close_timeout_s = 120", "close_timeout_s = 1"))...)
 
 	pub, err := e.client("", edictaapi.WithClock(clock{w.Now})).Publish(bg, w.Live.Payload)
 	require.NoError(t, err)
@@ -312,4 +317,56 @@ func TestFibreRecorderRefusesASubmitNodeThatIsNotTheReadNode(t *testing.T) {
 	assert.Zero(t, e.listens)
 	assert.EqualValues(t, 1, rf.closer.closes.Load())
 	e.registryReopens()
+}
+
+// A shutdown whose context ends while a request still runs cuts the request off
+// and closes everything once.
+func TestFibreShutdownCutShortStillClosesEverything(t *testing.T) {
+	e, _, rf := newFibreRecEnv(t)
+	e.deps.WrapGate = func(edictaapi.Gate) edictaapi.Gate { return e.spy }
+	entered, release := make(chan struct{}), make(chan struct{})
+	e.spy.authFn = func() ([]byte, error) { close(entered); <-release; return []byte("a"), nil }
+	srv := e.start(fibreRecEdits()...)
+	go func() { _, _ = e.client("").Authorize(bg, []byte("e"), []byte("a")) }()
+	<-entered
+
+	ctx, cancel := context.WithTimeout(bg, 50*time.Millisecond)
+	defer cancel()
+	err := srv.Shutdown(ctx)
+	close(release)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.EqualValues(t, 1, rf.rec.closes.Load())
+	assert.EqualValues(t, 1, rf.closer.closes.Load())
+	assert.Equal(t, []string{"recorder.close", "signing.close"}, rf.log.list())
+	e.registryReopens()
+
+	require.NoError(t, srv.Shutdown(bg), "a second call has nothing left to close")
+	assert.EqualValues(t, 1, rf.rec.closes.Load())
+	assert.EqualValues(t, 1, rf.closer.closes.Load())
+}
+
+// The Recorder's close runs inside the shutdown context, so a context that has
+// ended cancels the drain wait at once.
+func TestFibreRecorderCloseHonoursTheShutdownContext(t *testing.T) {
+	e, _, rf := newFibreRecEnv(t)
+	srv := e.start(fibreRecEdits()...)
+	ctx, cancel := context.WithCancel(bg)
+	cancel()
+	_ = srv.Shutdown(ctx)
+	assert.True(t, rf.rec.ctxDone.Load())
+	assert.EqualValues(t, 1, rf.rec.closes.Load())
+}
+
+func TestFibreSigningCloseErrorIsReturned(t *testing.T) {
+	e, _, rf := newFibreRecEnv(t)
+	rf.closer.err = errSeam
+	srv := e.start(fibreRecEdits()...)
+	require.ErrorIs(t, srv.Shutdown(bg), errSeam)
+	e.registryReopens()
+}
+
+func TestFibreRecorderIsCappedByTheBlobLimit(t *testing.T) {
+	e, _, rf := newFibreRecEnv(t)
+	e.start(fibreRecEdits(rep("max_blob_bytes = 1048576\n", "max_blob_bytes = 4096\n"))...)
+	assert.EqualValues(t, 4096, rf.cfg.Load().MaxDataBytes)
 }

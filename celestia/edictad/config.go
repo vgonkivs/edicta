@@ -168,7 +168,12 @@ const (
 	defaultSubmitTimeoutS = 300
 	defaultUploadDrainS   = 120
 	defaultCloseTimeoutS  = 150
-	maxRecorderTimeoutS   = 3600
+	maxRecorderTimeoutS   = 600
+
+	// publishVisibleS and publishMarginS are what a publish may spend beyond
+	// the submit: the wait until the read nodes serve the anchor, and slack.
+	publishVisibleS = 60
+	publishMarginS  = 60
 
 	minFibreReadBytes = 64 << 10
 	maxFibreReadBytes = 1 << 30
@@ -314,7 +319,7 @@ func (c Config) FibreBridgeLimits() node.BridgeLimits { return c.FibreAnchorOpti
 func (c Config) FibreRecorderConfig(ns []byte, st archive.Store) recorder.FibreConfig {
 	return recorder.FibreConfig{
 		Namespace:        bytes.Clone(ns),
-		MaxDataBytes:     c.Fibre.MaxDataBytes,
+		MaxDataBytes:     min(c.Fibre.MaxDataBytes, c.Recorder.maxBlob()),
 		SubmitTimeout:    time.Duration(c.Recorder.SubmitTimeoutS) * time.Second,
 		UploadDrain:      time.Duration(c.Recorder.UploadDrainS) * time.Second,
 		EscrowMarginUtia: c.Recorder.EscrowMarginUtia,
@@ -563,4 +568,26 @@ func isLoopback(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// publishDeadline bounds one /v0/publish. With the da = fibre Recorder it
+// covers the whole submit and the visibility wait, which the common request
+// deadline would cut short.
+func (c Config) publishDeadline() time.Duration {
+	d := requestDeadline
+	if c.Network.DA == DAConfigFibre && c.Recorder.Enabled {
+		d = max(d, time.Duration(c.Recorder.SubmitTimeoutS+publishVisibleS+publishMarginS)*time.Second)
+	}
+	return d
+}
+
+// ShutdownBudget is a context length for Shutdown that fits what it waits
+// for: the longest request, the archive drain and the Recorder's close.
+func (c Config) ShutdownBudget() time.Duration {
+	c = c.WithDefaults()
+	d := c.publishDeadline() + time.Duration(c.Archive.WriteTimeoutS)*time.Second
+	if c.Network.DA == DAConfigFibre && c.Recorder.Enabled {
+		d += time.Duration(c.Recorder.CloseTimeoutS) * time.Second
+	}
+	return d + 10*time.Second
 }

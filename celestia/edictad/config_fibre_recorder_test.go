@@ -69,6 +69,9 @@ func TestFibreRecorderConfigRefusals(t *testing.T) {
 		{"close below drain", rep("close_timeout_s = 120", "close_timeout_s = 99")},
 		{"submit timeout absurd", rep("submit_timeout_s = 200", "submit_timeout_s = 1099511627776")},
 		{"drain absurd", rep("upload_drain_s = 100", "upload_drain_s = 1099511627776")},
+		{"submit above the ceiling", rep("submit_timeout_s = 200", "submit_timeout_s = 601")},
+		{"drain above the ceiling", rep("upload_drain_s = 100", "upload_drain_s = 601")},
+		{"close above the ceiling", rep("close_timeout_s = 120", "close_timeout_s = 601")},
 		{"close absurd", rep("close_timeout_s = 120", "close_timeout_s = 1099511627776")},
 	}
 	for _, tc := range cases {
@@ -135,4 +138,17 @@ func TestFibreRecorderConfigFromTheKeys(t *testing.T) {
 	assert.True(t, fc.OwnNode)
 	assert.True(t, fc.Archive == st, "the Recorder writes to the gate's archive")
 	require.NoError(t, fc.WithDefaults().ValidateBasic())
+}
+
+func TestShutdownBudgetCoversTheDeadlinesItWaitsFor(t *testing.T) {
+	e := newEnv(t)
+	c, err := parseFibreRec(t, e)
+	require.NoError(t, err)
+	// publish (submit 200 + 120) + archive write + close 120 + slack
+	want := (200 + 120 + int(c.WithDefaults().Archive.WriteTimeoutS) + 120 + 10) * int(time.Second)
+	assert.EqualValues(t, want, c.ShutdownBudget())
+
+	blob, err := edictad.ParseConfig([]byte(e.tomlOf()))
+	require.NoError(t, err)
+	assert.Greater(t, blob.ShutdownBudget(), 2*time.Minute)
 }

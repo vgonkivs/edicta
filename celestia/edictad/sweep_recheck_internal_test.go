@@ -171,3 +171,19 @@ func TestPanicAfterTheMarkIsRepairedOnALaterTick(t *testing.T) {
 	st.mu.Unlock()
 	assert.True(t, repaired, "a later tick writes the Authorization record")
 }
+
+// A request can start its hold between recheckHeld's own check and the one in
+// entry; entry must then say the entry is not settled, or recheckHeld would
+// forget it.
+func TestEntryDeferringToAHoldReportsItUnsettled(t *testing.T) {
+	mine := entryOf(9)
+	sw := newSweeper(&memStore{}, &memLister{})
+	sw.q.begin(mine.CommitmentHash)
+
+	assert.False(t, sw.entry(context.Background(), mine, &sweepStats{}))
+	assert.Contains(t, sw.recheck, mine.Key, "the entry stays for the next look")
+
+	sw.recheck = map[registry.Key]registry.Entry{mine.Key: mine}
+	sw.recheckHeld(context.Background(), &sweepStats{})
+	assert.Contains(t, sw.recheck, mine.Key, "still held: kept")
+}

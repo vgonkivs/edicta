@@ -132,14 +132,15 @@ func (s *sweeper) hold(e registry.Entry) {
 }
 
 // entry repairs the archive record of one registry entry. It reports false
-// if the entry has to be looked at again.
+// if the entry has to be looked at again, including when a request holds it:
+// the hold can start between recheckHeld's own check and this one.
 func (s *sweeper) entry(ctx context.Context, e registry.Entry, st *sweepStats) bool {
 	if s.q.queued(e.CommitmentHash) {
 		return true
 	}
 	if s.q.holds(e.CommitmentHash) {
 		s.hold(e)
-		return true
+		return false
 	}
 	rctx, cancel := context.WithTimeout(ctx, s.timeout)
 	_, err := s.io.authorization(rctx, e.CommitmentHash)

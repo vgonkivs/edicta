@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"github.com/pelletier/go-toml/v2"
@@ -76,7 +75,7 @@ func run() error {
 		return err
 	}
 	<-ctx.Done()
-	sctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	sctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownBudget())
 	defer cancel()
 	return srv.Shutdown(sctx)
 }

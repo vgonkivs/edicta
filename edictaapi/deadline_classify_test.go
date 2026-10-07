@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/sdk"
 )
@@ -40,4 +42,19 @@ func TestOnlyTheHandlersOwnDeadlineIs504(t *testing.T) {
 	}
 	e.h = edictaapi.NewHandler(e.gate, e.pub, e.allow, e.quota, e.health, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	requireErr(t, e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("a"))), 504, "edictaapi.ErrDeadline", true)
+}
+
+func TestPublishHasItsOwnDeadline(t *testing.T) {
+	sk, pubHex := testKey(1)
+	e := newEnv(t, map[string]string{"agent-a": pubHex})
+	cfg := e.cfg
+	cfg.RequestTimeout = time.Nanosecond
+	cfg.PublishTimeout = time.Minute
+	e.pub.fn = func(ctx context.Context, _ []byte) (sdk.Published, error) {
+		<-time.After(20 * time.Millisecond)
+		return sdk.Published{}, ctx.Err()
+	}
+	e.h = edictaapi.NewHandler(e.gate, e.pub, e.allow, e.quota, e.health, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	rec := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("a")))
+	assert.NotEqual(t, 504, rec.Code, "the request deadline does not apply to publish")
 }

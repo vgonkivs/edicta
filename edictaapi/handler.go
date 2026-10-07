@@ -57,6 +57,9 @@ type HandlerConfig struct {
 	// RequestTimeout bounds each request; expiry is reported as ErrDeadline.
 	// Zero means no timeout beyond the request context.
 	RequestTimeout time.Duration
+	// PublishTimeout, when set, replaces RequestTimeout for /v0/publish: a
+	// publish waits on a network upload that can outlast an authorization.
+	PublishTimeout time.Duration
 }
 
 type handler struct {
@@ -153,9 +156,13 @@ func (h *handler) serve(r *http.Request) (res response) {
 	}
 
 	ctx := r.Context()
-	if h.cfg.RequestTimeout > 0 {
+	timeout := h.cfg.RequestTimeout
+	if r.URL.Path == "/v0/publish" && h.cfg.PublishTimeout > 0 {
+		timeout = h.cfg.PublishTimeout
+	}
+	if timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, h.cfg.RequestTimeout)
+		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
 	if method == http.MethodGet {

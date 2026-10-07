@@ -294,19 +294,30 @@ defaults that apply only to this mode:
 
 - `own_node`: must be `true`.
 - `escrow_margin_utia` (default 0): kept in the escrow on top of the cost of an
-  upload.
-- `submit_timeout_s` (default 300): bound of one submit.
-- `upload_drain_s` (default 120): how long shard uploads may continue after the
-  submit returns.
-- `close_timeout_s` (default 150, not below `upload_drain_s`): the bound of the wait
-  for draining uploads at shutdown.
+  upload. Set it to at least the cost of one upload for every drain slot (two), so
+  a submit whose outcome is still unknown cannot leave a later one failing on
+  chain and wasting its fee.
+- `submit_timeout_s` (default 300, 1..600): bound of one submit. `/v0/publish` has
+  its own deadline of `submit_timeout_s + 120` seconds, so the submit is not cut
+  short by the 2 minute deadline of the other routes.
+- `upload_drain_s` (default 120, 1..600): how long shard uploads may continue after
+  the submit returns. Each publish holds one of two drain slots for that long, so
+  throughput is at most two publishes per `upload_drain_s`; a third waits for a
+  slot and answers `deadline` if none frees in time.
+- `close_timeout_s` (default 150, 1..600, not below `upload_drain_s`): the bound of
+  the wait for draining uploads at shutdown.
 
 `recorder.max_blob_bytes` may not exceed `fibre.max_data_bytes`. With
 `celestia_blob`, or with the Recorder disabled, these keys must be absent. At
 shutdown edictad stops the HTTP server and waits for requests, then calls the
 Recorder's `Close`, which waits for draining uploads up to `close_timeout_s` and
 then cancels them, then closes the signing client and the registry. A `Close` error
-is logged and returned and does not skip the rest.
+is logged and returned and does not skip the rest. If requests are still running
+when the shutdown context ends, they are cut off and the rest is closed anyway.
+The daemon allows itself the longest request, `write_timeout_s` and
+`close_timeout_s` plus 10 seconds, which is `submit_timeout_s + 120 +
+write_timeout_s + close_timeout_s + 10` seconds with the defaults. Set the unit's
+`TimeoutStopSec` above that, or the process manager kills the drain.
 
 The Recorder never deposits or withdraws; an escrow below the cost of an upload
 fails the publish with `recorder.ErrEscrowInsufficient` (see below).
@@ -337,6 +348,9 @@ Edicta builds, so the escrow only changes by a deposit you make. A withdrawal
 takes effect after the x/fibre `withdrawal_delay`, 24 h by default but a governance
 parameter that can be raised to 7 days; read the current value with
 `celestia-appd query fibre params`.
+
+The Recorder's `ErrClockSkew` and `ErrAnchorRejected` are reported to clients as the
+generic internal error; the log names them.
 
 An upload whose payment promise is handed to validators but never settled may still
 be charged once, so a failed upload can cost one fee without creating an anchor.

@@ -159,26 +159,28 @@ func (s *Server) Addr() string { return s.addr }
 
 // Shutdown stops accepting and lets in-flight requests finish. Then it makes
 // the last attempt to write queued records, stops the background work, closes
-// the Recorder (bounded by recorder.close_timeout_s), the signing client, the
-// gate and the registry, in that order. If ctx ends during the HTTP phase or
-// the record drain it returns ctx's error; the rest is still closed after the
-// drain, and a failed HTTP phase may be retried. A Recorder close failure is
-// logged and returned and never skips what follows. After a shutdown that got
-// past the HTTP phase it returns nil.
+// the Recorder (bounded by recorder.close_timeout_s and by ctx), the signing
+// client, the gate and the registry, in that order. If ctx ends while requests
+// are still running they are cut off and the rest is closed anyway, so every
+// call closes everything once; the returned error joins what failed: the HTTP
+// phase, the drain, and the Recorder, signing client and registry closes. A
+// Recorder close that ends early may leave an upload cancelled; its outcome is
+// resolved on the next publish. A second call returns nil.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return nil
 	}
+	var errs []error
 	if err := s.http.Shutdown(ctx); err != nil {
-		return fmt.Errorf("edictad: shutdown: %w", err)
+		_ = s.http.Close()
+		errs = append(errs, fmt.Errorf("edictad: shutdown: %w", err))
 	}
 	<-s.served
 	s.closed = true
 	s.stop()
 	s.bg.Wait()
-	var errs []error
 	if s.drain != nil {
 		if err := s.drain(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("edictad: archive drain: %w", err))
@@ -189,6 +191,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	if err := s.signing.Close(); err != nil {
 		s.log.Error("edictad: closing the signing client", "err", err)
+		errs = append(errs, fmt.Errorf("edictad: closing the signing client: %w", err))
 	}
 	_ = s.gate.Close()
 	if err := s.reg.Close(); err != nil {
@@ -197,13 +200,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// closeRecorder closes the da = 1 Recorder within recorder.close_timeout_s,
-// whether or not ctx has ended: the uploads still need their drain.
+// closeRecorder closes the da = 1 Recorder within recorder.close_timeout_s and
+// ctx, whichever ends first.
 func (s *Server) closeRecorder(ctx context.Context) error {
 	if s.rec == nil {
 		return nil
 	}
-	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.closeTimeout)
+	cctx, cancel := context.WithTimeout(ctx, s.closeTimeout)
 	defer cancel()
 	if err := s.rec.Close(cctx); err != nil {
 		s.log.Error("edictad: closing the fibre recorder", "err", err)
@@ -252,11 +255,18 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 	srv, err := start(ctx, cfg, d, signing)
 	if err != nil {
 		if cerr := signing.Close(); cerr != nil {
-			slog.Default().Error("edictad: closing the signing client", "err", cerr)
+			startLogger(d).Error("edictad: closing the signing client", "err", cerr)
 		}
 		return nil, err
 	}
 	return srv, nil
+}
+
+func startLogger(d Deps) *slog.Logger {
+	if d.Logger != nil {
+		return d.Logger
+	}
+	return slog.Default()
 }
 
 func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Server, error) {
@@ -485,6 +495,7 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 		GateKeys:       [][]byte{signer.PublicKey()},
 		ExtraErrors:    recorderErrors,
 		RequestTimeout: requestDeadline,
+		PublishTimeout: cfg.publishDeadline(),
 	}
 	var pub sdk.Publisher
 	var quota edictaapi.Quota
