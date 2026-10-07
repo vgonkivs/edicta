@@ -1,5 +1,7 @@
 # Edicta on Celestia: running the live demo
 
+Looking for the one-command demo? See [demo/README.md](demo/README.md) (`edicta demo`). This page covers the older, manual `edicta-live` runner.
+
 This module holds the Celestia side of Edicta: the Recorder, the chain client
 for the gate, the executor's transaction signer, the `edictad` daemon and the
 `edicta-live` runner. The demo runs against any Celestia network you have

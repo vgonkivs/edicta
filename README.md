@@ -90,7 +90,9 @@ production-ready.
 
 ## Try it
 
-The live demo, step by step: [celestia/README.md](celestia/README.md).
+One-command demo on Mocha (`edicta demo`): [celestia/demo/README.md](celestia/demo/README.md).
+
+The older manual runner (`edicta-live`), step by step: [celestia/README.md](celestia/README.md).
 
 Tests, from the repository root:
 
