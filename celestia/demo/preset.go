@@ -180,11 +180,14 @@ func (p Preset) CheckTrustRootHost() error {
 	for _, d := range data {
 		h, err := urlHost(d)
 		if err != nil {
-			continue
+			return fmt.Errorf("%w: endpoint %q: %v", ErrConfig, d, err)
 		}
 		if h == root {
 			return fmt.Errorf("%w: %s", ErrTrustRootNotIndependent, root)
 		}
+	}
+	if !strings.HasPrefix(v.TrustRootAPI, "https://") {
+		return fmt.Errorf("%w: the trust-root source must be an https URL", ErrConfig)
 	}
 	return nil
 }

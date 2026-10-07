@@ -91,6 +91,11 @@ func (r *Runner) runVerify(ctx context.Context, args []string, root TrustRootInf
 	if code == 4 || v.Error != "" {
 		return res, coded(ExitUsage, fmt.Errorf("demo: the verifier could not run: %s", v.Error))
 	}
+	want := map[string]int{string(verifier.VerdictValid): 0, string(verifier.VerdictInvalid): 1,
+		string(verifier.VerdictUnchecked): 2, string(verifier.VerdictNotAuthorized): 3}
+	if c, ok := want[v.Verdict]; ok && c != code {
+		return res, coded(ExitUsage, fmt.Errorf("demo: the verifier exit code %d does not match its verdict %q", code, v.Verdict))
+	}
 	switch v.Verdict {
 	case string(verifier.VerdictValid):
 		res.Verdict = VerdictValid

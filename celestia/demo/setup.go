@@ -238,6 +238,9 @@ func (r *Runner) openFunder(ctx context.Context) error {
 		sc.Info(fmt.Sprintf("Lifetime funding cap for %s: %d utia (preset %d, sent so far %d).",
 			r.funder.addr, r.cfg.MaxTotalFunding, r.presetBase.Funding.MaxTotalAmount, readTotalSent(r.statePath())))
 		if !r.cfg.YesFundingCap {
+			if err := r.deps.Console.Flush(); err != nil {
+				return coded(ExitUsage, err)
+			}
 			ans, err := r.deps.Console.WaitEnter(ctx, "Enter = accept the cap, q = quit")
 			if err != nil {
 				return err
@@ -430,6 +433,9 @@ func (r *Runner) fundAndStart(ctx context.Context) error {
 		sc.Info(fmt.Sprintf("[funding] will move %d utia from %s (recorder %d, executor %d, fees %d)", b.Total, r.funder.addr, b.Recorder, b.Executor, b.FunderFees))
 		sc.Info(fmt.Sprintf("The funder holds %d. Fund %s (%s)", have.Funder, r.funder.addr, r.preset.FaucetHint))
 		prompt = fmt.Sprintf("Will move %d utia from %s. Fund it, then press Enter to start.", b.Total, r.funder.addr)
+	}
+	if err := r.deps.Console.Flush(); err != nil {
+		return coded(ExitUsage, err)
 	}
 	ans, err := r.deps.Console.WaitEnter(ctx, prompt)
 	if err != nil {

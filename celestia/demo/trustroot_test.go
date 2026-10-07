@@ -136,3 +136,10 @@ func TestConfigValidation(t *testing.T) {
 	c.Funder.KeyName = "k"
 	require.ErrorIs(t, c.ValidateBasic(), ErrConfig)
 }
+
+func TestTrustRootOverrideNeedsHTTPS(t *testing.T) {
+	p, err := LoadPreset("mocha")
+	require.NoError(t, err)
+	q := p.Apply(PresetOverrides{TrustRootAPI: "http://api.example.invalid/block/{height}"})
+	require.ErrorIs(t, q.CheckTrustRootHost(), ErrConfig)
+}

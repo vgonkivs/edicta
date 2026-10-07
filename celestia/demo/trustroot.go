@@ -39,6 +39,15 @@ func NewCeleniumTrustRoot(apiTemplate, pageTemplate, name string, hc *http.Clien
 	if hc == nil {
 		hc = &http.Client{Timeout: 15 * time.Second}
 	}
+	// A redirect to another host would skip the host-independence check.
+	cp := *hc
+	cp.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req.URL.Host != via[0].URL.Host || req.URL.Scheme != "https" {
+			return errors.New("demo: the trust-root source redirected to another host")
+		}
+		return nil
+	}
+	hc = &cp
 	return &celenium{api: apiTemplate, page: pageTemplate, name: name, hc: hc}, nil
 }
 

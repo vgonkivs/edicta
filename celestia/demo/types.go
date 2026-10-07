@@ -50,6 +50,9 @@ const (
 
 // Console is the operator's keyboard.
 type Console interface {
+	// Flush drops pending input. It is called before the cap and start
+	// prompts so that a queued Enter cannot answer them.
+	Flush() error
 	// WaitEnter returns on an Enter or on q. Nothing else answers it.
 	WaitEnter(ctx context.Context, prompt string) (Answer, error)
 	// Passphrase reads without echo.

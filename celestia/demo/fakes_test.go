@@ -120,9 +120,19 @@ type fakeConsole struct {
 	confirms []bool
 	prompts  []string
 	pass     secret.Secret
+	// stale are Enters typed before the prompt; Flush drops them.
+	stale   []Answer
+	flushed int
 }
 
+func (c *fakeConsole) Flush() error { c.stale, c.flushed = nil, c.flushed+1; return nil }
+
 func (c *fakeConsole) WaitEnter(_ context.Context, p string) (Answer, error) {
+	if len(c.stale) > 0 {
+		a := c.stale[0]
+		c.stale = c.stale[1:]
+		return a, nil
+	}
 	c.prompts = append(c.prompts, p)
 	if len(c.enters) == 0 {
 		return 0, errors.New("fakeConsole: nobody answers")

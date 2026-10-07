@@ -21,6 +21,8 @@ type TerminalConsole struct {
 	out     io.Writer
 	rd      *bufio.Reader
 	pending chan lineResult
+	// stale marks a read that started before a Flush; its line is dropped.
+	stale bool
 }
 
 type lineResult struct {
@@ -51,11 +53,29 @@ func (c *TerminalConsole) line(ctx context.Context) (string, error) {
 		return "", ctx.Err()
 	case res := <-c.pending:
 		c.pending = nil
+		if c.stale {
+			c.stale = false
+			return c.line(ctx)
+		}
 		if res.err != nil && res.s == "" {
 			return "", fmt.Errorf("demo: reading the terminal: %w", res.err)
 		}
 		return res.s, nil
 	}
+}
+
+// Flush drops everything typed so far, so an early keystroke is never taken
+// as the answer to a prompt shown later. It fails if the input cannot be
+// flushed, and the caller must then not ask for consent.
+func (c *TerminalConsole) Flush() error {
+	if err := flushInput(int(c.in.Fd())); err != nil {
+		return fmt.Errorf("demo: flushing the terminal input: %w", err)
+	}
+	c.rd.Reset(c.in)
+	if c.pending != nil {
+		c.stale = true
+	}
+	return nil
 }
 
 func (c *TerminalConsole) WaitEnter(ctx context.Context, prompt string) (Answer, error) {

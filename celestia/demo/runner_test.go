@@ -207,3 +207,17 @@ func steppingClock() func() time.Time {
 		return t
 	}
 }
+
+func TestQueuedEnterNeverArms(t *testing.T) {
+	e := newTestEnv(t)
+	e.chain.balances[testFunder] = 10_000_000
+	e.console.stale = []Answer{AnswerContinue, AnswerContinue}
+	e.console.enters = []Answer{AnswerQuit}
+	r := e.startState(t)
+	err := r.fundAndStart(context.Background())
+	require.ErrorIs(t, err, ErrOperatorQuit, "the answer is the one given after the prompt")
+	assert.Equal(t, 1, e.console.flushed)
+	assert.Empty(t, e.console.stale)
+	assert.Empty(t, e.funding.sends)
+	require.ErrorIs(t, r.consent.Check(), railtx.ErrNotStarted)
+}
