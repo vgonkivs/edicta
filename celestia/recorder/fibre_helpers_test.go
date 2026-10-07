@@ -34,7 +34,7 @@ const (
 	// enough to scan in a test; the settle span is the configured settle
 	// blocks unless fibreWindow plus the freshness margin is larger.
 	fibreWindow = 300
-	fibreSettle = 1024
+	fibreSettle = 1066
 	fibreSpan   = fibreSettle
 	// startHead is above the promise height of the live PFF.
 	startHead = uint64(1402815)
@@ -117,7 +117,7 @@ func (f *fibreFx) cfg(st archive.Store) recorder.FibreConfig {
 	return recorder.FibreConfig{
 		Namespace: f.l.Ref.Namespace, MaxDataBytes: 1 << 10, SubmitTimeout: 5 * time.Second,
 		UploadDrain: time.Hour, MaxDraining: 8, VisibleTimeout: 50 * time.Millisecond, PollInterval: time.Millisecond,
-		ScanBlocks: 1024, SettleBlocks: fibreSettle, OwnNode: true, Archive: st, Now: f.now,
+		ScanBlocks: 2048, SettleBlocks: fibreSettle, OwnNode: true, Archive: st, Now: f.now,
 	}
 }
 

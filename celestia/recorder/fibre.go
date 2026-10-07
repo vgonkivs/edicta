@@ -38,9 +38,10 @@ const (
 	fibreGasPerRow = 45_000
 	fibreRowBytes  = 262_144
 
-	// fibreSettleFloor is above the promise height window of the known
-	// networks (1000 blocks) by more than fibreFreshnessBlocks.
-	fibreSettleFloor = 1024
+	// fibreSettleFloor is the promise height window of the known networks
+	// (1000 blocks) plus the two blocks the span adds and
+	// fibreFreshnessBlocks.
+	fibreSettleFloor = 1000 + 2 + fibreFreshnessBlocks
 	// fibreFreshnessBlocks covers how far the first head seen for a blob may
 	// lag the head an earlier process read (headFreshness plus the clock
 	// skew bound, at the fastest expected block time).
@@ -131,7 +132,7 @@ func (c FibreConfig) WithDefaults() FibreConfig {
 		c.ScanBlocks = scanFloor
 	}
 	if c.SettleBlocks == 0 {
-		c.SettleBlocks = settleDefault
+		c.SettleBlocks = fibreSettleFloor
 	}
 	if c.MaxClockSkew <= 0 {
 		c.MaxClockSkew = 60 * time.Second

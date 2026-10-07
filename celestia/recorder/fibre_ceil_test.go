@@ -21,6 +21,7 @@ type headHook struct {
 	recorder.FibreChain
 	mu       sync.Mutex
 	armed    bool
+	low      bool
 	deadline []time.Duration
 	noDL     int
 }
@@ -38,6 +39,10 @@ func (h *headHook) LatestHeight(ctx context.Context) (uint64, error) {
 	h.mu.Unlock()
 	if !armed {
 		return h.FibreChain.LatestHeight(ctx)
+	}
+	if h.low {
+		v, err := h.FibreChain.LatestHeight(ctx)
+		return v - 1, err
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -100,6 +105,40 @@ func TestFibreUnknownCeilingIsNeverReadyBeforeAHeadWasReadAfterTheAttempt(t *tes
 	assert.Equal(t, 1, f.sub.Calls(), "the late PFF is found, never paid twice")
 	assert.Equal(t, late, pub.Ref.Height)
 	requireVerifies(t, f, st, late)
+}
+
+// A head below the one read before the submit is as useless as a failed
+// read: it says nothing about where the chain was during the attempt.
+func TestFibrePostSubmitHeadBelowTheEarlierOneKeepsTheCeilingUnknown(t *testing.T) {
+	f := newFibreFx(t)
+	st := f.openArchive(t.TempDir())
+	var hook *headHook
+	late := startHead + 1200
+	f.sub.Plan = seq(func(int, []byte, []byte) nodefake.SubmitPlan {
+		hook.arm()
+		return nodefake.SubmitPlan{Err: node.ErrUnavailable}
+	}, f.ok(late+fibreSpan))
+	var rec *recorder.FibreRecorder
+	rec, hook = f.newRecWithHook(f.cfg(st))
+	hook.low = true
+
+	_, err := rec.Publish(bg, f.blob)
+	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
+	require.Equal(t, 1, f.sub.Calls())
+
+	for _, h := range []uint64{startHead + 900, startHead + 1100, startHead + 1100} {
+		f.grow(h)
+		_, err = rec.Publish(bg, f.blob)
+		require.ErrorIs(t, err, recorder.ErrOutcomeUnknown, "head %d", h)
+		require.Equal(t, 1, f.sub.Calls(), "no second submit while the ceiling is unknown")
+	}
+
+	f.grow(late)
+	f.landLater(late)
+	pub, err := publishUntil(t, f, rec, 6)
+	require.NoError(t, err)
+	assert.Equal(t, 1, f.sub.Calls())
+	assert.Equal(t, late, pub.Ref.Height)
 }
 
 func TestFibreUnknownCeilingStillResubmitsOnceAHeadAfterTheAttemptIsPastTheWindow(t *testing.T) {

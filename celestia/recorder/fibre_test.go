@@ -34,7 +34,7 @@ func TestFibreConfigDefaults(t *testing.T) {
 	assert.Equal(t, 60*time.Second, c.VisibleTimeout)
 	assert.Equal(t, time.Second, c.PollInterval)
 	assert.GreaterOrEqual(t, c.ScanBlocks, uint64(1024))
-	assert.EqualValues(t, 1024, c.SettleBlocks)
+	assert.EqualValues(t, 1066, c.SettleBlocks)
 	assert.Equal(t, 60*time.Second, c.MaxClockSkew)
 	assert.Equal(t, 4096, c.MaxPending)
 
@@ -55,7 +55,7 @@ func TestFibreConfigValidateBasic(t *testing.T) {
 		{"own node not attested", func(c *recorder.FibreConfig) { c.OwnNode = false }},
 		{"short namespace", func(c *recorder.FibreConfig) { c.Namespace = ns[:28] }},
 		{"reserved namespace", func(c *recorder.FibreConfig) { c.Namespace = make([]byte, 29) }},
-		{"settle below the floor", func(c *recorder.FibreConfig) { c.SettleBlocks = 255 }},
+		{"settle below the floor", func(c *recorder.FibreConfig) { c.SettleBlocks = 1065 }},
 		{"settle of one", func(c *recorder.FibreConfig) { c.SettleBlocks = 1 }},
 	}
 	for _, tc := range tests {
@@ -67,7 +67,7 @@ func TestFibreConfigValidateBasic(t *testing.T) {
 	}
 	t.Run("the settle floor is accepted", func(t *testing.T) {
 		c := good
-		c.SettleBlocks = 1024
+		c.SettleBlocks = 1066
 		require.NoError(t, c.ValidateBasic())
 	})
 	t.Run("the own node refusal says what to set", func(t *testing.T) {

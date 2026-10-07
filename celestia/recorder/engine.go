@@ -317,7 +317,7 @@ func (g *engine) run(ctx context.Context, b backend, key pendingKey, e *entry, c
 		later, _, herr := b.head(hctx)
 		hcancel()
 		g.mu.Lock()
-		if herr != nil {
+		if herr != nil || later < e.maxHead {
 			e.ceilUnknown = true
 		} else {
 			e.ceil = max(e.ceil, later)
