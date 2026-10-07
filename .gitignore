@@ -26,3 +26,4 @@ spec/vectors/tools/*/fibrecert-gen
 celestia/cmd/*/edicta-*
 celestia/cmd/*/edictad
 !celestia/cmd/*/*.go
+spec/vectors/tools/*/fibreanchor-gen
