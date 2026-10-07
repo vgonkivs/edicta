@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/verifier/reasons.json (v0-draft.27).
+"""Writes spec/vectors/verifier/reasons.json (v0-draft.28).
 
 The machine-readable reason enum of core section 20.1.1 and one case per
 reason: the check it is reported on, the scenario as overrides of a valid,
@@ -83,12 +83,13 @@ REASONS = [
      "another tx source"),
     ("tx_proof_invalid", "execution", ["execution"], "BX6: the inclusion proof does not verify.", "another tx source"),
     ("result_unproven", "execution", ["execution"],
-     "The result code is attested by one source: no result proof and no cross confirmation (EX9).",
-     "a source that serves block_results, or a cross tx source"),
+     "The result code is not proven: no inclusion proof, or no source served block_results (RP1, RP2). It is "
+     "attested by one source or confirmed only by agreeing sources, and neither gives pass (EX9).",
+     "a tx source that serves inclusion proofs and a source that serves block_results"),
     ("results_root_mismatch", "execution", ["execution"], "RP4: the results do not hash to last_results_hash.",
      "another results source"),
     ("result_index_unbound", "execution", ["execution"], "RP5: nothing binds the tx's index in the results.",
-     "a cross tx source"),
+     "a source that serves the block's txs (/block)"),
     ("result_header_unreachable", "execution", ["execution"], "RP4: the header at height + 1 is not trusted.",
      "retry later or with a newer checkpoint"),
     ("code_unproven", "execution", ["execution"], "A nonzero code that no result proof verifies (EX9).",
@@ -247,7 +248,7 @@ def build() -> dict:
     ]
     return {
         "format": "edicta-vectors/v0",
-        "revision": "v0-draft.27",
+        "revision": "v0-draft.28",
         "generator": "spec/vectors/check/gen_verifier_reasons.py",
         "description": (
             "Reason enum of core 20.1.1 and one case per reason. Each case starts from a valid, authorized "

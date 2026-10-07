@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v0",
-  "revision": "v0-draft.27",
+  "revision": "v0-draft.28",
   "generator": "spec/vectors/check/gen_verifier_reasons.py",
   "description": "Reason enum of core 20.1.1 and one case per reason. Each case starts from a valid, authorized decision with a trusted header and changes what setup says; refs give concrete bytes where a vector has them. expect gives the check that carries the reason, its status, the record state and the verdict with its exit code. boundary lists verified data that proves a violation and stays fail.",
   "reasons": [
@@ -239,8 +239,8 @@
       "checks": [
         "execution"
       ],
-      "meaning": "The result code is attested by one source: no result proof and no cross confirmation (EX9).",
-      "advice": "a source that serves block_results, or a cross tx source"
+      "meaning": "The result code is not proven: no inclusion proof, or no source served block_results (RP1, RP2). It is attested by one source or confirmed only by agreeing sources, and neither gives pass (EX9).",
+      "advice": "a tx source that serves inclusion proofs and a source that serves block_results"
     },
     {
       "name": "results_root_mismatch",
@@ -258,7 +258,7 @@
         "execution"
       ],
       "meaning": "RP5: nothing binds the tx's index in the results.",
-      "advice": "a cross tx source"
+      "advice": "a source that serves the block's txs (/block)"
     },
     {
       "name": "result_header_unreachable",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/verifier/execution_outcomes.json (v0-draft.27).
+"""Verifies spec/vectors/verifier/execution_outcomes.json (v0-draft.28).
 
 - structure: format, revision, keys of every section and case, value sets,
   unique ids, decimal uints, lower-case hex;
@@ -21,7 +21,8 @@
   recomputes execution, header_trust, verdict, exit code, cause, sentinel,
   inclusion, cross_check, proven_execution, the normative source results and
   the named sources;
-- coverage: at least one case per cause.
+- coverage: at least one case per cause; a pass only with a proven result;
+  cross agreement without a result proof never passes.
 
 Usage: python3 spec/vectors/check/check_execution_outcomes.py [--file FILE]
 """
@@ -45,8 +46,8 @@ from profile_bank_send import _read_varint, action_decode, check_body
 HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
 FORMAT = "edicta-vectors/v0"
-REVISION = "v0-draft.27"
-PROFILE_REVISION = "bank-send-v0-draft.6"
+REVISION = "v0-draft.28"
+PROFILE_REVISION = "bank-send-v0-draft.7"
 
 UNCHECKED_CAUSES = {
     "tx_not_found": "railverify.ErrTxNotFound",
@@ -79,8 +80,9 @@ CASE_OPTIONAL = {"rail_ref", "checker_chain_id", "trusted_chain_id", "checkpoint
                  "result_proof"}
 EXPECT_KEYS = {"execution", "header_trust", "verdict", "exit", "cause", "sentinel", "inclusion", "result",
                "cross_check", "proven_execution", "source_results"}
-RP_STATES = {"unavailable", "match_indexed", "match_uniform", "match_unindexed", "root_mismatch",
-             "header_unreachable"}
+RP_STATES = {"unavailable", "match_indexed", "match_rebuilt", "match_uniform", "match_unindexed",
+             "match_rebuild_mismatch", "root_mismatch", "header_unreachable"}
+RP_PROVEN = {"match_indexed", "match_rebuilt", "match_uniform"}
 HEX = re.compile(r"^(?:[0-9a-f]{2})*$")
 UINT = re.compile(r"^(0|[1-9][0-9]*)$")
 
@@ -228,7 +230,7 @@ def classify(c: dict, d: dict, txs: dict, msg: bytes, ch: bytes) -> dict:
     out["cross_check"] = ("off" if not agg else "mismatch" if "disagree" in agg else
                           "unavailable" if "fault" in agg else "pass")
     cross_pass = out["cross_check"] == "pass"
-    result_proven = proven and rpf["state"] in ("match_indexed", "match_uniform")
+    result_proven = proven and rpf["state"] in RP_PROVEN
     code = uint(rpf["code"]) if result_proven else uint(a["code"])
     out["result"] = "proven" if result_proven else "cross-confirmed" if cross_pass else "node-attested"
     chain_differs = trusted_chain != action_chain
@@ -247,10 +249,10 @@ def classify(c: dict, d: dict, txs: dict, msg: bytes, ch: bytes) -> dict:
     if not result_proven:
         if code != 0:
             return done("unchecked", "code_unproven")
-        if not cross_pass:
-            cause = {"root_mismatch": "results_root_mismatch", "match_unindexed": "result_index_unbound",
-                     "header_unreachable": "result_header_unreachable"}.get(rpf["state"]) if proven else None
-            return done("unchecked", cause or "result_unproven")
+        cause = {"root_mismatch": "results_root_mismatch", "match_unindexed": "result_index_unbound",
+                 "match_rebuild_mismatch": "result_index_unbound",
+                 "header_unreachable": "result_header_unreachable"}.get(rpf["state"]) if proven else None
+        return done("unchecked", cause or "result_unproven")
     names.clear()
     return done("pass", "none")
 
@@ -445,8 +447,8 @@ def check(path: Path) -> str:
         expect(c["rail_ref_of"] in txs, f"{cid}: rail_ref_of")
         expect(c.get("header_at_tx_height", "trusted") in ("trusted", "not_linking", "cross_mismatch"), f"{cid}: header")
         rpf = c.get("result_proof", {"state": "unavailable"})
-        expect(rpf["state"] in RP_STATES and set(rpf) == ({"state", "code"} if rpf["state"].startswith(
-            "match_") and rpf["state"] != "match_unindexed" else {"state"}), f"{cid}: result_proof")
+        expect(rpf["state"] in RP_STATES and set(rpf) == ({"state", "code"} if rpf["state"] in RP_PROVEN
+                                                          else {"state"}), f"{cid}: result_proof")
         names = [s["name"] for s in c["sources"]]
         expect(len(names) == len(set(names)), f"{cid}: source names repeat")
         roles = [s["role"] for s in c["sources"]]
@@ -478,6 +480,16 @@ def check(path: Path) -> str:
     expect(not missing, f"causes without a case: {sorted(missing)}")
     for e in (c["expect"] for c in f["cases"]):
         expect(e["verdict"] != "invalid" or e["execution"] == "fail", "invalid only from an execution fail")
+        expect(e["execution"] != "pass" or (e["result"] == "proven" and e["inclusion"] == "proven"),
+               "pass only with proven inclusion and a proven result")
+    expect(any(c["expect"]["result"] == "cross-confirmed" and c["expect"]["execution"] == "unchecked"
+               and c["expect"]["inclusion"] == "node-attested" for c in f["cases"]),
+           "a cross-confirmed case without inclusion proof that stays unchecked")
+    expect(any(c["expect"]["result"] == "cross-confirmed" and c["expect"]["execution"] == "unchecked"
+               and c["expect"]["inclusion"] == "proven" for c in f["cases"]),
+           "a cross-confirmed case with proven inclusion that stays unchecked")
+    expect(any(c.get("result_proof", {}).get("state") == "match_rebuilt" and c["expect"]["execution"] == "pass"
+               for c in f["cases"]), "an index bound by the rebuilt square")
     return f"{len(f['cases'])} cases, {n_proofs} proofs, {n_rp} result-proof mutations, {len(txs)} txs"
 
 

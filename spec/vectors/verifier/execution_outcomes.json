@@ -1,10 +1,10 @@
 {
   "format": "edicta-vectors/v0",
-  "revision": "v0-draft.27",
+  "revision": "v0-draft.28",
   "profile": "bank-send",
-  "profile_revision": "bank-send-v0-draft.6",
+  "profile_revision": "bank-send-v0-draft.7",
   "generator": "spec/vectors/check/gen_execution_outcomes.py",
-  "description": "Outcome table of the execution check (core 20.2, bank-send 3.4). Every case assumes that every other check passed and the record state is authorized, so the verdict follows from execution and header_trust alone. Defaults: rail_ref is SHA-256 of the transaction named by rail_ref_of; the checker and the trusted chain have the action's chain id; T is checkpoint_height; the header at the tx height is trusted; sources are asked in list order. proof 'valid' is an inclusion proof of the answer's bytes that passes BX6 against data_hash of the trusted header at the answer's height, 'invalid' one that fails it (forms: the proofs section), 'none' an absent proof. result_proof (default state 'unavailable': no source serves block_results) is the outcome of RP1 to RP6 for block H: 'match_indexed' (root equals last_results_hash of the trusted header at H + 1 and the share proof binds the index; code is the selected result's), 'match_uniform' (root matches, index unbound, every result has code), 'match_unindexed' (root matches, index unbound, codes differ), 'root_mismatch', 'header_unreachable' (H + 1 above T). Forms: the result_proof section.",
+  "description": "Outcome table of the execution check (core 20.2, bank-send 3.4). Every case assumes that every other check passed and the record state is authorized, so the verdict follows from execution and header_trust alone. Defaults: rail_ref is SHA-256 of the transaction named by rail_ref_of; the checker and the trusted chain have the action's chain id; T is checkpoint_height; the header at the tx height is trusted; sources are asked in list order. proof 'valid' is an inclusion proof of the answer's bytes that passes BX6 against data_hash of the trusted header at the answer's height, 'invalid' one that fails it (forms: the proofs section), 'none' an absent proof. result_proof (default state 'unavailable': no source serves block_results) is the outcome of RP1 to RP6 for block H: 'match_indexed' (root equals last_results_hash of the trusted header at H + 1 and the share proof binds the index; code is the selected result's), 'match_rebuilt' (root matches, the tx is not at share 0, and the block txs rebuild to data_hash and bind the index; code is the selected result's), 'match_uniform' (root matches, index unbound, every result has code), 'match_unindexed' (root matches, index unbound, codes differ, no source serves the block txs), 'match_rebuild_mismatch' (root matches, codes differ, the block txs served do not rebuild to data_hash), 'root_mismatch', 'header_unreachable' (H + 1 above T). Forms: the result_proof section. Cross agreement (result 'cross-confirmed') is reported only and never gives pass.",
   "defaults": {
     "action_ref": "profiles/bank-send/action.json#action_minimal_mocha",
     "signed_ref": "profiles/bank-send/tx.json#signed_minimal_mocha",
@@ -718,13 +718,18 @@
       }
     },
     {
-      "id": "pass_cross_confirmed_interim",
-      "description": "No proof and no result proof; two cross sources agree on height, bytes and code 0. Interim rule: cross confirmation stands in until the result proof is implemented. Never a node-attested pass.",
+      "id": "pass_proven_index_rebuilt",
+      "description": "The tx is not at share 0, so its share proof does not bind the index, and the results of block H have different codes. A source serves the txs of block H; rebuilt as ProcessProposal builds the square, they give data_hash of the trusted header at H, and the tx is a normal tx at a known index. That binds the index.",
       "rules": [
-        "EX9",
-        "BX8"
+        "RP5",
+        "RP6",
+        "EX9"
       ],
       "rail_ref_of": "authorized",
+      "result_proof": {
+        "state": "match_rebuilt",
+        "code": "0"
+      },
       "sources": [
         {
           "name": "tx-a.example",
@@ -734,29 +739,7 @@
             "tx": "authorized",
             "height": "6543290",
             "code": "0",
-            "proof": "none"
-          }
-        },
-        {
-          "name": "cross-x.example",
-          "role": "cross",
-          "answer": {
-            "kind": "tx",
-            "tx": "authorized",
-            "height": "6543290",
-            "code": "0",
-            "proof": "none"
-          }
-        },
-        {
-          "name": "cross-y.example",
-          "role": "cross",
-          "answer": {
-            "kind": "tx",
-            "tx": "authorized",
-            "height": "6543290",
-            "code": "0",
-            "proof": "none"
+            "proof": "valid"
           }
         }
       ],
@@ -767,14 +750,12 @@
         "exit": "0",
         "cause": "none",
         "sentinel": null,
-        "inclusion": "node-attested",
-        "result": "cross-confirmed",
-        "cross_check": "pass",
-        "proven_execution": false,
+        "inclusion": "proven",
+        "result": "proven",
+        "cross_check": "off",
+        "proven_execution": true,
         "source_results": {
-          "tx-a.example": "used",
-          "cross-x.example": "agree",
-          "cross-y.example": "agree"
+          "tx-a.example": "used"
         }
       }
     },
@@ -1312,6 +1293,169 @@
       "rail_ref_of": "authorized",
       "result_proof": {
         "state": "match_unindexed"
+      },
+      "sources": [
+        {
+          "name": "tx-a.example",
+          "role": "primary",
+          "answer": {
+            "kind": "tx",
+            "tx": "authorized",
+            "height": "6543290",
+            "code": "0",
+            "proof": "valid"
+          }
+        }
+      ],
+      "expect": {
+        "execution": "unchecked",
+        "header_trust": "pass",
+        "verdict": "unchecked",
+        "exit": "2",
+        "cause": "result_index_unbound",
+        "sentinel": null,
+        "inclusion": "proven",
+        "result": "node-attested",
+        "cross_check": "off",
+        "proven_execution": true,
+        "source_results": {
+          "tx-a.example": "used"
+        },
+        "names_sources": [
+          "tx-a.example"
+        ],
+        "suggest_other_source": true
+      }
+    },
+    {
+      "id": "unchecked_result_cross_confirmed_only",
+      "description": "No inclusion proof and no result proof; two cross sources agree on height, bytes and code 0. Agreement of sources is reported only: it never gives pass. Until v0-draft.27 this was the interim cross-confirmed pass.",
+      "rules": [
+        "EX9",
+        "EO3",
+        "BX8"
+      ],
+      "rail_ref_of": "authorized",
+      "sources": [
+        {
+          "name": "tx-a.example",
+          "role": "primary",
+          "answer": {
+            "kind": "tx",
+            "tx": "authorized",
+            "height": "6543290",
+            "code": "0",
+            "proof": "none"
+          }
+        },
+        {
+          "name": "cross-x.example",
+          "role": "cross",
+          "answer": {
+            "kind": "tx",
+            "tx": "authorized",
+            "height": "6543290",
+            "code": "0",
+            "proof": "none"
+          }
+        },
+        {
+          "name": "cross-y.example",
+          "role": "cross",
+          "answer": {
+            "kind": "tx",
+            "tx": "authorized",
+            "height": "6543290",
+            "code": "0",
+            "proof": "none"
+          }
+        }
+      ],
+      "expect": {
+        "execution": "unchecked",
+        "header_trust": "pass",
+        "verdict": "unchecked",
+        "exit": "2",
+        "cause": "result_unproven",
+        "sentinel": null,
+        "inclusion": "node-attested",
+        "result": "cross-confirmed",
+        "cross_check": "pass",
+        "proven_execution": false,
+        "source_results": {
+          "tx-a.example": "used",
+          "cross-x.example": "agree",
+          "cross-y.example": "agree"
+        },
+        "names_sources": [
+          "tx-a.example"
+        ],
+        "suggest_other_source": true
+      }
+    },
+    {
+      "id": "unchecked_result_cross_confirmed_inclusion_proven",
+      "description": "Inclusion is proven, no source serves block_results, and the cross source agrees on code 0. Proven inclusion does not make agreement proof of the result.",
+      "rules": [
+        "EX9",
+        "EO3",
+        "RP1"
+      ],
+      "rail_ref_of": "authorized",
+      "sources": [
+        {
+          "name": "tx-a.example",
+          "role": "primary",
+          "answer": {
+            "kind": "tx",
+            "tx": "authorized",
+            "height": "6543290",
+            "code": "0",
+            "proof": "valid"
+          }
+        },
+        {
+          "name": "cross-x.example",
+          "role": "cross",
+          "answer": {
+            "kind": "tx",
+            "tx": "authorized",
+            "height": "6543290",
+            "code": "0",
+            "proof": "none"
+          }
+        }
+      ],
+      "expect": {
+        "execution": "unchecked",
+        "header_trust": "pass",
+        "verdict": "unchecked",
+        "exit": "2",
+        "cause": "result_unproven",
+        "sentinel": null,
+        "inclusion": "proven",
+        "result": "cross-confirmed",
+        "cross_check": "pass",
+        "proven_execution": true,
+        "source_results": {
+          "tx-a.example": "used",
+          "cross-x.example": "agree"
+        },
+        "names_sources": [
+          "tx-a.example"
+        ],
+        "suggest_other_source": true
+      }
+    },
+    {
+      "id": "unchecked_result_index_rebuild_mismatch",
+      "description": "The results root matches and the codes differ. The tx is not at share 0, and the block txs a source serves do not rebuild to data_hash of the trusted header at H: that source's fault, and nothing else binds the index.",
+      "rules": [
+        "RP5"
+      ],
+      "rail_ref_of": "authorized",
+      "result_proof": {
+        "state": "match_rebuild_mismatch"
       },
       "sources": [
         {
@@ -2197,6 +2341,48 @@
       "rail_ref_of": "authorized",
       "result_proof": {
         "state": "match_indexed",
+        "code": "5"
+      },
+      "sources": [
+        {
+          "name": "tx-a.example",
+          "role": "primary",
+          "answer": {
+            "kind": "tx",
+            "tx": "authorized",
+            "height": "6543290",
+            "code": "5",
+            "proof": "valid"
+          }
+        }
+      ],
+      "expect": {
+        "execution": "fail",
+        "header_trust": "pass",
+        "verdict": "invalid",
+        "exit": "1",
+        "cause": "tx_failed",
+        "sentinel": "railverify.ErrTxFailed",
+        "inclusion": "proven",
+        "result": "proven",
+        "cross_check": "off",
+        "proven_execution": true,
+        "source_results": {
+          "tx-a.example": "used"
+        }
+      }
+    },
+    {
+      "id": "fail_tx_failed_index_rebuilt",
+      "description": "Code 5, proven by the result proof; the tx is not at share 0 and the index is bound by the rebuilt square.",
+      "rules": [
+        "RP5",
+        "RP6",
+        "EX9"
+      ],
+      "rail_ref_of": "authorized",
+      "result_proof": {
+        "state": "match_rebuilt",
         "code": "5"
       },
       "sources": [

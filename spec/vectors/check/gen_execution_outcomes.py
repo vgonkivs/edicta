@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/verifier/execution_outcomes.json (v0-draft.27).
+"""Writes spec/vectors/verifier/execution_outcomes.json (v0-draft.28).
 
 The outcome table of the execution check (core section 20.2, bank-send
 section 3.4): one case per cause of `unchecked` and per cause of `fail`, and
@@ -335,13 +335,13 @@ def build() -> dict:
              [src(a, "primary", tx_answer())],
              expect("pass", "none", inclusion="proven", result="proven", cross_check="off", proven=True,
                     results={a: used}), result_proof=rp("match_uniform", 0)),
-        case("pass_cross_confirmed_interim", "No proof and no result proof; two cross sources agree on height, "
-             "bytes and code 0. Interim rule: cross confirmation stands in until the result proof is "
-             "implemented. Never a node-attested pass.", ["EX9", "BX8"],
-             [src(a, "primary", tx_answer(proof="none")), src(x, "cross", tx_answer(proof="none")),
-              src(y, "cross", tx_answer(proof="none"))],
-             expect("pass", "none", inclusion="node-attested", result="cross-confirmed", cross_check="pass",
-                    results={a: used, x: "agree", y: "agree"})),
+        case("pass_proven_index_rebuilt", "The tx is not at share 0, so its share proof does not bind the index, "
+             "and the results of block H have different codes. A source serves the txs of block H; rebuilt as "
+             "ProcessProposal builds the square, they give data_hash of the trusted header at H, and the tx is a "
+             "normal tx at a known index. That binds the index.", ["RP5", "RP6", "EX9"],
+             [src(a, "primary", tx_answer())],
+             expect("pass", "none", inclusion="proven", result="proven", cross_check="off", proven=True,
+                    results={a: used}), result_proof=rp("match_rebuilt", 0)),
         case("pass_after_alternate", "The primary does not know the tx; the alternate does, with a proof, and "
              "the result is proven.", ["BX1", "EX10", "RP1"],
              [src(a, "primary", {"kind": "not_found"}), src(b, "alternate", tx_answer())],
@@ -414,6 +414,26 @@ def build() -> dict:
              expect("unchecked", "result_index_unbound", inclusion="proven", result="node-attested",
                     cross_check="off", proven=True, results={a: used}, names=[a]),
              result_proof=rp("match_unindexed")),
+        case("unchecked_result_cross_confirmed_only", "No inclusion proof and no result proof; two cross sources "
+             "agree on height, bytes and code 0. Agreement of sources is reported only: it never gives pass. Until "
+             "v0-draft.27 this was the interim cross-confirmed pass.", ["EX9", "EO3", "BX8"],
+             [src(a, "primary", tx_answer(proof="none")), src(x, "cross", tx_answer(proof="none")),
+              src(y, "cross", tx_answer(proof="none"))],
+             expect("unchecked", "result_unproven", inclusion="node-attested", result="cross-confirmed",
+                    cross_check="pass", results={a: used, x: "agree", y: "agree"}, names=[a])),
+        case("unchecked_result_cross_confirmed_inclusion_proven", "Inclusion is proven, no source serves "
+             "block_results, and the cross source agrees on code 0. Proven inclusion does not make agreement "
+             "proof of the result.", ["EX9", "EO3", "RP1"],
+             [src(a, "primary", tx_answer()), src(x, "cross", tx_answer(proof="none"))],
+             expect("unchecked", "result_unproven", inclusion="proven", result="cross-confirmed",
+                    cross_check="pass", proven=True, results={a: used, x: "agree"}, names=[a])),
+        case("unchecked_result_index_rebuild_mismatch", "The results root matches and the codes differ. The tx is "
+             "not at share 0, and the block txs a source serves do not rebuild to data_hash of the trusted header "
+             "at H: that source's fault, and nothing else binds the index.", ["RP5"],
+             [src(a, "primary", tx_answer())],
+             expect("unchecked", "result_index_unbound", inclusion="proven", result="node-attested",
+                    cross_check="off", proven=True, results={a: used}, names=[a]),
+             result_proof=rp("match_rebuild_mismatch")),
         case("unchecked_result_header_unreachable", "The tx is at T, so the header at H + 1 that carries "
              "last_results_hash is above the checkpoint.", ["RP4", "OH4"],
              [src(a, "primary", tx_answer(height=T))],
@@ -526,6 +546,11 @@ def build() -> dict:
              [src(a, "primary", tx_answer(code=5))],
              expect("fail", "tx_failed", sentinel="railverify.ErrTxFailed", inclusion="proven", result="proven",
                     cross_check="off", proven=True, results={a: used}), result_proof=rp("match_indexed", 5)),
+        case("fail_tx_failed_index_rebuilt", "Code 5, proven by the result proof; the tx is not at share 0 and "
+             "the index is bound by the rebuilt square.", ["RP5", "RP6", "EX9"],
+             [src(a, "primary", tx_answer(code=5))],
+             expect("fail", "tx_failed", sentinel="railverify.ErrTxFailed", inclusion="proven", result="proven",
+                    cross_check="off", proven=True, results={a: used}), result_proof=rp("match_rebuilt", 5)),
         case("fail_tx_failed_proven_source_says_success", "The tx source reports code 0, the result proof "
              "shows code 5. The proven code wins.", ["RP6", "EX9"],
              [src(a, "primary", tx_answer(code=0))],
@@ -535,9 +560,9 @@ def build() -> dict:
 
     return {
         "format": "edicta-vectors/v0",
-        "revision": "v0-draft.27",
+        "revision": "v0-draft.28",
         "profile": "bank-send",
-        "profile_revision": "bank-send-v0-draft.6",
+        "profile_revision": "bank-send-v0-draft.7",
         "generator": "spec/vectors/check/gen_execution_outcomes.py",
         "description": (
             "Outcome table of the execution check (core 20.2, bank-send 3.4). Every case assumes that every other "
@@ -549,9 +574,13 @@ def build() -> dict:
             "'invalid' one that fails it (forms: the proofs section), 'none' an absent proof. result_proof "
             "(default state 'unavailable': no source serves block_results) is the outcome of RP1 to RP6 for block "
             "H: 'match_indexed' (root equals last_results_hash of the trusted header at H + 1 and the share proof "
-            "binds the index; code is the selected result's), 'match_uniform' (root matches, index unbound, every "
-            "result has code), 'match_unindexed' (root matches, index unbound, codes differ), 'root_mismatch', "
-            "'header_unreachable' (H + 1 above T). Forms: the result_proof section."),
+            "binds the index; code is the selected result's), 'match_rebuilt' (root matches, the tx is not at share "
+            "0, and the block txs rebuild to data_hash and bind the index; code is the selected result's), "
+            "'match_uniform' (root matches, index unbound, every result has code), 'match_unindexed' (root "
+            "matches, index unbound, codes differ, no source serves the block txs), 'match_rebuild_mismatch' "
+            "(root matches, codes differ, the block txs served do not rebuild to data_hash), 'root_mismatch', "
+            "'header_unreachable' (H + 1 above T). Forms: the result_proof section. Cross agreement "
+            "(result 'cross-confirmed') is reported only and never gives pass."),
         "defaults": {
             "action_ref": "profiles/bank-send/action.json#action_minimal_mocha",
             "signed_ref": "profiles/bank-send/tx.json#signed_minimal_mocha",
