@@ -32,3 +32,6 @@ func ownedByCaller(fi os.FileInfo) bool {
 
 // noFollow makes opening a symlink fail.
 const noFollow = syscall.O_NOFOLLOW
+
+// checkPlatform reports whether the state guards work here.
+func checkPlatform() error { return nil }

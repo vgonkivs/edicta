@@ -36,6 +36,9 @@ var (
 	ErrSelfSend = errors.New("railtx: recipient is the funder")
 	// ErrAmountAboveMax means the amount exceeds FunderConfig.MaxAmount.
 	ErrAmountAboveMax = errors.New("railtx: amount above the per-send maximum")
+	// ErrTotalAboveMax means the send would take the total sent from this
+	// state above FunderConfig.MaxTotalAmount.
+	ErrTotalAboveMax = errors.New("railtx: total sent would exceed the maximum")
 	// ErrSequenceAdvanced means the funder's account sequence moved past the
 	// pending send's, so the send may have been included even though no
 	// lookup found it. It stays pending until an operator decides with
@@ -99,6 +102,11 @@ type FunderConfig struct {
 	MaxFee uint64
 	// MaxAmount is the largest amount of one send. Required.
 	MaxAmount uint64
+	// MaxTotalAmount caps the sum of all amounts sent from one state file, for
+	// good: each send counts from the moment it becomes pending, is never
+	// refunded, and is persisted. Required, at least MaxAmount. It does not
+	// depend on any node's answers.
+	MaxTotalAmount uint64
 	// PendingPath is the file that holds the send between its signing and
 	// its resolution, so a crash or a rerun cannot send the funds twice.
 	// Required; the file is created with mode 0600 and its directory must
@@ -147,6 +155,8 @@ func (c FunderConfig) ValidateBasic() error {
 		return errors.New("railtx: negative confirm delay")
 	case c.MaxAmount == 0:
 		return errors.New("railtx: zero max amount")
+	case c.MaxTotalAmount < c.MaxAmount:
+		return fmt.Errorf("railtx: max total amount %d below max amount %d", c.MaxTotalAmount, c.MaxAmount)
 	case c.MaxFee < c.Fee:
 		return fmt.Errorf("railtx: max fee %d below fee %d", c.MaxFee, c.Fee)
 	case c.PendingPath == "":
@@ -164,8 +174,10 @@ func (c FunderConfig) ValidateBasic() error {
 // Trust: the Funder trusts its funding node (FunderConfig.Consensus) to be
 // honest about committed state, the transaction index and pinned account
 // reads. A node that lies systematically can make it clear a send that is
-// still landable and so cause one extra send, bounded by MaxAmount. Nothing
-// here verifies those answers against a second source.
+// still landable, and can repeat that on every Send. Nothing here verifies
+// those answers against a second source. What bounds the damage is
+// MaxTotalAmount: the persisted sum of everything ever sent from this state
+// never exceeds it, whatever any node says.
 type Funder struct {
 	rail    *Rail
 	cons    node.Consensus
@@ -180,9 +192,11 @@ type Funder struct {
 	closed  bool
 	pending *pendingSend
 	// mustReuse is the sequence of a send cleared without being seen
-	// committed. The next send must be signed with it, so at most one of the
+	// committed, or whose slot a sequence lookup says is used. The next send must be signed with it, so at most one of the
 	// two can ever be included, whatever the node said.
 	mustReuse *uint64
+	// total is the persisted sum of the amounts of all sends so far.
+	total uint64
 	// lastCommitted is the highest sequence seen used on chain. A send is
 	// never signed at or below it.
 	lastCommitted *uint64
@@ -209,6 +223,9 @@ type pendingFile struct {
 	TimeoutHeight uint64  `json:"timeout_height,omitempty"`
 	MustReuse     *uint64 `json:"must_reuse_sequence,omitempty"`
 	LastCommitted *uint64 `json:"last_committed_sequence,omitempty"`
+	// TotalSent is the sum of the amounts of every send that ever became
+	// pending from this state, whatever became of it.
+	TotalSent uint64 `json:"total_sent,omitempty"`
 }
 
 // NewFunder validates cfg, loads the key, refuses a node that does not index
@@ -240,6 +257,9 @@ func NewFunder(ctx context.Context, cfg FunderConfig) (*Funder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("railtx: address: %w", err)
 	}
+	if err := checkPlatform(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrPendingState, err)
+	}
 	if err := checkStateDir(filepath.Dir(cfg.PendingPath)); err != nil {
 		return nil, err
 	}
@@ -248,7 +268,7 @@ func NewFunder(ctx context.Context, cfg FunderConfig) (*Funder, error) {
 		return nil, fmt.Errorf("%w: lock: %w", ErrPendingState, err)
 	}
 	f := &Funder{rail: r, cons: cfg.Consensus, consent: cfg.Consent, addr: addr, prefix: prefix, cfg: cfg, release: release}
-	if f.pending, f.mustReuse, f.lastCommitted, err = loadState(cfg.PendingPath, addr); err != nil {
+	if f.pending, f.mustReuse, f.lastCommitted, f.total, err = loadState(cfg.PendingPath, addr); err != nil {
 		release()
 		return nil, err
 	}
@@ -381,6 +401,9 @@ func (f *Funder) Send(ctx context.Context, to string, amount uint64) (hash [32]b
 		}
 		return hash, 0, ErrSettled
 	}
+	if f.total > f.cfg.MaxTotalAmount || amount > f.cfg.MaxTotalAmount-f.total {
+		return hash, 0, fmt.Errorf("%w: sent %d, this %d, max %d", ErrTotalAboveMax, f.total, amount, f.cfg.MaxTotalAmount)
+	}
 	chainID, err := f.cons.Network(ctx)
 	if err != nil {
 		return hash, 0, fmt.Errorf("railtx: network: %w", err)
@@ -426,10 +449,10 @@ func (f *Funder) Send(ctx context.Context, to string, amount uint64) (hash [32]b
 	// Durable before the broadcast: an unclear outcome (timeout, dropped
 	// connection, a crash) may still have reached the mempool. The pending
 	// record covers the sequence, so the binding is dropped with it.
-	if err := saveState(f.cfg.PendingPath, f.addr, p, nil, f.lastCommitted); err != nil {
+	if err := saveState(f.cfg.PendingPath, f.addr, p, nil, f.lastCommitted, f.total+amount); err != nil {
 		return hash, 0, err
 	}
-	f.pending, f.mustReuse = p, nil
+	f.pending, f.mustReuse, f.total = p, nil, f.total+amount
 	if err := f.rail.Broadcast(ctx, txRaw); err != nil {
 		if errors.Is(err, ErrRejected) {
 			if cerr := f.resolve(false); cerr != nil {
@@ -471,9 +494,9 @@ func (f *Funder) fee(ctx context.Context) (uint64, error) {
 // so a backend that has not reached the height cannot answer for it. The whole
 // check must hold twice, ConfirmDelay apart.
 //
-// A sequence that moved past the signed one is resolved only by finding the
-// transaction that used the slot: our own means committed, another means ours
-// can never be included.
+// A sequence that moved past the signed one stays pending unless a lookup
+// finds a transaction at that sequence; that only binds the next send to the
+// same sequence (see slotUsed).
 func (f *Funder) settlePending(ctx context.Context) error {
 	p := f.pending
 	inFlight := func(err error) error {
@@ -561,7 +584,7 @@ func (f *Funder) resolve(used bool) error {
 	} else {
 		must = &s
 	}
-	if err := saveState(f.cfg.PendingPath, f.addr, nil, must, last); err != nil {
+	if err := saveState(f.cfg.PendingPath, f.addr, nil, must, last, f.total); err != nil {
 		return err
 	}
 	f.pending, f.mustReuse, f.lastCommitted = nil, must, last
@@ -626,7 +649,7 @@ func (f *Funder) AbandonBinding(ctx context.Context, seq uint64) error {
 	if last == nil || *last < seq {
 		last = &seq
 	}
-	if err := saveState(f.cfg.PendingPath, f.addr, nil, nil, last); err != nil {
+	if err := saveState(f.cfg.PendingPath, f.addr, nil, nil, last, f.total); err != nil {
 		return err
 	}
 	f.mustReuse, f.lastCommitted = nil, last
@@ -667,8 +690,8 @@ func signedSequence(txRaw []byte) (uint64, error) {
 	return ai.SignerInfos[0].Sequence, nil
 }
 
-func saveState(path, from string, p *pendingSend, mustReuse, lastCommitted *uint64) (err error) {
-	pf := pendingFile{From: from, MustReuse: mustReuse, LastCommitted: lastCommitted}
+func saveState(path, from string, p *pendingSend, mustReuse, lastCommitted *uint64, total uint64) (err error) {
+	pf := pendingFile{From: from, MustReuse: mustReuse, LastCommitted: lastCommitted, TotalSent: total}
 	if p != nil {
 		pf.Hash, pf.To, pf.Amount = hex.EncodeToString(p.hash[:]), p.to, p.amount
 		pf.Sequence, pf.TimeoutHeight = p.sequence, p.timeoutHeight
@@ -740,46 +763,46 @@ func syncDir(dir string) error {
 // loadState reads the file left by an earlier run. A file that is
 // unreadable, loose in mode, foreign, malformed or for another key is an
 // error: the funder cannot know what it sent, so it sends nothing.
-func loadState(path, from string) (p *pendingSend, mustReuse, lastCommitted *uint64, err error) {
+func loadState(path, from string) (p *pendingSend, mustReuse, lastCommitted *uint64, total uint64, err error) {
 	fi, err := os.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, nil, nil
+		return nil, nil, nil, 0, nil
 	}
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("%w: %w", ErrPendingState, err)
+		return nil, nil, nil, 0, fmt.Errorf("%w: %w", ErrPendingState, err)
 	}
 	if !fi.Mode().IsRegular() || fi.Mode().Perm()&0o077 != 0 || !ownedByCaller(fi) {
-		return nil, nil, nil, fmt.Errorf("%w: %s must be a regular file of this user with mode 0600", ErrPendingState, path)
+		return nil, nil, nil, 0, fmt.Errorf("%w: %s must be a regular file of this user with mode 0600", ErrPendingState, path)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("%w: %w", ErrPendingState, err)
+		return nil, nil, nil, 0, fmt.Errorf("%w: %w", ErrPendingState, err)
 	}
 	var pf pendingFile
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&pf); err != nil {
-		return nil, nil, nil, fmt.Errorf("%w: %w", ErrPendingState, err)
+		return nil, nil, nil, 0, fmt.Errorf("%w: %w", ErrPendingState, err)
 	}
 	if pf.From != from {
-		return nil, nil, nil, fmt.Errorf("%w: the file is for %s, not %s", ErrPendingState, pf.From, from)
+		return nil, nil, nil, 0, fmt.Errorf("%w: the file is for %s, not %s", ErrPendingState, pf.From, from)
 	}
 	if pf.Hash == "" {
 		if pf.TimeoutHeight != 0 {
-			return nil, nil, nil, fmt.Errorf("%w: timeout height without a send", ErrPendingState)
+			return nil, nil, nil, 0, fmt.Errorf("%w: timeout height without a send", ErrPendingState)
 		}
-		return nil, pf.MustReuse, pf.LastCommitted, nil
+		return nil, pf.MustReuse, pf.LastCommitted, pf.TotalSent, nil
 	}
 	h, err := hex.DecodeString(pf.Hash)
 	switch {
 	case err != nil || len(h) != 32:
-		return nil, nil, nil, fmt.Errorf("%w: bad hash", ErrPendingState)
+		return nil, nil, nil, 0, fmt.Errorf("%w: bad hash", ErrPendingState)
 	case pf.TimeoutHeight == 0 || pf.TimeoutHeight > math.MaxInt64:
-		return nil, nil, nil, fmt.Errorf("%w: timeout height out of range", ErrPendingState)
+		return nil, nil, nil, 0, fmt.Errorf("%w: timeout height out of range", ErrPendingState)
 	}
 	p = &pendingSend{sequence: pf.Sequence, timeoutHeight: pf.TimeoutHeight, to: pf.To, amount: pf.Amount}
 	copy(p.hash[:], h)
-	return p, pf.MustReuse, pf.LastCommitted, nil
+	return p, pf.MustReuse, pf.LastCommitted, pf.TotalSent, nil
 }
 
 // fundingBody encodes TxBody{messages: [MsgSend], memo, timeout_height}.

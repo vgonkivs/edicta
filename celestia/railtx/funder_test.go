@@ -95,7 +95,7 @@ func newFundEnv(t *testing.T, mut func(*railtx.FunderConfig)) *fundEnv {
 	path := filepath.Join(t.TempDir(), "pending.json")
 	cfg := railtx.FunderConfig{
 		Consensus: cons, Consent: consent, GasLimit: 100000, Fee: 250, MaxFee: 1000,
-		MaxAmount: 10000, PendingPath: path, ConfirmDelay: time.Millisecond,
+		MaxAmount: 10000, MaxTotalAmount: 1_000_000, PendingPath: path, ConfirmDelay: time.Millisecond,
 		Key: railtx.KeyFromSecret(secret.New(bytes.Repeat([]byte{7}, 32))),
 	}
 	if mut != nil {
@@ -229,7 +229,7 @@ func TestNewFunderValidation(t *testing.T) {
 	good := func() railtx.FunderConfig {
 		return railtx.FunderConfig{
 			Consensus: nodefake.NewConsensus("mocha-5"), Consent: &railtx.Consent{}, GasLimit: 1,
-			MaxAmount: 1, PendingPath: filepath.Join(t.TempDir(), "p.json"),
+			MaxAmount: 1, MaxTotalAmount: 1, PendingPath: filepath.Join(t.TempDir(), "p.json"),
 			Key: railtx.KeyFromSecret(secret.New(bytes.Repeat([]byte{7}, 32))),
 		}
 	}
@@ -240,6 +240,8 @@ func TestNewFunderValidation(t *testing.T) {
 		"timeout too big": func(c *railtx.FunderConfig) { c.TimeoutBlocks = railtx.MaxFundingTimeoutBlocks + 1 },
 		"no key":          func(c *railtx.FunderConfig) { c.Key = railtx.KeySource{} },
 		"no max amount":   func(c *railtx.FunderConfig) { c.MaxAmount = 0 },
+		"no max total":    func(c *railtx.FunderConfig) { c.MaxTotalAmount = 0 },
+		"total < amount":  func(c *railtx.FunderConfig) { c.MaxAmount = 5; c.MaxTotalAmount = 4 },
 		"no state path":   func(c *railtx.FunderConfig) { c.PendingPath = "" },
 		"max fee < fee":   func(c *railtx.FunderConfig) { c.Fee = 5; c.MaxFee = 4 },
 		"negative delay":  func(c *railtx.FunderConfig) { c.ConfirmDelay = -1 },
@@ -329,7 +331,7 @@ func TestFunderRejectedSendIsNotPending(t *testing.T) {
 func TestNewFunderRefusesANodeWithoutTxIndex(t *testing.T) {
 	cons := &fundCons{Consensus: nodefake.NewConsensus("mocha-5"), noIndex: true}
 	_, err := railtx.NewFunder(context.Background(), railtx.FunderConfig{
-		Consensus: cons, Consent: &railtx.Consent{}, GasLimit: 1, MaxAmount: 1, PendingPath: filepath.Join(t.TempDir(), "p"),
+		Consensus: cons, Consent: &railtx.Consent{}, GasLimit: 1, MaxAmount: 1, MaxTotalAmount: 1, PendingPath: filepath.Join(t.TempDir(), "p"),
 		Key: railtx.KeyFromSecret(secret.New(bytes.Repeat([]byte{7}, 32))),
 	})
 	require.ErrorIs(t, err, railtx.ErrTxIndexDisabled)
@@ -921,18 +923,59 @@ func TestTwoStateFilesForOneKeyCannotBothBeOpen(t *testing.T) {
 	require.NoError(t, f.Close())
 }
 
-// A node that says a send is committed while it is not, with an advanced
-// account sequence, is the trusted-node assumption: the demo accepts it. The
-// test pins that the bound on the damage is one extra send.
-func TestFunderLyingNodeCostsAtMostOneExtraSend(t *testing.T) {
-	e := newFundEnv(t, nil)
+// A node that keeps reporting the last send as committed, with the account
+// sequence one higher each time, gets one more send per Send call. The only
+// bound that does not depend on the node is MaxTotalAmount.
+func TestFunderLyingNodeIsBoundedByTheTotalCap(t *testing.T) {
+	e := newFundEnv(t, func(c *railtx.FunderConfig) { c.MaxAmount, c.MaxTotalAmount = 2*fundAmount, 2*fundAmount })
+	ctx := context.Background()
 	hash, th := e.send(t)
-	e.cons.SetTx(hash, node.TxStatus{Found: true, Height: th - 5, NodeHeight: th - 4})
-	e.cons.Accounts[e.funder.Address()] = node.AccountInfo{Number: 3, Sequence: fundSeq + 1}
-	require.NoError(t, e.sendSettled(t, e.funder))
+	for i := 1; i <= 2; i++ {
+		e.cons.SetTx(hash, node.TxStatus{Found: true, Height: th - 5, NodeHeight: th - 4})
+		e.cons.Accounts[e.funder.Address()] = node.AccountInfo{Number: 3, Sequence: uint64(fundSeq + i)}
+		_, _, err := e.funder.Send(ctx, e.to, fundAmount)
+		require.ErrorIs(t, err, railtx.ErrSettled)
+		var serr error
+		hash, th, serr = e.funder.Send(ctx, e.to, fundAmount)
+		if i == 1 {
+			require.NoError(t, serr, "one extra send gets through")
+			continue
+		}
+		require.ErrorIs(t, serr, railtx.ErrTotalAboveMax, "the cap stops the next one")
+	}
 	assert.Len(t, e.cons.Sent, 2)
-	_, _, err := e.funder.Send(context.Background(), e.to, fundAmount)
-	require.ErrorIs(t, err, railtx.ErrSendInFlight, "the second send now blocks the next")
+}
+
+func TestTotalCapIsPersistedAndNeverRefunded(t *testing.T) {
+	e := newFundEnv(t, func(c *railtx.FunderConfig) { c.MaxAmount, c.MaxTotalAmount = 2*fundAmount, 3*fundAmount })
+	ctx := context.Background()
+	e.consent.Arm()
+
+	// A refused broadcast still counts: the node's word is not trusted.
+	e.cons.bcastErr = fmt.Errorf("%w: refused", node.ErrRejected)
+	_, _, err := e.funder.Send(ctx, e.to, fundAmount)
+	require.ErrorIs(t, err, railtx.ErrRejected)
+	assert.EqualValues(t, fundAmount, readPending(t, e.path)["total_sent"])
+	e.cons.bcastErr = nil
+
+	require.NoError(t, e.sendSettled(t, e.funder))
+	assert.EqualValues(t, 2*fundAmount, readPending(t, e.path)["total_sent"])
+
+	f2 := e.restart(t)
+	hash, th, ok := f2.Pending()
+	require.True(t, ok)
+	e.cons.SetTx(hash, node.TxStatus{Found: true, Height: th - 5, NodeHeight: th - 4})
+	cleared, err := f2.Settle(ctx)
+	require.NoError(t, err)
+	require.True(t, cleared)
+	e.cons.Accounts[f2.Address()] = node.AccountInfo{Number: 3, Sequence: fundSeq + 1}
+
+	_, _, err = f2.Send(ctx, e.to, 2*fundAmount)
+	require.ErrorIs(t, err, railtx.ErrTotalAboveMax, "the total survives a restart")
+	assert.Len(t, e.cons.Sent, 1)
+	require.NoError(t, e.sendSettled(t, f2), "what is left under the cap can still be sent")
+	_, _, err = f2.Send(ctx, e.to, 1)
+	require.ErrorIs(t, err, railtx.ErrSendInFlight)
 }
 
 func TestClearWithoutProofBindsTheNextSequence(t *testing.T) {

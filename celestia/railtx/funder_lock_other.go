@@ -9,9 +9,11 @@ import (
 
 // The funder needs a file lock and an owner check; without them it refuses to
 // run rather than guard nothing.
-func lockState(string) (func(), error) {
-	return nil, errors.New("funder state locking is not supported on this platform")
-}
+func lockState(string) (func(), error) { return nil, errUnsupportedPlatform }
+
+var errUnsupportedPlatform = errors.New("funder state locking is not supported on this platform")
+
+func checkPlatform() error { return errUnsupportedPlatform }
 
 func ownedByCaller(os.FileInfo) bool { return false }
 
