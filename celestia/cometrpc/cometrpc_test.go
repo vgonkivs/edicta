@@ -87,7 +87,7 @@ func source(t testing.TB, url string) *cometrpc.Source {
 	t.Helper()
 	s, err := cometrpc.New(url, nil)
 	require.NoError(t, err)
-	return s
+	return s.WithRetry(0, 0)
 }
 
 func ok(body []byte) answer { return answer{body: body} }

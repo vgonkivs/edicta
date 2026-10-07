@@ -21,12 +21,8 @@ import (
 
 var bg = context.Background()
 
-// verdicts are the 13 marker names a state derivation must probe.
-var verdicts = []string{
-	"ErrActionMismatch", "ErrAnchorNotFound", "ErrAnchorTooOld", "ErrArchiveRecomputeUnsupported",
-	"ErrDACommitmentMismatch", "ErrExpired", "ErrIssuedBeforeAnchor", "ErrNonceUsed", "ErrNotYetValid",
-	"ErrPayloadHashMismatch", "ErrPayloadSizeMismatch", "ErrPayloadUnavailable", "ErrRetentionUnavailable",
-}
+// verdicts are the marker names a state derivation must probe.
+var verdicts = archive.Verdicts()
 
 type acceptAll struct{}
 

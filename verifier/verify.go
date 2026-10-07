@@ -48,6 +48,10 @@ type run struct {
 	sa    *commitment.SignedAuthorization
 	facts *AnchorFacts
 
+	// action is the action bytes the action check matched; the execution
+	// check uses these and never reads the record again.
+	action []byte
+
 	execRequested bool
 }
 
@@ -135,7 +139,7 @@ func (v *Verifier) verify(ctx context.Context, h commitment.Hash, opts []Option)
 		r.finish()
 		return r, nil
 	}
-	r.action(dec)
+	r.checkAction(dec)
 	if st.State != archive.StateAuthorized {
 		r.finish()
 		return r, nil
@@ -216,11 +220,12 @@ func (r *run) envelope(dec *archive.DecisionRecord) bool {
 	return true
 }
 
-func (r *run) action(dec *archive.DecisionRecord) {
+func (r *run) checkAction(dec *archive.DecisionRecord) {
 	if err := commitment.CheckAction(r.c, dec.Action); err != nil {
 		r.fail(CheckAction, fmt.Errorf("%w: %w", ErrActionInvalid, err))
 		return
 	}
+	r.action = bytes.Clone(dec.Action)
 	r.pass(CheckAction)
 }
 
@@ -665,13 +670,16 @@ func (r *run) execution() {
 		unchecked(fmt.Errorf("no execution checker for action type %q", r.c.Action.Type))
 		return
 	}
-	dec, err := r.v.archive.Decision(r.ctx, r.h)
-	if err != nil {
-		unchecked(fmt.Errorf("decision: %w", err))
+	if c, ok := r.rep.Check(CheckAction); !ok || c.Status != StatusPass || r.action == nil {
+		unchecked(errors.New("the action did not pass its check"))
+		return
+	}
+	if err := commitment.CheckAction(r.c, r.action); err != nil {
+		unchecked(fmt.Errorf("the action bytes are not the committed ones: %w", err))
 		return
 	}
 	facts, err := chk.CheckExecution(r.ctx, ExecutionInput{
-		CommitmentHash: r.h, ActionType: r.c.Action.Type, Action: bytes.Clone(dec.Action), RailRef: r.rep.Receipt.RailRef,
+		CommitmentHash: r.h, ActionType: r.c.Action.Type, Action: bytes.Clone(r.action), RailRef: r.rep.Receipt.RailRef,
 	})
 	if err != nil {
 		if cerr := r.ctx.Err(); cerr != nil {
@@ -718,11 +726,11 @@ func (r *run) execution() {
 	case r.ctx.Err() != nil:
 		unchecked(r.ctx.Err())
 		return
-	case errors.Is(err, ErrTrustInput):
-		unchecked(err)
-		return
 	case err != nil:
-		fail(err)
+		// The header at the transaction height always comes from an online
+		// source, so a header that does not link to the trusted chain is
+		// that source's fault, never a finding about the decision.
+		unchecked(fmt.Errorf("header at the transaction height is not on the trusted chain: %w", err))
 		return
 	case !res.Checked:
 		unchecked(errors.New("header trust did not check the header at the transaction height"))
@@ -735,6 +743,9 @@ func (r *run) execution() {
 		return
 	}
 	r.rep.Receipt.ProvenExecution = facts.Inclusion == "proven"
+	if facts.Inclusion != "proven" {
+		r.warn("execution: no inclusion proof, so the transaction height %d, and with it the order of the anchor before the transaction, is what the transaction source says", facts.Height)
+	}
 	if r.rep.Authorization != nil && facts.BlockTime > r.rep.Authorization.Expires {
 		r.warn("execution_after_expires: the transaction block time %d is after the Authorization expiry %d", facts.BlockTime, r.rep.Authorization.Expires)
 	}

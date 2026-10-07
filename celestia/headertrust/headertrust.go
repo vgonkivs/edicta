@@ -72,6 +72,15 @@ func hashOf(h core.Header) ([]byte, error) {
 	return sum, nil
 }
 
+// HashOfHeader is the block hash of a canonical protobuf header.
+func HashOfHeader(raw []byte) ([]byte, error) {
+	h, err := decode(raw)
+	if err != nil {
+		return nil, err
+	}
+	return hashOf(h)
+}
+
 // VerifyBackwards checks that hash is the hash of the header at height, given
 // the trusted header cp and the encoded headers height .. cp.Height-1 in
 // ascending order: each header's hash must equal the last_block_id hash of

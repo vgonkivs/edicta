@@ -33,6 +33,7 @@ import (
 	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/archive/httparchive"
 	"github.com/vgonkivs/edicta/celestia/anchorverify"
+	"github.com/vgonkivs/edicta/celestia/inclusion"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/fibre/fibrecommit"
@@ -54,6 +55,8 @@ const (
 	maxReceiptFile = 1 << 20
 	// archiveTimeout bounds one archive read over HTTP.
 	archiveTimeout = 5 * time.Minute
+	// defaultTimeout bounds a whole run, so a stuck source cannot hang it.
+	defaultTimeout = 5 * time.Minute
 )
 
 // newAnchors is a variable so tests can replace the chain-facing verifiers.
@@ -123,6 +126,9 @@ type flags struct {
 	trustedPath   string
 	checkpoint    string
 	quorum        int
+	quorumSet     bool
+	excludeHosts  []string
+	timeout       time.Duration
 	headersRPC    string
 	checkpointRPC []string
 	crossRPC      []string
@@ -135,8 +141,8 @@ type flags struct {
 
 func parseFlags(args []string, out io.Writer) (flags, error) {
 	const usage = "usage: verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) " +
-		"[--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)] [--cross-check URL]... " +
-		"[--receipt FILE --tx-rpc URL --check-execution] [--json]"
+		"[--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)] [--cross-check URL]... [--exclude-host HOST]... " +
+		"[--timeout DURATION] [--receipt FILE --tx-rpc URL --check-execution] [--json]"
 	var f flags
 	if len(args) == 0 || (args[0] != "verify" && args[0] != "replay") {
 		return f, usagef("%s", usage)
@@ -161,10 +167,12 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	fs.StringVar(&f.receiptPath, "receipt", "", "signed receipt file")
 	fs.StringVar(&f.txRPC, "tx-rpc", "", "CometBFT RPC that serves the transaction the receipt names")
 	fs.BoolVar(&f.checkExec, "check-execution", false, "check the transaction the receipt names")
+	fs.DurationVar(&f.timeout, "timeout", defaultTimeout, "overall time limit of the run")
 	fs.BoolVar(&f.asJSON, "json", false, "print one JSON document")
-	var ckpt, cross multiFlag
+	var ckpt, cross, exclude multiFlag
 	fs.Var(&ckpt, "checkpoint-rpc", "CometBFT RPC of an independent checkpoint operator (repeatable)")
 	fs.Var(&cross, "cross-check", "CometBFT RPC to cross-check headers and the transaction (repeatable)")
+	fs.Var(&exclude, "exclude-host", "host that must not serve as a checkpoint or cross-check source, such as the gate's own endpoint (repeatable)")
 
 	// The hash may stand before, between or after the flags.
 	var positional []string
@@ -197,7 +205,8 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	if f.quorum, err = strconv.Atoi(*quorum); err != nil || f.quorum < 1 {
 		return f, usagef("--checkpoint-quorum must be a positive number")
 	}
-	f.checkpointRPC, f.crossRPC = ckpt, cross
+	fs.Visit(func(fl *flag.Flag) { f.quorumSet = f.quorumSet || fl.Name == "checkpoint-quorum" })
+	f.checkpointRPC, f.crossRPC, f.excludeHosts = ckpt, cross, exclude
 	f.params = def
 	f.params.SkewS, f.params.BlobRetentionS = *skew, *blobRetention
 	return f, f.validate()
@@ -209,6 +218,9 @@ func (f flags) validate() error {
 	if (f.archiveDir == "") == (f.archiveURL == "") {
 		return usagef("exactly one of --archive and --archive-url is required")
 	}
+	if f.timeout <= 0 {
+		return usagef("--timeout must be positive")
+	}
 	online := f.checkpoint != "" || len(f.checkpointRPC) > 0
 	switch {
 	case f.trustedPath != "" && online:
@@ -219,14 +231,57 @@ func (f flags) validate() error {
 		return usagef("--headers-rpc is required with a checkpoint")
 	case f.checkpointRPC != nil && f.quorum > len(f.checkpointRPC):
 		return usagef("--checkpoint-quorum %d needs at least %d --checkpoint-rpc sources", f.quorum, f.quorum)
+	case f.quorumSet && len(f.checkpointRPC) == 0:
+		return usagef("--checkpoint-quorum applies only to --checkpoint-rpc sources")
 	case f.cmd == "replay" && (f.receiptPath != "" || f.txRPC != "" || f.checkExec):
 		return usagef("replay takes no receipt and no execution check")
 	case f.txRPC != "" && !f.checkExec:
 		return usagef("--tx-rpc is used only with --check-execution")
+	case f.checkExec && (f.txRPC == "" || f.receiptPath == ""):
+		return usagef("--check-execution needs --receipt and --tx-rpc, or the execution is never checked")
+	case f.headersRPC != "" && !online && !f.checkExec:
+		return usagef("--headers-rpc is used only with a checkpoint or --check-execution")
+	case len(f.crossRPC) > 0 && !online && !f.checkExec:
+		return usagef("--cross-check is used only with a checkpoint or --check-execution")
 	}
 	if f.checkpoint != "" {
 		if _, _, err := parseCheckpoint(f.checkpoint); err != nil {
 			return usageError{err}
+		}
+	}
+	return f.checkExcluded()
+}
+
+// checkExcluded refuses a checkpoint or cross-check source on a host the
+// auditor named as not independent, such as the gate's own endpoint.
+func (f flags) checkExcluded() error {
+	excluded := map[string]bool{}
+	for _, h := range f.excludeHosts {
+		raw := h
+		if !strings.Contains(raw, "://") {
+			raw = "https://" + raw
+		}
+		name, err := inclusion.SourceHost(raw)
+		if err != nil {
+			return usagef("--exclude-host %q: %v", h, err)
+		}
+		excluded[name] = true
+	}
+	if len(excluded) == 0 {
+		return nil
+	}
+	for _, g := range []struct {
+		flag string
+		urls []string
+	}{{"--checkpoint-rpc", f.checkpointRPC}, {"--cross-check", f.crossRPC}} {
+		for _, u := range g.urls {
+			name, err := inclusion.SourceHost(u)
+			if err != nil {
+				continue
+			}
+			if excluded[name] {
+				return usagef("%s %s is on an excluded host", g.flag, u)
+			}
 		}
 	}
 	return nil
@@ -237,9 +292,17 @@ func execute(ctx context.Context, args []string, out io.Writer) (int, error) {
 	if err != nil {
 		return codeUsage, err
 	}
+	ctx, cancel := context.WithTimeout(ctx, f.timeout)
+	defer cancel()
 	reader, err := openArchive(f.archiveDir, f.archiveURL)
 	if err != nil {
 		return codeUsage, usageError{err}
+	}
+	online := f.checkpoint != "" || len(f.checkpointRPC) > 0
+	var rec *recordingReader
+	if online {
+		rec = newRecordingReader(reader)
+		reader = rec
 	}
 	deps, err := buildDeps(reader, f.gateKeys, f.params)
 	if err != nil {
@@ -256,8 +319,8 @@ func execute(ctx context.Context, args []string, out io.Writer) (int, error) {
 		}
 		deps.Trust = trust
 		info.mode = "file"
-	case f.checkpoint != "" || len(f.checkpointRPC) > 0:
-		lt, err := newLazyTrust(reader, f, info)
+	case online:
+		lt, err := newLazyTrust(rec, f, info)
 		if err != nil {
 			return codeUsage, usageError{err}
 		}
@@ -274,7 +337,7 @@ func execute(ctx context.Context, args []string, out io.Writer) (int, error) {
 	if f.checkExec {
 		opts = append(opts, verifier.WithExecutionCheck())
 		if f.txRPC != "" {
-			chk, err := newBankChecker(f.txRPC, f.headersRPC, f.crossRPC)
+			chk, err := newBankChecker(f.txRPC, f.headersRPC, f.crossRPC, deps.Trust, info)
 			if err != nil {
 				return codeUsage, usageError{err}
 			}

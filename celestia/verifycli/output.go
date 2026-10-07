@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/vgonkivs/edicta/commitment"
@@ -28,6 +29,9 @@ type trustView struct {
 	Quorum         int               `json:"quorum,omitempty"`
 	CrossCheck     string            `json:"cross_check"`
 	Hashes         map[uint64]string `json:"hashes,omitempty"`
+	HeadersSource  string            `json:"headers_source,omitempty"`
+	HeaderSources  map[uint64]string `json:"header_sources,omitempty"`
+	CrossSources   []string          `json:"cross_check_sources,omitempty"`
 }
 
 type executionView struct {
@@ -104,6 +108,7 @@ type reportView struct {
 	Receipt           *receiptView   `json:"receipt,omitempty"`
 	Execution         *executionView `json:"execution,omitempty"`
 	HeaderTrust       trustView      `json:"header_trust"`
+	TrustModel        string         `json:"trust_model,omitempty"`
 	Checks            []checkView    `json:"checks"`
 	Warnings          []string       `json:"warnings,omitempty"`
 	K2                *k2View        `json:"retention_replay,omitempty"`
@@ -296,6 +301,27 @@ func writeText(out io.Writer, v reportView, colour bool) {
 	if ht.Quorum > 0 {
 		p("checkpoint operators: %d agree, %d required: %s", ht.Agreed, ht.Quorum, strings.Join(ht.Sources, ", "))
 	}
+	if ht.HeadersSource != "" {
+		p("headers served by: %s", ht.HeadersSource)
+	}
+	if len(ht.HeaderSources) > 0 {
+		hs := make([]uint64, 0, len(ht.HeaderSources))
+		for h := range ht.HeaderSources {
+			hs = append(hs, h)
+		}
+		sort.Slice(hs, func(i, j int) bool { return hs[i] < hs[j] })
+		parts := make([]string, len(hs))
+		for i, h := range hs {
+			parts[i] = fmt.Sprintf("%d from %s", h, ht.HeaderSources[h])
+		}
+		p("needed headers: %s", strings.Join(parts, ", "))
+	}
+	if len(ht.CrossSources) > 0 {
+		p("cross-check sources: %s", strings.Join(ht.CrossSources, ", "))
+	}
+	if v.TrustModel != "" {
+		p("trust model: %s", v.TrustModel)
+	}
 	if rc := v.Receipt; rc != nil {
 		if rc.ProvenExecution {
 			p("receipt: rail ref %s recorded at %d, attested by the gate; the transaction is in a block of the trusted chain", rc.RailRef, rc.RecordedAt)
@@ -306,6 +332,9 @@ func writeText(out io.Writer, v reportView, colour bool) {
 	if ex := v.Execution; ex != nil {
 		p("execution: transaction in block %d (hash %s), inclusion %s, result %s, cross-check %s, sources %s",
 			ex.Height, ex.HeaderHash, ex.Inclusion, ex.Result, ex.CrossCheck, strings.Join(ex.Sources, ", "))
+		if ex.Inclusion != "proven" {
+			p("execution height: node-attested, so the order of the anchor before the transaction rests on the transaction source")
+		}
 	}
 	for _, w := range v.Warnings {
 		p("warning: %s", w)

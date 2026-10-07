@@ -117,7 +117,10 @@ type Server struct {
 	// is sent with ErrHTTP.
 	RPCError map[string]string
 	ErrHTTP  int
-	hits     []string
+	// SingleHeader replaces the answer of /header at a height, as a node
+	// would that tells one story to /header and another to /blockchain.
+	SingleHeader map[uint64]core.Header
+	hits         []string
 }
 
 // New starts a server over c with latest height latest.
@@ -204,6 +207,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	case "/header":
 		h, ok := height("height")
 		hd, have := s.Chain.Hdrs[h]
+		if alt, replaced := s.SingleHeader[h]; replaced {
+			hd, have = alt, true
+		}
 		switch {
 		case !ok:
 			s.rpcErr(w, "height is required")

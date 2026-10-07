@@ -268,14 +268,6 @@ func (c *Client) Authorization(ctx context.Context, h commitment.Hash) (*archive
 	return a, nil
 }
 
-// verdictNames are the marker names the state derivation probes, one read
-// each, since a static server cannot list a directory.
-var verdictNames = []string{
-	"ErrActionMismatch", "ErrAnchorNotFound", "ErrAnchorTooOld", "ErrArchiveRecomputeUnsupported",
-	"ErrDACommitmentMismatch", "ErrExpired", "ErrIssuedBeforeAnchor", "ErrNonceUsed", "ErrNotYetValid",
-	"ErrPayloadHashMismatch", "ErrPayloadSizeMismatch", "ErrPayloadUnavailable", "ErrRetentionUnavailable",
-}
-
 // State derives the record state from reads only. A fault on any read it
 // needs is an error, never a state.
 func (c *Client) State(ctx context.Context, h commitment.Hash) (archive.DecisionState, error) {
@@ -291,7 +283,7 @@ func (c *Client) State(ctx context.Context, h commitment.Hash) (archive.Decision
 		return archive.DecisionState{}, err
 	}
 	var marks []*archive.RejectionRecord
-	for _, name := range verdictNames {
+	for _, name := range archive.Verdicts() {
 		key := "rejection/" + hex.EncodeToString(h[:]) + "/" + name
 		rec, err := c.record(ctx, key)
 		if errors.Is(err, archive.ErrNotFound) {

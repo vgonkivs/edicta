@@ -39,6 +39,12 @@ const (
 	maxPerCall = 20
 
 	defaultTimeout = 30 * time.Second
+
+	// A busy public node answers 429 or 503 now and then; a few paced
+	// retries ride that out without hammering it.
+	defaultRetries   = 3
+	defaultRetryBase = 500 * time.Millisecond
+	maxRetryWait     = 10 * time.Second
 )
 
 // Source is one CometBFT RPC endpoint.
@@ -46,6 +52,9 @@ type Source struct {
 	base string
 	host string
 	hc   *http.Client
+
+	retries   int
+	retryBase time.Duration
 }
 
 // New checks the base URL and copies hc, whose redirect policy is replaced:
@@ -67,7 +76,15 @@ func New(rawURL string, hc *http.Client) (*Source, error) {
 		c = *hc
 	}
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return &Source{base: strings.TrimRight(rawURL, "/"), host: host, hc: &c}, nil
+	return &Source{base: strings.TrimRight(rawURL, "/"), host: host, hc: &c, retries: defaultRetries, retryBase: defaultRetryBase}, nil
+}
+
+// WithRetry sets how often a 429 or 503 answer is retried, and the first
+// backoff, which doubles each time unless the node sends Retry-After. It is
+// for use before the first call.
+func (s *Source) WithRetry(retries int, base time.Duration) *Source {
+	s.retries, s.retryBase = max(retries, 0), base
+	return s
 }
 
 // Name is the normalized host, the unit that distinct-source rules count.
@@ -93,44 +110,76 @@ type envelope struct {
 // value. CometBFT sends RPC errors with a 200 or a 500, so the body is
 // looked at before the status.
 func (s *Source) call(ctx context.Context, path string, q url.Values) (json.RawMessage, *rpcError, error) {
+	for attempt := 0; ; attempt++ {
+		r, rerr, wait, busy, err := s.callOnce(ctx, path, q)
+		if !busy || attempt >= s.retries {
+			return r, rerr, err
+		}
+		if wait < 0 {
+			wait = s.retryBase << attempt
+		}
+		wait = min(wait, maxRetryWait)
+		t := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return nil, nil, fmt.Errorf("cometrpc: %w", ctx.Err())
+		case <-t.C:
+		}
+	}
+}
+
+// retryAfter reads a Retry-After given in seconds; -1 means none was given.
+func retryAfter(h http.Header) time.Duration {
+	n, err := strconv.ParseUint(strings.TrimSpace(h.Get("Retry-After")), 10, 31)
+	if err != nil {
+		return -1
+	}
+	return time.Duration(n) * time.Second
+}
+
+// callOnce is one request. busy is set for a 429 or 503 that carries no RPC
+// error, and wait is then the node's Retry-After, or -1.
+func (s *Source) callOnce(ctx context.Context, path string, q url.Values) (res json.RawMessage, rerr *rpcError, wait time.Duration, busy bool, err error) {
 	u := s.base + path
 	if len(q) > 0 {
 		u += "?" + q.Encode()
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
+		return nil, nil, 0, false, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	resp, err := s.hc.Do(req)
 	if err != nil {
 		if cerr := ctx.Err(); cerr != nil {
-			return nil, nil, fmt.Errorf("cometrpc: %w", cerr)
+			return nil, nil, 0, false, fmt.Errorf("cometrpc: %w", cerr)
 		}
-		return nil, nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
+		return nil, nil, 0, false, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
 		if cerr := ctx.Err(); cerr != nil {
-			return nil, nil, fmt.Errorf("cometrpc: %w", cerr)
+			return nil, nil, 0, false, fmt.Errorf("cometrpc: %w", cerr)
 		}
-		return nil, nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
+		return nil, nil, 0, false, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	if len(b) > maxBody {
-		return nil, nil, fmt.Errorf("%w: answer is larger than %d bytes", ErrBadResponse, maxBody)
+		return nil, nil, 0, false, fmt.Errorf("%w: answer is larger than %d bytes", ErrBadResponse, maxBody)
 	}
 	var env envelope
 	jerr := json.Unmarshal(b, &env)
 	if jerr == nil && env.Error != nil {
-		return nil, env.Error, nil
+		return nil, env.Error, 0, false, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("%w: status %d", ErrUnavailable, resp.StatusCode)
+		busy = resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable
+		return nil, nil, retryAfter(resp.Header), busy, fmt.Errorf("%w: status %d", ErrUnavailable, resp.StatusCode)
 	}
 	if jerr != nil || len(env.Result) == 0 {
-		return nil, nil, fmt.Errorf("%w: not a JSON-RPC result", ErrBadResponse)
+		return nil, nil, 0, false, fmt.Errorf("%w: not a JSON-RPC result", ErrBadResponse)
 	}
-	return env.Result, nil, nil
+	return env.Result, nil, 0, false, nil
 }
 
 func (s *Source) result(ctx context.Context, path string, q url.Values) (json.RawMessage, error) {

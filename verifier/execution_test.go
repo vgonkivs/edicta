@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -149,6 +150,10 @@ func TestExecutionNodeAttestedIsNotProven(t *testing.T) {
 	assert.Equal(t, verifier.VerdictValid, rep.Verdict)
 	assert.False(t, rep.Receipt.ProvenExecution)
 	assert.Equal(t, "node-attested", rep.Execution.Inclusion)
+	assert.Contains(t, strings.Join(rep.Warnings, "\n"), "no inclusion proof", "the ordering rests on the source's height")
+
+	proven := newExecRig(t, newParts(t), nil)
+	assert.NotContains(t, strings.Join(proven.run(t).Warnings, "\n"), "no inclusion proof")
 }
 
 func TestExecutionRequestedIsRequiredForValid(t *testing.T) {
@@ -325,9 +330,10 @@ func TestExecutionHeaderGoesThroughHeaderTrust(t *testing.T) {
 		e.trust.hash = bytes.Repeat([]byte{9}, 32)
 		rep := e.run(t)
 		passed(t, rep, verifier.CheckHeaderTrust)
-		c := failed(t, rep, verifier.CheckExecution)
-		assert.ErrorIs(t, c.Err, verifier.ErrExecutionInvalid)
-		assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
+		c, ok := rep.Check(verifier.CheckExecution)
+		require.True(t, ok)
+		assert.Equal(t, verifier.StatusUnchecked, c.Status, "the header comes from an online source, so the fault is the source's")
+		assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
 		assert.False(t, rep.Receipt.ProvenExecution)
 	})
 	t.Run("trusted header does not reach the height", func(t *testing.T) {
@@ -365,8 +371,10 @@ func TestExecutionHeaderGoesThroughHeaderTrust(t *testing.T) {
 		e := newExecRig(t, newParts(t), nil)
 		e.trust.err = errors.New("headertrust: header chain does not link to the trusted header")
 		rep := e.run(t)
-		c := failed(t, rep, verifier.CheckExecution)
-		assert.ErrorIs(t, c.Err, verifier.ErrExecutionInvalid)
+		c, ok := rep.Check(verifier.CheckExecution)
+		require.True(t, ok)
+		assert.Equal(t, verifier.StatusUnchecked, c.Status)
+		assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
 	})
 }
 

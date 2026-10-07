@@ -1,5 +1,7 @@
 package archive
 
+import "sort"
+
 type ftype uint8
 
 const (
@@ -145,6 +147,17 @@ var verdicts = map[string]bool{
 	"ErrPayloadSizeMismatch":         true,
 	"ErrPayloadUnavailable":          true,
 	"ErrRetentionUnavailable":        true,
+}
+
+// Verdicts is the sorted list of the error names a rejection marker may
+// carry, for readers that must probe every one.
+func Verdicts() []string {
+	names := make([]string, 0, len(verdicts))
+	for n := range verdicts {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func isIDChar(c byte) bool {
