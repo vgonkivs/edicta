@@ -621,3 +621,36 @@ func (s *Store) markers(ctx context.Context, h commitment.Hash) ([]string, error
 	}
 	return names, nil
 }
+
+// Raw opens the stored bytes of the record under a canonical key without
+// decoding them. Anything that is not a canonical key is absent, and a
+// link or other non-regular file is refused so the tree cannot be left.
+func (s *Store) Raw(_ context.Context, key string) (io.ReadCloser, error) {
+	if _, err := archive.ParseKey(key); err != nil {
+		return nil, notFound(err)
+	}
+	p := s.path(key)
+	before, err := os.Lstat(p)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %s", archive.ErrNotFound, key)
+		}
+		return nil, fmt.Errorf("fsarchive: %w", err)
+	}
+	if !before.Mode().IsRegular() {
+		return nil, fmt.Errorf("fsarchive: %s is not a regular file", key)
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %s", archive.ErrNotFound, key)
+		}
+		return nil, fmt.Errorf("fsarchive: %w", err)
+	}
+	after, err := f.Stat()
+	if err != nil || !after.Mode().IsRegular() || !os.SameFile(before, after) {
+		f.Close()
+		return nil, fmt.Errorf("fsarchive: %s is not a regular file", key)
+	}
+	return f, nil
+}

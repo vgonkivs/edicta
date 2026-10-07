@@ -77,47 +77,55 @@ func hashOf(h core.Header) ([]byte, error) {
 // ascending order: each header's hash must equal the last_block_id hash of
 // its successor. No signature is checked.
 func VerifyBackwards(cp Checkpoint, headers [][]byte, height uint64, hash []byte) error {
+	_, _, err := verifyBackwards(cp, headers, height, hash)
+	return err
+}
+
+// verifyBackwards also reports the height of the header that broke the
+// chain, when the break is that one header's fault and not the claimed hash's.
+func verifyBackwards(cp Checkpoint, headers [][]byte, height uint64, hash []byte) (culprit uint64, atHeader bool, err error) {
 	if cp.Height < height {
-		return fmt.Errorf("%w: checkpoint %d, needed %d", ErrCheckpointTooLow, cp.Height, height)
+		return 0, false, fmt.Errorf("%w: checkpoint %d, needed %d", ErrCheckpointTooLow, cp.Height, height)
 	}
 	top, err := decode(cp.Header)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrCheckpointMismatch, err)
+		return 0, false, fmt.Errorf("%w: %w", ErrCheckpointMismatch, err)
 	}
 	topHash, err := hashOf(top)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrCheckpointMismatch, err)
+		return 0, false, fmt.Errorf("%w: %w", ErrCheckpointMismatch, err)
 	}
 	if uint64(top.Height) != cp.Height || !bytes.Equal(topHash, cp.Hash) {
-		return fmt.Errorf("%w: height %d", ErrCheckpointMismatch, cp.Height)
+		return 0, false, fmt.Errorf("%w: height %d", ErrCheckpointMismatch, cp.Height)
 	}
 	if uint64(len(headers)) != cp.Height-height {
-		return fmt.Errorf("%w: %d headers for %d links", ErrChainBroken, len(headers), cp.Height-height)
+		return 0, false, fmt.Errorf("%w: %d headers for %d links", ErrChainBroken, len(headers), cp.Height-height)
 	}
 
 	want := top.LastBlockID.Hash
 	got := topHash
 	for i := len(headers) - 1; i >= 0; i-- {
+		at := height + uint64(i)
 		h, err := decode(headers[i])
 		if err != nil {
-			return fmt.Errorf("%w: header %d: %w", ErrChainBroken, height+uint64(i), err)
+			return at, true, fmt.Errorf("%w: header %d: %w", ErrChainBroken, at, err)
 		}
-		if uint64(h.Height) != height+uint64(i) {
-			return fmt.Errorf("%w: header %d claims height %d", ErrChainBroken, height+uint64(i), h.Height)
+		if uint64(h.Height) != at {
+			return at, true, fmt.Errorf("%w: header %d claims height %d", ErrChainBroken, at, h.Height)
 		}
 		sum, err := hashOf(h)
 		if err != nil {
-			return fmt.Errorf("%w: header %d: %w", ErrChainBroken, height+uint64(i), err)
+			return at, true, fmt.Errorf("%w: header %d: %w", ErrChainBroken, at, err)
 		}
 		if !bytes.Equal(sum, want) {
-			return fmt.Errorf("%w: header %d does not match the link from %d", ErrChainBroken, height+uint64(i), height+uint64(i)+1)
+			return at, true, fmt.Errorf("%w: header %d does not match the link from %d", ErrChainBroken, at, at+1)
 		}
 		want, got = h.LastBlockID.Hash, sum
 	}
 	if !bytes.Equal(got, hash) {
-		return fmt.Errorf("%w: hash at height %d differs from the chain's", ErrChainBroken, height)
+		return 0, false, fmt.Errorf("%w: hash at height %d differs from the chain's", ErrChainBroken, height)
 	}
-	return nil
+	return 0, false, nil
 }
 
 type trust struct {
@@ -159,7 +167,13 @@ func (t *trust) Trusted(ctx context.Context, height uint64, hash []byte) (verifi
 		}
 		headers = append(headers, b)
 	}
-	if err := VerifyBackwards(t.cp, headers, height, hash); err != nil {
+	if culprit, atHeader, err := verifyBackwards(t.cp, headers, height, hash); err != nil {
+		// A header that came from an online source and does not link is that
+		// source's fault, so the decision is unchecked. An archived one is
+		// evidence, and a claimed hash the chain does not have is a failure.
+		if p, ok := t.chain.(*preferChain); ok && atHeader && !p.isKnown(culprit) {
+			return res, fmt.Errorf("%w: %w", verifier.ErrTrustInput, err)
+		}
 		return res, err
 	}
 	res.Checked = true
@@ -207,4 +221,159 @@ func worse(a, b string) string {
 		return b
 	}
 	return a
+}
+
+// NamedChain is an online header source that also reports its latest height
+// and a name for the operator behind it (the normalized host).
+type NamedChain interface {
+	HeaderChain
+	Name() string
+	Latest(ctx context.Context) (uint64, error)
+}
+
+// ErrCheckpointDisagree marks sources that give different hashes for one
+// height. It is a failure whatever the quorum, since the verifier cannot tell
+// which side is honest.
+var ErrCheckpointDisagree = errors.New("headertrust: checkpoint sources disagree")
+
+// CheckpointReport says which header an agreed checkpoint is and who agreed.
+type CheckpointReport struct {
+	Height  uint64
+	Hash    []byte
+	Sources []string
+	Agreed  int
+	Quorum  int
+}
+
+// nodeIDSource is implemented by sources that can report the node id of
+// their status, so two host names of one node count once.
+type nodeIDSource interface {
+	NodeID(ctx context.Context) (string, error)
+}
+
+// AgreedCheckpoint takes h as the lowest latest height of the sources that
+// answer, reads the header at h from each and recomputes its hash. Any two
+// differing hashes are ErrCheckpointDisagree. Fewer than quorum distinct
+// operators (by name, and by node id where known) agreeing wraps
+// verifier.ErrTrustInput.
+func AgreedCheckpoint(ctx context.Context, srcs []NamedChain, quorum int) (Checkpoint, CheckpointReport, error) {
+	rep := CheckpointReport{Quorum: quorum}
+	if quorum < 1 {
+		return Checkpoint{}, rep, fmt.Errorf("headertrust: quorum %d is below 1", quorum)
+	}
+	if len(srcs) == 0 || quorum > len(srcs) {
+		return Checkpoint{}, rep, fmt.Errorf("headertrust: %d sources cannot reach quorum %d", len(srcs), quorum)
+	}
+	for _, s := range srcs {
+		if s == nil {
+			return Checkpoint{}, rep, errors.New("headertrust: nil checkpoint source")
+		}
+	}
+
+	type live struct {
+		src    NamedChain
+		latest uint64
+	}
+	var lives []live
+	for _, s := range srcs {
+		latest, err := s.Latest(ctx)
+		if cerr := ctx.Err(); cerr != nil {
+			return Checkpoint{}, rep, fmt.Errorf("headertrust: %w", cerr)
+		}
+		if err == nil && latest > 0 {
+			lives = append(lives, live{s, latest})
+		}
+	}
+	if len(lives) == 0 {
+		return Checkpoint{}, rep, fmt.Errorf("%w: no checkpoint source reported its latest height", verifier.ErrTrustInput)
+	}
+	t := lives[0].latest
+	for _, l := range lives {
+		t = min(t, l.latest)
+	}
+
+	type answer struct {
+		src  NamedChain
+		raw  []byte
+		hash []byte
+	}
+	var answers []answer
+	for _, l := range lives {
+		raw, err := l.src.Header(ctx, t)
+		if cerr := ctx.Err(); cerr != nil {
+			return Checkpoint{}, rep, fmt.Errorf("headertrust: %w", cerr)
+		}
+		if err != nil {
+			continue
+		}
+		h, err := decode(raw)
+		if err != nil || uint64(h.Height) != t {
+			continue
+		}
+		sum, err := hashOf(h)
+		if err != nil {
+			continue
+		}
+		answers = append(answers, answer{l.src, raw, sum})
+	}
+	for _, a := range answers {
+		if !bytes.Equal(a.hash, answers[0].hash) {
+			return Checkpoint{}, rep, fmt.Errorf("%w: height %d", ErrCheckpointDisagree, t)
+		}
+	}
+
+	names := map[string]bool{}
+	ids := map[string]bool{}
+	for _, a := range answers {
+		name := a.src.Name()
+		if names[name] {
+			continue
+		}
+		id := ""
+		if is, ok := a.src.(nodeIDSource); ok {
+			if v, err := is.NodeID(ctx); err == nil {
+				id = v
+			}
+		}
+		if id != "" && ids[id] {
+			continue
+		}
+		names[name] = true
+		if id != "" {
+			ids[id] = true
+		}
+		rep.Sources = append(rep.Sources, name)
+	}
+	rep.Agreed = len(rep.Sources)
+	if len(answers) > 0 {
+		rep.Height, rep.Hash = t, bytes.Clone(answers[0].hash)
+	}
+	if rep.Agreed < quorum {
+		return Checkpoint{}, rep, fmt.Errorf("%w: %d of %d required operators agree at height %d", verifier.ErrTrustInput, rep.Agreed, quorum, t)
+	}
+	return Checkpoint{Height: t, Hash: bytes.Clone(answers[0].hash), Header: bytes.Clone(answers[0].raw)}, rep, nil
+}
+
+type preferChain struct {
+	known map[uint64][]byte
+	then  HeaderChain
+}
+
+// Prefer serves the known headers (the archived anchor header) first and
+// everything else from then. Served headers are still checked link by link.
+func Prefer(known map[uint64][]byte, then HeaderChain) HeaderChain {
+	c := make(map[uint64][]byte, len(known))
+	for h, b := range known {
+		c[h] = bytes.Clone(b)
+	}
+	return &preferChain{known: c, then: then}
+}
+
+func (p *preferChain) isKnown(h uint64) bool { _, ok := p.known[h]; return ok }
+
+func (p *preferChain) Header(ctx context.Context, h uint64) ([]byte, error) {
+	if b, ok := p.known[h]; ok {
+		return bytes.Clone(b), nil
+	}
+	return p.then.Header(ctx, h)
 }

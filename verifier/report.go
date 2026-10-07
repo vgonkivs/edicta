@@ -35,6 +35,7 @@ const (
 	CheckHeaderTrust   CheckName = "header_trust"
 	CheckReceipt       CheckName = "receipt"
 	CheckRetention     CheckName = "retention_replay"
+	CheckExecution     CheckName = "execution"
 )
 
 // Check is one named step. Err is set for a failed step and, for an
@@ -89,6 +90,19 @@ type ReceiptInfo struct {
 	ProvenExecution bool
 }
 
+// ExecutionInfo is what the rail checker established about the transaction
+// the receipt names.
+type ExecutionInfo struct {
+	RailRef    string
+	Height     uint64
+	HeaderHash []byte
+	BlockTime  uint64
+	Inclusion  string
+	Result     string
+	CrossCheck string
+	Sources    []string
+}
+
 type Report struct {
 	Verdict        Verdict
 	CommitmentHash commitment.Hash
@@ -113,6 +127,7 @@ type Report struct {
 	Authorization           *AuthorizationInfo
 	Cert                    *CertReport
 	Receipt                 *ReceiptInfo
+	Execution               *ExecutionInfo
 	HeaderTrust             HeaderTrustReport
 	Checks                  []Check
 	Warnings                []string

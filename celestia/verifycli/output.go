@@ -1,4 +1,4 @@
-package main
+package verifycli
 
 import (
 	"encoding/hex"
@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/verifier"
@@ -19,10 +20,25 @@ type checkView struct {
 
 type trustView struct {
 	Status         string            `json:"status"`
+	Mode           string            `json:"mode,omitempty"`
 	CheckpointH    uint64            `json:"checkpoint_height"`
 	CheckpointHash string            `json:"checkpoint_hash"`
+	Sources        []string          `json:"sources,omitempty"`
+	Agreed         int               `json:"agreed,omitempty"`
+	Quorum         int               `json:"quorum,omitempty"`
 	CrossCheck     string            `json:"cross_check"`
 	Hashes         map[uint64]string `json:"hashes,omitempty"`
+}
+
+type executionView struct {
+	RailRef    string   `json:"rail_ref"`
+	Height     uint64   `json:"height"`
+	HeaderHash string   `json:"header_hash"`
+	BlockTime  uint64   `json:"block_time"`
+	Inclusion  string   `json:"inclusion"`
+	Result     string   `json:"result"`
+	CrossCheck string   `json:"cross_check"`
+	Sources    []string `json:"sources"`
 }
 
 type authView struct {
@@ -68,28 +84,29 @@ type k2View struct {
 
 // reportView is the printed form of a report; the JSON keys are the contract.
 type reportView struct {
-	Verdict           string       `json:"verdict"`
-	CommitmentHash    string       `json:"commitment_hash"`
-	State             string       `json:"state"`
-	AuthVerified      bool         `json:"authorization_verified"`
-	Params            paramsView   `json:"params"`
-	Rejections        []string     `json:"rejections,omitempty"`
-	DA                uint64       `json:"da,omitempty"`
-	Height            uint64       `json:"height,omitempty"`
-	BlockTime         uint64       `json:"block_time,omitempty"`
-	RetentionStart    uint64       `json:"retention_start,omitempty"`
-	GateID            string       `json:"gate_id,omitempty"`
-	ActionType        string       `json:"action_type,omitempty"`
-	Settlement        string       `json:"settlement,omitempty"`
-	Authorization     *authView    `json:"authorization,omitempty"`
-	Cert              *certView    `json:"cert,omitempty"`
-	ProofForm         *int         `json:"anchor_proof_form,omitempty"`
-	CandidatesEarlier *int         `json:"anchor_candidates_earlier,omitempty"`
-	Receipt           *receiptView `json:"receipt,omitempty"`
-	HeaderTrust       trustView    `json:"header_trust"`
-	Checks            []checkView  `json:"checks"`
-	Warnings          []string     `json:"warnings,omitempty"`
-	K2                *k2View      `json:"retention_replay,omitempty"`
+	Verdict           string         `json:"verdict"`
+	CommitmentHash    string         `json:"commitment_hash"`
+	State             string         `json:"state"`
+	AuthVerified      bool           `json:"authorization_verified"`
+	Params            paramsView     `json:"params"`
+	Rejections        []string       `json:"rejections,omitempty"`
+	DA                uint64         `json:"da,omitempty"`
+	Height            uint64         `json:"height,omitempty"`
+	BlockTime         uint64         `json:"block_time,omitempty"`
+	RetentionStart    uint64         `json:"retention_start,omitempty"`
+	GateID            string         `json:"gate_id,omitempty"`
+	ActionType        string         `json:"action_type,omitempty"`
+	Settlement        string         `json:"settlement,omitempty"`
+	Authorization     *authView      `json:"authorization,omitempty"`
+	Cert              *certView      `json:"cert,omitempty"`
+	ProofForm         *int           `json:"anchor_proof_form,omitempty"`
+	CandidatesEarlier *int           `json:"anchor_candidates_earlier,omitempty"`
+	Receipt           *receiptView   `json:"receipt,omitempty"`
+	Execution         *executionView `json:"execution,omitempty"`
+	HeaderTrust       trustView      `json:"header_trust"`
+	Checks            []checkView    `json:"checks"`
+	Warnings          []string       `json:"warnings,omitempty"`
+	K2                *k2View        `json:"retention_replay,omitempty"`
 }
 
 func pathName(p commitment.PayloadPath) string {
@@ -162,6 +179,12 @@ func viewOf(r verifier.Report) reportView {
 	}
 	if rc := r.Receipt; rc != nil {
 		v.Receipt = &receiptView{RailRef: rc.RailRef, RecordedAt: rc.RecordedAt, GateAttested: rc.GateAttested, ProvenExecution: rc.ProvenExecution}
+	}
+	if ex := r.Execution; ex != nil {
+		v.Execution = &executionView{
+			RailRef: ex.RailRef, Height: ex.Height, HeaderHash: hex.EncodeToString(ex.HeaderHash), BlockTime: ex.BlockTime,
+			Inclusion: ex.Inclusion, Result: ex.Result, CrossCheck: ex.CrossCheck, Sources: ex.Sources,
+		}
 	}
 	return v
 }
@@ -261,13 +284,28 @@ func writeText(out io.Writer, v reportView, colour bool) {
 		p("anchor proof form: %d, earlier candidates: %d", *v.ProofForm, *v.CandidatesEarlier)
 	}
 	ht := v.HeaderTrust
+	mode := ""
+	if ht.Mode != "" {
+		mode = ", mode " + ht.Mode
+	}
 	if ht.CheckpointH != 0 {
-		p("header trust: %s, checkpoint %d %s, cross-check %s", ht.Status, ht.CheckpointH, ht.CheckpointHash, ht.CrossCheck)
+		p("header trust: %s%s, checkpoint %d %s, cross-check %s", ht.Status, mode, ht.CheckpointH, ht.CheckpointHash, ht.CrossCheck)
 	} else {
-		p("header trust: %s", ht.Status)
+		p("header trust: %s%s", ht.Status, mode)
+	}
+	if ht.Quorum > 0 {
+		p("checkpoint operators: %d agree, %d required: %s", ht.Agreed, ht.Quorum, strings.Join(ht.Sources, ", "))
 	}
 	if rc := v.Receipt; rc != nil {
-		p("receipt: rail ref %s recorded at %d, attested by the gate, execution not proven", rc.RailRef, rc.RecordedAt)
+		if rc.ProvenExecution {
+			p("receipt: rail ref %s recorded at %d, attested by the gate; the transaction is in a block of the trusted chain", rc.RailRef, rc.RecordedAt)
+		} else {
+			p("receipt: rail ref %s recorded at %d, attested by the gate, execution not proven", rc.RailRef, rc.RecordedAt)
+		}
+	}
+	if ex := v.Execution; ex != nil {
+		p("execution: transaction in block %d (hash %s), inclusion %s, result %s, cross-check %s, sources %s",
+			ex.Height, ex.HeaderHash, ex.Inclusion, ex.Result, ex.CrossCheck, strings.Join(ex.Sources, ", "))
 	}
 	for _, w := range v.Warnings {
 		p("warning: %s", w)

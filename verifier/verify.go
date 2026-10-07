@@ -19,7 +19,10 @@ const (
 	precisionBucketDependent = "bucket-dependent"
 )
 
-type options struct{ receipt []byte }
+type options struct {
+	receipt   []byte
+	execution bool
+}
 
 // Option changes one Verify call.
 type Option func(*options)
@@ -29,6 +32,10 @@ type Option func(*options)
 func WithReceipt(signed []byte) Option {
 	return func(o *options) { o.receipt = bytes.Clone(signed) }
 }
+
+// WithExecutionCheck also checks the rail transaction the receipt names.
+// Once requested, a passing execution check is required for a valid verdict.
+func WithExecutionCheck() Option { return func(o *options) { o.execution = true } }
 
 // run is the state of one verification.
 type run struct {
@@ -40,6 +47,8 @@ type run struct {
 	auth  *archive.AuthorizationRecord
 	sa    *commitment.SignedAuthorization
 	facts *AnchorFacts
+
+	execRequested bool
 }
 
 // Verify checks the archived decision under h. The error is for operational
@@ -80,7 +89,7 @@ func (v *Verifier) verify(ctx context.Context, h commitment.Hash, opts []Option)
 	for _, opt := range opts {
 		opt(&o)
 	}
-	r := &run{v: v, ctx: ctx, h: h}
+	r := &run{v: v, ctx: ctx, h: h, execRequested: o.execution}
 	r.rep.CommitmentHash = h
 	r.rep.Params = v.cfg.Params
 	if err := r.alive(); err != nil {
@@ -146,6 +155,12 @@ func (v *Verifier) verify(ctx context.Context, h commitment.Hash, opts []Option)
 	}
 	if o.receipt != nil && r.rep.AuthorizationVerified && !r.anyStatus(StatusFail) {
 		r.receipt(o.receipt)
+	}
+	if o.execution {
+		if err := r.alive(); err != nil {
+			return nil, err
+		}
+		r.execution()
 	}
 	r.finish()
 	return r, nil
@@ -579,6 +594,9 @@ func (r *run) receipt(signed []byte) {
 // that was not authorized says so; otherwise anything unchecked keeps it
 // from being valid.
 func (r *run) finish() {
+	if _, ok := r.rep.Check(CheckExecution); r.execRequested && !ok {
+		r.unchecked(CheckExecution, errors.New("the decision did not get far enough to check the execution"))
+	}
 	verdict := VerdictValid
 	switch {
 	case r.anyStatus(StatusFail):
@@ -594,10 +612,14 @@ func (r *run) finish() {
 // allRequiredPassed holds only if every step a valid decision needs has run
 // and passed, so a step that was never recorded cannot pass by omission.
 func (r *run) allRequiredPassed() bool {
-	for _, n := range []CheckName{
+	required := []CheckName{
 		CheckDecision, CheckEnvelope, CheckAction, CheckAuthorization,
 		CheckPayload, CheckAnchor, CheckAnchorTime, CheckHeaderTrust,
-	} {
+	}
+	if r.execRequested {
+		required = append(required, CheckExecution)
+	}
+	for _, n := range required {
 		c, ok := r.rep.Check(n)
 		if !ok || c.Status != StatusPass {
 			return false
@@ -613,4 +635,108 @@ func (r *run) anyStatus(s Status) bool {
 		}
 	}
 	return false
+}
+
+// execution asks the rail checker registered for the action type about the
+// transaction in the receipt, and holds its facts to the core's rules. It
+// never passes unless the receipt, the header trust and the checker all did.
+func (r *run) execution() {
+	unchecked := func(err error) { r.unchecked(CheckExecution, err) }
+	fail := func(err error) { r.fail(CheckExecution, fmt.Errorf("%w: %w", ErrExecutionInvalid, err)) }
+
+	if c, ok := r.rep.Check(CheckReceipt); !ok || c.Status != StatusPass || r.rep.Receipt == nil {
+		unchecked(errors.New("no receipt that passed"))
+		return
+	}
+	if r.rep.State != archive.StateAuthorized || !r.rep.AuthorizationVerified {
+		unchecked(errors.New("the decision is not authorized"))
+		return
+	}
+	if r.anyStatus(StatusFail) {
+		unchecked(errors.New("another check failed"))
+		return
+	}
+	if c, ok := r.rep.Check(CheckHeaderTrust); !ok || c.Status != StatusPass || r.v.trust == nil {
+		unchecked(errors.New("no trusted header"))
+		return
+	}
+	chk := r.v.executions[r.c.Action.Type]
+	if chk == nil {
+		unchecked(fmt.Errorf("no execution checker for action type %q", r.c.Action.Type))
+		return
+	}
+	dec, err := r.v.archive.Decision(r.ctx, r.h)
+	if err != nil {
+		unchecked(fmt.Errorf("decision: %w", err))
+		return
+	}
+	facts, err := chk.CheckExecution(r.ctx, ExecutionInput{
+		CommitmentHash: r.h, ActionType: r.c.Action.Type, Action: bytes.Clone(dec.Action), RailRef: r.rep.Receipt.RailRef,
+	})
+	if err != nil {
+		if cerr := r.ctx.Err(); cerr != nil {
+			unchecked(cerr)
+			return
+		}
+		if errors.Is(err, ErrExecutionUnchecked) {
+			unchecked(err)
+			return
+		}
+		fail(err)
+		return
+	}
+	r.rep.Execution = &ExecutionInfo{
+		RailRef: r.rep.Receipt.RailRef, Height: facts.Height, HeaderHash: bytes.Clone(facts.HeaderHash),
+		BlockTime: facts.BlockTime, Inclusion: facts.Inclusion, Result: facts.Result, CrossCheck: facts.CrossCheck,
+		Sources: append([]string(nil), facts.Sources...),
+	}
+	switch {
+	case facts.Inclusion != "proven" && facts.Inclusion != "node-attested":
+		fail(fmt.Errorf("inclusion %q", facts.Inclusion))
+		return
+	case facts.Result != settlementNodeAttested:
+		fail(fmt.Errorf("result %q", facts.Result))
+		return
+	case len(facts.HeaderHash) == 0:
+		fail(errors.New("no header hash"))
+		return
+	case facts.Height <= r.c.PayloadRef.Height:
+		fail(fmt.Errorf("transaction height %d is not above the anchor height %d", facts.Height, r.c.PayloadRef.Height))
+		return
+	}
+	switch facts.CrossCheck {
+	case "pass", "unavailable", "off":
+	case "mismatch":
+		fail(errors.New("cross sources disagree"))
+		return
+	default:
+		fail(fmt.Errorf("cross-check result %q", facts.CrossCheck))
+		return
+	}
+	res, err := r.v.trust.Trusted(r.ctx, facts.Height, facts.HeaderHash)
+	switch {
+	case r.ctx.Err() != nil:
+		unchecked(r.ctx.Err())
+		return
+	case errors.Is(err, ErrTrustInput):
+		unchecked(err)
+		return
+	case err != nil:
+		fail(err)
+		return
+	case !res.Checked:
+		unchecked(errors.New("header trust did not check the header at the transaction height"))
+		return
+	}
+	// A cross-check mismatch here means the chain's own header at this height
+	// differs from a second source's.
+	if res.CrossCheck == "mismatch" {
+		fail(errors.New("header trust cross-check mismatch at the transaction height"))
+		return
+	}
+	r.rep.Receipt.ProvenExecution = facts.Inclusion == "proven"
+	if r.rep.Authorization != nil && facts.BlockTime > r.rep.Authorization.Expires {
+		r.warn("execution_after_expires: the transaction block time %d is after the Authorization expiry %d", facts.BlockTime, r.rep.Authorization.Expires)
+	}
+	r.pass(CheckExecution)
 }

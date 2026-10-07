@@ -1,4 +1,4 @@
-package main
+package verifycli
 
 import (
 	"encoding/json"
@@ -92,7 +92,8 @@ func TestJSONErrorsAreJSON(t *testing.T) {
 	t.Run("without the flag the error stays text", func(t *testing.T) {
 		code, out := exec(t, []string{"verify"})
 		assert.Equal(t, exitUsage, code)
-		assert.True(t, strings.HasPrefix(out, "edicta-verify:") || strings.Contains(out, "usage"), out)
+		assert.NotEmpty(t, out)
+		assert.False(t, strings.HasPrefix(strings.TrimSpace(out), "{"), "a plain message, not JSON: %q", out)
 	})
 }
 

@@ -36,7 +36,41 @@ var (
 	// auditor input (checkpoint too low, chain too long, headers not
 	// available). The decision is then unchecked, not invalid.
 	ErrTrustInput = errors.New("verifier: header trust input is insufficient")
+
+	ErrExecutionInvalid = errors.New("verifier: on-chain execution does not match the authorized action")
+	// ErrExecutionUnchecked marks a checker error that means no fact was
+	// established, as opposed to one that shows a contradiction.
+	ErrExecutionUnchecked = errors.New("verifier: execution could not be checked")
 )
+
+// ExecutionInput is what a rail checker is given. Action is the archived
+// action bytes, the ones the action check matched.
+type ExecutionInput struct {
+	CommitmentHash commitment.Hash
+	ActionType     string
+	Action         []byte
+	RailRef        string
+}
+
+// ExecutionFacts are what a checker established about the rail transaction.
+// Inclusion is "proven" or "node-attested", Result is "node-attested" and
+// CrossCheck is "pass", "mismatch", "unavailable" or "off".
+type ExecutionFacts struct {
+	Height     uint64
+	HeaderHash []byte
+	BlockTime  uint64
+	Inclusion  string
+	Result     string
+	CrossCheck string
+	Sources    []string
+}
+
+// ExecutionChecker is a rail profile's check of the transaction named by a
+// receipt. An error wrapping ErrExecutionUnchecked means no fact was
+// established; any other error is a contradiction.
+type ExecutionChecker interface {
+	CheckExecution(ctx context.Context, in ExecutionInput) (ExecutionFacts, error)
+}
 
 // Config is what the verifier needs to know about the gate it audits.
 type Config struct {
@@ -131,6 +165,8 @@ type Deps struct {
 	Committers map[commitment.DA]gate.DACommitter
 	Anchors    map[commitment.DA]AnchorVerifier
 	Trust      HeaderTrust
+	// Executions are the rail checkers by action type.
+	Executions map[string]ExecutionChecker
 }
 
 type Verifier struct {
@@ -139,6 +175,7 @@ type Verifier struct {
 	committers map[commitment.DA]gate.DACommitter
 	anchors    map[commitment.DA]AnchorVerifier
 	trust      HeaderTrust
+	executions map[string]ExecutionChecker
 }
 
 func New(d Deps) (*Verifier, error) {
@@ -172,6 +209,13 @@ func New(d Deps) (*Verifier, error) {
 			return nil, fmt.Errorf("%w: nil anchor verifier for da %d", ErrInvalidConfig, da)
 		}
 		v.anchors[da] = a
+	}
+	v.executions = make(map[string]ExecutionChecker, len(d.Executions))
+	for t, c := range d.Executions {
+		if c == nil {
+			return nil, fmt.Errorf("%w: nil execution checker for %q", ErrInvalidConfig, t)
+		}
+		v.executions[t] = c
 	}
 	for _, k := range d.Config.GateKeys {
 		v.cfg.GateKeys = append(v.cfg.GateKeys, append(ed25519.PublicKey(nil), k...))

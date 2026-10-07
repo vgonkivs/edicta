@@ -1,194 +1,48 @@
 package main
 
 import (
-	"encoding/json"
-	"strings"
+	"bytes"
+	"encoding/hex"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/celestia/test/fibrefix"
 )
 
-// Exit codes: 0 valid, 1 invalid, 2 unchecked (header trust missing),
-// 3 not authorized (pending or rejected), 4 usage or unreadable input.
-const (
-	exitValid         = 0
-	exitInvalid       = 1
-	exitUnchecked     = 2
-	exitNotAuthorized = 3
-	exitUsage         = 4
-)
+func exec(t *testing.T, args ...string) (int, string) {
+	t.Helper()
+	var out bytes.Buffer
+	code := run(args, &out)
+	return code, out.String()
+}
 
-func TestVerifyOfflineWithTrustedHeaderFile(t *testing.T) {
-	s := newScenario(t, scenarioOpts{})
-	trusted := s.chain.trustedFile(t, checkpointH, nil)
-	code, out := exec(t, s.args("verify", "--trusted", trusted))
+// edicta-verify keeps its interface and its exit codes; the work is done by
+// the library the edicta command shares.
+func TestStillVerifiesAndKeepsItsExitCodes(t *testing.T) {
+	l := fibrefix.LoadLive(t)
+	d := l.WriteDecision(t, l.Evidence(t))
+	trusted := l.TrustedFile(t, nil)
+	h := hex.EncodeToString(d.Hash[:])
 
-	assert.Equal(t, exitValid, code, out)
-	for _, line := range []string{
-		"[ok] envelope", "[ok] action", "[ok] authorization", "[ok] payload", "[ok] anchor", "[ok] header_trust",
-	} {
-		assert.Contains(t, out, line)
-	}
+	code, out := exec(t, "verify", "--archive", d.Dir, "--gate-key", d.GateKeyHex, "--trusted", trusted, h)
+	require.Equal(t, 0, code, out)
 	assert.Contains(t, out, "verdict: valid")
-	assert.NotContains(t, out, "[FAIL]")
-	assert.NotContains(t, out, "\x1b[", "no colour codes when stdout is not a terminal")
-}
 
-func TestVerifyWithoutTrustedHeaderIsUnchecked(t *testing.T) {
-	s := newScenario(t, scenarioOpts{})
-	code, out := exec(t, s.args("verify"))
-	assert.Equal(t, exitUnchecked, code, out)
-	assert.Contains(t, out, "[unchecked] header_trust")
-	assert.Contains(t, out, "verdict: unchecked")
-	assert.NotContains(t, out, "verdict: valid")
-}
+	code, out = exec(t, "verify", "--archive", d.Dir, "--gate-key", d.GateKeyHex, h)
+	assert.Equal(t, 2, code, out)
 
-func TestVerifyTamperShowsAFailure(t *testing.T) {
-	s := newScenario(t, scenarioOpts{tamperBlob: true})
-	trusted := s.chain.trustedFile(t, checkpointH, nil)
-	code, out := exec(t, s.args("verify", "--trusted", trusted))
+	code, out = exec(t, "replay", "--archive", d.Dir, "--gate-key", d.GateKeyHex, "--trusted", trusted, h)
+	assert.Equal(t, 0, code, out)
 
-	assert.Equal(t, exitInvalid, code, out)
-	assert.Contains(t, out, "[FAIL] payload")
-	assert.Contains(t, out, "verdict: invalid")
-	assert.NotContains(t, out, "verdict: valid")
-}
+	other := bytes.Clone(d.Hash[:])
+	other[0] ^= 1
+	code, out = exec(t, "verify", "--archive", d.Dir, "--gate-key", d.GateKeyHex, "--trusted", trusted, hex.EncodeToString(other))
+	assert.Equal(t, 1, code, out)
 
-func TestVerifyPendingIsNotAuthorized(t *testing.T) {
-	s := newScenario(t, scenarioOpts{pending: true})
-	trusted := s.chain.trustedFile(t, checkpointH, nil)
-	code, out := exec(t, s.args("verify", "--trusted", trusted))
-	assert.Equal(t, exitNotAuthorized, code, out)
-	assert.Contains(t, out, "pending")
-	assert.NotContains(t, out, "verdict: valid")
-	assert.NotContains(t, strings.ToLower(out), "authorized: true")
-}
-
-func TestVerifyHeaderTrustFailures(t *testing.T) {
-	t.Run("bundled header substituted", func(t *testing.T) {
-		s := newScenario(t, scenarioOpts{})
-		trusted := s.chain.trustedFile(t, checkpointH, func(hs [][]byte) {
-			hd := s.chain.hdrs[anchorHeight+4]
-			hd.AppHash = filler("forged", 1)
-			hs[4] = encodeHeader(t, hd)
-		})
-		code, out := exec(t, s.args("verify", "--trusted", trusted))
-		assert.Equal(t, exitInvalid, code, out)
-		assert.Contains(t, out, "[FAIL] header_trust")
-	})
-	t.Run("checkpoint below the anchor height", func(t *testing.T) {
-		s := newScenario(t, scenarioOpts{})
-		trusted := s.chain.trustedFile(t, anchorHeight-1, nil)
-		code, out := exec(t, s.args("verify", "--trusted", trusted))
-		assert.Equal(t, exitUnchecked, code, out)
-		assert.Contains(t, out, "[unchecked] header_trust")
-		assert.Contains(t, out, "checkpoint")
-	})
-}
-
-func TestVerifyUnknownDecision(t *testing.T) {
-	s := newScenario(t, scenarioOpts{})
-	s.hash[0] ^= 1
-	code, out := exec(t, s.args("verify"))
-	assert.Equal(t, exitInvalid, code, out)
-	assert.Contains(t, out, "[FAIL] decision")
-}
-
-func TestUsageErrors(t *testing.T) {
-	s := newScenario(t, scenarioOpts{})
-	trusted := s.chain.trustedFile(t, checkpointH, nil)
-	hex := strings.Repeat("ab", 32)
-	tests := []struct {
-		name string
-		args []string
-	}{
-		{"no command", nil},
-		{"unknown command", []string{"frobnicate"}},
-		{"no hash", []string{"verify", "--archive", s.archiveDir, "--gate-key", s.gateKey}},
-		{"bad hash", []string{"verify", "--archive", s.archiveDir, "--gate-key", s.gateKey, "zz"}},
-		{"no archive", []string{"verify", "--gate-key", s.gateKey, hex}},
-		{"no gate key", []string{"verify", "--archive", s.archiveDir, hex}},
-		{"bad gate key", []string{"verify", "--archive", s.archiveDir, "--gate-key", "00", hex}},
-		{"missing archive dir", []string{"verify", "--archive", s.archiveDir + "/nope", "--gate-key", s.gateKey, hex}},
-		{"missing trusted file", []string{"verify", "--archive", s.archiveDir, "--gate-key", s.gateKey, "--trusted", trusted + ".missing", hex}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			code, out := exec(t, tc.args)
-			assert.Equal(t, exitUsage, code, out)
-			assert.NotEmpty(t, out)
-		})
-	}
-	t.Run("malformed trusted file", func(t *testing.T) {
-		bad := t.TempDir() + "/bad.json"
-		require.NoError(t, writeFile(bad, "{not json"))
-		code, out := exec(t, s.args("verify", "--trusted", bad))
-		assert.Equal(t, exitUsage, code, out)
-	})
-}
-
-func TestVerifyJSON(t *testing.T) {
-	s := newScenario(t, scenarioOpts{})
-	trusted := s.chain.trustedFile(t, checkpointH, nil)
-	code, out := exec(t, s.args("verify", "--json", "--trusted", trusted))
-	require.Equal(t, exitValid, code, out)
-
-	var rep map[string]any
-	require.NoError(t, json.Unmarshal([]byte(out), &rep), "the output is one JSON document")
-	assert.Equal(t, "valid", rep["verdict"])
-	assert.Equal(t, "authorized", rep["state"])
-	assert.Equal(t, true, rep["authorization_verified"])
-	assert.Equal(t, hexOf(s.hash[:]), rep["commitment_hash"])
-	checks, ok := rep["checks"].([]any)
-	require.True(t, ok)
-	status := map[string]string{}
-	for _, c := range checks {
-		m := c.(map[string]any)
-		status[m["name"].(string)] = m["status"].(string)
-	}
-	for _, n := range []string{"envelope", "action", "authorization", "payload", "anchor", "header_trust"} {
-		assert.Equal(t, "pass", status[n], n)
-	}
-	ht, ok := rep["header_trust"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "valid", ht["status"])
-	assert.EqualValues(t, checkpointH, ht["checkpoint_height"])
-	assert.Equal(t, "off", ht["cross_check"])
-}
-
-func TestVerifyJSONFailureKeepsTheExitCode(t *testing.T) {
-	s := newScenario(t, scenarioOpts{tamperBlob: true})
-	trusted := s.chain.trustedFile(t, checkpointH, nil)
-	code, out := exec(t, s.args("verify", "--json", "--trusted", trusted))
-	assert.Equal(t, exitInvalid, code)
-	var rep map[string]any
-	require.NoError(t, json.Unmarshal([]byte(out), &rep))
-	assert.Equal(t, "invalid", rep["verdict"])
-	for _, c := range rep["checks"].([]any) {
-		m := c.(map[string]any)
-		if m["name"] == "payload" {
-			assert.Equal(t, "fail", m["status"])
-			assert.NotEmpty(t, m["error"])
-		}
-	}
-}
-
-func TestReplay(t *testing.T) {
-	s := newScenario(t, scenarioOpts{})
-	trusted := s.chain.trustedFile(t, checkpointH, nil)
-
-	code, out := exec(t, s.args("replay", "--trusted", trusted))
-	assert.Equal(t, exitValid, code, out)
-	assert.Contains(t, out, "[ok] retention replay")
-	assert.Contains(t, out, "consistent")
-
-	code, out = exec(t, s.args("replay", "--json", "--trusted", trusted))
-	require.Equal(t, exitValid, code, out)
-	var rep map[string]any
-	require.NoError(t, json.Unmarshal([]byte(out), &rep))
-	k2, ok := rep["retention_replay"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, true, k2["replayable"])
-	assert.Equal(t, true, k2["consistent"])
+	code, out = exec(t)
+	assert.Equal(t, 4, code, out)
+	code, out = exec(t, "verify", "--archive", "/nonexistent", "--gate-key", d.GateKeyHex, h)
+	assert.Equal(t, 4, code, out)
 }
