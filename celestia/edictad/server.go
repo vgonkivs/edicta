@@ -356,7 +356,8 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 
 	timeout := time.Duration(cfg.Archive.WriteTimeoutS) * time.Second
 	q := &retryQueue{}
-	sw := &sweeper{lister: reg, io: aio, q: q, log: log, timeout: timeout}
+	sw := &sweeper{lister: reg, io: aio, q: q, log: log, timeout: timeout, clock: clock,
+		grace: 2*timeout + requestDeadline, startedAt: uint64(clock.Now().Unix())}
 	// The pass before the listener has a time budget; what it does not reach
 	// is finished in the background right away.
 	sctx, scancel := context.WithTimeout(ctx, startupSweepBudget)
@@ -384,7 +385,7 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 		MaxBlobBytes:   cfg.Recorder.maxBlob(),
 		GateKeys:       [][]byte{signer.PublicKey()},
 		ExtraErrors:    recorderErrors,
-		RequestTimeout: 2 * time.Minute,
+		RequestTimeout: requestDeadline,
 	}
 	var pub sdk.Publisher
 	var quota edictaapi.Quota
@@ -524,6 +525,12 @@ func logAtHeightBlob(log *slog.Logger, bridge heightcheck.Status) {
 	log.Info("edictad: at-height reads", "da", DAConfigBlob, "retention", "unused", "bridge", name)
 }
 
+// requestDeadline bounds one API request.
+const requestDeadline = 2 * time.Minute
+
+// minProbeRetry keeps a probe that fails at once from looping tightly.
+const minProbeRetry = 10 * time.Second
+
 // startupSweepBudget bounds the archive sweep that runs before the listener.
 const startupSweepBudget = 30 * time.Second
 
@@ -559,7 +566,7 @@ func bridgeFallback(cfg Config, f *FibreDeps, log *slog.Logger) (node.FibreDownl
 	}
 	log.Info("edictad: bridge download fallback off until the capability probe passes")
 	sw := &switchDownloader{}
-	every := time.Duration(cfg.Fibre.CanaryEveryS) * time.Second
+	every := max(time.Duration(cfg.Fibre.CanaryEveryS)*time.Second, minProbeRetry)
 	return sw, func(ctx context.Context) {
 		for {
 			err := f.BridgeCompat(ctx)
