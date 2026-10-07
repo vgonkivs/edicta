@@ -3,7 +3,11 @@ package edictad_test
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,6 +16,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/heightcheck"
 	"github.com/vgonkivs/edicta/celestia/node"
+	"github.com/vgonkivs/edicta/celestia/nodefake"
 	"github.com/vgonkivs/edicta/fibre/fibrecommit"
 	"github.com/vgonkivs/edicta/gate/registry/boltreg"
 	"github.com/vgonkivs/edicta/test/gatefix"
@@ -234,31 +239,32 @@ func TestBridgeFallbackIsEnabledOnlyByAPassingCapabilityProbe(t *testing.T) {
 
 	t.Run("off by default, the probe is never run", func(t *testing.T) {
 		e, ff := newFibreEnv(t)
-		calls := 0
-		ff.deps.BridgeCompat = func(context.Context) error { calls++; return nil }
+		var calls atomic.Int32
+		ff.deps.BridgeCompat = func(context.Context) error { calls.Add(1); return nil }
 		e.start(fibreEdits()...)
-		assert.Zero(t, calls)
+		assert.Zero(t, calls.Load())
 		assert.NotEmpty(t, fallbackLines(e), "one line says the fallback is off")
 		assert.Empty(t, e.logLines("level=WARN", "bridge download fallback"))
 	})
 	t.Run("a passing probe enables it", func(t *testing.T) {
 		e, ff := newFibreEnv(t)
-		calls := 0
-		ff.deps.BridgeCompat = func(context.Context) error { calls++; return nil }
+		var calls atomic.Int32
+		ff.deps.BridgeCompat = func(context.Context) error { calls.Add(1); return nil }
 		e.start(fibreEdits(on)...)
-		assert.Equal(t, 1, calls)
-		assert.NotEmpty(t, fallbackLines(e))
+		// The probe runs in the background after the listener is up.
+		require.Eventually(t, func() bool { return len(e.logLines("bridge download fallback")) >= 2 }, 5*time.Second, 5*time.Millisecond)
+		assert.EqualValues(t, 1, calls.Load())
 		assert.Empty(t, e.logLines("level=WARN", "bridge download fallback"))
 	})
 	t.Run("a failing probe leaves it off with a warning and the start continues", func(t *testing.T) {
 		e, ff := newFibreEnv(t)
-		calls := 0
-		ff.deps.BridgeCompat = func(context.Context) error { calls++; return errSeam }
+		var calls atomic.Int32
+		ff.deps.BridgeCompat = func(context.Context) error { calls.Add(1); return errSeam }
 		srv := e.start(fibreEdits(on)...)
 		require.NotEmpty(t, srv.Addr())
-		assert.Equal(t, 1, calls)
+		require.Eventually(t, func() bool { return len(e.logLines("level=WARN", "bridge download fallback")) > 0 }, 5*time.Second, 5*time.Millisecond)
+		assert.EqualValues(t, 1, calls.Load())
 		warn := e.logLines("level=WARN", "bridge download fallback")
-		require.NotEmpty(t, warn)
 		assert.Contains(t, warn[0], "seam failure", "the reason is logged")
 	})
 	t.Run("no probe means no fallback, never a silent skip", func(t *testing.T) {
@@ -277,9 +283,42 @@ func TestBridgeFallbackIsEnabledOnlyByAPassingCapabilityProbe(t *testing.T) {
 			ff.deps.BridgeCompat = func(context.Context) error { return probeErr }
 			srv := e.start(fibreEdits(on)...)
 			require.NotEmpty(t, srv.Addr())
-			warn := e.logLines("level=WARN", "bridge download fallback")
-			require.NotEmpty(t, warn)
-			assert.Contains(t, warn[0], probeErr.Error())
+			require.Eventually(t, func() bool { return len(e.logLines("level=WARN", "bridge download fallback")) > 0 }, 5*time.Second, 5*time.Millisecond)
+			assert.Contains(t, e.logLines("level=WARN", "bridge download fallback")[0], probeErr.Error())
 		})
 	}
+}
+
+func TestListenerBindsBeforeTheBridgeProbeFinishes(t *testing.T) {
+	on := rep("max_read_bytes = 1048576", "max_read_bytes = 1048576\nbridge_fallback = true")
+	e, ff := newFibreEnv(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	ff.deps.BridgeCompat = func(context.Context) error {
+		once.Do(func() { close(entered) })
+		<-release
+		return nil
+	}
+	ff.deps.Fallback = nodefake.NewDownloader()
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+
+	srv := e.start(fibreEdits(on)...)
+	require.NotEmpty(t, srv.Addr())
+	require.Equal(t, 1, e.listens, "the listener is bound while the probe is still running")
+	<-entered
+	resp, err := http.Get("http://" + srv.Addr() + "/v0/health")
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Empty(t, e.logLines("bridge download fallback on"), "the fallback is off until the probe passes")
+
+	released = true
+	close(release)
+	require.Eventually(t, func() bool { return len(e.logLines("bridge download fallback on")) == 1 }, 5*time.Second, 5*time.Millisecond)
 }

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -250,6 +251,8 @@ func TestFailedMarkerWriteKeepsTheVerdict(t *testing.T) {
 
 func TestFailedAuthorizationRecordStillAnswers200AndTheRetryRepairsIt(t *testing.T) {
 	e, fs, real, base := archiveEnv(t)
+	tick := make(chan time.Time)
+	e.deps.SweepTick = tick
 	e.start()
 	d := e.decision(base, 1)
 
@@ -263,8 +266,15 @@ func TestFailedAuthorizationRecordStillAnswers200AndTheRetryRepairsIt(t *testing
 	st, _, body := e.authorizeRaw(d)
 	require.Equal(t, 409, st, "the nonce is used by this very commitment")
 	assert.True(t, hasCode(body, "ErrNonceUsed"))
-	auth, err := real.Authorization(bg, d.hash)
-	require.NoError(t, err, "the retry copies the stored Authorization into the archive")
+	_, err = real.Authorization(bg, d.hash)
+	require.ErrorIs(t, err, archive.ErrNotFound, "a replay writes no record: the queued one carries the retention inputs")
+	tick <- t0
+	var auth *archive.AuthorizationRecord
+	require.Eventually(t, func() bool {
+		auth, err = real.Authorization(bg, d.hash)
+		return err == nil
+	}, 10*time.Second, 5*time.Millisecond, "the queued record is written by the next sweep")
+	assert.NotNil(t, auth.K2, "with the inputs the issuing request had")
 	assert.True(t, bytes.Contains(body, auth.SignedAuthorization))
 	assert.Zero(t, fs.putCount(archive.KindRejection), "a same-commitment retry is no rejection")
 	state, err := real.State(bg, d.hash)
@@ -330,11 +340,70 @@ func TestTheLosingRequestOfARaceWritesNoK2Record(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, withK2, "only the winner knows the inputs of the Authorization it issued")
+	assert.Len(t, fs.authorizationPuts(), 1, "a replay writes no record of its own")
+	stored, err := real.Authorization(bg, d.hash)
+	require.NoError(t, err)
+	require.NotNil(t, stored.K2, "the stored record has the retention inputs")
+	assert.Equal(t, commitment.DACelestiaBlob, stored.K2.DA)
 	assert.Zero(t, fs.putCount(archive.KindRejection))
 	state, err := real.State(bg, d.hash)
 	require.NoError(t, err)
 	assert.Equal(t, archive.StateAuthorized, state.State)
 	assert.Len(t, e.registryKeys(), 1)
+}
+
+func TestStoredAuthorizationKeepsItsInputsUnderConcurrentIdenticalRequests(t *testing.T) {
+	e, fs, real, base := archiveEnv(t)
+	e.start()
+	const rounds, n = 30, 6
+	for r := range rounds {
+		d := e.decision(base, byte(r+1))
+		statuses := make([]int, n)
+		errs := make([]error, n)
+		var wg sync.WaitGroup
+		for i := range n {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				statuses[i], errs[i] = e.authorizeStatus(d)
+			}()
+		}
+		wg.Wait()
+		wins := 0
+		for i := range n {
+			require.NoError(t, errs[i])
+			if statuses[i] == 200 {
+				wins++
+			} else {
+				require.Equal(t, 409, statuses[i])
+			}
+		}
+		require.Equal(t, 1, wins, "round %d", r)
+		stored, err := real.Authorization(bg, d.hash)
+		require.NoError(t, err, "round %d", r)
+		require.NotNil(t, stored.K2, "round %d: the stored record lost its inputs", r)
+	}
+	assert.Len(t, fs.authorizationPuts(), rounds, "one record per decision")
+}
+
+func TestSequentialReplayKeepsTheStoredInputs(t *testing.T) {
+	e, fs, real, base := archiveEnv(t)
+	e.start()
+	d := e.decision(base, 1)
+	st, _, _ := e.authorizeRaw(d)
+	require.Equal(t, 200, st)
+	before, err := real.Authorization(bg, d.hash)
+	require.NoError(t, err)
+	require.NotNil(t, before.K2)
+
+	for range 3 {
+		st, _, _ = e.authorizeRaw(d)
+		require.Equal(t, 409, st)
+	}
+	after, err := real.Authorization(bg, d.hash)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+	assert.Len(t, fs.authorizationPuts(), 1)
 }
 
 func TestDefaultArchiveIsTheFilesystemArchiveOfTheConfiguredDir(t *testing.T) {

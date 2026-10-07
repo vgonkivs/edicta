@@ -117,7 +117,7 @@ refused; write `"celestia_blob"`. A decision for the other mode is refused with
   `max_data_bytes`, `max_read_bytes`, `anchor_cache_bytes`, `lookup_timeout_s`,
   `assumed_lag_blocks`, `sample_every_s`, `canary_every_s` and `bridge_fallback`.
   Every key has a default and the example config shows them. With `celestia_blob`
-  none of these keys may be set, so a half-switched file never starts. The Fibre
+  these keys must be absent or zero, so a half-switched file never starts. The Fibre
   app version is pinned: `min_app_version` and `max_app_version` are refused.
 - The Fibre Recorder is not wired into edictad yet: `da = "fibre"` needs
   `recorder.enabled = false`, and the start is refused otherwise.
@@ -129,8 +129,13 @@ allowlisted decisions with their committed bytes reach the archive, and unsigned
 input cannot fill it. The Authorization is archived after it is signed, and a
 refusal after the decision was archived leaves a marker with the error name. At
 start, a sweep copies Authorizations that are in the registry but not in the
-archive (after a crash or an archive outage between the two writes), and repeats
-every `sweep_interval_s` while it has work left.
+archive (after a crash or an archive outage between the two writes). The sweep
+before the listener has a 30 s budget; what it does not reach is finished in the
+background, and a sweep that left work is repeated every `sweep_interval_s`.
+Records the gate could not write after signing wait in a memory queue of 1024 for
+the next sweep; what is still queued at exit, or was dropped because the queue
+was full, is found again by the sweep at the next start. At most 64 archive calls
+run at once, and one more gets the retryable 503.
 
 If the archive is down, `POST /v0/authorize` answers 503 with `ErrArchiveUnavailable`
 and `Retry-After: 5`, nothing is signed and the nonce stays unused, so the same
@@ -260,13 +265,14 @@ and verified against the consensus header, so a lying bridge gets a 503, never a
 false anchor. Nothing else is trusted from it.
 
 The bridge download fallback is off by default. With `fibre.bridge_fallback = true`
-edictad enables it only if a capability probe passes at start: it downloads one
+edictad enables it only after a capability probe passes: it runs in the background
+after the listener is up (the fallback is off until then) and repeats every
+`canary_every_s` until it passes. It downloads one
 recent, anchored blob through the same bridge client and token, checks that the raw
 answer has exactly the expected shape and recomputes the blob's commitment. A node
 version, or any capability, written in the configuration is never accepted instead
 (the version method of the node needs an admin token, which a gate must not hold).
-A failed or inconclusive probe leaves the fallback off with a warning and the start
-continues. Every blob from the fallback is recomputed anyway, so the probe only
+A failed or inconclusive probe leaves the fallback off with a warning. Every blob from the fallback is recomputed anyway, so the probe only
 finds an incompatible bridge at start instead of when it is needed.
 
 Fibre submission by the Recorder (when it is wired) must go only through a node the
@@ -295,7 +301,14 @@ The Recorder checks the escrow before it uploads. A balance below the cost fails
 with `recorder.ErrEscrowInsufficient`, which names the missing amount, and nothing
 is uploaded. Funding is never automatic: `AutoFund` is switched off in every client
 Edicta builds, so the escrow only changes by a deposit you make. A withdrawal
-takes effect after a delay of 24 h, so plan the balance for at least that long.
+takes effect after the x/fibre `withdrawal_delay`, 24 h by default but a governance
+parameter that can be raised to 7 days; read the current value with
+`celestia-appd query fibre params`.
+
+This section describes the Fibre Recorder, which edictad does not wire until the
+Fibre Recorder task lands. An upload whose payment promise is handed to validators
+but never settled may still be charged once, so a failed upload can cost one fee
+without creating an anchor.
 
 ## Tests
 

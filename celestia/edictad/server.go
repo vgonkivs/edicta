@@ -99,8 +99,10 @@ type Server struct {
 	reg  interface{ Close() error }
 
 	// stop ends the background goroutines; they are waited for on shutdown.
-	stop   context.CancelFunc
-	bg     sync.WaitGroup
+	stop context.CancelFunc
+	bg   sync.WaitGroup
+	// drain makes the last attempt to write what is still queued.
+	drain  func()
 	mu     sync.Mutex
 	closed bool
 	served chan struct{}
@@ -126,6 +128,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.closed = true
 	s.stop()
 	s.bg.Wait()
+	if s.drain != nil {
+		s.drain()
+	}
 	_ = s.gate.Close()
 	if err := s.reg.Close(); err != nil {
 		return fmt.Errorf("edictad: closing registry: %w", err)
@@ -225,6 +230,7 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 		bridgeSt  heightcheck.Status
 		obsOnly   bool
 		fallbackD node.FibreDownloader
+		probeFn   func(context.Context)
 	)
 	if fibre {
 		x := cfg.FibreExpect(log)
@@ -236,7 +242,7 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 			return nil, fmt.Errorf("edictad: compatibility check: %w", err)
 		}
 		head, obsOnly = fs.Head, fs.ObservationsOnly
-		fallbackD = bridgeFallback(ctx, cfg, d.Fibre, log)
+		fallbackD, probeFn = bridgeFallback(cfg, d.Fibre, log)
 	} else {
 		head, err = node.Check(ctx, d.Reader, d.Consensus, node.Expect{
 			ChainID:       cfg.Network.ChainID,
@@ -351,12 +357,25 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 	timeout := time.Duration(cfg.Archive.WriteTimeoutS) * time.Second
 	q := &retryQueue{}
 	sw := &sweeper{lister: reg, io: aio, q: q, log: log, timeout: timeout}
-	_, firstFailed := sw.run(ctx, true)
+	// The pass before the listener has a time budget; what it does not reach
+	// is finished in the background right away.
+	sctx, scancel := context.WithTimeout(ctx, startupSweepBudget)
+	first := sw.run(sctx, true)
+	scancel()
 	s.bg.Add(1)
 	go func() {
 		defer s.bg.Done()
-		sw.loop(runCtx, d.SweepTick, time.Duration(cfg.Archive.SweepIntervalS)*time.Second, firstFailed)
+		sw.loop(runCtx, d.SweepTick, time.Duration(cfg.Archive.SweepIntervalS)*time.Second,
+			first.scanFailed || first.incomplete)
 	}()
+	s.drain = func() {
+		dctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		sw.run(dctx, false)
+		if n := q.len(); n > 0 {
+			log.Error("edictad: records left in the archive retry queue at shutdown; the next start's sweep repairs them", "records", n)
+		}
+	}
 
 	hcfg := edictaapi.HandlerConfig{
 		GateID:         cfg.Gate.GateID,
@@ -431,6 +450,13 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 			log.Error("edictad: serve stopped", "err", err)
 		}
 	}()
+	if probeFn != nil {
+		s.bg.Add(1)
+		go func() {
+			defer s.bg.Done()
+			probeFn(runCtx)
+		}()
+	}
 	log.Info("edictad: serving", "addr", s.addr, "chain_id", head.ChainID, "gate_id", cfg.Gate.GateID,
 		"da", cfg.Network.DA, "recorder", cfg.Recorder.Enabled)
 	return s, nil
@@ -498,29 +524,65 @@ func logAtHeightBlob(log *slog.Logger, bridge heightcheck.Status) {
 	log.Info("edictad: at-height reads", "da", DAConfigBlob, "retention", "unused", "bridge", name)
 }
 
-// bridgeFallback returns the bridge download client if the operator asked for
-// it and the capability probe passed; otherwise nil, with the reason logged.
-// It never refuses the start: the fallback is optional, and a version or
-// capability the operator declares is never a substitute for the probe.
-func bridgeFallback(ctx context.Context, cfg Config, f *FibreDeps, log *slog.Logger) node.FibreDownloader {
+// startupSweepBudget bounds the archive sweep that runs before the listener.
+const startupSweepBudget = 30 * time.Second
+
+// switchDownloader is the bridge download fallback behind a switch that stays
+// off until the capability probe passes.
+type switchDownloader struct {
+	d atomic.Pointer[node.FibreDownloader]
+}
+
+func (s *switchDownloader) Download(ctx context.Context, id [33]byte, promiseHeight, maxSize uint64) ([]byte, error) {
+	d := s.d.Load()
+	if d == nil {
+		return nil, fmt.Errorf("%w: bridge download fallback is off", node.ErrNotFound)
+	}
+	return (*d).Download(ctx, id, promiseHeight, maxSize)
+}
+
+// bridgeFallback returns the download client for the bridge fallback and the
+// probe that switches it on. The fallback is on only after the capability
+// probe has passed, which runs in the background so that a quiet chain cannot
+// delay the start, and is repeated every canary_every_s until it passes. It
+// never refuses the start: the fallback is optional, and a version or
+// capability the operator declares is never a substitute for the probe. A nil
+// probe means there is nothing to run.
+func bridgeFallback(cfg Config, f *FibreDeps, log *slog.Logger) (node.FibreDownloader, func(context.Context)) {
 	if !cfg.Fibre.BridgeFallback {
 		log.Info("edictad: bridge download fallback off", "reason", "fibre.bridge_fallback is false")
-		return nil
+		return nil, nil
 	}
 	if f.BridgeCompat == nil {
 		log.Warn("edictad: bridge download fallback off", "reason", "no capability probe is available")
-		return nil
+		return nil, nil
 	}
-	if err := f.BridgeCompat(ctx); err != nil {
-		log.Warn("edictad: bridge download fallback off", "reason", "the capability probe did not pass", "err", err)
-		return nil
+	log.Info("edictad: bridge download fallback off until the capability probe passes")
+	sw := &switchDownloader{}
+	every := time.Duration(cfg.Fibre.CanaryEveryS) * time.Second
+	return sw, func(ctx context.Context) {
+		for {
+			err := f.BridgeCompat(ctx)
+			switch {
+			case err == nil && isNil(f.Fallback):
+				log.Info("edictad: bridge download fallback off", "reason", "no bridge download client")
+				return
+			case err == nil:
+				fb := f.Fallback
+				sw.d.Store(&fb)
+				log.Info("edictad: bridge download fallback on", "reason", "the capability probe passed")
+				return
+			case ctx.Err() != nil:
+				return
+			}
+			log.Warn("edictad: bridge download fallback off", "reason", "the capability probe did not pass", "err", err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(every):
+			}
+		}
 	}
-	if isNil(f.Fallback) {
-		log.Info("edictad: bridge download fallback off", "reason", "no bridge download client")
-		return nil
-	}
-	log.Info("edictad: bridge download fallback on", "reason", "the capability probe passed")
-	return f.Fallback
 }
 
 var recorderErrors = []edictaapi.ErrorRule{
@@ -563,9 +625,10 @@ func (a *archivingGate) after(ctx context.Context, res gate.Result, err error) {
 			SignedAuthorization: res.Authorization, AuthorizedAt: res.AuthorizedAt, K2: k2Record(res.K2),
 		})
 	case errors.Is(err, gate.ErrNonceUsed) && res.Authorization != nil:
-		// The same decision again: copy the stored Authorization. The inputs
-		// of this request belong to a signature that was dropped, so no K2.
-		a.w.write(ctx, &archive.AuthorizationRecord{SignedAuthorization: res.Authorization, AuthorizedAt: res.AuthorizedAt})
+		// The same decision again. The request that issued the Authorization
+		// writes its record, with the retention inputs only it has, or queues
+		// it; a copy from here could reach the archive first and leave the
+		// record without them. A gap is repaired by the sweep.
 	case res.DecisionArchived:
 		name, ok := markerName(err)
 		if !ok {

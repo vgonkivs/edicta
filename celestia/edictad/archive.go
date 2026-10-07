@@ -3,6 +3,7 @@ package edictad
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -120,11 +121,15 @@ func (a *archiver) checkStored(ctx context.Context, rec gate.DecisionRecord) err
 }
 
 // retryQueue holds records that could not be written after the gate had
-// decided; the sweeper retries them. It is bounded: the registry is the
-// authority and a sweep repairs what a full queue dropped.
+// decided; the sweeper retries them. It is bounded: when it is full the record
+// is dropped and dropped is set, which makes the sweeper scan the registry for
+// what is missing. It lives in memory only, so what is still queued at exit is
+// found again by the scan at the next start.
 type retryQueue struct {
-	mu    sync.Mutex
-	items []archive.Record
+	mu      sync.Mutex
+	items   []archive.Record
+	auth    map[commitment.Hash]int // queued Authorization records by decision
+	dropped bool
 }
 
 const maxRetryQueue = 1024
@@ -133,9 +138,16 @@ func (q *retryQueue) add(r archive.Record) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.items) >= maxRetryQueue {
+		q.dropped = true
 		return false
 	}
 	q.items = append(q.items, r)
+	if h, ok := authorizationHash(r); ok {
+		if q.auth == nil {
+			q.auth = map[commitment.Hash]int{}
+		}
+		q.auth[h]++
+	}
 	return true
 }
 
@@ -143,7 +155,7 @@ func (q *retryQueue) drain() []archive.Record {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	out := q.items
-	q.items = nil
+	q.items, q.auth = nil, nil
 	return out
 }
 
@@ -151,6 +163,69 @@ func (q *retryQueue) len() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return len(q.items)
+}
+
+// holds reports whether an Authorization record of the decision is queued.
+func (q *retryQueue) holds(h commitment.Hash) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.auth[h] > 0
+}
+
+// takeDropped reports and clears the drop flag.
+func (q *retryQueue) takeDropped() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	d := q.dropped
+	q.dropped = false
+	return d
+}
+
+func authorizationHash(r archive.Record) (commitment.Hash, bool) {
+	a, ok := r.(*archive.AuthorizationRecord)
+	if !ok {
+		return commitment.Hash{}, false
+	}
+	sa, _, err := commitment.DecodeSignedAuthorization(a.SignedAuthorization)
+	if err != nil {
+		return commitment.Hash{}, false
+	}
+	var h commitment.Hash
+	copy(h[:], sa.Authorization.CommitmentHash)
+	return h, true
+}
+
+func recordHash(r archive.Record) string {
+	var h commitment.Hash
+	switch r := r.(type) {
+	case *archive.RejectionRecord:
+		h = r.CommitmentHash
+	default:
+		var ok bool
+		if h, ok = authorizationHash(r); !ok {
+			return ""
+		}
+	}
+	return hex.EncodeToString(h[:])
+}
+
+// permanent reports a write error that retrying cannot cure: the record is
+// damaged or fails the archive's own validation.
+func permanent(err error) bool {
+	if errors.Is(err, archive.ErrCorrupt) {
+		return true
+	}
+	for _, e := range []error{
+		commitment.ErrMalformed, commitment.ErrWrongType, commitment.ErrMissingField, commitment.ErrFieldSize,
+		commitment.ErrInvalidEnum, commitment.ErrZeroValue, commitment.ErrUnsupportedVersion, commitment.ErrIntRange,
+		commitment.ErrTooLarge, commitment.ErrNonCanonical, commitment.ErrUnknownKey, commitment.ErrInvalidNamespace,
+		commitment.ErrInvalidString, commitment.ErrTimeOrder,
+	} {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+	return false
 }
 
 // writer writes the records that follow the gate's decision. A failure is
@@ -172,6 +247,9 @@ func (w *writer) write(ctx context.Context, r archive.Record) {
 		w.log.Error("edictad: archive record conflicts with the stored one", "kind", r.Kind(), "err", err)
 	case errors.Is(err, archive.ErrNotFound):
 		w.log.Error("edictad: archive record depends on a record that is missing", "kind", r.Kind(), "err", err)
+	case permanent(err):
+		w.log.Error("edictad: archive record cannot be written and is dropped", "kind", r.Kind(),
+			"commitment_hash", recordHash(r), "err", err)
 	default:
 		queued := w.q.add(r)
 		w.log.Error("edictad: archive write failed", "kind", r.Kind(), "queued", queued, "err", err)

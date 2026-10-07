@@ -91,12 +91,18 @@ func (p BridgeProbe) Run(ctx context.Context) (ProbeResult, error) {
 	if err != nil {
 		return ProbeResult{}, inconclusive("retention: %v", err)
 	}
+	// A blob above the committer's cap cannot pass its check, which says
+	// nothing about the bridge.
+	maxUpload, err := fibrecommit.UploadSize(p.Committer.MaxDataSize())
+	if err != nil {
+		return ProbeResult{}, inconclusive("committer cap: %v", err)
+	}
 	lowest := uint64(1)
 	if head > window {
 		lowest = head - window
 	}
 
-	fa, ref, err := p.findBlob(ctx, head-offset, lowest, retS, margin)
+	fa, ref, err := p.findBlob(ctx, head-offset, lowest, retS, margin, uint64(maxUpload))
 	if err != nil {
 		return ProbeResult{}, err
 	}
@@ -125,7 +131,7 @@ func (p BridgeProbe) Run(ctx context.Context) (ProbeResult, error) {
 
 // findBlob returns the newest anchored blob at a height in [lowest, from]
 // that stays retained for margin.
-func (p BridgeProbe) findBlob(ctx context.Context, from, lowest, retS uint64, margin time.Duration) (FibreAnchor, commitment.PayloadRef, error) {
+func (p BridgeProbe) findBlob(ctx context.Context, from, lowest, retS uint64, margin time.Duration, maxUpload uint64) (FibreAnchor, commitment.PayloadRef, error) {
 	a := p.Anchors
 	for h := from; h >= lowest; h-- {
 		if err := ctx.Err(); err != nil {
@@ -158,6 +164,9 @@ func (p BridgeProbe) findBlob(ctx context.Context, from, lowest, retS uint64, ma
 			}
 			if err != nil {
 				return FibreAnchor{}, commitment.PayloadRef{}, fmt.Errorf("%w: %w", ErrProbeInconclusive, err)
+			}
+			if uint64(fa.Promise.BlobSize) > maxUpload {
+				continue
 			}
 			if !p.Now().Add(margin).Before(fa.Promise.CreationTime.Add(time.Duration(retS) * time.Second)) {
 				continue

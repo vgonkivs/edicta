@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	fibretypes "github.com/celestiaorg/celestia-app/v10/x/fibre/types"
 	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/fibre/fibrecommit"
@@ -141,5 +142,30 @@ func TestBridgeProbeInconclusive(t *testing.T) {
 		_, err := probeOver(t, l, liveBlock(t), raw).Run(ctx)
 		require.ErrorIs(t, err, gatechain.ErrProbeInconclusive)
 		assert.Zero(t, raw.count())
+	})
+}
+
+func TestBridgeProbeSkipsBlobsAboveTheCommitterCap(t *testing.T) {
+	l := loadLive(t)
+	raw := serving(rawJSON(l.payload), nil)
+	tx := mutateTx(t, l.pff, func(m *fibretypes.MsgPayForFibre) { m.PaymentPromise.BlobSize = 8 << 20 })
+	p := probeOver(t, l, buildBlock(t, l.pffHeight, tx), raw)
+	p.Anchors = anchorsOver(buildBlock(t, l.pffHeight, tx).chain(t, l), mochaID, skipCert)
+	small, err := fibrecommit.New(1)
+	require.NoError(t, err)
+	p.Committer = small
+
+	_, err = p.Run(bg)
+	require.ErrorIs(t, err, gatechain.ErrProbeInconclusive, "a blob the committer cannot check says nothing about the bridge")
+	assert.NotErrorIs(t, err, node.ErrBridgeIncompatible)
+	assert.Zero(t, raw.count(), "nothing was downloaded for it")
+
+	t.Run("the same blob is probed under a cap that admits it", func(t *testing.T) {
+		raw := serving(rawJSON(l.payload), nil)
+		q := probeOver(t, l, buildBlock(t, l.pffHeight, tx), raw)
+		q.Anchors = p.Anchors
+		_, err := q.Run(bg)
+		require.ErrorIs(t, err, node.ErrBridgeIncompatible, "the size does not match the payload, as a probe must find")
+		assert.Equal(t, 1, raw.count())
 	})
 }
