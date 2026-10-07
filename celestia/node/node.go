@@ -101,6 +101,12 @@ type TxStatus struct {
 	NodeHeight uint64
 }
 
+// SeqTx is a committed transaction found by signer and sequence.
+type SeqTx struct {
+	Hash   [32]byte
+	Height uint64
+}
+
 // Consensus reads consensus-node state and broadcasts raw transactions.
 type Consensus interface {
 	// Network is the chain id the consensus gRPC node reports.
@@ -120,10 +126,14 @@ type Consensus interface {
 	BondDenom(ctx context.Context) (string, error)
 	Bech32Prefix(ctx context.Context) (string, error)
 	Account(ctx context.Context, address string) (AccountInfo, error)
-	// Broadcast sends txRaw unchanged and returns its hash.
 	// AccountAt is Account pinned to height; it fails unless the answer echoes
 	// that height, like FibreParamsAt.
 	AccountAt(ctx context.Context, address string, height uint64) (AccountInfo, error)
+	// TxBySequence lists the committed transactions the node's index holds for
+	// the signer address at that account sequence. An empty list is not proof
+	// that none exists: an index can lag or be off.
+	TxBySequence(ctx context.Context, address string, sequence uint64) ([]SeqTx, error)
+	// Broadcast sends txRaw unchanged and returns its hash.
 	Broadcast(ctx context.Context, txRaw []byte) ([32]byte, error)
 	Tx(ctx context.Context, hash [32]byte) (TxStatus, error)
 	// TxAt is Tx for a transaction expected at height; a found transaction at

@@ -173,6 +173,7 @@ type Consensus struct {
 	Accounts map[string]node.AccountInfo
 	// history holds per-address states from a height on, for AccountAt.
 	history map[string][]accountFrom
+	seqTxs  map[string][]node.SeqTx
 	txs     map[[32]byte]node.TxStatus
 	Sent    [][]byte
 	height  uint64
@@ -186,7 +187,7 @@ type Consensus struct {
 func NewConsensus(chainID string) *Consensus {
 	return &Consensus{
 		ChainID: chainID, Providers: []string{chainID}, Denom: "utia", HRP: "celestia", MinPrice: big.NewRat(1, 250),
-		Accounts: map[string]node.AccountInfo{}, history: map[string][]accountFrom{}, txs: map[[32]byte]node.TxStatus{},
+		Accounts: map[string]node.AccountInfo{}, history: map[string][]accountFrom{}, seqTxs: map[string][]node.SeqTx{}, txs: map[[32]byte]node.TxStatus{},
 	}
 }
 
@@ -310,6 +311,23 @@ func (c *Consensus) AccountAt(_ context.Context, addr string, height uint64) (no
 		return node.AccountInfo{}, fmt.Errorf("%w: account", node.ErrNotFound)
 	}
 	return a, nil
+}
+
+// SetTxBySequence sets what TxBySequence reports for addr at sequence.
+func (c *Consensus) SetTxBySequence(addr string, sequence uint64, txs ...node.SeqTx) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.seqTxs[fmt.Sprintf("%s/%d", addr, sequence)] = txs
+}
+
+// TxBySequence reports what SetTxBySequence set, else nothing.
+func (c *Consensus) TxBySequence(_ context.Context, addr string, sequence uint64) ([]node.SeqTx, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Fail != nil {
+		return nil, c.Fail
+	}
+	return append([]node.SeqTx(nil), c.seqTxs[fmt.Sprintf("%s/%d", addr, sequence)]...), nil
 }
 
 // Broadcast stores txRaw unchanged and returns sha256(txRaw).

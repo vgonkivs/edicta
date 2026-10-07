@@ -103,6 +103,7 @@ func newFundEnv(t *testing.T, mut func(*railtx.FunderConfig)) *fundEnv {
 	}
 	f, err := railtx.NewFunder(context.Background(), cfg)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
 	fc.Accounts[f.Address()] = node.AccountInfo{Number: 3, Sequence: fundSeq}
 	to, err := bech32.ConvertAndEncode("celestia", bytes.Repeat([]byte{9}, 20))
 	require.NoError(t, err)
@@ -112,9 +113,22 @@ func newFundEnv(t *testing.T, mut func(*railtx.FunderConfig)) *fundEnv {
 // restart is a new process on the same state file.
 func (e *fundEnv) restart(t *testing.T) *railtx.Funder {
 	t.Helper()
+	require.NoError(t, e.funder.Close())
 	f, err := railtx.NewFunder(context.Background(), e.cfg)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
 	return f
+}
+
+// sendSettled is Send as a caller uses it: a call that only settled the
+// previous send is repeated.
+func (e *fundEnv) sendSettled(t *testing.T, f *railtx.Funder) error {
+	t.Helper()
+	_, _, err := f.Send(context.Background(), e.to, fundAmount)
+	if errors.Is(err, railtx.ErrSettled) {
+		_, _, err = f.Send(context.Background(), e.to, fundAmount)
+	}
+	return err
 }
 
 func (e *fundEnv) send(t *testing.T) ([32]byte, uint64) {
@@ -273,7 +287,9 @@ func TestFunderCommittedSendFreesTheNext(t *testing.T) {
 	assert.True(t, st.Found)
 	e.cons.Accounts[e.funder.Address()] = node.AccountInfo{Number: 3, Sequence: fundSeq + 1}
 	_, _, err = e.funder.Send(ctx, e.to, fundAmount)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, railtx.ErrSettled)
+	assert.Len(t, e.cons.Sent, 1, "the call that settled sends nothing")
+	require.NoError(t, e.sendSettled(t, e.funder))
 	assert.NotEqual(t, hash[:], mustHash(t, readPending(t, e.path)), "the file now holds the new send")
 }
 
@@ -305,8 +321,9 @@ func TestFunderRejectedSendIsNotPending(t *testing.T) {
 	assert.Zero(t, th, "a refused transaction cannot land")
 	_, _, ok := e.funder.Pending()
 	assert.False(t, ok)
-	_, err = os.Stat(e.path)
-	assert.ErrorIs(t, err, os.ErrNotExist)
+	m := readPending(t, e.path)
+	assert.Nil(t, m["hash"], "no pending send is left in the file")
+	assert.EqualValues(t, fundSeq, m["must_reuse_sequence"], "the next send is bound to the same sequence")
 }
 
 func TestNewFunderRefusesANodeWithoutTxIndex(t *testing.T) {
@@ -344,9 +361,10 @@ func TestFunderNoResendBeforeTheProofHeight(t *testing.T) {
 	e.cons.Fail = nil
 
 	// At the proof height the signed sequence is still free: lost, so a new
-	// send is allowed.
+	// send is allowed once the caller has re-read its balances.
 	_, _, err = e.funder.Send(ctx, e.to, fundAmount)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, railtx.ErrSettled)
+	require.NoError(t, e.sendSettled(t, e.funder))
 	assert.Len(t, e.cons.Sent, 2)
 }
 
@@ -370,8 +388,8 @@ func TestFunderSplitAnswerKeepsThePendingSend(t *testing.T) {
 
 	// The same lookup is committed once it reaches a backend that has it.
 	e.cons.SetTx(hash, node.TxStatus{Found: true, Height: th - 5, NodeHeight: proof(th)})
-	_, _, err = e.funder.Send(ctx, e.to, fundAmount)
-	require.NoError(t, err)
+	e.cons.Accounts[e.funder.Address()] = node.AccountInfo{Number: 3, Sequence: fundSeq + 1}
+	require.NoError(t, e.sendSettled(t, e.funder))
 }
 
 func TestFunderSecondLookupMustAgree(t *testing.T) {
@@ -404,8 +422,9 @@ func TestFunderSecondLookupMustAgree(t *testing.T) {
 		_, th := e.send(t)
 		e.cons.SetHeight(proof(th))
 		e.cons.txScript = []node.TxStatus{notFound(proof(th)), {Found: true, Height: th - 1}}
-		_, _, err := e.funder.Send(ctx, e.to, fundAmount)
-		require.NoError(t, err)
+		e.cons.SetAccountAt(e.funder.Address(), 1, node.AccountInfo{Number: 3, Sequence: fundSeq})
+		e.cons.Accounts[e.funder.Address()] = node.AccountInfo{Number: 3, Sequence: fundSeq + 1}
+		require.NoError(t, e.sendSettled(t, e.funder))
 		assert.Len(t, e.cons.Sent, 2)
 	})
 	t.Run("two agreeing lookups clear", func(t *testing.T) {
@@ -415,7 +434,7 @@ func TestFunderSecondLookupMustAgree(t *testing.T) {
 		lookups := 0
 		e.cons.afterTx = func(int) { lookups++ }
 		_, _, err := e.funder.Send(ctx, e.to, fundAmount)
-		require.NoError(t, err)
+		require.ErrorIs(t, err, railtx.ErrSettled)
 		assert.Equal(t, 2, lookups)
 	})
 }
@@ -457,8 +476,7 @@ func TestFunderSequenceMismatchKeepsPending(t *testing.T) {
 
 	// Cleared only by the sequence rule: an unused slot at the proof height.
 	e.cons.SetAccountAt(e.funder.Address(), proof(th), node.AccountInfo{Number: 3, Sequence: fundSeq})
-	_, _, err = e.funder.Send(ctx, e.to, fundAmount)
-	require.NoError(t, err)
+	require.NoError(t, e.sendSettled(t, e.funder))
 }
 
 func readPending(t *testing.T, path string) map[string]any {
@@ -520,8 +538,7 @@ func TestFunderCrashBeforeBroadcastIsResolvedOnRestart(t *testing.T) {
 	// rerun sends once.
 	e.cons.SetHeight(proof(th))
 	e.cons.bcastErr = nil
-	_, _, err = f2.Send(context.Background(), e.to, fundAmount)
-	require.NoError(t, err)
+	require.NoError(t, e.sendSettled(t, f2))
 	require.Len(t, e.cons.Sent, 1)
 	assert.NotEqual(t, hash, sha256.Sum256(e.cons.Sent[0]), "a fresh transaction")
 }
@@ -539,8 +556,8 @@ func TestFunderCrashAfterBroadcastIsResolvedOnRestart(t *testing.T) {
 	assert.Len(t, e.cons.Sent, 1)
 
 	e.cons.SetTx(hash, node.TxStatus{Found: true, Height: th - 3, NodeHeight: proof(th)})
-	_, _, err = f2.Send(context.Background(), e.to, fundAmount)
-	require.NoError(t, err)
+	e.cons.Accounts[f2.Address()] = node.AccountInfo{Number: 3, Sequence: fundSeq + 1}
+	require.NoError(t, e.sendSettled(t, f2))
 	assert.Len(t, e.cons.Sent, 2)
 	assert.NotEqual(t, hash[:], mustHash(t, readPending(t, e.path)))
 }
@@ -549,6 +566,7 @@ func TestFunderRefusesAnUntrustedStateFile(t *testing.T) {
 	good := func(t *testing.T) *fundEnv {
 		e := newFundEnv(t, nil)
 		e.send(t)
+		require.NoError(t, e.funder.Close())
 		return e
 	}
 	t.Run("loose mode", func(t *testing.T) {
@@ -581,13 +599,11 @@ func TestFunderRefusesAnUntrustedStateFile(t *testing.T) {
 		require.ErrorIs(t, err, railtx.ErrPendingState)
 	})
 	t.Run("unwritable state sends nothing", func(t *testing.T) {
-		e := newFundEnv(t, func(c *railtx.FunderConfig) { c.PendingPath = filepath.Join(t.TempDir(), "missing", "p.json") })
-		e.consent.Arm()
-		_, _, err := e.funder.Send(context.Background(), e.to, fundAmount)
+		e := newFundEnv(t, nil)
+		cfg := e.cfg
+		cfg.PendingPath = filepath.Join(t.TempDir(), "missing", "p.json")
+		_, err := railtx.NewFunder(context.Background(), cfg)
 		require.ErrorIs(t, err, railtx.ErrPendingState)
-		assert.Empty(t, e.cons.Sent)
-		_, _, ok := e.funder.Pending()
-		assert.False(t, ok)
 	})
 }
 
@@ -674,4 +690,250 @@ func TestFunderNormalisesTheRecipient(t *testing.T) {
 	var msg banktypes.MsgSend
 	require.NoError(t, msg.Unmarshal(body.Messages[0].Value))
 	assert.Equal(t, e.to, msg.ToAddress)
+}
+
+func TestSettleResolvesWithoutSending(t *testing.T) {
+	e := newFundEnv(t, nil)
+	ctx := context.Background()
+	cleared, err := e.funder.Settle(ctx)
+	require.NoError(t, err)
+	assert.False(t, cleared, "nothing pending")
+
+	hash, th := e.send(t)
+	e.cons.SetHeight(th - 1)
+	cleared, err = e.funder.Settle(ctx)
+	require.ErrorIs(t, err, railtx.ErrSendInFlight)
+	assert.False(t, cleared)
+
+	e.cons.SetTx(hash, node.TxStatus{Found: true, Height: th - 2, NodeHeight: th - 1})
+	cleared, err = e.funder.Settle(ctx)
+	require.NoError(t, err)
+	assert.True(t, cleared)
+	_, _, ok := e.funder.Pending()
+	assert.False(t, ok)
+	assert.Len(t, e.cons.Sent, 1)
+}
+
+// A reloaded send commits between the caller's balance read and its Send: the
+// amount was computed without it, so that Send must not go out.
+func TestReloadedSendCommitsBetweenBalanceReadAndSend(t *testing.T) {
+	e := newFundEnv(t, nil)
+	hash, th := e.send(t)
+	f2 := e.restart(t)
+
+	// The caller reads balances here; the send is still pending.
+	_, _, ok := f2.Pending()
+	require.True(t, ok)
+
+	e.cons.SetTx(hash, node.TxStatus{Found: true, Height: th - 4, NodeHeight: th - 3})
+	e.cons.Accounts[f2.Address()] = node.AccountInfo{Number: 3, Sequence: fundSeq + 1}
+	_, _, err := f2.Send(context.Background(), e.to, fundAmount)
+	require.ErrorIs(t, err, railtx.ErrSettled)
+	assert.Len(t, e.cons.Sent, 1, "nothing broadcast by the call that cleared the old send")
+
+	require.NoError(t, e.sendSettled(t, f2), "after re-reading balances the caller sends again")
+	assert.Len(t, e.cons.Sent, 2)
+}
+
+func TestFunderRefusesASequenceAlreadyUsed(t *testing.T) {
+	e := newFundEnv(t, nil)
+	hash, th := e.send(t)
+	e.cons.SetTx(hash, node.TxStatus{Found: true, Height: th - 4, NodeHeight: th - 3})
+	_, err := e.funder.Settle(context.Background())
+	require.NoError(t, err)
+	assert.EqualValues(t, fundSeq, readPending(t, e.path)["last_committed_sequence"])
+
+	// The next read comes from a backend that has not applied the block yet.
+	_, _, err = e.funder.Send(context.Background(), e.to, fundAmount)
+	require.ErrorIs(t, err, railtx.ErrStaleSequence)
+	assert.Len(t, e.cons.Sent, 1)
+	_, _, ok := e.funder.Pending()
+	assert.False(t, ok, "nothing was made pending")
+
+	f2 := e.restart(t)
+	_, _, err = f2.Send(context.Background(), e.to, fundAmount)
+	require.ErrorIs(t, err, railtx.ErrStaleSequence, "the floor survives a restart")
+
+	e.cons.Accounts[f2.Address()] = node.AccountInfo{Number: 3, Sequence: fundSeq + 1}
+	require.NoError(t, e.sendSettled(t, f2))
+}
+
+func TestSequenceAdvancedResolvedByTheTxThatUsedTheSlot(t *testing.T) {
+	setup := func(t *testing.T) (*fundEnv, [32]byte, uint64) {
+		e := newFundEnv(t, nil)
+		hash, th := e.send(t)
+		e.cons.SetHeight(proof(th))
+		e.cons.SetAccountAt(e.funder.Address(), proof(th), node.AccountInfo{Number: 3, Sequence: fundSeq + 1})
+		return e, hash, th
+	}
+	t.Run("not indexed stays pending", func(t *testing.T) {
+		e, _, _ := setup(t)
+		_, err := e.funder.Settle(context.Background())
+		require.ErrorIs(t, err, railtx.ErrSequenceAdvanced)
+		_, _, ok := e.funder.Pending()
+		assert.True(t, ok)
+	})
+	t.Run("another transaction holds the slot", func(t *testing.T) {
+		e, _, th := setup(t)
+		e.cons.SetTxBySequence(e.funder.Address(), fundSeq, node.SeqTx{Hash: [32]byte{1}, Height: th - 9})
+		cleared, err := e.funder.Settle(context.Background())
+		require.NoError(t, err)
+		assert.True(t, cleared)
+		assert.EqualValues(t, fundSeq, readPending(t, e.path)["last_committed_sequence"])
+		assert.Nil(t, readPending(t, e.path)["must_reuse_sequence"])
+	})
+	t.Run("our own transaction found by sequence is committed", func(t *testing.T) {
+		e, hash, th := setup(t)
+		e.cons.SetTxBySequence(e.funder.Address(), fundSeq, node.SeqTx{Hash: hash, Height: th - 9})
+		cleared, err := e.funder.Settle(context.Background())
+		require.NoError(t, err)
+		assert.True(t, cleared)
+	})
+	t.Run("a lookup that fails keeps it pending", func(t *testing.T) {
+		e, _, _ := setup(t)
+		e.cons.SetTxBySequence(e.funder.Address(), fundSeq, node.SeqTx{Height: 0})
+		_, err := e.funder.Settle(context.Background())
+		require.ErrorIs(t, err, railtx.ErrSequenceAdvanced)
+	})
+}
+
+func TestAbandon(t *testing.T) {
+	ctx := context.Background()
+	t.Run("needs the consent", func(t *testing.T) {
+		e := newFundEnv(t, nil)
+		require.ErrorIs(t, e.funder.Abandon(ctx), railtx.ErrNotStarted)
+	})
+	t.Run("nothing to abandon", func(t *testing.T) {
+		e := newFundEnv(t, nil)
+		e.consent.Arm()
+		require.ErrorIs(t, e.funder.Abandon(ctx), railtx.ErrNothingToAbandon)
+	})
+	t.Run("a send that can still land is refused", func(t *testing.T) {
+		e := newFundEnv(t, nil)
+		_, th := e.send(t)
+		e.cons.SetHeight(th)
+		require.ErrorIs(t, e.funder.Abandon(ctx), railtx.ErrSendInFlight)
+		_, _, ok := e.funder.Pending()
+		assert.True(t, ok)
+	})
+	t.Run("advanced sequence is abandoned and logged", func(t *testing.T) {
+		e := newFundEnv(t, nil)
+		hash, th := e.send(t)
+		e.cons.SetHeight(proof(th))
+		e.cons.SetAccountAt(e.funder.Address(), proof(th), node.AccountInfo{Number: 3, Sequence: fundSeq + 1})
+		require.NoError(t, e.funder.Abandon(ctx))
+		_, _, ok := e.funder.Pending()
+		assert.False(t, ok)
+		assert.EqualValues(t, fundSeq, readPending(t, e.path)["last_committed_sequence"])
+		b, err := os.ReadFile(e.path + ".log")
+		require.NoError(t, err)
+		assert.Contains(t, string(b), hex.EncodeToString(hash[:]))
+		fi, err := os.Stat(e.path + ".log")
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
+		e.cons.Accounts[e.funder.Address()] = node.AccountInfo{Number: 3, Sequence: fundSeq + 1}
+		require.NoError(t, e.sendSettled(t, e.funder))
+	})
+	t.Run("a binding the chain moved past", func(t *testing.T) {
+		e := newFundEnv(t, nil)
+		e.consent.Arm()
+		e.cons.bcastErr = fmt.Errorf("%w: min gas price", node.ErrRejected)
+		_, _, err := e.funder.Send(ctx, e.to, fundAmount)
+		require.ErrorIs(t, err, railtx.ErrRejected)
+		e.cons.bcastErr = nil
+
+		require.ErrorIs(t, e.funder.Abandon(ctx), railtx.ErrNothingToAbandon, "the bound sequence is still free")
+		e.cons.SetAccountAt(e.funder.Address(), 1, node.AccountInfo{Number: 3, Sequence: fundSeq + 1})
+		require.NoError(t, e.funder.Abandon(ctx))
+		assert.Nil(t, readPending(t, e.path)["must_reuse_sequence"])
+	})
+}
+
+func TestClearWithoutProofBindsTheNextSequence(t *testing.T) {
+	ctx := context.Background()
+	t.Run("rejected broadcast", func(t *testing.T) {
+		e := newFundEnv(t, nil)
+		e.consent.Arm()
+		e.cons.bcastErr = fmt.Errorf("%w: refused", node.ErrRejected)
+		_, _, err := e.funder.Send(ctx, e.to, fundAmount)
+		require.ErrorIs(t, err, railtx.ErrRejected)
+		e.cons.bcastErr = nil
+
+		// The proxy retried: the first copy landed and the node now says S+1.
+		e.cons.Accounts[e.funder.Address()] = node.AccountInfo{Number: 3, Sequence: fundSeq + 1}
+		_, _, err = e.funder.Send(ctx, e.to, fundAmount)
+		require.ErrorIs(t, err, railtx.ErrSequenceBound)
+		assert.Empty(t, e.cons.Sent)
+
+		f2 := e.restart(t)
+		_, _, err = f2.Send(ctx, e.to, fundAmount)
+		require.ErrorIs(t, err, railtx.ErrSequenceBound, "the binding survives a restart")
+
+		e.cons.Accounts[f2.Address()] = node.AccountInfo{Number: 3, Sequence: fundSeq}
+		require.NoError(t, e.sendSettled(t, f2))
+		assert.Nil(t, readPending(t, e.path)["must_reuse_sequence"], "the new pending send covers the sequence")
+	})
+	t.Run("lost clear", func(t *testing.T) {
+		e := newFundEnv(t, nil)
+		_, th := e.send(t)
+		e.cons.SetHeight(proof(th))
+		_, _, err := e.funder.Send(ctx, e.to, fundAmount)
+		require.ErrorIs(t, err, railtx.ErrSettled)
+		assert.EqualValues(t, fundSeq, readPending(t, e.path)["must_reuse_sequence"])
+
+		e.cons.Accounts[e.funder.Address()] = node.AccountInfo{Number: 3, Sequence: fundSeq + 1}
+		_, _, err = e.funder.Send(ctx, e.to, fundAmount)
+		require.ErrorIs(t, err, railtx.ErrSequenceBound)
+		assert.Len(t, e.cons.Sent, 1)
+	})
+}
+
+func TestFunderStateFileHygiene(t *testing.T) {
+	t.Run("a second funder on the same state is refused", func(t *testing.T) {
+		e := newFundEnv(t, nil)
+		_, err := railtx.NewFunder(context.Background(), e.cfg)
+		require.ErrorIs(t, err, railtx.ErrPendingState)
+		require.NoError(t, e.funder.Close())
+		f, err := railtx.NewFunder(context.Background(), e.cfg)
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+	})
+	t.Run("a planted symlink is never followed", func(t *testing.T) {
+		e := newFundEnv(t, nil)
+		target := filepath.Join(t.TempDir(), "victim")
+		require.NoError(t, os.WriteFile(target, []byte("keep"), 0o644))
+		require.NoError(t, os.Symlink(target, e.path+".tmp"))
+		e.send(t)
+		b, err := os.ReadFile(target)
+		require.NoError(t, err)
+		assert.Equal(t, "keep", string(b))
+		fi, err := os.Stat(target)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o644), fi.Mode().Perm())
+	})
+	t.Run("a symlink in place of the state file", func(t *testing.T) {
+		e := newFundEnv(t, nil)
+		require.NoError(t, e.funder.Close())
+		target := filepath.Join(t.TempDir(), "real")
+		require.NoError(t, os.WriteFile(target, []byte("{}"), 0o600))
+		require.NoError(t, os.Symlink(target, e.path))
+		_, err := railtx.NewFunder(context.Background(), e.cfg)
+		require.ErrorIs(t, err, railtx.ErrPendingState)
+	})
+	t.Run("a directory others can write to", func(t *testing.T) {
+		e := newFundEnv(t, nil)
+		require.NoError(t, e.funder.Close())
+		require.NoError(t, os.Chmod(filepath.Dir(e.path), 0o777))
+		_, err := railtx.NewFunder(context.Background(), e.cfg)
+		require.ErrorIs(t, err, railtx.ErrPendingState)
+	})
+	t.Run("no temp file is left behind", func(t *testing.T) {
+		e := newFundEnv(t, nil)
+		e.send(t)
+		ents, err := os.ReadDir(filepath.Dir(e.path))
+		require.NoError(t, err)
+		for _, en := range ents {
+			assert.NotContains(t, en.Name(), ".pending-")
+		}
+	})
 }

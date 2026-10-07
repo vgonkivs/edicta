@@ -43,6 +43,18 @@ var (
 	// ErrPendingState means the pending-send file cannot be read, trusted or
 	// written; nothing is sent without it.
 	ErrPendingState = errors.New("railtx: pending-send state")
+	// ErrSettled means Send cleared the previous send and sent nothing. The
+	// amount the caller computed may predate that send's inclusion, so the
+	// caller must read balances again and call Send again.
+	ErrSettled = errors.New("railtx: previous send settled, nothing sent; re-read balances")
+	// ErrStaleSequence means the node answered a sequence at or below one the
+	// funder has already seen used; nothing was sent.
+	ErrStaleSequence = errors.New("railtx: node reports a sequence already used")
+	// ErrSequenceBound means a send cleared without proof must be followed by
+	// one signed with the same sequence, and the node offered another.
+	ErrSequenceBound = errors.New("railtx: next send must reuse the cleared sequence")
+	// ErrNothingToAbandon means there is no pending send or sequence binding.
+	ErrNothingToAbandon = errors.New("railtx: nothing to abandon")
 )
 
 const (
@@ -149,8 +161,17 @@ type Funder struct {
 	prefix  string
 	cfg     FunderConfig
 
+	release func()
+
 	mu      sync.Mutex
 	pending *pendingSend
+	// mustReuse is the sequence of a send cleared without being seen
+	// committed. The next send must be signed with it, so at most one of the
+	// two can ever be included, whatever the node said.
+	mustReuse *uint64
+	// lastCommitted is the highest sequence seen used on chain. A send is
+	// never signed at or below it.
+	lastCommitted *uint64
 }
 
 // pendingSend is the part of a signed send needed to tell later whether it
@@ -163,13 +184,17 @@ type pendingSend struct {
 	amount        uint64
 }
 
+// pendingFile is the whole persisted state. The pending fields are empty when
+// nothing is pending; the two sequence guards outlive the send they came from.
 type pendingFile struct {
-	Hash          string `json:"hash"`
-	From          string `json:"from"`
-	To            string `json:"to"`
-	Amount        uint64 `json:"amount"`
-	Sequence      uint64 `json:"sequence"`
-	TimeoutHeight uint64 `json:"timeout_height"`
+	Hash          string  `json:"hash,omitempty"`
+	From          string  `json:"from"`
+	To            string  `json:"to,omitempty"`
+	Amount        uint64  `json:"amount,omitempty"`
+	Sequence      uint64  `json:"sequence,omitempty"`
+	TimeoutHeight uint64  `json:"timeout_height,omitempty"`
+	MustReuse     *uint64 `json:"must_reuse_sequence,omitempty"`
+	LastCommitted *uint64 `json:"last_committed_sequence,omitempty"`
 }
 
 // NewFunder validates cfg, loads the key, refuses a node that does not index
@@ -201,11 +226,31 @@ func NewFunder(ctx context.Context, cfg FunderConfig) (*Funder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("railtx: address: %w", err)
 	}
-	f := &Funder{rail: r, cons: cfg.Consensus, consent: cfg.Consent, addr: addr, prefix: prefix, cfg: cfg}
-	if f.pending, err = loadPending(cfg.PendingPath, addr); err != nil {
+	if err := checkStateDir(filepath.Dir(cfg.PendingPath)); err != nil {
+		return nil, err
+	}
+	release, err := lockState(cfg.PendingPath)
+	if err != nil {
+		return nil, fmt.Errorf("%w: lock: %w", ErrPendingState, err)
+	}
+	f := &Funder{rail: r, cons: cfg.Consensus, consent: cfg.Consent, addr: addr, prefix: prefix, cfg: cfg, release: release}
+	if f.pending, f.mustReuse, f.lastCommitted, err = loadState(cfg.PendingPath, addr); err != nil {
+		release()
 		return nil, err
 	}
 	return f, nil
+}
+
+// Close releases the lock on the state file. The Funder must not be used
+// afterwards.
+func (f *Funder) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.release != nil {
+		f.release()
+		f.release = nil
+	}
+	return nil
 }
 
 // String never shows the key.
@@ -236,10 +281,27 @@ func (f *Funder) Status(ctx context.Context, hash [32]byte) (node.TxStatus, erro
 	return st, nil
 }
 
+// Settle resolves the previous send without sending anything. It reports
+// whether a pending send was cleared; with an error the send stays pending.
+// Callers should settle before reading the balances a send amount is
+// computed from, so a send that has just committed is counted.
+func (f *Funder) Settle(ctx context.Context) (cleared bool, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.pending == nil {
+		return false, nil
+	}
+	if err := f.settlePending(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Send broadcasts one MsgSend of amount in the bond denom to the address to,
 // with timeout_height set, and returns its hash and timeout height. It fails
 // with ErrNotStarted until the Consent is armed, before any read of the node,
-// and with ErrSendInFlight while the previous send could still land.
+// and with ErrSendInFlight while the previous send could still land. When
+// this call clears the previous send it sends nothing and returns ErrSettled.
 //
 // A nonzero timeout height returned with an error means the send may still
 // land until that height; it stays pending and blocks the next Send until it
@@ -267,8 +329,11 @@ func (f *Funder) Send(ctx context.Context, to string, amount uint64) (hash [32]b
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if err := f.settlePending(ctx); err != nil {
-		return hash, 0, err
+	if f.pending != nil {
+		if err := f.settlePending(ctx); err != nil {
+			return hash, 0, err
+		}
+		return hash, 0, ErrSettled
 	}
 	chainID, err := f.cons.Network(ctx)
 	if err != nil {
@@ -301,20 +366,27 @@ func (f *Funder) Send(ctx context.Context, to string, amount uint64) (hash [32]b
 	if err != nil {
 		return hash, 0, err
 	}
+	switch {
+	case f.lastCommitted != nil && seq <= *f.lastCommitted:
+		return hash, 0, fmt.Errorf("%w: node says %d, %d is used", ErrStaleSequence, seq, *f.lastCommitted)
+	case f.mustReuse != nil && seq != *f.mustReuse:
+		return hash, 0, fmt.Errorf("%w: node says %d, need %d", ErrSequenceBound, seq, *f.mustReuse)
+	}
 	hash = sha256.Sum256(txRaw)
 	if err := f.consent.Check(); err != nil {
 		return hash, 0, err
 	}
 	p := &pendingSend{hash: hash, sequence: seq, timeoutHeight: th, to: to, amount: amount}
 	// Durable before the broadcast: an unclear outcome (timeout, dropped
-	// connection, a crash) may still have reached the mempool.
-	if err := savePending(f.cfg.PendingPath, f.addr, p); err != nil {
+	// connection, a crash) may still have reached the mempool. The pending
+	// record covers the sequence, so the binding is dropped with it.
+	if err := saveState(f.cfg.PendingPath, f.addr, p, nil, f.lastCommitted); err != nil {
 		return hash, 0, err
 	}
-	f.pending = p
+	f.pending, f.mustReuse = p, nil
 	if err := f.rail.Broadcast(ctx, txRaw); err != nil {
 		if errors.Is(err, ErrRejected) {
-			if cerr := f.clearPending(); cerr != nil {
+			if cerr := f.resolve(false); cerr != nil {
 				return hash, th, errors.Join(err, cerr)
 			}
 			return hash, 0, err
@@ -352,11 +424,12 @@ func (f *Funder) fee(ctx context.Context) (uint64, error) {
 // the slot was never used. The read is pinned and must be echoed by the node,
 // so a backend that has not reached the height cannot answer for it. The whole
 // check must hold twice, ConfirmDelay apart.
+//
+// A sequence that moved past the signed one is resolved only by finding the
+// transaction that used the slot: our own means committed, another means ours
+// can never be included.
 func (f *Funder) settlePending(ctx context.Context) error {
 	p := f.pending
-	if p == nil {
-		return nil
-	}
 	inFlight := func(err error) error {
 		if err == nil {
 			return fmt.Errorf("%w: %x, includable until height %d", ErrSendInFlight, p.hash, p.timeoutHeight)
@@ -382,7 +455,7 @@ func (f *Funder) settlePending(ctx context.Context) error {
 			return inFlight(fmt.Errorf("status: %w", err))
 		}
 		if st.Found && st.Height > 0 {
-			return f.clearPending()
+			return f.resolve(true)
 		}
 		if st.Found {
 			return inFlight(errors.New("found without a block height"))
@@ -394,23 +467,127 @@ func (f *Funder) settlePending(ctx context.Context) error {
 		switch {
 		case acc.Sequence == p.sequence:
 		case acc.Sequence > p.sequence:
-			return fmt.Errorf("%w: %x, signed with sequence %d, account at %d is at %d: %w",
-				ErrSendInFlight, p.hash, p.sequence, proofHeight, acc.Sequence, ErrSequenceAdvanced)
+			return f.slotUsed(ctx, p, proofHeight, acc.Sequence)
 		default:
 			return inFlight(fmt.Errorf("account sequence %d at %d is below the signed %d", acc.Sequence, proofHeight, p.sequence))
 		}
 	}
-	return f.clearPending()
+	return f.resolve(false)
 }
 
-func (f *Funder) clearPending() error {
-	if err := os.Remove(f.cfg.PendingPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("%w: remove: %w", ErrPendingState, err)
+// slotUsed handles a pending send whose sequence was used by some transaction.
+func (f *Funder) slotUsed(ctx context.Context, p *pendingSend, proofHeight, now uint64) error {
+	advanced := func(detail string) error {
+		return fmt.Errorf("%w: %x, signed with sequence %d, account at %d is at %d%s: %w",
+			ErrSendInFlight, p.hash, p.sequence, proofHeight, now, detail, ErrSequenceAdvanced)
 	}
-	if err := syncDir(filepath.Dir(f.cfg.PendingPath)); err != nil {
-		return fmt.Errorf("%w: %w", ErrPendingState, err)
+	txs, err := f.cons.TxBySequence(ctx, f.addr, p.sequence)
+	if err != nil {
+		return advanced(fmt.Sprintf(" (sequence lookup: %v)", err))
 	}
-	f.pending = nil
+	for _, t := range txs {
+		// Ours means committed; any other holds the slot, and there is one
+		// transaction per sequence, so ours can never be included.
+		if t.Height > 0 {
+			return f.resolve(true)
+		}
+	}
+	return advanced("")
+}
+
+// resolve drops the pending send and records what the next send must respect.
+// A send seen committed, or whose slot another transaction holds, raises the
+// floor under later sequences. A send cleared without that evidence binds the
+// next one to the same sequence. The state is written before memory changes.
+func (f *Funder) resolve(used bool) error {
+	p := f.pending
+	last, must := f.lastCommitted, f.mustReuse
+	s := p.sequence
+	if used {
+		if last == nil || *last < s {
+			last = &s
+		}
+		must = nil
+	} else {
+		must = &s
+	}
+	if err := saveState(f.cfg.PendingPath, f.addr, nil, must, last); err != nil {
+		return err
+	}
+	f.pending, f.mustReuse, f.lastCommitted = nil, must, last
+	return nil
+}
+
+// Abandon is the operator's decision to stop waiting for a send that cannot be
+// resolved by evidence. It needs an armed Consent and is appended to
+// PendingPath + ".log". It works in two cases only: the pending send's
+// sequence has moved on past its timeout (the slot is used, perhaps by this
+// very send), or a sequence binding is left while the chain has moved past
+// it. Anything that can still land, or that settles by itself, is refused.
+func (f *Funder) Abandon(ctx context.Context) error {
+	if err := f.consent.Check(); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	switch {
+	case f.pending != nil:
+		p := f.pending
+		err := f.settlePending(ctx)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, ErrSequenceAdvanced) {
+			return err
+		}
+		if lerr := f.logAbandon(fmt.Sprintf("pending hash=%x sequence=%d timeout_height=%d to=%s amount=%d", p.hash, p.sequence, p.timeoutHeight, p.to, p.amount)); lerr != nil {
+			return lerr
+		}
+		return f.resolve(true)
+	case f.mustReuse != nil:
+		head, err := f.cons.LatestHeight(ctx)
+		if err != nil {
+			return fmt.Errorf("railtx: height: %w", err)
+		}
+		acc, err := f.cons.AccountAt(ctx, f.addr, head)
+		if err != nil {
+			return fmt.Errorf("railtx: account at %d: %w", head, err)
+		}
+		if acc.Sequence <= *f.mustReuse {
+			return fmt.Errorf("%w: the bound sequence %d is still free", ErrNothingToAbandon, *f.mustReuse)
+		}
+		s := *f.mustReuse
+		if lerr := f.logAbandon(fmt.Sprintf("binding sequence=%d account_sequence=%d", s, acc.Sequence)); lerr != nil {
+			return lerr
+		}
+		last := f.lastCommitted
+		if last == nil || *last < s {
+			last = &s
+		}
+		if err := saveState(f.cfg.PendingPath, f.addr, nil, nil, last); err != nil {
+			return err
+		}
+		f.mustReuse, f.lastCommitted = nil, last
+		return nil
+	}
+	return ErrNothingToAbandon
+}
+
+func (f *Funder) logAbandon(what string) error {
+	fh, err := os.OpenFile(f.cfg.PendingPath+".log", os.O_WRONLY|os.O_APPEND|os.O_CREATE|noFollow, 0o600)
+	if err != nil {
+		return fmt.Errorf("%w: log: %w", ErrPendingState, err)
+	}
+	_, err = fmt.Fprintf(fh, "%s abandon %s\n", time.Now().UTC().Format(time.RFC3339), what)
+	if err == nil {
+		err = fh.Sync()
+	}
+	if cerr := fh.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return fmt.Errorf("%w: log: %w", ErrPendingState, err)
+	}
 	return nil
 }
 
@@ -430,19 +607,21 @@ func signedSequence(txRaw []byte) (uint64, error) {
 	return ai.SignerInfos[0].Sequence, nil
 }
 
-func savePending(path, from string, p *pendingSend) (err error) {
-	data, err := json.Marshal(pendingFile{
-		Hash: hex.EncodeToString(p.hash[:]), From: from, To: p.to, Amount: p.amount,
-		Sequence: p.sequence, TimeoutHeight: p.timeoutHeight,
-	})
+func saveState(path, from string, p *pendingSend, mustReuse, lastCommitted *uint64) (err error) {
+	pf := pendingFile{From: from, MustReuse: mustReuse, LastCommitted: lastCommitted}
+	if p != nil {
+		pf.Hash, pf.To, pf.Amount = hex.EncodeToString(p.hash[:]), p.to, p.amount
+		pf.Sequence, pf.TimeoutHeight = p.sequence, p.timeoutHeight
+	}
+	data, err := json.Marshal(pf)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrPendingState, err)
 	}
-	tmp := path + ".tmp"
-	fh, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	fh, err := os.CreateTemp(filepath.Dir(path), ".pending-*")
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrPendingState, err)
 	}
+	tmp := fh.Name()
 	defer func() {
 		if err != nil {
 			_ = os.Remove(tmp)
@@ -469,6 +648,23 @@ func savePending(path, from string, p *pendingSend) (err error) {
 	return nil
 }
 
+// checkStateDir refuses a directory another user could write to or swap
+// files in.
+func checkStateDir(dir string) error {
+	fi, err := os.Stat(dir)
+	switch {
+	case err != nil:
+		return fmt.Errorf("%w: %w", ErrPendingState, err)
+	case !fi.IsDir():
+		return fmt.Errorf("%w: %s is not a directory", ErrPendingState, dir)
+	case fi.Mode().Perm()&0o022 != 0:
+		return fmt.Errorf("%w: %s is writable by others", ErrPendingState, dir)
+	case !ownedByCaller(fi):
+		return fmt.Errorf("%w: %s belongs to another user", ErrPendingState, dir)
+	}
+	return nil
+}
+
 func syncDir(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {
@@ -481,42 +677,49 @@ func syncDir(dir string) error {
 	return err
 }
 
-// loadPending reads the file left by an earlier run. A file that is
-// unreadable, loose in mode, malformed or for another key is an error: the
-// funder cannot know what it sent, so it sends nothing.
-func loadPending(path, from string) (*pendingSend, error) {
+// loadState reads the file left by an earlier run. A file that is
+// unreadable, loose in mode, foreign, malformed or for another key is an
+// error: the funder cannot know what it sent, so it sends nothing.
+func loadState(path, from string) (p *pendingSend, mustReuse, lastCommitted *uint64, err error) {
 	fi, err := os.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return nil, nil, nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrPendingState, err)
+		return nil, nil, nil, fmt.Errorf("%w: %w", ErrPendingState, err)
 	}
-	if !fi.Mode().IsRegular() || fi.Mode().Perm()&0o077 != 0 {
-		return nil, fmt.Errorf("%w: %s must be a regular file with mode 0600", ErrPendingState, path)
+	if !fi.Mode().IsRegular() || fi.Mode().Perm()&0o077 != 0 || !ownedByCaller(fi) {
+		return nil, nil, nil, fmt.Errorf("%w: %s must be a regular file of this user with mode 0600", ErrPendingState, path)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrPendingState, err)
+		return nil, nil, nil, fmt.Errorf("%w: %w", ErrPendingState, err)
 	}
 	var pf pendingFile
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&pf); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrPendingState, err)
+		return nil, nil, nil, fmt.Errorf("%w: %w", ErrPendingState, err)
+	}
+	if pf.From != from {
+		return nil, nil, nil, fmt.Errorf("%w: the file is for %s, not %s", ErrPendingState, pf.From, from)
+	}
+	if pf.Hash == "" {
+		if pf.TimeoutHeight != 0 {
+			return nil, nil, nil, fmt.Errorf("%w: timeout height without a send", ErrPendingState)
+		}
+		return nil, pf.MustReuse, pf.LastCommitted, nil
 	}
 	h, err := hex.DecodeString(pf.Hash)
 	switch {
 	case err != nil || len(h) != 32:
-		return nil, fmt.Errorf("%w: bad hash", ErrPendingState)
-	case pf.From != from:
-		return nil, fmt.Errorf("%w: the file is for %s, not %s", ErrPendingState, pf.From, from)
+		return nil, nil, nil, fmt.Errorf("%w: bad hash", ErrPendingState)
 	case pf.TimeoutHeight == 0 || pf.TimeoutHeight > math.MaxInt64:
-		return nil, fmt.Errorf("%w: timeout height out of range", ErrPendingState)
+		return nil, nil, nil, fmt.Errorf("%w: timeout height out of range", ErrPendingState)
 	}
-	p := &pendingSend{sequence: pf.Sequence, timeoutHeight: pf.TimeoutHeight, to: pf.To, amount: pf.Amount}
+	p = &pendingSend{sequence: pf.Sequence, timeoutHeight: pf.TimeoutHeight, to: pf.To, amount: pf.Amount}
 	copy(p.hash[:], h)
-	return p, nil
+	return p, pf.MustReuse, pf.LastCommitted, nil
 }
 
 // fundingBody encodes TxBody{messages: [MsgSend], memo, timeout_height}.

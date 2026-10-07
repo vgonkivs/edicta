@@ -421,6 +421,41 @@ func (c *ConsensusClient) AccountAt(ctx context.Context, address string, height 
 	return AccountInfo{Number: r.Info.AccountNumber, Sequence: r.Info.Sequence}, nil
 }
 
+// seqTxLimit bounds the answer: one signer cannot have two committed
+// transactions at one sequence, so a few results are already more than honest.
+const seqTxLimit = 5
+
+// TxBySequence asks the node's index for the transactions of address signed
+// with sequence, through the tx.acc_seq event.
+func (c *ConsensusClient) TxBySequence(ctx context.Context, address string, sequence uint64) ([]SeqTx, error) {
+	if address == "" || strings.ContainsAny(address, "'/ ") {
+		return nil, errors.New("node: bad address for a sequence lookup")
+	}
+	r, err := c.tx.GetTxsEvent(ctx, &txtypes.GetTxsEventRequest{
+		Query:   fmt.Sprintf("tx.acc_seq='%s/%d'", address, sequence),
+		OrderBy: txtypes.OrderBy_ORDER_BY_ASC,
+		Page:    1,
+		Limit:   seqTxLimit,
+	})
+	if err != nil {
+		return nil, classifyGRPC(ctx, err)
+	}
+	var out []SeqTx
+	for _, tr := range r.GetTxResponses() {
+		if tr == nil || tr.Height <= 0 {
+			continue
+		}
+		h, err := hex.DecodeString(tr.TxHash)
+		if err != nil || len(h) != 32 {
+			return nil, fmt.Errorf("%w: sequence lookup returned tx hash %q", ErrUnavailable, tr.TxHash)
+		}
+		st := SeqTx{Height: uint64(tr.Height)}
+		copy(st.Hash[:], h)
+		out = append(out, st)
+	}
+	return out, nil
+}
+
 // Balance reads the bank balance of addr in denom at the node's latest state.
 // An account the chain has never seen has balance zero. It is advisory, for
 // funding decisions; nothing in the gate's checks depends on it, so the read is
