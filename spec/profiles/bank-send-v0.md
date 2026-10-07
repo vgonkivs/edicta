@@ -3,9 +3,9 @@
 Edicta profile for a bank transfer on a Cosmos SDK chain, used by the demo in
 `examples/tia-transfer`.
 
-Status: revision `bank-send-v0-draft.5` (2026-10-07). Working draft, subject
+Status: revision `bank-send-v0-draft.6` (2026-10-07). Working draft, subject
 to change. Built on the core spec `spec/decision-commitment-v0.md`, revision
-`v0-draft.11`. Section 3.4 needs core `v0-draft.26` (core section 20). Section
+`v0-draft.11`. Section 3.4 needs core `v0-draft.27` (core section 20). Section
 numbers prefixed "core" refer to the core spec.
 
 Keywords MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Items marked
@@ -34,6 +34,7 @@ Changes:
 | `bank-send-v0-draft.3` | Hand-off and reconcile (4.1, 4.2). (1) T12 has two bounds: head `> timeout_height`, or wall clock `>= expires + hand_off_grace` (new setting, default 10 min), whichever comes first; either needs a successful status query on the same turn, and the reason names the bound. (2) New T13: a final rejection by the node is followed by one status query after a short wait; committed goes to T11, otherwise the record is handed off with the node's reason. (3) A handed-off record is looked up again by `Resume` and by a repeated `Execute`, and moves to finished if the transaction is found committed. (4) T10 names transient broadcast errors (resent) versus a final rejection (T13). Outcomes for an implementation that followed draft.2 change only for a stalled chain, a rejection and a late inclusion after a hand-off. | Every file byte-identical; none has a T10..T13 vector (chain fake only). |
 | `bank-send-v0-draft.4` | Watch loop review (4.1, 4.2, 6). (1) T10: the loop height comes from the status node; a send is skipped when that height is past `timeout_height`; `live` is re-checked by a clock read immediately before every broadcast; head, status and broadcast calls each get a per-call deadline; a failed head read after `expires` no longer ends the call. (2) T12 (a): the height compared with `timeout_height` is read from the node that answers the status query, the bound is `height > timeout_height + indexer_lag_blocks` (new setting, default 3), and a second status query after `confirm_delay` (default 2 s) must also be not committed. (3) New startup rule T0: the rail refuses to start if the status node does not report transaction indexing on. (4) T13: a final rejection stops sending for the call but no longer hands off by itself; the executor keeps watching until a T12 bound, and the hand-off reason carries the node's code and log. Outcomes change for: a send near `expires`, a head read failure after `expires`, a hand-off under T12 (a) (`indexer_lag_blocks` blocks and one status query later), a rejection (watched, not handed off at once), and a node with indexing off (refused at startup). | Every file byte-identical; none has a T0 or T10..T13 vector (chain fake only). |
 | `bank-send-v0-draft.5` | Verifier execution check (new section 3.4, rules BX1 to BX8), the checker that core rules EX1 to EX8 call for this action type. It looks up the receipt's `rail_ref` by hash. It checks: the tx bytes hash to `rail_ref`; a strict `TxRaw` decode; `chain_id` equal to the trusted header's; the body rule of 3.3; code 0 (node-attested); an optional inclusion proof (a `ShareProof` in the transaction namespace, with the extra checks of BX6), giving `proven`, otherwise `node-attested`; cross sources agree on height, bytes and code. New sentinels `railverify.ErrTxNotFound`, `ErrTxHashMismatch`, `ErrTxMalformed`, `ErrChainMismatch`, `ErrTxFailed`, `ErrTxProof`, `ErrTxSourceUnavailable`. New rail facts: the `/tx?prove=true` shape and the transaction namespace (VERIFIED, live Mocha). Executor rules and every encoding are unchanged. | Every file byte-identical. No vector for 3.4 yet (live fixture, see section 8). |
+| `bank-send-v0-draft.6` | Execution check outcomes under core `v0-draft.27` 20.2.1 (human decisions of 2026-10-07). The rules are evaluated in a new order: BX0, BX1, then per candidate BX2, BX3, BX5, header trust, BX6, then BX8, RP and BX9. Changes: (1) New BX0. A configured chain id other than the action's is `unchecked` (`railverify.ErrChainConfig`); it was `fail`. (2) BX1: a malformed `rail_ref` is still `fail`, now `railverify.ErrRailRefMalformed`. Not found and unavailable set the candidate aside, and alternates are tried. (3) BX2 and BX6: wrong bytes and a bad proof set the candidate aside and end `unchecked` (was `fail`). (4) BX4: compared only with a trusted header. A different chain id is `fail` only with proven inclusion. (5) BX5 runs before header trust. (6) New result proof RP1 to RP6: block results from any source are recomputed to `last_results_hash` of the trusted header at `height + 1`, with the index bound by the share proof or uniform codes. (7) BX7 becomes the fact `outcome`. New BX9: a nonzero code is `fail` only when proven (`ErrTxFailed`); `pass` needs a proven code, or the interim cross confirmation. Cross agreement never gives `fail`. (8) BX8: per-source `agree`, `disagree` or `fault`; a mismatch is `unchecked`. (9) Threat note rewritten. New sentinels `ErrRailRefMalformed`, `ErrChainConfig`, `ErrResultUnconfirmed`, `ErrResultsProof`. `ErrTxHashMismatch` and `ErrTxProof` become `unchecked` classes. Rail facts: results hashing, result order and `block_results` availability. Executor rules and every encoding are unchanged. | Every file byte-identical. New: core `spec/vectors/verifier/execution_outcomes.json` (section 8). |
 
 Editorial clarification of `bank-send-v0-draft.4` (2026-10-05, no bump): T10
 names the loop height as the status node's latest committed height and the
@@ -48,7 +49,8 @@ no live chain reports. Every vector file is byte-identical.
 The profile depends on the core only through `ActionHash`,
 `VerifyAuthorization`, `commitment_hash` and rule I5 as amended in
 `v0-draft.10`. Since `bank-send-v0-draft.5`, section 3.4 also depends on core
-section 20 (`v0-draft.26`).
+section 20 (`v0-draft.26`; since `bank-send-v0-draft.6`, `v0-draft.27` and its
+outcome rule 20.2.1).
 
 ## 1. Threat model
 
@@ -182,26 +184,54 @@ the transfer to the exact authorized message.
 
 This is the checker that core section 20.2 calls for this action type. Its
 inputs are `commitment_hash`, the authorized action bytes and `rail_ref` from
-a receipt that passed. Its reads go to tx sources the auditor chooses (a
-CometBFT RPC base URL) and to the trusted header chain (core 20.4). A rule
-marked "fail" stops the check with `fail`. A rule marked "unchecked" stops
-it with `unchecked` (core EX3).
+a receipt that passed. Its reads go to tx sources the auditor chooses
+(CometBFT RPC base URLs: a primary, optional alternates, optional cross
+sources, core EX10) and to the trusted header chain (core 20.4). Since
+`bank-send-v0-draft.6`, every finding is classified by core 20.2.1. A
+finding is `fail` only if bound objects prove it. If it rests on one
+source's answer, it is `unchecked`, or the candidate is set aside and the
+next alternate is tried.
 
-| Rule | Check | On failure |
+Evaluation order: BX0, BX1, then for each candidate in order BX2, BX3, BX5,
+header trust at the answer's `height` (core EX5), BX6. Then BX8 over the
+used answer, then BX9, which classifies BX4, BX7 and the core rules EX4, EX6
+and EX9.
+
+| Rule | Check | Outcome |
 |---|---|---|
-| BX1 Lookup | `rail_ref` MUST be 64 lower-case hex characters (3.2). The primary source is asked with `GET <rpc>/tx?hash=0x<rail_ref upper or lower>&prove=true`. Answer: `result {hash, height, index, tx_result {code}, tx (base64), proof}`. | A malformed `rail_ref`: fail, `railverify.ErrTxHashMismatch`. A JSON-RPC error whose data says `not found`: unchecked, `railverify.ErrTxNotFound` (absence on one node proves nothing: the indexer may be off or pruned). Any other error, a timeout or `429`: unchecked, `railverify.ErrTxSourceUnavailable`. |
-| BX2 Hash | `SHA-256(tx) == rail_ref`. The `hash` field of the answer is not used. | fail, `railverify.ErrTxHashMismatch` |
-| BX3 TxRaw | `tx` decodes strictly as `TxRaw`. Fields `1 body_bytes` and `2 auth_info_bytes` appear exactly once each, then `3 signatures` at least once. All are wire type 2, in this order, with shortest varints. Nothing else may appear, and nothing may trail. | fail, `railverify.ErrTxMalformed` |
-| BX4 Chain | `bankaction.Decode(action)` (2.2) succeeds, and `chain_id` equals the `chain_id` of the header at the answer's `height`. That header MUST be reached through the trusted chain (core EX5). The checker reads it from the same header chain the verifier walks. | A header at `height` that the trusted chain does not reach: unchecked (core EX5). A different chain id: fail, `railverify.ErrChainMismatch` (an undecodable action cannot occur after core stage A and the executor, and is `bankaction.ErrMalformed`, fail) |
-| BX5 Body | `bankaction.CheckBody(body_bytes, action.msg, commitment_hash)` (3.3): the memo is the commitment hash and the message is exactly the authorized `MsgSend`. | fail, `bankaction.ErrBodyMismatch` |
-| BX6 Inclusion | If `proof` is present and non-empty, `inclusion = proven` only if every point below holds, against `data_hash` of the trusted header at `height`. (a) `namespace_version = 0` and `namespace_id` is the transaction namespace `0x00...01` (28 bytes). (b) With `t` the `total` of every row proof, `t = 4k` for a power of two `k`. For each row `i`, the row proof's `index = start_row + i` and is below `k`, so the row is a row of the original square, not a column. Its `leaf_hash = SHA-256(0x00 || row_root)`, and the RFC 6962 path from `aunts` reaches `data_hash`. (c) For each row, the NMT range proof over `2k` leaves with `start < end <= k` reaches that row root. Leaves are `namespace (29) || share`. Hashing follows NMT with the ignore-max-namespace rule. (d) The rows are consecutive, and every row but the last ends at `end = k`, every row but the first starts at 0. (e) Every share starts with the namespace of (a) and has share version 0. Parse them as compact shares: info byte, then a 4-byte sequence length if the sequence-start bit is set, then 4 reserved bytes. Start at the unit offset the first share's reserved bytes give (not 0). The length-prefixed units (uvarint) parsed from there contain one unit exactly equal to `tx`. If `proof` is absent or empty, `inclusion = node-attested`. | A present proof that fails any point: fail, `railverify.ErrTxProof` |
-| BX7 Code | `tx_result.code == 0`. The check reports `result = node-attested`, because no v0 rule proves the code against `last_results_hash`. | fail, `railverify.ErrTxFailed` |
-| BX8 Cross sources | Each cross source (distinct by core OH3) is asked `GET <rpc>/tx?hash=0x<rail_ref>`. It MUST report the same `height`, byte-identical `tx` and the same `tx_result.code`. Any difference is `cross_check = mismatch`, and core EX6 makes it fail. A source that answers not found or fails counts as `unavailable` for this source. With no cross source configured, `off`. | (reported through `cross_check`) |
+| BX0 Chain config | `bankaction.Decode(action)` (2.2) succeeds, and its `chain_id` equals the chain id the checker is configured for. | A different chain id: `unchecked`, `railverify.ErrChainConfig`, and no source is asked. The auditor pointed the checker at another chain, which is not a finding about the execution. An undecodable action cannot occur after core stage A and the executor. If it does, it is `bankaction.ErrMalformed`, `fail` (the action bytes are bound, F1). |
+| BX1 Lookup | `rail_ref` MUST be 64 lower-case hex characters (3.2). Each candidate is asked with `GET <rpc>/tx?hash=0x<rail_ref upper or lower>&prove=true`. Answer: `result {hash, height, index, tx_result {code}, tx (base64), proof}`. | A malformed `rail_ref`: `fail`, `railverify.ErrRailRefMalformed`, and no source is asked. The receipt is gate-signed (F2), so this is proven. A JSON-RPC error whose data says `not found`: the candidate is set aside, `railverify.ErrTxNotFound`. Absence on one node proves nothing, because the indexer may be off or pruned. Any other error, a timeout or `429`: the candidate is set aside, `railverify.ErrTxSourceUnavailable`. |
+| BX2 Hash | `SHA-256(tx) == rail_ref`. The `hash` field of the answer is not used. | The candidate is set aside, `railverify.ErrTxHashMismatch` (`fail` before `bank-send-v0-draft.6`). Bytes that do not hash to `rail_ref` are not the transaction the receipt names, so they say nothing about the execution. Bytes that do hash are bound (F3). |
+| BX3 TxRaw | `tx` decodes strictly as `TxRaw`. Fields `1 body_bytes` and `2 auth_info_bytes` appear exactly once each, then `3 signatures` at least once. All are wire type 2, in this order, with shortest varints. Nothing else may appear, and nothing may trail. | `fail`, `railverify.ErrTxMalformed`. The bytes are bound by BX2. |
+| BX5 Body | `bankaction.CheckBody(body_bytes, action.msg, commitment_hash)` (3.3): the memo is the commitment hash and the message is exactly the authorized `MsgSend`. It needs no header, so it runs before header trust. | `fail`, `bankaction.ErrBodyMismatch`. The bytes are bound by BX2, so a receipt that names them is proven to name another transfer. |
+| BX4 Chain | The action's `chain_id` equals the `chain_id` of the header at the answer's `height`. That header has passed header trust (core EX5) before the comparison. The checker never compares against a header that has not passed it, and it reads the header from the same header chain the verifier walks. | A header at `height` that the trusted chain does not reach (`T < height`, or it does not link): the candidate is set aside (core EX5 (a), (b)). A different chain id is classified by BX9. In the reference verifier it cannot occur: BX0 binds the configured chain id to the action, and core OH2 binds every header to the configured chain id. |
+| BX6 Inclusion | If `proof` is present and non-empty, `inclusion = proven` only if every point below holds, against `data_hash` of the trusted header at `height`. (a) `namespace_version = 0` and `namespace_id` is the transaction namespace `0x00...01` (28 bytes). (b) With `t` the `total` of every row proof, `t = 4k` for a power of two `k`. For each row `i`, the row proof's `index = start_row + i` and is below `k`, so the row is a row of the original square, not a column. Its `leaf_hash = SHA-256(0x00 \|\| row_root)`, and the RFC 6962 path from `aunts` reaches `data_hash`. (c) For each row, the NMT range proof over `2k` leaves with `start < end <= k` reaches that row root. Leaves are `namespace (29) \|\| share`. Hashing follows NMT with the ignore-max-namespace rule. (d) The rows are consecutive, and every row but the last ends at `end = k`, every row but the first starts at 0. (e) Every share starts with the namespace of (a) and has share version 0. Parse them as compact shares: info byte, then a 4-byte sequence length if the sequence-start bit is set, then 4 reserved bytes. Start at the unit offset the first share's reserved bytes give (not 0). The length-prefixed units (uvarint) parsed from there contain one unit exactly equal to `tx`. If `proof` is absent or empty, `inclusion = node-attested`. | A present proof that fails any point: the candidate is set aside, `railverify.ErrTxProof` (`fail` before `bank-send-v0-draft.6`). A bad proof shows only that this source did not prove inclusion. Absence is not provable on this path. The candidate is not downgraded to `node-attested`, because a source that sent a bad proof has shown that it is unreliable. |
+| BX7 Code | Reported as the fact `outcome`: `success` for `tx_result.code == 0`, otherwise `failure`. `result = proven` if RP1 to RP6 below succeed (the proven code then replaces the source's), `cross-confirmed` under core EX9's interim rule, otherwise `node-attested`. | Classified by BX9. |
+| BX8 Cross sources | Each cross source is asked `GET <rpc>/tx?hash=0x<rail_ref>`. Cross sources are distinct by core OH3 from each other, from every candidate and from the headers source. Per source: `agree` if its `tx` hashes to `rail_ref` (and is therefore byte-identical to the used answer) and it reports the same `height` and `tx_result.code`. `disagree` if its `tx` hashes to `rail_ref` but the height or code differs. `fault` if it answers not found, fails, or serves bytes that do not hash to `rail_ref`. The aggregate is computed by core EX6. With no cross source configured, `cross_check = off`. | Reported through `cross_check` and the per-source results. |
+| BX9 Classification | First match. (1) The chain id differs (BX4) and `inclusion = proven`: `fail`, `railverify.ErrChainMismatch`. (2) `height <= payload_ref.height` and `inclusion = proven`: `fail` (core EX4). (3) `result = proven` and the proven code != 0: `fail`, `railverify.ErrTxFailed`. (4) The chain id differs: `unchecked`. (5) `height <= payload_ref.height`: `unchecked` (core EX4). (6) `cross_check = mismatch` and the result is not proven: `unchecked` (core EX6). (7) The result is not proven and the code != 0: `unchecked`, `railverify.ErrResultUnconfirmed`. Cross agreement on a nonzero code is not proof. (8) The result is neither proven nor cross-confirmed: `unchecked`. The cause is the RP failure if inclusion is proven (root mismatch `railverify.ErrResultsProof`, index unbound, header at `height + 1` unreachable), otherwise "result code attested by one source". (9) Otherwise `pass`. | Rows 2, 5, 6 and 8 are core rules. The checker MAY return the facts and leave those rows to the core, and the outcome is the same. Each vector case holds at most one violation, so the reported cause is fixed too. |
+
+Result proof (RP, since `bank-send-v0-draft.6`). It proves the result code of
+the transaction against the trusted chain, so that a single tx source is
+enough for `pass` (human decision of 2026-10-07). The hashing below was read
+in celestia-core `v0.42.0`, the module pin of the `celestia` module, and is
+byte-identical in `v0.42.3` (`types/results.go`, `state/store.go`
+`TxResultsHash`, `state/execution.go`, `crypto/merkle`). It is VERIFIED by
+code, and on live Mocha data by the vectors.
+
+| Rule | Requirement | Outcome |
+|---|---|---|
+| RP1 Read | `GET <rpc>/block_results?height=<height>` from any configured source (tx, cross or headers source; untrusted). Use `result.txs_results[]`: `code` (number), `data` (base64), `gas_wanted`, `gas_used` (decimal strings, int64). Every other field (`log`, `info`, `events`, `codespace`, and celestia-core's `signers`) is ignored. A source that answers with an error is skipped, and the next one is tried. Some operators do not persist the responses: on 2026-10-07 `https://rpc-mocha.pops.one` answered "node is not persisting finalize block responses". | No source answers: the result is not proven. |
+| RP2 Inclusion first | RP applies only with `inclusion = proven` (BX6), which ties the tx to block `height`. | Without it, the results of block `height` say nothing about this tx. |
+| RP3 Leaves | For each result `i`, the leaf is the protobuf of `ExecTxResult` with only the deterministic fields of `types.NewResults`: field 1 `code` (varint uint32), field 2 `data` (bytes), field 5 `gas_wanted` and field 6 `gas_used` (varint int64; a negative value as its 64-bit two's complement). A zero or empty field is omitted, as gogoproto `Marshal` does, and the fields appear in this order. | - |
+| RP4 Root | `root` = CometBFT `merkle.HashFromByteSlices(leaves)` (RFC 6962): no leaves gives `SHA-256("")`; one leaf `x` gives `SHA-256(0x00 \|\| x)`; otherwise split at `k`, the largest power of two below `n`, and `SHA-256(0x01 \|\| root(first k) \|\| root(rest))`. `root` MUST equal `last_results_hash` of the header at `height + 1`, and that header MUST pass header trust (core EX5 rules, so `T >= height + 1`). Why `height + 1`: the state after block `h` stores `TxResultsHash` of block `h`'s results as `LastResultsHash`, and the header of block `h + 1` carries it. | A mismatch: that source's fault (`railverify.ErrResultsProof`), and the next source is tried. `T < height + 1`, or the header at `height + 1` does not link: the result is not proven. |
+| RP5 Index | The tx's result is `txs_results[i]`, and `i` MUST be bound. It is bound in two ways. (a) The BX6 proof's first share is share 0 of the square (`start_row = 0`, first share proof `start = 0`). Parsing the compact shares from there as in BX6 (e), `i` is the number of units before the unit equal to `tx`. Why: the transaction namespace is the first in the square, and celestia-app `v10.4.0-mocha` `ProcessProposal` builds the square with go-square `v4.0.1` `Construct` over the block's txs in block order. `Construct` refuses a normal tx after a blob or Fibre tx, and it appends normal txs to the transaction namespace in that order. ABCI returns one result per tx in block order (VERIFIED by code). `UNVERIFIED`: that no namespace below the transaction namespace ever occupies share 0. This holds in the live vector. (b) Every result of the block has the same code. Then that code is this tx's whatever its index, because F5 puts the tx in the block and the root fixes every result. The count must also satisfy `i < n`. | An index that is not bound: the result is not proven. |
+| RP6 Outcome | With RP1 to RP5 met, `result = proven` and the code is `txs_results[i].code`. It replaces the code the tx source reported. A source that reported another code is listed as disagreeing. | - |
 
 The checker returns `height`, the hash of the trusted header at `height`,
-`inclusion`, `result = node-attested`, `cross_check` and the source names. It
-evaluates BX1 to BX8 in this order. The core then applies EX4 (`height`
-above the anchor height) and EX5.
+`inclusion`, `outcome`, `result`, `cross_check` and every
+source asked, with its role, result and reason (core EX10). If no candidate
+is usable, the `unchecked` error names every candidate with its reason, and
+its cause is the last candidate's.
 
 Why BX3 is strict: the chain's decoder reads `TxRaw` with gogoproto, which
 keeps the last of a repeated field and accepts any order. A verifier that
@@ -216,16 +246,26 @@ bytes shaped like a transaction. Without (b) and (d), parity or column data,
 or rows that are not adjacent, could be stitched into one. Without (e) starting at the
 reserved offset, a unit boundary could be chosen to suit.
 
-Threat note (BX). With a proof, inclusion rests on the trusted header and
-SHA-256 alone. The result code and, without a proof, the inclusion rest on the
-tx source, and the report says `node-attested`. The memo alone proves
-nothing, because anyone can write any memo. BX2 and BX5 together tie the
-included bytes to the receipt and to the authorized message. A
-signature check is not needed: the bytes are the executor's (`rail_ref` is
-in its signed record request). `UNVERIFIED`: that celestia-app's
-`ProcessProposal` rejects a block that holds a non-blob transaction whose
-ante handler fails (signature, sequence, `timeout_height`), so that
-`proven` inclusion also implies the chain accepted the signature.
+Threat note (BX). With a proof, inclusion and height rest on the trusted
+header and SHA-256 alone. With RP, the result code rests on the trusted
+header at `height + 1` and SHA-256 too, so one honest-or-not tx source is
+enough. A results source can only fail to prove: a wrong list does not hash
+to `last_results_hash`. Without RP, a code is only confirmed by the
+agreement of sources (interim `pass`), and it is never enough for `fail`. One
+hostile source, of any kind, can only make the check `unchecked` (core 20.2.1
+invariant). It can claim not to know the transaction, serve other bytes,
+send a bad proof or results, or report another height or code than the
+cross sources. Before `bank-send-v0-draft.6` the last of these gave `fail`.
+The memo alone proves nothing, because anyone can write any memo. BX2 and
+BX5 together tie the included bytes to the receipt and to the authorized
+message, and they hold whoever served the bytes. A signature check is not
+needed: the bytes are the executor's (`rail_ref` is in its signed record
+request). `UNVERIFIED`: that celestia-app's `ProcessProposal` rejects a block
+that holds a non-blob transaction whose ante handler fails (signature,
+sequence, `timeout_height`). If it holds, `proven` inclusion also implies
+that the chain accepted the signature. Even then, a message that fails after
+the ante handler gives a nonzero code in an included transaction, so
+inclusion never implies `outcome = success`; RP decides it.
 
 ## 4. Executor (`examples/tia-transfer/transfer`)
 
@@ -478,6 +518,9 @@ recipient of the payload (core 9.1); it is never public in clear text.
 | The T10 loop height (send condition and T12 (a)) is the status node's latest committed height, read on the same gRPC connection as the status query with `cosmos.base.node.v1beta1.Service/Status`, field `height`. It equals `cosmos.base.tendermint.v1beta1.Service/GetLatestBlock`'s height; `GetLatestValidatorSet`'s `block_height` is one more on a caught-up node | VERIFIED on Mocha, read-only, 2026-10-05 (`Status` == `GetLatestBlock` height, validator set height == that + 1). Server path for the validator set: `cmtservice.GetLatestValidatorSet` -> CometBFT `Validators` at `latestUncommittedHeight()` (`BlockStore.Height() + 1` unless block-syncing), read in `celestiaorg/cosmos-sdk v0.52.8` and `celestiaorg/celestia-core v0.42.0`; `UNVERIFIED` that this path is unchanged at the pinned `v0.52.12` | cosmos-sdk `client/grpc/node`, `client/grpc/cmtservice`; CometBFT `rpc/core/consensus.go` |
 | CometBFT RPC `/tx?hash=0x..&prove=true` on celestia-core returns `proof` as a celestia `ShareProof` (`data`, `share_proofs`, `namespace_id`, `row_proof`, `namespace_version`), not CometBFT's `TxProof`. For an ordinary (non-blob) transaction the namespace is the transaction namespace `0x00...01`, version 0, and the shares are compact shares that hold the transaction as one length-prefixed unit | VERIFIED on live Mocha data, 2026-10-07: tx `A9A1550E...5971` (a `MsgSend`, height 1,442,606) on four operators. Byte-identical answers. An independent Python recompute of the NMT proof, the row proof to `data_hash` and the compact-share parse yields the tx. The celestia-core source at the pin was not read | `docs/tasks/027-demo/endpoints.md` section 3.4 |
 | `/tx` `hash` is `SHA-256` of the indexed tx bytes. For a `BlobTx` the index holds the inner SDK tx, not the block's `BlobTx` bytes | VERIFIED on live Mocha data (2026-10-07). Bank-send transactions are not `BlobTx` | same |
+| `LastResultsHash` of block `h + 1` = RFC 6962 root over the protobuf of `ExecTxResult{code, data, gas_wanted, gas_used}` of each result of block `h`, in block order; every other field is stripped | VERIFIED by code (celestia-core `v0.42.0`, identical in `v0.42.3`: `types.NewResults`, `deterministicExecTxResult`, `state.TxResultsHash`, `state/execution.go` sets `LastResultsHash`) and on live Mocha block 1,442,606 (Python and Go recompute equal `last_results_hash` of 1,442,607) | section 3.4 RP, `execution_outcomes.json` `result_proof` |
+| Block txs are ordered normal txs, then blob txs, then Fibre txs, and normal txs fill the transaction namespace in that order | VERIFIED by code: celestia-app `v10.4.0-mocha` `app/process_proposal.go` calls go-square `v4.0.1` `Construct`, whose `validateTxOrdering` refuses any other order | RP5 |
+| `/block_results` is served only by nodes that persist finalize-block responses | Observed 2026-10-07: itrocket, nodes.guru and QuickNode serve height 1,442,606; P-OPS answers "node is not persisting finalize block responses" | RP1 |
 
 ## 7. Sentinels
 
@@ -497,17 +540,26 @@ recipient of the payload (core 9.1); it is never public in clear text.
 | `transfer.ErrAbandoned` | `Resume` of a record that was begun but never prepared, and any later lookup of it | none (store state) |
 | `transfer.ErrHandedOff` | T12 (including after a T13 rejection), `Resume` of a handed-off record still not committed | none (chain fake) |
 | `pricetrigger.ErrMalformed` | section 5 | `price_trigger.json` `reject` |
-| `railverify.ErrTxNotFound` | BX1 (unchecked) | none (live fixture) |
-| `railverify.ErrTxSourceUnavailable` | BX1 (unchecked) | none |
-| `railverify.ErrTxHashMismatch` | BX1, BX2 | none yet |
-| `railverify.ErrTxMalformed` | BX3 | none yet |
-| `railverify.ErrChainMismatch` | BX4 | none yet |
-| `railverify.ErrTxProof` | BX6 | none yet |
-| `railverify.ErrTxFailed` | BX7 | none (node answer) |
+| `railverify.ErrChainConfig` | BX0 (unchecked) | `execution_outcomes.json` `unchecked_chain_config` |
+| `railverify.ErrRailRefMalformed` | BX1 (fail) | `fail_rail_ref_malformed` |
+| `railverify.ErrTxNotFound` | BX1 (unchecked, candidate set aside) | `unchecked_tx_not_found`, `pass_after_alternate` |
+| `railverify.ErrTxSourceUnavailable` | BX1 (unchecked, candidate set aside) | `unchecked_tx_source_unavailable` |
+| `railverify.ErrTxHashMismatch` | BX2 (unchecked, candidate set aside) | `unchecked_tx_hash_mismatch`, `unchecked_all_candidates_fault` |
+| `railverify.ErrTxMalformed` | BX3 (fail) | `fail_tx_malformed` |
+| `railverify.ErrChainMismatch` | BX4, BX9 row 1 (fail) | `fail_chain_mismatch_proven` |
+| `railverify.ErrTxProof` | BX6 (unchecked, candidate set aside) | `unchecked_tx_proof_invalid`; proof forms in `proofs` |
+| `railverify.ErrTxFailed` | BX9 row 3 (fail, proven code only) | `fail_tx_failed_proven`, `fail_tx_failed_proven_source_says_success` |
+| `railverify.ErrResultUnconfirmed` | BX9 row 7 (unchecked) | `unchecked_code_unproven`, `unchecked_code_cross_confirmed_only` |
+| `railverify.ErrResultsProof` | RP4 (unchecked, source skipped) | `unchecked_result_root_mismatch`; live `result_proof.mutations` |
 
 The prefix is the Go package under `examples/tia-transfer/`, except
 `railverify`, which is the verifier's package in the `celestia` module. The
-core sentinels of T1 keep their core names.
+core sentinels of T1 keep their core names. Each `railverify` sentinel of
+class `unchecked` wraps the verifier's unchecked class
+(`verifier.ErrExecutionUnchecked`), and each of class `fail` does not. An
+`unchecked` with no profile sentinel (header trust, height, cross mismatch,
+result not confirmed) is reported by the core with its reason. The vector
+`cause` names every case.
 
 ## 8. Vectors
 
@@ -525,11 +577,45 @@ changed it (section 0); uints are decimal strings, bytes lowercase hex.
 | `price_trigger.json` | `gen_profile_bank_send.py` | `media_type`. `cases`: `input`, `cbor_hex`. `reject`: `cbor_hex`, `expect_error`. `consistency`: `context_cbor_hex`, `msg_ref`, `hrp`, `issued_at`, `expect_failed` (PT ids). 4 cases, 25 rejects, 9 consistency. |
 | `e2e.json` | `gen_profile_bank_send.py` | `bank-send-v0-draft.2`. One decision end to end: the gate and params; a commitment by `agent1` (core `keys.json`) with this action type, its envelope and hash (payload fields are placeholders, listed); the action bytes; a price-trigger context consistent with the transfer; the Authorization by `gate1`; the executor's clock, domain, headers, `tau_ms`, `timeout_height`, memo and body. 1 case. |
 
-Section 3.4 has no vector file in `bank-send-v0-draft.5`. Its reference
-fixture is the live Mocha transaction of section 6 (`/tx?prove=true` answer
-and the header at its height, `docs/tasks/027-demo/endpoints.md`). A vector
-file built from it, with mutations for every BX rule, is planned as an
-addition. It changes no existing file.
+Section 3.4 has its vectors in the core set,
+`spec/vectors/verifier/execution_outcomes.json` (`v0-draft.27`, profile
+`bank-send-v0-draft.6`), written by `spec/vectors/check/gen_execution_outcomes.py`
+and checked by `check_execution_outcomes.py`. The file holds:
+- `defaults`: the decision under test (`action_minimal_mocha`,
+  `signed_minimal_mocha`), and the anchor, transaction and checkpoint heights.
+- `txs`: the authorized transaction and three mutations (bytes that do not
+  hash, `body_bytes` twice, another memo), each with its SHA-256.
+- `live` and `proofs`: the live Mocha transaction of section 6 (height
+  1,442,606) and 9 BX6 forms of its proof against `data_hash`, one proven
+  and 8 `railverify.ErrTxProof`. These expectations were confirmed against
+  the reference `railverify.VerifyShareProof`.
+- `result_proof`: RP on live Mocha block 1,442,606. It was read with plain
+  HTTP GET on 2026-10-07T10:48Z from
+  `https://celestia-testnet-rpc.itrocket.net/block_results?height=1442606` and
+  `.../header?height=1442607`. The raw answers are in
+  `spec/vectors/verifier/live/`. Byte-identical results came from
+  `rpc-1.testnet.celestia.nodes.guru` and
+  `public-endpoint.celestia-mocha.quiknode.pro`; `rpc-mocha.pops.one` does not
+  persist them. The section holds the 5 results (deterministic fields), the
+  headers at H and H + 1, the leaves, the root `756b825a...eeb0e` (equal to
+  `last_results_hash` of H + 1, also computed by celestia-core
+  `types.NewResults(...).Hash()`), the index 0 bound by the live share proof,
+  the selected code 0, and 9 mutations (2 still match, because
+  non-deterministic fields are ignored; 7 do not).
+- `cases`: 37 outcome cases. Each lists the receipt's `rail_ref`, the
+  sources in order with their role and answer (`tx` with a transaction,
+  height, code and proof `valid`, `invalid` or `none`; `not_found`;
+  `unavailable`), and optional overrides of the chain ids, `T`, the state
+  of the header at the transaction height, and the result proof outcome. It expects `execution`,
+  `header_trust`, verdict, exit code, cause, sentinel, `inclusion`,
+  `result`, `cross_check`, `proven_execution`, the normative per-source results and,
+  for `unchecked`, the named sources.
+
+A table test feeds each case to the checker through fake tx sources and a
+fake header chain. Proof `valid` is an inclusion proof that the test builds
+for the answer's bytes and that passes BX6 against the trusted header.
+`invalid` is any form that fails BX6. The `proofs` section gives concrete
+forms.
 
 Generation order: `cd spec/vectors/tools/banksend-gen && go run .` (needs
 network access the first time to download modules; never run by `go test`

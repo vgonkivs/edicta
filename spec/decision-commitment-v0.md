@@ -2,7 +2,7 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v0-draft.26` (2026-10-07). Working draft, subject to change.
+Status: revision `v0-draft.27` (2026-10-07). Working draft, subject to change.
 Wire version: `version = 0`. Domain tags: `edicta/v0/...`.
 
 The core knows no rail, broker or chain. An action is an opaque byte string
@@ -58,6 +58,7 @@ signature even if the byte layout were identical.
 | `v0-draft.24` | 2026-10-06 | Verifier fixes from the task 023 re-audit; no wire change. (1) Sections 10.4 (NA5) and 10.6.1 (CV2): a `da = 1` promise height MUST be at most the anchor height: `PaymentPromise.height <= payload_ref.height`, equality allowed. On chain this always holds (the keeper reads `HistoricalInfo` at the promise height, which does not exist yet above the current block), so the gate's candidates do not change; a verifier now rejects an archived promise above `height` instead of trusting a header above it. (2) Section 10.6.2: the header at `payload_ref.height` and the header at `promise.height` are checked through header trust separately; at equal heights both archived headers MUST have the same hash, and one never stands in for the other (before, an implementation keyed by height could let the genuine promise header vouch for a forged anchor header). (3) Section 19.2, K2 replay: `promise_created` is consistent iff it equals the creation time of a candidate created at or before the archived anchor (NA7 picks the earliest code-0 candidate, which need not be the archived one); with `anchor_candidates_earlier = 0` that is equality. Form 0 shows no other candidate: a smaller value is not checked. An absent `promise_created` is consistent iff the authorized path is the archive (`path = 2`). Before, the rule was unstated and an implementation that required equality reported a legitimate earlier candidate as a gate inconsistency. (4) CV2: the `blob_size` arithmetic is written out, from the committed `payload_size`. Verdicts change only in `verify` and `replay`: a promise above `height` fails CV2, a forged anchor header at the promise height fails header trust, and K2 replay accepts an earlier candidate and an absent `promise_created` on the archive path. | Unchanged | Every file byte-identical. |
 | `v0-draft.25` | 2026-10-06 | Bridge fallback, Fibre cost and archive read faults; no wire change (`v0-draft.24` is a separate verifier revision whose status line was not bumped). (1) Section 10.8, SC6 (human decision of 2026-10-06): at the pin the only version method, `node.Info`, needs an admin token, so the download fallback is now enabled after compatibility is verified by version (BV, permitted, not recommended) or by a capability probe (BP1 to BP5: download one retained, anchored blob found through NA1 to NA6, check the raw `fibre.Download` answer's shape strictly, recompute P3). A version or capability declared in configuration is never a substitute. A failed or inconclusive probe disables the fallback with a warning, never the start. The anchor-proof bridge's version log is best effort (a read token gets a permission error). Rationale note: integrity comes from the P3 recompute of every answer; the check is about compatibility only. (2) Section 10.2 and the section 17.3 threat notes: a `PaymentPromise` handed to validators but never settled is charged once through `MsgPaymentPromiseTimeout` after the promise timeout (verified in x/fibre at the pin), so a failed `da = 1` upload may cost one fee without creating an anchor; earlier design notes said partial signatures cost nothing. (3) Sections 8.7 (stage 9), 8.5, 12 and 19.6: an unreadable or corrupt archive payload record on the archive path is `ErrArchiveUnavailable` (operational, 503, no rejection marker, nonce not consumed), never a P verdict or `gate.ErrBlobNotFound`. Verdicts change only for a corrupt archive payload record (before: an unnamed operational error that implementations could map to `ErrPayloadUnavailable`). | Unchanged. Gate: a probe hook for the bridge fallback; the archive source's read fault maps to `ErrArchiveUnavailable` | Every file byte-identical. |
 | `v0-draft.26` | 2026-10-07 | Verifier online mode and execution check; no wire change. (1) New section 20.1: the report's named checks and the verdict rule of the reference verifier (first match: `invalid`, `not_authorized`, `unchecked`, `valid`; a required check that never ran is not a pass), and CLI exit codes 0 to 4, now normative; no outcome changes. (2) New section 20.2, rules EX1 to EX8: an optional, rail-agnostic `execution` check. A checker registered per action type takes the authorized action bytes and the receipt's `rail_ref` and returns the height, header hash, inclusion level (`proven` or `node-attested`), result level (`node-attested` in v0) and cross-check result. The core requires a passed receipt and the `authorized` state, `height > payload_ref.height` strictly, the header at `height` trusted from the same checkpoint, and no cross-check mismatch. When requested, the check is required for `valid`. A missing receipt or checker is `unchecked`. `proven_execution` means inclusion proven against a trusted header only. Warning `execution_after_expires`. The bank-send checker is in the profile (`bank-send-v0-draft.5`, section 3.4). (3) New section 20.3, rules HA1 to HA6: read-only HTTP archive reads at `<base>/<canonical path of 19.3>`. `404` and `410` mean absent; every other answer is a fault that stops `verify` without a verdict; per-kind body caps; the 19.1 and 19.3 reader checks; the record state from reads, with one probe per marker verdict; the server serves only canonical keys, never lists, and never caches a `404`. (4) New section 20.4, rules OH1 to OH8, with amendments to HT1, HT3 and HT7: the trusted header can also be an explicit checkpoint `T:HASH` or a checkpoint agreed by online CometBFT RPC sources. `T` is the minimum of their latest heights. Hashes are always recomputed. Sources are distinct by normalized host and by `/status` `node_info.id`, and the gate's own endpoints are excluded. Two answering sources with different hashes are `fail`. Fewer than `quorum` agreeing sources are `unchecked`; `quorum` defaults to 1 (human decision of 2026-10-07). The archived header at a needed height is preferred, and if it does not link, that is `fail`. An online header that does not link is that source's fault (`unchecked` if no source links), where HT3 alone said fail. A cross-check mismatch is `fail` for any quorum. (5) Section 10.6.2: the `UNVERIFIED` item on `Header.Hash()` is now verified on live Mocha data. Outcomes change only in modes that did not exist before (online sources, the execution check). Offline verdicts are unchanged. | Unchanged | Every file byte-identical. |
+| `v0-draft.27` | 2026-10-07 | Execution check outcomes and the general INCONCLUSIVE rule (human decisions of 2026-10-07: the check is tri-state; execution code confirmation; header cross-check disagreement, which supersedes the earlier "a mismatch fails" decisions; archive cases follow the general rule); no wire change. (1) 20.1: the general rule. `invalid` only about the decision or action and only from verified data; any source problem, disagreements included, gives at most `unchecked`; a hostile source never causes `valid` or `invalid`. Archive cases: an absent decision, payload or evidence record, corrupt bytes (decoding, key, hashes, P1 to P3, signatures outside the commitment hash, the `da = 2` proof, Fibre CV1 to CV8 and the anchor proof), and an archived header that does not link are `unchecked` (was `fail`). The verdict for an absent decision is `unchecked` (state `unknown`). K1 is judged only against a trusted header, and replay inconsistencies are `unchecked`. The `fail` boundary is a closed list: verified archived data that proves a violation. New 20.1.1: a closed reason enum, one machine-readable reason per `unchecked`; HT3, OH6, 10.6.1, 19.2 and the HA threat note are amended. Exit codes restated (2 = INCONCLUSIVE); the output names the source. (2) New 20.2.1. Verified facts F1 to F5 and F7 (F7 = result proof), and the confirmed fact F6 (cross agreement), which supports only the interim `pass`. Rules EO1 to EO4, and the invariant with no exceptions. (3) Facts: new `outcome`; `result` is `proven`, `cross-confirmed` or `node-attested`; `sources` per source. (4) EX3: the checker classifies by 20.2.1. EX4: `fail` only under F5. EX5: the header at `height` passes trust before anything is compared, outcomes (a) to (d); a header that does not link is `unchecked`, naming the source (was `fail`); a header cross-check mismatch is `unchecked` with the reason "header disagreement with trusted chain: possible bad trusted header, hostile source, or fork". EX6: a tx cross mismatch is `unchecked` (was `fail`); a source that contradicts verified facts is reported and ignored. EX9: a failed result is `fail` only under F7; `pass` needs F7, or interim F6; never a node-attested `pass`. New EX10: alternates tried automatically, cross sources never promoted. EX threat note rewritten (fabricated height, result proof at `height + 1`). (5) OH4: waiting is MAY (was MUST). OH5, OH7 and HT6: a disagreement between header sources is `unchecked` with that reason (was `fail`). OH threat note and section 1 row updated. Outcome changes, all toward `unchecked`, apart from new `pass` paths (F7, or interim F6). In `verify` with online header sources: a checkpoint or cross-check disagreement. With `--check-execution`: a source's wrong bytes, bad proof, unverified height or code, a tx cross mismatch, a header that does not link, and a success attested by one source. Offline: every archive-side `fail` named above becomes `unchecked`, an absent decision gives `unchecked` (was `invalid`), and K1 against an untrusted header gives `unchecked` (was `fail`). Gate outcomes are unchanged. Bank-send profile `bank-send-v0-draft.6` at the same time (result proof RP1 to RP6). | Unchanged | New: `spec/vectors/verifier/execution_outcomes.json` (`v0-draft.27`): 37 outcome cases (5 pass, 23 unchecked, 9 fail), 9 inclusion-proof forms of the live Mocha tx at 1,442,606, a live result proof of that block (results, headers at H and H + 1, leaves, root, index, 9 mutations), and 4 transactions. Raw captures in `spec/vectors/verifier/live/`. New: `spec/vectors/verifier/reasons.json` (32 reasons, one case each or more: 45 cases, and 5 `fail` boundary cases), generator `gen_verifier_reasons.py`, checker `check_verifier_reasons.py`. Generator `gen_execution_outcomes.py`, checker `check_execution_outcomes.py` (an independent classifier and result-proof recompute; run by `check_vectors.py`). Every existing file byte-identical. |
 
 ## 1. Threat model in one table
 
@@ -100,8 +101,8 @@ Each mechanism below names what it defends against and what it assumes.
 | Agent-signed publish request (section 17) | A party without an allowlisted agent key spending the Recorder operator's fees; probing the allowlist; reusing an agent signature of another kind as a publish request; replaying a request at another Recorder | Agent keys are secret; each server's `gate_id` is unique (it is signed into the message). Domain separation (tag length 25, unique) keeps publish requests apart from commitment signatures. A replay at the same server inside the window is answered from the dedupe record (PR6) or finds the earlier submission (PR8), so it spends no second fee; it never creates a decision. Quotas are per `agent_id`, count requests rather than fees (PR7), and are checked before anything is submitted |
 | DA allowlist, rule C3 (section 8.3) | A gate authorizing a `da` it cannot check on its chain (for example `da = 1` where `x/fibre` is absent) | The operator configures the set; a gate that allows `da = 1` refuses to start if it cannot read Fibre parameters |
 | Byte-identical resend, amended rule I5 (section 16.1) | A transfer lost in a mempool never landing, and a "fix" that builds a second transaction and executes twice | The rail includes the same signed bytes at most once (an account sequence) and the profile bounds the window (a timeout height). The bound is in blocks, not seconds: a slower chain moves the last possible inclusion later in wall-clock time (bank-send profile, section 4) |
-| Verifier online mode: HTTP archive reads, agreed checkpoint, cross-check (section 20.3, 20.4) | An archive server or header source that withholds, alters or fabricates data in order to make `verify` print `valid` | The archive is trusted for availability only, because every record is re-checked. The checkpoint is as honest as the agreeing operators: with `quorum = 1` a single operator that colludes with the archive's writer can fake the chain (HT4 checks no signatures). The report names that operator, and one honest cross-check source turns the fake into `fail` |
-| Execution check (section 20.2 and the profile's checker) | A receipt whose `rail_ref` names no transaction, another transaction, one before the anchor, or one that failed | The trusted header. The tx source for the result code (`node-attested`) and, without a proof, for inclusion. Does not detect a second execution of the same decision |
+| Verifier online mode: HTTP archive reads, agreed checkpoint, cross-check (section 20.3, 20.4) | An archive server or header source that withholds, alters or fabricates data in order to make `verify` print `valid` | The archive is trusted for availability only, because every record is re-checked. The checkpoint is as honest as the agreeing operators: with `quorum = 1` a single operator that colludes with the archive's writer can fake the chain (HT4 checks no signatures). The report names that operator, and one honest cross-check source turns the fake into `unchecked` (`header_disagreement`). A withheld or altered archive record gives `unchecked` with a reason (20.1.1), never `invalid` |
+| Execution check (section 20.2 and the profile's checker) | A receipt whose `rail_ref` names no transaction, another transaction, one before the anchor, or one that failed | The trusted header and SHA-256: inclusion proof (F5) and result proof against `last_results_hash` (F7). In the interim also the agreement of distinct tx sources (F6), for `pass` only. A hostile source can only make the check `unchecked` (20.2.1). Does not detect a second execution of the same decision |
 
 ## 2. Notation
 
@@ -1639,7 +1640,12 @@ archived PFF tx. They mirror the keeper at the pin
 `APP/fibre/payment_promise.go`, `APP/fibre/validator/signature_set.go`;
 VERIFIED, code), so that a verifier never rejects what the chain accepted for
 a reason the chain does not have, and never accepts less. Any failure is a
-verification failure; the verifier reports the first rule that failed.
+verification failure; the verifier reports the first rule that failed. For
+`verify` and `replay`, since `v0-draft.27`, that failure makes `anchor`
+`unchecked` with reason `source_corrupt`, and never `fail`. The archived
+certificate and proofs are the archive's answer, and a failure shows that
+this copy does not prove the anchor (20.1). The gate and the Recorder still
+refuse on any failure.
 
 | Rule | Check |
 |---|---|
@@ -1829,10 +1835,10 @@ the hash chain, without signatures:
 |---|---|
 | HT1 Trusted header | The auditor supplies a trusted header file: one header at height `T` with its hash, obtained out of band. `T` MUST be at least the highest height the verifier needs (`payload_ref.height`, or `promise.height` if that is higher; since `v0-draft.22` no header at `promise.height + 1` is needed, other than as a link of the HT3 chain). A file with `T` below that is refused: forward verification from an older header is out of scope for v0. Since `v0-draft.24` CV2 rejects `promise.height > payload_ref.height`, so for any record that can verify this is `payload_ref.height`. Since `v0-draft.26` the trusted header may instead be an explicit or an agreed checkpoint (section 20.4), and with the execution check `T` MUST also be at least the execution height (EX5). |
 | HT2 Hash of the trusted header | The verifier recomputes the header hash (CometBFT `Header.Hash()`, the Merkle root of the header fields) and it MUST equal the hash in the file. |
-| HT3 Backward chain | For each `k` from `T` down to the lowest needed height, the header at `k - 1` is accepted iff its recomputed hash equals `last_block_id.hash` of the accepted header at `k`. Headers between come from the archive, a file or any online source; they need no trust, because the chain checks them. Any break: the header trust fails. Since `v0-draft.26`, OH6 (section 20.4) refines this for online sources: an online header that does not link is a fault of its source (`unchecked` if no source links), while an archived header that does not link still fails. |
+| HT3 Backward chain | For each `k` from `T` down to the lowest needed height, the header at `k - 1` is accepted iff its recomputed hash equals `last_block_id.hash` of the accepted header at `k`. Headers between come from the archive, a file or any online source; they need no trust, because the chain checks them. Any break: the header trust fails. Since `v0-draft.26`, OH6 (section 20.4) refines this for online sources: an online header that does not link is a fault of its source (`unchecked` if no source links). Since `v0-draft.27`, an archived header that does not link is `unchecked` too, with reason `chain_mismatch` (20.1). |
 | HT4 No signatures | Commit signatures are not checked in v0: the trust comes from the trusted header and SHA-256 collision resistance, not from a validator set. |
 | HT5 Archived headers | An archived header at a needed height is used only if its hash equals the one reached by HT3. |
-| HT6 Cross-check (optional) | The verifier MAY additionally read the header at `T` (or at `payload_ref.height`) from one or more configured endpoints, under the at-height rules (section 10.9: the response echoes the height), and compare hashes. A mismatch fails the header trust. An unreachable endpoint is reported as `cross-check: not done`, never as a pass. |
+| HT6 Cross-check (optional) | The verifier MAY additionally read the header at `T` (or at `payload_ref.height`) from one or more configured endpoints, under the at-height rules (section 10.9: the response echoes the height), and compare hashes. A mismatch fails the header trust (since `v0-draft.27`: `header_trust` is `unchecked` with the reason of OH7, never `fail`). An unreachable endpoint is reported as `cross-check: not done`, never as a pass. |
 | HT7 Verdict | Without a trusted header (a file, or since `v0-draft.26` a checkpoint of section 20.4), or if HT1 to HT3 fail, the verifier MUST NOT report the anchor as valid: it reports `header_trust: none` or the failed rule, and the overall verdict is not valid. The report always carries `T`, the trusted hash and the cross-check result. |
 
 Two needed heights (`da = 1`, normative since `v0-draft.24`). Let `H = payload_ref.height` and `P = promise.height`; `P <= H` (CV2), and a verifier rejects `P > H` before it walks HT3. The verifier checks the header at `H` and the header at `P` through HT3 and HT5 separately: the archived `header` is used only if its hash equals the one HT3 reached at `H`, and the archived `promise_header` only if its hash equals the one reached at `P`. If `P == H`, both archived headers MUST have that same hash. One never stands in for the other: `T_H` and `data_hash` (K1, K2, NA2, CV8) come only from the header at `H`, `next_validators_hash` (CV7) only from the header at `P`, and an implementation that keeps the needed hashes in one map keyed by height MUST NOT let one entry replace the other (keep them in two fields, each checked).
@@ -3490,7 +3496,12 @@ K2 inputs (Authorization key 5), conditions on its own `da`:
 
 Replay recomputes `r`, `start`, `margin` and K2 from these fields and the
 decision; a K2 that fails with `path = 1` in the Authorization is reported as
-an inconsistency of the gate.
+an inconsistency of the gate. Since `v0-draft.27`, every inconsistency in this
+section makes `retention_replay` `unchecked`, with reason
+`replay_inconsistent`, and never `fail`. The K2 inputs are unsigned archive
+data, so a gate error and an altered record look the same (20.1). Missing
+inputs give `replay_inputs_missing`. A form-0 value that cannot be checked
+gives `replay_unconfirmed`.
 
 For `da = 1` replay first checks `promise_created` against the archived
 evidence (normative since `v0-draft.24`). The gate's NA7 takes the earliest
@@ -3687,6 +3698,7 @@ checklist.
 | `execution` | Section 20.2. Present only when the execution check is requested. |
 
 Verdict, first match wins: `invalid` if any check is `fail`; then
+`unchecked` if the record state is `unknown` (no decision record); then
 `not_authorized` if the record state is not `authorized`; then `unchecked`
 if any check is `unchecked`, or if any of `decision`, `envelope`, `action`,
 `authorization`, `payload`, `anchor`, `anchor_time`, `header_trust` is
@@ -3694,15 +3706,114 @@ missing or not `pass`; otherwise `valid`. When the execution check is
 requested, `execution` joins that required list. A check that never ran cannot
 pass by being absent.
 
-Exit codes of the CLI: 0 `valid`, 1 `invalid`, 2 `unchecked`, 3
-`not_authorized`, 4 for usage, configuration and I/O errors, which give no
-verdict (as `edicta-verify` at main `25ff856`).
+Exit codes of the CLI: 0 `valid`, 1 `invalid`, 2 `unchecked` (the
+INCONCLUSIVE outcome of 20.2.1), 3 `not_authorized`, 4 for usage,
+configuration and I/O errors, which give no verdict (as `edicta-verify` at
+main `25ff856`). The output prints the reason of every check that is not
+`pass`. For an `unchecked` caused by a source, it names the source and
+suggests another one (EO2).
 
-A record that is absent or corrupt is part of the verdict: an absent decision
-fails `decision`; an absent or corrupt payload or evidence record fails
-`payload` or `anchor` (archive incomplete); an absent Authorization record
-leaves the state `pending`. An archive that cannot be read at all (an I/O
-fault, HA2) gives no verdict.
+General rule (human decisions of 2026-10-07, normative since `v0-draft.27`,
+no exceptions). `invalid` is issued only about the decision or the action,
+and only from verified data. Every source problem gives at most `unchecked`.
+Sources include the archive, a header or checkpoint source, a tx or results
+source, and a receipt file, and their problems include a disagreement between
+sources. A hostile source can never cause `valid` or `invalid`. The archive is
+a source: it is trusted for availability only, and it only delivers bytes.
+The boundary is this. Archived data that verifies (it hashes to the
+commitment, carries a valid signature of the party it claims, or is proven
+against a trusted header) and that itself proves a violation gives `fail`.
+The execution check states the rule in detail (20.2.1).
+
+Archive cases (human decision of 2026-10-07, "archive cases follow the
+general rule"):
+
+- A decision, payload or evidence record that is absent in every checked
+  copy is `unchecked` (`decision_unavailable`, `payload_unavailable`,
+  `evidence_unavailable`). The state of an absent decision is `unknown`, and
+  the verdict is `unchecked`, not `not_authorized`. `payload_unavailable`
+  signals a retention failure of the operator. An external accountability
+  policy can use it, and it is not a verdict on the decision.
+- Bytes that fail a check a genuine copy passes are `unchecked`
+  (`source_corrupt`, try another copy). These checks are strict decoding
+  (19.1), the key check (19.3), the action hash, P1 to P3, a signature that
+  the commitment hash does not cover (the agent's in the envelope, the
+  gate's in an Authorization or receipt), the `da = 2` commitment proof, the
+  Fibre rules CV1 to CV8 (10.6.1) and the anchor proof.
+- An archived header at a needed height that does not link to the trusted
+  chain is `unchecked` (`chain_mismatch`; HT3, HT5, OH6). So is evidence for
+  another height than `payload_ref.height` (`source_corrupt`).
+- An absent Authorization record still leaves the state `pending`
+  (`not_authorized`), and an absent marker still turns `rejected` into
+  `pending`. Neither is `valid` or `invalid`.
+- An archive that cannot be read at all (an I/O fault, HA2) gives no
+  verdict.
+
+`fail` cases, a closed list:
+
+- `envelope`: the commitment hashes to the reference and breaks stage D or
+  S, or G0 on its `agent_pubkey`. Every copy has these bytes.
+- `anchor_time`: K1 against `T_H` of a header that passed header trust.
+  Without one, `anchor_time` is `unchecked` (`blocked`), whatever the
+  untrusted header says.
+- `authorization`: an Authorization whose gate signature verifies and that
+  contradicts the decision (AR8, section 15.3).
+- `payload`: a payload whose bytes pass P1 to P3 and that a recipient opens
+  (9.4) with an O-rule failure, for example O8 (the payload's action differs
+  from the committed one).
+- `receipt`: a receipt whose gate signature verifies, that belongs to this
+  decision, and that breaks a receipt rule.
+- `execution`: EO1 (20.2.1).
+
+Every other non-`pass` outcome is `unchecked`.
+
+#### 20.1.1 Reasons
+
+Every `unchecked` check carries exactly one machine-readable `reason` from
+this enum. Every `fail` carries the rule or sentinel that failed. The text
+output prints the reason, the meaning, the source it names (EO2), and the
+advice. The enum is closed in this revision. A new reason is a revision
+change.
+
+| Reason | On checks | Meaning | Advice |
+|---|---|---|---|
+| `decision_unavailable` | `decision` | No decision record for the reference in any checked archive copy. | Another archive copy. |
+| `payload_unavailable` | `payload` | The payload record is missing in every checked copy. It signals a retention failure of the operator and can feed an external accountability policy. It is not a verdict on the decision. | Another archive copy. |
+| `evidence_unavailable` | `anchor` | The evidence record is missing in every checked copy. | Another archive copy. |
+| `source_corrupt` | `decision`, `envelope`, `action`, `authorization`, `payload`, `anchor`, `receipt` | Bytes from a source fail a check that a genuine copy passes: strict decoding, the key check, a hash or DA commitment against the commitment, a signature that the commitment hash does not cover, or an archived proof (da = 2 commitment proof, Fibre CV1 to CV8, anchor proof forms 0 and 1). | Another copy. |
+| `chain_mismatch` | `header_trust`, `anchor` | An archived header at a needed height does not link to the trusted chain (HT3, HT5, OH6), or the archived evidence names another height than the decision. | Another archive copy, or check the trusted header. |
+| `da_unsupported` | `anchor` | The verifier has no anchor verifier for payload_ref.da. | A verifier build that supports this da. |
+| `no_trusted_header` | `header_trust` | No trusted header file, explicit checkpoint or checkpoint source was given. | Supply a trusted header. |
+| `header_above_checkpoint` | `header_trust`, `execution` | The checkpoint height T is below a needed height (OH4, EX5 (a)). | Retry later or with a newer checkpoint. |
+| `header_not_linking` | `header_trust`, `execution` | An online header at a needed height does not link to the trusted chain, and no source gives one that does (OH6, EX5 (b)). | Another header source. |
+| `header_source_unavailable` | `header_trust` | No header or checkpoint source answered. | Another header source. |
+| `checkpoint_quorum` | `header_trust` | Fewer than quorum distinct sources agree on the checkpoint (OH5). | More checkpoint sources. |
+| `header_disagreement` | `header_trust`, `execution` | header disagreement with trusted chain: possible bad trusted header, hostile source, or fork (OH5, OH7, HT6, EX5 (d)). | Check the trusted header against an independent source. |
+| `blocked` | `anchor_time`, `header_trust`, `execution`, `retention_replay` | The check needs another check that did not pass; the report names that check. | Fix the named check. |
+| `receipt_mismatch` | `receipt` | A receipt that verifies but is not this decision's: another commitment_hash or gate_id, or a gate key that is not on record for gate_id. | The receipt of this decision. |
+| `replay_inputs_missing` | `retention_replay` | The Authorization record carries no K2 inputs (repaired from the registry). | Another archive copy. |
+| `replay_unconfirmed` | `retention_replay` | promise_created is earlier than the archived anchor's and the anchor proof is form 0, which shows no other candidate (19.2). | An archive copy with a form-1 anchor proof. |
+| `replay_inconsistent` | `retention_replay` | K2 recomputed from the recorded inputs disagrees with the Authorization's path, or promise_created matches no candidate. The K2 inputs are unsigned archive data, so a gate error and an altered record look the same. | Another archive copy. |
+| `timeout` | `any` | The run deadline cut the check short. | Retry with a longer --timeout. |
+| `no_checker` | `execution` | No execution checker for action.type. | A verifier with the profile. |
+| `chain_config` | `execution` | BX0: the checker is configured for another chain. | Configure the action's chain. |
+| `tx_not_found` | `execution` | BX1: no tx source knows the transaction. | Another tx source. |
+| `tx_source_unavailable` | `execution` | BX1: the tx sources failed. | Another tx source. |
+| `tx_hash_mismatch` | `execution` | BX2: the served bytes do not hash to rail_ref. | Another tx source. |
+| `tx_proof_invalid` | `execution` | BX6: the inclusion proof does not verify. | Another tx source. |
+| `result_unproven` | `execution` | The result code is attested by one source: no result proof and no cross confirmation (EX9). | A source that serves block_results, or a cross tx source. |
+| `results_root_mismatch` | `execution` | RP4: the results do not hash to last_results_hash. | Another results source. |
+| `result_index_unbound` | `execution` | RP5: nothing binds the tx's index in the results. | A cross tx source. |
+| `result_header_unreachable` | `execution` | RP4: the header at height + 1 is not trusted. | Retry later or with a newer checkpoint. |
+| `code_unproven` | `execution` | A nonzero code that no result proof verifies (EX9). | A source that serves block_results. |
+| `height_unproven` | `execution` | A height at or below the anchor without a proof (EX4). | A tx source that serves inclusion proofs. |
+| `cross_disagree` | `execution` | Tx sources disagree and nothing verifies either (EX6). | Another tx source. |
+| `chain_unbound` | `execution` | BX4: another chain id without proven inclusion. | A tx source that serves inclusion proofs. |
+
+Vectors: `spec/vectors/verifier/reasons.json` holds the enum and one case
+per reason, as overrides of a valid, authorized decision with references to
+concrete bytes where a vector has them. It also lists the `fail` boundary
+cases. The execution reasons point at `execution_outcomes.json`.
 
 ### 20.2 Execution check (core, rail-agnostic)
 
@@ -3717,38 +3828,114 @@ from the decision record (the bytes stage A matched, never re-encoded), and
 
 | Fact | Meaning |
 |---|---|
-| `height` | The block that holds the rail transaction. |
-| `header_hash` | The hash of the header at `height` against which the checker verified inclusion, or that it read the tx with. |
-| `inclusion` | `proven` (an inclusion proof verified against that header's data root) or `node-attested` (the tx source said so). |
-| `result` | `node-attested` in v0: the rail's success code is only what the tx source reported (see the threat note). |
+| `height` | The block that holds the rail transaction, as the source that served it reports it. |
+| `header_hash` | The hash of the header at `height` that the checker used. It is a header that passed header trust (EX5). |
+| `inclusion` | `proven` (an inclusion proof of the transaction bytes verified against that header's data root) or `node-attested` (the tx source said so). |
+| `outcome` | `success` or `failure`: the rail's result as the tx source reported it. New in `v0-draft.27`. |
+| `result` | What binds `outcome`: `proven` (a result proof against the trusted chain, F7), `cross-confirmed` (F6, interim) or `node-attested` (one source said so). |
 | `cross_check` | `pass`, `mismatch`, `unavailable` or `off` (EX6). |
-| `sources` | The names of the tx sources used. |
+| `sources` | Every tx source asked, with its role and result (EX10). |
+
+#### 20.2.1 Outcome rule (normative since `v0-draft.27`)
+
+Human decisions of 2026-10-07: the execution check is tri-state, and a
+general rule holds for the whole verifier (20.1). `pass` leads to the
+verdict `valid` (if every other check passes), `fail` to `invalid`, and
+`unchecked` to `unchecked`. `unchecked` is the INCONCLUSIVE outcome of those
+decisions, exit code 2. Report and JSON names do not change, and a text
+output MAY print `INCONCLUSIVE` for it.
+
+A fact is *verified* when it holds no matter which source supplied it:
+
+- F1: the action bytes, bound by `action.hash` (stage A);
+- F2: `rail_ref`, bound by the gate's signature over the receipt (section 14);
+- F3: transaction bytes whose SHA-256 equals `rail_ref`. F2 and SHA-256 fix
+  them, so every source that serves them serves the same bytes;
+- F4: a header that passed header trust (section 10.6.2 with 20.4), and with
+  it the chain id of the trusted chain;
+- F5: a fact that a verified inclusion proof binds to F4. With
+  `inclusion = proven`, the F3 bytes are in block `height` of the trusted
+  chain, which also binds `height`;
+- F7: a result that a verified result proof binds to F4 (`result = proven`;
+  the bank-send rules are RP1 to RP6 of its section 3.4). It needs F5.
+
+One more fact is *confirmed* but not verified:
+
+- F6: `cross_check = pass` (EX6). The used source and every configured cross
+  source agree on `height`, the bytes and the result. Agreement between
+  sources is not verified data. F6 never supports a `fail`. It supports a
+  `pass` only as the interim rule of EX9.
+
+| Rule | Requirement |
+|---|---|
+| EO1 Fail | `fail` only for a violation of the decision or action proven from verified facts (F1 to F5, F7). The core's cases are EX4 under F5 and EX9 under F7. The profile lists its own cases (bank-send: a malformed `rail_ref`, a malformed `TxRaw` or the wrong body in F3 bytes, and a chain id other than the action's under F5). |
+| EO2 Unchecked | Every source problem is `unchecked`, never `fail`. That covers a tx source that does not know the transaction or fails, bytes that do not hash to `rail_ref`, a proof that does not verify, a header at `height` that does not link or that `T` does not reach, results that do not recompute to `last_results_hash`, a height or result that is not verified, and sources that disagree with each other, including header sources (EX5 (d)). Such a finding shows a bad source, not a bad execution. The reason MUST name the source (its normalized host, OH3) and the rule. It SHOULD suggest retrying with another source. The verifier tries configured alternates on its own (EX10). |
+| EO3 Pass | `pass` only if every fact the check relies on is verified: the bytes (F3), the action they carry (F1 and the profile's body rule), the chain (F4), `height` (F5) and `outcome = success` (F7). The one exception is the interim rule of EX9: `height` and the result MAY instead be confirmed (F6). A result that one source attests (`node-attested`) never gives `pass`. |
+| EO4 Precedence | A proven violation wins. If any `fail` finding holds, the check is `fail` with the first one in rule order, even if another fact is unverified. Otherwise any unverified fact makes it `unchecked`. Otherwise it is `pass`. A source that contradicts a verified fact is reported, and it does not change the outcome. |
+
+Invariant, with no exceptions. A hostile source can never cause `valid` or
+`invalid`, and at most causes `unchecked`. This holds for every tx source
+(primary, alternate, cross), every results source, every header source
+(headers walk, checkpoint, cross-check), and every disagreement between
+them. Why, for this check: a `fail` rests only on F1 to F5 and F7, which no
+source can change, because they need a gate signature, SHA-256 or a
+verified proof against the trusted header. A `pass` rests on the same facts,
+or on F6 in the interim. Limits:
+
+- The trust root of 20.4 is trusted by definition: the header file, the
+  explicit checkpoint, or the agreed checkpoint sources up to `quorum`. With
+  `quorum = 1` that root is one operator (threat note OH). A dishonest root
+  is outside every rule here.
+- Under the interim F6 rule, two colluding sources can cause `valid`. They
+  can never cause `invalid`. Distinct hosts and node ids (OH3) are not
+  distinct operators.
+
+Vectors: `spec/vectors/verifier/execution_outcomes.json` gives one case per
+cause of `unchecked` and of `fail`, the passing cases, and the live result
+proof of the bank-send checker (section 3.4 of the profile). The `cause` of
+an `unchecked` case there is its reason in the enum of 20.1.1.
 
 | Rule | Requirement |
 |---|---|
 | EX1 Request | The check runs only when requested. When requested, `execution` is a required check (20.1). |
 | EX2 Preconditions | It runs only if `receipt` passed, the record state is `authorized` (AR8: no receipt is evidence for any other state), and no other check is `fail`. Otherwise `execution` is `unchecked`, with the reason. A missing receipt is `unchecked`, never `pass`. |
-| EX3 Checker | No checker for `action.type`: `unchecked`. A checker error is `fail` when it shows a contradiction (the tx bytes do not hash to `rail_ref`, the tx is not the authorized action, it failed on the rail, a proof does not verify, the sources disagree) and `unchecked` when the checker could not establish facts (tx not found, source unavailable). The profile classifies each of its errors. |
-| EX4 After the anchor | `height > payload_ref.height`, strictly. Otherwise `fail`. Why: a v0 gate signs an Authorization only after the anchor is in block `payload_ref.height` (strict mode, section 8.7), and the executor acts only on an Authorization. An honest execution therefore lands in a later block. A tx at or below the anchor height was made before the decision was public. |
-| EX5 Header | The header at `height` MUST pass header trust (section 10.6.2 with 20.4) with the same trusted header as the anchor. So `T >= height`, and `header_hash` MUST equal the hash HT3 reached at `height`. If no trusted header reaches `height` (for example `T < height`): `unchecked`. A different hash: `fail`. |
-| EX6 Cross-check | A `mismatch` from the checker's cross sources is `fail`. `unavailable` and `off` never count as `pass` and are reported as they are. |
-| EX7 Proven | The report sets `proven_execution` only if `inclusion = proven` and EX5 passed. It says the transaction bytes are in block `height` of the trusted chain. It does not say that the rail executed them successfully (`result` stays `node-attested`). |
-| EX8 Late | If the block time of `height` is after the Authorization's `expires`, the report carries the warning `execution_after_expires`. The verdict does not change: a rail can include a transaction signed while the Authorization was valid after it expired (bank-send profile 4.3, threat note on a halt). |
+| EX3 Checker | No checker for `action.type`: `unchecked`. The checker classifies each finding by 20.2.1. It returns facts, a `fail` error, or an `unchecked` error that names the source. The profile lists the class of each of its errors. A checker that cannot tell whether a finding is bound MUST return `unchecked`. |
+| EX4 After the anchor | `height > payload_ref.height`, strictly. If the height is at or below the anchor height: `fail` when the height is verified (`inclusion = proven`, F5), otherwise `unchecked`, because the height is then only the claim of one or more sources. Why `fail`: a v0 gate signs an Authorization only after the anchor is in block `payload_ref.height` (strict mode, section 8.7), and the executor acts only on an Authorization. An honest execution therefore lands in a later block. A transaction at or below the anchor height was made before the decision was public. |
+| EX5 Header | The header at `height` MUST pass header trust (section 10.6.2 with 20.4) under the same trusted header as the anchor before the checker compares anything with it (the chain id, the data root). So `T >= height`, and `header_hash` equals the hash HT3 reached at `height`. Outcomes: (a) `T < height`, after the optional wait of OH4: `unchecked`. (b) A header at `height` that an online source serves and that does not link is that source's fault (OH6): `unchecked`, naming the source. The checker never gets such a header (EX10 sets the candidate aside). (c) A `header_hash` from the checker that differs from the hash HT3 reached: `unchecked`, because the checker read a header that is not on the trusted chain. (d) A cross-check mismatch at `height` (OH7) is a disagreement between sources. Nothing tells whether the trusted header, the cross source or a fork is at fault, and none of them says anything about the decision. `header_trust` and `execution` are `unchecked` with the distinct reason "header disagreement with trusted chain: possible bad trusted header, hostile source, or fork", and the verdict is `unchecked` (exit 2). It is never `fail`. |
+| EX6 Cross-check | The checker reports each cross source as `agree`, `disagree` or `fault` (the profile defines them). The aggregate `cross_check` is `off` if none is configured, `mismatch` if any disagrees, `unavailable` if none disagrees and any is at fault, and `pass` if all agree, which needs at least one. `mismatch` is `unchecked` (since `v0-draft.27`; it was `fail` before): the answers contradict each other, one side lies, and nothing tells which. It names the disagreeing sources. The exception: when `height` and the result are verified (F5 and F7), a disagreeing cross source contradicts verified facts. It is reported, and the outcome does not change (EO4). `unavailable` and `off` never count as `pass`. |
+| EX7 Proven | The report sets `proven_execution` only if `inclusion = proven` and EX5 passed. It says that the transaction bytes are in block `height` of the trusted chain. It says nothing about the result, whose binding is reported in `result` and `cross_check`. |
+| EX8 Late | If the block time of `height` is after the Authorization's `expires`, the report carries the warning `execution_after_expires`. The verdict does not change: a rail can include a transaction after the Authorization expired, if it was signed while the Authorization was valid (bank-send profile 4.3, threat note on a halt). |
+| EX9 Result | `outcome = failure`: `fail` if the result is verified (`result = proven`, F7), otherwise `unchecked`. `outcome = success`: `pass` needs `result = proven`. Interim rule (human decision of 2026-10-07; to be removed when the reference verifier implements the result proof): `result = cross-confirmed` (F6) also allows `pass`. Without either, `unchecked`, with the reason "result code attested by one source" and the hint to configure a source that serves `block_results`, or a cross tx source. A profile defines its result proof (bank-send: RP1 to RP6, from `last_results_hash` of the trusted header at `height + 1`). |
+| EX10 Sources and alternates | A checker reads its tx sources in configuration order: the primary, then the configured alternates. If a candidate's answer fails for an EO2 reason that rests on that answer (the transaction is not found, the source is unavailable, the bytes do not hash to `rail_ref`, a proof does not verify, the header at its `height` does not reach the trusted chain), the verifier MUST set the candidate aside, record why, and try the next alternate. The first usable answer is used. If an answer's bytes hash to `rail_ref` but fail the profile's byte rules, that is `fail` (EO1), and the check stops. Every source would serve the same bytes (F3). Cross sources only confirm. They are never promoted to primary, because their independence is counted against the used source. If no candidate is usable, the check is `unchecked`. It names every candidate with its reason, and the reported cause is the last candidate's. Tx sources are distinct by OH3 among themselves and from the headers source. The report lists every source asked: name, role (`primary`, `alternate`, `cross`), result (`used`, `set_aside`, `agree`, `disagree`, `fault`) and reason. |
 
-The report carries `execution` with the facts above, the `rail_ref` and the
-block time of `height`. Errors of this check are verifier or profile package
-errors. They are not section 12 sentinels and never cross the gate API.
+The report carries `execution` with the facts above, the `rail_ref`, the
+block time of `height` and, for `unchecked`, the named sources. Errors of
+this check are verifier or profile package errors. They are not section 12
+sentinels, and they never cross the gate API.
 
 Threat note (EX). The receipt is the executor's claim, notarized by the
 gate (section 14). EX turns it into a statement about the chain: the claimed
-transaction exists, is the authorized action, and came after the anchor.
-- Who is trusted. The trusted header (20.4) and SHA-256 when `inclusion` is
-  `proven`. The tx source for the result code always, and for inclusion when
-  `node-attested`.
-- A lying tx source can make a valid execution look failed (`fail` by EX3),
-  or fabricate success for a transaction that was signed but never included
-  (`node-attested` only). The report names the source, and cross sources
-  (EX6) narrow both.
+transaction exists, is the authorized action, came after the anchor and
+succeeded.
+- What is trusted: the trust root of 20.4 and SHA-256. Under the interim
+  rule of EX9, also the independence of the agreeing sources. No tx source
+  or results source is trusted for anything that changes the outcome.
+- A lying tx or results source can make the check `unchecked`, and nothing
+  more. It can claim not to know the transaction, serve other bytes, send a
+  bad proof, serve wrong results, or claim a false height or code. In
+  `v0-draft.26` such a source could make a valid execution `invalid`, and
+  could make a transaction that was never included, or that failed, pass on
+  its word alone. Both are closed.
+- Fabricated height. Without a proof, `height`, and with it the ordering
+  after the anchor (EX4), is only the source's claim. A source can put a
+  transaction that landed before the anchor into a later block, or a later
+  one at or below the anchor. Since `v0-draft.27` the ordering counts for
+  `fail` only under F5. For the interim `pass` it also counts under F6, and
+  the report then says `inclusion: node-attested`. Under `v0-draft.26` one
+  source's height was accepted, with only a warning.
+- The result proof (F7) needs the header at `height + 1` from the trusted
+  chain, so a transaction in the newest block can be checked only once the
+  next block exists and `T` reaches it.
 - Not covered: a second execution of the same decision. EX checks the one
   transaction the receipt names. An executor that signs a second transaction
   with the same body (another `timeout_height` or fee) is not detected here.
@@ -3774,12 +3961,13 @@ tree conforms, if it meets HA2.
 
 Threat note (HA). The archive is trusted for availability only, and HTTP adds
 no trust. A server can withhold a record (a `404`): a hidden decision,
-payload or evidence record fails its check (20.1), a hidden Authorization
+payload or evidence record makes its check `unchecked` (20.1, reasons
+`decision_unavailable`, `payload_unavailable`, `evidence_unavailable`), a hidden Authorization
 gives `not_authorized`, and a hidden marker turns `rejected` into `pending`. A
 server that answers with faults gives no verdict. None of these gives
 `valid`. A server can
 serve altered bytes: strict decoding, the key check, P1 to P3 and the
-signatures turn that into `fail` or corrupt. TLS keeps an on-path party from
+signatures turn that into `unchecked` with reason `source_corrupt`, unless the bytes verify and prove a violation themselves (20.1). TLS keeps an on-path party from
 withholding or reading records. Integrity does not depend on it. Privacy: the
 decision record holds the action bytes in clear, and the archive's operator
 decides who may read them. The demo binds its server to `127.0.0.1`.
@@ -3806,10 +3994,10 @@ The report names the mode (`file`, `explicit`, `agreed`).
 | OH1 Source | An online header source is a CometBFT RPC base URL. Reads: `/status` (latest height, `node_info.id`, network), `/header?height=h`, and optionally `/blockchain?minHeight=a&maxHeight=b` (at most 20 headers per call). The verifier builds the protobuf `Header` from the JSON and recomputes its hash (HT2). It never uses a hash the source reports. |
 | OH2 At-height | Each header read is a block read (section 10.9): `header.height` MUST equal the requested height (AH1). The chain id of every header MUST equal that of the trusted header, and the configured chain id if one is configured. A header that fails this is a fault of that source. |
 | OH3 Distinct sources | Checkpoint sources count once per normalized host (scheme and port ignored, lower case, one trailing dot dropped) and once per `/status` `node_info.id`: two host names that report the same node id count as one source. A source the verifier knows to be the gate's or the Recorder's own endpoint MUST NOT be counted. |
-| OH4 Checkpoint height | `T` = the minimum of the latest heights reported by the sources that answered `/status`. If `T` is below the highest needed height, the verifier waits for the chain and retries, within its timeout. If time runs out, `header_trust` is `unchecked`. |
-| OH5 Agreement | The verifier reads the header at `T` from every source and recomputes each hash. If two answering sources give different hashes, `header_trust` is `fail` (the sources contradict each other about the chain). If fewer than `quorum` distinct sources (OH3) answer with the agreed hash, `header_trust` is `unchecked`, never `pass`. `quorum` is configuration, at least 1. The default is 1 (human decision of 2026-10-07: one RPC operator is enough for the green line, and the report names it). |
-| OH6 Chain links | Headers between `T` and the lowest needed height come from the configured header source, behind a preference for the archived headers. At a needed height (`payload_ref.height`, and for `da = 1` `promise.height`) the archived header is offered first. It is accepted only if it links (HT3, HT5). If it does not link, `header_trust` is `fail`: the archive presents a header that the trusted chain does not have. An online header that does not link is a fault of its source. The verifier MAY ask another configured source for that height. If no source gives a linking header, `header_trust` is `unchecked` and names the source. |
-| OH7 Cross-check | Cross-check sources (HT6) read the header at `T` and at every needed height and compare recomputed hashes with the trusted chain. Any mismatch is `fail`. This holds with any `quorum` (human decision of 2026-10-07). An unreachable source is `unavailable`, never `pass`. Cross-check sources follow OH3 among themselves and against the checkpoint sources. A host that already counted for the checkpoint is not a cross-check. |
+| OH4 Checkpoint height | `T` = the minimum of the latest heights reported by the sources that answered `/status`. If `T` is below the highest needed height, the verifier MAY wait for the chain and retry within its timeout (MUST before `v0-draft.27`; relaxed because not waiting is fail-safe). If it does not wait, or if time runs out, the check that needs the height is `unchecked`. For `payload_ref.height` or `promise.height` that check is `header_trust`. For the execution `height` it is `execution` (EX5 (a)), and `header_trust` is not affected. |
+| OH5 Agreement | The verifier reads the header at `T` from every source and recomputes each hash. If two answering sources give different hashes, `header_trust` is `unchecked` with the reason "header disagreement with trusted chain: possible bad trusted header, hostile source, or fork" (`fail` before `v0-draft.27`). A disagreement between sources is a source problem, not a finding about the decision (20.1). If fewer than `quorum` distinct sources (OH3) answer with the agreed hash, `header_trust` is `unchecked`, never `pass`. `quorum` is configuration, at least 1. The default is 1 (human decision of 2026-10-07: one RPC operator is enough for the green line, and the report names it). |
+| OH6 Chain links | Headers between `T` and the lowest needed height come from the configured header source, behind a preference for the archived headers. At a needed height (`payload_ref.height`, and for `da = 1` `promise.height`) the archived header is offered first. It is accepted only if it links (HT3, HT5). If it does not link, `header_trust` is `unchecked` with reason `chain_mismatch` (`fail` before `v0-draft.27`): the archive presents a header that the trusted chain does not have, which is a problem of the archive copy, not a finding about the decision. An online header that does not link is a fault of its source. The verifier MAY ask another configured source for that height. If no source gives a linking header, `header_trust` is `unchecked` and names the source. |
+| OH7 Cross-check | Cross-check sources (HT6) read the header at `T` and at every needed height, the execution `height` included, and compare recomputed hashes with the trusted chain. A mismatch makes `header_trust` `unchecked` with the distinct reason "header disagreement with trusted chain: possible bad trusted header, hostile source, or fork", whatever the `quorum` (human decision of 2026-10-07, which supersedes the earlier "a mismatch fails" decisions; before `v0-draft.27` it was `fail`). The verifier cannot tell whether the trusted header, the cross source or a fork is at fault, and none of them proves anything about the decision. At the execution `height`, `execution` is `unchecked` too (EX5 (d)). An unreachable source is `unavailable`, never `pass`. Cross-check sources follow OH3 among themselves and against the checkpoint sources. A host that already counted for the checkpoint is not a cross-check. |
 | OH8 Report | `header_trust` reports the mode, `T`, the trusted hash, the agreeing sources by normalized host, their number and the quorum, the cross-check result per source, and the source of every needed header (`archive` or the online source's host). |
 
 Threat note (OH). With an agreed checkpoint the trust moves from the auditor's
@@ -3820,7 +4008,8 @@ fabricated `T` down to a header that matches a forged archive. With
 writer is enough to print `valid`. Mitigations:
 - the report names the operator;
 - `quorum` above 1;
-- cross-check sources: one honest source among them turns the lie into `fail`;
+- cross-check sources: one honest source among them turns the lie into
+  `unchecked` with the header-disagreement reason (`fail` before `v0-draft.27`);
 - an explicit checkpoint from an independent kind of source, such as an
   explorer's indexer;
 - excluding the gate's own endpoints (OH3).
@@ -3832,5 +4021,9 @@ A light client that verifies validator signatures forward from an older
 trusted header removes this assumption and is planned after v0. OH6 keeps one
 lying source from turning a valid decision into `invalid`: a header that does
 not link is that source's fault, unlike an archived header, which is evidence.
-OH5 and OH7 do turn a contradiction between sources into `fail`, because the
-verifier cannot tell which side is honest and a contradiction must never pass.
+Since `v0-draft.27`, OH5 and OH7 turn a contradiction between sources into
+`unchecked`, with a reason that stands out in the report. A contradiction
+must never pass, and it is never `invalid` either: the verifier cannot tell
+which side is honest, and a fork or a bad trusted header looks the same. A
+hostile cross-check source can therefore hold back `valid`, and it can never
+cause `invalid`.

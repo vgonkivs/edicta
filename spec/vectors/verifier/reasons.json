@@ -1,0 +1,1169 @@
+{
+  "format": "edicta-vectors/v0",
+  "revision": "v0-draft.27",
+  "generator": "spec/vectors/check/gen_verifier_reasons.py",
+  "description": "Reason enum of core 20.1.1 and one case per reason. Each case starts from a valid, authorized decision with a trusted header and changes what setup says; refs give concrete bytes where a vector has them. expect gives the check that carries the reason, its status, the record state and the verdict with its exit code. boundary lists verified data that proves a violation and stays fail.",
+  "reasons": [
+    {
+      "name": "decision_unavailable",
+      "group": "archive",
+      "checks": [
+        "decision"
+      ],
+      "meaning": "No decision record for the reference in any checked archive copy.",
+      "advice": "another archive copy"
+    },
+    {
+      "name": "payload_unavailable",
+      "group": "archive",
+      "checks": [
+        "payload"
+      ],
+      "meaning": "The payload record is missing in every checked copy. It signals a retention failure of the operator and can feed an external accountability policy. It is not a verdict on the decision.",
+      "advice": "another archive copy"
+    },
+    {
+      "name": "evidence_unavailable",
+      "group": "archive",
+      "checks": [
+        "anchor"
+      ],
+      "meaning": "The evidence record is missing in every checked copy.",
+      "advice": "another archive copy"
+    },
+    {
+      "name": "source_corrupt",
+      "group": "archive",
+      "checks": [
+        "decision",
+        "envelope",
+        "action",
+        "authorization",
+        "payload",
+        "anchor",
+        "receipt"
+      ],
+      "meaning": "Bytes from a source fail a check that a genuine copy passes: strict decoding, the key check, a hash or DA commitment against the commitment, a signature that the commitment hash does not cover, or an archived proof (da = 2 commitment proof, Fibre CV1 to CV8, anchor proof forms 0 and 1).",
+      "advice": "another copy"
+    },
+    {
+      "name": "chain_mismatch",
+      "group": "archive",
+      "checks": [
+        "header_trust",
+        "anchor"
+      ],
+      "meaning": "An archived header at a needed height does not link to the trusted chain (HT3, HT5, OH6), or the archived evidence names another height than the decision.",
+      "advice": "another archive copy, or check the trusted header"
+    },
+    {
+      "name": "da_unsupported",
+      "group": "configuration",
+      "checks": [
+        "anchor"
+      ],
+      "meaning": "The verifier has no anchor verifier for payload_ref.da.",
+      "advice": "a verifier build that supports this da"
+    },
+    {
+      "name": "no_trusted_header",
+      "group": "header",
+      "checks": [
+        "header_trust"
+      ],
+      "meaning": "No trusted header file, explicit checkpoint or checkpoint source was given.",
+      "advice": "supply a trusted header"
+    },
+    {
+      "name": "header_above_checkpoint",
+      "group": "header",
+      "checks": [
+        "header_trust",
+        "execution"
+      ],
+      "meaning": "The checkpoint height T is below a needed height (OH4, EX5 (a)).",
+      "advice": "retry later or with a newer checkpoint"
+    },
+    {
+      "name": "header_not_linking",
+      "group": "header",
+      "checks": [
+        "header_trust",
+        "execution"
+      ],
+      "meaning": "An online header at a needed height does not link to the trusted chain, and no source gives one that does (OH6, EX5 (b)).",
+      "advice": "another header source"
+    },
+    {
+      "name": "header_source_unavailable",
+      "group": "header",
+      "checks": [
+        "header_trust"
+      ],
+      "meaning": "No header or checkpoint source answered.",
+      "advice": "another header source"
+    },
+    {
+      "name": "checkpoint_quorum",
+      "group": "header",
+      "checks": [
+        "header_trust"
+      ],
+      "meaning": "Fewer than quorum distinct sources agree on the checkpoint (OH5).",
+      "advice": "more checkpoint sources"
+    },
+    {
+      "name": "header_disagreement",
+      "group": "header",
+      "checks": [
+        "header_trust",
+        "execution"
+      ],
+      "meaning": "header disagreement with trusted chain: possible bad trusted header, hostile source, or fork (OH5, OH7, HT6, EX5 (d)).",
+      "advice": "check the trusted header against an independent source"
+    },
+    {
+      "name": "blocked",
+      "group": "dependency",
+      "checks": [
+        "anchor_time",
+        "header_trust",
+        "execution",
+        "retention_replay"
+      ],
+      "meaning": "The check needs another check that did not pass; the report names that check.",
+      "advice": "fix the named check"
+    },
+    {
+      "name": "receipt_mismatch",
+      "group": "input",
+      "checks": [
+        "receipt"
+      ],
+      "meaning": "A receipt that verifies but is not this decision's: another commitment_hash or gate_id, or a gate key that is not on record for gate_id.",
+      "advice": "the receipt of this decision"
+    },
+    {
+      "name": "replay_inputs_missing",
+      "group": "archive",
+      "checks": [
+        "retention_replay"
+      ],
+      "meaning": "The Authorization record carries no K2 inputs (repaired from the registry).",
+      "advice": "another archive copy"
+    },
+    {
+      "name": "replay_unconfirmed",
+      "group": "archive",
+      "checks": [
+        "retention_replay"
+      ],
+      "meaning": "promise_created is earlier than the archived anchor's and the anchor proof is form 0, which shows no other candidate (19.2).",
+      "advice": "an archive copy with a form-1 anchor proof"
+    },
+    {
+      "name": "replay_inconsistent",
+      "group": "archive",
+      "checks": [
+        "retention_replay"
+      ],
+      "meaning": "K2 recomputed from the recorded inputs disagrees with the Authorization's path, or promise_created matches no candidate. The K2 inputs are unsigned archive data, so a gate error and an altered record look the same.",
+      "advice": "another archive copy"
+    },
+    {
+      "name": "timeout",
+      "group": "run",
+      "checks": [
+        "any"
+      ],
+      "meaning": "The run deadline cut the check short.",
+      "advice": "retry with a longer --timeout"
+    },
+    {
+      "name": "no_checker",
+      "group": "execution",
+      "checks": [
+        "execution"
+      ],
+      "meaning": "No execution checker for action.type.",
+      "advice": "a verifier with the profile"
+    },
+    {
+      "name": "chain_config",
+      "group": "execution",
+      "checks": [
+        "execution"
+      ],
+      "meaning": "BX0: the checker is configured for another chain.",
+      "advice": "configure the action's chain"
+    },
+    {
+      "name": "tx_not_found",
+      "group": "execution",
+      "checks": [
+        "execution"
+      ],
+      "meaning": "BX1: no tx source knows the transaction.",
+      "advice": "another tx source"
+    },
+    {
+      "name": "tx_source_unavailable",
+      "group": "execution",
+      "checks": [
+        "execution"
+      ],
+      "meaning": "BX1: the tx sources failed.",
+      "advice": "another tx source"
+    },
+    {
+      "name": "tx_hash_mismatch",
+      "group": "execution",
+      "checks": [
+        "execution"
+      ],
+      "meaning": "BX2: the served bytes do not hash to rail_ref.",
+      "advice": "another tx source"
+    },
+    {
+      "name": "tx_proof_invalid",
+      "group": "execution",
+      "checks": [
+        "execution"
+      ],
+      "meaning": "BX6: the inclusion proof does not verify.",
+      "advice": "another tx source"
+    },
+    {
+      "name": "result_unproven",
+      "group": "execution",
+      "checks": [
+        "execution"
+      ],
+      "meaning": "The result code is attested by one source: no result proof and no cross confirmation (EX9).",
+      "advice": "a source that serves block_results, or a cross tx source"
+    },
+    {
+      "name": "results_root_mismatch",
+      "group": "execution",
+      "checks": [
+        "execution"
+      ],
+      "meaning": "RP4: the results do not hash to last_results_hash.",
+      "advice": "another results source"
+    },
+    {
+      "name": "result_index_unbound",
+      "group": "execution",
+      "checks": [
+        "execution"
+      ],
+      "meaning": "RP5: nothing binds the tx's index in the results.",
+      "advice": "a cross tx source"
+    },
+    {
+      "name": "result_header_unreachable",
+      "group": "execution",
+      "checks": [
+        "execution"
+      ],
+      "meaning": "RP4: the header at height + 1 is not trusted.",
+      "advice": "retry later or with a newer checkpoint"
+    },
+    {
+      "name": "code_unproven",
+      "group": "execution",
+      "checks": [
+        "execution"
+      ],
+      "meaning": "A nonzero code that no result proof verifies (EX9).",
+      "advice": "a source that serves block_results"
+    },
+    {
+      "name": "height_unproven",
+      "group": "execution",
+      "checks": [
+        "execution"
+      ],
+      "meaning": "A height at or below the anchor without a proof (EX4).",
+      "advice": "a tx source that serves inclusion proofs"
+    },
+    {
+      "name": "cross_disagree",
+      "group": "execution",
+      "checks": [
+        "execution"
+      ],
+      "meaning": "Tx sources disagree and nothing verifies either (EX6).",
+      "advice": "another tx source"
+    },
+    {
+      "name": "chain_unbound",
+      "group": "execution",
+      "checks": [
+        "execution"
+      ],
+      "meaning": "BX4: another chain id without proven inclusion.",
+      "advice": "a tx source that serves inclusion proofs"
+    }
+  ],
+  "cases": [
+    {
+      "id": "decision_absent",
+      "description": "No decision record under the reference. The record state is unknown, so the verdict is unchecked, not not_authorized.",
+      "setup": {
+        "decision": "absent"
+      },
+      "refs": [],
+      "expect": {
+        "check": "decision",
+        "status": "unchecked",
+        "reason": "decision_unavailable",
+        "record_state": "unknown",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "payload_absent",
+      "description": "The payload record is missing in the only archive copy.",
+      "setup": {
+        "payload": "absent"
+      },
+      "refs": [],
+      "expect": {
+        "check": "payload",
+        "status": "unchecked",
+        "reason": "payload_unavailable",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "evidence_absent",
+      "description": "The evidence record is missing.",
+      "setup": {
+        "evidence": "absent"
+      },
+      "refs": [],
+      "expect": {
+        "check": "anchor",
+        "status": "unchecked",
+        "reason": "evidence_unavailable",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "payload_wrong_commitment",
+      "description": "The payload record decodes, but its blob does not recompute to payload_ref.commitment (P3).",
+      "setup": {
+        "payload": "record:payload_da2_wrong_commitment"
+      },
+      "refs": [
+        "archive/records.json#payload_da2_wrong_commitment"
+      ],
+      "expect": {
+        "check": "payload",
+        "status": "unchecked",
+        "reason": "source_corrupt",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "payload_record_undecodable",
+      "description": "The payload record fails strict decoding.",
+      "setup": {
+        "payload": "reject:payload_unknown_key"
+      },
+      "refs": [
+        "archive/records.json#payload_unknown_key"
+      ],
+      "expect": {
+        "check": "payload",
+        "status": "unchecked",
+        "reason": "source_corrupt",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "action_bytes_altered",
+      "description": "The archived action bytes do not hash to action.hash.",
+      "setup": {
+        "action_bytes": "one byte flipped"
+      },
+      "refs": [],
+      "expect": {
+        "check": "action",
+        "status": "unchecked",
+        "reason": "source_corrupt",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "agent_signature_altered",
+      "description": "The commitment hashes to the reference, but the agent signature in the copy does not verify. The signature is outside the commitment hash, so another copy may carry the genuine one.",
+      "setup": {
+        "envelope_signature": "one byte flipped"
+      },
+      "refs": [],
+      "expect": {
+        "check": "envelope",
+        "status": "unchecked",
+        "reason": "source_corrupt",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "authorization_signature_altered",
+      "description": "The Authorization record's gate signature does not verify.",
+      "setup": {
+        "authorization": "signature one byte flipped"
+      },
+      "refs": [
+        "v0/authorization.json#authorization_signed_by_other_gate"
+      ],
+      "expect": {
+        "check": "authorization",
+        "status": "unchecked",
+        "reason": "source_corrupt",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "evidence_other_height",
+      "description": "The evidence record names another height than payload_ref.height.",
+      "setup": {
+        "evidence": "record:evidence_da2_minimal_lmt_other_height"
+      },
+      "refs": [
+        "archive/records.json#evidence_da2_minimal_lmt_other_height"
+      ],
+      "expect": {
+        "check": "anchor",
+        "status": "unchecked",
+        "reason": "source_corrupt",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "fibre_certificate_fails",
+      "description": "da = 1: the archived PFF certificate fails CV6.",
+      "setup": {
+        "evidence": "da1 with mutation sig_first_signature"
+      },
+      "refs": [
+        "da/fibre_cert.json#sig_first_signature"
+      ],
+      "expect": {
+        "check": "anchor",
+        "status": "unchecked",
+        "reason": "source_corrupt",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "fibre_anchor_proof_fails",
+      "description": "da = 1: the archived form-1 anchor proof fails NMT verification.",
+      "setup": {
+        "evidence": "da1 with mutation share_flip"
+      },
+      "refs": [
+        "da/fibre_anchor.json#share_flip"
+      ],
+      "expect": {
+        "check": "anchor",
+        "status": "unchecked",
+        "reason": "source_corrupt",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "receipt_signature_altered",
+      "description": "The given receipt's gate signature does not verify.",
+      "setup": {
+        "receipt": "receipt_wrong_hash_tag"
+      },
+      "refs": [
+        "v0/receipt.json#receipt_wrong_hash_tag"
+      ],
+      "expect": {
+        "check": "receipt",
+        "status": "unchecked",
+        "reason": "source_corrupt",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "archived_header_not_linking",
+      "description": "The archived header at payload_ref.height does not link to the trusted chain. Header trust is unchecked, and the anchor checked against that header is not trusted either.",
+      "setup": {
+        "archived_header": "not_linking"
+      },
+      "refs": [],
+      "expect": {
+        "check": "header_trust",
+        "status": "unchecked",
+        "reason": "chain_mismatch",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "da_not_supported",
+      "description": "The verifier was built without an anchor verifier for the decision's da.",
+      "setup": {
+        "anchor_verifiers": "none for da"
+      },
+      "refs": [],
+      "expect": {
+        "check": "anchor",
+        "status": "unchecked",
+        "reason": "da_unsupported",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "no_trusted_header",
+      "description": "No header file, checkpoint or checkpoint source.",
+      "setup": {
+        "trusted": "none"
+      },
+      "refs": [],
+      "expect": {
+        "check": "header_trust",
+        "status": "unchecked",
+        "reason": "no_trusted_header",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "checkpoint_below_anchor",
+      "description": "The trusted header is below payload_ref.height.",
+      "setup": {
+        "trusted": "file below payload_ref.height"
+      },
+      "refs": [],
+      "expect": {
+        "check": "header_trust",
+        "status": "unchecked",
+        "reason": "header_above_checkpoint",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "online_header_not_linking",
+      "description": "Agreed checkpoint; the headers source serves a header that does not link at a height between, and no other source is configured.",
+      "setup": {
+        "checkpoint_sources": 1,
+        "headers_source": "breaks the chain"
+      },
+      "refs": [],
+      "expect": {
+        "check": "header_trust",
+        "status": "unchecked",
+        "reason": "header_not_linking",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "header_sources_down",
+      "description": "The only checkpoint source does not answer.",
+      "setup": {
+        "checkpoint_sources": 1,
+        "checkpoint_source": "unavailable"
+      },
+      "refs": [],
+      "expect": {
+        "check": "header_trust",
+        "status": "unchecked",
+        "reason": "header_source_unavailable",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "checkpoint_quorum_short",
+      "description": "quorum 2, one source answers.",
+      "setup": {
+        "checkpoint_sources": 2,
+        "quorum": 2,
+        "answering": 1
+      },
+      "refs": [],
+      "expect": {
+        "check": "header_trust",
+        "status": "unchecked",
+        "reason": "checkpoint_quorum",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "checkpoint_sources_disagree",
+      "description": "Two checkpoint sources give different hashes at T (OH5).",
+      "setup": {
+        "checkpoint_sources": 2,
+        "hash_at_T": "differs"
+      },
+      "refs": [],
+      "expect": {
+        "check": "header_trust",
+        "status": "unchecked",
+        "reason": "header_disagreement",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "cross_check_disagrees",
+      "description": "A header cross-check source gives another hash at payload_ref.height (OH7).",
+      "setup": {
+        "cross_check": "other hash at payload_ref.height"
+      },
+      "refs": [],
+      "expect": {
+        "check": "header_trust",
+        "status": "unchecked",
+        "reason": "header_disagreement",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "anchor_time_blocked",
+      "description": "Header trust is unchecked, so K1 has no trusted T_H: anchor_time is blocked, even if the untrusted header would fail K1.",
+      "setup": {
+        "trusted": "none",
+        "issued_at": "K1 fails"
+      },
+      "refs": [
+        "v0/anchor.json#k1_one_second_early"
+      ],
+      "expect": {
+        "check": "anchor_time",
+        "status": "unchecked",
+        "reason": "blocked",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "receipt_other_decision",
+      "description": "A receipt that verifies but names another commitment_hash.",
+      "setup": {
+        "receipt": "valid, for another commitment"
+      },
+      "refs": [],
+      "expect": {
+        "check": "receipt",
+        "status": "unchecked",
+        "reason": "receipt_mismatch",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "replay_no_k2",
+      "description": "replay: the Authorization record has no K2 inputs.",
+      "setup": {
+        "authorization": "record:authorization_minimal_lmt_da_repaired"
+      },
+      "refs": [
+        "archive/records.json#authorization_minimal_lmt_da_repaired"
+      ],
+      "expect": {
+        "check": "retention_replay",
+        "status": "unchecked",
+        "reason": "replay_inputs_missing",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "replay"
+    },
+    {
+      "id": "replay_form0_earlier",
+      "description": "replay, da = 1: promise_created is earlier than the archived anchor's and the anchor proof is form 0.",
+      "setup": {
+        "evidence": "da1 form 0",
+        "promise_created": "anchor - 1"
+      },
+      "refs": [],
+      "expect": {
+        "check": "retention_replay",
+        "status": "unchecked",
+        "reason": "replay_unconfirmed",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "replay"
+    },
+    {
+      "id": "replay_path_inconsistent",
+      "description": "replay: the recorded K2 inputs make K2 false, but the Authorization's path is 1.",
+      "setup": {
+        "authorization": "path 1, k2.block_time moved back past the window"
+      },
+      "refs": [],
+      "expect": {
+        "check": "retention_replay",
+        "status": "unchecked",
+        "reason": "replay_inconsistent",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "replay"
+    },
+    {
+      "id": "run_timeout",
+      "description": "The run deadline expires during the execution step.",
+      "setup": {
+        "timeout": "expires during execution"
+      },
+      "refs": [],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "timeout",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "no_execution_checker",
+      "description": "Execution requested for an action type without a checker.",
+      "setup": {
+        "action_type": "no checker registered"
+      },
+      "refs": [],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "no_checker",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_blocked",
+      "description": "Execution requested, but no receipt was given (EX2).",
+      "setup": {
+        "receipt": "none"
+      },
+      "refs": [],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "blocked",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_header_above_checkpoint",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_header_above_checkpoint"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "header_above_checkpoint",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_header_not_linking",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_header_not_linking"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "header_not_linking",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_header_disagreement",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_header_disagreement"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "header_disagreement",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_chain_config",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_chain_config"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "chain_config",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_tx_not_found",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_tx_not_found"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "tx_not_found",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_tx_source_unavailable",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_tx_source_unavailable"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "tx_source_unavailable",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_tx_hash_mismatch",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_tx_hash_mismatch"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "tx_hash_mismatch",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_tx_proof_invalid",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_tx_proof_invalid"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "tx_proof_invalid",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_result_unproven",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_result_unproven_single_source"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "result_unproven",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_results_root_mismatch",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_result_root_mismatch"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "results_root_mismatch",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_result_index_unbound",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_result_index_unbound"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "result_index_unbound",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_result_header_unreachable",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_result_header_unreachable"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "result_header_unreachable",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_code_unproven",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_code_unproven"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "code_unproven",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_height_unproven",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_height_unproven"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "height_unproven",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_cross_disagree",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_cross_disagree_code"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "cross_disagree",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    },
+    {
+      "id": "execution_chain_unbound",
+      "description": "See the execution_outcomes.json case.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#unchecked_chain_unbound"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "unchecked",
+        "reason": "chain_unbound",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --check-execution"
+    }
+  ],
+  "boundary": [
+    {
+      "id": "commitment_rule_broken",
+      "description": "The commitment hashes to the reference and breaks stage S (ttl above the limit). Every copy has these bytes: fail.",
+      "setup": {
+        "commitment": "reject:ttl_3601"
+      },
+      "refs": [
+        "v0/reject.json#ttl_3601"
+      ],
+      "expect": {
+        "check": "envelope",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    },
+    {
+      "id": "agent_key_small_order",
+      "description": "The committed agent_pubkey is of small order (G0): it is inside the commitment hash, so fail.",
+      "setup": {
+        "commitment": "reject:pubkey_order8_a"
+      },
+      "refs": [
+        "v0/reject.json#pubkey_order8_a"
+      ],
+      "expect": {
+        "check": "envelope",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    },
+    {
+      "id": "issued_before_anchor",
+      "description": "K1 against T_H of a header that passed header trust.",
+      "setup": {
+        "issued_at": "K1 fails"
+      },
+      "refs": [
+        "v0/anchor.json#k1_one_second_early"
+      ],
+      "expect": {
+        "check": "anchor_time",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    },
+    {
+      "id": "payload_action_differs",
+      "description": "A recipient opens a payload whose bytes match the commitment, and the payload's action differs from the committed one (O8).",
+      "setup": {
+        "payload": "opened, action differs"
+      },
+      "refs": [
+        "v0/payload_blob.json#pb_payload_action_differs"
+      ],
+      "expect": {
+        "check": "payload",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    },
+    {
+      "id": "execution_body_mismatch",
+      "description": "The tx bytes hash to rail_ref and carry another body.",
+      "setup": {},
+      "refs": [
+        "verifier/execution_outcomes.json#fail_body_mismatch"
+      ],
+      "expect": {
+        "check": "execution",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      },
+      "request": "verify --check-execution"
+    }
+  ]
+}

@@ -9,7 +9,9 @@ check_profile_dca_agent.py, the bank-send profile vectors by
 check_profile_bank_send.py and the API vectors by check_api_vectors.py
 (publish request) and check_api_errors.py (HTTP error mapping), and
 da/fibre_commit.json by check_fibre_commit.py, da/fibre_cert.json by
-check_fibre_cert.py and da/fibre_anchor.json by check_fibre_anchor.py.
+check_fibre_cert.py and da/fibre_anchor.json by check_fibre_anchor.py, and
+verifier/execution_outcomes.json by check_execution_outcomes.py and
+verifier/reasons.json by check_verifier_reasons.py.
 
 Usage: python3 spec/vectors/check/check_vectors.py [--dir DIR]
 Without --dir, spec/vectors/v0, the profile and the API vectors are checked; with
@@ -627,6 +629,8 @@ def main() -> int:
     rc |= run_script(HERE / "check_archive.py")
     rc |= run_script(HERE / "check_fibre_cert.py")
     rc |= run_script(HERE / "check_fibre_anchor.py")
+    rc |= run_script(HERE / "check_execution_outcomes.py")
+    rc |= run_script(HERE / "check_verifier_reasons.py")
     return rc
 
 
