@@ -39,11 +39,14 @@ const (
 )
 
 // Check is one named step. Err is set for a failed step and, for an
-// unchecked one, says why it was not done.
+// unchecked one, says why it was not done. An unchecked step carries one
+// Reason of the closed set, and the sources it blames, if any.
 type Check struct {
-	Name   CheckName
-	Status Status
-	Err    error
+	Name    CheckName
+	Status  Status
+	Err     error
+	Reason  Reason
+	Sources []string
 }
 
 type TrustStatus string
@@ -98,9 +101,10 @@ type ExecutionInfo struct {
 	HeaderHash []byte
 	BlockTime  uint64
 	Inclusion  string
+	Outcome    string
 	Result     string
 	CrossCheck string
-	Sources    []string
+	Sources    []ExecutionSource
 }
 
 type Report struct {

@@ -163,44 +163,73 @@ func (t *trust) Trusted(ctx context.Context, height uint64, hash []byte) (verifi
 		return res, fmt.Errorf("headertrust: %w", err)
 	}
 	if t.cp.Height < height {
-		return res, fmt.Errorf("%w: %w: checkpoint %d, needed %d", verifier.ErrTrustInput, ErrCheckpointTooLow, t.cp.Height, height)
+		return res, verifier.WithReason(verifier.ReasonHeaderAboveCheckpoint, nil,
+			fmt.Errorf("%w: %w: checkpoint %d, needed %d", verifier.ErrTrustInput, ErrCheckpointTooLow, t.cp.Height, height))
 	}
 	if t.cp.Height-height > MaxChainLength {
-		return res, fmt.Errorf("%w: %w: %d links", verifier.ErrTrustInput, ErrChainTooLong, t.cp.Height-height)
+		return res, verifier.WithReason(verifier.ReasonHeaderSourceUnavailable, nil,
+			fmt.Errorf("%w: %w: %d links, use a checkpoint closer to the needed height", verifier.ErrTrustInput, ErrChainTooLong, t.cp.Height-height))
 	}
 	headers := make([][]byte, 0, t.cp.Height-height)
 	for h := height; h < t.cp.Height; h++ {
 		b, err := t.chain.Header(ctx, h)
 		if err != nil {
-			return res, fmt.Errorf("%w: headertrust: header %d: %w", verifier.ErrTrustInput, h, err)
+			if cerr := ctx.Err(); cerr != nil {
+				return res, fmt.Errorf("headertrust: %w", cerr)
+			}
+			return res, verifier.WithReason(verifier.ReasonHeaderSourceUnavailable, nameOf(t.chain),
+				fmt.Errorf("%w: headertrust: header %d: %w", verifier.ErrTrustInput, h, err))
 		}
 		headers = append(headers, b)
 	}
 	if culprit, atHeader, err := verifyBackwards(t.cp, headers, height, hash); err != nil {
-		// A header that came from an online source and does not link is that
-		// source's fault, so the decision is unchecked. An archived one is
-		// evidence, and a claimed hash the chain does not have is a failure.
-		if p, ok := t.chain.(*preferChain); ok && atHeader && !p.isKnown(culprit) {
-			return res, fmt.Errorf("%w: %w", verifier.ErrTrustInput, err)
-		}
-		return res, err
+		return res, t.chainProblem(culprit, atHeader, err)
 	}
 	res.Checked = true
 	res.CrossCheck = "off"
 	if len(t.cross) == 0 {
 		return res, nil
 	}
-	res.CrossCheck = t.crossCheck(ctx, height, hash)
+	var who string
+	res.CrossCheck, who = t.crossCheck(ctx, height, hash)
 	if res.CrossCheck == "mismatch" {
-		return res, fmt.Errorf("%w: height %d", ErrCrossCheckMismatch, height)
+		var names []string
+		if who != "" {
+			names = []string{who}
+		}
+		return res, verifier.WithReason(verifier.ReasonHeaderDisagreement, names,
+			fmt.Errorf("%w: height %d: %s", ErrCrossCheckMismatch, height, verifier.DisagreementText))
 	}
 	return res, nil
 }
 
+// chainProblem gives a break in the backward chain its reason. A header that
+// came from an online source and does not link is that source's fault. Any
+// other break, a header from the archive or the trusted file, or a claimed
+// hash the chain does not have, means what was presented does not belong to
+// the trusted chain.
+func (t *trust) chainProblem(culprit uint64, atHeader bool, err error) error {
+	if errors.Is(err, ErrCheckpointMismatch) {
+		return verifier.WithReason(verifier.ReasonNoTrustedHeader, nil, err)
+	}
+	if p, ok := t.chain.(*preferChain); ok && atHeader && !p.isKnown(culprit) {
+		return verifier.WithReason(verifier.ReasonHeaderNotLinking, nameOf(p.then), fmt.Errorf("%w: %w", verifier.ErrTrustInput, err))
+	}
+	return verifier.WithReason(verifier.ReasonChainMismatch, nil, err)
+}
+
+// nameOf is the operator behind a header source, when it says.
+func nameOf(c HeaderChain) []string {
+	if n, ok := c.(interface{ Name() string }); ok && n.Name() != "" {
+		return []string{n.Name()}
+	}
+	return nil
+}
+
 // crossCheck asks every node. A node that cannot answer, or answers for
 // another height, counts as unavailable; any node with another hash is a
-// mismatch whatever the others say.
-func (t *trust) crossCheck(ctx context.Context, height uint64, hash []byte) string {
+// mismatch whatever the others say, and is named if it has a name.
+func (t *trust) crossCheck(ctx context.Context, height uint64, hash []byte) (string, string) {
 	result := "pass"
 	for _, c := range t.cross {
 		b, err := c.Header(ctx, height)
@@ -219,10 +248,14 @@ func (t *trust) crossCheck(ctx context.Context, height uint64, hash []byte) stri
 			continue
 		}
 		if !bytes.Equal(sum, hash) {
-			return "mismatch"
+			who := ""
+			if n := nameOf(c); len(n) > 0 {
+				who = n[0]
+			}
+			return "mismatch", who
 		}
 	}
-	return result
+	return result, ""
 }
 
 func worse(a, b string) string {
@@ -241,8 +274,8 @@ type NamedChain interface {
 }
 
 // ErrCheckpointDisagree marks sources that give different hashes for one
-// height. It is a failure whatever the quorum, since the verifier cannot tell
-// which side is honest.
+// height. It is a disagreement whatever the quorum: the verifier cannot tell
+// which side is honest, so the result is unchecked and says so.
 var ErrCheckpointDisagree = errors.New("headertrust: checkpoint sources disagree")
 
 // CheckpointReport says which header an agreed checkpoint is and who agreed.
@@ -294,7 +327,8 @@ func AgreedCheckpoint(ctx context.Context, srcs []NamedChain, quorum int) (Check
 		}
 	}
 	if len(lives) == 0 {
-		return Checkpoint{}, rep, fmt.Errorf("%w: no checkpoint source reported its latest height", verifier.ErrTrustInput)
+		return Checkpoint{}, rep, verifier.WithReason(verifier.ReasonHeaderSourceUnavailable, nil,
+			fmt.Errorf("%w: no checkpoint source reported its latest height", verifier.ErrTrustInput))
 	}
 	t := lives[0].latest
 	for _, l := range lives {
@@ -327,7 +361,8 @@ func AgreedCheckpoint(ctx context.Context, srcs []NamedChain, quorum int) (Check
 	}
 	for _, a := range answers {
 		if !bytes.Equal(a.hash, answers[0].hash) {
-			return Checkpoint{}, rep, fmt.Errorf("%w: height %d", ErrCheckpointDisagree, t)
+			return Checkpoint{}, rep, verifier.WithReason(verifier.ReasonHeaderDisagreement, []string{answers[0].src.Name(), a.src.Name()},
+				fmt.Errorf("%w: height %d: %s", ErrCheckpointDisagree, t, verifier.DisagreementText))
 		}
 	}
 
@@ -358,7 +393,12 @@ func AgreedCheckpoint(ctx context.Context, srcs []NamedChain, quorum int) (Check
 		rep.Height, rep.Hash = t, bytes.Clone(answers[0].hash)
 	}
 	if rep.Agreed < quorum {
-		return Checkpoint{}, rep, fmt.Errorf("%w: %d of %d required operators agree at height %d", verifier.ErrTrustInput, rep.Agreed, quorum, t)
+		reason := verifier.ReasonCheckpointQuorum
+		if rep.Agreed == 0 {
+			reason = verifier.ReasonHeaderSourceUnavailable
+		}
+		return Checkpoint{}, rep, verifier.WithReason(reason, nil,
+			fmt.Errorf("%w: %d of %d required operators agree at height %d", verifier.ErrTrustInput, rep.Agreed, quorum, t))
 	}
 	return Checkpoint{Height: t, Hash: bytes.Clone(answers[0].hash), Header: bytes.Clone(answers[0].raw)}, rep, nil
 }

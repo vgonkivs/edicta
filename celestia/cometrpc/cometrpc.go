@@ -415,3 +415,62 @@ func (s *Source) Tx(ctx context.Context, hash [32]byte, prove bool) (railverify.
 	}
 	return out, nil
 }
+
+// BlockResults reads the transaction results of the block at height. Only the
+// fields the block's results hash covers are kept. A node that does not keep
+// the results answers with an RPC error, which is an unavailable source.
+func (s *Source) BlockResults(ctx context.Context, height uint64) ([]railverify.TxResult, error) {
+	r, err := s.result(ctx, "/block_results", url.Values{"height": {strconv.FormatUint(height, 10)}})
+	if err != nil {
+		return nil, err
+	}
+	var res struct {
+		Height     *string `json:"height"`
+		TxsResults []struct {
+			Code      *json.Number `json:"code"`
+			Data      *string      `json:"data"`
+			GasWanted *string      `json:"gas_wanted"`
+			GasUsed   *string      `json:"gas_used"`
+		} `json:"txs_results"`
+	}
+	if err := json.Unmarshal(r, &res); err != nil || res.Height == nil {
+		return nil, fmt.Errorf("%w: block results", ErrBadResponse)
+	}
+	if got, err := parseHeight(*res.Height); err != nil || got != height {
+		return nil, fmt.Errorf("%w: asked for the results of height %d, got %q", ErrBadResponse, height, *res.Height)
+	}
+	out := make([]railverify.TxResult, len(res.TxsResults))
+	for i, t := range res.TxsResults {
+		var tr railverify.TxResult
+		if t.Code != nil {
+			code, err := strconv.ParseUint(t.Code.String(), 10, 32)
+			if err != nil {
+				return nil, fmt.Errorf("%w: result %d code", ErrBadResponse, i)
+			}
+			tr.Code = uint32(code)
+		}
+		if t.Data != nil {
+			if tr.Data, err = base64.StdEncoding.DecodeString(*t.Data); err != nil {
+				return nil, fmt.Errorf("%w: result %d data", ErrBadResponse, i)
+			}
+			if len(tr.Data) == 0 {
+				tr.Data = nil
+			}
+		}
+		for _, g := range []struct {
+			in  *string
+			out *int64
+		}{{t.GasWanted, &tr.GasWanted}, {t.GasUsed, &tr.GasUsed}} {
+			if g.in == nil {
+				continue
+			}
+			v, err := strconv.ParseInt(*g.in, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("%w: result %d gas", ErrBadResponse, i)
+			}
+			*g.out = v
+		}
+		out[i] = tr
+	}
+	return out, nil
+}

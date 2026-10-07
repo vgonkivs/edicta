@@ -4,15 +4,16 @@
 //	verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL)
 //	    [--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)]
 //	    [--checkpoint-quorum N] [--cross-check URL]...
-//	    [--receipt FILE [--tx-rpc URL --check-execution]]
+//	    [--receipt FILE [--tx-rpc URL... --check-execution]]
 //	    [--skew SECONDS] [--blob-retention SECONDS] [--json]
 //
 // The archive is only read, never created, locked or cleaned.
 //
-// Exit codes: 0 valid, 1 invalid, 2 unchecked (something could not be
-// checked, such as no trusted header), 3 not authorized (pending or
-// rejected), 4 usage, configuration or I/O errors, which give no verdict.
-// With --json an error is printed as {"error": "..."}.
+// Exit codes: 0 valid, 1 invalid, 2 unchecked (inconclusive: a source or an
+// input did not let a check run to a result, and the report names the reason
+// and the source), 3 not authorized (pending or rejected), 4 usage,
+// configuration or I/O errors, which give no verdict. With --json an error is
+// printed as {"error": "..."}.
 package verifycli
 
 import (
@@ -133,7 +134,7 @@ type flags struct {
 	checkpointRPC []string
 	crossRPC      []string
 	receiptPath   string
-	txRPC         string
+	txRPC         []string
 	checkExec     bool
 	params        commitment.Params
 	asJSON        bool
@@ -142,7 +143,7 @@ type flags struct {
 func parseFlags(args []string, out io.Writer) (flags, error) {
 	const usage = "usage: verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) " +
 		"[--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)] [--cross-check URL]... [--exclude-host HOST]... " +
-		"[--timeout DURATION] [--receipt FILE --tx-rpc URL --check-execution] [--json]"
+		"[--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution] [--json]"
 	var f flags
 	if len(args) == 0 || (args[0] != "verify" && args[0] != "replay") {
 		return f, usagef("%s", usage)
@@ -165,11 +166,11 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	fs.StringVar(&f.checkpoint, "checkpoint", "", "explicit checkpoint HEIGHT:HASH, taken out of band")
 	fs.StringVar(&f.headersRPC, "headers-rpc", "", "CometBFT RPC that serves the headers between the checkpoint and the anchor")
 	fs.StringVar(&f.receiptPath, "receipt", "", "signed receipt file")
-	fs.StringVar(&f.txRPC, "tx-rpc", "", "CometBFT RPC that serves the transaction the receipt names")
 	fs.BoolVar(&f.checkExec, "check-execution", false, "check the transaction the receipt names")
 	fs.DurationVar(&f.timeout, "timeout", defaultTimeout, "overall time limit of the run")
 	fs.BoolVar(&f.asJSON, "json", false, "print one JSON document")
-	var ckpt, cross, exclude multiFlag
+	var ckpt, cross, exclude, txRPC multiFlag
+	fs.Var(&txRPC, "tx-rpc", "CometBFT RPC that serves the transaction the receipt names; the first is the primary, more are alternates tried in order")
 	fs.Var(&ckpt, "checkpoint-rpc", "CometBFT RPC of an independent checkpoint operator (repeatable)")
 	fs.Var(&cross, "cross-check", "CometBFT RPC to cross-check headers and the transaction (repeatable)")
 	fs.Var(&exclude, "exclude-host", "host that must not serve as a checkpoint or cross-check source, such as the gate's own endpoint (repeatable)")
@@ -206,7 +207,7 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 		return f, usagef("--checkpoint-quorum must be a positive number")
 	}
 	fs.Visit(func(fl *flag.Flag) { f.quorumSet = f.quorumSet || fl.Name == "checkpoint-quorum" })
-	f.checkpointRPC, f.crossRPC, f.excludeHosts = ckpt, cross, exclude
+	f.checkpointRPC, f.crossRPC, f.excludeHosts, f.txRPC = ckpt, cross, exclude, txRPC
 	f.params = def
 	f.params.SkewS, f.params.BlobRetentionS = *skew, *blobRetention
 	return f, f.validate()
@@ -233,11 +234,11 @@ func (f flags) validate() error {
 		return usagef("--checkpoint-quorum %d needs at least %d --checkpoint-rpc sources", f.quorum, f.quorum)
 	case f.quorumSet && len(f.checkpointRPC) == 0:
 		return usagef("--checkpoint-quorum applies only to --checkpoint-rpc sources")
-	case f.cmd == "replay" && (f.receiptPath != "" || f.txRPC != "" || f.checkExec):
+	case f.cmd == "replay" && (f.receiptPath != "" || len(f.txRPC) > 0 || f.checkExec):
 		return usagef("replay takes no receipt and no execution check")
-	case f.txRPC != "" && !f.checkExec:
+	case len(f.txRPC) > 0 && !f.checkExec:
 		return usagef("--tx-rpc is used only with --check-execution")
-	case f.checkExec && (f.txRPC == "" || f.receiptPath == ""):
+	case f.checkExec && (len(f.txRPC) == 0 || f.receiptPath == ""):
 		return usagef("--check-execution needs --receipt and --tx-rpc, or the execution is never checked")
 	case f.headersRPC != "" && !online && !f.checkExec:
 		return usagef("--headers-rpc is used only with a checkpoint or --check-execution")
@@ -336,7 +337,7 @@ func execute(ctx context.Context, args []string, out io.Writer) (int, error) {
 	}
 	if f.checkExec {
 		opts = append(opts, verifier.WithExecutionCheck())
-		if f.txRPC != "" {
+		if len(f.txRPC) > 0 {
 			chk, err := newBankChecker(f.txRPC, f.headersRPC, f.crossRPC, deps.Trust, info)
 			if err != nil {
 				return codeUsage, usageError{err}

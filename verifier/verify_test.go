@@ -64,6 +64,9 @@ func TestVerifyTamperedItems(t *testing.T) {
 		check verifier.CheckName
 		want  error
 		also  error
+		// reason is set for a problem of the source (unchecked); the rest
+		// are violations that the verified bytes prove.
+		reason verifier.Reason
 	}{
 		{
 			name: "payload byte",
@@ -71,7 +74,7 @@ func TestVerifyTamperedItems(t *testing.T) {
 				p.permissive = true
 				p.blob = flip(p.blob)
 			},
-			check: verifier.CheckPayload, want: verifier.ErrPayloadInvalid, also: commitment.ErrPayloadHashMismatch,
+			check: verifier.CheckPayload, want: verifier.ErrPayloadInvalid, also: commitment.ErrPayloadHashMismatch, reason: verifier.ReasonSourceCorrupt,
 		},
 		{
 			name: "payload with the right hash but another share commitment",
@@ -88,28 +91,28 @@ func TestVerifyTamperedItems(t *testing.T) {
 				p.payloadRef = c.PayloadRef.Commitment
 				p.ev.Commitment = c.PayloadRef.Commitment
 			},
-			check: verifier.CheckPayload, want: verifier.ErrPayloadInvalid, also: gate.ErrDACommitmentMismatch,
+			check: verifier.CheckPayload, want: verifier.ErrPayloadInvalid, also: gate.ErrDACommitmentMismatch, reason: verifier.ReasonSourceCorrupt,
 		},
 		{
 			name: "envelope signature",
 			tweak: func(t *testing.T, p *parts, _ *rigOpts) {
 				p.env = flip(p.env)
 			},
-			check: verifier.CheckEnvelope, want: verifier.ErrEnvelopeInvalid, also: commitment.ErrSignatureInvalid,
+			check: verifier.CheckEnvelope, want: verifier.ErrEnvelopeInvalid, also: commitment.ErrSignatureInvalid, reason: verifier.ReasonSourceCorrupt,
 		},
 		{
 			name: "action bytes",
 			tweak: func(t *testing.T, p *parts, _ *rigOpts) {
 				p.action = flip(p.action)
 			},
-			check: verifier.CheckAction, want: verifier.ErrActionInvalid, also: commitment.ErrActionMismatch,
+			check: verifier.CheckAction, want: verifier.ErrActionInvalid, also: commitment.ErrActionMismatch, reason: verifier.ReasonSourceCorrupt,
 		},
 		{
 			name: "authorization signature",
 			tweak: func(t *testing.T, p *parts, _ *rigOpts) {
 				p.auth = flip(p.auth)
 			},
-			check: verifier.CheckAuthorization, want: verifier.ErrGateKeyNotTrusted,
+			check: verifier.CheckAuthorization, want: verifier.ErrGateKeyNotTrusted, reason: verifier.ReasonSourceCorrupt,
 		},
 		{
 			name: "gate key not trusted",
@@ -117,7 +120,7 @@ func TestVerifyTamperedItems(t *testing.T) {
 				other := gatefix.Key(t, "agent2").Public().(ed25519.PublicKey)
 				o.gateKeys = []ed25519.PublicKey{other}
 			},
-			check: verifier.CheckAuthorization, want: verifier.ErrGateKeyNotTrusted,
+			check: verifier.CheckAuthorization, want: verifier.ErrGateKeyNotTrusted, reason: verifier.ReasonSourceCorrupt,
 		},
 		{
 			name: "authorization of another action",
@@ -139,14 +142,14 @@ func TestVerifyTamperedItems(t *testing.T) {
 			tweak: func(t *testing.T, p *parts, _ *rigOpts) {
 				p.ev.Header = []byte("garbage")
 			},
-			check: verifier.CheckAnchor, want: verifier.ErrAnchorInvalid, also: errFakeHeader,
+			check: verifier.CheckAnchor, want: verifier.ErrAnchorInvalid, also: errFakeHeader, reason: verifier.ReasonSourceCorrupt,
 		},
 		{
 			name: "blob proof",
 			tweak: func(t *testing.T, p *parts, _ *rigOpts) {
 				p.ev.BlobProof = flip(p.ev.BlobProof)
 			},
-			check: verifier.CheckAnchor, want: verifier.ErrAnchorInvalid, also: errFakeProof,
+			check: verifier.CheckAnchor, want: verifier.ErrAnchorInvalid, also: errFakeProof, reason: verifier.ReasonSourceCorrupt,
 		},
 		{
 			name: "header and proof replaced together",
@@ -154,14 +157,14 @@ func TestVerifyTamperedItems(t *testing.T) {
 				p.ev.Header = []byte("hdr:forged")
 				p.ev.BlobProof = proofFor(p.ev.Header)
 			},
-			check: verifier.CheckHeaderTrust, want: verifier.ErrHeaderTrust, also: errFakeTrust,
+			check: verifier.CheckHeaderTrust, want: verifier.ErrHeaderTrust, also: errFakeTrust, reason: verifier.ReasonChainMismatch,
 		},
 		{
 			name: "payload missing",
 			tweak: func(t *testing.T, p *parts, _ *rigOpts) {
 				p.blob = nil
 			},
-			check: verifier.CheckPayload, want: verifier.ErrArchiveIncomplete, also: archive.ErrNotFound,
+			check: verifier.CheckPayload, want: verifier.ErrArchiveIncomplete, also: archive.ErrNotFound, reason: verifier.ReasonPayloadUnavailable,
 		},
 	}
 	for _, tc := range tests {
@@ -175,8 +178,14 @@ func TestVerifyTamperedItems(t *testing.T) {
 			}
 			rep := r.verify(t)
 
-			assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
-			c := failed(t, rep, tc.check)
+			var c verifier.Check
+			if tc.reason != "" {
+				assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict, "a damaged or withheld copy is a source problem")
+				c = unchecked(t, rep, tc.check, tc.reason)
+			} else {
+				assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
+				c = failed(t, rep, tc.check)
+			}
 			requireOnly(t, c.Err, tc.want)
 			if tc.also != nil {
 				require.ErrorIs(t, c.Err, tc.also)
@@ -195,7 +204,7 @@ func TestVerifyBadAuthorizationIsNeverReportedAuthorized(t *testing.T) {
 	rep := newRig(t, p).verify(t)
 	assert.False(t, rep.AuthorizationVerified)
 	assert.Nil(t, rep.Authorization)
-	assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
+	assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict, "a signature that does not verify may be a bad copy")
 }
 
 func TestVerifyUnknownDecision(t *testing.T) {
@@ -205,9 +214,9 @@ func TestVerifyUnknownDecision(t *testing.T) {
 	rep, err := r.verifier(t).Verify(context.Background(), h)
 	require.NoError(t, err)
 	assert.Equal(t, archive.StateAbsent, rep.State)
-	assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
+	assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict, "no record is no verdict, not not_authorized and not invalid")
 	assert.False(t, rep.AuthorizationVerified)
-	c := failed(t, rep, verifier.CheckDecision)
+	c := unchecked(t, rep, verifier.CheckDecision, verifier.ReasonDecisionUnavailable)
 	requireOnly(t, c.Err, verifier.ErrDecisionNotFound)
 }
 
@@ -281,31 +290,58 @@ func TestHeaderTrust(t *testing.T) {
 		assert.Equal(t, verifier.VerdictValid, rep.Verdict)
 		assert.Equal(t, "off", rep.HeaderTrust.CrossCheck)
 	})
-	t.Run("cross-check mismatch fails", func(t *testing.T) {
+	t.Run("cross-check mismatch is a disagreement, unchecked", func(t *testing.T) {
 		r := newRig(t, newParts(t))
 		r.trust.res.CrossCheck = "mismatch"
 		rep := r.verify(t)
-		assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
-		c := failed(t, rep, verifier.CheckHeaderTrust)
+		assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
+		c := unchecked(t, rep, verifier.CheckHeaderTrust, verifier.ReasonHeaderDisagreement)
 		requireOnly(t, c.Err, verifier.ErrHeaderTrust)
-		assert.Equal(t, verifier.TrustFailed, rep.HeaderTrust.Status)
+		assert.Contains(t, c.Err.Error(), verifier.DisagreementText)
+		assert.Equal(t, verifier.TrustUnchecked, rep.HeaderTrust.Status)
+		assert.Equal(t, "mismatch", rep.HeaderTrust.CrossCheck)
 	})
-	t.Run("trust error fails and is wrapped", func(t *testing.T) {
+	t.Run("a mismatch with the error, as headertrust reports it", func(t *testing.T) {
+		r := newRig(t, newParts(t))
+		r.trust.res.CrossCheck = "mismatch"
+		r.trust.err = verifier.WithReason(verifier.ReasonHeaderDisagreement, []string{"rpc-x.example"}, errFakeTrust)
+		rep := r.verify(t)
+		assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
+		c := unchecked(t, rep, verifier.CheckHeaderTrust, verifier.ReasonHeaderDisagreement)
+		assert.Equal(t, []string{"rpc-x.example"}, c.Sources)
+	})
+	t.Run("trust error is unchecked and is wrapped", func(t *testing.T) {
 		r := newRig(t, newParts(t))
 		r.trust.err = errFakeTrust
 		rep := r.verify(t)
-		c := failed(t, rep, verifier.CheckHeaderTrust)
+		c := unchecked(t, rep, verifier.CheckHeaderTrust, verifier.ReasonChainMismatch)
 		requireOnly(t, c.Err, verifier.ErrHeaderTrust)
 		require.ErrorIs(t, c.Err, errFakeTrust)
-		assert.Equal(t, verifier.TrustFailed, rep.HeaderTrust.Status)
+		assert.Equal(t, verifier.TrustUnchecked, rep.HeaderTrust.Status)
+		assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
 	})
-	t.Run("a failed anchor leaves trust unchecked", func(t *testing.T) {
+	t.Run("anchor time is not judged against a header that was not trusted", func(t *testing.T) {
+		p := newParts(t)
+		r := newRig(t, p)
+		r.deps.Trust = nil
+		r.anchor.blockTime = p.c.IssuedAt + r.deps.Config.Params.SkewS + 1
+		rep := r.verify(t)
+		unchecked(t, rep, verifier.CheckHeaderTrust, verifier.ReasonNoTrustedHeader)
+		c := unchecked(t, rep, verifier.CheckAnchorTime, verifier.ReasonBlocked)
+		assert.Equal(t, []string{"header_trust"}, c.Sources)
+		assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict, "the untrusted header would have failed K1, and that must not invalidate the decision")
+	})
+	t.Run("an anchor that did not verify leaves trust and anchor time blocked", func(t *testing.T) {
 		p := newParts(t)
 		p.ev.Header = []byte("garbage")
 		r := newRig(t, p)
 		rep := r.verify(t)
 		assert.NotEqual(t, verifier.VerdictValid, rep.Verdict)
 		assert.NotEqual(t, verifier.TrustValid, rep.HeaderTrust.Status)
+		for _, n := range []verifier.CheckName{verifier.CheckHeaderTrust, verifier.CheckAnchorTime} {
+			c := unchecked(t, rep, n, verifier.ReasonBlocked)
+			assert.Equal(t, []string{"anchor"}, c.Sources, "the check names what it waits for")
+		}
 	})
 }
 
@@ -315,11 +351,11 @@ func TestSettlementIsNeverCalledProven(t *testing.T) {
 		r.anchor.settlement = "node-attested"
 		assert.Equal(t, "node-attested", r.verify(t).Settlement)
 	})
-	t.Run("a stronger claim than v0 allows fails the anchor", func(t *testing.T) {
+	t.Run("a stronger claim than v0 allows is not accepted", func(t *testing.T) {
 		r := newRig(t, newParts(t))
 		r.anchor.settlement = "proven"
 		rep := r.verify(t)
-		c := failed(t, rep, verifier.CheckAnchor)
+		c := unchecked(t, rep, verifier.CheckAnchor, verifier.ReasonSourceCorrupt)
 		requireOnly(t, c.Err, verifier.ErrAnchorInvalid)
 		assert.NotEqual(t, "proven", rep.Settlement)
 	})

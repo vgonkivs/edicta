@@ -11,6 +11,8 @@ import (
 	core "github.com/cometbft/cometbft/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/celestia/test/cometfake"
 )
 
 // A header source that tells /header another story than /blockchain can make
@@ -31,6 +33,7 @@ func TestHostileHeaderAtTheTransactionHeightIsUnchecked(t *testing.T) {
 			assert.Equal(t, exitUnchecked, code, out)
 			rep := decodeReport(t, out)
 			assert.Equal(t, "unchecked", statusOf(t, rep, "execution"))
+			assert.Equal(t, "header_not_linking", checkOf(t, rep, "execution")["reason"])
 			assert.Equal(t, "pass", statusOf(t, rep, "header_trust"))
 			assert.NotEqual(t, "invalid", rep["verdict"])
 			assert.NotEqual(t, "valid", rep["verdict"])
@@ -87,10 +90,13 @@ func TestReportSaysWhoTheVerdictRestsOn(t *testing.T) {
 	assert.Contains(t, out, "needed headers: ")
 }
 
+// Under the interim rule a node-attested pass is only possible with agreeing
+// cross sources, and the report still says the height is the source's word.
 func TestNodeAttestedHeightIsMarked(t *testing.T) {
 	w := newBankWorld(t, nil)
-	a := w.args()
-	code, out := exec(t, a[:len(a)-1])
+	cross := w.s.rpc(t, w.s.cometChain(), nodeID(2))
+	cross.PutTx(cometfake.Tx{Height: execHeight, Bytes: w.tx})
+	code, out := exec(t, w.textArgs("--cross-check", cross.HostURL("localhost")))
 	require.Equal(t, exitValid, code, out)
 	assert.Contains(t, out, "execution height: node-attested")
 	assert.Contains(t, out, "no inclusion proof")

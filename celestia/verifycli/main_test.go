@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Exit codes: 0 valid, 1 invalid, 2 unchecked (header trust missing),
-// 3 not authorized (pending or rejected), 4 usage or unreadable input.
+// Exit codes: 0 valid, 1 invalid, 2 unchecked (inconclusive: a source or an
+// input did not let a check run to a result), 3 not authorized (pending or
+// rejected), 4 usage or unreadable input.
 const (
 	exitValid         = 0
 	exitInvalid       = 1
@@ -40,19 +41,38 @@ func TestVerifyWithoutTrustedHeaderIsUnchecked(t *testing.T) {
 	code, out := exec(t, s.args("verify"))
 	assert.Equal(t, exitUnchecked, code, out)
 	assert.Contains(t, out, "[unchecked] header_trust")
+	assert.Contains(t, out, "reason: no_trusted_header")
+	assert.Contains(t, out, "advice: supply a trusted header")
 	assert.Contains(t, out, "verdict: unchecked")
 	assert.NotContains(t, out, "verdict: valid")
 }
 
-func TestVerifyTamperShowsAFailure(t *testing.T) {
+// A damaged copy is a source problem: the verdict is inconclusive, and the
+// report says which check, why, and what to try.
+func TestVerifyTamperIsInconclusive(t *testing.T) {
 	s := newScenario(t, scenarioOpts{tamperBlob: true})
 	trusted := s.chain.trustedFile(t, checkpointH, nil)
 	code, out := exec(t, s.args("verify", "--trusted", trusted))
 
-	assert.Equal(t, exitInvalid, code, out)
-	assert.Contains(t, out, "[FAIL] payload")
-	assert.Contains(t, out, "verdict: invalid")
+	assert.Equal(t, exitUnchecked, code, out)
+	assert.Contains(t, out, "[unchecked] payload")
+	assert.Contains(t, out, "reason: source_corrupt")
+	assert.Contains(t, out, "advice: another copy")
+	assert.Contains(t, out, "verdict: unchecked")
+	assert.NotContains(t, out, "[FAIL]")
 	assert.NotContains(t, out, "verdict: valid")
+	assert.NotContains(t, out, "verdict: invalid")
+}
+
+// What verified data proves about the decision still fails.
+func TestVerifyAGateSignedContradictionIsInvalid(t *testing.T) {
+	s := newScenario(t, scenarioOpts{outlivingAuth: true})
+	trusted := s.chain.trustedFile(t, checkpointH, nil)
+	code, out := exec(t, s.args("verify", "--trusted", trusted))
+
+	assert.Equal(t, exitInvalid, code, out)
+	assert.Contains(t, out, "[FAIL] authorization")
+	assert.Contains(t, out, "verdict: invalid")
 }
 
 func TestVerifyPendingIsNotAuthorized(t *testing.T) {
@@ -74,8 +94,10 @@ func TestVerifyHeaderTrustFailures(t *testing.T) {
 			hs[4] = encodeHeader(t, hd)
 		})
 		code, out := exec(t, s.args("verify", "--trusted", trusted))
-		assert.Equal(t, exitInvalid, code, out)
-		assert.Contains(t, out, "[FAIL] header_trust")
+		assert.Equal(t, exitUnchecked, code, out)
+		assert.Contains(t, out, "[unchecked] header_trust")
+		assert.Contains(t, out, "reason: chain_mismatch")
+		assert.NotContains(t, out, "[FAIL]")
 	})
 	t.Run("checkpoint below the anchor height", func(t *testing.T) {
 		s := newScenario(t, scenarioOpts{})
@@ -83,6 +105,7 @@ func TestVerifyHeaderTrustFailures(t *testing.T) {
 		code, out := exec(t, s.args("verify", "--trusted", trusted))
 		assert.Equal(t, exitUnchecked, code, out)
 		assert.Contains(t, out, "[unchecked] header_trust")
+		assert.Contains(t, out, "reason: header_above_checkpoint")
 		assert.Contains(t, out, "checkpoint")
 	})
 }
@@ -91,8 +114,12 @@ func TestVerifyUnknownDecision(t *testing.T) {
 	s := newScenario(t, scenarioOpts{})
 	s.hash[0] ^= 1
 	code, out := exec(t, s.args("verify"))
-	assert.Equal(t, exitInvalid, code, out)
-	assert.Contains(t, out, "[FAIL] decision")
+	assert.Equal(t, exitUnchecked, code, out)
+	assert.Contains(t, out, "[unchecked] decision")
+	assert.Contains(t, out, "reason: decision_unavailable")
+	assert.Contains(t, out, "advice: another archive copy")
+	assert.Contains(t, out, "state: unknown")
+	assert.NotContains(t, out, "[FAIL]")
 }
 
 func TestUsageErrors(t *testing.T) {
@@ -157,8 +184,30 @@ func TestVerifyJSON(t *testing.T) {
 	assert.Equal(t, "off", ht["cross_check"])
 }
 
-func TestVerifyJSONFailureKeepsTheExitCode(t *testing.T) {
+func TestVerifyJSONReportsTheReasonAndTheAdvice(t *testing.T) {
 	s := newScenario(t, scenarioOpts{tamperBlob: true})
+	trusted := s.chain.trustedFile(t, checkpointH, nil)
+	code, out := exec(t, s.args("verify", "--json", "--trusted", trusted))
+	assert.Equal(t, exitUnchecked, code)
+	var rep map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &rep))
+	assert.Equal(t, "unchecked", rep["verdict"])
+	found := false
+	for _, c := range rep["checks"].([]any) {
+		m := c.(map[string]any)
+		if m["name"] == "payload" {
+			found = true
+			assert.Equal(t, "unchecked", m["status"])
+			assert.Equal(t, "source_corrupt", m["reason"])
+			assert.Equal(t, "another copy", m["advice"])
+			assert.NotEmpty(t, m["error"])
+		}
+	}
+	assert.True(t, found)
+}
+
+func TestVerifyJSONOfAFailureKeepsTheExitCode(t *testing.T) {
+	s := newScenario(t, scenarioOpts{outlivingAuth: true})
 	trusted := s.chain.trustedFile(t, checkpointH, nil)
 	code, out := exec(t, s.args("verify", "--json", "--trusted", trusted))
 	assert.Equal(t, exitInvalid, code)
@@ -167,8 +216,9 @@ func TestVerifyJSONFailureKeepsTheExitCode(t *testing.T) {
 	assert.Equal(t, "invalid", rep["verdict"])
 	for _, c := range rep["checks"].([]any) {
 		m := c.(map[string]any)
-		if m["name"] == "payload" {
+		if m["name"] == "authorization" {
 			assert.Equal(t, "fail", m["status"])
+			assert.NotContains(t, m, "reason", "a finding has no reason of the closed set, only the rule that failed")
 			assert.NotEmpty(t, m["error"])
 		}
 	}

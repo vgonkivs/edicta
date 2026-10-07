@@ -149,7 +149,10 @@ func ref32(t testing.TB, ref string) [32]byte {
 }
 
 func (v vec) input(tx []byte) verifier.ExecutionInput {
-	return verifier.ExecutionInput{CommitmentHash: v.hash, ActionType: bankaction.ActionType, Action: v.action, RailRef: refOf(tx)}
+	return verifier.ExecutionInput{
+		CommitmentHash: v.hash, ActionType: bankaction.ActionType, Action: v.action, RailRef: refOf(tx),
+		AnchorHeight: txH - 10,
+	}
 }
 
 // proofOf builds a real inclusion proof of txs[idx] in a square made of txs,

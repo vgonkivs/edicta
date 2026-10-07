@@ -122,7 +122,7 @@ func TestDA1Form0IsUncheckedWithAReason(t *testing.T) {
 	}
 }
 
-func TestDA1TamperedEvidenceIsInvalid(t *testing.T) {
+func TestDA1TamperedEvidenceIsInconclusive(t *testing.T) {
 	tests := []struct {
 		name string
 		mod  func(t *testing.T, l *fibrefix.Live, ev *archive.EvidenceRecord)
@@ -152,9 +152,11 @@ func TestDA1TamperedEvidenceIsInvalid(t *testing.T) {
 				return ev
 			})
 			code, out := exec(t, s.args("verify", "--trusted", s.live.TrustedFile(t, nil)))
-			assert.Equal(t, exitInvalid, code, out)
-			assert.Contains(t, out, "[FAIL] anchor")
-			assert.Contains(t, out, "verdict: invalid")
+			assert.Equal(t, exitUnchecked, code, out)
+			assert.Contains(t, out, "[unchecked] anchor")
+			assert.Contains(t, out, "reason: source_corrupt")
+			assert.Contains(t, out, "verdict: unchecked")
+			assert.NotContains(t, out, "[FAIL]")
 			assert.NotContains(t, out, "verdict: valid")
 		})
 	}
@@ -192,8 +194,9 @@ func TestDA1HeaderTrustFailures(t *testing.T) {
 			hs[s.live.PromiseHeight] = b
 		})
 		code, out := exec(t, s.args("verify", "--trusted", trusted))
-		assert.Equal(t, exitInvalid, code, out)
-		assert.Contains(t, out, "[FAIL] header_trust")
+		assert.Equal(t, exitUnchecked, code, out)
+		assert.Contains(t, out, "[unchecked] header_trust")
+		assert.Contains(t, out, "reason: chain_mismatch")
 	})
 	t.Run("a header of the chain between is missing", func(t *testing.T) {
 		s := newDA1(t, nil)
@@ -215,7 +218,7 @@ func TestDA1ForgedAnchorHeaderAtThePromiseHeightIsNotValid(t *testing.T) {
 		return ev
 	})
 	code, out := exec(t, s.args("verify", "--trusted", s.live.TrustedFile(t, nil)))
-	assert.Equal(t, exitInvalid, code, out)
+	assert.Equal(t, exitUnchecked, code, out)
 	assert.NotContains(t, out, "verdict: valid")
 	assert.Contains(t, out, "differ")
 }

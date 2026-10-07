@@ -51,8 +51,8 @@ func TestDA1PromiseAndAnchorHeights(t *testing.T) {
 				assert.Equal(t, verifier.VerdictValid, rep.Verdict)
 				return
 			}
-			assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
-			requireOnly(t, failed(t, rep, verifier.CheckAnchor).Err, verifier.ErrAnchorInvalid)
+			assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict, "an anchor the copy cannot back is a source problem")
+			requireOnly(t, unchecked(t, rep, verifier.CheckAnchor, verifier.ReasonSourceCorrupt).Err, verifier.ErrAnchorInvalid)
 		})
 	}
 }
@@ -65,16 +65,17 @@ func TestDA1PromiseBlobSizeMustMatchThePayloadSize(t *testing.T) {
 			r := newRig(t, newFibreParts(t))
 			r.anchor.blobSize = &size
 			rep := r.verify(t)
-			assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
-			requireOnly(t, failed(t, rep, verifier.CheckAnchor).Err, verifier.ErrAnchorInvalid)
+			assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
+			requireOnly(t, unchecked(t, rep, verifier.CheckAnchor, verifier.ReasonSourceCorrupt).Err, verifier.ErrAnchorInvalid)
 		})
 	}
 	rep := newRig(t, newFibreParts(t)).verify(t)
 	assert.Equal(t, verifier.VerdictValid, rep.Verdict)
 }
 
-// A fail on a later header wins over a missing trust input on an earlier one.
-func TestHeaderTrustFailAfterMissingInputIsAFail(t *testing.T) {
+// A problem on a later header does not stop the loop, and the first one is
+// the one reported.
+func TestHeaderTrustLoopGoesOnAfterAProblem(t *testing.T) {
 	r := newRig(t, newFibreParts(t))
 	calls := 0
 	r.deps.Trust = trustFunc(func(_ context.Context, _ uint64, _ []byte) (verifier.TrustResult, error) {
@@ -86,9 +87,25 @@ func TestHeaderTrustFailAfterMissingInputIsAFail(t *testing.T) {
 	})
 	rep := r.verify(t)
 	assert.Equal(t, 2, calls, "the loop goes on after a missing input")
-	assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
-	assert.Equal(t, verifier.TrustFailed, rep.HeaderTrust.Status)
-	requireOnly(t, failed(t, rep, verifier.CheckHeaderTrust).Err, verifier.ErrHeaderTrust)
+	assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
+	assert.Equal(t, verifier.TrustUnchecked, rep.HeaderTrust.Status)
+	requireOnly(t, unchecked(t, rep, verifier.CheckHeaderTrust, verifier.ReasonHeaderSourceUnavailable).Err, verifier.ErrHeaderTrust)
+}
+
+// A disagreement between sources outranks the other problems.
+func TestHeaderTrustDisagreementOutranksOtherProblems(t *testing.T) {
+	r := newRig(t, newFibreParts(t))
+	calls := 0
+	r.deps.Trust = trustFunc(func(_ context.Context, _ uint64, _ []byte) (verifier.TrustResult, error) {
+		calls++
+		if calls == 1 {
+			return verifier.TrustResult{}, verifier.ErrTrustInput
+		}
+		return verifier.TrustResult{}, verifier.WithReason(verifier.ReasonHeaderDisagreement, nil, errors.New("sources differ"))
+	})
+	rep := r.verify(t)
+	unchecked(t, rep, verifier.CheckHeaderTrust, verifier.ReasonHeaderDisagreement)
+	assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
 }
 
 func TestHeaderTrustMissingInputOnEveryHeaderIsUnchecked(t *testing.T) {
@@ -138,12 +155,11 @@ func TestReplayPromiseCreationRules(t *testing.T) {
 			switch {
 			case !tc.consistent:
 				require.ErrorIs(t, rr.K2.Err, verifier.ErrGateInconsistent)
-				assert.Equal(t, verifier.VerdictInvalid, rr.Report.Verdict)
+				assert.Equal(t, verifier.VerdictUnchecked, rr.Report.Verdict, "the K2 inputs are unsigned: a gate error and an altered record look the same")
+				unchecked(t, rr.Report, verifier.CheckRetention, verifier.ReasonReplayInconsistent)
 			case tc.unconfirmed:
 				assert.Equal(t, verifier.VerdictUnchecked, rr.Report.Verdict)
-				c, ok := rr.Report.Check(verifier.CheckRetention)
-				require.True(t, ok)
-				assert.Equal(t, verifier.StatusUnchecked, c.Status)
+				unchecked(t, rr.Report, verifier.CheckRetention, verifier.ReasonReplayUnconfirmed)
 			default:
 				assert.Equal(t, verifier.VerdictValid, rr.Report.Verdict)
 			}

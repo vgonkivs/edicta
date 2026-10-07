@@ -39,7 +39,7 @@ func TestStillVerifiesAndKeepsItsExitCodes(t *testing.T) {
 	other := bytes.Clone(d.Hash[:])
 	other[0] ^= 1
 	code, out = exec(t, "verify", "--archive", d.Dir, "--gate-key", d.GateKeyHex, "--trusted", trusted, hex.EncodeToString(other))
-	assert.Equal(t, 1, code, out)
+	assert.Equal(t, 2, code, out, "no record is no verdict")
 
 	code, out = exec(t)
 	assert.Equal(t, 4, code, out)

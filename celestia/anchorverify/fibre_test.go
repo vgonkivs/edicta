@@ -687,16 +687,17 @@ func TestFibreForm0ThroughTheVerifierIsNeverValid(t *testing.T) {
 	assert.Empty(t, rep.Settlement)
 }
 
-func TestFibreTamperedEvidenceThroughTheVerifierIsInvalid(t *testing.T) {
+func TestFibreTamperedEvidenceThroughTheVerifierIsInconclusive(t *testing.T) {
 	l := fibrefix.LoadLive(t)
 	ev := l.Evidence(t)
 	ev.SystemBlob[0] ^= 1
 	v, d := fibreVerifier(t, l, ev, mapTrust(l.HeaderHashes))
 	rep, err := v.Verify(context.Background(), d.Hash)
 	require.NoError(t, err)
-	assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
+	assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict, "a damaged copy is a source problem")
 	c, _ := rep.Check(verifier.CheckAnchor)
-	assert.Equal(t, verifier.StatusFail, c.Status)
+	assert.Equal(t, verifier.StatusUnchecked, c.Status)
+	assert.Equal(t, verifier.ReasonSourceCorrupt, c.Reason)
 	require.ErrorIs(t, c.Err, verifier.ErrAnchorInvalid)
 }
 
@@ -738,9 +739,10 @@ func TestFibreForgedAnchorHeaderAtThePromiseHeightIsNotValid(t *testing.T) {
 	rep, err := v.Verify(context.Background(), d.Hash)
 	require.NoError(t, err)
 	assert.NotEqual(t, verifier.VerdictValid, rep.Verdict)
-	assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
+	assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict, "a damaged copy is a source problem")
 	c, ok := rep.Check(verifier.CheckAnchor)
 	require.True(t, ok)
-	assert.Equal(t, verifier.StatusFail, c.Status)
+	assert.Equal(t, verifier.StatusUnchecked, c.Status)
+	assert.Equal(t, verifier.ReasonSourceCorrupt, c.Reason)
 	require.ErrorIs(t, c.Err, verifier.ErrAnchorInvalid)
 }

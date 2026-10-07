@@ -69,12 +69,13 @@ func TestDA1BucketDependentPrecisionIsAWarning(t *testing.T) {
 	assert.NotEmpty(t, rep.Warnings)
 }
 
-func TestDA1PromiseHeaderTamperedIsAHeaderTrustFailure(t *testing.T) {
+func TestDA1PromiseHeaderTamperedIsAHeaderTrustProblem(t *testing.T) {
 	r := newRig(t, newFibreParts(t))
 	r.trust.hashes[r.p.ev.PromiseHeight] = []byte("another hash")
 	rep := r.verify(t)
-	c := failed(t, rep, verifier.CheckHeaderTrust)
+	c := unchecked(t, rep, verifier.CheckHeaderTrust, verifier.ReasonChainMismatch)
 	requireOnly(t, c.Err, verifier.ErrHeaderTrust)
+	assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
 }
 
 func TestDA1ReplayUsesFibreInputs(t *testing.T) {
@@ -92,7 +93,7 @@ func TestDA1PayloadMissingIsIncomplete(t *testing.T) {
 	p := newFibreParts(t)
 	p.blob = nil
 	rep := newRig(t, p).verify(t)
-	c := failed(t, rep, verifier.CheckPayload)
+	c := unchecked(t, rep, verifier.CheckPayload, verifier.ReasonPayloadUnavailable)
 	requireOnly(t, c.Err, verifier.ErrArchiveIncomplete)
 	require.ErrorIs(t, c.Err, archive.ErrNotFound)
 }
@@ -108,8 +109,8 @@ func TestDA1ProofFormAndEarlierCandidatesReachTheReport(t *testing.T) {
 		{"form 1, earlier candidates", 1, 3, verifier.VerdictValid, 1},
 		{"form 0 is a warning", 0, 0, verifier.VerdictValid, 1},
 		{"form 0 and earlier candidates", 0, 2, verifier.VerdictValid, 2},
-		{"unknown form", 2, 0, verifier.VerdictInvalid, 0},
-		{"negative count", 1, -1, verifier.VerdictInvalid, 0},
+		{"unknown form", 2, 0, verifier.VerdictUnchecked, 0},
+		{"negative count", 1, -1, verifier.VerdictUnchecked, 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -117,8 +118,8 @@ func TestDA1ProofFormAndEarlierCandidatesReachTheReport(t *testing.T) {
 			r.anchor.proofForm, r.anchor.earlier = tc.form, tc.early
 			rep := r.verify(t)
 			assert.Equal(t, tc.wantVerdict, rep.Verdict)
-			if tc.wantVerdict == verifier.VerdictInvalid {
-				requireOnly(t, failed(t, rep, verifier.CheckAnchor).Err, verifier.ErrAnchorInvalid)
+			if tc.wantVerdict == verifier.VerdictUnchecked {
+				requireOnly(t, unchecked(t, rep, verifier.CheckAnchor, verifier.ReasonSourceCorrupt).Err, verifier.ErrAnchorInvalid)
 				assert.Zero(t, rep.AnchorProofForm, "nothing of a refused anchor is reported")
 				assert.Zero(t, rep.AnchorCandidatesEarlier)
 				return

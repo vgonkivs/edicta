@@ -146,3 +146,34 @@ func optBytes(n *node) []byte {
 	}
 	return bytes.Clone(n.b)
 }
+
+// EnvelopeCommitment returns the raw bytes of the commitment inside an
+// envelope that is well-formed CBOR with a map under key 1, without checking
+// the commitment or the signature. It lets a reader tell a commitment that
+// breaks a rule from a copy whose bytes were damaged: only the first one
+// hashes to the reference.
+func EnvelopeCommitment(b []byte) ([]byte, error) {
+	if len(b) > MaxSignedSize {
+		return nil, fmt.Errorf("%w: envelope of %d bytes", ErrTooLarge, len(b))
+	}
+	root, err := scanTop(b, 1)
+	if err != nil {
+		return nil, err
+	}
+	if root.major != majMap {
+		return nil, fmt.Errorf("%w: envelope is not a map", ErrWrongType)
+	}
+	for _, e := range root.entries {
+		if e.key != 1 {
+			continue
+		}
+		if e.val.major != majMap {
+			return nil, fmt.Errorf("%w: envelope.commitment", ErrWrongType)
+		}
+		if size := e.val.end - e.val.start; size > MaxCommitmentSize {
+			return nil, fmt.Errorf("%w: commitment of %d bytes", ErrTooLarge, size)
+		}
+		return bytes.Clone(b[e.val.start:e.val.end]), nil
+	}
+	return nil, fmt.Errorf("%w: envelope needs key 1", ErrMissingField)
+}

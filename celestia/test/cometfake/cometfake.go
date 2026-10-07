@@ -101,7 +101,16 @@ type Tx struct {
 	Proof json.RawMessage
 }
 
-// Server answers /status, /header, /blockchain, /commit and /tx.
+// Result is one transaction result the server can serve under /block_results.
+type Result struct {
+	Code      uint32
+	Data      []byte
+	GasWanted int64
+	GasUsed   int64
+}
+
+// Server answers /status, /header, /blockchain, /commit, /tx and
+// /block_results.
 type Server struct {
 	*httptest.Server
 
@@ -111,6 +120,9 @@ type Server struct {
 	NodeID  string
 	Network string
 	Txs     map[string]Tx
+	// Results are the block results by height. A height with none is answered
+	// like a node that does not persist them.
+	Results map[uint64][]Result
 	// Status maps a URL path to an HTTP status that replaces the answer.
 	Status map[string]int
 	// RPCError maps a URL path to a JSON-RPC error data string; the answer
@@ -128,7 +140,7 @@ func New(tb testing.TB, c *Chain, latest uint64, nodeID string) *Server {
 	tb.Helper()
 	s := &Server{
 		Chain: c, LatestH: latest, NodeID: nodeID, Network: c.ChainID,
-		Txs: map[string]Tx{}, Status: map[string]int{}, RPCError: map[string]string{}, ErrHTTP: http.StatusOK,
+		Txs: map[string]Tx{}, Results: map[uint64][]Result{}, Status: map[string]int{}, RPCError: map[string]string{}, ErrHTTP: http.StatusOK,
 	}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.serve))
 	tb.Cleanup(s.Server.Close)
@@ -292,6 +304,22 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			res["proof"] = tx.Proof
 		}
 		write(w, http.StatusOK, result(res))
+	case "/block_results":
+		h, ok := height("height")
+		rs, have := s.Results[h]
+		if !ok || !have {
+			s.rpcErr(w, "node is not persisting finalize block responses")
+			return
+		}
+		list := make([]any, len(rs))
+		for i, r := range rs {
+			list[i] = map[string]any{
+				"code": r.Code, "data": base64.StdEncoding.EncodeToString(r.Data), "log": "ignored", "info": "",
+				"gas_wanted": strconv.FormatInt(r.GasWanted, 10), "gas_used": strconv.FormatInt(r.GasUsed, 10),
+				"events": []any{}, "codespace": "",
+			}
+		}
+		write(w, http.StatusOK, result(map[string]any{"height": strconv.FormatUint(h, 10), "txs_results": list}))
 	default:
 		http.NotFound(w, r)
 	}

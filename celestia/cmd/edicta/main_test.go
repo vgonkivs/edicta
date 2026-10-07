@@ -124,11 +124,11 @@ func TestVerifyAndReplayEndToEnd(t *testing.T) {
 		code, out := edicta(t, "verify", h, "--gate-key", d.GateKeyHex, "--archive", d.Dir)
 		assert.Equal(t, exitUnchecked, code, out)
 	})
-	t.Run("another decision is invalid", func(t *testing.T) {
+	t.Run("another decision has no record, so it is inconclusive", func(t *testing.T) {
 		other := bytes.Clone(d.Hash[:])
 		other[0] ^= 1
 		code, out := edicta(t, "verify", hex.EncodeToString(other), "--gate-key", d.GateKeyHex, "--archive", d.Dir, "--trusted", trusted)
-		assert.Equal(t, exitInvalid, code, out)
+		assert.Equal(t, exitUnchecked, code, out)
 	})
 	t.Run("the same archive over HTTP", func(t *testing.T) {
 		ro, err := fsarchive.OpenReadOnly(d.Dir, fibrefix.Committers(t))

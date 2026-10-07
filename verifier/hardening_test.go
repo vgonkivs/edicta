@@ -113,7 +113,7 @@ func TestHeaderTrustFieldsAreReportedWhateverTheStatus(t *testing.T) {
 		status verifier.TrustStatus
 		cross  string
 	}{
-		{"failed", verifier.TrustResult{CheckpointH: checkpointH, CheckpointHash: cpHash, CrossCheck: "mismatch"}, errFakeTrust, verifier.TrustFailed, "mismatch"},
+		{"contradicted", verifier.TrustResult{CheckpointH: checkpointH, CheckpointHash: cpHash, CrossCheck: "mismatch"}, errFakeTrust, verifier.TrustUnchecked, "mismatch"},
 		{"unchecked", verifier.TrustResult{CheckpointH: checkpointH, CheckpointHash: cpHash}, nil, verifier.TrustUnchecked, ""},
 	}
 	for _, tc := range tests {
@@ -138,8 +138,9 @@ func TestReceiptIsCheckedOnlyWhenNothingFailed(t *testing.T) {
 	}{
 		{"nothing failed", func(*parts) {}, func(*rig) {}, true},
 		{"unchecked trust does not stop it", func(*parts) {}, func(r *rig) { r.deps.Trust = nil }, true},
-		{"anchor failed", func(p *parts) { p.ev.Header = []byte("garbage") }, func(*rig) {}, false},
-		{"header trust failed", func(*parts) {}, func(r *rig) { r.trust.err = errFakeTrust }, false},
+		{"an anchor that did not verify does not stop it", func(p *parts) { p.ev.Header = []byte("garbage") }, func(*rig) {}, true},
+		{"header trust that did not hold does not stop it", func(*parts) {}, func(r *rig) { r.trust.err = errFakeTrust }, true},
+		{"anchor time failed", func(*parts) {}, func(r *rig) { r.anchor.blockTime = r.p.c.IssuedAt + r.deps.Config.Params.SkewS + 1 }, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -160,16 +161,16 @@ func TestAuthorizationVerifiedIsNotTheVerdict(t *testing.T) {
 	r.trust.err = errFakeTrust
 	rep := r.verify(t)
 	assert.True(t, rep.AuthorizationVerified, "the Authorization itself verified")
-	assert.Equal(t, verifier.VerdictInvalid, rep.Verdict, "another check failed")
+	assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict, "another check could not be done")
 }
 
 func TestCorruptAuthorizationRecordIsReportedUnderAuthorization(t *testing.T) {
 	r := newRig(t, newParts(t))
 	r.deps.Archive = damagedReader{r.store}
 	rep := r.verify(t)
-	assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
+	assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
 	passed(t, rep, verifier.CheckDecision)
-	c := failed(t, rep, verifier.CheckAuthorization)
+	c := unchecked(t, rep, verifier.CheckAuthorization, verifier.ReasonSourceCorrupt)
 	requireOnly(t, c.Err, verifier.ErrAuthorizationInvalid)
 	require.ErrorIs(t, c.Err, archive.ErrCorrupt)
 	assert.False(t, rep.AuthorizationVerified)
@@ -209,8 +210,8 @@ func TestDA1ReportRulesHoldInTheGenericLayer(t *testing.T) {
 				assert.Equal(t, verifier.VerdictValid, rep.Verdict)
 				return
 			}
-			assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
-			c := failed(t, rep, verifier.CheckAnchor)
+			assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
+			c := unchecked(t, rep, verifier.CheckAnchor, verifier.ReasonSourceCorrupt)
 			requireOnly(t, c.Err, verifier.ErrAnchorInvalid)
 		})
 	}
@@ -277,8 +278,8 @@ func TestReplayConsistencyRules(t *testing.T) {
 			require.True(t, rr.K2.Replayable)
 			assert.False(t, rr.K2.Consistent)
 			require.ErrorIs(t, rr.K2.Err, verifier.ErrGateInconsistent)
-			assert.Equal(t, verifier.VerdictInvalid, rr.Report.Verdict, "the library verdict folds the replay in")
-			c := failed(t, rr.Report, verifier.CheckRetention)
+			assert.Equal(t, verifier.VerdictUnchecked, rr.Report.Verdict, "the library verdict folds the replay in; the inputs are unsigned")
+			c := unchecked(t, rr.Report, verifier.CheckRetention, verifier.ReasonReplayInconsistent)
 			require.ErrorIs(t, c.Err, verifier.ErrGateInconsistent)
 
 			rep := r.verify(t)

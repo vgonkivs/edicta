@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
+	"slices"
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
@@ -74,8 +75,38 @@ func (r *run) fail(n CheckName, err error) {
 	r.rep.Checks = append(r.rep.Checks, Check{Name: n, Status: StatusFail, Err: err})
 }
 
-func (r *run) unchecked(n CheckName, err error) {
-	r.rep.Checks = append(r.rep.Checks, Check{Name: n, Status: StatusUnchecked, Err: err})
+// unchecked records a check that could not be decided, with its reason and
+// the sources or checks it blames.
+func (r *run) unchecked(n CheckName, reason Reason, err error, sources ...string) {
+	if err == nil {
+		err = errors.New(string(reason))
+	}
+	r.rep.Checks = append(r.rep.Checks, Check{Name: n, Status: StatusUnchecked, Err: err, Reason: reason, Sources: sources})
+}
+
+// archiveProblem records an archive record that is absent or damaged.
+func (r *run) archiveProblem(n CheckName, unavailable Reason, err error) {
+	reason := ReasonSourceCorrupt
+	if errors.Is(err, archive.ErrNotFound) {
+		reason = unavailable
+	}
+	r.unchecked(n, reason, fmt.Errorf("%w: %w", ErrArchiveIncomplete, err))
+}
+
+// corrupt records bytes that fail a check a genuine copy passes.
+func (r *run) corrupt(n CheckName, sentinel, err error) {
+	r.unchecked(n, ReasonSourceCorrupt, fmt.Errorf("%w: %w", sentinel, err))
+}
+
+// replaceCheck swaps the recorded check of that name for c.
+func (r *run) replaceCheck(c Check) {
+	for i := range r.rep.Checks {
+		if r.rep.Checks[i].Name == c.Name {
+			r.rep.Checks[i] = c
+			return
+		}
+	}
+	r.rep.Checks = append(r.rep.Checks, c)
 }
 
 func (r *run) warn(format string, a ...any) {
@@ -106,7 +137,7 @@ func (v *Verifier) verify(ctx context.Context, h commitment.Hash, opts []Option)
 			return nil, fmt.Errorf("verifier: archive state: %w", err)
 		}
 		if !r.corruptAuthorization(ctx) {
-			r.fail(CheckDecision, fmt.Errorf("%w: %w", ErrArchiveIncomplete, err))
+			r.archiveProblem(CheckDecision, ReasonDecisionUnavailable, err)
 			r.finish()
 			return r, nil
 		}
@@ -119,7 +150,7 @@ func (v *Verifier) verify(ctx context.Context, h commitment.Hash, opts []Option)
 		r.rep.Rejections = st.Rejections
 	}
 	if st.State == archive.StateAbsent {
-		r.fail(CheckDecision, ErrDecisionNotFound)
+		r.unchecked(CheckDecision, ReasonDecisionUnavailable, ErrDecisionNotFound)
 		r.finish()
 		return r, nil
 	}
@@ -129,7 +160,9 @@ func (v *Verifier) verify(ctx context.Context, h commitment.Hash, opts []Option)
 		if !soft(err) {
 			return nil, fmt.Errorf("verifier: archive decision: %w", err)
 		}
-		r.fail(CheckDecision, fmt.Errorf("%w: %w", ErrArchiveIncomplete, err))
+		// No decision was read, so no state is known.
+		r.rep.State, r.rep.Rejections = archive.StateAbsent, nil
+		r.archiveProblem(CheckDecision, ReasonDecisionUnavailable, err)
 		r.finish()
 		return r, nil
 	}
@@ -187,29 +220,55 @@ func (r *run) alive() error {
 	return nil
 }
 
+// envelope runs stages D, S and G. A commitment that hashes to the reference
+// and breaks one of them has the same bytes in every copy, so it fails. A copy
+// whose bytes hash to something else, or whose signature (outside the hash)
+// does not verify, is only a bad copy: unchecked.
 func (r *run) envelope(dec *archive.DecisionRecord) bool {
-	bad := func(err error) bool {
+	proven := func(err error) bool {
 		r.fail(CheckEnvelope, fmt.Errorf("%w: %w", ErrEnvelopeInvalid, err))
 		return false
 	}
+	corrupt := func(err error) bool {
+		r.corrupt(CheckEnvelope, ErrEnvelopeInvalid, err)
+		return false
+	}
+	hashesToRef := func(c *commitment.Commitment) bool {
+		got, err := commitment.HashOf(c)
+		return err == nil && got == r.h
+	}
 	sc, err := commitment.DecodeSigned(dec.Envelope)
 	if err != nil {
-		return bad(err)
+		if raw, rerr := commitment.EnvelopeCommitment(dec.Envelope); rerr == nil && commitment.HashCanonical(raw) == r.h {
+			if _, derr := commitment.Decode(raw); derr != nil {
+				return proven(derr)
+			}
+		}
+		return corrupt(err)
 	}
 	if err := commitment.ValidateStatic(&sc.Commitment, r.v.cfg.Params); err != nil {
-		return bad(err)
+		if hashesToRef(&sc.Commitment) {
+			return proven(err)
+		}
+		return corrupt(err)
+	}
+	if err := commitment.CheckPublicKey(sc.Commitment.AgentPubKey); err != nil {
+		if hashesToRef(&sc.Commitment) {
+			return proven(err)
+		}
+		return corrupt(err)
 	}
 	got, err := commitment.Verify(sc)
 	if err != nil {
-		return bad(err)
+		return corrupt(err)
+	}
+	if got != r.h {
+		return corrupt(errors.New("envelope hashes to another commitment"))
 	}
 	for _, k := range r.v.cfg.GateKeys {
 		if bytes.Equal(k, sc.Commitment.AgentPubKey) {
-			return bad(errors.New("the agent key is a gate key"))
+			return proven(errors.New("the agent key is a gate key"))
 		}
-	}
-	if got != r.h {
-		return bad(errors.New("envelope hashes to another commitment"))
 	}
 	r.c = &sc.Commitment
 	r.rep.DA = r.c.PayloadRef.DA
@@ -222,7 +281,7 @@ func (r *run) envelope(dec *archive.DecisionRecord) bool {
 
 func (r *run) checkAction(dec *archive.DecisionRecord) {
 	if err := commitment.CheckAction(r.c, dec.Action); err != nil {
-		r.fail(CheckAction, fmt.Errorf("%w: %w", ErrActionInvalid, err))
+		r.corrupt(CheckAction, ErrActionInvalid, err)
 		return
 	}
 	r.action = bytes.Clone(dec.Action)
@@ -231,7 +290,8 @@ func (r *run) checkAction(dec *archive.DecisionRecord) {
 
 // authorization requires the record to decode, verify under a configured
 // gate key and bind to this decision. Nothing is reported as authorized
-// otherwise.
+// otherwise. A record that does not decode or verify is a bad copy
+// (unchecked); a record the gate signed that contradicts the decision fails.
 func (r *run) authorization() error {
 	bad := func(sentinel, err error) error {
 		r.fail(CheckAuthorization, fmt.Errorf("%w: %w", sentinel, err))
@@ -242,11 +302,15 @@ func (r *run) authorization() error {
 		if !soft(err) {
 			return fmt.Errorf("verifier: archive authorization: %w", err)
 		}
-		return bad(ErrAuthorizationInvalid, err)
+		// The state said the record is there, so a missing one is a copy
+		// that disagrees with itself.
+		r.corrupt(CheckAuthorization, ErrAuthorizationInvalid, err)
+		return nil
 	}
 	sa, ah, err := commitment.DecodeSignedAuthorization(rec.SignedAuthorization)
 	if err != nil {
-		return bad(ErrAuthorizationInvalid, err)
+		r.corrupt(CheckAuthorization, ErrAuthorizationInvalid, err)
+		return nil
 	}
 	msg := commitment.AuthorizationSigningMessage(ah)
 	trusted := false
@@ -257,7 +321,7 @@ func (r *run) authorization() error {
 		}
 	}
 	if !trusted {
-		r.fail(CheckAuthorization, ErrGateKeyNotTrusted)
+		r.unchecked(CheckAuthorization, ReasonSourceCorrupt, ErrGateKeyNotTrusted)
 		return nil
 	}
 	a := &sa.Authorization
@@ -293,20 +357,20 @@ func (r *run) payload() error {
 		if !soft(err) {
 			return fmt.Errorf("verifier: archive payload: %w", err)
 		}
-		r.fail(CheckPayload, fmt.Errorf("%w: %w", ErrArchiveIncomplete, err))
+		r.archiveProblem(CheckPayload, ReasonPayloadUnavailable, err)
 		return nil
 	}
 	if err := commitment.CheckPayload(r.c, rec.Blob); err != nil {
-		r.fail(CheckPayload, fmt.Errorf("%w: %w", ErrPayloadInvalid, err))
+		r.corrupt(CheckPayload, ErrPayloadInvalid, err)
 		return nil
 	}
 	committer := r.v.committers[ref.DA]
 	if committer == nil {
-		r.fail(CheckPayload, fmt.Errorf("%w: %w: da %d", ErrPayloadInvalid, gate.ErrArchiveRecomputeUnsupported, ref.DA))
+		r.unchecked(CheckPayload, ReasonDAUnsupported, fmt.Errorf("%w: %w: da %d", ErrPayloadInvalid, gate.ErrArchiveRecomputeUnsupported, ref.DA))
 		return nil
 	}
 	if err := committer.Check(ref, rec.Blob); err != nil {
-		r.fail(CheckPayload, fmt.Errorf("%w: %w", ErrPayloadInvalid, err))
+		r.corrupt(CheckPayload, ErrPayloadInvalid, err)
 		return nil
 	}
 	r.pass(CheckPayload)
@@ -320,15 +384,38 @@ func (r *run) anchorAndTrust() error {
 	}
 	if !ok {
 		r.rep.HeaderTrust.Status = TrustUnchecked
-		r.unchecked(CheckHeaderTrust, errors.New("the anchor did not verify"))
+		r.unchecked(CheckAnchorTime, ReasonBlocked, errors.New("the anchor did not verify"), string(CheckAnchor))
+		r.unchecked(CheckHeaderTrust, ReasonBlocked, errors.New("the anchor did not verify"), string(CheckAnchor))
 		return nil
 	}
-	if err := commitment.CheckAnchorTime(r.c, r.facts.BlockTime, r.v.cfg.Params); err != nil {
-		r.fail(CheckAnchorTime, err)
-	} else {
-		r.pass(CheckAnchorTime)
+	if err := r.headerTrust(); err != nil {
+		return err
 	}
-	return r.headerTrust()
+	r.anchorTime()
+	return nil
+}
+
+// anchorTime holds the decision's issue time to the anchor block's time. The
+// block time comes from an archived header, so it counts only once header
+// trust tied that header to the chain; a time the verifier cannot trust never
+// fails the decision. The check is listed before header trust.
+func (r *run) anchorTime() {
+	c := Check{Name: CheckAnchorTime, Status: StatusPass}
+	if ht, ok := r.rep.Check(CheckHeaderTrust); !ok || ht.Status != StatusPass {
+		c = Check{
+			Name: CheckAnchorTime, Status: StatusUnchecked, Reason: ReasonBlocked,
+			Err: errors.New("header trust did not pass, so the anchor block time is not trusted"), Sources: []string{string(CheckHeaderTrust)},
+		}
+	} else if err := commitment.CheckAnchorTime(r.c, r.facts.BlockTime, r.v.cfg.Params); err != nil {
+		c = Check{Name: CheckAnchorTime, Status: StatusFail, Err: err}
+	}
+	for i, o := range r.rep.Checks {
+		if o.Name == CheckHeaderTrust {
+			r.rep.Checks = slices.Insert(r.rep.Checks, i, c)
+			return
+		}
+	}
+	r.rep.Checks = append(r.rep.Checks, c)
 }
 
 // anchor runs the DA's anchor verifier and holds its facts to the rules that
@@ -336,12 +423,12 @@ func (r *run) anchorAndTrust() error {
 func (r *run) anchor() (bool, error) {
 	ref := r.c.PayloadRef
 	bad := func(err error) (bool, error) {
-		r.fail(CheckAnchor, fmt.Errorf("%w: %w", ErrAnchorInvalid, err))
+		r.corrupt(CheckAnchor, ErrAnchorInvalid, err)
 		return false, nil
 	}
 	av := r.v.anchors[ref.DA]
 	if av == nil {
-		r.unchecked(CheckAnchor, fmt.Errorf("%w: da %d", ErrAnchorUnsupported, ref.DA))
+		r.unchecked(CheckAnchor, ReasonDAUnsupported, fmt.Errorf("%w: da %d", ErrAnchorUnsupported, ref.DA))
 		return false, nil
 	}
 	ev, err := r.v.archive.Evidence(r.ctx, ref.DA, ref.Commitment)
@@ -349,7 +436,7 @@ func (r *run) anchor() (bool, error) {
 		if !soft(err) {
 			return false, fmt.Errorf("verifier: archive evidence: %w", err)
 		}
-		r.fail(CheckAnchor, fmt.Errorf("%w: %w", ErrArchiveIncomplete, err))
+		r.archiveProblem(CheckAnchor, ReasonEvidenceUnavailable, err)
 		return false, nil
 	}
 	if ev.Height != ref.Height {
@@ -357,7 +444,7 @@ func (r *run) anchor() (bool, error) {
 	}
 	facts, err := av.VerifyAnchor(ref, ev)
 	if errors.Is(err, ErrAnchorUnsupported) {
-		r.unchecked(CheckAnchor, err)
+		r.unchecked(CheckAnchor, ReasonDAUnsupported, err)
 		return false, nil
 	}
 	if err != nil {
@@ -482,7 +569,7 @@ func (r *run) headerTrust() error {
 	ht := &r.rep.HeaderTrust
 	if r.v.trust == nil {
 		ht.Status = TrustUnchecked
-		r.unchecked(CheckHeaderTrust, errors.New("no trusted header supplied"))
+		r.unchecked(CheckHeaderTrust, ReasonNoTrustedHeader, errors.New("no trusted header supplied"))
 		return nil
 	}
 	headers := r.neededHeaders()
@@ -490,15 +577,17 @@ func (r *run) headerTrust() error {
 	for _, h := range headers {
 		ht.Hashes[h.height] = h.hash
 	}
-	failTrust := func(err error) error {
-		ht.Status = TrustFailed
-		r.fail(CheckHeaderTrust, fmt.Errorf("%w: %w", ErrHeaderTrust, err))
-		return nil
-	}
 
 	checked := true
 	cross := ""
-	var noInput error
+	var problem error
+	note := func(err error) {
+		// A disagreement between sources outranks the other problems: it is
+		// the one the auditor must look at.
+		if problem == nil || (!isDisagreement(problem) && isDisagreement(err)) {
+			problem = err
+		}
+	}
 	for i, h := range headers {
 		height := h.height
 		res, err := r.v.trust.Trusted(r.ctx, height, h.hash)
@@ -511,41 +600,38 @@ func (r *run) headerTrust() error {
 		if res.CrossCheck != "" {
 			ht.CrossCheck = res.CrossCheck
 		}
-		if errors.Is(err, ErrTrustInput) {
-			if noInput == nil {
-				noInput = fmt.Errorf("height %d: %w", height, err)
-			}
-			continue
-		}
 		if err != nil {
-			return failTrust(fmt.Errorf("height %d: %w", height, err))
+			note(trustProblem(height, err))
+			continue
 		}
 		if !res.Checked {
 			checked = false
+			note(Reasonf(ReasonNoTrustedHeader, nil, "%w: height %d was not checked", ErrHeaderTrust, height))
 			continue
 		}
 		switch res.CrossCheck {
-		case "mismatch":
-			ht.CrossCheck = "mismatch"
-			return failTrust(fmt.Errorf("height %d: cross-check mismatch", height))
-		case "pass", "unavailable", "off":
+		case CrossMismatch:
+			ht.CrossCheck = CrossMismatch
+			note(Reasonf(ReasonHeaderDisagreement, nil, "%w: height %d: %s", ErrHeaderTrust, height, DisagreementText))
+		case CrossPass, CrossUnavailable, CrossOff:
 			cross = worseCross(cross, res.CrossCheck)
 		default:
-			return failTrust(fmt.Errorf("height %d: unknown cross-check result %q", height, res.CrossCheck))
+			note(Reasonf(ReasonHeaderSourceUnavailable, nil, "%w: height %d: unknown cross-check result %q", ErrHeaderTrust, height, res.CrossCheck))
 		}
 	}
-	if noInput != nil {
+	if problem != nil {
 		ht.Status = TrustUnchecked
-		r.unchecked(CheckHeaderTrust, noInput)
+		reason, srcs, _ := ReasonOf(problem)
+		r.unchecked(CheckHeaderTrust, reason, problem, srcs...)
 		return nil
 	}
 	ht.CrossCheck = cross
 	if !checked {
 		ht.Status = TrustUnchecked
-		r.unchecked(CheckHeaderTrust, errors.New("header trust did not check the headers"))
+		r.unchecked(CheckHeaderTrust, ReasonNoTrustedHeader, errors.New("header trust did not check the headers"))
 		return nil
 	}
-	if cross == "unavailable" {
+	if cross == CrossUnavailable {
 		r.warn("header trust: cross-check not done, no endpoint answered")
 	}
 	ht.Status = TrustValid
@@ -553,31 +639,54 @@ func (r *run) headerTrust() error {
 	return nil
 }
 
+func isDisagreement(err error) bool {
+	re, _, ok := ReasonOf(err)
+	return ok && re == ReasonHeaderDisagreement
+}
+
+// trustProblem gives an error of header trust its reason. An error that
+// carries none is classified by what it wraps: input trouble means no header
+// source gave what was needed, and anything else means the header the
+// decision names is not on the trusted chain.
+func trustProblem(height uint64, err error) error {
+	reason, srcs, ok := ReasonOf(err)
+	if !ok {
+		reason = ReasonChainMismatch
+		if errors.Is(err, ErrTrustInput) {
+			reason = ReasonHeaderSourceUnavailable
+		}
+	}
+	return WithReason(reason, srcs, fmt.Errorf("%w: height %d: %w", ErrHeaderTrust, height, err))
+}
+
 // worseCross keeps the less assuring of two cross-check results.
 func worseCross(a, b string) string {
-	rank := map[string]int{"": 0, "pass": 1, "off": 2, "unavailable": 3}
+	rank := map[string]int{"": 0, CrossPass: 1, CrossOff: 2, CrossUnavailable: 3}
 	if rank[b] > rank[a] {
 		return b
 	}
 	return a
 }
 
+// receipt checks the given receipt. A receipt that does not decode or verify
+// is a bad file, and one that verifies but is not this decision's does not
+// say anything about it: both are unchecked.
 func (r *run) receipt(signed []byte) {
-	bad := func(err error) {
-		r.fail(CheckReceipt, fmt.Errorf("%w: %w", ErrReceiptInvalid, err))
+	mismatch := func(err error) {
+		r.unchecked(CheckReceipt, ReasonReceiptMismatch, fmt.Errorf("%w: %w", ErrReceiptInvalid, err))
 	}
 	sr, _, err := commitment.VerifyReceipt(signed)
 	if err != nil {
-		bad(err)
+		r.corrupt(CheckReceipt, ErrReceiptInvalid, err)
 		return
 	}
 	rc := &sr.Receipt
 	switch {
 	case !bytes.Equal(rc.CommitmentHash, r.h[:]):
-		bad(errors.New("receipt is for another decision"))
+		mismatch(errors.New("receipt is for another decision"))
 		return
 	case rc.GateID != r.c.Scope.GateID:
-		bad(errors.New("receipt gate id differs from the decision's scope"))
+		mismatch(errors.New("receipt gate id differs from the decision's scope"))
 		return
 	}
 	known := false
@@ -588,7 +697,7 @@ func (r *run) receipt(signed []byte) {
 		}
 	}
 	if !known {
-		bad(errors.New("receipt is signed by a key that is not a configured gate key"))
+		mismatch(errors.New("receipt is signed by a key that is not a configured gate key"))
 		return
 	}
 	r.rep.Receipt = &ReceiptInfo{RailRef: rc.RailRef, RecordedAt: rc.RecordedAt, GateAttested: true}
@@ -596,16 +705,18 @@ func (r *run) receipt(signed []byte) {
 }
 
 // finish sets the verdict: any failed step invalidates; otherwise a decision
-// that was not authorized says so; otherwise anything unchecked keeps it
-// from being valid.
+// with no record says nothing; otherwise one that was not authorized says so;
+// otherwise anything unchecked keeps it from being valid.
 func (r *run) finish() {
 	if _, ok := r.rep.Check(CheckExecution); r.execRequested && !ok {
-		r.unchecked(CheckExecution, errors.New("the decision did not get far enough to check the execution"))
+		r.unchecked(CheckExecution, ReasonBlocked, errors.New("the decision did not get far enough to check the execution"), r.firstOther(CheckExecution))
 	}
 	verdict := VerdictValid
 	switch {
 	case r.anyStatus(StatusFail):
 		verdict = VerdictInvalid
+	case r.rep.State == archive.StateAbsent:
+		verdict = VerdictUnchecked
 	case r.rep.State != archive.StateAuthorized:
 		verdict = VerdictNotAuthorized
 	case r.anyStatus(StatusUnchecked), !r.allRequiredPassed():
@@ -633,6 +744,27 @@ func (r *run) allRequiredPassed() bool {
 	return true
 }
 
+// firstOther names the first check, other than skip, that did not pass, so
+// that a blocked check can say what it waits for.
+func (r *run) firstOther(skip CheckName) string {
+	for _, c := range r.rep.Checks {
+		if c.Name != skip && c.Status != StatusPass {
+			return string(c.Name)
+		}
+	}
+	return string(CheckAuthorization)
+}
+
+// passedAll reports whether every named check ran and passed.
+func (r *run) passedAll(names ...CheckName) bool {
+	for _, n := range names {
+		if c, ok := r.rep.Check(n); !ok || c.Status != StatusPass {
+			return false
+		}
+	}
+	return true
+}
+
 func (r *run) anyStatus(s Status) bool {
 	for _, c := range r.rep.Checks {
 		if c.Status == s {
@@ -640,114 +772,4 @@ func (r *run) anyStatus(s Status) bool {
 		}
 	}
 	return false
-}
-
-// execution asks the rail checker registered for the action type about the
-// transaction in the receipt, and holds its facts to the core's rules. It
-// never passes unless the receipt, the header trust and the checker all did.
-func (r *run) execution() {
-	unchecked := func(err error) { r.unchecked(CheckExecution, err) }
-	fail := func(err error) { r.fail(CheckExecution, fmt.Errorf("%w: %w", ErrExecutionInvalid, err)) }
-
-	if c, ok := r.rep.Check(CheckReceipt); !ok || c.Status != StatusPass || r.rep.Receipt == nil {
-		unchecked(errors.New("no receipt that passed"))
-		return
-	}
-	if r.rep.State != archive.StateAuthorized || !r.rep.AuthorizationVerified {
-		unchecked(errors.New("the decision is not authorized"))
-		return
-	}
-	if r.anyStatus(StatusFail) {
-		unchecked(errors.New("another check failed"))
-		return
-	}
-	if c, ok := r.rep.Check(CheckHeaderTrust); !ok || c.Status != StatusPass || r.v.trust == nil {
-		unchecked(errors.New("no trusted header"))
-		return
-	}
-	chk := r.v.executions[r.c.Action.Type]
-	if chk == nil {
-		unchecked(fmt.Errorf("no execution checker for action type %q", r.c.Action.Type))
-		return
-	}
-	if c, ok := r.rep.Check(CheckAction); !ok || c.Status != StatusPass || r.action == nil {
-		unchecked(errors.New("the action did not pass its check"))
-		return
-	}
-	if err := commitment.CheckAction(r.c, r.action); err != nil {
-		unchecked(fmt.Errorf("the action bytes are not the committed ones: %w", err))
-		return
-	}
-	facts, err := chk.CheckExecution(r.ctx, ExecutionInput{
-		CommitmentHash: r.h, ActionType: r.c.Action.Type, Action: bytes.Clone(r.action), RailRef: r.rep.Receipt.RailRef,
-	})
-	if err != nil {
-		if cerr := r.ctx.Err(); cerr != nil {
-			unchecked(cerr)
-			return
-		}
-		if errors.Is(err, ErrExecutionUnchecked) {
-			unchecked(err)
-			return
-		}
-		fail(err)
-		return
-	}
-	r.rep.Execution = &ExecutionInfo{
-		RailRef: r.rep.Receipt.RailRef, Height: facts.Height, HeaderHash: bytes.Clone(facts.HeaderHash),
-		BlockTime: facts.BlockTime, Inclusion: facts.Inclusion, Result: facts.Result, CrossCheck: facts.CrossCheck,
-		Sources: append([]string(nil), facts.Sources...),
-	}
-	switch {
-	case facts.Inclusion != "proven" && facts.Inclusion != "node-attested":
-		fail(fmt.Errorf("inclusion %q", facts.Inclusion))
-		return
-	case facts.Result != settlementNodeAttested:
-		fail(fmt.Errorf("result %q", facts.Result))
-		return
-	case len(facts.HeaderHash) == 0:
-		fail(errors.New("no header hash"))
-		return
-	case facts.Height <= r.c.PayloadRef.Height:
-		fail(fmt.Errorf("transaction height %d is not above the anchor height %d", facts.Height, r.c.PayloadRef.Height))
-		return
-	}
-	switch facts.CrossCheck {
-	case "pass", "unavailable", "off":
-	case "mismatch":
-		fail(errors.New("cross sources disagree"))
-		return
-	default:
-		fail(fmt.Errorf("cross-check result %q", facts.CrossCheck))
-		return
-	}
-	res, err := r.v.trust.Trusted(r.ctx, facts.Height, facts.HeaderHash)
-	switch {
-	case r.ctx.Err() != nil:
-		unchecked(r.ctx.Err())
-		return
-	case err != nil:
-		// The header at the transaction height always comes from an online
-		// source, so a header that does not link to the trusted chain is
-		// that source's fault, never a finding about the decision.
-		unchecked(fmt.Errorf("header at the transaction height is not on the trusted chain: %w", err))
-		return
-	case !res.Checked:
-		unchecked(errors.New("header trust did not check the header at the transaction height"))
-		return
-	}
-	// A cross-check mismatch here means the chain's own header at this height
-	// differs from a second source's.
-	if res.CrossCheck == "mismatch" {
-		fail(errors.New("header trust cross-check mismatch at the transaction height"))
-		return
-	}
-	r.rep.Receipt.ProvenExecution = facts.Inclusion == "proven"
-	if facts.Inclusion != "proven" {
-		r.warn("execution: no inclusion proof, so the transaction height %d, and with it the order of the anchor before the transaction, is what the transaction source says", facts.Height)
-	}
-	if r.rep.Authorization != nil && facts.BlockTime > r.rep.Authorization.Expires {
-		r.warn("execution_after_expires: the transaction block time %d is after the Authorization expiry %d", facts.BlockTime, r.rep.Authorization.Expires)
-	}
-	r.pass(CheckExecution)
 }

@@ -68,11 +68,19 @@ func encodeHeader(t testing.TB, h core.Header) []byte {
 
 type chain struct{ hdrs map[uint64]core.Header }
 
-func buildChain(from, to uint64) *chain {
+func buildChain(from, to uint64) *chain { return buildChainWith(from, to, nil) }
+
+// buildChainWith links the headers after mod changed each one, so that a
+// header can carry a data root or a results hash that a test needs and the
+// chain above it still links.
+func buildChainWith(from, to uint64, mod func(h uint64, hd *core.Header)) *chain {
 	c := &chain{hdrs: map[uint64]core.Header{}}
 	prev := filler("genesis", from)
 	for h := from; h <= to; h++ {
 		hd := mkHeader(h, prev, "app")
+		if mod != nil {
+			mod(h, &hd)
+		}
 		c.hdrs[h] = hd
 		prev = hd.Hash()
 	}
@@ -150,6 +158,12 @@ type scenarioOpts struct {
 	forgedHeader bool
 	// bank commits to the bank-send vector action.
 	bank bool
+	// chainMod changes the headers of the chain before they are linked.
+	chainMod func(h uint64, hd *core.Header)
+	// outlivingAuth archives an Authorization that the gate signed with an
+	// expiry after the decision's valid_until: a contradiction that the
+	// verified record proves.
+	outlivingAuth bool
 }
 
 func gatePubHex(t testing.TB) string {
@@ -180,7 +194,7 @@ func newScenario(t *testing.T, o scenarioOpts) *scenario {
 		blob = append([]byte(nil), blob...)
 		blob[len(blob)-1] ^= 1
 	}
-	ch := buildChain(anchorHeight-5, checkpointH)
+	ch := buildChainWith(anchorHeight-5, checkpointH, o.chainMod)
 	header := []byte("hdr:4200000")
 	switch {
 	case o.forgedHeader:
@@ -203,7 +217,11 @@ func newScenario(t *testing.T, o scenarioOpts) *scenario {
 		require.NoError(t, err)
 	}
 	if !o.pending {
-		a := commitment.Authorization{CommitmentHash: h[:], ActionHash: c.Action.Hash, GateID: gatefix.GateID, Expires: authorizedAt + 300, Path: commitment.PathDA}
+		expires := authorizedAt + 300
+		if o.outlivingAuth {
+			expires = c.ValidUntil + 1
+		}
+		a := commitment.Authorization{CommitmentHash: h[:], ActionHash: c.Action.Hash, GateID: gatefix.GateID, Expires: expires, Path: commitment.PathDA}
 		canon, err := commitment.EncodeAuthorization(&a)
 		require.NoError(t, err)
 		ah := commitment.HashAuthorization(canon)

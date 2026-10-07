@@ -67,10 +67,11 @@ func TestVerifyOverHTTPWithholdingNeverGivesValid(t *testing.T) {
 		verdict verifier.Verdict
 		check   verifier.CheckName
 		sent    error
+		reason  verifier.Reason
 	}{
-		{"decision", d, verifier.VerdictInvalid, verifier.CheckDecision, verifier.ErrDecisionNotFound},
-		{"payload", pay, verifier.VerdictInvalid, verifier.CheckPayload, verifier.ErrArchiveIncomplete},
-		{"evidence", ev, verifier.VerdictInvalid, verifier.CheckAnchor, verifier.ErrArchiveIncomplete},
+		{"decision", d, verifier.VerdictUnchecked, verifier.CheckDecision, verifier.ErrDecisionNotFound, verifier.ReasonDecisionUnavailable},
+		{"payload", pay, verifier.VerdictUnchecked, verifier.CheckPayload, verifier.ErrArchiveIncomplete, verifier.ReasonPayloadUnavailable},
+		{"evidence", ev, verifier.VerdictUnchecked, verifier.CheckAnchor, verifier.ErrArchiveIncomplete, verifier.ReasonEvidenceUnavailable},
 	}
 	for _, tc := range tests {
 		for _, code := range []int{http.StatusNotFound, http.StatusGone} {
@@ -78,7 +79,7 @@ func TestVerifyOverHTTPWithholdingNeverGivesValid(t *testing.T) {
 				r := newRig(t, newParts(t))
 				r.overHTTP(t, map[string]int{tc.hide: code})
 				rep := r.verify(t)
-				c := failed(t, rep, tc.check)
+				c := unchecked(t, rep, tc.check, tc.reason)
 				assert.ErrorIs(t, c.Err, tc.sent)
 				assert.Equal(t, tc.verdict, rep.Verdict)
 			})
@@ -135,7 +136,7 @@ func TestVerifyOverHTTPHiddenMarkerIsPendingNotRejected(t *testing.T) {
 	assert.Equal(t, verifier.VerdictNotAuthorized, rep.Verdict)
 }
 
-func TestVerifyOverHTTPTamperedPayloadFailsThePayloadCheck(t *testing.T) {
+func TestVerifyOverHTTPTamperedPayloadIsASourceProblem(t *testing.T) {
 	p := newParts(t)
 	p.permissive = true
 	p.blob = append([]byte(nil), p.blob...)
@@ -144,7 +145,7 @@ func TestVerifyOverHTTPTamperedPayloadFailsThePayloadCheck(t *testing.T) {
 	r.overHTTP(t, nil)
 
 	rep := r.verify(t)
-	c := failed(t, rep, verifier.CheckPayload)
+	c := unchecked(t, rep, verifier.CheckPayload, verifier.ReasonSourceCorrupt)
 	requireOnly(t, c.Err, verifier.ErrPayloadInvalid)
-	assert.Equal(t, verifier.VerdictInvalid, rep.Verdict)
+	assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
 }

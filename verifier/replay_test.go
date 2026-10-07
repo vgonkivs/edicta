@@ -46,7 +46,8 @@ func TestReplayReproducesThePath(t *testing.T) {
 			if tc.ok {
 				assert.Equal(t, verifier.VerdictValid, rr.Report.Verdict)
 			} else {
-				assert.Equal(t, verifier.VerdictInvalid, rr.Report.Verdict)
+				assert.Equal(t, verifier.VerdictUnchecked, rr.Report.Verdict)
+				unchecked(t, rr.Report, verifier.CheckRetention, verifier.ReasonReplayInconsistent)
 			}
 			k := rr.K2
 			require.True(t, k.Replayable)
@@ -71,15 +72,17 @@ func TestReplayWithoutK2InputsIsNotReplayable(t *testing.T) {
 	p.k2 = nil
 	rr := replay(t, newRig(t, p))
 	assert.False(t, rr.K2.Replayable)
-	assert.Equal(t, verifier.VerdictValid, rr.Report.Verdict, "the missing inputs do not invalidate the decision")
+	assert.Equal(t, verifier.VerdictUnchecked, rr.Report.Verdict, "the missing inputs do not invalidate the decision, and they are not a pass")
+	unchecked(t, rr.Report, verifier.CheckRetention, verifier.ReasonReplayInputsMissing)
 }
 
 func TestReplayInheritsVerifyFailures(t *testing.T) {
 	p := newParts(t)
 	p.action[0] ^= 1
 	rr := replay(t, newRig(t, p))
-	assert.Equal(t, verifier.VerdictInvalid, rr.Report.Verdict)
-	failed(t, rr.Report, verifier.CheckAction)
+	assert.Equal(t, verifier.VerdictUnchecked, rr.Report.Verdict)
+	unchecked(t, rr.Report, verifier.CheckAction, verifier.ReasonSourceCorrupt)
+	unchecked(t, rr.Report, verifier.CheckRetention, verifier.ReasonBlocked)
 	assert.False(t, rr.K2.Replayable, "no path is replayed for a decision that does not verify")
 }
 

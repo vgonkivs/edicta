@@ -108,6 +108,10 @@ type rangeChain struct {
 	batch [][]byte
 }
 
+// Name is the operator behind the walk, for the reports of a header that does
+// not link.
+func (c *rangeChain) Name() string { return c.src.Name() }
+
 func (c *rangeChain) Header(ctx context.Context, h uint64) ([]byte, error) {
 	if h >= c.first && h-c.first < uint64(len(c.batch)) {
 		return c.batch[h-c.first], nil
@@ -270,7 +274,7 @@ func distinctNodes(ctx context.Context, info *trustInfo, taken []*cometrpc.Sourc
 	for _, s := range srcs {
 		if id, err := s.NodeID(ctx); err == nil {
 			if first, dup := ids[id]; dup {
-				info.warn("cross-check source %s is the same node as %s and is not counted", s.Name(), first)
+				info.warn("source %s is the same node as %s and is not counted", s.Name(), first)
 				continue
 			}
 			ids[id] = s.Name()
@@ -288,12 +292,14 @@ func (l *lazyTrust) init(ctx context.Context) {
 		h, hash, _ := parseCheckpoint(l.f.checkpoint)
 		raw, err := l.online.Header(ctx, h)
 		if err != nil {
-			l.err = fmt.Errorf("%w: checkpoint header: %w", verifier.ErrTrustInput, err)
+			l.err = verifier.WithReason(verifier.ReasonHeaderSourceUnavailable, []string{l.online.Name()},
+				fmt.Errorf("%w: checkpoint header: %w", verifier.ErrTrustInput, err))
 			return
 		}
 		got, err := headertrust.HashOfHeader(raw)
 		if err != nil || !bytes.Equal(got, hash) {
-			l.err = fmt.Errorf("%w: the headers source %s does not serve the checkpoint you gave at height %d", verifier.ErrTrustInput, l.online.Name(), h)
+			l.err = verifier.WithReason(verifier.ReasonHeaderDisagreement, []string{l.online.Name()},
+				fmt.Errorf("%w: %s: the headers source %s does not serve the checkpoint you gave at height %d", verifier.ErrTrustInput, verifier.DisagreementText, l.online.Name(), h))
 			return
 		}
 		cp = headertrust.Checkpoint{Height: h, Hash: hash, Header: raw}
@@ -340,30 +346,35 @@ func (l *lazyTrust) Trusted(ctx context.Context, height uint64, hash []byte) (ve
 // trustedChain serves only headers that header trust has tied to the trusted
 // chain. The bank-send checker judges the chain id and the inclusion proof
 // against the header it gets here, so a header source that lies can make the
-// check unchecked but never failed or passed.
+// check unchecked but never failed or passed. Every error carries the reason
+// and the source it blames.
 type trustedChain struct {
 	src   *cometrpc.Source
 	trust verifier.HeaderTrust
 }
 
 func (c trustedChain) Header(ctx context.Context, h uint64) ([]byte, error) {
+	blame := []string{c.src.Name()}
 	raw, err := c.src.Header(ctx, h)
 	if err != nil {
-		return nil, err
+		return nil, verifier.WithReason(verifier.ReasonHeaderNotLinking, blame, err)
 	}
 	if c.trust == nil {
-		return nil, errors.New("no trusted header to check it against")
+		return nil, verifier.WithReason(verifier.ReasonNoTrustedHeader, nil, errors.New("no trusted header to check it against"))
 	}
 	hash, err := headertrust.HashOfHeader(raw)
 	if err != nil {
-		return nil, fmt.Errorf("%s served an unusable header: %w", c.src.Name(), err)
+		return nil, verifier.WithReason(verifier.ReasonHeaderNotLinking, blame, fmt.Errorf("%s served an unusable header: %w", c.src.Name(), err))
 	}
 	res, err := c.trust.Trusted(ctx, h, hash)
 	if err != nil {
-		return nil, fmt.Errorf("the header %s served is not on the trusted chain: %w", c.src.Name(), err)
+		if _, _, ok := verifier.ReasonOf(err); !ok {
+			err = verifier.WithReason(verifier.ReasonHeaderNotLinking, blame, err)
+		}
+		return nil, fmt.Errorf("the header %s served at height %d is not on the trusted chain: %w", c.src.Name(), h, err)
 	}
 	if !res.Checked {
-		return nil, errors.New("header trust did not check the header")
+		return nil, verifier.WithReason(verifier.ReasonHeaderNotLinking, blame, errors.New("header trust did not check the header"))
 	}
 	return raw, nil
 }
@@ -372,37 +383,51 @@ func (c trustedChain) Header(ctx context.Context, h uint64) ([]byte, error) {
 // action names. The header at the transaction height reaches it only through
 // header trust.
 type bankChecker struct {
-	tx      *cometrpc.Source
+	txs     []*cometrpc.Source
 	headers *cometrpc.Source
 	trust   verifier.HeaderTrust
 	cross   []*cometrpc.Source
 	info    *trustInfo
 }
 
-func newBankChecker(txURL, headersURL string, crossURLs []string, trust verifier.HeaderTrust, info *trustInfo) (verifier.ExecutionChecker, error) {
-	tx, err := cometrpc.New(txURL, nil)
-	if err != nil {
-		return nil, err
+// newBankChecker takes the tx sources in order, the first the primary and the
+// rest alternates, and the cross sources. Every source must be on a host of
+// its own.
+func newBankChecker(txURLs []string, headersURL string, crossURLs []string, trust verifier.HeaderTrust, info *trustInfo) (verifier.ExecutionChecker, error) {
+	if len(txURLs) == 0 {
+		return nil, errors.New("no --tx-rpc")
 	}
 	if headersURL == "" {
-		headersURL = txURL
+		headersURL = txURLs[0]
 	}
 	hs, err := cometrpc.New(headersURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	b := &bankChecker{tx: tx, headers: hs, trust: trust, info: info}
+	b := &bankChecker{headers: hs, trust: trust, info: info}
+	taken := map[string]string{hs.Name(): "--headers-rpc"}
+	for i, u := range txURLs {
+		s, err := cometrpc.New(u, nil)
+		if err != nil {
+			return nil, err
+		}
+		// The primary may share the headers host: with no --headers-rpc the
+		// same node serves both. Alternates must be other operators.
+		if prev, dup := taken[s.Name()]; dup && i > 0 {
+			return nil, fmt.Errorf("--tx-rpc %s is on the host of %s", u, prev)
+		}
+		taken[s.Name()] = "--tx-rpc"
+		b.txs = append(b.txs, s)
+	}
 	for _, u := range crossURLs {
 		s, err := cometrpc.New(u, nil)
 		if err != nil {
 			return nil, err
 		}
-		if s.Name() == tx.Name() {
-			return nil, fmt.Errorf("--cross-check %s is on the host of --tx-rpc", u)
+		if prev, dup := taken[s.Name()]; dup {
+			return nil, fmt.Errorf("--cross-check %s is on the host of %s", u, prev)
 		}
-		if s.Name() == hs.Name() {
-			return nil, fmt.Errorf("--cross-check %s is on the host of --headers-rpc", u)
-		}
+		taken[s.Name()] = "--cross-check"
 		b.cross = append(b.cross, s)
 	}
 	return b, nil
@@ -411,13 +436,22 @@ func newBankChecker(txURL, headersURL string, crossURLs []string, trust verifier
 func (b *bankChecker) CheckExecution(ctx context.Context, in verifier.ExecutionInput) (verifier.ExecutionFacts, error) {
 	act, err := bankaction.Decode(in.Action)
 	if err != nil {
-		return verifier.ExecutionFacts{}, err
+		return verifier.ExecutionFacts{}, fmt.Errorf("%w: %w", verifier.ErrExecutionViolation, err)
+	}
+	// The primary is kept whatever its node id says; an alternate or a cross
+	// source that is the same node as one already taken adds no independence.
+	primary := b.txs[0]
+	var alts []railverify.TxSource
+	for _, s := range distinctNodes(ctx, b.info, []*cometrpc.Source{primary, b.headers}, b.txs[1:]) {
+		alts = append(alts, s)
 	}
 	var cross []railverify.TxSource
-	for _, s := range distinctNodes(ctx, b.info, []*cometrpc.Source{b.tx, b.headers}, b.cross) {
+	for _, s := range distinctNodes(ctx, b.info, append([]*cometrpc.Source{primary, b.headers}, b.txs[1:]...), b.cross) {
 		cross = append(cross, s)
 	}
-	c, err := railverify.NewBankSend(railverify.Config{ChainID: act.ChainID, HRP: bankHRP}, b.tx, trustedChain{b.headers, b.trust}, cross)
+	c, err := railverify.NewBankSend(railverify.Config{ChainID: act.ChainID, HRP: bankHRP}, primary,
+		trustedChain{b.headers, b.trust}, cross,
+		railverify.WithAlternates(alts...), railverify.WithResultsSources(b.headers))
 	if err != nil {
 		return verifier.ExecutionFacts{}, err
 	}

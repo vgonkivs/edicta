@@ -119,10 +119,11 @@ func TestParametersFlagsAndReport(t *testing.T) {
 		assert.Equal(t, uint64(7200), rep.Params["blob_retention_s"])
 		assert.Equal(t, uint64(14400), rep.Params["fibre_retention_s"])
 	})
-	t.Run("a blob retention the gate did not use fails the replay", func(t *testing.T) {
+	t.Run("a blob retention the gate did not use makes the replay inconclusive", func(t *testing.T) {
 		code, out := exec(t, s.args("replay", "--blob-retention", "7200", "--trusted", trusted))
-		assert.Equal(t, exitInvalid, code, out)
-		assert.Contains(t, out, "retention replay")
+		assert.Equal(t, exitUnchecked, code, out)
+		assert.Contains(t, out, "[unchecked] retention replay")
+		assert.Contains(t, out, "reason: replay_inconsistent")
 		assert.NotContains(t, out, "verdict: valid")
 	})
 	t.Run("values the gate would refuse are usage errors", func(t *testing.T) {
@@ -134,18 +135,20 @@ func TestParametersFlagsAndReport(t *testing.T) {
 }
 
 func TestReplayJSONFoldsInconsistencyIntoTheVerdict(t *testing.T) {
+	// The K2 inputs are unsigned archive data, so the fold is inconclusive.
 	s := newScenario(t, scenarioOpts{})
 	trusted := s.chain.trustedFile(t, checkpointH, nil)
 	code, out := exec(t, s.args("replay", "--json", "--blob-retention", "7200", "--trusted", trusted))
-	assert.Equal(t, exitInvalid, code, out)
+	assert.Equal(t, exitUnchecked, code, out)
 	var rep map[string]any
 	require.NoError(t, json.Unmarshal([]byte(out), &rep))
-	assert.Equal(t, "invalid", rep["verdict"])
+	assert.Equal(t, "unchecked", rep["verdict"])
 	var found bool
 	for _, c := range rep["checks"].([]any) {
 		if m := c.(map[string]any); m["name"] == "retention_replay" {
 			found = true
-			assert.Equal(t, "fail", m["status"])
+			assert.Equal(t, "unchecked", m["status"])
+			assert.Equal(t, "replay_inconsistent", m["reason"])
 		}
 	}
 	assert.True(t, found)

@@ -39,8 +39,50 @@ var (
 
 	ErrExecutionInvalid = errors.New("verifier: on-chain execution does not match the authorized action")
 	// ErrExecutionUnchecked marks a checker error that means no fact was
-	// established, as opposed to one that shows a contradiction.
+	// established, as opposed to one that proves a violation.
 	ErrExecutionUnchecked = errors.New("verifier: execution could not be checked")
+	// ErrExecutionViolation marks a checker error that proves a violation from
+	// verified facts. Any other checker error is a source problem.
+	ErrExecutionViolation = errors.New("verifier: proven violation of the authorized action")
+
+	// The proven violations the outcome rule itself finds.
+	ErrExecutionChain        = errors.New("verifier: chain id mismatch")
+	ErrExecutionBeforeAnchor = errors.New("verifier: the transaction is not after the anchor")
+	ErrExecutionFailed       = errors.New("verifier: transaction failed on chain")
+	// ErrExecutionResultUnconfirmed is the cause of an unchecked execution
+	// with a nonzero code that no result proof confirms.
+	ErrExecutionResultUnconfirmed = fmt.Errorf("verifier: nonzero result code is not confirmed: %w", ErrExecutionUnchecked)
+)
+
+// Inclusion, result and cross-check levels of the execution facts.
+const (
+	InclusionProven       = "proven"
+	InclusionNodeAttested = "node-attested"
+
+	OutcomeSuccess = "success"
+	OutcomeFailure = "failure"
+
+	ResultProven         = "proven"
+	ResultCrossConfirmed = "cross-confirmed"
+	ResultNodeAttested   = "node-attested"
+
+	CrossPass        = "pass"
+	CrossMismatch    = "mismatch"
+	CrossUnavailable = "unavailable"
+	CrossOff         = "off"
+)
+
+// Roles and results of one tx source in the execution report.
+const (
+	RolePrimary   = "primary"
+	RoleAlternate = "alternate"
+	RoleCross     = "cross"
+
+	SourceUsed     = "used"
+	SourceSetAside = "set_aside"
+	SourceAgree    = "agree"
+	SourceDisagree = "disagree"
+	SourceFault    = "fault"
 )
 
 // ExecutionInput is what a rail checker is given. Action is the archived
@@ -50,24 +92,51 @@ type ExecutionInput struct {
 	ActionType     string
 	Action         []byte
 	RailRef        string
+	// AnchorHeight is payload_ref.height, so that a checker can classify the
+	// order of the anchor and the transaction.
+	AnchorHeight uint64
+}
+
+// ExecutionSource is one tx source a checker asked: its role, what became of
+// its answer and why.
+type ExecutionSource struct {
+	Name   string
+	Role   string
+	Result string
+	Reason Reason
+	Detail string
 }
 
 // ExecutionFacts are what a checker established about the rail transaction.
-// Inclusion is "proven" or "node-attested", Result is "node-attested" and
-// CrossCheck is "pass", "mismatch", "unavailable" or "off".
+// A checker that has a used answer returns the facts together with an error
+// when the answer itself shows a problem; the report then still carries what
+// was learned.
 type ExecutionFacts struct {
 	Height     uint64
 	HeaderHash []byte
 	BlockTime  uint64
-	Inclusion  string
-	Result     string
-	CrossCheck string
-	Sources    []string
+	// Inclusion is InclusionProven or InclusionNodeAttested.
+	Inclusion string
+	// Outcome is the result code as success or failure. Result says what
+	// binds it: ResultProven (a result proof against the trusted chain),
+	// ResultCrossConfirmed or ResultNodeAttested.
+	Outcome string
+	Result  string
+	// ResultProblem says why the result proof failed although the inclusion
+	// is proven (root mismatch, index unbound, header unreachable); nil when
+	// it holds or could not be tried.
+	ResultProblem error
+	// ChainMismatch: the block at Height belongs to another chain than the
+	// one the action names.
+	ChainMismatch bool
+	CrossCheck    string
+	Sources       []ExecutionSource
 }
 
 // ExecutionChecker is a rail profile's check of the transaction named by a
-// receipt. An error wrapping ErrExecutionUnchecked means no fact was
-// established; any other error is a contradiction.
+// receipt. An error wrapping ErrExecutionViolation proves a violation; every
+// other error is a source problem and gives at most an unchecked result. An
+// error may carry a ReasonError.
 type ExecutionChecker interface {
 	CheckExecution(ctx context.Context, in ExecutionInput) (ExecutionFacts, error)
 }

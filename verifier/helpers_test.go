@@ -342,6 +342,18 @@ func failed(t testing.TB, rep verifier.Report, name verifier.CheckName) verifier
 	return c
 }
 
+// unchecked requires the check to be unchecked with this reason: a source
+// problem, never a finding about the decision.
+func unchecked(t testing.TB, rep verifier.Report, name verifier.CheckName, reason verifier.Reason) verifier.Check {
+	t.Helper()
+	c, ok := rep.Check(name)
+	require.Truef(t, ok, "report has no check %q", name)
+	require.Equalf(t, verifier.StatusUnchecked, c.Status, "check %q: %v", name, c.Err)
+	require.Equalf(t, reason, c.Reason, "check %q: %v", name, c.Err)
+	require.Error(t, c.Err)
+	return c
+}
+
 func passed(t testing.TB, rep verifier.Report, name verifier.CheckName) {
 	t.Helper()
 	c, ok := rep.Check(name)

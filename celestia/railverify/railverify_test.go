@@ -18,24 +18,41 @@ import (
 // applies.
 var sentinels = []error{
 	railverify.ErrTxNotFound, railverify.ErrTxSourceUnavailable, railverify.ErrTxHashMismatch, railverify.ErrTxMalformed,
-	railverify.ErrChainMismatch, railverify.ErrTxFailed, railverify.ErrTxProof,
+	railverify.ErrRailRefMalformed, railverify.ErrChainConfig, railverify.ErrTxProof, railverify.ErrResultsProof,
 	bankaction.ErrBodyMismatch, bankaction.ErrMalformed,
 }
 
+// requireOnly requires the error to match want and no other rejection. What a
+// source says, or fails to prove, is unchecked; only bytes that hash to the
+// signed rail_ref and break a rule, or a malformed signed value, are a
+// violation.
 func requireOnly(t testing.TB, err, want error) {
 	t.Helper()
 	require.ErrorIs(t, err, want)
 	for _, other := range sentinels {
-		if other != want {
+		if other != want && !errors.Is(want, other) {
 			assert.NotErrorIsf(t, err, other, "also matches %v", other)
 		}
 	}
-	unchecked := errors.Is(want, railverify.ErrTxNotFound) || errors.Is(want, railverify.ErrTxSourceUnavailable)
-	if unchecked {
-		assert.ErrorIs(t, err, verifier.ErrExecutionUnchecked, "missing facts are unchecked")
+	violation := errors.Is(want, railverify.ErrTxMalformed) || errors.Is(want, railverify.ErrRailRefMalformed) ||
+		errors.Is(want, bankaction.ErrBodyMismatch) || errors.Is(want, bankaction.ErrMalformed)
+	if violation {
+		assert.ErrorIs(t, err, verifier.ErrExecutionViolation, "bound objects prove it")
+		assert.NotErrorIs(t, err, verifier.ErrExecutionUnchecked, "a violation is not a lack of facts")
 	} else {
-		assert.NotErrorIs(t, err, verifier.ErrExecutionUnchecked, "a contradiction is not a lack of facts")
+		assert.ErrorIs(t, err, verifier.ErrExecutionUnchecked, "a source's word is never a finding")
+		assert.NotErrorIs(t, err, verifier.ErrExecutionViolation)
 	}
+}
+
+// reasonOf requires the error to carry this reason and returns the sources it
+// names.
+func reasonOf(t testing.TB, err error, want verifier.Reason) []string {
+	t.Helper()
+	got, srcs, ok := verifier.ReasonOf(err)
+	require.True(t, ok, "the error carries a reason")
+	require.Equal(t, want, got)
+	return srcs
 }
 
 type world struct {
@@ -43,7 +60,9 @@ type world struct {
 	v       vec
 	headers *fakeHeaders
 	primary *fakeSource
+	alts    []railverify.TxSource
 	cross   []railverify.TxSource
+	opts    []railverify.Option
 	cfg     railverify.Config
 	hdrHash []byte
 	root    []byte
@@ -82,7 +101,8 @@ func (w *world) put(s *fakeSource, tx []byte, rt railverify.RawTx) {
 
 func (w *world) check(tx []byte) (verifier.ExecutionFacts, error) {
 	w.t.Helper()
-	c, err := railverify.NewBankSend(w.cfg, w.primary, w.headers, w.cross)
+	opts := append([]railverify.Option{railverify.WithAlternates(w.alts...)}, w.opts...)
+	c, err := railverify.NewBankSend(w.cfg, w.primary, w.headers, w.cross, opts...)
 	require.NoError(w.t, err)
 	return c.CheckExecution(bg, w.v.input(tx))
 }
@@ -135,14 +155,17 @@ func TestProvenInclusion(t *testing.T) {
 			assert.Equal(t, txH, f.Height)
 			assert.Equal(t, w.hdrHash, f.HeaderHash, "the hash of the header the checker read the chain id and data root from")
 			assert.Equal(t, "proven", f.Inclusion)
-			assert.Equal(t, "node-attested", f.Result, "the result code is the node's word")
+			assert.Equal(t, "success", f.Outcome)
+			assert.Equal(t, "node-attested", f.Result, "with no results source the code is the node's word")
 			assert.Equal(t, "off", f.CrossCheck)
-			assert.Equal(t, []string{"rpc-a.example"}, f.Sources)
+			assert.False(t, f.ChainMismatch)
+			assert.Equal(t, []verifier.ExecutionSource{{Name: "rpc-a.example", Role: verifier.RolePrimary, Result: verifier.SourceUsed}}, f.Sources)
+			reasonOf(t, f.ResultProblem, verifier.ReasonResultHeaderUnreachable)
 
 			require.Len(t, w.primary.calls, 1)
 			assert.Equal(t, ref32(t, w.v.railRef), w.primary.calls[0].hash)
 			assert.True(t, w.primary.calls[0].prove, "the primary is asked for the proof")
-			assert.Equal(t, []uint64{txH}, w.headers.reads, "one header, at the transaction height")
+			assert.Equal(t, []uint64{txH, txH + 1}, w.headers.reads, "the header at the transaction height, then the next one for the result proof")
 		})
 	}
 }
@@ -167,7 +190,9 @@ func TestAProofThatFailsIsNeverDowngradedToNodeAttested(t *testing.T) {
 	w.put(w.primary, w.v.txRaw, railverify.RawTx{Bytes: w.v.txRaw, Height: txH, Proof: other})
 	f, err := w.ok()
 	requireOnly(t, err, railverify.ErrTxProof)
-	assert.Equal(t, verifier.ExecutionFacts{}, f)
+	reasonOf(t, err, verifier.ReasonTxProofInvalid)
+	assert.Zero(t, f.Height, "no fact is taken from an answer that was set aside")
+	assert.Empty(t, f.Inclusion)
 }
 
 func TestRailRefMustBeLowerCaseHex(t *testing.T) {
@@ -188,7 +213,7 @@ func TestRailRefMustBeLowerCaseHex(t *testing.T) {
 			in := w.v.input(w.v.txRaw)
 			in.RailRef = ref
 			_, err := c.CheckExecution(bg, in)
-			requireOnly(t, err, railverify.ErrTxHashMismatch)
+			requireOnly(t, err, railverify.ErrRailRefMalformed)
 			assert.Empty(t, w.primary.calls, "a reference that cannot be a hash is not looked up")
 		})
 	}
@@ -198,14 +223,18 @@ func TestSourceAnswers(t *testing.T) {
 	t.Run("not found is unchecked", func(t *testing.T) {
 		w := newWorld(t)
 		delete(w.primary.txs, ref32(t, w.v.railRef))
-		_, err := w.ok()
+		f, err := w.ok()
 		requireOnly(t, err, railverify.ErrTxNotFound)
+		assert.Equal(t, []string{"rpc-a.example"}, reasonOf(t, err, verifier.ReasonTxNotFound))
+		require.Len(t, f.Sources, 1)
+		assert.Equal(t, verifier.SourceSetAside, f.Sources[0].Result)
 	})
 	t.Run("a source that is down is unchecked", func(t *testing.T) {
 		w := newWorld(t)
 		w.primary.err = railverify.ErrTxSourceUnavailable
 		_, err := w.ok()
 		requireOnly(t, err, railverify.ErrTxSourceUnavailable)
+		reasonOf(t, err, verifier.ReasonTxSourceUnavailable)
 	})
 	t.Run("an unclassified source error is unchecked too", func(t *testing.T) {
 		w := newWorld(t)
@@ -225,6 +254,7 @@ func TestBytesMustHashToTheReceiptsRef(t *testing.T) {
 		w.put(w.primary, w.v.txRaw, railverify.RawTx{Bytes: other, Height: txH, Proof: w.proof})
 		_, err := w.ok()
 		requireOnly(t, err, railverify.ErrTxHashMismatch)
+		reasonOf(t, err, verifier.ReasonTxHashMismatch)
 	})
 	t.Run("empty bytes", func(t *testing.T) {
 		w := newWorld(t)
@@ -300,26 +330,33 @@ func longLen(v vec) []byte {
 }
 
 func TestChainIdOfTheHeader(t *testing.T) {
-	t.Run("the header's chain id is another one", func(t *testing.T) {
-		w := newWorld(t)
-		raw, hash := headerAt(t, "mocha-5", txH, w.root)
-		w.headers.byH[txH] = raw
-		_ = hash
-		_, err := w.ok()
-		requireOnly(t, err, railverify.ErrChainMismatch)
-	})
-	t.Run("the chain id differs in case", func(t *testing.T) {
-		w := newWorld(t)
-		raw, _ := headerAt(t, "Mocha-4", txH, w.root)
-		w.headers.byH[txH] = raw
-		_, err := w.ok()
-		requireOnly(t, err, railverify.ErrChainMismatch)
-	})
+	for name, chain := range map[string]string{"another chain": "mocha-5", "the chain id differs in case": "Mocha-4"} {
+		t.Run("the header's chain id is another one: "+name, func(t *testing.T) {
+			w := newWorld(t)
+			raw, _ := headerAt(t, chain, txH, w.root)
+			w.headers.byH[txH] = raw
+			f, err := w.ok()
+			require.NoError(t, err, "the checker reports the fact, and the outcome rule judges it")
+			assert.True(t, f.ChainMismatch)
+			assert.Equal(t, "proven", f.Inclusion)
+
+			j := verifier.JudgeCheck(f, err, txH-10)
+			assert.Equal(t, verifier.StatusFail, j.Status, "a proven inclusion in another chain's block")
+			assert.ErrorIs(t, j.Err, railverify.ErrChainMismatch)
+
+			f.Inclusion = "node-attested"
+			j = verifier.JudgeCheck(f, nil, txH-10)
+			assert.Equal(t, verifier.StatusUnchecked, j.Status, "without a proof the block is the source's claim")
+			assert.Equal(t, verifier.ReasonChainUnbound, j.Reason)
+		})
+	}
 	t.Run("the configured chain is another one", func(t *testing.T) {
 		w := newWorld(t)
 		w.cfg.ChainID = "mocha-5"
 		_, err := w.ok()
-		requireOnly(t, err, railverify.ErrChainMismatch)
+		requireOnly(t, err, railverify.ErrChainConfig)
+		reasonOf(t, err, verifier.ReasonChainConfig)
+		assert.Empty(t, w.primary.calls, "no source is asked")
 	})
 	t.Run("the action names another chain", func(t *testing.T) {
 		w := newWorld(t)
@@ -330,7 +367,8 @@ func TestChainIdOfTheHeader(t *testing.T) {
 		c, err := railverify.NewBankSend(w.cfg, w.primary, w.headers, nil)
 		require.NoError(t, err)
 		_, err = c.CheckExecution(bg, in)
-		requireOnly(t, err, railverify.ErrChainMismatch)
+		requireOnly(t, err, railverify.ErrChainConfig)
+		assert.Empty(t, w.primary.calls)
 	})
 	t.Run("an action that does not decode", func(t *testing.T) {
 		w := newWorld(t)
@@ -344,17 +382,20 @@ func TestChainIdOfTheHeader(t *testing.T) {
 	t.Run("a header the trusted chain cannot give is unchecked", func(t *testing.T) {
 		w := newWorld(t)
 		w.headers.err = errors.New("no such header")
-		_, err := w.ok()
+		f, err := w.ok()
 		require.Error(t, err)
 		assert.ErrorIs(t, err, verifier.ErrExecutionUnchecked)
-		assert.NotErrorIs(t, err, railverify.ErrChainMismatch)
+		reasonOf(t, err, verifier.ReasonHeaderNotLinking)
+		require.Len(t, f.Sources, 1)
+		assert.Equal(t, verifier.SourceSetAside, f.Sources[0].Result, "the candidate is set aside")
 	})
 	t.Run("a header that does not decode is not a chain mismatch", func(t *testing.T) {
 		w := newWorld(t)
 		w.headers.byH[txH] = []byte{0xff, 0xff}
 		_, err := w.ok()
 		require.Error(t, err)
-		assert.NotErrorIs(t, err, railverify.ErrChainMismatch)
+		assert.ErrorIs(t, err, verifier.ErrExecutionUnchecked)
+		reasonOf(t, err, verifier.ReasonHeaderNotLinking)
 	})
 	t.Run("a header of another height", func(t *testing.T) {
 		w := newWorld(t)
@@ -362,6 +403,27 @@ func TestChainIdOfTheHeader(t *testing.T) {
 		w.headers.byH[txH] = raw
 		_, err := w.ok()
 		require.Error(t, err)
+		reasonOf(t, err, verifier.ReasonHeaderNotLinking)
+	})
+	t.Run("the reason of the trusted chain is kept", func(t *testing.T) {
+		for _, reason := range []verifier.Reason{verifier.ReasonHeaderAboveCheckpoint, verifier.ReasonHeaderNotLinking} {
+			w := newWorld(t)
+			w.headers.err = verifier.WithReason(reason, []string{"headers.example"}, errors.New("trust"))
+			_, err := w.ok()
+			assert.Equal(t, []string{"headers.example"}, reasonOf(t, err, reason))
+		}
+	})
+	t.Run("a disagreement about the header ends the check and keeps the answer used", func(t *testing.T) {
+		w := newWorld(t)
+		alt := newSource("rpc-b.example")
+		w.put(alt, w.v.txRaw, railverify.RawTx{Bytes: w.v.txRaw, Height: txH, Proof: w.proof})
+		w.alts = []railverify.TxSource{alt}
+		w.headers.err = verifier.WithReason(verifier.ReasonHeaderDisagreement, []string{"rpc-x.example"}, errors.New("cross"))
+		f, err := w.ok()
+		assert.Equal(t, []string{"rpc-x.example"}, reasonOf(t, err, verifier.ReasonHeaderDisagreement))
+		assert.Empty(t, alt.calls, "no other tx source can settle a disagreement about headers")
+		require.Len(t, f.Sources, 1)
+		assert.Equal(t, verifier.SourceUsed, f.Sources[0].Result)
 	})
 }
 
@@ -405,12 +467,17 @@ func TestBodyEqualsTheAuthorizedMessage(t *testing.T) {
 }
 
 func TestProofAndCodeOrdering(t *testing.T) {
-	t.Run("a failed code", func(t *testing.T) {
+	t.Run("a failed code is a fact, and a source's word", func(t *testing.T) {
 		w := newWorld(t)
 		w.put(w.primary, w.v.txRaw, railverify.RawTx{Bytes: w.v.txRaw, Height: txH, Code: 11, Proof: w.proof})
 		f, err := w.ok()
-		requireOnly(t, err, railverify.ErrTxFailed)
-		assert.Equal(t, verifier.ExecutionFacts{}, f)
+		require.NoError(t, err)
+		assert.Equal(t, "failure", f.Outcome)
+		assert.Equal(t, "node-attested", f.Result)
+		j := verifier.JudgeCheck(f, err, txH-10)
+		assert.Equal(t, verifier.StatusUnchecked, j.Status, "no result proof backs the code")
+		assert.Equal(t, verifier.ReasonCodeUnproven, j.Reason)
+		assert.ErrorIs(t, j.Err, railverify.ErrResultUnconfirmed)
 	})
 	t.Run("a body mismatch is reported before a failed code", func(t *testing.T) {
 		w := newWorld(t)
@@ -429,8 +496,11 @@ func TestProofAndCodeOrdering(t *testing.T) {
 	t.Run("a failed code without a proof", func(t *testing.T) {
 		w := newWorld(t)
 		w.put(w.primary, w.v.txRaw, railverify.RawTx{Bytes: w.v.txRaw, Height: txH, Code: 5})
-		_, err := w.ok()
-		requireOnly(t, err, railverify.ErrTxFailed)
+		f, err := w.ok()
+		require.NoError(t, err)
+		assert.Equal(t, "failure", f.Outcome)
+		assert.Equal(t, "node-attested", f.Inclusion)
+		assert.Equal(t, verifier.StatusUnchecked, verifier.JudgeCheck(f, err, txH-10).Status)
 	})
 	t.Run("a hash mismatch comes before everything", func(t *testing.T) {
 		w := newWorld(t)
@@ -477,48 +547,70 @@ func TestCrossSources(t *testing.T) {
 		w.put(s, w.v.txRaw, railverify.RawTx{Bytes: w.v.txRaw, Height: txH, Code: 0, Proof: w.proof})
 		return s
 	}
-	t.Run("agreeing sources", func(t *testing.T) {
+	t.Run("agreeing sources confirm the result for the interim pass", func(t *testing.T) {
 		w := newWorld(t)
 		a, b := good(w, "rpc-b.example"), good(w, "rpc-c.example")
 		w.cross = []railverify.TxSource{a, b}
 		f, err := w.ok()
 		require.NoError(t, err)
 		assert.Equal(t, "pass", f.CrossCheck)
-		assert.ElementsMatch(t, []string{"rpc-a.example", "rpc-b.example", "rpc-c.example"}, f.Sources)
+		assert.Equal(t, "cross-confirmed", f.Result)
+		var got []string
+		for _, s := range f.Sources {
+			got = append(got, s.Name+"/"+s.Role+"/"+s.Result)
+		}
+		assert.Equal(t, []string{"rpc-a.example/primary/used", "rpc-b.example/cross/agree", "rpc-c.example/cross/agree"}, got)
+		assert.Equal(t, verifier.StatusPass, verifier.JudgeCheck(f, err, txH-10).Status)
 		for _, s := range []*fakeSource{a, b} {
 			require.Len(t, s.calls, 1)
 			assert.Equal(t, ref32(t, w.v.railRef), s.calls[0].hash)
 			assert.False(t, s.calls[0].prove, "a cross source is asked without the proof")
 		}
 	})
-	mismatch := map[string]func(w *world, s *fakeSource){
-		"another height": func(w *world, s *fakeSource) {
+	// What a cross source says that contradicts the used answer is a
+	// disagreement; bytes that do not hash to rail_ref are a fault of that
+	// source and say nothing about the answer.
+	cases := map[string]struct {
+		mod    func(w *world, s *fakeSource)
+		cross  string
+		result string
+	}{
+		"another height": {func(w *world, s *fakeSource) {
 			w.put(s, w.v.txRaw, railverify.RawTx{Bytes: w.v.txRaw, Height: txH + 1})
-		},
-		"other bytes": func(w *world, s *fakeSource) {
+		}, "mismatch", verifier.SourceDisagree},
+		"another code": {func(w *world, s *fakeSource) {
+			w.put(s, w.v.txRaw, railverify.RawTx{Bytes: w.v.txRaw, Height: txH, Code: 11})
+		}, "mismatch", verifier.SourceDisagree},
+		"other bytes": {func(w *world, s *fakeSource) {
 			b := append([]byte(nil), w.v.txRaw...)
 			b[len(b)-1] ^= 1
 			w.put(s, w.v.txRaw, railverify.RawTx{Bytes: b, Height: txH})
-		},
-		"another code": func(w *world, s *fakeSource) {
-			w.put(s, w.v.txRaw, railverify.RawTx{Bytes: w.v.txRaw, Height: txH, Code: 11})
-		},
-		"empty bytes": func(w *world, s *fakeSource) {
+		}, "unavailable", verifier.SourceFault},
+		"empty bytes": {func(w *world, s *fakeSource) {
 			w.put(s, w.v.txRaw, railverify.RawTx{Height: txH})
-		},
+		}, "unavailable", verifier.SourceFault},
 	}
-	for name, mod := range mismatch {
-		t.Run("mismatch: "+name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run("a cross source with "+name, func(t *testing.T) {
 			w := newWorld(t)
 			bad := newSource("rpc-b.example")
-			mod(w, bad)
+			tc.mod(w, bad)
 			w.cross = []railverify.TxSource{bad}
 			f, err := w.ok()
-			require.NoError(t, err, "the checker reports it; the core turns it into a failure")
-			assert.Equal(t, "mismatch", f.CrossCheck)
+			require.NoError(t, err, "the checker reports it, and the outcome rule judges it")
+			assert.Equal(t, tc.cross, f.CrossCheck)
 			assert.Equal(t, "proven", f.Inclusion)
+			require.Len(t, f.Sources, 2)
+			assert.Equal(t, tc.result, f.Sources[1].Result)
+			j := verifier.JudgeCheck(f, err, txH-10)
+			assert.Equal(t, verifier.StatusUnchecked, j.Status, "a hostile cross source never causes invalid, and never valid")
+			if tc.cross == "mismatch" {
+				assert.Equal(t, verifier.ReasonCrossDisagree, j.Reason)
+				assert.Equal(t, []string{"rpc-a.example", "rpc-b.example"}, j.Sources)
+			}
 		})
 	}
+	mismatch := map[string]func(w *world, s *fakeSource){"another code": cases["another code"].mod}
 	t.Run("one mismatch beats agreeing and unavailable sources", func(t *testing.T) {
 		w := newWorld(t)
 		bad := newSource("rpc-b.example")
@@ -559,9 +651,10 @@ func TestCrossSources(t *testing.T) {
 		w := newWorld(t)
 		s := good(w, "rpc-b.example")
 		w.cross = []railverify.TxSource{s}
-		w.put(w.primary, w.v.txRaw, railverify.RawTx{Bytes: w.v.txRaw, Height: txH, Code: 11, Proof: w.proof})
+		other, _ := proofOf(t, fillers(3), 1)
+		w.put(w.primary, w.v.txRaw, railverify.RawTx{Bytes: w.v.txRaw, Height: txH, Proof: other})
 		_, err := w.ok()
-		requireOnly(t, err, railverify.ErrTxFailed)
+		requireOnly(t, err, railverify.ErrTxProof)
 		assert.Empty(t, s.calls)
 	})
 }

@@ -6,14 +6,16 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
 )
 
 // Replay verifies the decision and then recomputes the gate's retention
 // rule from the inputs the gate archived. The decision is replayed only if
-// it verified as authorized, with header trust possibly unchecked. A gate
-// that contradicts its own recorded inputs fails the retention_replay check
-// and so the verdict.
+// it verified as authorized, with header trust possibly unchecked. The K2
+// inputs are unsigned archive data, so a replay that disagrees with them, or
+// cannot be done, is unchecked: a gate error and an altered record look the
+// same.
 func (v *Verifier) Replay(ctx context.Context, h commitment.Hash) (ReplayReport, error) {
 	r, err := v.verify(ctx, h, nil)
 	if err != nil {
@@ -21,20 +23,23 @@ func (v *Verifier) Replay(ctx context.Context, h commitment.Hash) (ReplayReport,
 	}
 	out := ReplayReport{}
 	switch {
-	case r.rep.Verdict != VerdictValid && r.rep.Verdict != VerdictUnchecked:
+	case r.rep.State != archive.StateAuthorized || r.anyStatus(StatusFail) || r.facts == nil || r.sa == nil ||
+		!r.passedAll(CheckDecision, CheckEnvelope, CheckAction, CheckAuthorization, CheckPayload, CheckAnchor):
 		out.K2.Reason = "the decision does not verify as authorized"
-	case r.facts == nil || r.sa == nil:
-		out.K2.Reason = "the anchor did not verify"
+		r.unchecked(CheckRetention, ReasonBlocked, errors.New(out.K2.Reason), r.firstOther(CheckRetention))
+		r.finish()
 	case r.auth.K2 == nil:
 		out.K2.Reason = "the Authorization record has no retention inputs"
+		r.unchecked(CheckRetention, ReasonReplayInputsMissing, errors.New(out.K2.Reason))
+		r.finish()
 	default:
 		out.K2 = replayK2(r)
 		switch {
 		case !out.K2.Consistent:
-			r.fail(CheckRetention, out.K2.Err)
+			r.unchecked(CheckRetention, ReasonReplayInconsistent, out.K2.Err)
 			r.finish()
 		case out.K2.Unconfirmed:
-			r.unchecked(CheckRetention, errors.New("an earlier promise creation time cannot be checked against a form-0 record"))
+			r.unchecked(CheckRetention, ReasonReplayUnconfirmed, errors.New("an earlier promise creation time cannot be checked against a form-0 record"))
 			r.finish()
 		}
 	}

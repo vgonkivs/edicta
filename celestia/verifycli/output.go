@@ -9,14 +9,20 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/verifier"
 )
 
+// checkView is one check. An unchecked check carries its machine-readable
+// reason, the sources or checks it blames and what to try next.
 type checkView struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
+	Name    string   `json:"name"`
+	Status  string   `json:"status"`
+	Reason  string   `json:"reason,omitempty"`
+	Sources []string `json:"sources,omitempty"`
+	Advice  string   `json:"advice,omitempty"`
+	Error   string   `json:"error,omitempty"`
 }
 
 type trustView struct {
@@ -34,15 +40,24 @@ type trustView struct {
 	CrossSources   []string          `json:"cross_check_sources,omitempty"`
 }
 
+type txSourceView struct {
+	Name   string `json:"name"`
+	Role   string `json:"role"`
+	Result string `json:"result"`
+	Reason string `json:"reason,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
 type executionView struct {
-	RailRef    string   `json:"rail_ref"`
-	Height     uint64   `json:"height"`
-	HeaderHash string   `json:"header_hash"`
-	BlockTime  uint64   `json:"block_time"`
-	Inclusion  string   `json:"inclusion"`
-	Result     string   `json:"result"`
-	CrossCheck string   `json:"cross_check"`
-	Sources    []string `json:"sources"`
+	RailRef    string         `json:"rail_ref"`
+	Height     uint64         `json:"height,omitempty"`
+	HeaderHash string         `json:"header_hash,omitempty"`
+	BlockTime  uint64         `json:"block_time,omitempty"`
+	Inclusion  string         `json:"inclusion,omitempty"`
+	Outcome    string         `json:"outcome,omitempty"`
+	Result     string         `json:"result,omitempty"`
+	CrossCheck string         `json:"cross_check,omitempty"`
+	Sources    []txSourceView `json:"sources"`
 }
 
 type authView struct {
@@ -135,7 +150,7 @@ func viewOf(r verifier.Report) reportView {
 	v := reportView{
 		Verdict:        string(r.Verdict),
 		CommitmentHash: hex.EncodeToString(r.CommitmentHash[:]),
-		State:          r.State.String(),
+		State:          stateName(r.State),
 		AuthVerified:   r.AuthorizationVerified,
 		Params: paramsView{
 			SkewS: r.Params.SkewS, BlobRetentionS: r.Params.BlobRetentionS, FibreRetentionS: r.Params.FibreRetentionS,
@@ -167,7 +182,10 @@ func viewOf(r verifier.Report) reportView {
 		}
 	}
 	for _, c := range r.Checks {
-		v.Checks = append(v.Checks, checkView{Name: string(c.Name), Status: string(c.Status), Error: errText(c.Err)})
+		v.Checks = append(v.Checks, checkView{
+			Name: string(c.Name), Status: string(c.Status), Reason: string(c.Reason), Sources: c.Sources,
+			Advice: c.Reason.Advice(), Error: errText(c.Err),
+		})
 	}
 	if a := r.Authorization; a != nil {
 		v.Authorization = &authView{Path: pathName(a.Path), Expires: a.Expires, AuthorizedAt: a.AuthorizedAt}
@@ -187,11 +205,28 @@ func viewOf(r verifier.Report) reportView {
 	}
 	if ex := r.Execution; ex != nil {
 		v.Execution = &executionView{
-			RailRef: ex.RailRef, Height: ex.Height, HeaderHash: hex.EncodeToString(ex.HeaderHash), BlockTime: ex.BlockTime,
-			Inclusion: ex.Inclusion, Result: ex.Result, CrossCheck: ex.CrossCheck, Sources: ex.Sources,
+			RailRef: ex.RailRef, Height: ex.Height, BlockTime: ex.BlockTime, Inclusion: ex.Inclusion,
+			Outcome: ex.Outcome, Result: ex.Result, CrossCheck: ex.CrossCheck, Sources: []txSourceView{},
+		}
+		if len(ex.HeaderHash) > 0 {
+			v.Execution.HeaderHash = hex.EncodeToString(ex.HeaderHash)
+		}
+		for _, s := range ex.Sources {
+			v.Execution.Sources = append(v.Execution.Sources, txSourceView{
+				Name: s.Name, Role: s.Role, Result: s.Result, Reason: string(s.Reason), Detail: s.Detail,
+			})
 		}
 	}
 	return v
+}
+
+// stateName prints a missing decision as unknown: with no record there is no
+// state to report.
+func stateName(s archive.State) string {
+	if s == archive.StateAbsent {
+		return "unknown"
+	}
+	return s.String()
 }
 
 func viewOfK2(k verifier.K2Replay) k2View {
@@ -259,6 +294,15 @@ func writeText(out io.Writer, v reportView, colour bool) {
 		} else {
 			p("%s %s", tag(c.Status), c.Name)
 		}
+		if c.Reason != "" {
+			p("    reason: %s: %s", c.Reason, verifier.Reason(c.Reason).Meaning())
+			if len(c.Sources) > 0 {
+				p("    source: %s", strings.Join(c.Sources, ", "))
+			}
+			if c.Advice != "" {
+				p("    advice: %s", c.Advice)
+			}
+		}
 	}
 	if v.K2 != nil {
 		k := v.K2
@@ -269,7 +313,10 @@ func writeText(out io.Writer, v reportView, colour bool) {
 			p("%s retention replay consistent: retention %ds, start %d, margin %ds, window holds: %t, route %s, authorized path %s",
 				tag(string(verifier.StatusPass)), k.R, k.Start, k.Margin, k.Within, k.Route, k.AuthorizedPath)
 		default:
-			p("%s retention replay: %s", tag(string(verifier.StatusFail)), k.Error)
+			p("%s retention replay: %s", tag(string(verifier.StatusUnchecked)), k.Error)
+			r := verifier.ReasonReplayInconsistent
+			p("    reason: %s: %s", r, r.Meaning())
+			p("    advice: %s", r.Advice())
 		}
 	}
 	if v.Authorization != nil {
@@ -330,14 +377,29 @@ func writeText(out io.Writer, v reportView, colour bool) {
 		}
 	}
 	if ex := v.Execution; ex != nil {
-		p("execution: transaction in block %d (hash %s), inclusion %s, result %s, cross-check %s, sources %s",
-			ex.Height, ex.HeaderHash, ex.Inclusion, ex.Result, ex.CrossCheck, strings.Join(ex.Sources, ", "))
-		if ex.Inclusion != "proven" {
-			p("execution height: node-attested, so the order of the anchor before the transaction rests on the transaction source")
+		if ex.Height != 0 {
+			p("execution: transaction in block %d (hash %s), inclusion %s, outcome %s, result %s, cross-check %s",
+				ex.Height, ex.HeaderHash, ex.Inclusion, ex.Outcome, ex.Result, ex.CrossCheck)
+			if ex.Inclusion != "proven" {
+				p("execution height: node-attested, so the order of the anchor before the transaction rests on the transaction source")
+			}
+		}
+		for _, s := range ex.Sources {
+			line := fmt.Sprintf("tx source %s (%s): %s", s.Name, s.Role, s.Result)
+			if s.Reason != "" {
+				line += ", " + s.Reason
+			}
+			p("%s", line)
 		}
 	}
 	for _, w := range v.Warnings {
 		p("warning: %s", w)
+	}
+	for _, c := range v.Checks {
+		if c.Reason == string(verifier.ReasonHeaderDisagreement) {
+			p("%s", paint("1;31", "!!! "+verifier.DisagreementText))
+			break
+		}
 	}
 	p("verdict: %s", v.Verdict)
 }
