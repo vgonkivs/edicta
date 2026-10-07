@@ -77,15 +77,20 @@ func New(cfg Config) (*Rail, error) {
 		return nil, errors.New("railtx: nil consensus")
 	case cfg.Reader == nil:
 		return nil, errors.New("railtx: nil reader")
-	case cfg.GasLimit == 0:
+	}
+	return newRail(cfg.Consensus, cfg.Reader, cfg.Key, cfg.GasLimit, cfg.Fee)
+}
+
+// newRail builds a Rail; rd may be nil for callers that never use Head.
+func newRail(cons node.Consensus, rd node.Reader, key KeySource, gas, fee uint64) (*Rail, error) {
+	if gas == 0 {
 		return nil, errors.New("railtx: zero gas limit")
 	}
-	sk, err := cfg.Key.load()
+	sk, err := key.load()
 	if err != nil {
 		return nil, err
 	}
-	return &Rail{cons: cfg.Consensus, rd: cfg.Reader, key: sk, pub: sk.PubKey().Bytes(),
-		gas: cfg.GasLimit, fee: cfg.Fee}, nil
+	return &Rail{cons: cons, rd: rd, key: sk, pub: sk.PubKey().Bytes(), gas: gas, fee: fee}, nil
 }
 
 // String never shows the key.

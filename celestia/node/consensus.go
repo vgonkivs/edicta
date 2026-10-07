@@ -396,6 +396,31 @@ func (c *ConsensusClient) Account(ctx context.Context, address string) (AccountI
 	return AccountInfo{Number: r.Info.AccountNumber, Sequence: r.Info.Sequence}, nil
 }
 
+// Balance reads the bank balance of addr in denom at the node's latest state.
+// An account the chain has never seen has balance zero. It is advisory, for
+// funding decisions; nothing in the gate's checks depends on it, so the read is
+// not pinned to a height.
+func (c *ConsensusClient) Balance(ctx context.Context, addr, denom string) (uint64, error) {
+	if addr == "" || denom == "" {
+		return 0, errors.New("node: balance needs an address and a denom")
+	}
+	r, err := c.bank.Balance(ctx, &banktypes.QueryBalanceRequest{Address: addr, Denom: denom})
+	if err != nil {
+		return 0, classifyGRPC(ctx, err)
+	}
+	b := r.GetBalance()
+	if b == nil {
+		return 0, nil
+	}
+	if b.Denom != denom {
+		return 0, fmt.Errorf("%w: balance answered for denom %q, asked %q", ErrUnsupported, b.Denom, denom)
+	}
+	if b.Amount.IsNil() || b.Amount.IsNegative() || !b.Amount.IsUint64() {
+		return 0, fmt.Errorf("%w: balance amount out of range", ErrUnsupported)
+	}
+	return b.Amount.Uint64(), nil
+}
+
 // Cosmos SDK error codes in the "sdk" codespace.
 const (
 	sdkCodespace         = "sdk"

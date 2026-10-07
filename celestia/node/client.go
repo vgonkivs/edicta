@@ -97,8 +97,11 @@ func NewReadOnly(ctx context.Context, b BridgeConfig) (*client.ReadClient, Reade
 
 // NewSigning connects to the bridge node for reads and to the consensus gRPC
 // endpoint for submissions, signing with key keyName of kr. network is the
-// chain id the consensus node reports (ConsensusClient.Network). Close the
-// result: it closes the client and the state clients dialed for it.
+// chain id the consensus node reports (ConsensusClient.Network). A PayForBlob
+// is built and signed here with the keyring key and broadcast to the consensus
+// endpoint; the bridge serves reads only, so it needs no state methods and no
+// token. Close the result: it closes the client and the state clients dialed
+// for it.
 func NewSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Keyring, keyName, network string) (io.Closer, Reader, Submitter, error) {
 	c, sc, err := dialSigning(ctx, b, g, kr, keyName, network)
 	if err != nil {
