@@ -17,6 +17,7 @@ import (
 	coregrpc "github.com/cometbft/cometbft/rpc/grpc"
 	"github.com/cosmos/cosmos-sdk/client/grpc/cmtservice"
 	nodeservice "github.com/cosmos/cosmos-sdk/client/grpc/node"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -468,7 +469,35 @@ func (c *ConsensusClient) Balance(ctx context.Context, addr, denom string) (uint
 	if err != nil {
 		return 0, classifyGRPC(ctx, err)
 	}
-	b := r.GetBalance()
+	return balanceAmount(r.GetBalance(), denom)
+}
+
+// BalanceAt is Balance pinned to height. The node must echo that height, so a
+// backend that has not reached it, or ignores the pin, fails with
+// ErrUnavailable and heightcheck.ErrHeightIgnored instead of answering from
+// another height.
+func (c *ConsensusClient) BalanceAt(ctx context.Context, addr, denom string, height uint64) (uint64, error) {
+	if addr == "" || denom == "" {
+		return 0, errors.New("node: balance needs an address and a denom")
+	}
+	if height == 0 {
+		return 0, errors.New("node: balance at height zero")
+	}
+	if c.flag.Ignoring() {
+		return 0, heightIgnored(fmt.Errorf("%w: endpoint marked height-ignoring", heightcheck.ErrHeightIgnored))
+	}
+	pctx, md := pinned(ctx, height)
+	r, err := c.bank.Balance(pctx, &banktypes.QueryBalanceRequest{Address: addr, Denom: denom}, grpc.Header(md))
+	if err != nil {
+		return 0, classifyGRPC(ctx, err)
+	}
+	if err := heightcheck.EchoHeight(*md, height); err != nil {
+		return 0, heightIgnored(err)
+	}
+	return balanceAmount(r.GetBalance(), denom)
+}
+
+func balanceAmount(b *sdk.Coin, denom string) (uint64, error) {
 	if b == nil {
 		return 0, nil
 	}

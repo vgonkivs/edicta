@@ -1,0 +1,34 @@
+chain_id = "mocha-5"
+hrp = "celestia"
+denom = "utia"
+faucet_hint = "Mocha faucet: https://docs.celestia.org/operate/networks/mocha-testnet#mocha-testnet-faucet"
+explorer_tx_url = "https://mocha.celenium.io/tx/{hash}"
+explorer_block_url = "https://mocha.celenium.io/block/{height}"
+explorer_address_url = "https://mocha.celenium.io/address/{address}"
+
+[bridge]
+addr = "public-endpoint.celestia-mocha.quiknode.pro"
+tls = true
+
+[grpc]
+addr = "grpc-mocha.pops.one:9090"
+tls = false
+
+[funding]
+gas_limit = 100000
+pfb_gas = 250000
+max_fee = 20000
+max_amount = 200000
+max_total_amount = 2000000
+timeout_blocks = 100
+
+[verify]
+headers_rpc = "https://rpc-mocha.pops.one"
+tx_rpc = "https://rpc-1.testnet.celestia.nodes.guru"
+cross_check_rpc = []
+same_operator = ["rpc-mocha.pops.one"]
+trust_root_api = "https://api-mocha.celenium.io/v1/block/{height}"
+trust_root_page = "https://mocha.celenium.io/block/{height}"
+trust_root_name = "Celenium"
+trust_root_lag = 2
+timeout_s = 90

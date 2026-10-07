@@ -15,6 +15,7 @@ import (
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	"github.com/cosmos/cosmos-sdk/types/bech32"
 
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/secret"
@@ -59,6 +60,17 @@ func (k KeySource) load() (*secp256k1.PrivKey, error) {
 		return nil, errors.New("railtx: no signing key")
 	}
 	return privFromScalar(k.raw.Reveal())
+}
+
+// Address is the bech32 account address of the key with the given prefix. It
+// only derives the address; nothing is sent.
+func (k KeySource) Address(hrp string) (string, error) {
+	sk, err := k.load()
+	if err != nil {
+		return "", err
+	}
+	defer clear(sk.Key)
+	return bech32.ConvertAndEncode(hrp, sk.PubKey().Address())
 }
 
 func privFromScalar(b []byte) (*secp256k1.PrivKey, error) {
