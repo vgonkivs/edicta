@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/vgonkivs/edicta/celestia/test/fibrefix"
 	"os"
 	"path/filepath"
 	"testing"
@@ -64,6 +65,14 @@ func encodeHeader(t testing.TB, h core.Header) []byte {
 	b, err := p.Marshal()
 	require.NoError(t, err)
 	return b
+}
+
+// archivedHeader is the header as the archive stores it: a protobuf
+// SignedHeader whose commit is bound to the header.
+func archivedHeader(t testing.TB, h core.Header) []byte {
+	t.Helper()
+	p := h.ToProto()
+	return fibrefix.BoundSignedHeader(t, *p)
 }
 
 type chain struct{ hdrs map[uint64]core.Header }
@@ -124,18 +133,15 @@ func (acceptAll) Check(commitment.PayloadRef, []byte) error { return nil }
 type fakeAnchors struct{ c *chain }
 
 func (f fakeAnchors) VerifyAnchor(ref commitment.PayloadRef, ev *archive.EvidenceRecord) (verifier.AnchorFacts, error) {
-	hash := f.c.hash(ev.Height)
-	if !bytes.HasPrefix(ev.Header, []byte("hdr:")) {
-		var ph cmtproto.Header
-		if err := ph.Unmarshal(ev.Header); err != nil {
-			return verifier.AnchorFacts{}, os.ErrInvalid
-		}
-		h, err := core.HeaderFromProto(&ph)
-		if err != nil {
-			return verifier.AnchorFacts{}, os.ErrInvalid
-		}
-		hash = h.Hash()
+	var sh cmtproto.SignedHeader
+	if err := sh.Unmarshal(ev.Header); err != nil || sh.Header == nil {
+		return verifier.AnchorFacts{}, os.ErrInvalid
 	}
+	h, err := core.HeaderFromProto(sh.Header)
+	if err != nil {
+		return verifier.AnchorFacts{}, os.ErrInvalid
+	}
+	hash := h.Hash()
 	return verifier.AnchorFacts{BlockTime: blockTime, RetentionStart: blockTime, AnchorHeaderHash: hash}, nil
 }
 
@@ -195,15 +201,11 @@ func newScenario(t *testing.T, o scenarioOpts) *scenario {
 		blob[len(blob)-1] ^= 1
 	}
 	ch := buildChainWith(anchorHeight-5, checkpointH, o.chainMod)
-	header := []byte("hdr:4200000")
-	switch {
-	case o.forgedHeader:
-		hd := ch.hdrs[anchorHeight]
+	hd := ch.hdrs[anchorHeight]
+	if o.forgedHeader {
 		hd.AppHash = filler("forged", anchorHeight)
-		header = encodeHeader(t, hd)
-	case o.realHeader:
-		header = encodeHeader(t, ch.hdrs[anchorHeight])
 	}
+	header := archivedHeader(t, hd)
 	dir := t.TempDir()
 	s, err := fsarchive.Open(dir, cm)
 	require.NoError(t, err)

@@ -170,29 +170,37 @@ func (r *recordingReader) Evidence(ctx context.Context, da commitment.DA, commit
 // headers are the headers of the evidence the verifier read, offered first
 // to the walk. A header that does not link then fails the decision, because
 // the archive presented a header the chain does not have.
-func (r *recordingReader) headers() map[uint64][]byte {
+func (r *recordingReader) headers() (map[uint64][]byte, error) {
 	known := map[uint64][]byte{}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.dec == nil {
-		return known
+		return known, nil
 	}
 	sc, err := commitment.DecodeSigned(r.dec.Envelope)
 	if err != nil {
-		return known
+		return known, nil
 	}
 	ref := sc.Commitment.PayloadRef
 	ev := r.evs[evKey(ref.DA, ref.Commitment)]
 	if ev == nil {
-		return known
+		return known, nil
 	}
 	if len(ev.Header) > 0 && ev.Height != 0 {
-		known[ev.Height] = ev.Header
+		inner, err := headertrust.HeaderOfSigned(ev.Header)
+		if err != nil {
+			return nil, fmt.Errorf("archived anchor header at height %d: %w", ev.Height, err)
+		}
+		known[ev.Height] = inner
 	}
 	if ref.DA == commitment.DAFibre && len(ev.PromiseHeader) > 0 && ev.PromiseHeight != 0 {
-		known[ev.PromiseHeight] = ev.PromiseHeader
+		inner, err := headertrust.HeaderOfSigned(ev.PromiseHeader)
+		if err != nil {
+			return nil, fmt.Errorf("archived promise header at height %d: %w", ev.PromiseHeight, err)
+		}
+		known[ev.PromiseHeight] = inner
 	}
-	return known
+	return known, nil
 }
 
 // lazyTrust resolves the checkpoint on the first question, because the
@@ -286,7 +294,12 @@ func distinctNodes(ctx context.Context, info *trustInfo, taken []*cometrpc.Sourc
 
 func (l *lazyTrust) init(ctx context.Context) {
 	l.done = true
-	l.known = l.rec.headers()
+	known, err := l.rec.headers()
+	if err != nil {
+		l.err = verifier.WithReason(verifier.ReasonHeaderNotLinking, nil, err)
+		return
+	}
+	l.known = known
 	var cp headertrust.Checkpoint
 	if l.f.checkpoint != "" {
 		h, hash, _ := parseCheckpoint(l.f.checkpoint)

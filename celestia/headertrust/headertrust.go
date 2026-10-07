@@ -63,6 +63,42 @@ func decode(b []byte) (core.Header, error) {
 	return h, nil
 }
 
+// HeaderOfSigned returns the canonical protobuf header inside a protobuf
+// SignedHeader, the form the archive stores. The commit must be bound to the
+// header: same height and a block id hash equal to the header hash. Its
+// signatures are not checked, trust comes from the hash chain.
+func HeaderOfSigned(raw []byte) ([]byte, error) {
+	var sh cmtproto.SignedHeader
+	if err := sh.Unmarshal(raw); err != nil {
+		return nil, fmt.Errorf("signed header: %w", err)
+	}
+	if again, err := sh.Marshal(); err != nil || !bytes.Equal(again, raw) {
+		return nil, errors.New("signed header encoding is not canonical")
+	}
+	if sh.Header == nil {
+		return nil, errors.New("signed header has no header")
+	}
+	if sh.Commit == nil {
+		return nil, errors.New("signed header has no commit")
+	}
+	inner, err := sh.Header.Marshal()
+	if err != nil {
+		return nil, err
+	}
+	h, err := decode(inner)
+	if err != nil {
+		return nil, err
+	}
+	hash, err := hashOf(h)
+	if err != nil {
+		return nil, err
+	}
+	if sh.Commit.Height != sh.Header.Height || !bytes.Equal(sh.Commit.BlockID.Hash, hash) {
+		return nil, errors.New("signed header commit is not bound to its header")
+	}
+	return inner, nil
+}
+
 // hashOf is the block hash of h. It is never empty.
 func hashOf(h core.Header) ([]byte, error) {
 	sum := h.Hash()

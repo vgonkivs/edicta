@@ -216,9 +216,7 @@ func (l *Live) EvidenceFor(t testing.TB, b Block, anchor []byte) *archive.Eviden
 
 func SignedHeader(t testing.TB, h cmtproto.Header) []byte {
 	t.Helper()
-	b, err := (&cmtproto.SignedHeader{Header: &h, Commit: &cmtproto.Commit{}}).Marshal()
-	require.NoError(t, err)
-	return b
+	return BoundSignedHeader(t, h)
 }
 
 // SystemBlobOf is the system blob the tx stands for in the square.
