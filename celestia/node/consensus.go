@@ -396,6 +396,31 @@ func (c *ConsensusClient) Account(ctx context.Context, address string) (AccountI
 	return AccountInfo{Number: r.Info.AccountNumber, Sequence: r.Info.Sequence}, nil
 }
 
+// AccountAt is Account pinned to height. The node must echo that height, so a
+// load-balanced endpoint that answers from a backend which has not reached it
+// (or ignores the pin) fails with ErrUnavailable and heightcheck.ErrHeightIgnored
+// instead of returning a state of another height.
+func (c *ConsensusClient) AccountAt(ctx context.Context, address string, height uint64) (AccountInfo, error) {
+	if height == 0 {
+		return AccountInfo{}, errors.New("node: account at height zero")
+	}
+	if c.flag.Ignoring() {
+		return AccountInfo{}, heightIgnored(fmt.Errorf("%w: endpoint marked height-ignoring", heightcheck.ErrHeightIgnored))
+	}
+	pctx, md := pinned(ctx, height)
+	r, err := c.auth.AccountInfo(pctx, &authtypes.QueryAccountInfoRequest{Address: address}, grpc.Header(md))
+	if err != nil {
+		return AccountInfo{}, classifyGRPC(ctx, err)
+	}
+	if err := heightcheck.EchoHeight(*md, height); err != nil {
+		return AccountInfo{}, heightIgnored(err)
+	}
+	if r.Info == nil {
+		return AccountInfo{}, fmt.Errorf("%w: account %s", ErrNotFound, address)
+	}
+	return AccountInfo{Number: r.Info.AccountNumber, Sequence: r.Info.Sequence}, nil
+}
+
 // Balance reads the bank balance of addr in denom at the node's latest state.
 // An account the chain has never seen has balance zero. It is advisory, for
 // funding decisions; nothing in the gate's checks depends on it, so the read is

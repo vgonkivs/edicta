@@ -171,9 +171,11 @@ type Consensus struct {
 	// MinPrice is the minimum gas price MinGasPrice returns, in Denom per gas.
 	MinPrice *big.Rat
 	Accounts map[string]node.AccountInfo
-	txs      map[[32]byte]node.TxStatus
-	Sent     [][]byte
-	height   uint64
+	// history holds per-address states from a height on, for AccountAt.
+	history map[string][]accountFrom
+	txs     map[[32]byte]node.TxStatus
+	Sent    [][]byte
+	height  uint64
 	// CanaryStatus is what HeightCanary reports; zero means honoured.
 	CanaryStatus heightcheck.Status
 	// Fail, when set, is returned by every method.
@@ -184,7 +186,7 @@ type Consensus struct {
 func NewConsensus(chainID string) *Consensus {
 	return &Consensus{
 		ChainID: chainID, Providers: []string{chainID}, Denom: "utia", HRP: "celestia", MinPrice: big.NewRat(1, 250),
-		Accounts: map[string]node.AccountInfo{}, txs: map[[32]byte]node.TxStatus{},
+		Accounts: map[string]node.AccountInfo{}, history: map[string][]accountFrom{}, txs: map[[32]byte]node.TxStatus{},
 	}
 }
 
@@ -260,6 +262,48 @@ func (c *Consensus) Account(_ context.Context, addr string) (node.AccountInfo, e
 	defer c.mu.Unlock()
 	if c.Fail != nil {
 		return node.AccountInfo{}, c.Fail
+	}
+	a, ok := c.Accounts[addr]
+	if !ok {
+		return node.AccountInfo{}, fmt.Errorf("%w: account", node.ErrNotFound)
+	}
+	return a, nil
+}
+
+type accountFrom struct {
+	height uint64
+	info   node.AccountInfo
+}
+
+// SetAccountAt sets the state AccountAt reports for addr at heights from
+// height on, until a later entry.
+func (c *Consensus) SetAccountAt(addr string, height uint64, info node.AccountInfo) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.history[addr] = append(c.history[addr], accountFrom{height: height, info: info})
+}
+
+// AccountAt answers from the history set by SetAccountAt, else from Accounts.
+// A height above the one set by SetHeight is unavailable, as on a node that
+// has not reached it.
+func (c *Consensus) AccountAt(_ context.Context, addr string, height uint64) (node.AccountInfo, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Fail != nil {
+		return node.AccountInfo{}, c.Fail
+	}
+	if height == 0 || height > c.height {
+		return node.AccountInfo{}, fmt.Errorf("%w: height %d not reached", node.ErrUnavailable, height)
+	}
+	var best *accountFrom
+	for i := range c.history[addr] {
+		e := &c.history[addr][i]
+		if e.height <= height && (best == nil || e.height >= best.height) {
+			best = e
+		}
+	}
+	if best != nil {
+		return best.info, nil
 	}
 	a, ok := c.Accounts[addr]
 	if !ok {

@@ -121,6 +121,9 @@ type Consensus interface {
 	Bech32Prefix(ctx context.Context) (string, error)
 	Account(ctx context.Context, address string) (AccountInfo, error)
 	// Broadcast sends txRaw unchanged and returns its hash.
+	// AccountAt is Account pinned to height; it fails unless the answer echoes
+	// that height, like FibreParamsAt.
+	AccountAt(ctx context.Context, address string, height uint64) (AccountInfo, error)
 	Broadcast(ctx context.Context, txRaw []byte) ([32]byte, error)
 	Tx(ctx context.Context, hash [32]byte) (TxStatus, error)
 	// TxAt is Tx for a transaction expected at height; a found transaction at
