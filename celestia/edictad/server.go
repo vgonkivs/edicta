@@ -398,7 +398,7 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 		if _, ok := d.Reader.(signedHeaderReader); !ok {
 			return fail(cfgErr("the recorder needs a node reader that can return signed headers"))
 		}
-		rcfg := recorder.Config{Namespace: ns, MaxBlobBytes: cfg.Recorder.maxBlob(), Archive: store}
+		rcfg := recorder.Config{Namespace: ns, MaxBlobBytes: cfg.Recorder.maxBlob(), Archive: store, Now: clock.Now}
 		rec, err := recorder.New(rcfg, d.Submitter, d.Reader)
 		if err != nil {
 			return fail(fmt.Errorf("edictad: recorder: %w", err))
