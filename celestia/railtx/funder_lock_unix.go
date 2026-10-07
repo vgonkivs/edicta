@@ -8,11 +8,12 @@ import (
 	"syscall"
 )
 
-// lockState takes an exclusive advisory lock on a sibling of the state file so
-// two processes cannot hold the same funder state. The lock lives as long as
-// the returned release function has not run.
+// lockState takes an exclusive advisory lock on the file at path so two
+// processes cannot hold the same funder key. The lock lives as long as the
+// returned release function has not run. It is not reliable on network
+// filesystems.
 func lockState(path string) (release func(), err error) {
-	fh, err := os.OpenFile(path+".lock", os.O_RDWR|os.O_CREATE|noFollow, 0o600)
+	fh, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|noFollow, 0o600)
 	if err != nil {
 		return nil, err
 	}

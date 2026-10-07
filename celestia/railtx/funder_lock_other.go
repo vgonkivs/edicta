@@ -2,10 +2,17 @@
 
 package railtx
 
-import "os"
+import (
+	"errors"
+	"os"
+)
 
-func lockState(string) (func(), error) { return func() {}, nil }
+// The funder needs a file lock and an owner check; without them it refuses to
+// run rather than guard nothing.
+func lockState(string) (func(), error) {
+	return nil, errors.New("funder state locking is not supported on this platform")
+}
 
-func ownedByCaller(os.FileInfo) bool { return true }
+func ownedByCaller(os.FileInfo) bool { return false }
 
 const noFollow = 0

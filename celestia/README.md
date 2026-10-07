@@ -52,6 +52,12 @@ use the Mocha faucet (see the Celestia documentation for its current location)
 and ask for coins for both addresses. Receivers of the demo transfer need no
 funds. On a devnet, send from your genesis account. Keep the amounts small.
 
+Funding by the demo (`railtx.Funder`) trusts the funding node you point it at.
+It checks the node's answers for a send that did not show up, but it has no
+second source: a node that lies about committed state could make it send one
+extra transfer, at most the configured per-send maximum. Use your own node or
+one you trust, and keep the amounts small.
+
 Create the Ed25519 keys (raw 32-byte seeds, mode 0600): one for the agent, one
 for the executor's record request, one for the gate. Then print the public
 keys, which go into the `edictad` config:

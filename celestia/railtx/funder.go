@@ -38,7 +38,8 @@ var (
 	ErrAmountAboveMax = errors.New("railtx: amount above the per-send maximum")
 	// ErrSequenceAdvanced means the funder's account sequence moved past the
 	// pending send's, so the send may have been included even though no
-	// lookup found it. It stays pending and the caller must decide.
+	// lookup found it. It stays pending until an operator decides with
+	// Abandon.
 	ErrSequenceAdvanced = errors.New("railtx: account sequence moved past the pending send")
 	// ErrPendingState means the pending-send file cannot be read, trusted or
 	// written; nothing is sent without it.
@@ -51,9 +52,12 @@ var (
 	// funder has already seen used; nothing was sent.
 	ErrStaleSequence = errors.New("railtx: node reports a sequence already used")
 	// ErrSequenceBound means a send cleared without proof must be followed by
-	// one signed with the same sequence, and the node offered another.
+	// one signed with the same sequence, and the node offered another. An
+	// operator resolves it with AbandonBinding.
 	ErrSequenceBound = errors.New("railtx: next send must reuse the cleared sequence")
-	// ErrNothingToAbandon means there is no pending send or sequence binding.
+	// ErrNothingToAbandon means the target of Abandon or AbandonBinding is not
+	// the current pending send or sequence binding, or it cannot be abandoned
+	// yet.
 	ErrNothingToAbandon = errors.New("railtx: nothing to abandon")
 )
 
@@ -98,7 +102,10 @@ type FunderConfig struct {
 	// PendingPath is the file that holds the send between its signing and
 	// its resolution, so a crash or a rerun cannot send the funds twice.
 	// Required; the file is created with mode 0600 and its directory must
-	// exist.
+	// exist, be local, be owned by the caller and not be writable by others.
+	// One key needs one state file: the lock is a file next to this one named
+	// after the signer address, so two state files in one directory cannot
+	// both be open for the same key.
 	PendingPath string
 	// ConfirmDelay is the wait between the two lookups that must both show
 	// a send as not landed. Zero takes DefaultConfirmDelay.
@@ -153,6 +160,12 @@ func (c FunderConfig) ValidateBasic() error {
 // Funder sends plain bank transfers from one key, one at a time. A send that
 // might still be included blocks the next one: a lost send never gets a
 // second transaction while it could still land.
+//
+// Trust: the Funder trusts its funding node (FunderConfig.Consensus) to be
+// honest about committed state, the transaction index and pinned account
+// reads. A node that lies systematically can make it clear a send that is
+// still landable and so cause one extra send, bounded by MaxAmount. Nothing
+// here verifies those answers against a second source.
 type Funder struct {
 	rail    *Rail
 	cons    node.Consensus
@@ -164,6 +177,7 @@ type Funder struct {
 	release func()
 
 	mu      sync.Mutex
+	closed  bool
 	pending *pendingSend
 	// mustReuse is the sequence of a send cleared without being seen
 	// committed. The next send must be signed with it, so at most one of the
@@ -229,7 +243,7 @@ func NewFunder(ctx context.Context, cfg FunderConfig) (*Funder, error) {
 	if err := checkStateDir(filepath.Dir(cfg.PendingPath)); err != nil {
 		return nil, err
 	}
-	release, err := lockState(cfg.PendingPath)
+	release, err := lockState(filepath.Join(filepath.Dir(cfg.PendingPath), "funder-"+addr+".lock"))
 	if err != nil {
 		return nil, fmt.Errorf("%w: lock: %w", ErrPendingState, err)
 	}
@@ -241,11 +255,12 @@ func NewFunder(ctx context.Context, cfg FunderConfig) (*Funder, error) {
 	return f, nil
 }
 
-// Close releases the lock on the state file. The Funder must not be used
-// afterwards.
+// Close releases the lock on the state. Send, Settle and the abandon methods
+// are refused afterwards.
 func (f *Funder) Close() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.closed = true
 	if f.release != nil {
 		f.release()
 		f.release = nil
@@ -258,6 +273,31 @@ func (*Funder) String() string { return "railtx.Funder" }
 
 // GoString never shows the key.
 func (*Funder) GoString() string { return "railtx.Funder" }
+
+func (f *Funder) live() error {
+	if f.closed {
+		return fmt.Errorf("%w: funder closed", ErrPendingState)
+	}
+	return nil
+}
+
+// Guards reports the sequence floor (the highest sequence seen used, a send is
+// never signed at or below it) and the sequence binding (the next send must be
+// signed with it), either may be nil. They explain ErrStaleSequence and
+// ErrSequenceBound.
+func (f *Funder) Guards() (floor, binding *uint64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.lastCommitted != nil {
+		v := *f.lastCommitted
+		floor = &v
+	}
+	if f.mustReuse != nil {
+		v := *f.mustReuse
+		binding = &v
+	}
+	return floor, binding
+}
 
 // Address is the funder's bech32 address.
 func (f *Funder) Address() string { return f.addr }
@@ -288,6 +328,9 @@ func (f *Funder) Status(ctx context.Context, hash [32]byte) (node.TxStatus, erro
 func (f *Funder) Settle(ctx context.Context) (cleared bool, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.live(); err != nil {
+		return false, err
+	}
 	if f.pending == nil {
 		return false, nil
 	}
@@ -329,6 +372,9 @@ func (f *Funder) Send(ctx context.Context, to string, amount uint64) (hash [32]b
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.live(); err != nil {
+		return hash, 0, err
+	}
 	if f.pending != nil {
 		if err := f.settlePending(ctx); err != nil {
 			return hash, 0, err
@@ -475,7 +521,12 @@ func (f *Funder) settlePending(ctx context.Context) error {
 	return f.resolve(false)
 }
 
-// slotUsed handles a pending send whose sequence was used by some transaction.
+// slotUsed handles a pending send whose sequence moved past its own. A
+// transaction found at that sequence only binds the next send to the same
+// sequence, it does not lift the exclusion: if the slot really is consumed,
+// the next send at that sequence is refused and an operator settles it with
+// AbandonBinding. Results that cannot be right (above the proof height, or our
+// own hash above the timeout height) are ignored.
 func (f *Funder) slotUsed(ctx context.Context, p *pendingSend, proofHeight, now uint64) error {
 	advanced := func(detail string) error {
 		return fmt.Errorf("%w: %x, signed with sequence %d, account at %d is at %d%s: %w",
@@ -486,19 +537,18 @@ func (f *Funder) slotUsed(ctx context.Context, p *pendingSend, proofHeight, now 
 		return advanced(fmt.Sprintf(" (sequence lookup: %v)", err))
 	}
 	for _, t := range txs {
-		// Ours means committed; any other holds the slot, and there is one
-		// transaction per sequence, so ours can never be included.
-		if t.Height > 0 {
-			return f.resolve(true)
+		if t.Height == 0 || t.Height > proofHeight || (t.Hash == p.hash && t.Height > p.timeoutHeight) {
+			continue
 		}
+		return f.resolve(false)
 	}
 	return advanced("")
 }
 
 // resolve drops the pending send and records what the next send must respect.
-// A send seen committed, or whose slot another transaction holds, raises the
-// floor under later sequences. A send cleared without that evidence binds the
-// next one to the same sequence. The state is written before memory changes.
+// A send seen committed raises the floor under later sequences. A send
+// cleared without that evidence, or whose slot a lookup says is used, binds
+// the next one to the same sequence. The state is written before memory changes.
 func (f *Funder) resolve(used bool) error {
 	p := f.pending
 	last, must := f.lastCommitted, f.mustReuse
@@ -518,59 +568,69 @@ func (f *Funder) resolve(used bool) error {
 	return nil
 }
 
-// Abandon is the operator's decision to stop waiting for a send that cannot be
-// resolved by evidence. It needs an armed Consent and is appended to
-// PendingPath + ".log". It works in two cases only: the pending send's
-// sequence has moved on past its timeout (the slot is used, perhaps by this
-// very send), or a sequence binding is left while the chain has moved past
-// it. Anything that can still land, or that settles by itself, is refused.
-func (f *Funder) Abandon(ctx context.Context) error {
-	if err := f.consent.Check(); err != nil {
-		return err
-	}
+// Abandon is the operator's decision to stop waiting for the pending send
+// with this hash, whose account sequence has moved past its own after its
+// timeout (the slot is used, perhaps by this very send). It acts on that one
+// send only, never on whatever is pending, and does not use the sending
+// Consent. It must be reached only from an explicit operator command, never
+// from a retry path. Anything that can still land, or a different hash, is
+// refused; a send that settles by itself returns ErrSettled. The line in
+// PendingPath + ".log" is written after the state is saved; a failed log write
+// is reported although the abandon has taken effect.
+func (f *Funder) Abandon(ctx context.Context, hash [32]byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	switch {
-	case f.pending != nil:
-		p := f.pending
-		err := f.settlePending(ctx)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, ErrSequenceAdvanced) {
-			return err
-		}
-		if lerr := f.logAbandon(fmt.Sprintf("pending hash=%x sequence=%d timeout_height=%d to=%s amount=%d", p.hash, p.sequence, p.timeoutHeight, p.to, p.amount)); lerr != nil {
-			return lerr
-		}
-		return f.resolve(true)
-	case f.mustReuse != nil:
-		head, err := f.cons.LatestHeight(ctx)
-		if err != nil {
-			return fmt.Errorf("railtx: height: %w", err)
-		}
-		acc, err := f.cons.AccountAt(ctx, f.addr, head)
-		if err != nil {
-			return fmt.Errorf("railtx: account at %d: %w", head, err)
-		}
-		if acc.Sequence <= *f.mustReuse {
-			return fmt.Errorf("%w: the bound sequence %d is still free", ErrNothingToAbandon, *f.mustReuse)
-		}
-		s := *f.mustReuse
-		if lerr := f.logAbandon(fmt.Sprintf("binding sequence=%d account_sequence=%d", s, acc.Sequence)); lerr != nil {
-			return lerr
-		}
-		last := f.lastCommitted
-		if last == nil || *last < s {
-			last = &s
-		}
-		if err := saveState(f.cfg.PendingPath, f.addr, nil, nil, last); err != nil {
-			return err
-		}
-		f.mustReuse, f.lastCommitted = nil, last
-		return nil
+	if err := f.live(); err != nil {
+		return err
 	}
-	return ErrNothingToAbandon
+	p := f.pending
+	if p == nil || p.hash != hash {
+		return fmt.Errorf("%w: %x is not the pending send", ErrNothingToAbandon, hash)
+	}
+	err := f.settlePending(ctx)
+	if err == nil {
+		return ErrSettled
+	}
+	if !errors.Is(err, ErrSequenceAdvanced) || f.pending == nil {
+		return err
+	}
+	if err := f.resolve(true); err != nil {
+		return err
+	}
+	return f.logAbandon(fmt.Sprintf("pending hash=%x sequence=%d timeout_height=%d to=%s amount=%d", p.hash, p.sequence, p.timeoutHeight, p.to, p.amount))
+}
+
+// AbandonBinding is Abandon for the sequence binding seq, once the account's
+// sequence at the node's head is past it. The same rules apply.
+func (f *Funder) AbandonBinding(ctx context.Context, seq uint64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.live(); err != nil {
+		return err
+	}
+	if f.mustReuse == nil || *f.mustReuse != seq {
+		return fmt.Errorf("%w: sequence %d is not the binding", ErrNothingToAbandon, seq)
+	}
+	head, err := f.cons.LatestHeight(ctx)
+	if err != nil {
+		return fmt.Errorf("railtx: height: %w", err)
+	}
+	acc, err := f.cons.AccountAt(ctx, f.addr, head)
+	if err != nil {
+		return fmt.Errorf("railtx: account at %d: %w", head, err)
+	}
+	if acc.Sequence <= seq {
+		return fmt.Errorf("%w: the bound sequence %d is still free", ErrNothingToAbandon, seq)
+	}
+	last := f.lastCommitted
+	if last == nil || *last < seq {
+		last = &seq
+	}
+	if err := saveState(f.cfg.PendingPath, f.addr, nil, nil, last); err != nil {
+		return err
+	}
+	f.mustReuse, f.lastCommitted = nil, last
+	return f.logAbandon(fmt.Sprintf("binding sequence=%d account_sequence=%d", seq, acc.Sequence))
 }
 
 func (f *Funder) logAbandon(what string) error {
