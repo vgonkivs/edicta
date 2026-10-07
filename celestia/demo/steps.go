@@ -187,6 +187,9 @@ func (r *Runner) decide(ctx context.Context) (*decision, error) {
 
 // commit publishes, anchors and signs one decision.
 func (r *Runner) commit(ctx context.Context, d *decision) error {
+	if err := r.waitClockWindow(ctx); err != nil {
+		return err
+	}
 	res, err := r.builder.Commit(ctx, d.payload)
 	if err != nil {
 		return coded(ExitInconclusive, fmt.Errorf("demo: publish and commit: %w", err))
@@ -272,4 +275,23 @@ func (r *Runner) recordWith(ctx context.Context, d *decision, ref string, pub ed
 		return nil, coded(ExitWrong, errors.New("demo: the receipt is not for this decision or gate"))
 	}
 	return raw, nil
+}
+
+// waitClockWindow holds back a decision until the clock is past the gate's
+// registry epoch plus its skew. The registry is created while the gate
+// starts, so its epoch is no later than the moment Start returned; the gate
+// refuses an issued_at at or below epoch + skew.
+func (r *Runner) waitClockWindow(ctx context.Context) error {
+	if r.gateStarted.IsZero() {
+		return nil
+	}
+	ready := r.gateStarted.Unix() + skewS + 2
+	for r.deps.now().Unix() < ready {
+		left := ready - r.deps.now().Unix()
+		r.deps.Screen.Wait("waiting for the gate's clock window...", fmt.Sprintf("%ds", left))
+		if err := r.deps.sleep(ctx, time.Second); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -221,3 +221,19 @@ func TestQueuedEnterNeverArms(t *testing.T) {
 	assert.Empty(t, e.funding.sends)
 	require.ErrorIs(t, r.consent.Check(), railtx.ErrNotStarted)
 }
+
+func TestIssuedAtIsAlwaysAboveTheRegistryEpochPlusSkew(t *testing.T) {
+	e := newTestEnv(t)
+	now := time.Unix(1_800_000_000, 0)
+	e.deps.Now = func() time.Time { return now }
+	e.deps.Sleep = func(_ context.Context, d time.Duration) error { now = now.Add(d); return nil }
+	r := e.runner(t)
+	epoch := now // the registry is created no later than the moment Start returns
+	r.gateStarted = now
+	require.NoError(t, r.waitClockWindow(context.Background()))
+	// The SDK stamps issued_at with the clock at signing, never earlier.
+	assert.Greater(t, now.Unix(), epoch.Unix()+skewS, "issued_at would be above epoch + skew")
+	before := now
+	require.NoError(t, r.waitClockWindow(context.Background()))
+	assert.Equal(t, before, now, "no wait once the window has passed")
+}

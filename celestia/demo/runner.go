@@ -91,11 +91,12 @@ type Runner struct {
 	abandoner                        Abandoner
 	loop                             *fundingLoop
 
-	keys     runKeys
-	edCfg    edictad.Config
-	gateDeps edictad.Deps
-	gate     GateHandle
-	archive  *archiveServer
+	keys        runKeys
+	edCfg       edictad.Config
+	gateDeps    edictad.Deps
+	gate        GateHandle
+	gateStarted time.Time
+	archive     *archiveServer
 
 	pubClient, authClient, recClient *edictaapi.Client
 	gatePub                          ed25519.PublicKey

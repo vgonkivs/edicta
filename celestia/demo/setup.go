@@ -293,6 +293,7 @@ func (r *Runner) startGate(ctx context.Context) error {
 	}
 	r.gateDeps = deps
 	r.gate, err = r.deps.Gate.Start(ctx, r.edCfg, deps)
+	r.gateStarted = r.deps.now()
 	if err != nil {
 		return coded(ExitInconclusive, fmt.Errorf("demo: starting the gate: %w", err))
 	}
