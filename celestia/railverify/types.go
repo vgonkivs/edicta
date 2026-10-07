@@ -71,6 +71,14 @@ type ResultsSource interface {
 	BlockResults(ctx context.Context, height uint64) ([]TxResult, error)
 }
 
+// BlockSource serves the transactions of a block as the block holds them,
+// in block order. Nothing it serves is believed until the square they build
+// has the trusted header's data root.
+type BlockSource interface {
+	Name() string
+	BlockTxs(ctx context.Context, height uint64) ([][]byte, error)
+}
+
 // Config pins the chain the checker accepts.
 type Config struct {
 	ChainID string

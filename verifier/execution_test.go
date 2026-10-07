@@ -155,8 +155,8 @@ func TestExecutionNodeAttestedIsNotProven(t *testing.T) {
 		f.Inclusion, f.Result = "node-attested", "cross-confirmed"
 	})
 	rep := e.run(t)
-	passed(t, rep, verifier.CheckExecution)
-	assert.Equal(t, verifier.VerdictValid, rep.Verdict)
+	unchecked(t, rep, verifier.CheckExecution, verifier.ReasonResultUnproven)
+	assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict, "agreeing sources never make a pass")
 	assert.False(t, rep.Receipt.ProvenExecution)
 	assert.Equal(t, "node-attested", rep.Execution.Inclusion)
 	assert.Contains(t, strings.Join(rep.Warnings, "\n"), "no inclusion proof", "the ordering rests on the source's height")
@@ -472,7 +472,7 @@ func TestExecutionCrossCheck(t *testing.T) {
 		{"mismatch", false, false, verifier.ReasonCrossDisagree},
 		{"unavailable", false, false, verifier.ReasonResultUnproven},
 		{"off", false, false, verifier.ReasonResultUnproven},
-		{"pass", false, true, ""},
+		{"pass", false, false, verifier.ReasonResultUnproven},
 		{"", true, false, verifier.ReasonTxSourceUnavailable},
 		{"bogus", true, false, verifier.ReasonTxSourceUnavailable},
 	}

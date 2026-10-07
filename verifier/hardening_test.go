@@ -39,6 +39,30 @@ func (damagedReader) Authorization(context.Context, commitment.Hash) (*archive.A
 	return nil, fmt.Errorf("authorization: %w", archive.ErrCorrupt)
 }
 
+// otherDecisionsAuthorization serves an Authorization signed by the gate for
+// another decision, as a copy that was swapped under this decision's key.
+type otherDecisionsAuthorization struct {
+	verifier.Reader
+	auth []byte
+}
+
+func (o otherDecisionsAuthorization) Authorization(context.Context, commitment.Hash) (*archive.AuthorizationRecord, error) {
+	return &archive.AuthorizationRecord{SignedAuthorization: o.auth, AuthorizedAt: authorizedAt}, nil
+}
+
+func TestAuthorizationOfAnotherDecisionIsASourceProblem(t *testing.T) {
+	p := newParts(t)
+	r := newRig(t, p)
+	otherHash := p.hash
+	otherHash[0] ^= 1
+	r.deps.Archive = otherDecisionsAuthorization{Reader: r.store, auth: signAuth(t, gateKey(t), otherHash, p.c, commitment.PathDA, authExpires)}
+	rep := r.verify(t)
+	assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
+	c := unchecked(t, rep, verifier.CheckAuthorization, verifier.ReasonSourceCorrupt)
+	requireOnly(t, c.Err, verifier.ErrAuthorizationInvalid)
+	assert.False(t, rep.AuthorizationVerified)
+}
+
 func TestAgentKeyEqualToAGateKeyFailsTheEnvelope(t *testing.T) {
 	p := newParts(t)
 	c := gatefix.WithKey(t, p.c, "gate1")

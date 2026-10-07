@@ -49,7 +49,7 @@ func loadReasons(t testing.TB) reasonsDoc {
 	require.NoError(t, err)
 	var d reasonsDoc
 	require.NoError(t, json.Unmarshal(raw, &d))
-	require.Equal(t, "v0-draft.27", d.Revision)
+	require.Equal(t, "v0-draft.28", d.Revision)
 	return d
 }
 

@@ -325,14 +325,18 @@ func (r *run) authorization() error {
 		return nil
 	}
 	a := &sa.Authorization
+	if !bytes.Equal(a.CommitmentHash, r.h[:]) {
+		// Another decision's record under this key is a bad copy, not a
+		// finding about this decision.
+		r.corrupt(CheckAuthorization, ErrAuthorizationInvalid, errors.New("commitment hash is another decision's"))
+		return nil
+	}
 	var problem string
 	switch {
 	case a.Version != 0:
 		problem = fmt.Sprintf("version %d", a.Version)
 	case a.Path != commitment.PathDA && a.Path != commitment.PathArchive:
 		problem = fmt.Sprintf("path %d", a.Path)
-	case !bytes.Equal(a.CommitmentHash, r.h[:]):
-		problem = "commitment hash is another decision's"
 	case !bytes.Equal(a.ActionHash, r.c.Action.Hash):
 		problem = "action hash differs from the decision's"
 	case a.GateID != r.c.Scope.GateID:

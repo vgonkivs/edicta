@@ -22,7 +22,7 @@ type ExecutionJudgement struct {
 // A violation counts only when verified facts prove it: a proven inclusion
 // ties the height and the chain to the trusted header, and a proven result
 // ties the code. Everything that rests on a source's word is unchecked, and a
-// pass needs a proven result, or the interim confirmation by agreeing sources.
+// pass needs a proven result: agreeing sources never make one.
 func JudgeExecution(f ExecutionFacts, anchorHeight uint64) ExecutionJudgement {
 	proven := f.Inclusion == InclusionProven
 	resultProven := proven && f.Result == ResultProven
@@ -47,7 +47,7 @@ func JudgeExecution(f ExecutionFacts, anchorHeight uint64) ExecutionJudgement {
 		return unchecked(ReasonCrossDisagree, errors.New("tx sources disagree on the height, the bytes or the code"))
 	case !resultProven && f.Outcome != OutcomeSuccess:
 		return unchecked(ReasonCodeUnproven, ErrExecutionResultUnconfirmed)
-	case resultProven, f.Result == ResultCrossConfirmed && f.CrossCheck == CrossPass:
+	case resultProven:
 		return ExecutionJudgement{Status: StatusPass}
 	}
 	if proven && f.ResultProblem != nil {
@@ -55,7 +55,7 @@ func JudgeExecution(f ExecutionFacts, anchorHeight uint64) ExecutionJudgement {
 			return unchecked(reason, f.ResultProblem)
 		}
 	}
-	return unchecked(ReasonResultUnproven, errors.New("result code attested by one source: no result proof and no cross confirmation"))
+	return unchecked(ReasonResultUnproven, errors.New("the result code is not proven: no result proof against the trusted chain"))
 }
 
 // JudgeCheck classifies what a checker returned. An error that proves a
@@ -194,12 +194,11 @@ func (r *run) headerAtHeight(facts ExecutionFacts) (ExecutionJudgement, bool) {
 	case r.ctx.Err() != nil:
 		return ExecutionJudgement{Status: StatusUnchecked, Reason: ReasonTimeout, Err: r.ctx.Err()}, true
 	case err != nil:
+		// The table lists only three header reasons for execution; any other
+		// trouble means no source gave a header that links.
 		reason, srcs, ok := ReasonOf(err)
-		if !ok {
+		if !ok || (reason != ReasonHeaderAboveCheckpoint && reason != ReasonHeaderDisagreement) {
 			reason = ReasonHeaderNotLinking
-			if errors.Is(err, ErrTrustInput) {
-				reason = ReasonHeaderSourceUnavailable
-			}
 		}
 		return ExecutionJudgement{
 			Status: StatusUnchecked, Reason: reason, Sources: srcs,

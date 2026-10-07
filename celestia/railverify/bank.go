@@ -24,6 +24,7 @@ type bankSend struct {
 	headers    headertrust.HeaderChain
 	cross      []TxSource
 	results    []ResultsSource
+	blocks     []BlockSource
 	verifyTx   ProofVerifier
 }
 
@@ -40,6 +41,12 @@ func WithAlternates(alts ...TxSource) Option {
 // sources that serve them.
 func WithResultsSources(srcs ...ResultsSource) Option {
 	return func(c *bankSend) { c.results = append(c.results, srcs...) }
+}
+
+// WithBlockSources adds sources of block transactions besides the tx and
+// cross sources that serve them.
+func WithBlockSources(srcs ...BlockSource) Option {
+	return func(c *bankSend) { c.blocks = append(c.blocks, srcs...) }
 }
 
 // WithProofVerifier replaces the inclusion proof check, which is for tests
@@ -91,6 +98,11 @@ func NewBankSend(cfg Config, primary TxSource, headers headertrust.HeaderChain, 
 	for _, s := range c.results {
 		if s == nil {
 			return nil, errors.New("railverify: nil results source")
+		}
+	}
+	for _, s := range c.blocks {
+		if s == nil {
+			return nil, errors.New("railverify: nil block source")
 		}
 	}
 	if c.verifyTx == nil {
@@ -203,6 +215,8 @@ type answer struct {
 	inclusion     string
 	proof         ProofInfo
 	chainMismatch bool
+	// rp is the result proof of the answer, when it was tried.
+	rp *resultProof
 }
 
 // aside is a candidate set aside, with the reason and the sources it blames.
@@ -341,10 +355,12 @@ func (c *bankSend) CheckExecution(ctx context.Context, in verifier.ExecutionInpu
 	}
 
 	var (
-		sources []verifier.ExecutionSource
-		asides  []aside
-		used    *answer
+		sources     []verifier.ExecutionSource
+		asides      []aside
+		provisional []*answer
+		used        *answer
 	)
+	rowOf := map[*answer]int{}
 	for i, src := range c.candidates {
 		role := verifier.RoleAlternate
 		if i == 0 {
@@ -365,45 +381,109 @@ func (c *bankSend) CheckExecution(ctx context.Context, in verifier.ExecutionInpu
 			})
 			continue
 		}
-		used = t.ans
+		a := t.ans
+		rowOf[a] = len(sources)
 		sources = append(sources, verifier.ExecutionSource{Name: src.Name(), Role: role, Result: verifier.SourceUsed})
-		break
+		if a.inclusion == verifier.InclusionProven && !a.chainMismatch && a.tx.Height > in.AnchorHeight {
+			rp, err := c.resultProofOf(ctx, a, act.ChainID)
+			if err != nil {
+				return c.factsOf(a, sources), err
+			}
+			a.rp = &rp
+			if rp.proven {
+				used = a
+				break
+			}
+		}
+		// An answer without a proven result is kept in case no later
+		// source does better: a source that gives no proof must not keep
+		// the alternates from being asked.
+		provisional = append(provisional, a)
+	}
+	if used == nil {
+		used = bestProvisional(provisional)
 	}
 	if used == nil {
 		return verifier.ExecutionFacts{Sources: sources}, noUsableAnswer(asides)
 	}
-
-	f := verifier.ExecutionFacts{
-		Height: used.tx.Height, HeaderHash: used.hdr.Hash(), BlockTime: uint64(used.hdr.Time.Unix()),
-		Inclusion: used.inclusion, Outcome: outcomeOf(used.tx.Code), Result: verifier.ResultNodeAttested,
-		ChainMismatch: used.chainMismatch, CrossCheck: verifier.CrossOff, Sources: sources,
+	for _, a := range provisional {
+		if a == used {
+			continue
+		}
+		reason, detail := verifier.ReasonResultUnproven, "the answer has no proven result, and another source's was used"
+		if a.rp != nil && a.rp.problem != nil {
+			if r, _, ok := verifier.ReasonOf(a.rp.problem); ok {
+				reason = r
+			}
+		}
+		row := &sources[rowOf[a]]
+		row.Result, row.Reason, row.Detail = verifier.SourceSetAside, reason, detail
 	}
 
+	f := c.factsOf(used, sources)
 	crossCodes, err := c.askCross(ctx, ref, used, &f)
 	if err != nil {
 		return f, err
 	}
-
-	if f.Inclusion == verifier.InclusionProven && !f.ChainMismatch && f.Height > in.AnchorHeight {
-		rp, err := c.proveResult(ctx, f.Height, act.ChainID, used.proof, c.resultsSources(used))
-		if err != nil {
-			return f, err
-		}
-		if rp.proven {
-			f.Result, f.Outcome = verifier.ResultProven, outcomeOf(rp.code)
+	if used.rp != nil {
+		if used.rp.proven {
+			f.Result, f.Outcome = verifier.ResultProven, outcomeOf(used.rp.code)
 			for i, code := range crossCodes {
-				if f.Sources[len(f.Sources)-len(crossCodes)+i].Result == verifier.SourceAgree && code != rp.code {
-					f.Sources[len(f.Sources)-len(crossCodes)+i].Result = verifier.SourceDisagree
+				row := &f.Sources[len(f.Sources)-len(crossCodes)+i]
+				if row.Result == verifier.SourceAgree && code != used.rp.code {
+					row.Result = verifier.SourceDisagree
+					f.CrossCheck = verifier.CrossMismatch
 				}
 			}
 		} else {
-			f.ResultProblem = rp.problem
+			f.ResultProblem = used.rp.problem
 		}
 	}
 	if f.Result != verifier.ResultProven && f.CrossCheck == verifier.CrossPass {
 		f.Result = verifier.ResultCrossConfirmed
 	}
 	return f, nil
+}
+
+// bestProvisional prefers an answer whose inclusion is proven: it ties the
+// height and the chain to the trusted header.
+func bestProvisional(as []*answer) *answer {
+	for _, a := range as {
+		if a.inclusion == verifier.InclusionProven {
+			return a
+		}
+	}
+	if len(as) > 0 {
+		return as[0]
+	}
+	return nil
+}
+
+func (c *bankSend) factsOf(a *answer, sources []verifier.ExecutionSource) verifier.ExecutionFacts {
+	return verifier.ExecutionFacts{
+		Height: a.tx.Height, HeaderHash: a.hdr.Hash(), BlockTime: uint64(a.hdr.Time.Unix()),
+		Inclusion: a.inclusion, Outcome: outcomeOf(a.tx.Code), Result: verifier.ResultNodeAttested,
+		ChainMismatch: a.chainMismatch, CrossCheck: verifier.CrossOff, Sources: sources,
+	}
+}
+
+// resultProofOf runs the result proof for an answer with proven inclusion.
+// When the inclusion proof did not bind the transaction's index, the block's
+// transactions are tried before the index is given up on.
+func (c *bankSend) resultProofOf(ctx context.Context, a *answer, chainID string) (resultProof, error) {
+	rsrcs := endpoints[ResultsSource](c, a.src, c.results)
+	rp, err := c.proveResult(ctx, a.tx.Height, chainID, a.proof, rsrcs)
+	if err != nil || rp.proven || a.proof.IndexBound {
+		return rp, err
+	}
+	if reason, _, _ := verifier.ReasonOf(rp.problem); reason != verifier.ReasonResultIndexUnbound {
+		return rp, nil
+	}
+	info, ok, err := c.bindIndex(ctx, a, rp.results, endpoints[BlockSource](c, a.src, c.blocks))
+	if err != nil || !ok {
+		return rp, err
+	}
+	return c.proveResult(ctx, a.tx.Height, chainID, info, rsrcs)
 }
 
 func outcomeOf(code uint32) string {
@@ -468,25 +548,26 @@ func (c *bankSend) askCross(ctx context.Context, ref [32]byte, used *answer, f *
 	return codes, nil
 }
 
-// resultsSources lists where block results may come from: the tx sources and
-// the cross sources that serve them, the used one first, then any added.
-func (c *bankSend) resultsSources(used *answer) []ResultsSource {
-	var out []ResultsSource
+// endpoints lists the sources of one kind among the tx sources, the cross
+// sources and the extra ones given: the used tx source first, then the rest
+// in the order they were configured, each host once.
+func endpoints[T interface{ Name() string }](c *bankSend, used TxSource, extra []T) []T {
+	var out []T
 	seen := map[string]bool{}
 	add := func(s any) {
-		if rs, ok := s.(ResultsSource); ok && !seen[rs.Name()] {
-			seen[rs.Name()] = true
-			out = append(out, rs)
+		if t, ok := s.(T); ok && !seen[t.Name()] {
+			seen[t.Name()] = true
+			out = append(out, t)
 		}
 	}
-	add(used.src)
+	add(used)
 	for _, s := range c.candidates {
 		add(s)
 	}
 	for _, s := range c.cross {
 		add(s)
 	}
-	for _, s := range c.results {
+	for _, s := range extra {
 		add(s)
 	}
 	return out

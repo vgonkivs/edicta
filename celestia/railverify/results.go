@@ -29,8 +29,11 @@ func ResultsRoot(results []TxResult) (root []byte, err error) {
 
 // resultProof is what the result proof established, or why it did not.
 type resultProof struct {
-	proven  bool
-	code    uint32
+	proven bool
+	code   uint32
+	// results is the number of results of the block when they hash to the
+	// trusted root.
+	results int
 	problem error
 }
 
@@ -76,7 +79,7 @@ func (c *bankSend) proveResult(ctx context.Context, height uint64, chainID strin
 		}
 		code, ok := boundCode(results, info)
 		if !ok {
-			return resultProof{problem: verifier.Reasonf(verifier.ReasonResultIndexUnbound, []string{src.Name()},
+			return resultProof{results: len(results), problem: verifier.Reasonf(verifier.ReasonResultIndexUnbound, []string{src.Name()},
 				"nothing binds the position of the transaction among the %d results of block %d", len(results), height)}, nil
 		}
 		return resultProof{proven: true, code: code}, nil

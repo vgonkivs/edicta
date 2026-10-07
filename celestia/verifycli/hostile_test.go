@@ -90,14 +90,15 @@ func TestReportSaysWhoTheVerdictRestsOn(t *testing.T) {
 	assert.Contains(t, out, "needed headers: ")
 }
 
-// Under the interim rule a node-attested pass is only possible with agreeing
-// cross sources, and the report still says the height is the source's word.
+// Agreeing cross sources never make a pass without a result proof, and the
+// report still says the height is the source's word.
 func TestNodeAttestedHeightIsMarked(t *testing.T) {
 	w := newBankWorld(t, nil)
 	cross := w.s.rpc(t, w.s.cometChain(), nodeID(2))
 	cross.PutTx(cometfake.Tx{Height: execHeight, Bytes: w.tx})
 	code, out := exec(t, w.textArgs("--cross-check", cross.HostURL("localhost")))
-	require.Equal(t, exitValid, code, out)
+	require.Equal(t, exitUnchecked, code, out)
+	assert.Contains(t, out, "result_unproven")
 	assert.Contains(t, out, "execution height: node-attested")
 	assert.Contains(t, out, "no inclusion proof")
 }

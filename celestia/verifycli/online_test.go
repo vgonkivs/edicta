@@ -625,7 +625,7 @@ func TestExecutionCheckThroughTheCLI(t *testing.T) {
 		rep := decodeReport(t, out)
 		c := checkOf(t, rep, "execution")
 		assert.Equal(t, "result_unproven", c["reason"])
-		assert.Equal(t, "a source that serves block_results, or a cross tx source", c["advice"])
+		assert.Equal(t, "a tx source that serves inclusion proofs and a source that serves block_results", c["advice"])
 		assert.Equal(t, "proven", rep["execution"].(map[string]any)["inclusion"], "the inclusion still holds")
 		assert.Equal(t, "pass", statusOf(t, rep, "header_trust"))
 	})
@@ -709,7 +709,9 @@ func TestExecutionCheckThroughTheCLI(t *testing.T) {
 		args := w.s.onlineArgs("verify", w.au, "--headers-rpc", w.headers.URL, "--checkpoint", w.s.explicitCheckpoint(),
 			"--receipt", receipt, "--tx-rpc", w.headers.URL, "--cross-check", cross.HostURL("localhost"), "--check-execution", "--json")
 		code, out := exec(t, args)
-		assert.Equal(t, exitValid, code, "a second transaction with the same body is not detected here\n%s", out)
+		assert.Equal(t, exitUnchecked, code, "agreeing sources without a result proof never pass\n%s", out)
+		rep := decodeReport(t, out)
+		assert.Equal(t, "result_unproven", checkOf(t, rep, "execution")["reason"])
 	})
 	t.Run("the transaction is above the trusted header", func(t *testing.T) {
 		w := newBankWorld(t, nil)
@@ -767,7 +769,7 @@ func TestASingleNodeWithoutProofsIsInconclusive(t *testing.T) {
 	c := checkOf(t, rep, "execution")
 	assert.Equal(t, "result_unproven", c["reason"])
 	assert.Equal(t, []any{"127.0.0.1"}, c["sources"])
-	assert.Equal(t, "a source that serves block_results, or a cross tx source", c["advice"])
+	assert.Equal(t, "a tx source that serves inclusion proofs and a source that serves block_results", c["advice"])
 	ex := rep["execution"].(map[string]any)
 	assert.Equal(t, "node-attested", ex["inclusion"])
 	assert.Equal(t, "node-attested", ex["result"])
@@ -776,21 +778,22 @@ func TestASingleNodeWithoutProofsIsInconclusive(t *testing.T) {
 	assert.Equal(t, exitUnchecked, code)
 	assert.Contains(t, out, "reason: result_unproven")
 	assert.Contains(t, out, "source: 127.0.0.1")
-	assert.Contains(t, out, "advice: a source that serves block_results, or a cross tx source")
+	assert.Contains(t, out, "advice: a tx source that serves inclusion proofs and a source that serves block_results")
 	assert.Contains(t, out, "execution height: node-attested")
 	assert.NotContains(t, out, "verdict: valid")
 }
 
-// The interim rule: independent sources that agree confirm the result, and
+// Independent sources that agree are reported but never prove the result, and
 // one source that contradicts them only holds the verdict back.
-func TestCrossTxSourcesUnderTheInterimRule(t *testing.T) {
+func TestCrossTxSourcesAreReportedNeverProof(t *testing.T) {
 	t.Run("an agreeing cross source", func(t *testing.T) {
 		w := newBankWorld(t, nil)
 		cross := w.s.rpc(t, w.s.cometChain(), nodeID(2))
 		cross.PutTx(cometfake.Tx{Height: execHeight, Bytes: w.tx})
 		code, out := exec(t, w.args("--cross-check", cross.HostURL("localhost")))
-		require.Equal(t, exitValid, code, out)
+		require.Equal(t, exitUnchecked, code, out)
 		rep := decodeReport(t, out)
+		assert.Equal(t, "result_unproven", checkOf(t, rep, "execution")["reason"])
 		ex := rep["execution"].(map[string]any)
 		assert.Equal(t, "pass", ex["cross_check"])
 		assert.Equal(t, "cross-confirmed", ex["result"])

@@ -35,6 +35,9 @@ var (
 const (
 	// maxBody is far above any header, block meta list or transaction proof.
 	maxBody = 8 << 20
+	// maxBlockBody bounds a /block answer, which carries every transaction
+	// of the block base64 encoded.
+	maxBlockBody = 192 << 20
 	// maxPerCall is the most headers one /blockchain call returns.
 	maxPerCall = 20
 
@@ -110,8 +113,12 @@ type envelope struct {
 // value. CometBFT sends RPC errors with a 200 or a 500, so the body is
 // looked at before the status.
 func (s *Source) call(ctx context.Context, path string, q url.Values) (json.RawMessage, *rpcError, error) {
+	return s.callLimit(ctx, path, q, maxBody)
+}
+
+func (s *Source) callLimit(ctx context.Context, path string, q url.Values, limit int64) (json.RawMessage, *rpcError, error) {
 	for attempt := 0; ; attempt++ {
-		r, rerr, wait, busy, err := s.callOnce(ctx, path, q)
+		r, rerr, wait, busy, err := s.callOnce(ctx, path, q, limit)
 		if !busy || attempt >= s.retries {
 			return r, rerr, err
 		}
@@ -140,7 +147,7 @@ func retryAfter(h http.Header) time.Duration {
 
 // callOnce is one request. busy is set for a 429 or 503 that carries no RPC
 // error, and wait is then the node's Retry-After, or -1.
-func (s *Source) callOnce(ctx context.Context, path string, q url.Values) (res json.RawMessage, rerr *rpcError, wait time.Duration, busy bool, err error) {
+func (s *Source) callOnce(ctx context.Context, path string, q url.Values, limit int64) (res json.RawMessage, rerr *rpcError, wait time.Duration, busy bool, err error) {
 	u := s.base + path
 	if len(q) > 0 {
 		u += "?" + q.Encode()
@@ -157,15 +164,15 @@ func (s *Source) callOnce(ctx context.Context, path string, q url.Values) (res j
 		return nil, nil, 0, false, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	defer resp.Body.Close()
-	b, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
+	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		if cerr := ctx.Err(); cerr != nil {
 			return nil, nil, 0, false, fmt.Errorf("cometrpc: %w", cerr)
 		}
 		return nil, nil, 0, false, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
-	if len(b) > maxBody {
-		return nil, nil, 0, false, fmt.Errorf("%w: answer is larger than %d bytes", ErrBadResponse, maxBody)
+	if int64(len(b)) > limit {
+		return nil, nil, 0, false, fmt.Errorf("%w: answer is larger than %d bytes", ErrBadResponse, limit)
 	}
 	var env envelope
 	jerr := json.Unmarshal(b, &env)
@@ -471,6 +478,45 @@ func (s *Source) BlockResults(ctx context.Context, height uint64) ([]railverify.
 			*g.out = v
 		}
 		out[i] = tr
+	}
+	return out, nil
+}
+
+// BlockTxs reads the transactions of the block at height, as the block holds
+// them. Nothing here is believed on its own: the caller rebuilds the square
+// and compares its data root with a trusted header.
+func (s *Source) BlockTxs(ctx context.Context, height uint64) ([][]byte, error) {
+	q := url.Values{"height": {strconv.FormatUint(height, 10)}}
+	r, rerr, err := s.callLimit(ctx, "/block", q, maxBlockBody)
+	if err != nil {
+		return nil, err
+	}
+	if rerr != nil {
+		return nil, fmt.Errorf("%w: %s", ErrUnavailable, rerr.text())
+	}
+	var res struct {
+		Block *struct {
+			Header *struct {
+				Height *string `json:"height"`
+			} `json:"header"`
+			Data *struct {
+				Txs []string `json:"txs"`
+			} `json:"data"`
+		} `json:"block"`
+	}
+	if err := json.Unmarshal(r, &res); err != nil || res.Block == nil || res.Block.Header == nil || res.Block.Header.Height == nil || res.Block.Data == nil {
+		return nil, fmt.Errorf("%w: block", ErrBadResponse)
+	}
+	if got, err := parseHeight(*res.Block.Header.Height); err != nil || got != height {
+		return nil, fmt.Errorf("%w: asked for block %d, got %q", ErrBadResponse, height, *res.Block.Header.Height)
+	}
+	out := make([][]byte, len(res.Block.Data.Txs))
+	for i, t := range res.Block.Data.Txs {
+		b, err := base64.StdEncoding.DecodeString(t)
+		if err != nil || len(b) == 0 {
+			return nil, fmt.Errorf("%w: block tx %d", ErrBadResponse, i)
+		}
+		out[i] = b
 	}
 	return out, nil
 }

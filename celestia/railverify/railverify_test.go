@@ -547,7 +547,7 @@ func TestCrossSources(t *testing.T) {
 		w.put(s, w.v.txRaw, railverify.RawTx{Bytes: w.v.txRaw, Height: txH, Code: 0, Proof: w.proof})
 		return s
 	}
-	t.Run("agreeing sources confirm the result for the interim pass", func(t *testing.T) {
+	t.Run("agreeing sources are reported but do not prove the result", func(t *testing.T) {
 		w := newWorld(t)
 		a, b := good(w, "rpc-b.example"), good(w, "rpc-c.example")
 		w.cross = []railverify.TxSource{a, b}
@@ -560,7 +560,9 @@ func TestCrossSources(t *testing.T) {
 			got = append(got, s.Name+"/"+s.Role+"/"+s.Result)
 		}
 		assert.Equal(t, []string{"rpc-a.example/primary/used", "rpc-b.example/cross/agree", "rpc-c.example/cross/agree"}, got)
-		assert.Equal(t, verifier.StatusPass, verifier.JudgeCheck(f, err, txH-10).Status)
+		j := verifier.JudgeCheck(f, err, txH-10)
+		assert.Equal(t, verifier.StatusUnchecked, j.Status, "agreement of sources is not a result proof")
+		assert.Equal(t, verifier.ReasonResultHeaderUnreachable, j.Reason, "no header after the block, so no result proof")
 		for _, s := range []*fakeSource{a, b} {
 			require.Len(t, s.calls, 1)
 			assert.Equal(t, ref32(t, w.v.railRef), s.calls[0].hash)

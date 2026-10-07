@@ -445,6 +445,20 @@ func TestCheckerProvesTheResultThroughASource(t *testing.T) {
 	})
 }
 
+// withResults serves the results of the block at txH from a source of their
+// own, under a header at txH+1 that commits to them.
+func withResults(t *testing.T, w *world, results []railverify.TxResult) *resultSource {
+	t.Helper()
+	root, err := railverify.ResultsRoot(results)
+	require.NoError(t, err)
+	hd := cometfake.MkHeader(chainID, txH+1, make([]byte, 32), "app")
+	hd.LastResultsHash = root
+	w.headers.byH[txH+1] = cometfake.Encode(t, hd)
+	rs := &resultSource{name: "results.example", results: results}
+	w.opts = append(w.opts, railverify.WithResultsSources(rs))
+	return rs
+}
+
 type resultSource struct {
 	name    string
 	results []railverify.TxResult
@@ -479,12 +493,14 @@ func TestAlternates(t *testing.T) {
 		assert.Equal(t, verifier.RoleAlternate, f.Sources[1].Role)
 		assert.Equal(t, verifier.SourceUsed, f.Sources[1].Result)
 	})
-	t.Run("the alternate is not asked when the primary is usable", func(t *testing.T) {
-		w := newWorld(t)
+	t.Run("the alternate is not asked when the primary's result is proven", func(t *testing.T) {
+		w := newWorldIn(t, layoutMid)
 		alt := usable(w, "rpc-b.example")
 		w.alts = []railverify.TxSource{alt}
-		_, err := w.ok()
+		withResults(t, w, []railverify.TxResult{{Code: 5}, {Code: 0}, {Code: 5}})
+		f, err := w.ok()
 		require.NoError(t, err)
+		assert.Equal(t, "proven", f.Result)
 		assert.Empty(t, alt.calls)
 	})
 	t.Run("every candidate is set aside: the last one's cause, all named", func(t *testing.T) {

@@ -86,7 +86,7 @@ func loadOutcomes(t testing.TB) outcomeDoc {
 	require.NoError(t, err)
 	var d outcomeDoc
 	require.NoError(t, json.Unmarshal(raw, &d))
-	require.Equal(t, "v0-draft.27", d.Revision)
+	require.Equal(t, "v0-draft.28", d.Revision)
 	require.NotEmpty(t, d.Cases)
 	return d
 }
@@ -115,6 +115,7 @@ type vecSource struct {
 	code    uint32
 	proof   []byte
 	results map[uint64][]railverify.TxResult
+	blocks  map[uint64][][]byte
 }
 
 func (s *vecSource) Name() string { return s.name }
@@ -140,6 +141,13 @@ func (s *vecSource) BlockResults(_ context.Context, h uint64) ([]railverify.TxRe
 	return nil, errors.New("node is not persisting finalize block responses")
 }
 
+func (s *vecSource) BlockTxs(_ context.Context, h uint64) ([][]byte, error) {
+	if b, ok := s.blocks[h]; ok {
+		return b, nil
+	}
+	return nil, errors.New("block not served")
+}
+
 // vecHeaders is the trusted header chain of a case: it reaches T, and gives
 // the faults the case names.
 type vecHeaders struct {
@@ -149,6 +157,7 @@ type vecHeaders struct {
 	mode        string
 	txHeights   map[uint64]bool
 	lastResults map[uint64][]byte
+	dataHash    map[uint64][]byte
 }
 
 func (h *vecHeaders) Header(_ context.Context, height uint64) ([]byte, error) {
@@ -163,6 +172,9 @@ func (h *vecHeaders) Header(_ context.Context, height uint64) ([]byte, error) {
 	hd := cometfake.MkHeader(h.chain, height, make([]byte, 32), "app")
 	if root, ok := h.lastResults[height]; ok {
 		hd.LastResultsHash = root
+	}
+	if dh, ok := h.dataHash[height]; ok {
+		hd.DataHash = dh
 	}
 	return cometfake.Encode(h.t, hd), nil
 }
@@ -188,7 +200,9 @@ func resultsOf(t testing.TB, state string, code uint32) (served []railverify.TxR
 		served = list(code, 0, 0)
 	case "match_uniform":
 		served = list(code, code, code)
-	case "match_unindexed":
+	case "match_rebuilt":
+		served = list(code+1, code, code+1)
+	case "match_unindexed", "match_rebuild_mismatch":
 		served = list(0, 5)
 	case "root_mismatch":
 		return list(0, 7), rootOf(list(0))
@@ -275,11 +289,11 @@ func runOutcomeCase(t *testing.T, d outcomeDoc, c outcomeCase) {
 	}
 	served, root := resultsOf(t, state, resCode)
 
-	heads := &vecHeaders{t: t, top: top, chain: trustedChain, mode: c.HeaderAtTxHeight, txHeights: map[uint64]bool{}, lastResults: map[uint64][]byte{}}
+	heads := &vecHeaders{t: t, top: top, chain: trustedChain, mode: c.HeaderAtTxHeight, txHeights: map[uint64]bool{}, lastResults: map[uint64][]byte{}, dataHash: map[uint64][]byte{}}
 	var primary railverify.TxSource
 	var alts, cross []railverify.TxSource
 	for i, s := range c.Sources {
-		vs := &vecSource{name: s.Name, kind: s.Answer.Kind, results: map[uint64][]railverify.TxResult{}}
+		vs := &vecSource{name: s.Name, kind: s.Answer.Kind, results: map[uint64][]railverify.TxResult{}, blocks: map[uint64][][]byte{}}
 		if s.Answer.Kind == "tx" {
 			vs.tx = txs[s.Answer.Tx]
 			require.NotNil(t, vs.tx, s.Answer.Tx)
@@ -300,6 +314,18 @@ func runOutcomeCase(t *testing.T, d outcomeDoc, c outcomeCase) {
 			if served != nil {
 				vs.results[vs.height] = served
 				heads.lastResults[vs.height+1] = root
+				// The tx is the second of three, behind a transaction that
+				// owns share 0, so its proof does not bind the index.
+				pad := fillers(2)
+				switch state {
+				case "match_rebuilt":
+					block := [][]byte{pad[0], vs.tx, pad[1]}
+					dh, err := railverify.RebuildDataRoot(block)
+					require.NoError(t, err)
+					vs.blocks[vs.height], heads.dataHash[vs.height] = block, dh
+				case "match_rebuild_mismatch":
+					vs.blocks[vs.height] = [][]byte{pad[0], pad[1]}
+				}
 			}
 		}
 		switch {
