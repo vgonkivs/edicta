@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/archive"
-	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/gate/registry"
 )
 
@@ -25,14 +24,6 @@ type sweeper struct {
 	q       *retryQueue
 	log     *slog.Logger
 	timeout time.Duration
-	// An entry this process authorized less than grace ago may still be
-	// waiting for its request to write the archive record, with retention
-	// inputs only that request has. The scan leaves it alone; startedAt
-	// separates those from entries of an earlier process, which no request
-	// is waiting for.
-	clock     gate.Clock
-	grace     time.Duration
-	startedAt uint64
 }
 
 // sweepResult says what a pass left undone.
@@ -42,8 +33,6 @@ type sweepResult struct {
 	scanFailed bool
 	// incomplete: the pass ended before the registry was read to the end.
 	incomplete bool
-	// deferred: recent entries were left to their requests; scan again later.
-	deferred bool
 }
 
 // run retries the queued records, then sweeps the registry if full. The queue
@@ -55,14 +44,22 @@ func (s *sweeper) run(ctx context.Context, full bool) sweepResult {
 	var res sweepResult
 	st := &res.stats
 	for _, r := range s.q.drain() {
-		if !s.put(ctx, r, st) && !s.q.add(r) {
+		perm := st.permanent
+		done := s.put(ctx, r, st)
+		if _, ok := authorizationHash(r); ok && st.permanent > perm {
+			// Only the retry of a queued record raises the flag, never the
+			// scan's own repair, or a record that cannot be written would
+			// keep every tick scanning.
+			s.q.markDropped()
+		}
+		if !done && !s.q.add(r) {
 			s.log.Error("edictad: archive retry queue is full; the record is left to the next registry scan",
 				"kind", r.Kind(), "commitment_hash", recordHash(r))
 		}
 	}
 	if full {
 		before := st.failed
-		res.incomplete = !s.scan(ctx, st, &res.deferred)
+		res.incomplete = !s.scan(ctx, st)
 		res.scanFailed = st.failed > before
 	}
 	s.log.Info("edictad: archive sweep", "repaired", st.repaired, "no_decision", st.noDecision,
@@ -71,7 +68,7 @@ func (s *sweeper) run(ctx context.Context, full bool) sweepResult {
 }
 
 // scan reports whether it read the registry to the end.
-func (s *sweeper) scan(ctx context.Context, st *sweepStats, deferred *bool) bool {
+func (s *sweeper) scan(ctx context.Context, st *sweepStats) bool {
 	var after *registry.Key
 	for ctx.Err() == nil {
 		page, err := s.lister.List(ctx, after, sweepPage)
@@ -87,23 +84,11 @@ func (s *sweeper) scan(ctx context.Context, st *sweepStats, deferred *bool) bool
 			if ctx.Err() != nil {
 				return false
 			}
-			if s.recent(e.AuthorizedAt) {
-				*deferred = true
-				continue
-			}
 			s.entry(ctx, e, st)
 		}
 		after = &page[len(page)-1].Key
 	}
 	return false
-}
-
-func (s *sweeper) recent(authorizedAt uint64) bool {
-	if s.grace <= 0 || s.clock == nil || authorizedAt <= s.startedAt {
-		return false
-	}
-	now := s.clock.Now().Unix()
-	return now >= 0 && uint64(now) < authorizedAt+uint64(s.grace/time.Second)
 }
 
 func (s *sweeper) entry(ctx context.Context, e registry.Entry, st *sweepStats) {
@@ -177,7 +162,7 @@ func (s *sweeper) loop(ctx context.Context, tick <-chan time.Time, interval time
 			continue
 		}
 		res := s.run(ctx, needFull)
-		needFull = needFull && (res.scanFailed || res.incomplete || res.deferred)
+		needFull = needFull && (res.scanFailed || res.incomplete)
 		if ctx.Err() != nil {
 			return
 		}

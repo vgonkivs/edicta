@@ -101,8 +101,8 @@ type Server struct {
 	// stop ends the background goroutines; they are waited for on shutdown.
 	stop context.CancelFunc
 	bg   sync.WaitGroup
-	// drain makes the last attempt to write what is still queued.
-	drain  func()
+	// drain makes the last attempt to write what is still queued, within ctx.
+	drain  func(context.Context)
 	mu     sync.Mutex
 	closed bool
 	served chan struct{}
@@ -114,7 +114,7 @@ func (s *Server) Addr() string { return s.addr }
 // Shutdown stops accepting, lets in-flight requests finish, then stops the
 // background work and releases the gate and the registry. If ctx ends first it
 // returns ctx's error and may be called again. After a clean shutdown it
-// returns nil.
+// returns nil. The last attempt to write queued records is bounded by ctx too.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -129,7 +129,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.stop()
 	s.bg.Wait()
 	if s.drain != nil {
-		s.drain()
+		s.drain(ctx)
 	}
 	_ = s.gate.Close()
 	if err := s.reg.Close(); err != nil {
@@ -356,8 +356,7 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 
 	timeout := time.Duration(cfg.Archive.WriteTimeoutS) * time.Second
 	q := &retryQueue{}
-	sw := &sweeper{lister: reg, io: aio, q: q, log: log, timeout: timeout, clock: clock,
-		grace: 2*timeout + requestDeadline, startedAt: uint64(clock.Now().Unix())}
+	sw := &sweeper{lister: reg, io: aio, q: q, log: log, timeout: timeout}
 	// The pass before the listener has a time budget; what it does not reach
 	// is finished in the background right away.
 	sctx, scancel := context.WithTimeout(ctx, startupSweepBudget)
@@ -369,8 +368,8 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 		sw.loop(runCtx, d.SweepTick, time.Duration(cfg.Archive.SweepIntervalS)*time.Second,
 			first.scanFailed || first.incomplete)
 	}()
-	s.drain = func() {
-		dctx, cancel := context.WithTimeout(context.Background(), timeout)
+	s.drain = func(ctx context.Context) {
+		dctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		sw.run(dctx, false)
 		if n := q.len(); n > 0 {
@@ -416,7 +415,7 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 	}
 
 	var api edictaapi.Gate = &archivingGate{
-		g: g, clock: clock, gateID: cfg.Gate.GateID,
+		g: g, clock: clock, gateID: cfg.Gate.GateID, q: q,
 		w: &writer{io: aio, q: q, log: log, timeout: timeout},
 	}
 	if d.WrapGate != nil {
@@ -612,10 +611,19 @@ type archivingGate struct {
 	g      *gate.Gate
 	clock  gate.Clock
 	gateID string
+	q      *retryQueue
 	w      *writer
 }
 
 func (a *archivingGate) Authorize(ctx context.Context, envelope, action []byte) (gate.Result, error) {
+	// The hold starts before the gate can mark the registry and ends once the
+	// record is written or queued, so a scan never sees the entry in between.
+	if sc, derr := commitment.DecodeSigned(envelope); derr == nil {
+		if h, herr := commitment.HashOf(&sc.Commitment); herr == nil {
+			a.q.begin(h)
+			defer a.q.end(h)
+		}
+	}
 	// One scope per request: the anchor stage and the payload stage read the
 	// block once between them.
 	res, err := a.g.Authorize(gatechain.WithAnchorScope(ctx), envelope, action)

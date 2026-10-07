@@ -13,35 +13,30 @@ import (
 	"github.com/vgonkivs/edicta/gate/registry"
 )
 
-type fixedClock struct{ t time.Time }
-
-func (c fixedClock) Now() time.Time { return c.t }
-
 // A scan must not write a record for an entry whose own request may still be
 // about to write it with the retention inputs: the archive keeps the first
-// write.
-func TestScanLeavesRecentEntriesToTheirRequests(t *testing.T) {
-	now := time.Unix(10_000, 0)
-	old := entryOf(1)   // authorized at 1, before this process started
-	prior := entryOf(2) // authorized by an earlier process, just before start
-	prior.AuthorizedAt = 9_990
-	mine := entryOf(3) // authorized by this process a moment ago
-	mine.AuthorizedAt = 9_995
-	l := &memLister{entries: []registry.Entry{old, prior, mine}}
+// write. The hold does not depend on any clock.
+func TestScanLeavesEntriesWhoseRequestIsAtWork(t *testing.T) {
+	old := entryOf(1) // an earlier process: no request of this one waits for it
+	mine := entryOf(3)
+	mine.AuthorizedAt = 0 // a stepped clock changes nothing
+	l := &memLister{entries: []registry.Entry{old, mine}}
 	st := &memStore{}
 	sw := newSweeper(st, l)
-	sw.clock, sw.grace, sw.startedAt = fixedClock{now}, 100*time.Second, 9_990
 
-	res := sw.run(context.Background(), true)
+	sw.q.begin(mine.CommitmentHash)
+	sw.q.begin(mine.CommitmentHash) // an identical request overlaps
+	sw.run(context.Background(), true)
 	assert.True(t, st.putAuthFor(old.CommitmentHash))
-	assert.True(t, st.putAuthFor(prior.CommitmentHash), "no request of this process waits for it")
-	assert.False(t, st.putAuthFor(mine.CommitmentHash), "left to the request path")
-	assert.True(t, res.deferred, "and found again by a later scan")
+	assert.False(t, st.putAuthFor(mine.CommitmentHash))
 
-	sw.clock = fixedClock{now.Add(200 * time.Second)}
-	res = sw.run(context.Background(), true)
-	assert.True(t, st.putAuthFor(mine.CommitmentHash), "after the grace a crash gap is repaired")
-	assert.False(t, res.deferred)
+	sw.q.end(mine.CommitmentHash)
+	sw.run(context.Background(), true)
+	assert.False(t, st.putAuthFor(mine.CommitmentHash), "one request is still at work")
+
+	sw.q.end(mine.CommitmentHash)
+	sw.run(context.Background(), true)
+	assert.True(t, st.putAuthFor(mine.CommitmentHash), "a gap is repaired once no request is at work")
 }
 
 // A probe that fails at once, with no interval configured, is retried at a

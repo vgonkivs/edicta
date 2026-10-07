@@ -133,9 +133,13 @@ archive (after a crash or an archive outage between the two writes). The sweep
 before the listener has a 30 s budget; what it does not reach is finished in the
 background, and a sweep that left work is repeated every `sweep_interval_s`.
 Records the gate could not write after signing wait in a memory queue of 1024 for
-the next sweep; what is still queued at exit, or was dropped because the queue
-was full, is found again by the sweep at the next start. At most 64 archive calls
-run at once, and one more gets the retryable 503.
+the next sweep. At shutdown one last attempt writes what is still queued, bounded
+by the shutdown context and by `write_timeout_s`. What is still queued after that,
+what was dropped because the queue was full, and a record that failed permanently
+is found again by the sweep, which repairs it from the registry. A record repaired
+that way has no retention inputs, because only the request that issued the
+Authorization has them. At most 64 archive calls run at once, and one more gets the
+retryable 503.
 
 If the archive is down, `POST /v0/authorize` answers 503 with `ErrArchiveUnavailable`
 and `Retry-After: 5`, nothing is signed and the nonce stays unused, so the same

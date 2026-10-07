@@ -130,6 +130,39 @@ type retryQueue struct {
 	items   []archive.Record
 	auth    map[commitment.Hash]int // queued Authorization records by decision
 	dropped bool
+	// pending counts the requests between the registry mark and the end of
+	// their record write or queueing, by decision. It is a count because
+	// identical requests overlap.
+	pending map[commitment.Hash]int
+}
+
+// begin marks a decision as being authorized by a request of this process. It
+// must run before the gate marks the registry, so that no scan can see the
+// entry while its request is still to write the record with the retention
+// inputs only that request has. It does not rely on the wall clock.
+func (q *retryQueue) begin(h commitment.Hash) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.pending == nil {
+		q.pending = map[commitment.Hash]int{}
+	}
+	q.pending[h]++
+}
+
+func (q *retryQueue) end(h commitment.Hash) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.pending[h] <= 1 {
+		delete(q.pending, h)
+		return
+	}
+	q.pending[h]--
+}
+
+func (q *retryQueue) markDropped() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.dropped = true
 }
 
 const maxRetryQueue = 1024
@@ -165,11 +198,12 @@ func (q *retryQueue) len() int {
 	return len(q.items)
 }
 
-// holds reports whether an Authorization record of the decision is queued.
+// holds reports whether the decision's Authorization record is queued or its
+// request is still at work on it.
 func (q *retryQueue) holds(h commitment.Hash) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	return q.auth[h] > 0
+	return q.auth[h] > 0 || q.pending[h] > 0
 }
 
 // takeDropped reports and clears the drop flag.
@@ -250,6 +284,11 @@ func (w *writer) write(ctx context.Context, r archive.Record) {
 	case permanent(err):
 		w.log.Error("edictad: archive record cannot be written and is dropped", "kind", r.Kind(),
 			"commitment_hash", recordHash(r), "err", err)
+		if _, ok := authorizationHash(r); ok {
+			// The registry still has the Authorization; a scan repairs the
+			// record without the retention inputs.
+			w.q.markDropped()
+		}
 	default:
 		queued := w.q.add(r)
 		w.log.Error("edictad: archive write failed", "kind", r.Kind(), "queued", queued, "err", err)
