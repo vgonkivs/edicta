@@ -41,9 +41,17 @@ decided, on what context, before the action, and that exactly that action ran.
 From the repository root:
 
 ```
-go -C celestia build -o bin/edicta ./cmd/edicta
+make demo
+```
+
+or, step by step:
+
+```
+make build                 # or: go -C celestia build -o bin/edicta ./cmd/edicta
 celestia/bin/edicta demo
 ```
+
+Flags go after `demo`, or through `make demo ARGS="..."`.
 
 The demo needs a terminal. It refuses to start without one, before any key is
 created. Nothing is broadcast until you press Enter at the start prompt, and no

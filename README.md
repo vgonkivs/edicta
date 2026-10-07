@@ -27,9 +27,12 @@ demo tries to cheat (a different amount, a reused decision, a tampered
 archive, a rogue executor) and shows each attempt refused or caught.
 
 ```sh
-go -C celestia build -o bin/edicta ./cmd/edicta
-celestia/bin/edicta demo
+make demo                      # builds everything into celestia/bin, then runs the demo
+make demo ARGS="--json"        # pass demo flags through ARGS
 ```
+
+`make build` only builds (`edicta`, `edictad`, `edicta-live`, `edicta-verify`
+into `celestia/bin/`); `make vet`, `make test` run both Go modules.
 
 The demo prints an address to fund with testnet TIA and starts only after you
 press Enter. Using your own funded key, the trust root, the verdicts and how
