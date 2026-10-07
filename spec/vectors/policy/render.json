@@ -1,0 +1,61 @@
+{
+  "format": "edicta-policy-vectors/v1",
+  "revision": "policy-v1-draft.1",
+  "generator": "spec/vectors/check/gen_policy.py",
+  "cases": [
+    {
+      "id": "render_m_full",
+      "mandate_ref": "m_full",
+      "text": "Edicta mandate v1\nprincipal: fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e\nmandate_id: 222fc019db1dccf66cd55d6dc31b35e5\nversion: 1\ngate: gate-paper-1\nvalid: anchor time from 2026-10-02T04:00:00Z ; decision valid_until up to 2026-11-02T04:00:00Z\nmax decision age: 1800s\nmin spacing: 10s\nagents (2, shared counter):\n  - 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c\n  - d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\nkinds: transfer\nasset test:eth (scale 18):\n  per action: no limit\n  period: max 1.000000000000000000 per rolling 744h (may count up to 745h)\n  recipients: any\nasset test:usd (scale 2):\n  per action: max 50.00\n  period: max 20.00 per rolling 1h (may count up to 2h)\n  period: max 100.00 per rolling 24h (may count up to 25h)\n  recipients:\n    - test:alice\n    - test:bob\ncount: max 5 actions per rolling 1h (may count up to 2h)\ncount: max 20 actions per rolling 24h (may count up to 25h)\nnotes:\n  - Limits are measured on the anchor time of each decision (block time of its payload), not on execution time.\n  - Limits use hourly buckets; a bucket partly inside a window counts fully, so a limit may cover up to one extra hour (a \"per 1h\" limit may span up to 2h): the gate may deny early, never allow extra.\n  - Limits count authorizations, not executions.\n  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.\n"
+    },
+    {
+      "id": "render_m_full_v2",
+      "mandate_ref": "m_full_v2",
+      "text": "Edicta mandate v1\nprincipal: fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e\nmandate_id: 222fc019db1dccf66cd55d6dc31b35e5\nversion: 2\ngate: gate-paper-1\nvalid: anchor time from 2026-10-02T04:00:00Z ; decision valid_until up to 2026-11-02T04:00:00Z\nmax decision age: 1800s\nmin spacing: 10s\nagents (2, shared counter):\n  - 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c\n  - d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\nkinds: transfer\nasset test:eth (scale 18):\n  per action: no limit\n  period: max 1.000000000000000000 per rolling 744h (may count up to 745h)\n  recipients: any\nasset test:usd (scale 2):\n  per action: max 40.00\n  period: max 20.00 per rolling 1h (may count up to 2h)\n  period: max 100.00 per rolling 24h (may count up to 25h)\n  recipients:\n    - test:alice\n    - test:bob\ncount: max 5 actions per rolling 1h (may count up to 2h)\ncount: max 20 actions per rolling 24h (may count up to 25h)\nnotes:\n  - Limits are measured on the anchor time of each decision (block time of its payload), not on execution time.\n  - Limits use hourly buckets; a bucket partly inside a window counts fully, so a limit may cover up to one extra hour (a \"per 1h\" limit may span up to 2h): the gate may deny early, never allow extra.\n  - Limits count authorizations, not executions.\n  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.\n"
+    },
+    {
+      "id": "render_m_minimal",
+      "mandate_ref": "m_minimal",
+      "text": "Edicta mandate v1\nprincipal: fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e\nmandate_id: 00000000000000000000000000000000\nversion: 1\ngate: gate-paper-1\nvalid: anchor time from 1970-01-01T00:00:01Z ; decision valid_until up to 1970-01-01T00:00:02Z\nmax decision age: default (MaxTTL of the payload's DA)\nmin spacing: none\nagents (1, shared counter):\n  - d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\nkinds: any\nasset test:usd (scale 2):\n  per action: max 0.01\n  period: no limit\n  recipients: any\ncount: no limit\nnotes:\n  - Limits are measured on the anchor time of each decision (block time of its payload), not on execution time.\n  - Limits use hourly buckets; a bucket partly inside a window counts fully, so a limit may cover up to one extra hour (a \"per 1h\" limit may span up to 2h): the gate may deny early, never allow extra.\n  - Limits count authorizations, not executions.\n  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.\n"
+    },
+    {
+      "id": "render_m_big",
+      "mandate_ref": "m_big",
+      "text": "Edicta mandate v1\nprincipal: 86680d1e743b0ac928a2d7e4d58366cc21675d6142efabbe953205bb2a12c554\nmandate_id: d96d1eec3361b2b27c0ea2fac35df2f0\nversion: 7\ngate: gate:x/y.z_1-2\nvalid: anchor time from 2026-10-03T04:00:00Z ; decision valid_until up to 9999-12-31T23:59:59Z\nmax decision age: 86400s\nmin spacing: 2678400s\nagents (1, shared counter):\n  - 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c\nkinds: swap, transfer\nasset test:big (scale 0):\n  per action: max 115792089237316195423570985008687907853269984665640564039457584007913129639935\n  period: no limit\n  recipients: any\ncount: no limit\nnotes:\n  - Limits are measured on the anchor time of each decision (block time of its payload), not on execution time.\n  - Limits use hourly buckets; a bucket partly inside a window counts fully, so a limit may cover up to one extra hour (a \"per 1h\" limit may span up to 2h): the gate may deny early, never allow extra.\n  - Limits count authorizations, not executions.\n  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.\n"
+    },
+    {
+      "id": "render_m_scale18",
+      "mandate_ref": "m_scale18",
+      "text": "Edicta mandate v1\nprincipal: fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e\nmandate_id: ae8f62eb87d7e7517a6ffd73fd76d55e\nversion: 1\ngate: gate-paper-1\nvalid: anchor time from 2026-10-03T04:00:00Z ; decision valid_until up to 2026-10-03T05:00:00Z\nmax decision age: default (MaxTTL of the payload's DA)\nmin spacing: none\nagents (2, shared counter):\n  - 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c\n  - d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\nkinds: any\nasset eip155:1/erc20:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48 (scale 18):\n  per action: max 0.000000000000000005\n  period: max 1.234567890123456789 per rolling 1h (may count up to 2h)\n  period: max 100.000000000000000000 per rolling 744h (may count up to 745h)\n  recipients: any\ncount: no limit\nnotes:\n  - Limits are measured on the anchor time of each decision (block time of its payload), not on execution time.\n  - Limits use hourly buckets; a bucket partly inside a window counts fully, so a limit may cover up to one extra hour (a \"per 1h\" limit may span up to 2h): the gate may deny early, never allow extra.\n  - Limits count authorizations, not executions.\n  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.\n"
+    },
+    {
+      "id": "render_recipients_any_scale0",
+      "input": {
+        "format": "1",
+        "principal": "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e",
+        "gate_id": "gate-paper-1",
+        "agents": [
+          "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+          "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+        ],
+        "not_before": "1790913600",
+        "not_after": "1793592000",
+        "assets": [
+          {
+            "asset": "test:usd",
+            "scale": "0",
+            "periods": [
+              {
+                "hours": "1",
+                "max": "09"
+              }
+            ]
+          }
+        ],
+        "mandate_id": "df5cab8929ca571ad220a46162be267b",
+        "version": "1"
+      },
+      "text": "Edicta mandate v1\nprincipal: fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e\nmandate_id: df5cab8929ca571ad220a46162be267b\nversion: 1\ngate: gate-paper-1\nvalid: anchor time from 2026-10-02T04:00:00Z ; decision valid_until up to 2026-11-02T04:00:00Z\nmax decision age: default (MaxTTL of the payload's DA)\nmin spacing: none\nagents (2, shared counter):\n  - 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c\n  - d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\nkinds: any\nasset test:usd (scale 0):\n  per action: no limit\n  period: max 9 per rolling 1h (may count up to 2h)\n  recipients: any\ncount: no limit\nnotes:\n  - Limits are measured on the anchor time of each decision (block time of its payload), not on execution time.\n  - Limits use hourly buckets; a bucket partly inside a window counts fully, so a limit may cover up to one extra hour (a \"per 1h\" limit may span up to 2h): the gate may deny early, never allow extra.\n  - Limits count authorizations, not executions.\n  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.\n"
+    }
+  ]
+}

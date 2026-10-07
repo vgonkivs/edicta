@@ -631,6 +631,7 @@ def main() -> int:
     rc |= run_script(HERE / "check_fibre_anchor.py")
     rc |= run_script(HERE / "check_execution_outcomes.py")
     rc |= run_script(HERE / "check_verifier_reasons.py")
+    rc |= run_script(HERE / "check_policy.py")
     return rc
 
 

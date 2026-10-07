@@ -3,9 +3,10 @@
 Edicta profile for a bank transfer on a Cosmos SDK chain, used by the demo in
 `examples/tia-transfer`.
 
-Status: revision `bank-send-v0-draft.7` (2026-10-07). Working draft, subject
+Status: revision `bank-send-v0-draft.8` (2026-10-07). Working draft, subject
 to change. Built on the core spec `spec/decision-commitment-v0.md`, revision
-`v0-draft.11`. Section 3.4 needs core `v0-draft.28` (core section 20). Section
+`v0-draft.11`. Section 3.4 needs core `v0-draft.28` (core section 20). Section 2.4 needs
+`spec/policy-v1.md` (`policy-v1-draft.1`). Section
 numbers prefixed "core" refer to the core spec.
 
 Keywords MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Items marked
@@ -36,6 +37,7 @@ Changes:
 | `bank-send-v0-draft.5` | Verifier execution check (new section 3.4, rules BX1 to BX8), the checker that core rules EX1 to EX8 call for this action type. It looks up the receipt's `rail_ref` by hash. It checks: the tx bytes hash to `rail_ref`; a strict `TxRaw` decode; `chain_id` equal to the trusted header's; the body rule of 3.3; code 0 (node-attested); an optional inclusion proof (a `ShareProof` in the transaction namespace, with the extra checks of BX6), giving `proven`, otherwise `node-attested`; cross sources agree on height, bytes and code. New sentinels `railverify.ErrTxNotFound`, `ErrTxHashMismatch`, `ErrTxMalformed`, `ErrChainMismatch`, `ErrTxFailed`, `ErrTxProof`, `ErrTxSourceUnavailable`. New rail facts: the `/tx?prove=true` shape and the transaction namespace (VERIFIED, live Mocha). Executor rules and every encoding are unchanged. | Every file byte-identical. No vector for 3.4 yet (live fixture, see section 8). |
 | `bank-send-v0-draft.6` | Execution check outcomes under core `v0-draft.27` 20.2.1 (human decisions of 2026-10-07). The rules are evaluated in a new order: BX0, BX1, then per candidate BX2, BX3, BX5, header trust, BX6, then BX8, RP and BX9. Changes: (1) New BX0. A configured chain id other than the action's is `unchecked` (`railverify.ErrChainConfig`); it was `fail`. (2) BX1: a malformed `rail_ref` is still `fail`, now `railverify.ErrRailRefMalformed`. Not found and unavailable set the candidate aside, and alternates are tried. (3) BX2 and BX6: wrong bytes and a bad proof set the candidate aside and end `unchecked` (was `fail`). (4) BX4: compared only with a trusted header. A different chain id is `fail` only with proven inclusion. (5) BX5 runs before header trust. (6) New result proof RP1 to RP6: block results from any source are recomputed to `last_results_hash` of the trusted header at `height + 1`, with the index bound by the share proof or uniform codes. (7) BX7 becomes the fact `outcome`. New BX9: a nonzero code is `fail` only when proven (`ErrTxFailed`); `pass` needs a proven code, or the interim cross confirmation. Cross agreement never gives `fail`. (8) BX8: per-source `agree`, `disagree` or `fault`; a mismatch is `unchecked`. (9) Threat note rewritten. New sentinels `ErrRailRefMalformed`, `ErrChainConfig`, `ErrResultUnconfirmed`, `ErrResultsProof`. `ErrTxHashMismatch` and `ErrTxProof` become `unchecked` classes. Rail facts: results hashing, result order and `block_results` availability. Executor rules and every encoding are unchanged. | Every file byte-identical. New: core `spec/vectors/verifier/execution_outcomes.json` (section 8). |
 | `bank-send-v0-draft.7` | Under core `v0-draft.28`. (1) BX7 and BX9: the interim cross-confirmed `pass` is removed (human decision of 2026-10-07: it held until the result proof landed, and it has landed). `result = cross-confirmed` is reported only, and `pass` needs `inclusion = proven` and `result = proven`. A success that only agreeing sources confirm is `unchecked` (was `pass`). (2) RP5: a new way (b) binds the index for a tx at any position. The block's txs from any source (`/block`) are rebuilt into the square as celestia-app `v10.4.0-mocha` `ProcessProposal` builds it (go-square `v4.0.1`), and the rebuilt data root MUST equal `data_hash` of the trusted header. The share-0 way stays (a); uniform codes become (c). (3) Rail facts: the square rebuild, the result count per block, and the ante handler in `ProcessProposal` (VERIFIED by code). The last one resolves the `UNVERIFIED` item of the BX threat note. (4) Threat note: no interim; the block source. Executor rules and every encoding are unchanged. | Every profile file byte-identical. Core `execution_outcomes.json` regenerated (`v0-draft.28`, section 8). |
+| `bank-send-v0-draft.8` | New section 2.4: the policy extractor `celestia/tia-transfer/v1` (policy v1, task 028). It maps a bank-send action whose MsgSend decodes with HRP `celestia` and denom `utia` to facts; everything else is `policy.ErrFactsInvalid`. Encodings, executor rules and every existing outcome unchanged. | New: `tia_transfer_facts.json` (5 cases, 15 must-deny), written by `spec/vectors/check/gen_policy.py` from the existing action and msg vectors, checked by `check_policy.py`. Every other file byte-identical. |
 
 Editorial clarification of `bank-send-v0-draft.4` (2026-10-05, no bump): T10
 names the loop height as the status node's latest committed height and the
@@ -128,6 +130,33 @@ Example (`msg_minimal`, 109 bytes: 1 utia to receiver 1):
 12 2f "celestia1mzkhlmxtluk4gmet2kja0yv8kxc2n07ml6lld3"
 1a 09 0a 04 "utia" 12 01 "1"
 ```
+
+### 2.4 Policy extractor `celestia/tia-transfer/v1`
+
+The extractor of policy v1 (`spec/policy-v1.md` section 5) for this action
+type. The gate and the verifier run it on the exact action bytes.
+
+| Step | Rule |
+|---|---|
+| E1 | `bankaction.Decode` (2.2), then `bankmsg.Decode(msg, "celestia")` (2.3). |
+| E2 | `denom` MUST be `utia`. |
+| E3 | Facts: `kind = "transfer"`, `asset = "cosmos:" + chain_id + "/utia"`, `amount` = the MsgSend amount as minimal big-endian bytes, `scale = 6`, `recipient = "cosmos:" + chain_id + ":" + to_address`. |
+
+Constants fixed by the ID: HRP `celestia`, denom `utia`, scale 6. Any
+failure in E1 to E3, and facts that fail policy section 4, are
+`policy.ErrFactsInvalid`. It is the only extractor for this action type in
+v1, so a gate with a mandate denies bank-send actions on chains with another
+HRP or in another denom. `chain_id` is inside the asset and the recipient, so
+one mandate distinguishes `mocha-4` from `celestia`; the comparison is
+bytewise (`Mocha-4` is another asset). The amount fits in 8 bytes (M5).
+
+Threat note. The strict decoders of 2.2 and 2.3 make the facts a function of
+the bytes the executor will sign: a byte string that two parsers read
+differently is refused here before any rule sees it. The extractor does not
+check the sender: the executor's T5 does, and the mandate's agent list
+binds who may decide.
+
+Vectors: `tia_transfer_facts.json` (section 8).
 
 ## 3. Transaction (executor side)
 
@@ -583,6 +612,7 @@ changed it (section 0); uints are decimal strings, bytes lowercase hex.
 | `executor.json` | `gen_profile_bank_send.py` | `cases`: `domain`, `destinations`, `max_amount`, `action_hex`, optional `expect_error`: rules T2 to T5 and their order. 17 cases. |
 | `timeout_height.json` | `gen_profile_bank_send.py` | `bank-send-v0-draft.2`. `slowdown_factor`, `max_timeout_blocks_limit`. `interval`: `headers[{height, time_ns}]`, `tau_ms`. `cases`: `head_height`, `head_time`, `tau_ms`, `expires`, `skew_s`, `max_timeout_blocks`, `now`, and `timeout_height` or `expect_error` `transfer.ErrExpired`. 4 intervals, 12 cases. |
 | `price_trigger.json` | `gen_profile_bank_send.py` | `media_type`. `cases`: `input`, `cbor_hex`. `reject`: `cbor_hex`, `expect_error`. `consistency`: `context_cbor_hex`, `msg_ref`, `hrp`, `issued_at`, `expect_failed` (PT ids). 4 cases, 25 rejects, 9 consistency. |
+| `tia_transfer_facts.json` | `gen_policy.py` | `bank-send-v0-draft.8`. `extractor` (ID, action type, HRP, denom, scale). `cases`: `action_ref` or `msg_ref`, `action_hex`, `facts`, `facts_cbor_hex`. `reject`: `action_hex`, `expect_error` `ErrFactsInvalid` (package `policy`), informational `cause`: other denom, `cosmos` HRP, bad checksum, amount 0, leading zero, from == to, trailing bytes, unknown fields, non-canonical CBOR, bad `chain_id` character. 5 cases, 15 rejects. |
 | `e2e.json` | `gen_profile_bank_send.py` | `bank-send-v0-draft.2`. One decision end to end: the gate and params; a commitment by `agent1` (core `keys.json`) with this action type, its envelope and hash (payload fields are placeholders, listed); the action bytes; a price-trigger context consistent with the transfer; the Authorization by `gate1`; the executor's clock, domain, headers, `tau_ms`, `timeout_height`, memo and body. 1 case. |
 
 Section 3.4 has its vectors in the core set,

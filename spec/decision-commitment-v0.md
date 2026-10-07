@@ -2,7 +2,7 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v0-draft.28` (2026-10-07). Working draft, subject to change.
+Status: revision `v0-draft.29` (2026-10-07). Working draft, subject to change.
 Wire version: `version = 0`. Domain tags: `edicta/v0/...`.
 
 The core knows no rail, broker or chain. An action is an opaque byte string
@@ -60,6 +60,7 @@ signature even if the byte layout were identical.
 | `v0-draft.26` | 2026-10-07 | Verifier online mode and execution check; no wire change. (1) New section 20.1: the report's named checks and the verdict rule of the reference verifier (first match: `invalid`, `not_authorized`, `unchecked`, `valid`; a required check that never ran is not a pass), and CLI exit codes 0 to 4, now normative; no outcome changes. (2) New section 20.2, rules EX1 to EX8: an optional, rail-agnostic `execution` check. A checker registered per action type takes the authorized action bytes and the receipt's `rail_ref` and returns the height, header hash, inclusion level (`proven` or `node-attested`), result level (`node-attested` in v0) and cross-check result. The core requires a passed receipt and the `authorized` state, `height > payload_ref.height` strictly, the header at `height` trusted from the same checkpoint, and no cross-check mismatch. When requested, the check is required for `valid`. A missing receipt or checker is `unchecked`. `proven_execution` means inclusion proven against a trusted header only. Warning `execution_after_expires`. The bank-send checker is in the profile (`bank-send-v0-draft.5`, section 3.4). (3) New section 20.3, rules HA1 to HA6: read-only HTTP archive reads at `<base>/<canonical path of 19.3>`. `404` and `410` mean absent; every other answer is a fault that stops `verify` without a verdict; per-kind body caps; the 19.1 and 19.3 reader checks; the record state from reads, with one probe per marker verdict; the server serves only canonical keys, never lists, and never caches a `404`. (4) New section 20.4, rules OH1 to OH8, with amendments to HT1, HT3 and HT7: the trusted header can also be an explicit checkpoint `T:HASH` or a checkpoint agreed by online CometBFT RPC sources. `T` is the minimum of their latest heights. Hashes are always recomputed. Sources are distinct by normalized host and by `/status` `node_info.id`, and the gate's own endpoints are excluded. Two answering sources with different hashes are `fail`. Fewer than `quorum` agreeing sources are `unchecked`; `quorum` defaults to 1 (human decision of 2026-10-07). The archived header at a needed height is preferred, and if it does not link, that is `fail`. An online header that does not link is that source's fault (`unchecked` if no source links), where HT3 alone said fail. A cross-check mismatch is `fail` for any quorum. (5) Section 10.6.2: the `UNVERIFIED` item on `Header.Hash()` is now verified on live Mocha data. Outcomes change only in modes that did not exist before (online sources, the execution check). Offline verdicts are unchanged. | Unchanged | Every file byte-identical. |
 | `v0-draft.27` | 2026-10-07 | Execution check outcomes and the general INCONCLUSIVE rule (human decisions of 2026-10-07: the check is tri-state; execution code confirmation; header cross-check disagreement, which supersedes the earlier "a mismatch fails" decisions; archive cases follow the general rule); no wire change. (1) 20.1: the general rule. `invalid` only about the decision or action and only from verified data; any source problem, disagreements included, gives at most `unchecked`; a hostile source never causes `valid` or `invalid`. Archive cases: an absent decision, payload or evidence record, corrupt bytes (decoding, key, hashes, P1 to P3, signatures outside the commitment hash, the `da = 2` proof, Fibre CV1 to CV8 and the anchor proof), and an archived header that does not link are `unchecked` (was `fail`). The verdict for an absent decision is `unchecked` (state `unknown`). K1 is judged only against a trusted header, and replay inconsistencies are `unchecked`. The `fail` boundary is a closed list: verified archived data that proves a violation. New 20.1.1: a closed reason enum, one machine-readable reason per `unchecked`; HT3, OH6, 10.6.1, 19.2 and the HA threat note are amended. Exit codes restated (2 = INCONCLUSIVE); the output names the source. (2) New 20.2.1. Verified facts F1 to F5 and F7 (F7 = result proof), and the confirmed fact F6 (cross agreement), which supports only the interim `pass`. Rules EO1 to EO4, and the invariant with no exceptions. (3) Facts: new `outcome`; `result` is `proven`, `cross-confirmed` or `node-attested`; `sources` per source. (4) EX3: the checker classifies by 20.2.1. EX4: `fail` only under F5. EX5: the header at `height` passes trust before anything is compared, outcomes (a) to (d); a header that does not link is `unchecked`, naming the source (was `fail`); a header cross-check mismatch is `unchecked` with the reason "header disagreement with trusted chain: possible bad trusted header, hostile source, or fork". EX6: a tx cross mismatch is `unchecked` (was `fail`); a source that contradicts verified facts is reported and ignored. EX9: a failed result is `fail` only under F7; `pass` needs F7, or interim F6; never a node-attested `pass`. New EX10: alternates tried automatically, cross sources never promoted. EX threat note rewritten (fabricated height, result proof at `height + 1`). (5) OH4: waiting is MAY (was MUST). OH5, OH7 and HT6: a disagreement between header sources is `unchecked` with that reason (was `fail`). OH threat note and section 1 row updated. Outcome changes, all toward `unchecked`, apart from new `pass` paths (F7, or interim F6). In `verify` with online header sources: a checkpoint or cross-check disagreement. With `--check-execution`: a source's wrong bytes, bad proof, unverified height or code, a tx cross mismatch, a header that does not link, and a success attested by one source. Offline: every archive-side `fail` named above becomes `unchecked`, an absent decision gives `unchecked` (was `invalid`), and K1 against an untrusted header gives `unchecked` (was `fail`). Gate outcomes are unchanged. Bank-send profile `bank-send-v0-draft.6` at the same time (result proof RP1 to RP6). | Unchanged | New: `spec/vectors/verifier/execution_outcomes.json` (`v0-draft.27`): 37 outcome cases (5 pass, 23 unchecked, 9 fail), 9 inclusion-proof forms of the live Mocha tx at 1,442,606, a live result proof of that block (results, headers at H and H + 1, leaves, root, index, 9 mutations), and 4 transactions. Raw captures in `spec/vectors/verifier/live/`. New: `spec/vectors/verifier/reasons.json` (32 reasons, one case each or more: 45 cases, and 5 `fail` boundary cases), generator `gen_verifier_reasons.py`, checker `check_verifier_reasons.py`. Generator `gen_execution_outcomes.py`, checker `check_execution_outcomes.py` (an independent classifier and result-proof recompute; run by `check_vectors.py`). Every existing file byte-identical. |
 | `v0-draft.28` | 2026-10-07 | The interim cross-confirmed `pass` is removed (human decision of 2026-10-07, execution code confirmation: the interim held until the result proof landed, and it has landed in the reference verifier; audit 027a2 A1). No wire change. (1) 20.2.1: F6 (cross agreement) is reported only. It supports neither `pass` nor `fail`. EO3 has no exception: `pass` needs proven inclusion (F5) and a proven result (F7). The invariant's limits drop the interim item, so two colluding sources can no longer cause `valid`. (2) EX9: `pass` needs `result = proven`; the interim rule is deleted. EX6: `cross_check = pass` never gives `pass`. The EX threat note and the section 1 row no longer name F6 as a basis for `pass`. (3) 20.2 facts: `result = cross-confirmed` is a reported level only. (4) 20.1.1: `result_unproven` now also covers a code that agreeing sources confirm, and its advice and that of `result_index_unbound` no longer suggest a cross tx source (the reason names are unchanged). (5) Bank-send profile `bank-send-v0-draft.7` at the same time: RP5 can bind the index by rebuilding the square from the block's txs (audit 027a2 m2), and BX9 drops the cross-confirmed `pass`. Outcome changes: with `--check-execution`, a success confirmed only by agreeing tx sources is `unchecked` (`result_unproven`, exit 2; was `valid`, exit 0); a tx that does not start at share 0, in a block with mixed codes, can now be `pass` or `fail` when a source serves the block's txs (was `unchecked`, `result_index_unbound`). Offline verdicts and gate outcomes are unchanged. | Unchanged | `spec/vectors/verifier/execution_outcomes.json` regenerated as `v0-draft.28` (profile `bank-send-v0-draft.7`): 41 cases (5 pass, 26 unchecked, 10 fail). `pass_cross_confirmed_interim` is replaced by `unchecked_result_cross_confirmed_only`. New: `unchecked_result_cross_confirmed_inclusion_proven`, `pass_proven_index_rebuilt`, `fail_tx_failed_index_rebuilt`, `unchecked_result_index_rebuild_mismatch`, and the result proof states `match_rebuilt` and `match_rebuild_mismatch`. Every other case, and the `txs`, `live`, `proofs` and `result_proof` sections, are byte-identical. The generator and the checker are updated: the checker's classifier no longer passes on cross agreement, and it requires every `pass` case to have proven inclusion and a proven result. `spec/vectors/verifier/reasons.json` regenerated as `v0-draft.28` (generator `gen_verifier_reasons.py` and checker updated): only the `meaning` and `advice` of `result_unproven` and `result_index_unbound` change, to the 20.1.1 text; the enum, cases and boundary are unchanged. The live vector of the square rebuild is planned with the live run. Every other file byte-identical. |
+| `v0-draft.29` | 2026-10-07 | Policy v1 (task 028), additive: `spec/policy-v1.md` (`policy-v1-draft.1`). No v0 wire change. (1) Section 20.1: new named check `policy`, required for `valid` when it runs; new report field `gate_integrity` (`ok`, `violated`, `not_checked`, `unchecked`); the verdict is `unchecked` when `gate_integrity` is `violated` and no check fails; new exit code 5 (unchecked with the gate's integrity violated), precedence 4, 1, 5, 3, 2, 0, and the first-line banner; the `fail` list gains `policy` (verified data proving the allow broke the mandate). (2) Section 20.1.1: new reasons `policy_verdict_unavailable`, `policy_mandate_unavailable`, `policy_principal_untrusted`, `policy_no_extractor`, `state_history_unavailable`, `gate_equivocation` (integrity field only); `source_corrupt` and `blocked` also on `policy`, `source_corrupt` also on `gate_integrity`. (3) Sections 19.1, 19.2, 19.3 and 20.3: archive format 0 gains the policy kinds 7 to 12 (kind 6 stays undefined, as vector `rec_kind_6` pins), their caps and paths, and the policy deny names as marker verdicts (HA5 now probes 26 names). (4) Pointers only, no rule change: the tag namespace (section 2), the policy stages 4p and 10p (section 8.7) and the policy HTTP codes (section 18.3) are defined in `spec/policy-v1.md`. A gate without a mandate and a verifier without policy records behave exactly as in draft.28. | Unchanged | `spec/vectors/verifier/reasons.json` regenerated additively as `v0-draft.29` (38 reasons, 54 cases, 7 boundary; every existing case unchanged; the `checks` of `source_corrupt` and `blocked` extended). New: `spec/vectors/policy/*.json`, `spec/vectors/profiles/bank-send/tia_transfer_facts.json`, generator `gen_policy.py` with rules module `policy_v1.py`, independent checker `check_policy.py` (run by `check_vectors.py`). Every other file byte-identical. |
 
 ## 1. Threat model in one table
 
@@ -150,6 +151,11 @@ preimage. An agent's publish request (section 17) is also signed directly,
 under a tag of length 25, which likewise no other hashed or signed tag has.
 No two hashing tags and no two signature tags are equal, so no
 Edicta hash or signature can stand in for another (rule H3).
+
+Tag namespace (since `v0-draft.29`): every later tag family has the form
+`edicta/<family>/v<N>/<name>`; this core keeps `edicta/v0/<name>`. Tags are
+never reused, and no two tags of any family are equal. The policy family
+`edicta/policy/v1/*` and its rules are in `spec/policy-v1.md` section 2.
 
 ## 3. Wire format and CBOR profile
 
@@ -764,6 +770,10 @@ a later stage's sentinel when an earlier stage fails.
 | 11 | Z | Z1 | Build the Authorization (section 15.1): `commitment_hash`, `action_hash = c.action.hash`, the gate's `gate_id`, `expires = min(valid_until, authorized_at + MaxAuthorizationTTL)`, `path` of stage 9. Sign it with the gate key under `TagAuthorizationSig` and verify the signature before use. Nothing is stored yet | (operational: signer error, timeout) | 7 |
 | 12 | N | N1 | Atomically create the registry entry for `(agent_pubkey, nonce)` holding `commitment_hash` and the canonical SignedAuthorization; fails if the key exists. Committed durably before stage 13 | `ErrNonceUsed` | 5 |
 | 13 | R | | Return the SignedAuthorization bytes | - | - |
+
+A gate with a mandate adds stage 4p (after A) and stage 10p (after T'), and
+its stage 12 also commits the policy counter (invariant 8); `spec/policy-v1.md`
+section 11 defines them. Without a mandate this table is complete.
 
 `MaxAuthorizationTTL` is gate configuration (default 300 s) and MUST exceed
 `skew_s`. Stage 10 enforces `authorized_at + skew_s < valid_until`, so a fresh
@@ -2471,6 +2481,10 @@ Archive vectors: `encode(input) == record bytes`; strict decoding returns `input
 |---|---|
 | `spec/vectors/da/fibre_anchor.json` | Section 10.4 (NA2 to NA7) and anchor-proof form 1 (section 19.2). `revision`, `generator`, `upstream`, `rules` (including the mutation operations), `pff_namespace`. `live.source`: the read-only reads (bridge `header.GetByHeight` and `share.GetNamespaceData`, and the consensus node's `/header` whose `data_hash` must agree). `live.cases`: `h1402819` (the PFF of `fibre_cert.json`, one PFF in a 4 x 4 square, four rows) and `h1439696` (four PFFs of one namespace in a 64 x 64 square, one row), each with `raw` (`height`, `data_hash`, `row_roots`, `column_roots`, `namespace_data_hex` in the `WriteTo` stream form) and `expect` (`square_size`, `rows`, `share_count`, `txs` with `position`, `length`, `sha256`, `fibre`, the parsed `promise` and `system_blob_hex`; `queries` with `candidates` and `anchor` when every candidate has code 0, `none` meaning `ErrAnchorNotFound`; `archive_proof` with `hex`, `sha256`, `size`; `sizes`). `mutations`: `id`, `description`, `case`, `op`, `expect` (`verdict`; for a reject the first failing rule `fails` and an informational `upstream_error`; for an accept `same_txs`). `reassembly`: synthetic share sequences for NA4 alone, `expect` (`verdict`, `txs_sha256` or `fails`) and `upstream_parse_txs`, what `ParseTxs` alone returns (several rejects parse without an error). 2 live cases, 12 mutations, 14 reassembly cases. Generated by upstream code only in `spec/vectors/tools/fibreanchor-gen` (`go run . -fetch` reads Mocha, read-only; `go run .` regenerates offline from the stored raw inputs; `go run . -check`); checked by `check_fibre_anchor.py`, an independent implementation (its own RFC 6962 root, protobuf decoding, NMT hashing and namespace-proof verification, compact-share parser and splitter, strict CBOR), which also ties `h1402819` to the PFF of `fibre_cert.json`. |
 
+| File (`v0-draft.29`) | Contents |
+|---|---|
+| `spec/vectors/policy/*.json` | Policy v1: facts, mandate, render, state, engine, verify, archive, api (`spec/policy-v1.md` section 15). Generated by `gen_policy.py` (rules module `policy_v1.py`), checked by `check_policy.py`, an independent implementation, run by `check_vectors.py`. |
+
 Bank-send profile vectors are in `spec/vectors/profiles/bank-send/` (profile
 document, section "Vectors"). `check_vectors.py` without `--dir` runs the
 API and both profile checkers too.
@@ -3292,7 +3306,9 @@ status for the same failure because the operations' stage orders (sections
 6.5, 8.7, 14.3, 17.3) decide which sentinel occurs, and this table decides
 how it is reported. The full table, and the section 12 names that never
 cross the API (client-side SDK checks, payload opening, profile sentinels,
-removed names), are in `spec/vectors/api/errors.json`.
+removed names), are in `spec/vectors/api/errors.json`. A gate with a mandate
+also reports the policy codes and the error body key 5 of `spec/policy-v1.md`
+section 11.3, each matched after every code above of its status.
 
 Threat notes:
 - No oracle: an unknown agent and a bad signature give the same code
@@ -3329,7 +3345,7 @@ fields always present, text in the charsets below), restricted further:
 | Data items | Major 0, 2, 3 and 5 only. No arrays, negative integers, tags, floats or simple values. |
 | Nesting | Depth at most 2 (the record is depth 1, the K2 inputs map depth 2). |
 | Entries | At most 24 per map. |
-| Record size | At most `MaxRecordSize = 2^27 + 4096` bytes before parsing; per kind at most: payload `2^27 + 4096`, evidence `2^25`, decision 69,632, Authorization 512, rejection 256. |
+| Record size | At most `MaxRecordSize = 2^27 + 4096` bytes before parsing; per kind at most: payload `2^27 + 4096`, evidence `2^25`, decision 69,632, Authorization 512, rejection 256; policy kinds as `spec/policy-v1.md` section 12.1. |
 | Opaque Celestia objects | Each 1 to `2^22` bytes (4 MiB). |
 
 Every record is a map with two common keys:
@@ -3337,7 +3353,7 @@ Every record is a map with two common keys:
 | Key | Name | Type | Rule |
 |---|---|---|---|
 | 1 | `format` | uint | `= 0`. Archive record format, independent of the wire `version`. |
-| 2 | `kind` | uint enum | 1 payload, 2 evidence, 3 decision, 4 Authorization, 5 rejection. |
+| 2 | `kind` | uint enum | 1 payload, 2 evidence, 3 decision, 4 Authorization, 5 rejection; since `v0-draft.29` 7 to 12, the policy records of `spec/policy-v1.md` section 12. 6 is never assigned. |
 
 Strict decoding, in this order; the first failure decides, and a reader
 reports every failure as `archive.ErrCorrupt` wrapping the cause named here
@@ -3351,7 +3367,7 @@ reports every failure as `archive.ErrCorrupt` wrapping the cause named here
    `ErrKeyType`, `ErrInvalidString` for UTF-8).
 3. The record is a map (`ErrWrongType`). Then `format` and then `kind`, each
    missing (`ErrMissingField`) or not a uint (`ErrWrongType`); then
-   `format != 0` (`ErrUnsupportedVersion`); then `kind` outside 1..5
+   `format != 0` (`ErrUnsupportedVersion`); then `kind` outside 1..5 and 7..12
    (`ErrInvalidEnum`).
 4. Size above the cap of the kind: `ErrTooLarge`.
 5. Schema, per key in encoded order: a key the kind does not define, or does
@@ -3551,7 +3567,8 @@ Verdicts (the sentinels of stages 5 to 12 in section 8.7):
 `ErrAnchorTooOld`, which also matches `ErrPayloadUnavailable`) the most
 specific one is written. Operational failures are never written (AR5); a
 decoder rejects them. A later revision that adds a verdict sentinel extends
-this list in a new revision.
+this list in a new revision. Since `v0-draft.29` the list also holds the
+thirteen policy deny names of `spec/policy-v1.md` section 12.3.
 
 ### 19.3 Keys
 
@@ -3570,6 +3587,10 @@ reports it corrupt.
 | Decision | `commitment_hash` | `decision/<commitment_hash hex>` |
 | Authorization | `commitment_hash` | `authorization/<commitment_hash hex>` |
 | Rejection | `(commitment_hash, error)` | `rejection/<commitment_hash hex>/<error>` |
+
+Policy kinds 7 to 12: keys and paths in `spec/policy-v1.md` section 12.1
+(`mandate/<hex>`, `policy-allow/<hex>`, `policy-deny/<hex>/<reason>`,
+`policy-bucket/<hex>`, `policy-closed/<hex>`, `policy-successor/<hex>`).
 
 `da` is decimal, hex is lower case. Every path component is ASCII from a
 fixed charset, so no escaping is needed.
@@ -3697,9 +3718,16 @@ checklist.
 | `receipt` | Section 14.2 and its out-of-band checks against the decision. Present only when a receipt is given. |
 | `retention_replay` | K2 replay (section 19.2). `replay` only. |
 | `execution` | Section 20.2. Present only when the execution check is requested. |
+| `policy` | `spec/policy-v1.md` section 13. Present when `RequirePolicy` is set or a `policy_allow` record exists for an authorized decision, and then required. |
+
+Report field `gate_integrity` (since `v0-draft.29`), always present: `ok`,
+`violated` (reason `gate_equivocation`, with the contradicting gate-signed
+verdicts as evidence), `not_checked` or `unchecked` (with a reason), per
+`spec/policy-v1.md` section 13.4. It is not a check: it says whether the
+gate contradicted itself, not whether the decision is valid.
 
 Verdict, first match wins: `invalid` if any check is `fail`; then
-`unchecked` if the record state is `unknown` (no decision record); then
+`unchecked` if `gate_integrity` is `violated`; then `unchecked` if the record state is `unknown` (no decision record); then
 `not_authorized` if the record state is not `authorized`; then `unchecked`
 if any check is `unchecked`, or if any of `decision`, `envelope`, `action`,
 `authorization`, `payload`, `anchor`, `anchor_time`, `header_trust` is
@@ -3710,7 +3738,11 @@ pass by being absent.
 Exit codes of the CLI: 0 `valid`, 1 `invalid`, 2 `unchecked` (the
 INCONCLUSIVE outcome of 20.2.1), 3 `not_authorized`, 4 for usage,
 configuration and I/O errors, which give no verdict (as `edicta-verify` at
-main `25ff856`). The output prints the reason of every check that is not
+main `25ff856`), and since `v0-draft.29` 5: `unchecked` with `gate_integrity`
+`violated`. Precedence: 4, then 1, then 5, then 3, then 2, then 0, so an
+`invalid` decision at an equivocating gate exits 1. Whenever `gate_integrity`
+is `violated`, the text output starts with the line `GATE INTEGRITY VIOLATED
+(gate_equivocation)`, whatever the exit code, and JSON always carries the field. The output prints the reason of every check that is not
 `pass`. For an `unchecked` caused by a source, it names the source and
 suggests another one (EO2).
 
@@ -3765,6 +3797,9 @@ general rule"):
 - `receipt`: a receipt whose gate signature verifies, that belongs to this
   decision, and that breaks a receipt rule.
 - `execution`: EO1 (20.2.1).
+- `policy`: verified data proving the allow broke the mandate: a per-action
+  rule, facts that differ from the re-extraction, or a rule broken on the
+  gate-signed state (`spec/policy-v1.md` section 13.4).
 
 Every other non-`pass` outcome is `unchecked`.
 
@@ -3781,7 +3816,7 @@ change.
 | `decision_unavailable` | `decision` | No decision record for the reference in any checked archive copy. | Another archive copy. |
 | `payload_unavailable` | `payload` | The payload record is missing in every checked copy. It signals a retention failure of the operator and can feed an external accountability policy. It is not a verdict on the decision. | Another archive copy. |
 | `evidence_unavailable` | `anchor` | The evidence record is missing in every checked copy. | Another archive copy. |
-| `source_corrupt` | `decision`, `envelope`, `action`, `authorization`, `payload`, `anchor`, `receipt` | Bytes from a source fail a check that a genuine copy passes: strict decoding, the key check, a hash or DA commitment against the commitment, a signature that the commitment hash does not cover, or an archived proof (da = 2 commitment proof, Fibre CV1 to CV8, anchor proof forms 0 and 1). | Another copy. |
+| `source_corrupt` | `decision`, `envelope`, `action`, `authorization`, `payload`, `anchor`, `receipt`, `policy`, `gate_integrity` | Bytes from a source fail a check that a genuine copy passes: strict decoding, the key check, a hash or DA commitment against the commitment, a signature that the commitment hash does not cover, or an archived proof (da = 2 commitment proof, Fibre CV1 to CV8, anchor proof forms 0 and 1). | Another copy. |
 | `chain_mismatch` | `header_trust`, `anchor` | An archived header at a needed height does not link to the trusted chain (HT3, HT5, OH6), or the archived evidence names another height than the decision. | Another archive copy, or check the trusted header. |
 | `da_unsupported` | `anchor` | The verifier has no anchor verifier for payload_ref.da. | A verifier build that supports this da. |
 | `no_trusted_header` | `header_trust` | No trusted header file, explicit checkpoint or checkpoint source was given. | Supply a trusted header. |
@@ -3790,7 +3825,7 @@ change.
 | `header_source_unavailable` | `header_trust` | No header or checkpoint source answered. | Another header source. |
 | `checkpoint_quorum` | `header_trust` | Fewer than quorum distinct sources agree on the checkpoint (OH5). | More checkpoint sources. |
 | `header_disagreement` | `header_trust`, `execution` | header disagreement with trusted chain: possible bad trusted header, hostile source, or fork (OH5, OH7, HT6, EX5 (d)). | Check the trusted header against an independent source. |
-| `blocked` | `anchor_time`, `header_trust`, `execution`, `retention_replay` | The check needs another check that did not pass; the report names that check. | Fix the named check. |
+| `blocked` | `anchor_time`, `header_trust`, `execution`, `retention_replay`, `policy` | The check needs another check that did not pass; the report names that check. | Fix the named check. |
 | `receipt_mismatch` | `receipt` | A receipt that verifies but is not this decision's: another commitment_hash or gate_id, or a gate key that is not on record for gate_id. | The receipt of this decision. |
 | `replay_inputs_missing` | `retention_replay` | The Authorization record carries no K2 inputs (repaired from the registry). | Another archive copy. |
 | `replay_unconfirmed` | `retention_replay` | promise_created is earlier than the archived anchor's and the anchor proof is form 0, which shows no other candidate (19.2). | An archive copy with a form-1 anchor proof. |
@@ -3810,6 +3845,12 @@ change.
 | `height_unproven` | `execution` | A height at or below the anchor without a proof (EX4). | A tx source that serves inclusion proofs. |
 | `cross_disagree` | `execution` | Tx sources disagree and nothing verifies either (EX6). | Another tx source. |
 | `chain_unbound` | `execution` | BX4: another chain id without proven inclusion. | A tx source that serves inclusion proofs. |
+| `policy_verdict_unavailable` | `policy` | No policy_allow record for an authorized decision while the policy check is required (RequirePolicy). | Another archive copy. |
+| `policy_mandate_unavailable` | `policy` | The mandate record named by the verdict is missing. | Another archive copy. |
+| `policy_principal_untrusted` | `policy` | The mandate verifies, but its principal is not among the trusted principal keys. | Pin the principal key, if it is the intended one. |
+| `policy_no_extractor` | `policy` | The verifier has no extractor for action.type with the extractor ID the verdict names. | A verifier with that extractor. |
+| `state_history_unavailable` | `policy`, `gate_integrity` | A closed set, a needed bucket, or a verdict or mandate the walk needs is missing. | Another archive copy. |
+| `gate_equivocation` | `gate_integrity` only | Gate-signed verdicts contradict each other (fork, broken link, self-inconsistent transition, seq gap, version decrease or mandate change in one chain). The agent may be honest; the gate is at fault. Exit code 5. | Investigate the gate; the attached verdicts are the evidence. |
 
 Vectors: `spec/vectors/verifier/reasons.json` holds the enum and one case
 per reason, as overrides of a valid, authorized decision with references to
@@ -3953,11 +3994,11 @@ tree conforms, if it meets HA2.
 
 | Rule | Requirement |
 |---|---|
-| HA1 URL | A record is at `<base>/<path>`. `<base>` is an `http` or `https` URL without query, fragment or user info, with trailing slashes removed. `<path>` is the canonical path of 19.3, byte for byte: `payload/<da>/<commitment hex>`, `evidence/<da>/<commitment hex>`, `decision/<commitment_hash hex>`, `authorization/<commitment_hash hex>`, `rejection/<commitment_hash hex>/<error>`. `da` is decimal without leading zeros, hex is lower case, and `<error>` is one of the marker verdicts of 19.2. No escaping is needed. |
+| HA1 URL | A record is at `<base>/<path>`. `<base>` is an `http` or `https` URL without query, fragment or user info, with trailing slashes removed. `<path>` is the canonical path of 19.3, byte for byte: `payload/<da>/<commitment hex>`, `evidence/<da>/<commitment hex>`, `decision/<commitment_hash hex>`, `authorization/<commitment_hash hex>`, `rejection/<commitment_hash hex>/<error>`, and the policy paths of 19.3. `da` is decimal without leading zeros, hex is lower case, and `<error>` is one of the marker verdicts of 19.2. No escaping is needed. |
 | HA2 Status | `GET`. `200`: the body is the record bytes, verbatim. `404` and `410`: the record is absent (`archive.ErrNotFound`). Anything else is an archive fault, never absent: another status (including `403` and `429`), a redirect (redirects are not followed), a transport error, a timeout, a body cut short. A client MAY retry a fault and SHOULD honour `Retry-After`. It ignores `Content-Type`. |
-| HA3 Size | The client reads at most the cap of the kind it asked for, plus one byte (section 19.1: payload `2^27 + 4096`, evidence `2^25`, decision 69,632, Authorization 512, rejection 256). A longer body is corrupt (`archive.ErrCorrupt` with cause `ErrTooLarge`). |
+| HA3 Size | The client reads at most the cap of the kind it asked for, plus one byte (section 19.1: payload `2^27 + 4096`, evidence `2^25`, decision 69,632, Authorization 512, rejection 256; policy kinds per `spec/policy-v1.md` 12.1). A longer body is corrupt (`archive.ErrCorrupt` with cause `ErrTooLarge`). |
 | HA4 Reader checks | Every body passes strict decoding (19.1) and the key check (19.3: the record carries the key it was asked under), exactly as a local read does. A body that fails is corrupt, never absent and never another record. The client does no DA recompute; the verifier does (P3, section 10.7). |
-| HA5 State | The record state (19.5) is derived from reads only: decision, then Authorization, then, if the Authorization is absent, one read per marker verdict of 19.2 (13 names in this revision). The state is known only if each read the derivation needs answered `200` or `404`. A fault on any of these reads, or on any later record read, is an archive I/O error: the verification stops without a verdict (exit 4), and it is never reported as `pending`, `rejected` or absent. |
+| HA5 State | The record state (19.5) is derived from reads only: decision, then Authorization, then, if the Authorization is absent, one read per marker verdict of 19.2 (26 names in this revision). The state is known only if each read the derivation needs answered `200` or `404`. A fault on any of these reads, or on any later record read, is an archive I/O error: the verification stops without a verdict (exit 4), and it is never reported as `pending`, `rejected` or absent. |
 | HA6 Server | A conforming server is read-only. It answers `GET` and `HEAD` only (`405` otherwise). It serves only paths that parse as a canonical key (HA1) and answers `404` for anything else: other kinds, upper-case hex, `..`, dot files, empty segments, trailing slashes. It lists no directories and follows no link out of the tree. It returns the stored bytes verbatim. It SHOULD send `Content-Type: application/cbor`. It MAY mark a `200` as immutable (records are write-once, AW1). It MUST NOT let a `404` be cached (`Cache-Control: no-store`), because an absent Authorization or marker can appear later. |
 
 Threat note (HA). The archive is trusted for availability only, and HTTP adds

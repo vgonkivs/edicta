@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/verifier/reasons.json (v0-draft.28).
+"""Writes spec/vectors/verifier/reasons.json (v0-draft.29).
 
 The machine-readable reason enum of core section 20.1.1 and one case per
 reason: the check it is reported on, the scenario as overrides of a valid,
@@ -36,7 +36,7 @@ REASONS = [
     ("evidence_unavailable", "archive", ["anchor"],
      "The evidence record is missing in every checked copy.", "another archive copy"),
     ("source_corrupt", "archive", ["decision", "envelope", "action", "authorization", "payload", "anchor",
-                                   "receipt"],
+                                   "receipt", "policy", "gate_integrity"],
      "Bytes from a source fail a check that a genuine copy passes: strict decoding, the key check, a hash or DA "
      "commitment against the commitment, a signature that the commitment hash does not cover, or an archived "
      "proof (da = 2 commitment proof, Fibre CV1 to CV8, anchor proof forms 0 and 1).", "another copy"),
@@ -59,7 +59,7 @@ REASONS = [
     ("header_disagreement", "header", ["header_trust", "execution"],
      "header disagreement with trusted chain: possible bad trusted header, hostile source, or fork (OH5, OH7, "
      "HT6, EX5 (d)).", "check the trusted header against an independent source"),
-    ("blocked", "dependency", ["anchor_time", "header_trust", "execution", "retention_replay"],
+    ("blocked", "dependency", ["anchor_time", "header_trust", "execution", "retention_replay", "policy"],
      "The check needs another check that did not pass; the report names that check.", "fix the named check"),
     ("receipt_mismatch", "input", ["receipt"],
      "A receipt that verifies but is not this decision's: another commitment_hash or gate_id, or a gate key "
@@ -100,7 +100,32 @@ REASONS = [
      "another tx source"),
     ("chain_unbound", "execution", ["execution"], "BX4: another chain id without proven inclusion.",
      "a tx source that serves inclusion proofs"),
+    ("policy_verdict_unavailable", "policy", ["policy"],
+     "No policy_allow record for an authorized decision while the policy check is required (RequirePolicy).",
+     "another archive copy"),
+    ("policy_mandate_unavailable", "policy", ["policy"], "The mandate record named by the verdict is missing.",
+     "another archive copy"),
+    ("policy_principal_untrusted", "configuration", ["policy"],
+     "The mandate verifies, but its principal is not among the trusted principal keys.",
+     "pin the principal key, if it is the intended one"),
+    ("policy_no_extractor", "configuration", ["policy"],
+     "The verifier has no extractor for action.type with the extractor ID the verdict names.",
+     "a verifier with that extractor"),
+    ("state_history_unavailable", "archive", ["policy", "gate_integrity"],
+     "A closed set, a needed bucket, or a verdict or mandate the walk needs is missing.", "another archive copy"),
+    ("gate_equivocation", "integrity", ["gate_integrity"],
+     "Gate-signed verdicts contradict each other (fork, broken link, self-inconsistent transition, seq gap, version "
+     "decrease or mandate change in one chain). The agent may be honest; the gate is at fault. Exit code 5.",
+     "investigate the gate; the attached verdicts are the evidence"),
 ]
+
+POLICY_CASE = {
+    "policy_verdict_unavailable": ("unchecked_verdict_unavailable", "policy"),
+    "policy_mandate_unavailable": ("unchecked_mandate_unavailable", "policy"),
+    "policy_principal_untrusted": ("unchecked_principal_untrusted", "policy"),
+    "policy_no_extractor": ("unchecked_no_extractor", "policy"),
+    "state_history_unavailable": ("unchecked_bucket_missing", "policy"),
+}
 
 EXECUTION_CASE = {
     "header_above_checkpoint": "unchecked_header_above_checkpoint",
@@ -125,6 +150,11 @@ EXECUTION_CASE = {
 def unchecked(check: str, reason: str, *, state="authorized", verdict="unchecked") -> dict:
     return {"check": check, "status": "unchecked", "reason": reason, "record_state": state, "verdict": verdict,
             "exit": str({"unchecked": 2, "not_authorized": 3}[verdict])}
+
+
+def violated() -> dict:
+    return {"check": "gate_integrity", "status": "violated", "reason": "gate_equivocation", "record_state": "authorized",
+            "verdict": "unchecked", "exit": "5"}
 
 
 def failed(check: str, *, state="authorized") -> dict:
@@ -230,6 +260,17 @@ def build() -> dict:
                           [f"verifier/execution_outcomes.json#{cid}"],
                           unchecked("execution", reason),
                           request="verify --check-execution"))
+    for reason, (cid, check) in POLICY_CASE.items():
+        cases.append(case(f"policy_{reason}", "See the policy/verify.json case.", {},
+                          [f"policy/verify.json#{cid}"], unchecked(check, reason)))
+    cases.append(case("policy_walk_history_missing", "Full policy walk; a previous allow record is missing.", {},
+                      ["policy/verify.json#walk_history_missing"], unchecked("gate_integrity", "state_history_unavailable")))
+    cases.append(case("policy_bucket_corrupt", "A closed bucket record does not hash to its key.", {},
+                      ["policy/verify.json#unchecked_bucket_corrupt"], unchecked("policy", "source_corrupt")))
+    cases.append(case("policy_t_h_blocked", "Header trust did not pass, so the policy rules on T_H are blocked.", {},
+                      ["policy/verify.json#unchecked_t_h_not_verified"], unchecked("policy", "blocked")))
+    cases.append(case("policy_gate_equivocation", "Two gate-signed allows from one state of one counter.", {},
+                      ["policy/verify.json#equivocation_fork_evidence"], violated(), request="verify --policy-full"))
     boundary = [
         case("commitment_rule_broken", "The commitment hashes to the reference and breaks stage S (ttl above "
              "the limit). Every copy has these bytes: fail.", {"commitment": "reject:ttl_3601"},
@@ -242,13 +283,17 @@ def build() -> dict:
         case("payload_action_differs", "A recipient opens a payload whose bytes match the commitment, and the "
              "payload's action differs from the committed one (O8).", {"payload": "opened, action differs"},
              ["v0/payload_blob.json#pb_payload_action_differs"], failed("payload")),
+        case("policy_amount_above_max", "The gate allowed an amount above the mandate's per-action maximum.", {},
+             ["policy/verify.json#fail_amount_above_max"], failed("policy")),
+        case("policy_period_limit_on_signed_state", "The gate-signed prev_state proves the allow broke a period limit.",
+             {}, ["policy/verify.json#fail_period_limit"], failed("policy")),
         case("execution_body_mismatch", "The tx bytes hash to rail_ref and carry another body.", {},
              ["verifier/execution_outcomes.json#fail_body_mismatch"], failed("execution"),
              request="verify --check-execution"),
     ]
     return {
         "format": "edicta-vectors/v0",
-        "revision": "v0-draft.28",
+        "revision": "v0-draft.29",
         "generator": "spec/vectors/check/gen_verifier_reasons.py",
         "description": (
             "Reason enum of core 20.1.1 and one case per reason. Each case starts from a valid, authorized "

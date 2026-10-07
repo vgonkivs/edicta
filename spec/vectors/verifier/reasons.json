@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v0",
-  "revision": "v0-draft.28",
+  "revision": "v0-draft.29",
   "generator": "spec/vectors/check/gen_verifier_reasons.py",
   "description": "Reason enum of core 20.1.1 and one case per reason. Each case starts from a valid, authorized decision with a trusted header and changes what setup says; refs give concrete bytes where a vector has them. expect gives the check that carries the reason, its status, the record state and the verdict with its exit code. boundary lists verified data that proves a violation and stays fail.",
   "reasons": [
@@ -41,7 +41,9 @@
         "authorization",
         "payload",
         "anchor",
-        "receipt"
+        "receipt",
+        "policy",
+        "gate_integrity"
       ],
       "meaning": "Bytes from a source fail a check that a genuine copy passes: strict decoding, the key check, a hash or DA commitment against the commitment, a signature that the commitment hash does not cover, or an archived proof (da = 2 commitment proof, Fibre CV1 to CV8, anchor proof forms 0 and 1).",
       "advice": "another copy"
@@ -129,7 +131,8 @@
         "anchor_time",
         "header_trust",
         "execution",
-        "retention_replay"
+        "retention_replay",
+        "policy"
       ],
       "meaning": "The check needs another check that did not pass; the report names that check.",
       "advice": "fix the named check"
@@ -304,6 +307,61 @@
       ],
       "meaning": "BX4: another chain id without proven inclusion.",
       "advice": "a tx source that serves inclusion proofs"
+    },
+    {
+      "name": "policy_verdict_unavailable",
+      "group": "policy",
+      "checks": [
+        "policy"
+      ],
+      "meaning": "No policy_allow record for an authorized decision while the policy check is required (RequirePolicy).",
+      "advice": "another archive copy"
+    },
+    {
+      "name": "policy_mandate_unavailable",
+      "group": "policy",
+      "checks": [
+        "policy"
+      ],
+      "meaning": "The mandate record named by the verdict is missing.",
+      "advice": "another archive copy"
+    },
+    {
+      "name": "policy_principal_untrusted",
+      "group": "configuration",
+      "checks": [
+        "policy"
+      ],
+      "meaning": "The mandate verifies, but its principal is not among the trusted principal keys.",
+      "advice": "pin the principal key, if it is the intended one"
+    },
+    {
+      "name": "policy_no_extractor",
+      "group": "configuration",
+      "checks": [
+        "policy"
+      ],
+      "meaning": "The verifier has no extractor for action.type with the extractor ID the verdict names.",
+      "advice": "a verifier with that extractor"
+    },
+    {
+      "name": "state_history_unavailable",
+      "group": "archive",
+      "checks": [
+        "policy",
+        "gate_integrity"
+      ],
+      "meaning": "A closed set, a needed bucket, or a verdict or mandate the walk needs is missing.",
+      "advice": "another archive copy"
+    },
+    {
+      "name": "gate_equivocation",
+      "group": "integrity",
+      "checks": [
+        "gate_integrity"
+      ],
+      "meaning": "Gate-signed verdicts contradict each other (fork, broken link, self-inconsistent transition, seq gap, version decrease or mandate change in one chain). The agent may be honest; the gate is at fault. Exit code 5.",
+      "advice": "investigate the gate; the attached verdicts are the evidence"
     }
   ],
   "cases": [
@@ -1073,6 +1131,151 @@
         "exit": "2"
       },
       "request": "verify --check-execution"
+    },
+    {
+      "id": "policy_policy_verdict_unavailable",
+      "description": "See the policy/verify.json case.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#unchecked_verdict_unavailable"
+      ],
+      "expect": {
+        "check": "policy",
+        "status": "unchecked",
+        "reason": "policy_verdict_unavailable",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "policy_policy_mandate_unavailable",
+      "description": "See the policy/verify.json case.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#unchecked_mandate_unavailable"
+      ],
+      "expect": {
+        "check": "policy",
+        "status": "unchecked",
+        "reason": "policy_mandate_unavailable",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "policy_policy_principal_untrusted",
+      "description": "See the policy/verify.json case.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#unchecked_principal_untrusted"
+      ],
+      "expect": {
+        "check": "policy",
+        "status": "unchecked",
+        "reason": "policy_principal_untrusted",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "policy_policy_no_extractor",
+      "description": "See the policy/verify.json case.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#unchecked_no_extractor"
+      ],
+      "expect": {
+        "check": "policy",
+        "status": "unchecked",
+        "reason": "policy_no_extractor",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "policy_state_history_unavailable",
+      "description": "See the policy/verify.json case.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#unchecked_bucket_missing"
+      ],
+      "expect": {
+        "check": "policy",
+        "status": "unchecked",
+        "reason": "state_history_unavailable",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "policy_walk_history_missing",
+      "description": "Full policy walk; a previous allow record is missing.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#walk_history_missing"
+      ],
+      "expect": {
+        "check": "gate_integrity",
+        "status": "unchecked",
+        "reason": "state_history_unavailable",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "policy_bucket_corrupt",
+      "description": "A closed bucket record does not hash to its key.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#unchecked_bucket_corrupt"
+      ],
+      "expect": {
+        "check": "policy",
+        "status": "unchecked",
+        "reason": "source_corrupt",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "policy_t_h_blocked",
+      "description": "Header trust did not pass, so the policy rules on T_H are blocked.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#unchecked_t_h_not_verified"
+      ],
+      "expect": {
+        "check": "policy",
+        "status": "unchecked",
+        "reason": "blocked",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "policy_gate_equivocation",
+      "description": "Two gate-signed allows from one state of one counter.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#equivocation_fork_evidence"
+      ],
+      "expect": {
+        "check": "gate_integrity",
+        "status": "violated",
+        "reason": "gate_equivocation",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "5"
+      },
+      "request": "verify --policy-full"
     }
   ],
   "boundary": [
@@ -1141,6 +1344,38 @@
       ],
       "expect": {
         "check": "payload",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    },
+    {
+      "id": "policy_amount_above_max",
+      "description": "The gate allowed an amount above the mandate's per-action maximum.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#fail_amount_above_max"
+      ],
+      "expect": {
+        "check": "policy",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    },
+    {
+      "id": "policy_period_limit_on_signed_state",
+      "description": "The gate-signed prev_state proves the allow broke a period limit.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#fail_period_limit"
+      ],
+      "expect": {
+        "check": "policy",
         "status": "fail",
         "reason": null,
         "record_state": "authorized",

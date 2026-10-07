@@ -1,0 +1,224 @@
+{
+  "format": "edicta-policy-vectors/v1",
+  "revision": "policy-v1-draft.1",
+  "generator": "spec/vectors/check/gen_policy.py",
+  "test_extractor": {
+    "id": "edicta/test-facts/v1",
+    "action_type": "application/vnd.edicta.test-facts.v1+cbor"
+  },
+  "cases": [
+    {
+      "id": "facts_transfer",
+      "description": "A transfer with a recipient.",
+      "input": {
+        "kind": "transfer",
+        "asset": "cosmos:mocha-4/utia",
+        "amount": "16e360",
+        "scale": "6",
+        "recipient": "cosmos:mocha-4:celestia1abc"
+      },
+      "cbor_hex": "a501687472616e736665720273636f736d6f733a6d6f6368612d342f75746961034316e360040605781b636f736d6f733a6d6f6368612d343a63656c657374696131616263"
+    },
+    {
+      "id": "facts_no_recipient",
+      "description": "No recipient: key 5 absent.",
+      "input": {
+        "kind": "transfer",
+        "asset": "test:usd",
+        "amount": "fa",
+        "scale": "2"
+      },
+      "cbor_hex": "a401687472616e736665720268746573743a7573640341fa0402"
+    },
+    {
+      "id": "facts_zero",
+      "description": "Amount zero is h'00'.",
+      "input": {
+        "kind": "transfer",
+        "asset": "test:usd",
+        "amount": "00",
+        "scale": "2",
+        "recipient": "test:alice"
+      },
+      "cbor_hex": "a501687472616e736665720268746573743a7573640341000402056a746573743a616c696365"
+    },
+    {
+      "id": "facts_amount_max",
+      "description": "Amount 2^256 - 1 (32 bytes).",
+      "input": {
+        "kind": "transfer",
+        "asset": "test:big",
+        "amount": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "scale": "0",
+        "recipient": "test:alice"
+      },
+      "cbor_hex": "a501687472616e736665720268746573743a626967035820ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0400056a746573743a616c696365"
+    },
+    {
+      "id": "facts_scale_255",
+      "description": "Scale 255, other kind token.",
+      "input": {
+        "kind": "swap-v2",
+        "asset": "test:usd",
+        "amount": "07",
+        "scale": "255",
+        "recipient": "test:alice"
+      },
+      "cbor_hex": "a50167737761702d76320268746573743a7573640341070418ff056a746573743a616c696365"
+    },
+    {
+      "id": "facts_asset_128",
+      "description": "Asset of 128 bytes.",
+      "input": {
+        "kind": "transfer",
+        "asset": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "amount": "01",
+        "scale": "2",
+        "recipient": "test:alice"
+      },
+      "cbor_hex": "a501687472616e7366657202788061616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161610341010402056a746573743a616c696365"
+    }
+  ],
+  "reject": [
+    {
+      "id": "facts_unknown_key",
+      "description": "Key 6.",
+      "cbor_hex": "a601687472616e736665720268746573743a757364034205dc0402056a746573743a616c6963650601",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrUnknownKey"
+    },
+    {
+      "id": "facts_missing_amount",
+      "description": "No key 3.",
+      "cbor_hex": "a401687472616e736665720268746573743a7573640402056a746573743a616c696365",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrMissingField"
+    },
+    {
+      "id": "facts_amount_nonminimal",
+      "description": "Amount with a leading zero byte.",
+      "cbor_hex": "a501687472616e736665720268746573743a757364034200050402056a746573743a616c696365",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrNonMinimalAmount"
+    },
+    {
+      "id": "facts_amount_33",
+      "description": "Amount of 33 bytes.",
+      "cbor_hex": "a501687472616e736665720268746573743a7573640358210101010101010101010101010101010101010101010101010101010101010101010402056a746573743a616c696365",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrFieldSize"
+    },
+    {
+      "id": "facts_amount_empty",
+      "description": "Amount of 0 bytes.",
+      "cbor_hex": "a501687472616e736665720268746573743a75736403400402056a746573743a616c696365",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrFieldSize"
+    },
+    {
+      "id": "facts_scale_256",
+      "description": "Scale 256.",
+      "cbor_hex": "a501687472616e736665720268746573743a757364034205dc04190100056a746573743a616c696365",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrIntRange"
+    },
+    {
+      "id": "facts_scale_negative",
+      "description": "Scale -1 (major type 1).",
+      "cbor_hex": "a501687472616e736665720268746573743a757364034205dc0420056a746573743a616c696365",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrWrongType"
+    },
+    {
+      "id": "facts_kind_upper",
+      "description": "Kind with an upper-case letter.",
+      "cbor_hex": "a501685472616e736665720268746573743a757364034205dc0402056a746573743a616c696365",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrInvalidString"
+    },
+    {
+      "id": "facts_kind_digit_first",
+      "description": "Kind starting with a digit.",
+      "cbor_hex": "a50169317472616e736665720268746573743a757364034205dc0402056a746573743a616c696365",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrInvalidString"
+    },
+    {
+      "id": "facts_asset_space",
+      "description": "Asset with a space.",
+      "cbor_hex": "a501687472616e7366657202687465737420757364034205dc0402056a746573743a616c696365",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrInvalidString"
+    },
+    {
+      "id": "facts_asset_129",
+      "description": "Asset of 129 bytes.",
+      "cbor_hex": "a501687472616e73666572027881616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161034205dc0402056a746573743a616c696365",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrFieldSize"
+    },
+    {
+      "id": "facts_asset_nonascii",
+      "description": "Asset with U+00E9.",
+      "cbor_hex": "a501687472616e73666572026a746573743a636166c3a9034205dc0402056a746573743a616c696365",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrInvalidString"
+    },
+    {
+      "id": "facts_recipient_empty",
+      "description": "Recipient of 0 bytes.",
+      "cbor_hex": "a501687472616e736665720268746573743a757364034205dc04020560",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrFieldSize"
+    },
+    {
+      "id": "facts_amount_tstr",
+      "description": "Amount as text.",
+      "cbor_hex": "a501687472616e736665720268746573743a7573640364313530300402056a746573743a616c696365",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrWrongType"
+    },
+    {
+      "id": "facts_trailing",
+      "description": "A zero byte after the map.",
+      "cbor_hex": "a501687472616e736665720268746573743a757364034205dc0402056a746573743a616c69636500",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrTrailingData"
+    },
+    {
+      "id": "facts_unsorted",
+      "description": "Key 2 before key 1.",
+      "cbor_hex": "a50268746573743a75736401687472616e73666572034205dc0402056a746573743a616c696365",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrUnsortedMap"
+    },
+    {
+      "id": "facts_indefinite",
+      "description": "Indefinite-length map.",
+      "cbor_hex": "bf01687472616e736665720268746573743a757364034205dc0402056a746573743a616c696365ff",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrIndefiniteLength"
+    },
+    {
+      "id": "facts_float_scale",
+      "description": "Scale as a half float.",
+      "cbor_hex": "a501687472616e736665720268746573743a757364034205dc04f94000056a746573743a616c696365",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrFloat"
+    },
+    {
+      "id": "facts_too_large",
+      "description": "513 bytes (recipient padded), above the cap before parsing.",
+      "cbor_hex": "a601687472616e736665720268746573743a7573640341010400057880727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727206790168787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrTooLarge"
+    },
+    {
+      "id": "facts_array",
+      "description": "An array instead of a map.",
+      "cbor_hex": "81687472616e73666572",
+      "expect_error": "ErrFactsInvalid",
+      "cause": "ErrWrongType"
+    }
+  ]
+}
