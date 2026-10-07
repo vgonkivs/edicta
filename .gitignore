@@ -27,3 +27,4 @@ celestia/cmd/*/edicta-*
 celestia/cmd/*/edictad
 !celestia/cmd/*/*.go
 spec/vectors/tools/*/fibreanchor-gen
+celestia/bin/
