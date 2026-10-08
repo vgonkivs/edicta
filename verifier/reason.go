@@ -48,6 +48,7 @@ const (
 	ReasonPolicyNoExtractor        Reason = "policy_no_extractor"
 	ReasonStateHistoryUnavailable  Reason = "state_history_unavailable"
 	ReasonGateEquivocation         Reason = "gate_equivocation"
+	ReasonPolicyWalkTruncated      Reason = "policy_walk_truncated"
 )
 
 // DisagreementText is what the report says when header sources, or a header
@@ -101,6 +102,7 @@ var reasonTable = []ReasonInfo{
 	{ReasonPolicyNoExtractor, []string{"policy"}, "The verifier has no extractor for action.type with the extractor ID the verdict names.", "a verifier with that extractor"},
 	{ReasonStateHistoryUnavailable, []string{"policy", "gate_integrity"}, "A closed set, a needed bucket, or a verdict or mandate the walk needs is missing.", "another archive copy"},
 	{ReasonGateEquivocation, []string{"gate_integrity"}, "Gate-signed verdicts contradict each other (fork, broken link, self-inconsistent transition, seq gap, version decrease or mandate change in one chain). The agent may be honest; the gate is at fault. Exit code 5.", "investigate the gate; the attached verdicts are the evidence"},
+	{ReasonPolicyWalkTruncated, []string{"gate_integrity"}, "The policy walk took its step cap (default or explicit) before it reached genesis, with no finding. The older part of the gate's chain was not read, so gate_integrity is never ok here. The report gives the walked seq range and the step count. The policy check and the verdict do not change.", "raise --max-walk-steps above the target's seq"},
 }
 
 // Reasons returns the closed table of 20.1.1, in order.

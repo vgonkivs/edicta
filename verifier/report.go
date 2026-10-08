@@ -128,6 +128,28 @@ type GateIntegrity struct {
 	Reason         Reason
 	Evidence       [][]byte
 	EvidenceHashes []commitment.Hash
+	// Walk is set when the integrity walk ran, whatever the status.
+	Walk *WalkInfo
+}
+
+// WalkEnd says why the integrity walk stopped.
+type WalkEnd string
+
+const (
+	WalkEndGenesis  WalkEnd = "genesis"
+	WalkEndMaxSteps WalkEnd = "max_steps"
+	WalkEndFinding  WalkEnd = "finding"
+)
+
+// WalkInfo describes what the integrity walk read. Steps counts the verdicts
+// before the target that were read and passed every check, so
+// ToSeq-FromSeq == Steps. Total is the chain length the target's signed
+// state claims.
+type WalkInfo struct {
+	MaxSteps, Steps uint64
+	FromSeq, ToSeq  uint64
+	Total           uint64
+	End             WalkEnd
 }
 
 // PolicyInfo is what the policy check learned about the allow.

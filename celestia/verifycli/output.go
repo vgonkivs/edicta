@@ -61,10 +61,20 @@ type executionView struct {
 }
 
 type integrityView struct {
-	Status         string   `json:"status"`
-	Reason         string   `json:"reason,omitempty"`
-	Evidence       []string `json:"evidence"`
-	EvidenceHashes []string `json:"evidence_verdict_hashes"`
+	Status         string    `json:"status"`
+	Reason         string    `json:"reason,omitempty"`
+	Evidence       []string  `json:"evidence"`
+	EvidenceHashes []string  `json:"evidence_verdict_hashes"`
+	Walk           *walkView `json:"walk,omitempty"`
+}
+
+type walkView struct {
+	MaxSteps uint64 `json:"max_steps"`
+	Steps    uint64 `json:"steps"`
+	FromSeq  uint64 `json:"from_seq"`
+	ToSeq    uint64 `json:"to_seq"`
+	Total    uint64 `json:"total"`
+	End      string `json:"end"`
 }
 
 type policyView struct {
@@ -215,6 +225,11 @@ func viewOf(r verifier.Report) reportView {
 	}
 	if v.GateIntegrity.Status == "" {
 		v.GateIntegrity.Status = string(verifier.IntegrityNotChecked)
+	}
+	if w := r.GateIntegrity.Walk; w != nil {
+		v.GateIntegrity.Walk = &walkView{
+			MaxSteps: w.MaxSteps, Steps: w.Steps, FromSeq: w.FromSeq, ToSeq: w.ToSeq, Total: w.Total, End: string(w.End),
+		}
 	}
 	for _, e := range r.GateIntegrity.Evidence {
 		v.GateIntegrity.Evidence = append(v.GateIntegrity.Evidence, hex.EncodeToString(e))
@@ -389,6 +404,13 @@ func writeText(out io.Writer, v reportView, colour bool) {
 			line += " (" + v.GateIntegrity.Reason + ")"
 		}
 		p("%s", line)
+	}
+	if w := v.GateIntegrity.Walk; w != nil {
+		p("gate integrity walk: last %d of %d verdicts checked (seq %d to %d, %d of at most %d steps, ended at %s)",
+			w.Steps+1, w.Total, w.FromSeq, w.ToSeq, w.Steps, w.MaxSteps, w.End)
+		if v.GateIntegrity.Reason == string(verifier.ReasonPolicyWalkTruncated) {
+			p("    advice: raise --max-walk-steps above %d to walk to genesis", w.ToSeq)
+		}
 	}
 	if v.Authorization != nil {
 		a := v.Authorization

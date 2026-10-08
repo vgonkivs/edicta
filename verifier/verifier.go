@@ -155,9 +155,9 @@ type Config struct {
 	RequirePolicy bool
 	// PolicyFull also walks the verdict chain and searches for forks.
 	PolicyFull bool
-	// PolicyDepth bounds the walk in hops; 0 means DefaultPolicyDepth. The
-	// walk also ends at genesis or the retention horizon.
-	PolicyDepth int
+	// MaxWalkSteps caps the walk in steps; 0 means DefaultMaxWalkSteps. A
+	// walk that takes the cap before genesis leaves gate_integrity unchecked.
+	MaxWalkSteps int
 	// Evidence are extra signed verdicts held by the auditor, for example
 	// those agents received. They only ever serve as fork evidence.
 	Evidence [][]byte
@@ -191,8 +191,8 @@ func (c Config) ValidateBasic() error {
 			}
 		}
 	}
-	if c.PolicyDepth < 0 {
-		return fmt.Errorf("%w: negative policy depth", ErrInvalidConfig)
+	if c.MaxWalkSteps < 0 {
+		return fmt.Errorf("%w: negative walk step cap", ErrInvalidConfig)
 	}
 	for i, e := range c.Evidence {
 		if len(e) == 0 || len(e) > 16384 {
@@ -301,7 +301,7 @@ func New(d Deps) (*Verifier, error) {
 	v := &Verifier{
 		cfg: Config{
 			Params: d.Config.Params, RequirePolicy: d.Config.RequirePolicy,
-			PolicyFull: d.Config.PolicyFull, PolicyDepth: d.Config.PolicyDepth,
+			PolicyFull: d.Config.PolicyFull, MaxWalkSteps: d.Config.MaxWalkSteps,
 		},
 		extractors: d.Extractors,
 		archive:    d.Archive,

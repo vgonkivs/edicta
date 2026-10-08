@@ -150,7 +150,7 @@ type flags struct {
 	principalKeys []ed25519.PublicKey
 	requirePolicy bool
 	policyFull    bool
-	policyDepth   int
+	maxWalkSteps  int
 	evidencePaths []string
 }
 
@@ -158,7 +158,7 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	const usage = "usage: verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) " +
 		"[--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)] [--cross-check URL]... [--exclude-host HOST]... " +
 		"[--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution] " +
-		"[--principal-key HEX]... [--require-policy] [--policy-full] [--policy-depth N] [--policy-evidence FILE]... [--json]"
+		"[--principal-key HEX]... [--require-policy] [--policy-full] [--max-walk-steps N] [--policy-evidence FILE]... [--json]"
 	var f flags
 	if len(args) == 0 || (args[0] != "verify" && args[0] != "replay") {
 		return f, usagef("%s", usage)
@@ -186,7 +186,8 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	fs.BoolVar(&f.asJSON, "json", false, "print one JSON document")
 	fs.BoolVar(&f.requirePolicy, "require-policy", false, "the gate had a mandate: a missing policy record is unchecked, not skipped")
 	fs.BoolVar(&f.policyFull, "policy-full", false, "walk the verdict chain and search for forks")
-	fs.IntVar(&f.policyDepth, "policy-depth", 0, "most hops the policy walk follows (0: the default)")
+	fs.IntVar(&f.maxWalkSteps, "max-walk-steps", verifier.DefaultMaxWalkSteps, "most steps the policy walk takes toward genesis (at least 1)")
+	fs.IntVar(&f.maxWalkSteps, "policy-depth", verifier.DefaultMaxWalkSteps, "alias of --max-walk-steps")
 	var principals multiFlag
 	fs.Var(&principals, "principal-key", "trusted mandate principal public key, hex (repeatable; commas also separate keys)")
 	var evidence multiFlag
@@ -250,8 +251,8 @@ func (f flags) validate() error {
 	if f.timeout <= 0 {
 		return usagef("--timeout must be positive")
 	}
-	if f.policyDepth < 0 {
-		return usagef("--policy-depth must not be negative")
+	if f.maxWalkSteps < 1 {
+		return usagef("--max-walk-steps must be at least 1")
 	}
 	online := f.checkpoint != "" || len(f.checkpointRPC) > 0
 	switch {
@@ -343,7 +344,7 @@ func execute(ctx context.Context, args []string, out io.Writer) (int, error) {
 	deps.Config.PrincipalKeys = f.principalKeys
 	deps.Config.RequirePolicy = f.requirePolicy
 	deps.Config.PolicyFull = f.policyFull
-	deps.Config.PolicyDepth = f.policyDepth
+	deps.Config.MaxWalkSteps = f.maxWalkSteps
 	for _, path := range f.evidencePaths {
 		b, err := readFileCapped(path, maxEvidenceFile)
 		if err != nil {

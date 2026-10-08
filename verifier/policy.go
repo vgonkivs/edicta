@@ -38,13 +38,10 @@ func (e *PolicyFailure) Unwrap() []error {
 	return []error{ErrPolicyViolation, e.Err}
 }
 
-// retentionHorizon is how far back the integrity walk goes by default.
-const retentionHorizon = 32 * 24 * 3600
-
-// DefaultPolicyDepth bounds the walk, and with it the memory of the fork
-// search, when the auditor sets no depth. A gate that authorizes more often
-// than this in the horizon leaves the older part of the chain unwalked.
-const DefaultPolicyDepth = 10000
+// DefaultMaxWalkSteps caps the walk, and with it the memory of the fork
+// search, when the auditor sets no cap. A longer chain is not walked to
+// genesis by default and its gate_integrity stays unchecked.
+const DefaultMaxWalkSteps = 10000
 
 // policyInput is what the core checks verified about the decision, plus the
 // anchor time when header trust passed.
@@ -99,6 +96,8 @@ type policyRun struct {
 	fail      *PolicyFailure
 	fastUnchk *Check
 	walkUnchk *Check
+	walkTrunc bool
+	walkInfo  *WalkInfo
 	violation [][]byte
 	violHash  []commitment.Hash
 	info      *PolicyInfo
@@ -479,9 +478,12 @@ func (p *policyRun) finish(c *Check) (policyOutcome, error) {
 		}
 	case p.stepOneOK && p.v.cfg.PolicyFull && p.walkUnchk != nil:
 		out.Integrity = GateIntegrity{Status: IntegrityUnchecked, Reason: p.walkUnchk.Reason}
+	case p.stepOneOK && p.v.cfg.PolicyFull && p.walkTrunc:
+		out.Integrity = GateIntegrity{Status: IntegrityUnchecked, Reason: ReasonPolicyWalkTruncated}
 	case p.stepOneOK && p.v.cfg.PolicyFull:
 		out.Integrity = GateIntegrity{Status: IntegrityOK}
 	}
+	out.Integrity.Walk = p.walkInfo
 	switch {
 	case c != nil:
 		out.Check = *c
@@ -557,24 +559,25 @@ func (p *policyRun) walkStop(st srcStatus) {
 }
 
 func (p *policyRun) walk(allow *allowRec, m *policy.Mandate) error {
+	maxSteps := uint64(p.v.cfg.MaxWalkSteps)
+	if maxSteps == 0 {
+		maxSteps = DefaultMaxWalkSteps
+	}
+	toSeq := allow.sv.Verdict.PrevState.Seq
+	info := &WalkInfo{MaxSteps: maxSteps, FromSeq: toSeq, ToSeq: toSeq, Total: toSeq + 1, End: WalkEndFinding}
+	p.walkInfo = info
 	if m == nil {
 		p.walkUnchk = p.unchecked(ReasonStateHistoryUnavailable, errors.New("the mandate of the verdict does not read"))
 		return nil
 	}
 	cur := policy.Held{V: &allow.sv.Verdict, Hash: allow.hash, M: m}
 	p.held = []policy.Held{cur}
-	target := cur.V
-	depth := p.v.cfg.PolicyDepth
-	if depth == 0 {
-		depth = DefaultPolicyDepth
-	}
 	scales := policy.NewScaleChain()
-	for hops := 0; cur.V.PrevState.Seq > 0; hops++ {
-		if hops >= depth {
-			break
-		}
-		if cur.V.PrevState.LastT+retentionHorizon < target.EvalTime {
-			break
+	for cur.V.PrevState.Seq > 0 {
+		if info.Steps >= maxSteps {
+			info.End = WalkEndMaxSteps
+			p.walkTrunc = true
+			return nil
 		}
 		pa, st, err := p.loadAllow(commitment.Hash(cur.V.PrevCommitmentHash))
 		if err != nil {
@@ -617,7 +620,10 @@ func (p *policyRun) walk(allow *allowRec, m *policy.Mandate) error {
 			return nil
 		}
 		cur = prev
+		info.Steps++
+		info.FromSeq = cur.V.PrevState.Seq
 	}
+	info.End = WalkEndGenesis
 	return nil
 }
 
