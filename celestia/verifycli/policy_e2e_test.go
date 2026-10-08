@@ -2,9 +2,9 @@ package verifycli
 
 import (
 	"context"
-	"encoding/json"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
