@@ -10,6 +10,7 @@ import (
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/policy"
 )
 
 // Sentinels of this package. The names are the codes of section 18.3 with the
@@ -57,6 +58,7 @@ var table = []ErrorRule{
 	rule(410, "ErrAnchorTooOld", gate.ErrAnchorTooOld),
 	rule(410, "ErrExpired", commitment.ErrExpired),
 	rule(410, "edictaapi.ErrPublishStale", ErrPublishStale),
+	rule(410, "policy.ErrDecisionAge", policy.ErrDecisionAge),
 
 	rule(400, "ErrMalformed", commitment.ErrMalformed),
 	rule(400, "ErrTrailingData", commitment.ErrTrailingData),
@@ -97,6 +99,17 @@ var table = []ErrorRule{
 	rule(403, "ErrAgentKeyMismatch", gate.ErrAgentKeyMismatch),
 	rule(403, "ErrExecutorNotAllowed", gate.ErrExecutorNotAllowed),
 	rule(403, "ErrKeyRole", commitment.ErrKeyRole),
+	rule(403, "policy.ErrAgentNotCovered", policy.ErrAgentNotCovered),
+	rule(403, "policy.ErrNoExtractor", policy.ErrNoExtractor),
+	rule(403, "policy.ErrOutsideMandate", policy.ErrOutsideMandate),
+	rule(403, "policy.ErrKindNotAllowed", policy.ErrKindNotAllowed),
+	rule(403, "policy.ErrAssetNotAllowed", policy.ErrAssetNotAllowed),
+	rule(403, "policy.ErrRecipientNotAllowed", policy.ErrRecipientNotAllowed),
+	rule(403, "policy.ErrAmountAboveMax", policy.ErrAmountAboveMax),
+	rule(403, "policy.ErrMinSpacing", policy.ErrMinSpacing),
+	rule(403, "policy.ErrPeriodLimit", policy.ErrPeriodLimit),
+	rule(403, "policy.ErrCountLimit", policy.ErrCountLimit),
+	rule(403, "policy.ErrHistoryFull", policy.ErrHistoryFull),
 
 	rule(404, "edictaapi.ErrRouteNotFound", ErrRouteNotFound),
 	rule(404, "edictaapi.ErrPublishDisabled", ErrPublishDisabled),
@@ -118,6 +131,7 @@ var table = []ErrorRule{
 	rule(422, "ErrIssuedBeforeAnchor", commitment.ErrIssuedBeforeAnchor),
 	rule(422, "ErrTTLTooLong", commitment.ErrTTLTooLong),
 	rule(422, "ErrNotAuthorized", gate.ErrNotAuthorized),
+	rule(422, "policy.ErrFactsInvalid", policy.ErrFactsInvalid),
 
 	rule(425, "ErrNotYetValid", commitment.ErrNotYetValid),
 	rule(425, "ErrAnchorNotFound", gate.ErrAnchorNotFound),
@@ -132,6 +146,7 @@ var table = []ErrorRule{
 	rule(503, "ErrClockRegression", gate.ErrClockRegression),
 	rule(503, "ErrClosed", gate.ErrClosed),
 	rule(503, "ErrArchiveUnavailable", gate.ErrArchiveUnavailable),
+	rule(503, "ErrPolicyStateConflict", gate.ErrPolicyStateConflict),
 
 	rule(504, "edictaapi.ErrDeadline", ErrDeadline),
 	rule(500, codeInternal, ErrInternal),
@@ -190,6 +205,9 @@ type Error struct {
 	Retryable bool
 	// Stored is the stored result of a 409 (key 4), nil otherwise.
 	Stored []byte
+	// PolicyVerdict is the signed verdict of a policy deny or of a stored
+	// 409 (key 5), nil otherwise.
+	PolicyVerdict []byte
 }
 
 func (e *Error) sentinel() error {

@@ -17,6 +17,7 @@ import (
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate/registry"
+	"github.com/vgonkivs/edicta/policy"
 )
 
 // Gate is safe for concurrent use. It starts no goroutines.
@@ -32,6 +33,7 @@ type Gate struct {
 	sem       *weightedSem
 	release   func()
 	closed    atomic.Bool
+	pol       *policyGate // nil without a mandate
 }
 
 type Result struct {
@@ -50,6 +52,12 @@ type Result struct {
 	// K2 holds the inputs of the retention decision, for archiving. It is
 	// zero until the decision was made.
 	K2 K2Inputs
+	// PolicyVerdict is the canonical SignedPolicyVerdict: of the allow, of a
+	// stored retry, or of a policy deny. Nil without a mandate.
+	PolicyVerdict []byte
+	// ClosedBucket and ClosedSet are the canonical bucket and set that this
+	// allow closed an hour with; the caller archives them once.
+	ClosedBucket, ClosedSet []byte
 }
 
 // K2Inputs are the values the path selection used. BlobRetentionS is set for
@@ -200,6 +208,11 @@ func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
 	}
 	g.epoch = m.Epoch
 	g.watermark.Store(m.Watermark)
+	if len(cfg.Mandate) > 0 {
+		if err := g.setupPolicy(ctx); err != nil {
+			return nil, err
+		}
+	}
 	started = true
 	return g, nil
 }
@@ -335,6 +348,24 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	}
 	copy(res.ActionHash[:], c.Action.Hash)
 
+	// Policy admission. A deny is signed first; the decision record is then
+	// still archived, and an archive failure does not change the deny.
+	pin := policyInput{h: h, actionHash: res.ActionHash, agent: c.AgentPubKey, decidedAt: now}
+	if g.pol != nil {
+		vb, perr := g.admitPolicy(ctx, c, action, &pin)
+		if perr != nil {
+			res.PolicyVerdict = vb
+			if vb != nil && g.d.Archiver != nil {
+				if aerr := g.archiveDecision(ctx, h, envelope, action); aerr != nil {
+					g.log.Warn("decision record not archived after a policy deny", "err", aerr)
+				} else {
+					res.DecisionArchived = true
+				}
+			}
+			return res, perr
+		}
+	}
+
 	// Archive the decision before any nonce read, so a request that is
 	// refused later or retried still leaves the signed decision behind.
 	if g.d.Archiver != nil {
@@ -403,6 +434,23 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 		return res, err
 	}
 
+	// Policy evaluation. On allow the policy lock stays held until the
+	// nonce and the counter are committed.
+	var dec *policyDecision
+	if g.pol != nil {
+		pin.anchorTime = blockTime
+		if blockTime == 0 {
+			return res, fmt.Errorf("%w: header time is zero", ErrChainUnavailable)
+		}
+		d, vb, perr := g.evaluatePolicy(ctx, p, c, &pin, now2)
+		if perr != nil {
+			res.PolicyVerdict = vb
+			return res, perr
+		}
+		dec = d
+		defer g.unlockPolicy()
+	}
+
 	// Sign. Nothing is written yet, so a failing signer burns no nonce.
 	if err := ctx.Err(); err != nil {
 		return res, fmt.Errorf("gate: %w", err)
@@ -422,7 +470,14 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 		Key: key, CommitmentHash: h, ActionHash: res.ActionHash, Path: path,
 		AuthorizedAt: now2, ValidUntil: c.ValidUntil, Authorization: signed,
 	}
-	if err := g.d.Registry.Consume(ctx, entry, g.cfg.ClockTolerance); err != nil {
+	var cerr error
+	if dec != nil {
+		entry.Verdict = dec.verdict
+		cerr = g.pol.state.ConsumeState(ctx, entry, g.cfg.ClockTolerance, dec.tx)
+	} else {
+		cerr = g.d.Registry.Consume(ctx, entry, g.cfg.ClockTolerance)
+	}
+	if err := cerr; err != nil {
 		var ee *registry.ExistsError
 		if errors.As(err, &ee) {
 			return g.replayArchived(res, ee.Existing)
@@ -430,11 +485,26 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 		if errors.Is(err, registry.ErrBelowWatermark) || errors.Is(err, registry.ErrPrunedWindow) {
 			return res, fmt.Errorf("%w: %w", ErrClockRegression, err)
 		}
+		if dec != nil && errors.Is(err, registry.ErrStateConflict) {
+			return res, fmt.Errorf("%w: %w", ErrPolicyStateConflict, err)
+		}
 		return res, fmt.Errorf("%w: consume: %w", ErrRegistryUnavailable, err)
 	}
 	g.bumpWatermark(now2)
 	res.Authorization = bytes.Clone(signed)
 	res.AuthorizedAt = now2
+	if dec != nil {
+		res.PolicyVerdict = bytes.Clone(dec.verdict)
+		if cb := dec.step.ClosedBucket; cb != nil {
+			var err error
+			if res.ClosedBucket, err = policy.EncodeBucket(cb); err != nil {
+				g.log.Error("encode closed bucket", "err", err)
+			}
+			if res.ClosedSet, err = policy.EncodeClosedSet(dec.step.ClosedSet); err != nil {
+				g.log.Error("encode closed set", "err", err)
+			}
+		}
+	}
 	return res, nil
 }
 
@@ -487,6 +557,7 @@ func (g *Gate) replay(h, actionHash commitment.Hash, old registry.Entry) (Result
 	res.Path = old.Path
 	res.AuthorizedAt = old.AuthorizedAt
 	res.Authorization = bytes.Clone(old.Authorization)
+	res.PolicyVerdict = bytes.Clone(old.Verdict)
 	return res, ErrNonceUsed
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate/registry"
+	"github.com/vgonkivs/edicta/policy"
 )
 
 type Clock interface{ Now() time.Time }
@@ -132,4 +133,6 @@ type Deps struct {
 	Archiver   Archiver     // nil skips the archive stage
 	Metrics    Metrics      // nil means none
 	Logger     *slog.Logger // nil means slog.Default()
+	// Extractors serves the policy; required when Config.Mandate is set.
+	Extractors *policy.Extractors
 }

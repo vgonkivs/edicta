@@ -17,6 +17,7 @@ import (
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/sdk"
 )
 
@@ -128,7 +129,7 @@ func (h *handler) serve(r *http.Request) (res response) {
 				panic(p)
 			}
 			h.log.Error("edictaapi: handler panic", "path", r.URL.Path, "panic", fmt.Sprint(p))
-			res = errorResponse(500, codeInternal, "internal error", false, nil, 0)
+			res = errorResponse(500, codeInternal, "internal error", false, nil, nil, 0)
 		}
 	}()
 
@@ -168,7 +169,7 @@ func (h *handler) serve(r *http.Request) (res response) {
 	if method == http.MethodGet {
 		info, err := h.h.Health(ctx)
 		if err != nil {
-			return h.failIn(ctx, r, err, nil)
+			return h.failIn(ctx, r, err, nil, nil)
 		}
 		return response{status: 200, body: encodeHealth(info)}
 	}
@@ -182,17 +183,17 @@ func (h *handler) serve(r *http.Request) (res response) {
 	}
 
 	var out []byte
-	var stored []byte
+	var stored, verdict []byte
 	switch r.URL.Path {
 	case "/v0/publish":
 		out, err = h.publish(ctx, body)
 	case "/v0/authorize":
-		out, stored, err = h.authorize(ctx, body)
+		out, stored, verdict, err = h.authorize(ctx, body)
 	case "/v0/record":
 		out, stored, err = h.record(ctx, body)
 	}
 	if err != nil {
-		return h.failIn(ctx, r, err, stored)
+		return h.failIn(ctx, r, err, stored, verdict)
 	}
 	return response{status: 200, body: out}
 }
@@ -218,20 +219,23 @@ func readLimited(r *http.Request, limit uint64) ([]byte, error) {
 // fail maps err through section 18.3 and builds the error response. stored is
 // attached only to the two 409 rows that carry a result.
 func (h *handler) fail(r *http.Request, err error, stored []byte) response {
-	return h.failIn(r.Context(), r, err, stored)
+	return h.failIn(r.Context(), r, err, stored, nil)
 }
 
 // failIn is fail for an error returned under ctx, the request context with the
 // handler's own deadline.
-func (h *handler) failIn(ctx context.Context, r *http.Request, err error, stored []byte) response {
+func (h *handler) failIn(ctx context.Context, r *http.Request, err error, stored, verdict []byte) response {
 	own := r.Context().Err() == nil && errors.Is(ctx.Err(), context.DeadlineExceeded)
 	rule, ok := classify(err, h.cfg.ExtraErrors, own)
 	if !ok {
 		h.log.Error("edictaapi: unmapped error", "path", r.URL.Path, "err", err)
-		return errorResponse(500, codeInternal, "internal error", false, nil, 0)
+		return errorResponse(500, codeInternal, "internal error", false, nil, nil, 0)
 	}
 	if !(len(stored) > 0 && (errors.Is(err, gate.ErrNonceUsed) || errors.Is(err, gate.ErrReceiptExists))) {
 		stored = nil
+	}
+	if !(len(verdict) > 0 && (errors.Is(err, policy.ErrDenied) || (len(stored) > 0 && errors.Is(err, gate.ErrNonceUsed)))) {
+		verdict = nil
 	}
 	msg := rule.Err.Error()
 	if rule.Status == 500 {
@@ -245,13 +249,13 @@ func (h *handler) failIn(ctx context.Context, r *http.Request, err error, stored
 		after = archiveRetryAfter
 	}
 	h.log.Debug("edictaapi: request failed", "path", r.URL.Path, "code", rule.Code, "err", err)
-	return errorResponse(rule.Status, rule.Code, msg, rule.Retryable, stored, after)
+	return errorResponse(rule.Status, rule.Code, msg, rule.Retryable, stored, verdict, after)
 }
 
 // archiveRetryAfter is the advised wait after ErrArchiveUnavailable.
 const archiveRetryAfter = 5 * time.Second
 
-func errorResponse(status int, code, msg string, retryable bool, stored []byte, after time.Duration) response {
+func errorResponse(status int, code, msg string, retryable bool, stored, verdict []byte, after time.Duration) response {
 	items := []kv{
 		{key: 1, kind: fText, s: code},
 		{key: 2, kind: fText, s: msg},
@@ -259,6 +263,9 @@ func errorResponse(status int, code, msg string, retryable bool, stored []byte, 
 	}
 	if len(stored) > 0 {
 		items = append(items, kv{key: 4, kind: fBytes, b: stored})
+	}
+	if len(verdict) > 0 {
+		items = append(items, kv{key: 5, kind: fBytes, b: verdict})
 	}
 	return response{status: status, body: encodeMap(items...), retryAfter: after}
 }
@@ -283,19 +290,23 @@ var (
 	}
 )
 
-func (h *handler) authorize(ctx context.Context, body []byte) (out, stored []byte, err error) {
+func (h *handler) authorize(ctx context.Context, body []byte) (out, stored, verdict []byte, err error) {
 	f, err := decodeFields(body, authorizeSchema)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	res, err := h.g.Authorize(ctx, f[1].b, f[2].b)
 	if err != nil {
-		return nil, res.Authorization, err
+		return nil, res.Authorization, res.PolicyVerdict, err
 	}
 	if len(res.Authorization) == 0 {
-		return nil, nil, errors.New("edictaapi: gate returned no authorization")
+		return nil, nil, nil, errors.New("edictaapi: gate returned no authorization")
 	}
-	return encodeMap(kv{key: 1, kind: fBytes, b: res.Authorization}), nil, nil
+	items := []kv{{key: 1, kind: fBytes, b: res.Authorization}}
+	if len(res.PolicyVerdict) > 0 {
+		items = append(items, kv{key: 5, kind: fBytes, b: res.PolicyVerdict})
+	}
+	return encodeMap(items...), nil, nil, nil
 }
 
 func (h *handler) record(ctx context.Context, body []byte) (out, stored []byte, err error) {

@@ -185,14 +185,38 @@ var (
 		{key: 2, name: "message", kind: fText, max: unbounded, required: true},
 		{key: 3, name: "retryable", kind: fUint, required: true},
 		{key: 4, name: "stored", kind: fBytes, max: unbounded},
+		{key: 5, name: "policy_verdict", kind: fBytes, min: 1, max: 16384},
+	}
+	authorizeResponseSchema = []fspec{
+		{key: 1, name: "result", kind: fBytes, min: 1, max: unbounded, required: true},
+		{key: 5, name: "policy_verdict", kind: fBytes, min: 1, max: 16384},
 	}
 )
 
 // Authorize returns the SignedAuthorization bytes. On ErrNonceUsed the
 // *Error may carry the stored one in Stored; verify it like any Authorization.
 func (c *Client) Authorize(ctx context.Context, envelope, action []byte) ([]byte, error) {
+	auth, _, err := c.AuthorizeWithVerdict(ctx, envelope, action)
+	return auth, err
+}
+
+// AuthorizeWithVerdict is Authorize that also returns the signed policy
+// verdict, nil when the gate has no mandate. On a policy deny the *Error
+// carries the deny verdict in PolicyVerdict.
+func (c *Client) AuthorizeWithVerdict(ctx context.Context, envelope, action []byte) (auth, verdict []byte, err error) {
 	body := encodeMap(kv{key: 1, kind: fBytes, b: envelope}, kv{key: 2, kind: fBytes, b: action})
-	return c.single(ctx, "/v0/authorize", body)
+	out, err := c.do(ctx, http.MethodPost, "/v0/authorize", body)
+	if err != nil {
+		return nil, nil, err
+	}
+	f, err := decodeFields(out, authorizeResponseSchema)
+	if err != nil {
+		return nil, nil, fmt.Errorf("edictaapi: /v0/authorize response: %w", err)
+	}
+	if n := f[5]; n != nil {
+		verdict = bytes.Clone(n.b)
+	}
+	return bytes.Clone(f[1].b), verdict, nil
 }
 
 // Record returns the SignedReceipt bytes; on ErrReceiptExists Error.Stored
@@ -298,6 +322,9 @@ func parseError(status int, data []byte) *Error {
 	e := &Error{Status: status, Code: string(f[1].b), Message: string(f[2].b), Retryable: f[3].u == 1}
 	if n := f[4]; n != nil {
 		e.Stored = bytes.Clone(n.b)
+	}
+	if n := f[5]; n != nil {
+		e.PolicyVerdict = bytes.Clone(n.b)
 	}
 	return e
 }

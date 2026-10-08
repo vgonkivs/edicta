@@ -2,6 +2,7 @@ package gatetest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -303,7 +304,8 @@ func (l *LogCapture) Records(level slog.Level) []slog.Record {
 }
 
 // FaultyRegistry wraps a registry and injects failures per operation. The
-// operation names are Consume, Get, AttachReceipt, Meta, Prune.
+// operation names are Consume, Get, AttachReceipt, Meta, Prune, State,
+// UpdateState and ConsumeState.
 type FaultyRegistry struct {
 	inner registry.Registry
 
@@ -312,7 +314,10 @@ type FaultyRegistry struct {
 	before map[string]func()
 }
 
-var _ registry.Registry = (*FaultyRegistry)(nil)
+var (
+	_ registry.Registry      = (*FaultyRegistry)(nil)
+	_ registry.StateRegistry = (*FaultyRegistry)(nil)
+)
 
 func NewFaultyRegistry(inner registry.Registry) *FaultyRegistry {
 	return &FaultyRegistry{inner: inner, fail: make(map[string]error), before: make(map[string]func())}
@@ -390,4 +395,47 @@ func (f *FaultyRegistry) Prune(ctx context.Context, cutoff uint64) (int, error) 
 		return 0, err
 	}
 	return f.inner.Prune(ctx, cutoff)
+}
+
+var errNoState = errors.New("gatetest: wrapped registry has no policy state")
+
+func (f *FaultyRegistry) stateInner() (registry.StateRegistry, error) {
+	sr, ok := f.inner.(registry.StateRegistry)
+	if !ok {
+		return nil, errNoState
+	}
+	return sr, nil
+}
+
+func (f *FaultyRegistry) State(ctx context.Context, k registry.StateKey) (registry.StateCell, error) {
+	if err := f.enter("State"); err != nil {
+		return registry.StateCell{}, err
+	}
+	sr, err := f.stateInner()
+	if err != nil {
+		return registry.StateCell{}, err
+	}
+	return sr.State(ctx, k)
+}
+
+func (f *FaultyRegistry) UpdateState(ctx context.Context, tx registry.StateTx) error {
+	if err := f.enter("UpdateState"); err != nil {
+		return err
+	}
+	sr, err := f.stateInner()
+	if err != nil {
+		return err
+	}
+	return sr.UpdateState(ctx, tx)
+}
+
+func (f *FaultyRegistry) ConsumeState(ctx context.Context, e registry.Entry, tolerance uint64, tx registry.StateTx) error {
+	if err := f.enter("ConsumeState"); err != nil {
+		return err
+	}
+	sr, err := f.stateInner()
+	if err != nil {
+		return err
+	}
+	return sr.ConsumeState(ctx, e, tolerance, tx)
 }

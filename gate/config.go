@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/policy"
 )
 
 const (
@@ -45,6 +46,8 @@ type Config struct {
 	// ExecutorKeys is the executor allowlist: the keys whose signed record
 	// requests Record accepts. Disjoint from gate and agent keys.
 	ExecutorKeys [][32]byte
+	// Mandate is the canonical SignedMandate; empty means no policy.
+	Mandate []byte
 }
 
 // DefaultConfig holds the defaults; the zero value of Config is not usable.
@@ -103,6 +106,15 @@ func (c Config) ValidateBasic() error {
 	}
 	if err := checkScope(c.Scope); err != nil {
 		return bad("%v", err)
+	}
+	if len(c.Mandate) > 0 {
+		sm, _, err := policy.VerifyMandate(c.Mandate)
+		if err != nil {
+			return bad("mandate: %v", err)
+		}
+		if sm.Mandate.GateID != c.Scope.GateID {
+			return bad("mandate is bound to gate %q, not %q", sm.Mandate.GateID, c.Scope.GateID)
+		}
 	}
 	if _, err := normalizeDA(c.AllowedDA); err != nil {
 		return bad("%v", err)
