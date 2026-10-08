@@ -29,6 +29,13 @@ const (
 	KindDecision      Kind = 3
 	KindAuthorization Kind = 4
 	KindRejection     Kind = 5
+	// Kind 6 is never assigned.
+	KindMandate         Kind = 7
+	KindPolicyAllow     Kind = 8
+	KindPolicyDeny      Kind = 9
+	KindPolicyBucket    Kind = 10
+	KindPolicyClosed    Kind = 11
+	KindPolicySuccessor Kind = 12
 )
 
 func (k Kind) String() string {
@@ -43,9 +50,24 @@ func (k Kind) String() string {
 		return "authorization"
 	case KindRejection:
 		return "rejection"
+	case KindMandate:
+		return "mandate"
+	case KindPolicyAllow:
+		return "policy_allow"
+	case KindPolicyDeny:
+		return "policy_deny"
+	case KindPolicyBucket:
+		return "policy_bucket"
+	case KindPolicyClosed:
+		return "policy_closed"
+	case KindPolicySuccessor:
+		return "policy_successor"
 	}
 	return "unknown"
 }
+
+// valid reports whether k is an assigned kind.
+func (k Kind) valid() bool { return k >= KindPayload && k <= KindPolicySuccessor && k != 6 }
 
 // Record is one of the pointer record types below.
 type Record interface {
@@ -127,11 +149,45 @@ type RejectionRecord struct {
 	RejectedAt     uint64
 }
 
-func (*PayloadRecord) Kind() Kind       { return KindPayload }
-func (*EvidenceRecord) Kind() Kind      { return KindEvidence }
-func (*DecisionRecord) Kind() Kind      { return KindDecision }
-func (*AuthorizationRecord) Kind() Kind { return KindAuthorization }
-func (*RejectionRecord) Kind() Kind     { return KindRejection }
+// The policy records carry nested policy structures as the canonical bytes of
+// spec/policy-v1.md. They are strictly decoded when the record is, and the
+// signatures inside are not checked: readers check them.
+
+// MandateRecord holds a SignedMandate.
+type MandateRecord struct{ SignedMandate []byte }
+
+// PolicyAllowRecord holds the SignedPolicyVerdict of an allow.
+type PolicyAllowRecord struct{ SignedVerdict []byte }
+
+// PolicyDenyRecord holds the SignedPolicyVerdict of a deny.
+type PolicyDenyRecord struct{ SignedVerdict []byte }
+
+// PolicyBucketRecord holds a canonical closed Bucket.
+type PolicyBucketRecord struct{ Bucket []byte }
+
+// PolicyClosedRecord holds a canonical ClosedSet.
+type PolicyClosedRecord struct{ ClosedSet []byte }
+
+// PolicySuccessorRecord says which allow consumed a state of a counter:
+// the allow of CommitmentHash had prev_state_hash = StateHash.
+type PolicySuccessorRecord struct {
+	GateID         string
+	CounterKey     []byte
+	StateHash      []byte
+	CommitmentHash []byte
+}
+
+func (*PayloadRecord) Kind() Kind         { return KindPayload }
+func (*EvidenceRecord) Kind() Kind        { return KindEvidence }
+func (*DecisionRecord) Kind() Kind        { return KindDecision }
+func (*AuthorizationRecord) Kind() Kind   { return KindAuthorization }
+func (*RejectionRecord) Kind() Kind       { return KindRejection }
+func (*MandateRecord) Kind() Kind         { return KindMandate }
+func (*PolicyAllowRecord) Kind() Kind     { return KindPolicyAllow }
+func (*PolicyDenyRecord) Kind() Kind      { return KindPolicyDeny }
+func (*PolicyBucketRecord) Kind() Kind    { return KindPolicyBucket }
+func (*PolicyClosedRecord) Kind() Kind    { return KindPolicyClosed }
+func (*PolicySuccessorRecord) Kind() Kind { return KindPolicySuccessor }
 
 type Outcome int
 
@@ -189,6 +245,19 @@ type Store interface {
 	Authorization(ctx context.Context, h commitment.Hash) (*AuthorizationRecord, error)
 	Rejection(ctx context.Context, h commitment.Hash, name string) (*RejectionRecord, error)
 	State(ctx context.Context, h commitment.Hash) (DecisionState, error)
+}
+
+// PolicyReader is the optional read side of the policy records. A reader
+// returns ErrNotFound for an absent key and an ErrCorrupt error for a stored
+// record that does not decode or does not carry its key.
+type PolicyReader interface {
+	Mandate(ctx context.Context, mandateHash commitment.Hash) (*MandateRecord, error)
+	PolicyAllow(ctx context.Context, commitmentHash commitment.Hash) (*PolicyAllowRecord, error)
+	PolicyDeny(ctx context.Context, commitmentHash commitment.Hash, reason string) (*PolicyDenyRecord, error)
+	PolicyBucket(ctx context.Context, bucketHash commitment.Hash) (*PolicyBucketRecord, error)
+	PolicyClosed(ctx context.Context, closedRoot commitment.Hash) (*PolicyClosedRecord, error)
+	// PolicySuccessor takes the successor key of policy.SuccessorKey.
+	PolicySuccessor(ctx context.Context, successorKey commitment.Hash) (*PolicySuccessorRecord, error)
 }
 
 // PayloadStreamer is implemented by stores that can hand out the encoded

@@ -60,6 +60,32 @@ type executionView struct {
 	Sources    []txSourceView `json:"sources"`
 }
 
+type integrityView struct {
+	Status         string   `json:"status"`
+	Reason         string   `json:"reason,omitempty"`
+	Evidence       []string `json:"evidence"`
+	EvidenceHashes []string `json:"evidence_verdict_hashes"`
+}
+
+type policyView struct {
+	MandateHash   string   `json:"mandate_hash"`
+	MandateID     string   `json:"mandate_id"`
+	Version       uint64   `json:"version"`
+	Principal     string   `json:"principal"`
+	Seq           uint64   `json:"seq"`
+	AnchorTime    uint64   `json:"anchor_time"`
+	EvalTime      uint64   `json:"eval_time"`
+	Extractor     string   `json:"extractor"`
+	Kind          string   `json:"kind"`
+	Asset         string   `json:"asset"`
+	Amount        string   `json:"amount"`
+	Scale         uint64   `json:"scale"`
+	Recipient     string   `json:"recipient,omitempty"`
+	PrevStateHash string   `json:"prev_state_hash"`
+	NewStateHash  string   `json:"new_state_hash"`
+	Denials       []string `json:"denials,omitempty"`
+}
+
 type authView struct {
 	Path         string `json:"path"`
 	Expires      uint64 `json:"expires"`
@@ -122,6 +148,8 @@ type reportView struct {
 	CandidatesEarlier *int           `json:"anchor_candidates_earlier,omitempty"`
 	Receipt           *receiptView   `json:"receipt,omitempty"`
 	Execution         *executionView `json:"execution,omitempty"`
+	Policy            *policyView    `json:"policy,omitempty"`
+	GateIntegrity     integrityView  `json:"gate_integrity"`
 	HeaderTrust       trustView      `json:"header_trust"`
 	TrustModel        string         `json:"trust_model,omitempty"`
 	Checks            []checkView    `json:"checks"`
@@ -179,6 +207,30 @@ func viewOf(r verifier.Report) reportView {
 		v.HeaderTrust.Hashes = map[uint64]string{}
 		for h, b := range r.HeaderTrust.Hashes {
 			v.HeaderTrust.Hashes[h] = hex.EncodeToString(b)
+		}
+	}
+	v.GateIntegrity = integrityView{
+		Status: string(r.GateIntegrity.Status), Reason: string(r.GateIntegrity.Reason),
+		Evidence: []string{}, EvidenceHashes: []string{},
+	}
+	if v.GateIntegrity.Status == "" {
+		v.GateIntegrity.Status = string(verifier.IntegrityNotChecked)
+	}
+	for _, e := range r.GateIntegrity.Evidence {
+		v.GateIntegrity.Evidence = append(v.GateIntegrity.Evidence, hex.EncodeToString(e))
+	}
+	for _, h := range r.GateIntegrity.EvidenceHashes {
+		v.GateIntegrity.EvidenceHashes = append(v.GateIntegrity.EvidenceHashes, hex.EncodeToString(h[:]))
+	}
+	if p := r.Policy; p != nil {
+		v.Policy = &policyView{
+			MandateHash: hex.EncodeToString(p.MandateHash[:]), MandateID: hex.EncodeToString(p.MandateID),
+			Version: p.Version, Principal: hex.EncodeToString(p.Principal), Seq: p.Seq,
+			AnchorTime: p.AnchorTime, EvalTime: p.EvalTime, Extractor: p.ExtractorID,
+			Kind: p.Facts.Kind, Asset: p.Facts.Asset, Amount: hex.EncodeToString(p.Facts.Amount),
+			Scale: p.Facts.Scale, Recipient: p.Facts.Recipient,
+			PrevStateHash: hex.EncodeToString(p.PrevStateHash[:]), NewStateHash: hex.EncodeToString(p.NewStateHash[:]),
+			Denials: p.Denials,
 		}
 	}
 	for _, c := range r.Checks {
@@ -275,6 +327,9 @@ func writeText(out io.Writer, v reportView, colour bool) {
 	}
 	p := func(format string, a ...any) { fmt.Fprintf(out, format+"\n", a...) }
 
+	if v.GateIntegrity.Status == string(verifier.IntegrityViolated) {
+		p("%s", paint("1;31", "GATE INTEGRITY VIOLATED ("+v.GateIntegrity.Reason+")"))
+	}
 	p("commitment: %s", v.CommitmentHash)
 	p("state: %s", v.State)
 	for _, r := range v.Rejections {
@@ -318,6 +373,22 @@ func writeText(out io.Writer, v reportView, colour bool) {
 			p("    reason: %s: %s", r, r.Meaning())
 			p("    advice: %s", r.Advice())
 		}
+	}
+	if pv := v.Policy; pv != nil {
+		p("policy: mandate %s version %d, counter position %d, %s %s (scale %d), anchor time %d, evaluated at %d",
+			pv.MandateHash, pv.Version, pv.Seq, pv.Asset, pv.Amount, pv.Scale, pv.AnchorTime, pv.EvalTime)
+	}
+	switch v.GateIntegrity.Status {
+	case string(verifier.IntegrityViolated):
+		for i, h := range v.GateIntegrity.EvidenceHashes {
+			p("gate integrity: contradicting verdict %d: %s", i+1, h)
+		}
+	case string(verifier.IntegrityOK), string(verifier.IntegrityUnchecked):
+		line := "gate integrity: " + v.GateIntegrity.Status
+		if v.GateIntegrity.Reason != "" {
+			line += " (" + v.GateIntegrity.Reason + ")"
+		}
+		p("%s", line)
 	}
 	if v.Authorization != nil {
 		a := v.Authorization

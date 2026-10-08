@@ -10,38 +10,44 @@ import (
 type Reason string
 
 const (
-	ReasonDecisionUnavailable     Reason = "decision_unavailable"
-	ReasonPayloadUnavailable      Reason = "payload_unavailable"
-	ReasonEvidenceUnavailable     Reason = "evidence_unavailable"
-	ReasonSourceCorrupt           Reason = "source_corrupt"
-	ReasonChainMismatch           Reason = "chain_mismatch"
-	ReasonDAUnsupported           Reason = "da_unsupported"
-	ReasonNoTrustedHeader         Reason = "no_trusted_header"
-	ReasonHeaderAboveCheckpoint   Reason = "header_above_checkpoint"
-	ReasonHeaderNotLinking        Reason = "header_not_linking"
-	ReasonHeaderSourceUnavailable Reason = "header_source_unavailable"
-	ReasonCheckpointQuorum        Reason = "checkpoint_quorum"
-	ReasonHeaderDisagreement      Reason = "header_disagreement"
-	ReasonBlocked                 Reason = "blocked"
-	ReasonReceiptMismatch         Reason = "receipt_mismatch"
-	ReasonReplayInputsMissing     Reason = "replay_inputs_missing"
-	ReasonReplayUnconfirmed       Reason = "replay_unconfirmed"
-	ReasonReplayInconsistent      Reason = "replay_inconsistent"
-	ReasonTimeout                 Reason = "timeout"
-	ReasonNoChecker               Reason = "no_checker"
-	ReasonChainConfig             Reason = "chain_config"
-	ReasonTxNotFound              Reason = "tx_not_found"
-	ReasonTxSourceUnavailable     Reason = "tx_source_unavailable"
-	ReasonTxHashMismatch          Reason = "tx_hash_mismatch"
-	ReasonTxProofInvalid          Reason = "tx_proof_invalid"
-	ReasonResultUnproven          Reason = "result_unproven"
-	ReasonResultsRootMismatch     Reason = "results_root_mismatch"
-	ReasonResultIndexUnbound      Reason = "result_index_unbound"
-	ReasonResultHeaderUnreachable Reason = "result_header_unreachable"
-	ReasonCodeUnproven            Reason = "code_unproven"
-	ReasonHeightUnproven          Reason = "height_unproven"
-	ReasonCrossDisagree           Reason = "cross_disagree"
-	ReasonChainUnbound            Reason = "chain_unbound"
+	ReasonDecisionUnavailable      Reason = "decision_unavailable"
+	ReasonPayloadUnavailable       Reason = "payload_unavailable"
+	ReasonEvidenceUnavailable      Reason = "evidence_unavailable"
+	ReasonSourceCorrupt            Reason = "source_corrupt"
+	ReasonChainMismatch            Reason = "chain_mismatch"
+	ReasonDAUnsupported            Reason = "da_unsupported"
+	ReasonNoTrustedHeader          Reason = "no_trusted_header"
+	ReasonHeaderAboveCheckpoint    Reason = "header_above_checkpoint"
+	ReasonHeaderNotLinking         Reason = "header_not_linking"
+	ReasonHeaderSourceUnavailable  Reason = "header_source_unavailable"
+	ReasonCheckpointQuorum         Reason = "checkpoint_quorum"
+	ReasonHeaderDisagreement       Reason = "header_disagreement"
+	ReasonBlocked                  Reason = "blocked"
+	ReasonReceiptMismatch          Reason = "receipt_mismatch"
+	ReasonReplayInputsMissing      Reason = "replay_inputs_missing"
+	ReasonReplayUnconfirmed        Reason = "replay_unconfirmed"
+	ReasonReplayInconsistent       Reason = "replay_inconsistent"
+	ReasonTimeout                  Reason = "timeout"
+	ReasonNoChecker                Reason = "no_checker"
+	ReasonChainConfig              Reason = "chain_config"
+	ReasonTxNotFound               Reason = "tx_not_found"
+	ReasonTxSourceUnavailable      Reason = "tx_source_unavailable"
+	ReasonTxHashMismatch           Reason = "tx_hash_mismatch"
+	ReasonTxProofInvalid           Reason = "tx_proof_invalid"
+	ReasonResultUnproven           Reason = "result_unproven"
+	ReasonResultsRootMismatch      Reason = "results_root_mismatch"
+	ReasonResultIndexUnbound       Reason = "result_index_unbound"
+	ReasonResultHeaderUnreachable  Reason = "result_header_unreachable"
+	ReasonCodeUnproven             Reason = "code_unproven"
+	ReasonHeightUnproven           Reason = "height_unproven"
+	ReasonCrossDisagree            Reason = "cross_disagree"
+	ReasonChainUnbound             Reason = "chain_unbound"
+	ReasonPolicyVerdictUnavailable Reason = "policy_verdict_unavailable"
+	ReasonPolicyMandateUnavailable Reason = "policy_mandate_unavailable"
+	ReasonPolicyPrincipalUntrusted Reason = "policy_principal_untrusted"
+	ReasonPolicyNoExtractor        Reason = "policy_no_extractor"
+	ReasonStateHistoryUnavailable  Reason = "state_history_unavailable"
+	ReasonGateEquivocation         Reason = "gate_equivocation"
 )
 
 // DisagreementText is what the report says when header sources, or a header
@@ -60,7 +66,7 @@ var reasonTable = []ReasonInfo{
 	{ReasonDecisionUnavailable, []string{"decision"}, "No decision record for the reference in any checked archive copy.", "another archive copy"},
 	{ReasonPayloadUnavailable, []string{"payload"}, "The payload record is missing in every checked copy. It signals a retention failure of the operator and can feed an external accountability policy. It is not a verdict on the decision.", "another archive copy"},
 	{ReasonEvidenceUnavailable, []string{"anchor"}, "The evidence record is missing in every checked copy.", "another archive copy"},
-	{ReasonSourceCorrupt, []string{"decision", "envelope", "action", "authorization", "payload", "anchor", "receipt"}, "Bytes from a source fail a check that a genuine copy passes: strict decoding, the key check, a hash or DA commitment against the commitment, a signature that the commitment hash does not cover, or an archived proof (da = 2 commitment proof, Fibre CV1 to CV8, anchor proof forms 0 and 1).", "another copy"},
+	{ReasonSourceCorrupt, []string{"decision", "envelope", "action", "authorization", "payload", "anchor", "receipt", "policy", "gate_integrity"}, "Bytes from a source fail a check that a genuine copy passes: strict decoding, the key check, a hash or DA commitment against the commitment, a signature that the commitment hash does not cover, or an archived proof (da = 2 commitment proof, Fibre CV1 to CV8, anchor proof forms 0 and 1).", "another copy"},
 	{ReasonChainMismatch, []string{"header_trust", "anchor"}, "An archived header at a needed height does not link to the trusted chain (HT3, HT5, OH6), or the archived evidence names another height than the decision.", "another archive copy, or check the trusted header"},
 	{ReasonDAUnsupported, []string{"anchor"}, "The verifier has no anchor verifier for payload_ref.da.", "a verifier build that supports this da"},
 	{ReasonNoTrustedHeader, []string{"header_trust"}, "No trusted header file, explicit checkpoint or checkpoint source was given.", "supply a trusted header"},
@@ -69,7 +75,7 @@ var reasonTable = []ReasonInfo{
 	{ReasonHeaderSourceUnavailable, []string{"header_trust"}, "No header or checkpoint source answered.", "another header source"},
 	{ReasonCheckpointQuorum, []string{"header_trust"}, "Fewer than quorum distinct sources agree on the checkpoint (OH5).", "more checkpoint sources"},
 	{ReasonHeaderDisagreement, []string{"header_trust", "execution"}, DisagreementText + " (OH5, OH7, HT6, EX5 (d)).", "check the trusted header against an independent source"},
-	{ReasonBlocked, []string{"anchor_time", "header_trust", "execution", "retention_replay"}, "The check needs another check that did not pass; the report names that check.", "fix the named check"},
+	{ReasonBlocked, []string{"anchor_time", "header_trust", "execution", "retention_replay", "policy"}, "The check needs another check that did not pass; the report names that check.", "fix the named check"},
 	{ReasonReceiptMismatch, []string{"receipt"}, "A receipt that verifies but is not this decision's: another commitment_hash or gate_id, or a gate key that is not on record for gate_id.", "the receipt of this decision"},
 	{ReasonReplayInputsMissing, []string{"retention_replay"}, "The Authorization record carries no K2 inputs (repaired from the registry).", "another archive copy"},
 	{ReasonReplayUnconfirmed, []string{"retention_replay"}, "promise_created is earlier than the archived anchor's and the anchor proof is form 0, which shows no other candidate (19.2).", "an archive copy with a form-1 anchor proof"},
@@ -89,6 +95,12 @@ var reasonTable = []ReasonInfo{
 	{ReasonHeightUnproven, []string{"execution"}, "A height at or below the anchor without a proof (EX4).", "a tx source that serves inclusion proofs"},
 	{ReasonCrossDisagree, []string{"execution"}, "Tx sources disagree and nothing verifies either (EX6).", "another tx source"},
 	{ReasonChainUnbound, []string{"execution"}, "BX4: another chain id without proven inclusion.", "a tx source that serves inclusion proofs"},
+	{ReasonPolicyVerdictUnavailable, []string{"policy"}, "No policy_allow record for an authorized decision while the policy check is required (RequirePolicy).", "another archive copy"},
+	{ReasonPolicyMandateUnavailable, []string{"policy"}, "The mandate record named by the verdict is missing.", "another archive copy"},
+	{ReasonPolicyPrincipalUntrusted, []string{"policy"}, "The mandate verifies, but its principal is not among the trusted principal keys.", "pin the principal key, if it is the intended one"},
+	{ReasonPolicyNoExtractor, []string{"policy"}, "The verifier has no extractor for action.type with the extractor ID the verdict names.", "a verifier with that extractor"},
+	{ReasonStateHistoryUnavailable, []string{"policy", "gate_integrity"}, "A closed set, a needed bucket, or a verdict or mandate the walk needs is missing.", "another archive copy"},
+	{ReasonGateEquivocation, []string{"gate_integrity"}, "Gate-signed verdicts contradict each other (fork, broken link, self-inconsistent transition, seq gap, version decrease or mandate change in one chain). The agent may be honest; the gate is at fault. Exit code 5.", "investigate the gate; the attached verdicts are the evidence"},
 }
 
 // Reasons returns the closed table of 20.1.1, in order.

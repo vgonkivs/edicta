@@ -48,6 +48,8 @@ type run struct {
 	auth  *archive.AuthorizationRecord
 	sa    *commitment.SignedAuthorization
 	facts *AnchorFacts
+	// authKey is the gate key the Authorization verified under.
+	authKey ed25519.PublicKey
 
 	// action is the action bytes the action check matched; the execution
 	// check uses these and never reads the record again.
@@ -182,6 +184,7 @@ func (v *Verifier) verify(ctx context.Context, h commitment.Hash, opts []Option)
 		r.authorization,
 		r.payload,
 		r.anchorAndTrust,
+		r.policy,
 	} {
 		if err := r.alive(); err != nil {
 			return nil, err
@@ -317,6 +320,7 @@ func (r *run) authorization() error {
 	for _, k := range r.v.cfg.GateKeys {
 		if ed25519.Verify(k, msg, sa.Signature) {
 			trusted = true
+			r.authKey = k
 			break
 		}
 	}
@@ -715,10 +719,15 @@ func (r *run) finish() {
 	if _, ok := r.rep.Check(CheckExecution); r.execRequested && !ok {
 		r.unchecked(CheckExecution, ReasonBlocked, errors.New("the decision did not get far enough to check the execution"), r.firstOther(CheckExecution))
 	}
+	if r.rep.GateIntegrity.Status == "" {
+		r.rep.GateIntegrity.Status = IntegrityNotChecked
+	}
 	verdict := VerdictValid
 	switch {
 	case r.anyStatus(StatusFail):
 		verdict = VerdictInvalid
+	case r.rep.GateIntegrity.Status == IntegrityViolated:
+		verdict = VerdictUnchecked
 	case r.rep.State == archive.StateAbsent:
 		verdict = VerdictUnchecked
 	case r.rep.State != archive.StateAuthorized:
@@ -738,6 +747,9 @@ func (r *run) allRequiredPassed() bool {
 	}
 	if r.execRequested {
 		required = append(required, CheckExecution)
+	}
+	if r.v.cfg.RequirePolicy {
+		required = append(required, CheckPolicy)
 	}
 	for _, n := range required {
 		c, ok := r.rep.Check(n)
@@ -776,4 +788,36 @@ func (r *run) anyStatus(s Status) bool {
 		}
 	}
 	return false
+}
+
+// policy runs the policy check on the verified decision. It is skipped when
+// the action did not verify, and when the archive holds no allow record and
+// the auditor did not require one.
+func (r *run) policy() error {
+	if r.c == nil || r.action == nil {
+		return nil
+	}
+	in := policyInput{
+		Hash: r.h, AgentPub: r.c.AgentPubKey, ActionType: r.c.Action.Type, Action: r.action,
+		ActionHash: r.c.Action.Hash, ValidUntil: r.c.ValidUntil, GateID: r.c.Scope.GateID,
+	}
+	if r.authKey != nil {
+		in.GateKeys = []ed25519.PublicKey{r.authKey}
+	} else {
+		in.GateKeys = r.v.cfg.GateKeys
+	}
+	if ht, ok := r.rep.Check(CheckHeaderTrust); ok && ht.Status == StatusPass && r.facts != nil {
+		in.TH, in.THVerified = r.facts.BlockTime, true
+	}
+	out, err := r.v.checkPolicy(r.ctx, in)
+	if err != nil {
+		return err
+	}
+	if !out.Ran {
+		return nil
+	}
+	r.rep.Checks = append(r.rep.Checks, out.Check)
+	r.rep.Policy = out.Info
+	r.rep.GateIntegrity = out.Integrity
+	return nil
 }

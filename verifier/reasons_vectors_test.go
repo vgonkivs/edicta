@@ -49,7 +49,7 @@ func loadReasons(t testing.TB) reasonsDoc {
 	require.NoError(t, err)
 	var d reasonsDoc
 	require.NoError(t, json.Unmarshal(raw, &d))
-	require.Equal(t, "v0-draft.28", d.Revision)
+	require.Equal(t, "v0-draft.29", d.Revision)
 	return d
 }
 
@@ -88,6 +88,12 @@ var coveredElsewhere = map[string]string{
 	"checkpoint_below_anchor": "verifycli TestVerifyHeaderTrustFailures", "checkpoint_quorum_short": "headertrust TestAgreedCheckpointReasons",
 	"checkpoint_sources_disagree": "headertrust TestAgreedCheckpointReasons", "replay_form0_earlier": "TestReplayPromiseCreationRules",
 	"replay_path_inconsistent": "TestReplayReproducesThePath", "run_timeout": "TestExecutionCheckerErrorsAreClassified",
+	// The policy cases are the cases of spec/vectors/policy/verify.json.
+	"policy_policy_verdict_unavailable": "TestPolicyVerifyVectors", "policy_policy_mandate_unavailable": "TestPolicyVerifyVectors",
+	"policy_policy_principal_untrusted": "TestPolicyVerifyVectors", "policy_policy_no_extractor": "TestPolicyVerifyVectors",
+	"policy_state_history_unavailable": "TestPolicyVerifyVectors", "policy_walk_history_missing": "TestPolicyVerifyVectors",
+	"policy_bucket_corrupt": "TestPolicyVerifyVectors", "policy_t_h_blocked": "TestPolicyVerifyVectors",
+	"policy_gate_equivocation": "TestPolicyVerifyVectors",
 }
 
 func TestReasonVectors(t *testing.T) {
@@ -189,9 +195,13 @@ func TestReasonVectors(t *testing.T) {
 		t.Run(c.ID, func(t *testing.T) {
 			require.NotNil(t, c.Expect.Reason)
 			assert.True(t, known[*c.Expect.Reason], "the reason is in the enum")
-			assert.Equal(t, "unchecked", c.Expect.Status)
+			wantStatus, wantExit := "unchecked", "2"
+			if *c.Expect.Reason == "gate_equivocation" {
+				wantStatus, wantExit = "violated", "5"
+			}
+			assert.Equal(t, wantStatus, c.Expect.Status)
 			assert.Equal(t, "unchecked", c.Expect.Verdict)
-			assert.Equal(t, "2", c.Expect.Exit)
+			assert.Equal(t, wantExit, c.Expect.Exit)
 
 			if strings.HasPrefix(c.ID, "execution_") && len(c.Refs) == 1 && strings.Contains(c.Refs[0], "execution_outcomes.json#") {
 				id := c.Refs[0][strings.Index(c.Refs[0], "#")+1:]
@@ -233,6 +243,9 @@ func TestReasonBoundaryCases(t *testing.T) {
 			assert.Nil(t, c.Expect.Reason, "a finding has no reason of the closed set")
 			assert.Equal(t, "invalid", c.Expect.Verdict)
 			assert.Equal(t, "1", c.Expect.Exit)
+			if strings.HasPrefix(c.ID, "policy_") {
+				return // spec/vectors/policy/verify.json, TestPolicyVerifyVectors
+			}
 			var rep verifier.Report
 			switch c.ID {
 			case "commitment_rule_broken":

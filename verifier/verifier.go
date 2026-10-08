@@ -8,6 +8,7 @@
 package verifier
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/policy"
 )
 
 var (
@@ -145,6 +147,20 @@ type ExecutionChecker interface {
 type Config struct {
 	Params   commitment.Params
 	GateKeys []ed25519.PublicKey
+	// PrincipalKeys are the mandate principals the auditor trusts.
+	PrincipalKeys []ed25519.PublicKey
+	// RequirePolicy states that the gate had a mandate: the policy check then
+	// runs for every authorized decision, also when the archive holds no
+	// allow record.
+	RequirePolicy bool
+	// PolicyFull also walks the verdict chain and searches for forks.
+	PolicyFull bool
+	// PolicyDepth bounds the walk in hops; 0 walks back to genesis or the
+	// retention horizon.
+	PolicyDepth int
+	// Evidence are extra signed verdicts held by the auditor, for example
+	// those agents received. They only ever serve as fork evidence.
+	Evidence [][]byte
 }
 
 // ValidateBasic checks the fields that need no dependency.
@@ -163,6 +179,24 @@ func (c Config) ValidateBasic() error {
 			if string(o) == string(k) {
 				return fmt.Errorf("%w: gate key %d repeats an earlier key", ErrInvalidConfig, i)
 			}
+		}
+	}
+	for i, k := range c.PrincipalKeys {
+		if err := commitment.CheckPublicKey(k); err != nil {
+			return fmt.Errorf("%w: principal key %d: %w", ErrInvalidConfig, i, err)
+		}
+		for _, g := range c.GateKeys {
+			if string(g) == string(k) {
+				return fmt.Errorf("%w: principal key %d is a gate key", ErrInvalidConfig, i)
+			}
+		}
+	}
+	if c.PolicyDepth < 0 {
+		return fmt.Errorf("%w: negative policy depth", ErrInvalidConfig)
+	}
+	for i, e := range c.Evidence {
+		if len(e) == 0 || len(e) > 16384 {
+			return fmt.Errorf("%w: evidence %d has %d bytes", ErrInvalidConfig, i, len(e))
 		}
 	}
 	return nil
@@ -236,6 +270,9 @@ type Deps struct {
 	Trust      HeaderTrust
 	// Executions are the rail checkers by action type.
 	Executions map[string]ExecutionChecker
+	// Extractors serve the policy check. Without one for an action type,
+	// the policy check of such a decision is unchecked.
+	Extractors *policy.Extractors
 }
 
 type Verifier struct {
@@ -245,6 +282,7 @@ type Verifier struct {
 	anchors    map[commitment.DA]AnchorVerifier
 	trust      HeaderTrust
 	executions map[string]ExecutionChecker
+	extractors *policy.Extractors
 }
 
 func New(d Deps) (*Verifier, error) {
@@ -261,7 +299,11 @@ func New(d Deps) (*Verifier, error) {
 		return nil, fmt.Errorf("%w: no anchor verifiers", ErrInvalidConfig)
 	}
 	v := &Verifier{
-		cfg:        Config{Params: d.Config.Params},
+		cfg: Config{
+			Params: d.Config.Params, RequirePolicy: d.Config.RequirePolicy,
+			PolicyFull: d.Config.PolicyFull, PolicyDepth: d.Config.PolicyDepth,
+		},
+		extractors: d.Extractors,
 		archive:    d.Archive,
 		committers: make(map[commitment.DA]gate.DACommitter, len(d.Committers)),
 		anchors:    make(map[commitment.DA]AnchorVerifier, len(d.Anchors)),
@@ -288,6 +330,12 @@ func New(d Deps) (*Verifier, error) {
 	}
 	for _, k := range d.Config.GateKeys {
 		v.cfg.GateKeys = append(v.cfg.GateKeys, append(ed25519.PublicKey(nil), k...))
+	}
+	for _, k := range d.Config.PrincipalKeys {
+		v.cfg.PrincipalKeys = append(v.cfg.PrincipalKeys, append(ed25519.PublicKey(nil), k...))
+	}
+	for _, e := range d.Config.Evidence {
+		v.cfg.Evidence = append(v.cfg.Evidence, bytes.Clone(e))
 	}
 	return v, nil
 }

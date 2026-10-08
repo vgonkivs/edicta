@@ -32,10 +32,13 @@ var (
 
 // Record caps by kind, checked before any parsing.
 const (
-	maxEvidence      = 1 << 25
-	maxDecision      = 69632
-	maxAuthorization = 512
-	maxRejection     = 256
+	maxEvidence        = 1 << 25
+	maxDecision        = 69632
+	maxAuthorization   = 512
+	maxRejection       = 256
+	maxPolicyRecord    = 16384 + 64
+	maxPolicyClosed    = 36864 + 64
+	maxPolicySuccessor = 256
 )
 
 // defaultTimeout bounds a read when the caller gives no client of its own.
@@ -126,6 +129,12 @@ func capOf(k archive.Kind) int64 {
 		return maxDecision
 	case archive.KindAuthorization:
 		return maxAuthorization
+	case archive.KindMandate, archive.KindPolicyAllow, archive.KindPolicyDeny, archive.KindPolicyBucket:
+		return maxPolicyRecord
+	case archive.KindPolicyClosed:
+		return maxPolicyClosed
+	case archive.KindPolicySuccessor:
+		return maxPolicySuccessor
 	}
 	return maxRejection
 }
@@ -312,4 +321,47 @@ func (c *Client) State(ctx context.Context, h commitment.Hash) (archive.Decision
 		st.Rejections = append(st.Rejections, m.Error)
 	}
 	return st, nil
+}
+
+func readAs[T archive.Record](ctx context.Context, c *Client, key string) (T, error) {
+	var zero T
+	rec, err := c.record(ctx, key)
+	if err != nil {
+		return zero, err
+	}
+	t, ok := rec.(T)
+	if !ok {
+		return zero, corruptType(key)
+	}
+	return t, nil
+}
+
+var _ archive.PolicyReader = (*Client)(nil)
+
+func (c *Client) Mandate(ctx context.Context, h commitment.Hash) (*archive.MandateRecord, error) {
+	return readAs[*archive.MandateRecord](ctx, c, archive.PolicyHashPath(archive.KindMandate, h))
+}
+
+func (c *Client) PolicyAllow(ctx context.Context, h commitment.Hash) (*archive.PolicyAllowRecord, error) {
+	return readAs[*archive.PolicyAllowRecord](ctx, c, archive.PolicyHashPath(archive.KindPolicyAllow, h))
+}
+
+func (c *Client) PolicyDeny(ctx context.Context, h commitment.Hash, reason string) (*archive.PolicyDenyRecord, error) {
+	key, err := archive.PolicyDenyPath(h, reason)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", archive.ErrNotFound, err)
+	}
+	return readAs[*archive.PolicyDenyRecord](ctx, c, key)
+}
+
+func (c *Client) PolicyBucket(ctx context.Context, h commitment.Hash) (*archive.PolicyBucketRecord, error) {
+	return readAs[*archive.PolicyBucketRecord](ctx, c, archive.PolicyHashPath(archive.KindPolicyBucket, h))
+}
+
+func (c *Client) PolicyClosed(ctx context.Context, h commitment.Hash) (*archive.PolicyClosedRecord, error) {
+	return readAs[*archive.PolicyClosedRecord](ctx, c, archive.PolicyHashPath(archive.KindPolicyClosed, h))
+}
+
+func (c *Client) PolicySuccessor(ctx context.Context, key commitment.Hash) (*archive.PolicySuccessorRecord, error) {
+	return readAs[*archive.PolicySuccessorRecord](ctx, c, archive.PolicyHashPath(archive.KindPolicySuccessor, key))
 }

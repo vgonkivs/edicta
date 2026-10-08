@@ -12,8 +12,10 @@
 // Exit codes: 0 valid, 1 invalid, 2 unchecked (inconclusive: a source or an
 // input did not let a check run to a result, and the report names the reason
 // and the source), 3 not authorized (pending or rejected), 4 usage,
-// configuration or I/O errors, which give no verdict. With --json an error is
-// printed as {"error": "..."}.
+// configuration or I/O errors, which give no verdict, 5 unchecked with the
+// gate's integrity violated (signed verdicts of the gate contradict each
+// other). The precedence is 4, 1, 5, 3, 2, 0. With --json an error is printed
+// as {"error": "..."}.
 package verifycli
 
 import (
@@ -40,6 +42,7 @@ import (
 	"github.com/vgonkivs/edicta/fibre/fibrecommit"
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/gate/dacommit/blobv1"
+	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/verifier"
 )
 
@@ -49,7 +52,12 @@ const (
 	codeUnchecked     = 2
 	codeNotAuthorized = 3
 	codeUsage         = 4
+	codeGateIntegrity = 5
 )
+
+// maxEvidenceFile bounds one policy evidence file; a signed verdict is at
+// most 16384 bytes.
+const maxEvidenceFile = 16384
 
 const (
 	// maxReceiptFile bounds the receipt file; a signed receipt is a few hundred bytes.
@@ -138,12 +146,17 @@ type flags struct {
 	checkExec     bool
 	params        commitment.Params
 	asJSON        bool
+	principalKeys []ed25519.PublicKey
+	requirePolicy bool
+	policyFull    bool
+	evidencePaths []string
 }
 
 func parseFlags(args []string, out io.Writer) (flags, error) {
 	const usage = "usage: verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) " +
 		"[--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)] [--cross-check URL]... [--exclude-host HOST]... " +
-		"[--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution] [--json]"
+		"[--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution] " +
+		"[--principal-key HEX]... [--require-policy] [--policy-full] [--policy-evidence FILE]... [--json]"
 	var f flags
 	if len(args) == 0 || (args[0] != "verify" && args[0] != "replay") {
 		return f, usagef("%s", usage)
@@ -169,6 +182,11 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	fs.BoolVar(&f.checkExec, "check-execution", false, "check the transaction the receipt names")
 	fs.DurationVar(&f.timeout, "timeout", defaultTimeout, "overall time limit of the run")
 	fs.BoolVar(&f.asJSON, "json", false, "print one JSON document")
+	fs.BoolVar(&f.requirePolicy, "require-policy", false, "the gate had a mandate: a missing policy record is unchecked, not skipped")
+	fs.BoolVar(&f.policyFull, "policy-full", false, "walk the verdict chain and search for forks")
+	principals := fs.String("principal-key", "", "trusted mandate principal public key, hex; several separated by commas")
+	var evidence multiFlag
+	fs.Var(&evidence, "policy-evidence", "file with a signed policy verdict held by the auditor, for fork detection (repeatable)")
 	var ckpt, cross, exclude, txRPC multiFlag
 	fs.Var(&txRPC, "tx-rpc", "CometBFT RPC that serves the transaction the receipt names; the first is the primary, more are alternates tried in order")
 	fs.Var(&ckpt, "checkpoint-rpc", "CometBFT RPC of an independent checkpoint operator (repeatable)")
@@ -203,6 +221,12 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	if f.gateKeys, err = parseKeys(*gateKeys); err != nil {
 		return f, usageError{err}
 	}
+	if *principals != "" {
+		if f.principalKeys, err = parseKeyList(*principals, "--principal-key"); err != nil {
+			return f, usageError{err}
+		}
+	}
+	f.evidencePaths = evidence
 	if f.quorum, err = strconv.Atoi(*quorum); err != nil || f.quorum < 1 {
 		return f, usagef("--checkpoint-quorum must be a positive number")
 	}
@@ -309,6 +333,19 @@ func execute(ctx context.Context, args []string, out io.Writer) (int, error) {
 	if err != nil {
 		return codeUsage, usageError{err}
 	}
+	deps.Config.PrincipalKeys = f.principalKeys
+	deps.Config.RequirePolicy = f.requirePolicy
+	deps.Config.PolicyFull = f.policyFull
+	for _, path := range f.evidencePaths {
+		b, err := readFileCapped(path, maxEvidenceFile)
+		if err != nil {
+			return codeUsage, usageError{fmt.Errorf("policy evidence: %w", err)}
+		}
+		deps.Config.Evidence = append(deps.Config.Evidence, b)
+	}
+	if deps.Extractors, err = newExtractors(); err != nil {
+		return codeUsage, usageError{err}
+	}
 
 	info := &trustInfo{}
 	var opts []verifier.Option
@@ -358,7 +395,7 @@ func execute(ctx context.Context, args []string, out io.Writer) (int, error) {
 			return codeUsage, err
 		}
 		view = viewOf(rep)
-		code = codeFor(rep.Verdict)
+		code = codeFor(rep)
 	} else {
 		rr, err := v.Replay(ctx, f.hash)
 		if err != nil {
@@ -367,7 +404,7 @@ func execute(ctx context.Context, args []string, out io.Writer) (int, error) {
 		view = viewOf(rr.Report)
 		k := viewOfK2(rr.K2)
 		view.K2 = &k
-		code = codeFor(rr.Report.Verdict)
+		code = codeFor(rr.Report)
 	}
 	info.apply(&view)
 
@@ -397,11 +434,14 @@ func readFileCapped(path string, limit int64) ([]byte, error) {
 	return b, nil
 }
 
-func codeFor(v verifier.Verdict) int {
-	switch v {
+func codeFor(r verifier.Report) int {
+	switch r.Verdict {
 	case verifier.VerdictValid:
 		return codeValid
 	case verifier.VerdictUnchecked:
+		if r.GateIntegrity.Status == verifier.IntegrityViolated {
+			return codeGateIntegrity
+		}
 		return codeUnchecked
 	case verifier.VerdictNotAuthorized:
 		return codeNotAuthorized
@@ -423,16 +463,25 @@ func parseKeys(s string) ([]ed25519.PublicKey, error) {
 	if s == "" {
 		return nil, errors.New("--gate-key is required")
 	}
+	return parseKeyList(s, "--gate-key")
+}
+
+func parseKeyList(s, flag string) ([]ed25519.PublicKey, error) {
 	var keys []ed25519.PublicKey
 	for _, part := range strings.Split(s, ",") {
 		b, err := hex.DecodeString(strings.TrimSpace(part))
 		if err != nil || len(b) != ed25519.PublicKeySize {
-			return nil, errors.New("--gate-key must be 64 hex characters per key")
+			return nil, fmt.Errorf("%s must be 64 hex characters per key", flag)
 		}
 		keys = append(keys, ed25519.PublicKey(b))
 	}
 	return keys, nil
 }
+
+// newExtractors is a variable so that the policy extractors of the rails can
+// be registered, and so tests can replace them. An empty registry makes the
+// policy check of every action type unchecked (policy_no_extractor).
+var newExtractors = func() (*policy.Extractors, error) { return policy.NewExtractors() }
 
 func committers() (map[commitment.DA]gate.DACommitter, error) {
 	fibreCommitter, err := fibrecommit.New(fibrecommit.DefaultMaxDataSize)

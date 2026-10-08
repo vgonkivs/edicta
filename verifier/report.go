@@ -3,6 +3,7 @@ package verifier
 import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/policy"
 )
 
 type Verdict string
@@ -36,6 +37,7 @@ const (
 	CheckReceipt       CheckName = "receipt"
 	CheckRetention     CheckName = "retention_replay"
 	CheckExecution     CheckName = "execution"
+	CheckPolicy        CheckName = "policy"
 )
 
 // Check is one named step. Err is set for a failed step and, for an
@@ -107,6 +109,43 @@ type ExecutionInfo struct {
 	Sources    []ExecutionSource
 }
 
+// IntegrityStatus says whether the gate contradicted itself.
+type IntegrityStatus string
+
+const (
+	IntegrityOK         IntegrityStatus = "ok"
+	IntegrityViolated   IntegrityStatus = "violated"
+	IntegrityNotChecked IntegrityStatus = "not_checked"
+	IntegrityUnchecked  IntegrityStatus = "unchecked"
+)
+
+// GateIntegrity is not a check: it records whether gate-signed verdicts
+// contradict each other. Reason is ReasonGateEquivocation when violated and
+// the reason of the missing data when unchecked. Evidence holds the
+// contradicting SignedPolicyVerdict bytes, EvidenceHashes their verdict hashes.
+type GateIntegrity struct {
+	Status         IntegrityStatus
+	Reason         Reason
+	Evidence       [][]byte
+	EvidenceHashes []commitment.Hash
+}
+
+// PolicyInfo is what the policy check learned about the allow.
+type PolicyInfo struct {
+	MandateHash          commitment.Hash
+	MandateID            []byte
+	Version, Seq         uint64
+	Principal            []byte
+	AnchorTime, EvalTime uint64
+	Facts                policy.Facts
+	ExtractorID          string
+	PrevStateHash        commitment.Hash
+	NewStateHash         commitment.Hash
+	// Denials are the reasons of the policy deny records of this decision;
+	// ErrDecisionAge is marked gate-attested.
+	Denials []string
+}
+
 type Report struct {
 	Verdict        Verdict
 	CommitmentHash commitment.Hash
@@ -132,6 +171,8 @@ type Report struct {
 	Cert                    *CertReport
 	Receipt                 *ReceiptInfo
 	Execution               *ExecutionInfo
+	Policy                  *PolicyInfo
+	GateIntegrity           GateIntegrity
 	HeaderTrust             HeaderTrustReport
 	Checks                  []Check
 	Warnings                []string

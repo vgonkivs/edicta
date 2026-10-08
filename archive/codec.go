@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/policy"
 )
 
 const formatV0 = 0
@@ -72,7 +73,7 @@ func decode(data []byte, clone bool) (Record, error) {
 		return nil, fmt.Errorf("%w: format %d", commitment.ErrUnsupportedVersion, top[1].u)
 	}
 	kind := Kind(top[2].u)
-	if kind < KindPayload || kind > KindRejection {
+	if !kind.valid() {
 		return nil, fmt.Errorf("%w: kind %d", commitment.ErrInvalidEnum, top[2].u)
 	}
 	if len(data) > maxSizeOf(kind) {
@@ -256,6 +257,8 @@ func checkValues(pm *pmap, defs []fdef, kind Kind) error {
 		return fmt.Errorf("%w: %x", commitment.ErrInvalidNamespace, it.b)
 	}
 	switch kind {
+	case KindMandate, KindPolicyAllow, KindPolicyDeny, KindPolicyBucket, KindPolicyClosed:
+		return checkPolicyBody(kind, pm.items[3].b)
 	case KindDecision:
 		if _, err := commitment.DecodeSigned(pm.items[3].b); err != nil {
 			return err
@@ -276,6 +279,36 @@ func checkValues(pm *pmap, defs []fdef, kind Kind) error {
 		case a.Expires == 0:
 			return fmt.Errorf("%w: expires", commitment.ErrZeroValue)
 		}
+	}
+	return nil
+}
+
+// checkPolicyBody strictly decodes the nested structure of a policy record.
+// A verdict must match the kind: an allow in a policy_deny record, or the
+// reverse, is an invalid enum.
+func checkPolicyBody(kind Kind, b []byte) error {
+	switch kind {
+	case KindMandate:
+		_, _, err := policy.DecodeSignedMandate(b)
+		return err
+	case KindPolicyAllow, KindPolicyDeny:
+		sv, _, err := policy.DecodeSignedVerdict(b)
+		if err != nil {
+			return err
+		}
+		want := uint64(policy.OutcomeAllow)
+		if kind == KindPolicyDeny {
+			want = policy.OutcomeDeny
+		}
+		if sv.Verdict.Outcome != want {
+			return fmt.Errorf("%w: %s record holds outcome %d", commitment.ErrInvalidEnum, kind, sv.Verdict.Outcome)
+		}
+	case KindPolicyBucket:
+		_, err := policy.DecodeBucket(b)
+		return err
+	case KindPolicyClosed:
+		_, err := policy.DecodeClosedSet(b)
+		return err
 	}
 	return nil
 }
@@ -341,6 +374,20 @@ func build(pm *pmap, kind Kind, clone bool) Record {
 			}
 		}
 		return r
+	case KindMandate:
+		return &MandateRecord{SignedMandate: bs(pm, 3)}
+	case KindPolicyAllow:
+		return &PolicyAllowRecord{SignedVerdict: bs(pm, 3)}
+	case KindPolicyDeny:
+		return &PolicyDenyRecord{SignedVerdict: bs(pm, 3)}
+	case KindPolicyBucket:
+		return &PolicyBucketRecord{Bucket: bs(pm, 3)}
+	case KindPolicyClosed:
+		return &PolicyClosedRecord{ClosedSet: bs(pm, 3)}
+	case KindPolicySuccessor:
+		return &PolicySuccessorRecord{
+			GateID: string(pm.items[3].b), CounterKey: bs(pm, 4), StateHash: bs(pm, 5), CommitmentHash: bs(pm, 6),
+		}
 	}
 	r := &RejectionRecord{
 		Error: string(pm.items[4].b), GateID: string(pm.items[5].b), RejectedAt: u(pm, 6),
@@ -484,6 +531,45 @@ func encodeRaw(r Record) ([]byte, error) {
 		w.text(4, r.Error)
 		w.text(5, r.GateID)
 		w.uint(6, r.RejectedAt)
+	case *MandateRecord:
+		if r == nil {
+			return nil, errNilRecord
+		}
+		w.uint(2, uint64(KindMandate))
+		w.bytes(3, r.SignedMandate)
+	case *PolicyAllowRecord:
+		if r == nil {
+			return nil, errNilRecord
+		}
+		w.uint(2, uint64(KindPolicyAllow))
+		w.bytes(3, r.SignedVerdict)
+	case *PolicyDenyRecord:
+		if r == nil {
+			return nil, errNilRecord
+		}
+		w.uint(2, uint64(KindPolicyDeny))
+		w.bytes(3, r.SignedVerdict)
+	case *PolicyBucketRecord:
+		if r == nil {
+			return nil, errNilRecord
+		}
+		w.uint(2, uint64(KindPolicyBucket))
+		w.bytes(3, r.Bucket)
+	case *PolicyClosedRecord:
+		if r == nil {
+			return nil, errNilRecord
+		}
+		w.uint(2, uint64(KindPolicyClosed))
+		w.bytes(3, r.ClosedSet)
+	case *PolicySuccessorRecord:
+		if r == nil {
+			return nil, errNilRecord
+		}
+		w.uint(2, uint64(KindPolicySuccessor))
+		w.text(3, r.GateID)
+		w.bytes(4, r.CounterKey)
+		w.bytes(5, r.StateHash)
+		w.bytes(6, r.CommitmentHash)
 	default:
 		return nil, errNilRecord
 	}
@@ -527,8 +613,68 @@ func KeyPath(r Record) (string, error) {
 		if r != nil {
 			return RejectionPath(r.CommitmentHash, r.Error)
 		}
+	default:
+		if p, ok, err := policyKeyPath(r); ok {
+			return p, err
+		}
 	}
 	return "", errNilRecord
+}
+
+// policyKeyPath returns the key of a policy record, computed from the nested
+// bytes or fields. ok is false for any other record.
+func policyKeyPath(r Record) (path string, ok bool, err error) {
+	switch r := r.(type) {
+	case *MandateRecord:
+		if r == nil {
+			return "", false, nil
+		}
+		_, h, err := policy.DecodeSignedMandate(r.SignedMandate)
+		if err != nil {
+			return "", true, fmt.Errorf("archive: signed mandate: %w", err)
+		}
+		return PolicyHashPath(KindMandate, h), true, nil
+	case *PolicyAllowRecord:
+		if r == nil {
+			return "", false, nil
+		}
+		sv, _, err := policy.DecodeSignedVerdict(r.SignedVerdict)
+		if err != nil {
+			return "", true, fmt.Errorf("archive: signed verdict: %w", err)
+		}
+		return PolicyHashPath(KindPolicyAllow, commitment.Hash(sv.Verdict.CommitmentHash)), true, nil
+	case *PolicyDenyRecord:
+		if r == nil {
+			return "", false, nil
+		}
+		sv, _, err := policy.DecodeSignedVerdict(r.SignedVerdict)
+		if err != nil {
+			return "", true, fmt.Errorf("archive: signed verdict: %w", err)
+		}
+		p, err := PolicyDenyPath(commitment.Hash(sv.Verdict.CommitmentHash), sv.Verdict.Reason)
+		return p, true, err
+	case *PolicyBucketRecord:
+		if r == nil {
+			return "", false, nil
+		}
+		return PolicyHashPath(KindPolicyBucket, policy.HashBucketBytes(r.Bucket)), true, nil
+	case *PolicyClosedRecord:
+		if r == nil {
+			return "", false, nil
+		}
+		return PolicyHashPath(KindPolicyClosed, policy.HashClosedSetBytes(r.ClosedSet)), true, nil
+	case *PolicySuccessorRecord:
+		if r == nil {
+			return "", false, nil
+		}
+		if len(r.CounterKey) != 32 || len(r.StateHash) != 32 {
+			return "", true, fmt.Errorf("archive: successor key fields: %w", commitment.ErrFieldSize)
+		}
+		var ck [32]byte
+		copy(ck[:], r.CounterKey)
+		return PolicyHashPath(KindPolicySuccessor, policy.SuccessorKey(r.GateID, ck, commitment.Hash(r.StateHash))), true, nil
+	}
+	return "", false, nil
 }
 
 // DataPath is the path of a payload or evidence record.
@@ -548,6 +694,27 @@ func DataPath(k Kind, da commitment.DA, commit []byte) (string, error) {
 // HashPath is the path of a decision or Authorization record.
 func HashPath(k Kind, h commitment.Hash) string {
 	return k.String() + "/" + hex.EncodeToString(h[:])
+}
+
+// policyDirs are the first path segments of the policy kinds.
+var policyDirs = map[Kind]string{
+	KindMandate: "mandate", KindPolicyAllow: "policy-allow", KindPolicyDeny: "policy-deny",
+	KindPolicyBucket: "policy-bucket", KindPolicyClosed: "policy-closed", KindPolicySuccessor: "policy-successor",
+}
+
+// PolicyHashPath is the path of a mandate, policy_allow, policy_bucket,
+// policy_closed or policy_successor record; h is the key of the kind.
+func PolicyHashPath(k Kind, h commitment.Hash) string {
+	return policyDirs[k] + "/" + hex.EncodeToString(h[:])
+}
+
+// PolicyDenyPath is the path of a policy_deny record; reason must be one of
+// the policy deny names.
+func PolicyDenyPath(h commitment.Hash, reason string) (string, error) {
+	if !IsPolicyDeny(reason) {
+		return "", fmt.Errorf("archive: %q is not a policy deny name: %w", reason, commitment.ErrInvalidEnum)
+	}
+	return policyDirs[KindPolicyDeny] + "/" + hex.EncodeToString(h[:]) + "/" + reason, nil
 }
 
 // RejectionPath is the path of a marker; name must be a verdict.
@@ -584,6 +751,32 @@ func SameIdentity(a, b Record) bool {
 	case *RejectionRecord:
 		b, ok := b.(*RejectionRecord)
 		return ok && a.CommitmentHash == b.CommitmentHash && a.Error == b.Error
+	case *MandateRecord:
+		b, ok := b.(*MandateRecord)
+		return ok && bytes.Equal(a.SignedMandate, b.SignedMandate)
+	case *PolicyAllowRecord:
+		b, ok := b.(*PolicyAllowRecord)
+		return ok && bytes.Equal(a.SignedVerdict, b.SignedVerdict)
+	case *PolicyDenyRecord:
+		// The first write stays: two denies of one key are the same record.
+		b, ok := b.(*PolicyDenyRecord)
+		if !ok {
+			return false
+		}
+		pa, erra := KeyPath(a)
+		pb, errb := KeyPath(b)
+		return erra == nil && errb == nil && pa == pb
+	case *PolicyBucketRecord:
+		b, ok := b.(*PolicyBucketRecord)
+		return ok && bytes.Equal(a.Bucket, b.Bucket)
+	case *PolicyClosedRecord:
+		b, ok := b.(*PolicyClosedRecord)
+		return ok && bytes.Equal(a.ClosedSet, b.ClosedSet)
+	case *PolicySuccessorRecord:
+		// Whole record, so a second commitment under one key is a conflict.
+		b, ok := b.(*PolicySuccessorRecord)
+		return ok && a.GateID == b.GateID && bytes.Equal(a.CounterKey, b.CounterKey) &&
+			bytes.Equal(a.StateHash, b.StateHash) && bytes.Equal(a.CommitmentHash, b.CommitmentHash)
 	}
 	return false
 }

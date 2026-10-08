@@ -5,6 +5,7 @@
 package fsarchive
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -21,6 +22,7 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/policy"
 )
 
 const tempPrefix = ".tmp-"
@@ -67,6 +69,7 @@ type Store struct {
 var (
 	_ archive.Store           = (*Store)(nil)
 	_ archive.PayloadStreamer = (*Store)(nil)
+	_ archive.PolicyReader    = (*Store)(nil)
 )
 
 // Open uses dir as the archive, creating it if needed. A payload is accepted
@@ -187,6 +190,10 @@ func (s *Store) Put(ctx context.Context, r archive.Record) (archive.Outcome, err
 		}
 	case *archive.AuthorizationRecord, *archive.RejectionRecord:
 		return s.putDependent(ctx, r, rel, b)
+	case *archive.PolicyAllowRecord, *archive.PolicyDenyRecord, *archive.PolicySuccessorRecord:
+		if err := s.checkPolicyDeps(r); err != nil {
+			return 0, err
+		}
 	}
 	return s.create(rel, r, b)
 }
@@ -653,4 +660,104 @@ func (s *Store) Raw(_ context.Context, key string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("fsarchive: %s is not a regular file", key)
 	}
 	return f, nil
+}
+
+// checkPolicyDeps enforces the write preconditions of the policy records
+// that depend on others. The records they need are immutable once written,
+// so no lock is needed.
+func (s *Store) checkPolicyDeps(r archive.Record) error {
+	switch r := r.(type) {
+	case *archive.PolicyAllowRecord:
+		sv, _, err := policy.DecodeSignedVerdict(r.SignedVerdict)
+		if err != nil {
+			return fmt.Errorf("fsarchive: %w", err)
+		}
+		if err := s.require(archive.HashPath(archive.KindDecision, commitment.Hash(sv.Verdict.CommitmentHash))); err != nil {
+			return err
+		}
+		return s.require(archive.PolicyHashPath(archive.KindMandate, commitment.Hash(sv.Verdict.MandateHash)))
+	case *archive.PolicyDenyRecord:
+		sv, _, err := policy.DecodeSignedVerdict(r.SignedVerdict)
+		if err != nil {
+			return fmt.Errorf("fsarchive: %w", err)
+		}
+		return s.require(archive.HashPath(archive.KindDecision, commitment.Hash(sv.Verdict.CommitmentHash)))
+	case *archive.PolicySuccessorRecord:
+		return s.checkSuccessor(r)
+	}
+	return nil
+}
+
+// checkSuccessor requires the allow record the successor names, and that the
+// allow belongs to the gate and counter and consumed the state.
+func (s *Store) checkSuccessor(r *archive.PolicySuccessorRecord) error {
+	if len(r.CommitmentHash) != 32 {
+		return fmt.Errorf("fsarchive: successor commitment hash: %w", commitment.ErrFieldSize)
+	}
+	allow, err := s.PolicyAllow(context.Background(), commitment.Hash(r.CommitmentHash))
+	if err != nil {
+		return err
+	}
+	sv, _, err := policy.DecodeSignedVerdict(allow.SignedVerdict)
+	if err != nil {
+		return fmt.Errorf("%w: %w", archive.ErrCorrupt, err)
+	}
+	v := &sv.Verdict
+	prev, ok := v.PrevStateHash()
+	if !ok || v.GateID != r.GateID || !bytes.Equal(prev[:], r.StateHash) {
+		return fmt.Errorf("%w: the allow does not match the successor", archive.ErrCorrupt)
+	}
+	m, err := s.Mandate(context.Background(), commitment.Hash(v.MandateHash))
+	if err != nil {
+		return err
+	}
+	sm, _, err := policy.DecodeSignedMandate(m.SignedMandate)
+	if err != nil {
+		return fmt.Errorf("%w: %w", archive.ErrCorrupt, err)
+	}
+	if ck := sm.Mandate.CounterKey(); !bytes.Equal(ck[:], r.CounterKey) {
+		return fmt.Errorf("%w: the allow's mandate has another counter key", archive.ErrCorrupt)
+	}
+	return nil
+}
+
+func readAs[T archive.Record](s *Store, rel string) (T, error) {
+	var zero T
+	rec, err := s.read(rel)
+	if err != nil {
+		return zero, err
+	}
+	t, ok := rec.(T)
+	if !ok {
+		return zero, corruptType(rel)
+	}
+	return t, nil
+}
+
+func (s *Store) Mandate(_ context.Context, h commitment.Hash) (*archive.MandateRecord, error) {
+	return readAs[*archive.MandateRecord](s, archive.PolicyHashPath(archive.KindMandate, h))
+}
+
+func (s *Store) PolicyAllow(_ context.Context, h commitment.Hash) (*archive.PolicyAllowRecord, error) {
+	return readAs[*archive.PolicyAllowRecord](s, archive.PolicyHashPath(archive.KindPolicyAllow, h))
+}
+
+func (s *Store) PolicyDeny(_ context.Context, h commitment.Hash, reason string) (*archive.PolicyDenyRecord, error) {
+	rel, err := archive.PolicyDenyPath(h, reason)
+	if err != nil {
+		return nil, notFound(err)
+	}
+	return readAs[*archive.PolicyDenyRecord](s, rel)
+}
+
+func (s *Store) PolicyBucket(_ context.Context, h commitment.Hash) (*archive.PolicyBucketRecord, error) {
+	return readAs[*archive.PolicyBucketRecord](s, archive.PolicyHashPath(archive.KindPolicyBucket, h))
+}
+
+func (s *Store) PolicyClosed(_ context.Context, h commitment.Hash) (*archive.PolicyClosedRecord, error) {
+	return readAs[*archive.PolicyClosedRecord](s, archive.PolicyHashPath(archive.KindPolicyClosed, h))
+}
+
+func (s *Store) PolicySuccessor(_ context.Context, key commitment.Hash) (*archive.PolicySuccessorRecord, error) {
+	return readAs[*archive.PolicySuccessorRecord](s, archive.PolicyHashPath(archive.KindPolicySuccessor, key))
 }

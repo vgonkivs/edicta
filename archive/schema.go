@@ -47,6 +47,14 @@ const (
 	maxDecisionSize      = 69632
 	maxAuthorizationSize = 512
 	maxRejectionSize     = 256
+
+	// A policy record is the nested structure (16384, or 36864 for a closed
+	// set) plus 64 bytes of record framing.
+	maxPolicyNested      = 16384
+	maxPolicyClosedNest  = 36864
+	maxPolicyRecordSize  = maxPolicyNested + 64
+	maxPolicyClosedSize  = maxPolicyClosedNest + 64
+	maxPolicySuccessSize = 256
 )
 
 var k2Schema = []fdef{
@@ -114,6 +122,21 @@ func schemaOf(k Kind) []fdef {
 			{5, "gate_id", tTstr, pReq, 1, 64, nil},
 			{6, "rejected_at", tUint, pReq, 0, 0, nil},
 		}
+	case KindMandate:
+		rest = []fdef{{3, "signed_mandate", tBstr, pReq, 1, maxPolicyNested, nil}}
+	case KindPolicyAllow, KindPolicyDeny:
+		rest = []fdef{{3, "signed_verdict", tBstr, pReq, 1, maxPolicyNested, nil}}
+	case KindPolicyBucket:
+		rest = []fdef{{3, "bucket", tBstr, pReq, 1, maxPolicyNested, nil}}
+	case KindPolicyClosed:
+		rest = []fdef{{3, "closed_set", tBstr, pReq, 1, maxPolicyClosedNest, nil}}
+	case KindPolicySuccessor:
+		rest = []fdef{
+			{3, "gate_id", tTstr, pReq, 1, 64, nil},
+			{4, "counter_key", tBstr, pReq, 32, 32, nil},
+			{5, "state_hash", tBstr, pReq, 32, 32, nil},
+			{6, "commitment_hash", tBstr, pReq, 32, 32, nil},
+		}
 	}
 	return append(append([]fdef(nil), commonSchema...), rest...)
 }
@@ -128,6 +151,12 @@ func maxSizeOf(k Kind) int {
 		return maxAuthorizationSize
 	case KindRejection:
 		return maxRejectionSize
+	case KindMandate, KindPolicyAllow, KindPolicyDeny, KindPolicyBucket:
+		return maxPolicyRecordSize
+	case KindPolicyClosed:
+		return maxPolicyClosedSize
+	case KindPolicySuccessor:
+		return maxPolicySuccessSize
 	}
 	return MaxRecordSize
 }
@@ -147,6 +176,30 @@ var verdicts = map[string]bool{
 	"ErrPayloadSizeMismatch":         true,
 	"ErrPayloadUnavailable":          true,
 	"ErrRetentionUnavailable":        true,
+}
+
+// policyDenies are the deny names of the policy rules. They are rejection
+// markers and the reason part of a policy_deny key.
+var policyDenies = []string{
+	"ErrAgentNotCovered", "ErrAmountAboveMax", "ErrAssetNotAllowed", "ErrCountLimit", "ErrDecisionAge",
+	"ErrFactsInvalid", "ErrHistoryFull", "ErrKindNotAllowed", "ErrMinSpacing", "ErrNoExtractor",
+	"ErrOutsideMandate", "ErrPeriodLimit", "ErrRecipientNotAllowed",
+}
+
+func init() {
+	for _, n := range policyDenies {
+		verdicts[n] = true
+	}
+}
+
+// IsPolicyDeny reports whether name is the reason of a policy_deny record.
+func IsPolicyDeny(name string) bool {
+	for _, n := range policyDenies {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Verdicts is the sorted list of the error names a rejection marker may

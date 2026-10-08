@@ -167,6 +167,66 @@ func (r *recordingReader) Evidence(ctx context.Context, da commitment.DA, commit
 	return e, err
 }
 
+// The policy records are not recorded; they pass through when the wrapped
+// reader serves them.
+var _ archive.PolicyReader = (*recordingReader)(nil)
+
+func (r *recordingReader) policyReader() (archive.PolicyReader, error) {
+	pr, ok := r.Reader.(archive.PolicyReader)
+	if !ok {
+		return nil, archive.ErrNotFound
+	}
+	return pr, nil
+}
+
+func (r *recordingReader) Mandate(ctx context.Context, h commitment.Hash) (*archive.MandateRecord, error) {
+	pr, err := r.policyReader()
+	if err != nil {
+		return nil, err
+	}
+	return pr.Mandate(ctx, h)
+}
+
+func (r *recordingReader) PolicyAllow(ctx context.Context, h commitment.Hash) (*archive.PolicyAllowRecord, error) {
+	pr, err := r.policyReader()
+	if err != nil {
+		return nil, err
+	}
+	return pr.PolicyAllow(ctx, h)
+}
+
+func (r *recordingReader) PolicyDeny(ctx context.Context, h commitment.Hash, reason string) (*archive.PolicyDenyRecord, error) {
+	pr, err := r.policyReader()
+	if err != nil {
+		return nil, err
+	}
+	return pr.PolicyDeny(ctx, h, reason)
+}
+
+func (r *recordingReader) PolicyBucket(ctx context.Context, h commitment.Hash) (*archive.PolicyBucketRecord, error) {
+	pr, err := r.policyReader()
+	if err != nil {
+		return nil, err
+	}
+	return pr.PolicyBucket(ctx, h)
+}
+
+func (r *recordingReader) PolicyClosed(ctx context.Context, h commitment.Hash) (*archive.PolicyClosedRecord, error) {
+	pr, err := r.policyReader()
+	if err != nil {
+		return nil, err
+	}
+	return pr.PolicyClosed(ctx, h)
+}
+
+func (r *recordingReader) PolicySuccessor(ctx context.Context, h commitment.Hash) (*archive.PolicySuccessorRecord, error) {
+	pr, err := r.policyReader()
+	if err != nil {
+		return nil, err
+	}
+	return pr.PolicySuccessor(ctx, h)
+}
+
 // headers are the headers of the evidence the verifier read, offered first
 // to the walk. A header that does not link then fails the decision, because
 // the archive presented a header the chain does not have.

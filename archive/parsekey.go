@@ -47,6 +47,20 @@ func ParseKey(path string) (Kind, error) {
 			return 0, errBadKey
 		}
 		return KindRejection, nil
+	case "mandate", "policy-allow", "policy-bucket", "policy-closed", "policy-successor":
+		if len(parts) != 2 || !isLowerHex32(parts[1]) {
+			return 0, errBadKey
+		}
+		for k, dir := range policyDirs {
+			if dir == parts[0] {
+				return k, nil
+			}
+		}
+	case "policy-deny":
+		if len(parts) != 3 || !isLowerHex32(parts[1]) || !IsPolicyDeny(parts[2]) {
+			return 0, errBadKey
+		}
+		return KindPolicyDeny, nil
 	}
 	return 0, errBadKey
 }
