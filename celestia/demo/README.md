@@ -11,6 +11,8 @@ Testnet TIA only; keep the amounts small.
    bytes than the agent committed. A different amount is refused
    (`ErrActionMismatch`), and a decision cannot be used twice
    (`ErrNonceUsed`, no new Authorization; the executor refuses it as seen).
+   The mandate also holds: an amount above the per-action maximum is refused
+   (`policy.ErrAmountAboveMax`), with a signed deny verdict in the archive.
 2. **Sources cannot frame an honest agent.** The demo flips one byte in a copy
    of the archive. The verifier does not accuse anyone: the result is
    INCONCLUSIVE with `source_corrupt`. Bad bytes prove the copy is bad, not
@@ -24,17 +26,18 @@ Testnet TIA only; keep the amounts small.
 Edicta does not judge the agent's price source or strategy. It proves what was
 decided, on what context, before the action, and that exactly that action ran.
 
-## The six steps
+## The seven steps
 
 | Step | What happens | On chain |
 |---|---|---|
 | 1 Environment | Checks the network, clock and endpoints, then starts the gate in-process on a loopback port. The agent, executor and verifier talk to it over its real HTTP API. | nothing |
 | Funding | Moves the needed utia from your funder account to two demo accounts (Recorder and executor). Asks for one Enter first. | up to 2 bank sends |
-| 2 Decision | The agent reads a TIA/USD price and builds the decision: payload, plus a bank-send action of `--amount` utia. | nothing |
-| 3 Publish | The Recorder publishes the encrypted payload as a blob and the agent signs the commitment. | `MsgPayForBlobs` (the anchor) |
-| 4 Authorize and execute | The gate checks the invariants and signs an Authorization. The executor checks it and sends exactly the authorized bytes, with the commitment hash as memo. The gate records a receipt. | `MsgSend` |
-| 5 Verify | The verifier re-checks everything from the archive and public RPCs, with the trust root below. Must end VALID. | nothing |
-| 6 Cheating attempts | Layer 1 and 2 attempts run first and move no funds. The rogue executor (layer 3) runs last with a second decision. | the rogue run: one blob and one `MsgSend` |
+| 2 Mandate | Prints the mandate the gate enforces, as rendered text: bank sends of utia to the demo recipient only, at most 2x `--amount` per action and 3x `--amount` per rolling 24h, valid for two hours. A fresh principal key signed it for this run; the key stays in the run directory and is never printed. | nothing |
+| 3 Decision | The agent reads a TIA/USD price and builds the decision: payload, plus a bank-send action of `--amount` utia. | nothing |
+| 4 Publish | The Recorder publishes the encrypted payload as a blob and the agent signs the commitment. | `MsgPayForBlobs` (the anchor) |
+| 5 Authorize and execute | The gate checks the invariants and signs an Authorization. The executor checks it and sends exactly the authorized bytes, with the commitment hash as memo. The gate records a receipt. | `MsgSend` |
+| 6 Verify | The verifier re-checks everything from the archive and public RPCs, with the trust root below, and the policy: `--principal-key <this run's principal> --require-policy --policy-full` (the decision must satisfy the mandate, and the gate's verdict chain is walked to genesis, shown as the `gate_integrity` line). Must end VALID, and VALID now lists `policy: pass` among its assumptions. | nothing |
+| 7 Cheating attempts | Layer 1 and 2 attempts run first and move no funds. Layer 1 now includes the over-limit commitment, which the policy refuses (a blob for the refused decision is published). The rogue executor (layer 3) runs last with a second decision. | the rogue run: one blob and one `MsgSend` |
 
 ## Build and run
 
@@ -116,11 +119,18 @@ else, including `--yes`, abandons it.
 
 ## Spending policy
 
-The demo's edictad takes an optional `[policy] mandate_file` (a canonical SignedMandate
-signed by the principal for the demo gate id). With it the gate denies actions outside
-the mandate, such as an over-limit send, and `edicta-verify --principal-key HEX
---require-policy` confirms the decision and the denial offline. See the policy section
-of `celestia/README.md`.
+The demo's edictad takes a `[policy] mandate_file` (a canonical SignedMandate signed by
+the principal for the demo gate id). The demo generates a principal key per run, writes
+the mandate to the run directory (mode 0600) and prints its rendered text before the
+agent decides. Limits: per action 2x `--amount` (so the rogue executor's `amount + 1`
+is still allowed), 3x `--amount` per rolling 24h, recipients pinned to the funder
+address, `max_decision_age` at its default, two hours of validity.
+
+The attempt `policy-denies-over-limit` commits `2x amount + 1`. The gate answers
+`policy.ErrAmountAboveMax` with a signed deny verdict and issues no Authorization, so
+there is nothing to execute. The verify steps pass `--principal-key HEX --require-policy
+--policy-full`; offline, the same flags confirm the decision and the denial. See the
+policy section of `celestia/README.md`.
 
 ## Trust root (demo mode only)
 
@@ -167,10 +177,10 @@ A hostile source can cause at most INCONCLUSIVE, never VALID or INVALID.
 
 | Code | Meaning |
 |---|---|
-| 0 | step 5 VALID and every attempt ended as expected |
+| 0 | the verify step VALID and every attempt ended as expected |
 | 1 | something proven wrong or unexpected |
 | 2 | inconclusive or stopped: INCONCLUSIVE after retries, funding or network failure, funding cap, you quit |
-| 3 | step 5 NOT AUTHORIZED |
+| 3 | the verify step NOT AUTHORIZED |
 | 4 | bad flags or configuration, no terminal, home locked by another demo |
 | 130 | interrupted (Ctrl-C) |
 
@@ -183,10 +193,11 @@ Each run writes `~/.edicta-demo/runs/<UTC timestamp>/` and keeps it:
 | `evidence.json` | summary: hashes, heights, verdict, attempts, funding sends |
 | `trust-root.json` | the header, hash, source and link used |
 | `archive/` | the real archive: decision, Authorization, payload |
-| `tampered-archive/` | the copy with one flipped byte (attempt 3) |
+| `tampered-archive/` | the copy with one flipped byte (tampered-archive attempt) |
 | `receipt.cbor`, `rogue-receipt.cbor` | the gate-signed receipts |
 | `verify-*.json` | the verifier's full report for each verify run |
-| `*.ed25519`, `recipient.x25519`, `*.token`, `registry.db`, `*.toml` | per-run keys, tokens, gate registry and configs (testnet only, mode 0600) |
+| `mandate.cbor` | the signed mandate the gate loaded (mode 0600) |
+| `*.ed25519` (including `principal.ed25519`), `recipient.x25519`, `*.token`, `registry.db`, `*.toml` | per-run keys, tokens, gate registry and configs (testnet only, mode 0600) |
 
 Chain keys and the funder state live under `~/.edicta-demo/chain/`.
 

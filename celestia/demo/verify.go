@@ -36,6 +36,17 @@ type verifyView struct {
 		Mode       string `json:"mode"`
 		CrossCheck string `json:"cross_check"`
 	} `json:"header_trust"`
+	GateIntegrity struct {
+		Status string `json:"status"`
+		Reason string `json:"reason"`
+		Walk   *struct {
+			Steps   uint64 `json:"steps"`
+			FromSeq uint64 `json:"from_seq"`
+			ToSeq   uint64 `json:"to_seq"`
+			Total   uint64 `json:"total"`
+			End     string `json:"end"`
+		} `json:"walk"`
+	} `json:"gate_integrity"`
 	Execution *struct {
 		Inclusion string `json:"inclusion"`
 		Result    string `json:"result"`
@@ -69,6 +80,7 @@ func (r *Runner) verifyArgs(hash commitment.Hash, archiveURL, receipt string, ro
 		"--receipt", receipt,
 		"--tx-rpc", v.TxRPC,
 		"--check-execution",
+		"--principal-key", r.principalHex, "--require-policy", "--policy-full",
 	}
 	for _, c := range v.CrossCheckRPC {
 		args = append(args, "--cross-check", c)
@@ -115,10 +127,34 @@ func (r *Runner) runVerify(ctx context.Context, args []string, root TrustRootInf
 		}
 		res.Checks = append(res.Checks, line)
 	}
+	res.Checks = append(res.Checks, integrityLine(v))
 	if res.Verdict == VerdictValid {
 		res.Assumptions = r.assumptions(v, root)
 	}
 	return res, nil
+}
+
+// integrityLine shows the gate_integrity result next to the checks; it is
+// not a check in the report.
+func integrityLine(v verifyView) CheckLine {
+	g := v.GateIntegrity
+	line := CheckLine{Check: "gate_integrity", Reason: g.Reason}
+	switch g.Status {
+	case string(verifier.IntegrityOK):
+		line.Status = "pass"
+	case string(verifier.IntegrityViolated):
+		line.Status = "fail"
+		line.Detail = g.Reason
+	default:
+		line.Status = "unchecked"
+		if line.Reason == "" {
+			line.Reason = g.Status
+		}
+	}
+	if w := g.Walk; w != nil && line.Status == "pass" {
+		line.Detail = fmt.Sprintf("walked %d verdict(s) back (seq %d to %d of %d), end: %s", w.Steps, w.FromSeq, w.ToSeq, w.Total, w.End)
+	}
+	return line
 }
 
 // assumptions lists what a VALID result still rests on, built from the
@@ -140,6 +176,11 @@ func (r *Runner) assumptions(v verifyView, root TrustRootInfo) []string {
 		out = append(out, "header cross-check: off")
 	} else {
 		out = append(out, "header cross-check: "+cross)
+	}
+	for _, c := range v.Checks {
+		if c.Name == string(verifier.CheckPolicy) && c.Status == "pass" {
+			out = append(out, "policy: pass (mandate signed by this run's principal key; the spending history is the gate's own signed chain)")
+		}
 	}
 	if e := v.Execution; e != nil && e.Inclusion == "proven" && e.Result == "proven" {
 		out = append(out, "inclusion proven (share proof) and execution code proven (LastResultsHash)")

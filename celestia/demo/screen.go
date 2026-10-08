@@ -115,6 +115,19 @@ func (s *textScreen) Layer(n int, title string) {
 	s.line("  Layer %d - %s", n, title)
 }
 
+func (s *textScreen) Mandate(text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.json {
+		s.event("mandate", map[string]any{"text": text})
+		return
+	}
+	s.line("  %s", s.paint(cGreen, "[mandate]")+" signed by this run's principal key; the gate enforces:")
+	for _, l := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+		s.line("    %s", l)
+	}
+}
+
 func (s *textScreen) TrustRoot(t TrustRootInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -139,7 +152,11 @@ func (s *textScreen) Check(c CheckLine) {
 	}
 	switch c.Status {
 	case "pass":
-		s.line("  %s %s", s.paint(cGreen, "[pass]"), c.Check)
+		text := c.Check
+		if c.Detail != "" {
+			text += ": " + c.Detail
+		}
+		s.line("  %s %s", s.paint(cGreen, "[pass]"), text)
 	case "unchecked":
 		text := fmt.Sprintf("%s: reason=%s", c.Check, c.Reason)
 		if c.Source != "" {

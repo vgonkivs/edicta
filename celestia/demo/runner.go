@@ -112,6 +112,8 @@ type Runner struct {
 	signer                           *sdk.Ed25519Signer
 	store                            *transfer.MemStore
 
+	mandateText       string
+	principalHex      string // public key
 	presetBase        Preset
 	closeGateDeps     func()
 	releaseHome       func()
@@ -202,7 +204,7 @@ func (r *Runner) run(ctx context.Context) (err error) {
 	defer r.cleanup()
 	sc := r.deps.Screen
 
-	sc.Step(1, 6, "Environment")
+	sc.Step(1, 7, "Environment")
 	if err := r.prepare(ctx); err != nil {
 		return err
 	}
@@ -212,24 +214,26 @@ func (r *Runner) run(ctx context.Context) (err error) {
 	if err := r.fundAndStart(ctx); err != nil {
 		return err
 	}
-	sc.Step(2, 6, "Agent decision")
+	sc.Step(2, 7, "Mandate")
+	sc.Mandate(r.mandateText)
+	sc.Step(3, 7, "Agent decision")
 	d, err := r.decide(ctx)
 	if err != nil {
 		return err
 	}
-	sc.Step(3, 6, "Publish and anchor")
+	sc.Step(4, 7, "Publish and anchor")
 	if err := r.publish(ctx, d); err != nil {
 		return err
 	}
-	sc.Step(4, 6, "Authorize and execute")
+	sc.Step(5, 7, "Authorize and execute")
 	if err := r.authorizeAndExecute(ctx, d); err != nil {
 		return err
 	}
-	sc.Step(5, 6, "Independent verification")
+	sc.Step(6, 7, "Independent verification")
 	if err := r.verifyStep(ctx, d); err != nil {
 		return err
 	}
-	sc.Step(6, 6, "Cheating attempts")
+	sc.Step(7, 7, "Cheating attempts")
 	return r.attempts(ctx, d)
 }
 

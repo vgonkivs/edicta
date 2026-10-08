@@ -76,6 +76,8 @@ type Screen interface {
 	Verdict(v VerifyResult)
 	Attempt(a AttemptResult)
 	Layer(n int, title string)
+	// Mandate shows the rendered mandate text the gate enforces.
+	Mandate(text string)
 }
 
 // TrustRootInfo is the header the verifier is anchored to.

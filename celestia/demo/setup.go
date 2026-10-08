@@ -43,14 +43,17 @@ var demoNamespace = func() string {
 // runKeys are the per-run keys of the agent, the gate and the executor.
 type runKeys struct {
 	agent, gate, exec ed25519.PrivateKey
-	recipient         blob.Recipient
-	apiToken, recTok  string
+	// principal signs the mandate. It is used once and never printed.
+	principal        ed25519.PrivateKey
+	recipient        blob.Recipient
+	apiToken, recTok string
 }
 
 func (k *runKeys) zero() {
 	clear(k.agent)
 	clear(k.gate)
 	clear(k.exec)
+	clear(k.principal)
 }
 
 func (r *Runner) newRunKeys() error {
@@ -74,6 +77,9 @@ func (r *Runner) newRunKeys() error {
 		return err
 	}
 	if k.exec, err = seed("executor.ed25519"); err != nil {
+		return err
+	}
+	if k.principal, err = seed(principalFile); err != nil {
 		return err
 	}
 	rk, err := ecdh.X25519().GenerateKey(rand.Reader)
@@ -349,8 +355,13 @@ func (r *Runner) writeConfigs() error {
 	if err := writeNew(agentsPath, ab); err != nil {
 		return err
 	}
+	gateID := "demo-" + filepath.Base(r.runDir)
 	archiveDir := filepath.Join(r.runDir, "archive")
 	if err := os.Mkdir(archiveDir, 0o700); err != nil {
+		return err
+	}
+	mandatePath, err := r.writeMandate(gateID)
+	if err != nil {
 		return err
 	}
 	cfg := edictad.Config{
@@ -360,6 +371,7 @@ func (r *Runner) writeConfigs() error {
 			ConsensusGRPC: edictad.EndpointConfig{Addr: r.preset.GRPC.Addr, TLS: r.preset.GRPC.TLS},
 		},
 		Archive: edictad.ArchiveConfig{Dir: archiveDir},
+		Policy:  edictad.PolicyConfig{MandateFile: mandatePath},
 		Recorder: edictad.RecorderConfig{
 			Enabled: true, Namespace: demoNamespace,
 			KeyringDir: r.recorderKey.dir, KeyringBackend: "file", KeyName: recorderName,
@@ -367,7 +379,7 @@ func (r *Runner) writeConfigs() error {
 			Quota:          edictad.QuotaConfig{BlobsPerHour: 60, BytesPerDay: 64 << 20},
 		},
 		Gate: edictad.GateConfig{
-			GateID: "demo-" + filepath.Base(r.runDir), KeyFile: filepath.Join(r.runDir, "gate.ed25519"),
+			GateID: gateID, KeyFile: filepath.Join(r.runDir, "gate.ed25519"),
 			RegistryPath: filepath.Join(r.runDir, "registry.db"), ActionTypes: []string{bankaction.ActionType},
 			AllowlistFile: agentsPath, ExecutorKeys: []string{hex.EncodeToString(r.keys.exec.Public().(ed25519.PublicKey))},
 			AnchorVerifier: "self",

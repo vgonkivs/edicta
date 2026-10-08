@@ -26,7 +26,7 @@ import (
 
 const rogueWait = 120 * time.Second
 
-// attempts is step 6. The executor's rail is locked first, so attempts 1 to 3
+// attempts is step 7. The executor's rail is locked first, so attempts 1 to 3
 // cannot move funds; the rogue executor of attempt 4 runs last.
 func (r *Runner) attempts(ctx context.Context, d *decision) error {
 	sc := r.deps.Screen
@@ -49,6 +49,11 @@ func (r *Runner) attempts(ctx context.Context, d *decision) error {
 	add(r.attemptDifferentAmount(ctx, d), false)
 	a2 := r.attemptReuse(ctx, d)
 	add(a2, false)
+	ol, err := r.attemptOverLimit(ctx)
+	if err != nil {
+		return err
+	}
+	add(ol, false)
 
 	sc.Layer(2, "sources cannot frame an honest agent")
 	if r.haveRoot {
