@@ -55,7 +55,8 @@ func feeFor(price *big.Rat, gas uint64) (uint64, error) {
 }
 
 // ComputeBudget is pure. The Recorder pays three PayForBlobs (the decision,
-// the over-limit decision the policy refuses, and the rogue executor's). The executor holds the demo
+// the over-limit decision the policy refuses, and the rogue executor's) and
+// keeps one spare for a retry. The executor holds the demo
 // amount, the rogue amount plus one, and four transaction fees.
 func ComputeBudget(p BudgetParams, have Balances) (Budget, error) {
 	if p.MinGasPrice == nil || p.MinGasPrice.Sign() < 0 || p.Amount == 0 {
@@ -69,7 +70,7 @@ func ComputeBudget(p BudgetParams, have Balances) (Budget, error) {
 	if err != nil {
 		return Budget{}, err
 	}
-	wantRec := 3 * pfbFee
+	wantRec := 4 * pfbFee
 	wantExec := 2*p.Amount + 1 + 4*sendFee
 	b := Budget{SendFee: sendFee, PFBFee: pfbFee, WantRecorder: wantRec, WantExecutor: wantExec}
 	b.Recorder = shortfall(wantRec, have.Recorder)

@@ -96,6 +96,9 @@ const (
 	VerdictInvalid       Verdict = "invalid"
 	VerdictInconclusive  Verdict = "inconclusive"
 	VerdictNotAuthorized Verdict = "not_authorized"
+	// VerdictGateIntegrity is the verifier exit 5: the gate signed
+	// contradicting verdicts.
+	VerdictGateIntegrity Verdict = "gate_integrity_violated"
 )
 
 // CheckLine is one verifier check.

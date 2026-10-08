@@ -190,6 +190,9 @@ func (s *textScreen) Verdict(v VerifyResult) {
 		name, colour = "INVALID", cRed
 	case VerdictNotAuthorized:
 		name, colour = "NOT AUTHORIZED", cRed
+	case VerdictGateIntegrity:
+		name, colour = "GATE INTEGRITY VIOLATED", cRed
+		s.line("  %s", s.paint(cRed, "!! The gate signed contradicting verdicts (see gate_integrity above): its records cannot be trusted."))
 	default:
 		name, colour = "INCONCLUSIVE", cYellow
 		var reasons []string

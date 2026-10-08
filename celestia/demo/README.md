@@ -32,7 +32,7 @@ decided, on what context, before the action, and that exactly that action ran.
 |---|---|---|
 | 1 Environment | Checks the network, clock and endpoints, then starts the gate in-process on a loopback port. The agent, executor and verifier talk to it over its real HTTP API. | nothing |
 | Funding | Moves the needed utia from your funder account to two demo accounts (Recorder and executor). Asks for one Enter first. | up to 2 bank sends |
-| 2 Mandate | Prints the mandate the gate enforces, as rendered text: bank sends of utia to the demo recipient only, at most 2x `--amount` per action and 3x `--amount` per rolling 24h, valid for two hours. A fresh principal key signed it for this run; the key stays in the run directory and is never printed. | nothing |
+| 2 Mandate | Prints the mandate the gate enforces, as rendered text: bank sends of utia to the demo recipient only, at most 2x `--amount` per action and 3x `--amount` per rolling 24h, valid for 24 hours. A fresh principal key signed it for this run; the key stays in the run directory and is never printed. | nothing |
 | 3 Decision | The agent reads a TIA/USD price and builds the decision: payload, plus a bank-send action of `--amount` utia. | nothing |
 | 4 Publish | The Recorder publishes the encrypted payload as a blob and the agent signs the commitment. | `MsgPayForBlobs` (the anchor) |
 | 5 Authorize and execute | The gate checks the invariants and signs an Authorization. The executor checks it and sends exactly the authorized bytes, with the commitment hash as memo. The gate records a receipt. | `MsgSend` |
@@ -124,7 +124,7 @@ the principal for the demo gate id). The demo generates a principal key per run,
 the mandate to the run directory (mode 0600) and prints its rendered text before the
 agent decides. Limits: per action 2x `--amount` (so the rogue executor's `amount + 1`
 is still allowed), 3x `--amount` per rolling 24h, recipients pinned to the funder
-address, `max_decision_age` at its default, two hours of validity.
+address, `max_decision_age` at its default, 24 hours of validity.
 
 The attempt `policy-denies-over-limit` commits `2x amount + 1`. The gate answers
 `policy.ErrAmountAboveMax` with a signed deny verdict and issues no Authorization, so

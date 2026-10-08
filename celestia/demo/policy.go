@@ -23,7 +23,7 @@ const (
 	perActionFactor = 2
 	periodFactor    = 3
 	mandateHours    = 24
-	mandateLife     = 2 * time.Hour
+	mandateLife     = 24 * time.Hour
 	mandateLead     = 2 * time.Minute
 )
 
@@ -98,7 +98,7 @@ func (r *Runner) attemptOverLimit(ctx context.Context) (AttemptResult, error) {
 func (r *Runner) judgeOverLimit(ctx context.Context, az authorizer, d *decision) AttemptResult {
 	a := AttemptResult{Layer: 1, Name: "policy-denies-over-limit",
 		Expected: "gate policy.ErrAmountAboveMax, no Authorization, signed deny verdict archived",
-		Why: fmt.Sprintf("The agent committed %d utia; the mandate allows %d per action. The commitment is valid, so only the policy refuses it. The signed deny verdict goes to the archive, nothing is broadcast.",
+		Why: fmt.Sprintf("The agent committed %d utia; the mandate allows %d per action. The commitment is valid, so only the policy refuses it. The signed deny verdict goes to the archive, no transfer is broadcast (only the decision's own PayForBlobs).",
 			d.amount, perActionFactor*r.cfg.AmountUTIA)}
 	auth, verdict, err := az.AuthorizeWithVerdict(ctx, d.res.Envelope, d.res.Action)
 	var apiErr *edictaapi.Error

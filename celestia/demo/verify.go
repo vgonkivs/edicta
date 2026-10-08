@@ -37,9 +37,10 @@ type verifyView struct {
 		CrossCheck string `json:"cross_check"`
 	} `json:"header_trust"`
 	GateIntegrity struct {
-		Status string `json:"status"`
-		Reason string `json:"reason"`
-		Walk   *struct {
+		Status         string   `json:"status"`
+		Reason         string   `json:"reason"`
+		EvidenceHashes []string `json:"evidence_verdict_hashes"`
+		Walk           *struct {
 			Steps   uint64 `json:"steps"`
 			FromSeq uint64 `json:"from_seq"`
 			ToSeq   uint64 `json:"to_seq"`
@@ -103,19 +104,23 @@ func (r *Runner) runVerify(ctx context.Context, args []string, root TrustRootInf
 	if code == 4 || v.Error != "" {
 		return res, coded(ExitUsage, fmt.Errorf("demo: the verifier could not run: %s", v.Error))
 	}
+	violated := code == codeGateIntegrity && v.Verdict == string(verifier.VerdictUnchecked) &&
+		v.GateIntegrity.Status == string(verifier.IntegrityViolated)
 	want := map[string]int{string(verifier.VerdictValid): 0, string(verifier.VerdictInvalid): 1,
 		string(verifier.VerdictUnchecked): 2, string(verifier.VerdictNotAuthorized): 3}
-	if c, ok := want[v.Verdict]; ok && c != code {
+	if c, ok := want[v.Verdict]; ok && c != code && !violated {
 		return res, coded(ExitUsage, fmt.Errorf("demo: the verifier exit code %d does not match its verdict %q", code, v.Verdict))
 	}
-	switch v.Verdict {
-	case string(verifier.VerdictValid):
+	switch {
+	case violated:
+		res.Verdict = VerdictGateIntegrity
+	case v.Verdict == string(verifier.VerdictValid):
 		res.Verdict = VerdictValid
-	case string(verifier.VerdictInvalid):
+	case v.Verdict == string(verifier.VerdictInvalid):
 		res.Verdict = VerdictInvalid
-	case string(verifier.VerdictUnchecked):
+	case v.Verdict == string(verifier.VerdictUnchecked):
 		res.Verdict = VerdictInconclusive
-	case string(verifier.VerdictNotAuthorized):
+	case v.Verdict == string(verifier.VerdictNotAuthorized):
 		res.Verdict = VerdictNotAuthorized
 	default:
 		return res, coded(ExitUsage, fmt.Errorf("demo: unknown verdict %q", v.Verdict))
@@ -144,7 +149,7 @@ func integrityLine(v verifyView) CheckLine {
 		line.Status = "pass"
 	case string(verifier.IntegrityViolated):
 		line.Status = "fail"
-		line.Detail = g.Reason
+		line.Detail = g.Reason + "; contradicting verdict hashes: " + strings.Join(g.EvidenceHashes, ", ")
 	default:
 		line.Status = "unchecked"
 		if line.Reason == "" {
@@ -194,7 +199,7 @@ func timingOnly(res VerifyResult) (timing, above bool) {
 	}
 	n := 0
 	for _, c := range res.Checks {
-		if c.Status != "unchecked" {
+		if c.Status != "unchecked" || c.Check == "gate_integrity" {
 			continue
 		}
 		n++
@@ -207,6 +212,10 @@ func timingOnly(res VerifyResult) (timing, above bool) {
 	}
 	return n > 0, above
 }
+
+// codeGateIntegrity is the verifier exit code for a gate that signed
+// contradicting verdicts.
+const codeGateIntegrity = 5
 
 const maxVerifyRetries = 3
 
@@ -278,6 +287,8 @@ func (r *Runner) verifyStep(ctx context.Context, d *decision) error {
 		return nil
 	case VerdictInvalid:
 		return coded(ExitWrong, fmt.Errorf("demo: step 5 is INVALID"))
+	case VerdictGateIntegrity:
+		return coded(ExitWrong, fmt.Errorf("demo: step 5 found the gate signing contradicting verdicts"))
 	case VerdictNotAuthorized:
 		return coded(ExitNotAuth, fmt.Errorf("demo: step 5 is NOT AUTHORIZED"))
 	}
