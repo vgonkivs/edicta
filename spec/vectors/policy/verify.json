@@ -1,6 +1,6 @@
 {
   "format": "edicta-policy-vectors/v1",
-  "revision": "policy-v1-draft.2",
+  "revision": "policy-v1-draft.4",
   "generator": "spec/vectors/check/gen_policy.py",
   "gate": {
     "gate_id": "gate-paper-1",
@@ -156,7 +156,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -210,7 +210,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -264,7 +264,7 @@
       "config": {
         "require_policy": false,
         "policy_full": true,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -296,7 +296,15 @@
         "gate_integrity": {
           "status": "ok",
           "reason": null,
-          "evidence": []
+          "evidence": [],
+          "walk": {
+            "max_steps": "10000",
+            "steps": "2",
+            "from_seq": "0",
+            "to_seq": "2",
+            "total": "3",
+            "end": "genesis"
+          }
         },
         "verdict": "valid",
         "exit": "0"
@@ -318,7 +326,7 @@
       "config": {
         "require_policy": false,
         "policy_full": true,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -350,7 +358,15 @@
         "gate_integrity": {
           "status": "ok",
           "reason": null,
-          "evidence": []
+          "evidence": [],
+          "walk": {
+            "max_steps": "10000",
+            "steps": "3",
+            "from_seq": "0",
+            "to_seq": "3",
+            "total": "4",
+            "end": "genesis"
+          }
         },
         "verdict": "valid",
         "exit": "0"
@@ -358,7 +374,7 @@
     },
     {
       "id": "pass_depth_1",
-      "description": "a4, full walk limited to one hop.",
+      "description": "a4, full walk capped at one step: a4 -> a3, and a3 is not genesis. The walk is truncated, so gate_integrity is unchecked (policy_walk_truncated) even though the cap is explicit; the policy check passes and the verdict stays valid.",
       "decision": {
         "commitment_hash_hex": "c0b12616eed5f8d2feeeaf908792e321540699499d30b3b47e55e4ef4b5e0062",
         "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
@@ -372,7 +388,131 @@
       "config": {
         "require_policy": false,
         "policy_full": true,
-        "policy_depth": "1",
+        "max_walk_steps": "1",
+        "principal_keys": [
+          "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
+        ],
+        "extractors": {
+          "application/vnd.edicta.test-facts.v1+cbor": "edicta/test-facts/v1"
+        },
+        "evidence": []
+      },
+      "archive": [
+        "mandate/a057e93c3c459afad79ca26ef2feeffbac8cb43c7b33ede8d8c2ced4464a6bad",
+        "policy-allow/47dd648e52116928f2970c190cdde50dbbcd4189d5d7fb2f60ba6debf0ec2e72",
+        "policy-allow/771c3011b86a1a8f3b53c9e54c08910fe03c8cad2645524533fdc82c45bc6b61",
+        "policy-allow/c0b12616eed5f8d2feeeaf908792e321540699499d30b3b47e55e4ef4b5e0062",
+        "policy-allow/d74f369067acee544cf91895f931d90b7cfcf32493e2443811b336abcb317320",
+        "policy-bucket/0275da3c39ffcdae9d0f2bfb018912d959f745ff8f7fae04f71ea191934c84c2",
+        "policy-closed/3e26b88f36bdee33ad19034595bebb2e250042795578fe4068b5d17907ef8ed5",
+        "policy-closed/64a7d5ac88dd30e3fc78d51ab202429d4d925cd2dbd845fbb9e7831690875ee1",
+        "policy-deny/246fd40942bf45c99b9c3dce77c0f8e34d4da9098f6e3a46ef2f1536b4caef7c/ErrPeriodLimit",
+        "policy-deny/f358b30a5d462d04400f92d3a9be1cd8ecefab11bdd9c18b59a3847c61765dc1/ErrAmountAboveMax",
+        "policy-successor/628d2b92a99d2cde180b26be3041c3459d0c94d38be45ae32d8bc49af5c731a7",
+        "policy-successor/822a07413f6720a673da3d7cd29924e5584d275e9c89aa579678ffd3831bcdc3",
+        "policy-successor/86bf55db717f611e4f2ed9f66f7e36d01ac0498cdc75ce4874bba3b14079d34e",
+        "policy-successor/f2320e9fb8c3351856d793d91471e47e76adb1f00ddaf2f8e6b3f964c8f609ab"
+      ],
+      "expect": {
+        "policy": {
+          "status": "pass"
+        },
+        "gate_integrity": {
+          "status": "unchecked",
+          "reason": "policy_walk_truncated",
+          "evidence": [],
+          "walk": {
+            "max_steps": "1",
+            "steps": "1",
+            "from_seq": "2",
+            "to_seq": "3",
+            "total": "4",
+            "end": "max_steps"
+          }
+        },
+        "verdict": "valid",
+        "exit": "0"
+      }
+    },
+    {
+      "id": "walk_truncated_cap_2",
+      "description": "a4, full walk capped at two steps: a4 -> a3 -> a2, and a2 is not genesis: last 3 of 4 verdicts checked, truncated.",
+      "decision": {
+        "commitment_hash_hex": "c0b12616eed5f8d2feeeaf908792e321540699499d30b3b47e55e4ef4b5e0062",
+        "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "action_type": "application/vnd.edicta.test-facts.v1+cbor",
+        "action_hex": "a501687472616e736665720268746573743a757364034201900402056a746573743a616c696365",
+        "action_hash_hex": "aa244e371eb4f3334816a912b6b5ef2f62da8e8479bb60a0a5c37cbc348c8005",
+        "valid_until": "1791008300",
+        "gate_id": "gate-paper-1"
+      },
+      "t_h": "1791007400",
+      "config": {
+        "require_policy": false,
+        "policy_full": true,
+        "max_walk_steps": "2",
+        "principal_keys": [
+          "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
+        ],
+        "extractors": {
+          "application/vnd.edicta.test-facts.v1+cbor": "edicta/test-facts/v1"
+        },
+        "evidence": []
+      },
+      "archive": [
+        "mandate/a057e93c3c459afad79ca26ef2feeffbac8cb43c7b33ede8d8c2ced4464a6bad",
+        "policy-allow/47dd648e52116928f2970c190cdde50dbbcd4189d5d7fb2f60ba6debf0ec2e72",
+        "policy-allow/771c3011b86a1a8f3b53c9e54c08910fe03c8cad2645524533fdc82c45bc6b61",
+        "policy-allow/c0b12616eed5f8d2feeeaf908792e321540699499d30b3b47e55e4ef4b5e0062",
+        "policy-allow/d74f369067acee544cf91895f931d90b7cfcf32493e2443811b336abcb317320",
+        "policy-bucket/0275da3c39ffcdae9d0f2bfb018912d959f745ff8f7fae04f71ea191934c84c2",
+        "policy-closed/3e26b88f36bdee33ad19034595bebb2e250042795578fe4068b5d17907ef8ed5",
+        "policy-closed/64a7d5ac88dd30e3fc78d51ab202429d4d925cd2dbd845fbb9e7831690875ee1",
+        "policy-deny/246fd40942bf45c99b9c3dce77c0f8e34d4da9098f6e3a46ef2f1536b4caef7c/ErrPeriodLimit",
+        "policy-deny/f358b30a5d462d04400f92d3a9be1cd8ecefab11bdd9c18b59a3847c61765dc1/ErrAmountAboveMax",
+        "policy-successor/628d2b92a99d2cde180b26be3041c3459d0c94d38be45ae32d8bc49af5c731a7",
+        "policy-successor/822a07413f6720a673da3d7cd29924e5584d275e9c89aa579678ffd3831bcdc3",
+        "policy-successor/86bf55db717f611e4f2ed9f66f7e36d01ac0498cdc75ce4874bba3b14079d34e",
+        "policy-successor/f2320e9fb8c3351856d793d91471e47e76adb1f00ddaf2f8e6b3f964c8f609ab"
+      ],
+      "expect": {
+        "policy": {
+          "status": "pass"
+        },
+        "gate_integrity": {
+          "status": "unchecked",
+          "reason": "policy_walk_truncated",
+          "evidence": [],
+          "walk": {
+            "max_steps": "2",
+            "steps": "2",
+            "from_seq": "1",
+            "to_seq": "3",
+            "total": "4",
+            "end": "max_steps"
+          }
+        },
+        "verdict": "valid",
+        "exit": "0"
+      }
+    },
+    {
+      "id": "walk_cap_reaches_genesis",
+      "description": "a4, full walk capped at three steps: a4 -> a3 -> a2 -> a1, and a1 read genesis, so no further step is due and the walk is complete.",
+      "decision": {
+        "commitment_hash_hex": "c0b12616eed5f8d2feeeaf908792e321540699499d30b3b47e55e4ef4b5e0062",
+        "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "action_type": "application/vnd.edicta.test-facts.v1+cbor",
+        "action_hex": "a501687472616e736665720268746573743a757364034201900402056a746573743a616c696365",
+        "action_hash_hex": "aa244e371eb4f3334816a912b6b5ef2f62da8e8479bb60a0a5c37cbc348c8005",
+        "valid_until": "1791008300",
+        "gate_id": "gate-paper-1"
+      },
+      "t_h": "1791007400",
+      "config": {
+        "require_policy": false,
+        "policy_full": true,
+        "max_walk_steps": "3",
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -404,7 +544,15 @@
         "gate_integrity": {
           "status": "ok",
           "reason": null,
-          "evidence": []
+          "evidence": [],
+          "walk": {
+            "max_steps": "3",
+            "steps": "3",
+            "from_seq": "0",
+            "to_seq": "3",
+            "total": "4",
+            "end": "genesis"
+          }
         },
         "verdict": "valid",
         "exit": "0"
@@ -426,7 +574,7 @@
       "config": {
         "require_policy": true,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -481,7 +629,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -539,7 +687,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -593,7 +741,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "86680d1e743b0ac928a2d7e4d58366cc21675d6142efabbe953205bb2a12c554"
         ],
@@ -648,7 +796,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -701,7 +849,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -755,7 +903,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -809,7 +957,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -866,7 +1014,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -921,7 +1069,7 @@
       "config": {
         "require_policy": false,
         "policy_full": true,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -953,7 +1101,15 @@
         "gate_integrity": {
           "status": "unchecked",
           "reason": "state_history_unavailable",
-          "evidence": []
+          "evidence": [],
+          "walk": {
+            "max_steps": "10000",
+            "steps": "1",
+            "from_seq": "2",
+            "to_seq": "3",
+            "total": "4",
+            "end": "finding"
+          }
         },
         "verdict": "unchecked",
         "exit": "2"
@@ -975,7 +1131,7 @@
       "config": {
         "require_policy": false,
         "policy_full": true,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1011,7 +1167,15 @@
         "gate_integrity": {
           "status": "unchecked",
           "reason": "source_corrupt",
-          "evidence": []
+          "evidence": [],
+          "walk": {
+            "max_steps": "10000",
+            "steps": "1",
+            "from_seq": "2",
+            "to_seq": "3",
+            "total": "4",
+            "end": "finding"
+          }
         },
         "verdict": "unchecked",
         "exit": "2"
@@ -1033,7 +1197,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1078,7 +1242,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1123,7 +1287,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1168,7 +1332,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1213,7 +1377,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1258,7 +1422,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1303,7 +1467,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1348,7 +1512,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1393,7 +1557,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1438,7 +1602,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1485,7 +1649,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1534,7 +1698,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1581,7 +1745,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1628,7 +1792,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1673,7 +1837,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1718,7 +1882,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1768,7 +1932,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1812,7 +1976,7 @@
       "config": {
         "require_policy": false,
         "policy_full": true,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1841,7 +2005,15 @@
           "evidence": [
             "2087146eb6946028432123e56c6db73250534177b514b668975d7e195f003729",
             "fb8ea3ee0142ff9f6a95012e3fd91b0eee0bd8dfd77ed8585a3fe747acce88eb"
-          ]
+          ],
+          "walk": {
+            "max_steps": "10000",
+            "steps": "1",
+            "from_seq": "0",
+            "to_seq": "1",
+            "total": "2",
+            "end": "genesis"
+          }
         },
         "verdict": "unchecked",
         "exit": "5"
@@ -1863,7 +2035,7 @@
       "config": {
         "require_policy": false,
         "policy_full": true,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1891,7 +2063,15 @@
           "evidence": [
             "753c43be7624860f35a1196907633773048124535470229ef2de91e4e5e9d47c",
             "9ec3f25221efc2fb1c0eb2777a35acab6e62be7aa4c8671d40136de9ede39418"
-          ]
+          ],
+          "walk": {
+            "max_steps": "10000",
+            "steps": "0",
+            "from_seq": "1",
+            "to_seq": "1",
+            "total": "2",
+            "end": "finding"
+          }
         },
         "verdict": "unchecked",
         "exit": "5"
@@ -1913,7 +2093,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -1959,7 +2139,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -2006,7 +2186,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -2054,7 +2234,7 @@
       "config": {
         "require_policy": false,
         "policy_full": true,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -2084,7 +2264,15 @@
           "evidence": [
             "18e15e23d6921df498382905219eaf3f6a53c1f5524f8fa7e516d88f82f5d5f1",
             "eb19a36873966ba3e7d16115b5a9863f2e642b90ad0e189a1ccdf499a22d6e6b"
-          ]
+          ],
+          "walk": {
+            "max_steps": "10000",
+            "steps": "0",
+            "from_seq": "2",
+            "to_seq": "2",
+            "total": "3",
+            "end": "finding"
+          }
         },
         "verdict": "unchecked",
         "exit": "5"
@@ -2106,7 +2294,7 @@
       "config": {
         "require_policy": false,
         "policy_full": true,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -2135,7 +2323,15 @@
           "evidence": [
             "9cd90b01ea062791d47a2259fd2d8bce50d88946a56604db1694408289ee6bf9",
             "e0e7d4dab7fc7fb18887869bca42452148fefcf74053706de1779129a40c6b0f"
-          ]
+          ],
+          "walk": {
+            "max_steps": "10000",
+            "steps": "0",
+            "from_seq": "1",
+            "to_seq": "1",
+            "total": "2",
+            "end": "finding"
+          }
         },
         "verdict": "unchecked",
         "exit": "5"
@@ -2157,7 +2353,7 @@
       "config": {
         "require_policy": false,
         "policy_full": true,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -2182,7 +2378,15 @@
         "gate_integrity": {
           "status": "ok",
           "reason": null,
-          "evidence": []
+          "evidence": [],
+          "walk": {
+            "max_steps": "10000",
+            "steps": "1",
+            "from_seq": "0",
+            "to_seq": "1",
+            "total": "2",
+            "end": "genesis"
+          }
         },
         "verdict": "valid",
         "exit": "0"
@@ -2204,7 +2408,7 @@
       "config": {
         "require_policy": false,
         "policy_full": true,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -2233,7 +2437,15 @@
           "evidence": [
             "32910a8526e583facf7929111da2fdc89e9b48181e67f62df0d66fb379b866ce",
             "b0257a7cd584913047fa38a169dce1b4885d9e6e69886c771ea78c3c18897e34"
-          ]
+          ],
+          "walk": {
+            "max_steps": "10000",
+            "steps": "0",
+            "from_seq": "1",
+            "to_seq": "1",
+            "total": "2",
+            "end": "finding"
+          }
         },
         "verdict": "unchecked",
         "exit": "5"
@@ -2255,7 +2467,7 @@
       "config": {
         "require_policy": false,
         "policy_full": true,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -2287,7 +2499,15 @@
           "evidence": [
             "05d36f7d51affdc2ece615d101f7b054e61d39b5f89dfe8e969fdde48da92bb0",
             "30ec3092f1decae83804ba0bb1ced8fb2189cc68199ec4599805d36d4149e86d"
-          ]
+          ],
+          "walk": {
+            "max_steps": "10000",
+            "steps": "1",
+            "from_seq": "1",
+            "to_seq": "2",
+            "total": "3",
+            "end": "finding"
+          }
         },
         "verdict": "unchecked",
         "exit": "5"
@@ -2309,7 +2529,7 @@
       "config": {
         "require_policy": false,
         "policy_full": true,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],
@@ -2337,7 +2557,15 @@
           "evidence": [
             "063d834558e7926823748b4957f992267f4a771bc18d313b54779330be3ebf22",
             "8e051099e3618ca4e7a27c5d99ad701bee72dea70119899b9145d51cf711e88e"
-          ]
+          ],
+          "walk": {
+            "max_steps": "10000",
+            "steps": "0",
+            "from_seq": "2",
+            "to_seq": "2",
+            "total": "3",
+            "end": "finding"
+          }
         },
         "verdict": "unchecked",
         "exit": "5"
@@ -2359,7 +2587,7 @@
       "config": {
         "require_policy": false,
         "policy_full": false,
-        "policy_depth": null,
+        "max_walk_steps": null,
         "principal_keys": [
           "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
         ],

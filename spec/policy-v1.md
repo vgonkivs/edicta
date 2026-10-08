@@ -1,8 +1,8 @@
 # Edicta policy v1 (mandate, facts, rule engine, verdicts)
 
-Status: revision `policy-v1-draft.2` (2026-10-08). Working draft, subject to
+Status: revision `policy-v1-draft.4` (2026-10-08). Working draft, subject to
 change. Built on the core spec `spec/decision-commitment-v0.md`, revision
-`v0-draft.29`. Section numbers prefixed "core" refer to the core spec.
+`v0-draft.30`. Section numbers prefixed "core" refer to the core spec.
 
 Keywords MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Items marked
 `UNVERIFIED` are facts about Celestia or Fibre that a Celestia protocol
@@ -38,6 +38,8 @@ mandate behaves exactly as core section 8.7 says.
 |---|---|---|
 | `policy-v1-draft.1` | First draft (task 028). | Initial set in `spec/vectors/policy/`; `spec/vectors/profiles/bank-send/tia_transfer_facts.json`. |
 | `policy-v1-draft.2` | Asset scale is immutable per counter: the counter cell keeps the scale of every asset any adopted version listed, adoption refuses a change (6.3), and walk rule L4 checks the same rule across every mandate the walk reaches (13.3). Closed bucket and ClosedSet bytes are stored in the registry entry of the allow that closed the hour (11.1, 11.4, 12.2). No encoding, hash or signature preimage changed. | `mandate.json` gains `adoption`; `verify.json` gains three cases and their records. Both files now carry `policy-v1-draft.2`; every other file and every existing case and record is byte-identical. |
+| `policy-v1-draft.3` | The scale map of a counter cell holds at most 1024 assets; adoption that would exceed it is refused with cause `scales_full` (6.3, 11.4). On a stage 4p deny the gate first reads the nonce entry, and a same-commitment retry gets the stored Authorization with `ErrNonceUsed`, no deny signed (11.1). Repair orders its writes within each entry only (12.2). The walk's default depth is 10000 hops, and a walk that the default cuts short reports `gate_integrity` `unchecked` with reason `policy_walk_truncated` (13.3, 13.4). No encoding, hash or signature preimage changed. | `mandate.json` gains the adoption case `adopt_scales_full` and the optional per-case `start` cell, and carries `policy-v1-draft.3`; every other file and every existing case is byte-identical. |
+| `policy-v1-draft.4` | Walk truncation (human decision of 2026-10-08, which supersedes the explicit-depth exception of draft.3). `gate_integrity` after a walk is `ok` only when the walk reached genesis, the start of the counter's history; `violated` on a signed contradiction; `unchecked` otherwise. A walk cut short by the step cap is `unchecked` with reason `policy_walk_truncated` whether the cap is the default or set explicitly, and the retention horizon no longer ends the walk (13.3). The bound is renamed `MaxWalkSteps`, CLI `--max-walk-steps N`, default 10000 (was `PolicyDepth`, `--policy-depth`). The report gains `gate_integrity.walk`: the step cap, the steps taken, the walked seq range, the chain length and why the walk ended (13.4, 13.5). The reason is registered in the core enum (`v0-draft.30`). Outcome changes, only in `gate_integrity`: a walk cut by an explicit bound is `unchecked` (was `ok`), and a walk that stopped at the horizon before genesis now goes on, so it ends `ok` at genesis, `unchecked` or `violated` by what it finds (was `ok`); the `policy` check, the decision verdict and the exit code do not change. No encoding, hash or signature preimage changed. | `verify.json` carries `policy-v1-draft.4`: `config.policy_depth` is renamed `max_walk_steps`, every case whose walk ran gains `expect.gate_integrity.walk`, `pass_depth_1` now expects `gate_integrity` `unchecked` (`policy_walk_truncated`) with verdict `valid`, exit 0, and two cases are new: `walk_cap_reaches_genesis` (`ok`) and `walk_truncated_cap_2` (`unchecked`). Every record and every other file is byte-identical. |
 
 ## 1. Threat model
 
@@ -45,6 +47,7 @@ mandate behaves exactly as core section 8.7 says.
 |---|---|---|
 | Principal Ed25519 signature over the mandate hash (section 6) | An operator or gate inventing or loosening the rules; a mandate of one gate configured at another (`gate_id` inside the signed bytes) | The principal's key is secret; the verifier pins the principal keys it trusts (`PrincipalKeys`). Key roles never overlap (core invariant 7) |
 | `mandate_id` and monotonic `version` (section 6.3) | Rolling a mandate back to a looser version; resetting the counters by re-signing the same rules | The gate's registry keeps the counter cell (never pruned); the verifier's walk checks versions along the chain. A new `mandate_id` is a fresh counter by the principal's explicit choice |
+| Bounded scale map (section 6.3) | A counter whose cell no longer decodes, which would refuse every authorization until a new `mandate_id` | Adoption refuses a union above 1024 assets before it writes, so the gate never stores a cell its own decoder refuses. Only principal-signed versions grow the map, so reaching the bound is the principal's doing; it costs new assets on that counter, never safety |
 | Immutable asset scale per counter (section 6.3, L4) | Fresh headroom from a rescaled asset: sums are kept per `(asset, scale)`, so a version that lists an asset at a new scale would count it from zero; an honest gate falsely reported as equivocating when a version rescales an asset the retained state does not hold | The gate refuses at adoption, from the scale map in the counter cell, not from the retained ledger (which forgets aged-out or never-used assets). The verifier applies the same rule to the mandates the walk reaches; a version adopted but never used is invisible to it, which only makes the gate stricter than what the verifier can see, never the reverse |
 | Deterministic extractor, strict decoding (sections 4, 5) | One action byte string read as two different transfers by the gate and by the verifier; an action type the policy cannot read slipping through | Every reader uses the same extractor (same ID). No extractor, or bytes it cannot parse, is a deny. Extractors are code, reviewed per profile: a wrong extractor gives wrong facts everywhere at once, which shared vectors guard against |
 | Rules on the anchor time `T_H` (section 8) | Gate clock manipulation moving spend between windows | `T_H` is the header time at `payload_ref.height`, checked by the gate (K0) and by the verifier (header trust). Only rule P9 reads the gate clock; it is deny-only and marked gate-attested |
@@ -52,6 +55,7 @@ mandate behaves exactly as core section 8.7 says.
 | Conservative hourly buckets (section 8) | Allowing more than `max` in any rolling window | Exact integer arithmetic; buckets partly inside a window count fully. Cost: a window of `h` hours may count up to `h + 1` hours, so the gate may deny early |
 | Counter update in the nonce transaction (section 11.4) | Two authorizations both counted against the same headroom; a crash leaving a counted spend without an Authorization or the reverse | The registry is atomic and durable (core stage 12) |
 | Signed verdict with `prev_state` and `new_state_hash` (section 10) | A gate that authorizes over its own limits and denies it later; a gate that silently drops, understates or rewrites spends | The gate key is secret and pinned. The verifier's fast check proves consistency with the state the gate signed; the walk and external evidence prove the chain has no contradiction. Allows the gate keeps outside every chain and every piece of evidence are not detected (section 13.6) |
+| Walk to genesis with a step cap, `ok` only at genesis (section 13.3) | A verifier reading `ok` as "the gate's history is clean" when its older part was never read; a gate hiding an old fork behind a long history | `ok` needs every link from the target back to genesis checked. A cut walk is `unchecked` (`policy_walk_truncated`) with the walked range, never `ok`. A gate that pads its history only makes full walks `unchecked` or costlier, never `ok`. The cap bounds the verifier's memory; the archive must keep every allow record and ClosedSet back to genesis, or the walk is `unchecked` (`state_history_unavailable`) |
 | Archive of closed buckets, sets, verdicts and successor index (section 12) | Losing the data a verifier needs | The archive is trusted for availability only: every record is bound to a hash or a signature. A withheld record gives `unchecked`, never `valid` or `invalid` |
 | `ErrHistoryFull` (section 8.4) | Unbounded state | Capacity is independent of action frequency (768 buckets per counter); the bound that remains is per-bucket assets and integer widths |
 | Nothing (open gap) | An operator who runs a gate without a mandate, or edits its own executor to skip the Authorization | Core section 16: enforcement is the integrator's. An auditor relying on a mandate sets `RequirePolicy` (section 13.1) |
@@ -267,6 +271,16 @@ one of them), then `S < L` and the cofactorless equation (core G1, G2). A failur
   keeping it out of State leaves every state and verdict encoding unchanged.
   The map grows only with principal-signed versions (at most 16 new assets
   per version).
+- **Scale map bound.** `scales` holds at most 1024 entries. That is the
+  per-map entry limit of the strict decoder (section 3), so every map the
+  gate may write is one its decoder accepts. It is far above what one
+  version uses (at most 16 assets per mandate; a bucket holds at most 64
+  `(asset, scale)` pairs, P14) and allows about 64 versions that each bring
+  16 new assets. Assets dropped by later versions still count, because
+  entries are never removed. A version whose union would exceed 1024 is
+  refused (cause `scales_full`); versions that list only known assets can
+  still be adopted. A principal who needs more assets starts a new
+  `mandate_id`.
 - **Adoption at gate start.** Decode and verify the mandate; its `gate_id`
   MUST equal the gate's. The principal key MUST NOT equal the gate key, an
   executor key or an allowlisted agent key (`commitment.ErrKeyRole`). Every
@@ -279,16 +293,21 @@ one of them), then `S < L` and the cofactorless equation (core G1, G2). A failur
   | version above the configured one | refuse to start |
   | same version, different `mandate_hash` | refuse to start |
   | same version, same hash | use it |
-  | version below the configured one | check every AssetRule against `scales`: an asset in the map with another scale refuses to start; otherwise switch the cell to this mandate and set `scales` to the union, in one compare-and-swap, keeping head and state |
+  | version below the configured one | check every AssetRule against `scales`: an asset in the map with another scale refuses to start (cause `scale`); then a union of more than 1024 entries refuses to start (cause `scales_full`); otherwise switch the cell to this mandate and set `scales` to the union, in one compare-and-swap, keeping head and state |
 
-  Any refusal is a configuration error (`gate.ErrInvalidConfig`). Every later
+  Any refusal is a configuration error (`gate.ErrInvalidConfig`), decided
+  before anything is written, so a refusal leaves the cell unchanged and the
+  gate does not run (fail-closed). The causes are distinct so that an
+  operator can tell them apart: `version` (the stored version is above the
+  configured one), `same_version_other_hash`, `scale` and `scales_full`.
+  Genesis cannot reach the bound (at most 16 assets). Every later
   state update (stage 12) compares the stored mandate hash too, so a lower
   version can never be adopted by a concurrent writer.
 
 Vectors: `spec/vectors/policy/mandate.json` (encodings, hashes, signatures,
 counter keys, rejects, and `adoption`: sequences of signed mandates applied to
-one cell, with each step's action, refusal cause, version and `scales` after
-it).
+one cell, absent or given as a `start` cell, with each step's action, refusal
+cause, version and `scales` after it).
 
 ## 7. Rendered text (normative)
 
@@ -568,7 +587,7 @@ are skipped and nothing else changes.
 | # | Stage | What | Sentinels |
 |---|---|---|---|
 | 1 to 4 | D..C, E, L, A | unchanged | core |
-| 4p | Admission | P1 to P8 (8.2). A deny signs a deny verdict and then runs stage 4a, whose failure does not change the deny | 8.2 |
+| 4p | Admission | P1 to P8 (8.2). On a deny, the stored-retry check below runs first; if it does not answer, the gate signs a deny verdict and then runs stage 4a, whose failure does not change the deny | 8.2, `ErrNonceUsed` |
 | 4a | AR | unchanged; also runs after a 4p deny | core |
 | 5 to 10 | N0, K, K1, K2, P, T' | unchanged | core |
 | 10p | Evaluation | P9 (8.3). Then take the policy lock, read the counter cell, `Evaluate` (8.4). A deny signs a deny verdict (with `prev_state` from the cell), releases the lock, writes nothing to the registry | 8.3, 8.4 |
@@ -585,6 +604,34 @@ are skipped and nothing else changes.
 - Retry rule (core 8.7) extended: the stored entry returns its Authorization
   and its verdict; a same-commitment retry never reaches 10p, so nothing is
   counted twice.
+- Stored-retry check on a 4p deny. A retry of an authorized commitment can
+  be denied at 4p when the mandate changed since (a later version dropped
+  the agent, the asset or the recipient). Before signing that deny, the gate
+  reads the nonce entry under (`agent_pubkey`, `nonce`) of the verified
+  envelope:
+  - The entry holds this `commitment_hash`: the request is a retry. The
+    gate answers as the core retry rule does: the stored Authorization and
+    the stored verdict, with `ErrNonceUsed`. It hands out the Authorization
+    only after decoding it, verifying it under the gate key, and comparing
+    its `commitment_hash` and `action_hash` with the presented ones in
+    constant time; on a mismatch it answers `ErrActionMismatch` with no
+    Authorization. No deny verdict is signed, no `policy_deny` record or
+    rejection marker is written, and the result does not wrap
+    `policy.ErrDenied`.
+  - The entry names another commitment, or there is no entry: the deny is
+    signed and archived as above. The 4p order comes before the advisory
+    nonce check, so a deny here does not reveal anything about the other
+    commitment.
+  - Any registry error other than not-found: `ErrRegistryUnavailable`,
+    nothing signed (fail-closed).
+
+  Threat note. Without this check, a client that retries after its
+  Authorization was lost in transit would get a signed deny for a
+  commitment the gate already authorized, and the archive would hold an
+  allow and a deny for one commitment. The check issues no new
+  Authorization: it returns one already issued for this exact commitment
+  and action, or refuses, so invariants 5 and 8 hold. Stages 1 to 4 have
+  passed before it, as for the core advisory-nonce replay.
 - Policy lock: one per gate, held from the cell read through stage 12, and
   it is ctx-aware. With a shared counter, concurrent requests are serialized.
 
@@ -627,7 +674,8 @@ configuration. Vectors: `spec/vectors/policy/api.json`.
 ### 11.4 Registry (implementation rules, no wire format)
 
 The cell under `counter_key` holds the mandate ID, version and hash, the
-`scales` map (6.3), the chain head (`commitment_hash`, `verdict_hash` of the
+`scales` map (6.3, at most 1024 entries; the cell's encoder refuses a larger
+map, as its decoder does), the chain head (`commitment_hash`, `verdict_hash` of the
 last allow) and the ledger (state and retained closed buckets, at most 768
 buckets). Cells are never pruned.
 
@@ -636,7 +684,7 @@ canonical bytes of the Bucket closed by that allow and of the ClosedSet it
 produced (both absent when the allow did not roll an hour over). They are
 written in the same transaction as the cell, so they are exactly as durable
 as the spend they describe: whatever the archive loses, the registry can
-rewrite in chain order. Cost: at most 16,384 + 36,864 bytes, only on the
+rewrite (12.2). Cost: at most 16,384 + 36,864 bytes, only on the
 first allow of an hour. These bytes are archive data, not evidence: the
 entry is gate-local and its encoding is not normative. The entry may be
 pruned with the core nonce prune rules; the archive is the long-term copy,
@@ -686,11 +734,17 @@ and gates sharing one archive.
   crash leaves no Authorization record without its verdict. A failed write
   does not change the answer; the gate repairs it (below).
 - After a policy deny: `policy_deny` and the rejection marker (12.3).
-- Repair (start and sweep): for each registry entry of an allow, in chain
-  order (ascending `prev_state.seq` per counter), the writer rewrites the
-  same chain as above from the entry alone: the closed Bucket and ClosedSet
-  stored in the entry (when present), `policy_allow`, `policy_successor`,
-  then the Authorization record. Every record is content-addressed or keyed
+- Repair (start and sweep): for each registry entry of an allow, the writer
+  rewrites the same chain as above from the entry alone, in this order: the
+  closed Bucket and ClosedSet stored in the entry (when present),
+  `policy_allow`, `policy_successor`, then the Authorization record. It
+  stops the entry at the first write that fails, so an Authorization record
+  never lands ahead of its policy records. The order across entries is not
+  required (registry key order is fine): no archive precondition of an
+  allow's chain depends on another allow's records. Cost: while a long
+  repair runs, a reader may get `unchecked` (`state_history_unavailable`)
+  for a verdict whose predecessor is not rewritten yet, never a wrong
+  result. Every record is content-addressed or keyed
   by the verdict, so a rewrite of a record already present is a no-op.
   Because the entry is written in the same transaction as the spend, no
   ClosedSet or closed bucket a verdict names can be lost while its entry
@@ -725,8 +779,9 @@ statement that the gate had a mandate: without it, an archive that withholds
 the allow record silently skips the check. Every report also carries
 `gate_integrity` (13.4). Inputs: the gate key on record for `gate_id` (the
 key Authorizations verify under), `PrincipalKeys`, the extractor registry,
-`T_H` if header trust passed, and optionally `PolicyFull`, `PolicyDepth` and
-`Evidence` (extra signed verdicts, for example those agents received).
+`T_H` if header trust passed, and optionally `PolicyFull`, `MaxWalkSteps`
+(the walk's step cap; 0 means the default of 10000, 13.3) and `Evidence`
+(extra signed verdicts, for example those agents received).
 
 ### 13.2 Fast check (always)
 
@@ -774,9 +829,45 @@ and only the first violation found is reported.
 ### 13.3 Full check (`PolicyFull`, CLI `--policy-full`)
 
 Runs when step 1 passed and no violation was found yet. **Walk** from `n = V` back along
-`prev_commitment_hash` and stop at genesis (`prev_state.seq = 0`), after
-`PolicyDepth` hops, or when `prev_state.last_t` is older than
-`V.eval_time - 32 days` (the retention horizon; the default depth). Per hop,
+`prev_commitment_hash`, one step per hop, and stop at genesis (`n` has
+`prev_state.seq = 0`), at the first finding (a violation or an unchecked
+result of a hop), or when `MaxWalkSteps` steps are taken and `n` still has
+`prev_state.seq >= 1`. A step is one hop: the read of `p` and the checks
+L1 to L5 below. `MaxWalkSteps = 0` (unset) means the default of 10000;
+CLI `--max-walk-steps N`, `N >= 1`. A verifier MAY accept `--policy-depth N`
+(the draft.3 name) as an alias with exactly this meaning.
+
+Genesis is the start of the counter's history: a verdict with
+`prev_state.seq = 0` read the state `Genesis` of 9.4 (strict decoding allows
+no other state with `seq = 0`), and the counter of a mandate starts there
+whatever its version (6.3). The retention horizon does not end the walk:
+the archive keeps every allow record and ClosedSet (12), so the whole
+history is readable, and a walk that stopped at the horizon would leave the
+older part unread.
+
+The cap bounds the verifier's work and memory: the walk holds every walked
+verdict for the fork search, up to 16,384 bytes each, so about 160 MB at the
+default. A counter with more than 10000 allows before `V` is not walked to
+genesis by default; the auditor raises the cap, and pays its memory.
+
+**Truncation.** A walk that ends at the cap, with no violation and no
+unchecked result found, reports `gate_integrity` `unchecked` with reason
+`policy_walk_truncated`, never `ok`, whether the cap is the default or set
+explicitly (human decision of 2026-10-08; it supersedes draft.3, where an
+explicit bound reported `ok`). `ok` would read as "the gate's history is
+clean" when its older part was never read. The truncation does not change
+the `policy` check, the decision verdict or the exit code: the fast check
+already proved this allow against the state the gate signed, and the walk
+only judges the gate. The reason is on `gate_integrity` only (core 20.1.1,
+`v0-draft.30`).
+
+Threat note: the cap is a verifier resource bound, not a trust boundary. A
+gate that pads its counter with many allows cannot turn a fork older than
+the cap into `ok`; it gets `unchecked` with the range that was read, and an
+auditor with a higher cap, or the fork's other verdict as `Evidence`, still
+finds it. Evidence verdicts are compared whatever the walk reached.
+
+Per hop,
 read the `policy_allow` record of `n.prev_commitment_hash` as `p` (absent:
 `state_history_unavailable`; undecodable, key mismatch or bad signature:
 `source_corrupt`), then `CheckLink(p, n)`, first failure wins:
@@ -812,12 +903,34 @@ inconsistent (L5). Either way a signed contradiction comes out.
 | History missing: a ClosedSet, a needed bucket, or a verdict or mandate the walk needs | unchecked (`state_history_unavailable`) | `unchecked` with that reason if it happened in the walk |
 | History bytes that do not hash to their key or do not decode | unchecked (`source_corrupt`) | same rule |
 | Fork; unlinked consecutive verdicts; a self-inconsistent transition or ledger; a seq gap; a version decrease, a scale change or a `mandate_id`, principal or `gate_id` change inside one chain; a verdict that contradicts the verified decision | unchecked (`blocked`, naming `gate_integrity`) unless already fail or unchecked | `violated`, reason `gate_equivocation`, evidence: the signed verdicts (one for a self-inconsistent one) |
-| Walk completed without findings | per the fast check | `ok` |
+| Walk ended at the step cap (default or explicit), without findings | per the fast check | `unchecked`, reason `policy_walk_truncated` |
+| Walk reached genesis without findings | per the fast check | `ok` |
 | No walk and no violation | per the fast check | `not_checked` |
 
 `gate_integrity` is `{status: ok | violated | not_checked | unchecked, reason,
-evidence: [SignedPolicyVerdict bytes]}`; with `violated` the report also lists
-each evidence `verdict_hash`. Without a policy check it is `not_checked`.
+evidence: [SignedPolicyVerdict bytes], walk}`; with `violated` the report also
+lists each evidence `verdict_hash`. Without a policy check it is
+`not_checked`. After a walk the status is one of three: `ok` (genesis
+reached), `violated` or `unchecked`. `not_checked` means no walk ran and no
+violation was found.
+
+`walk` is present exactly when the walk ran, whatever the status:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `max_steps` | uint | The step cap in effect (10000 unless set). |
+| `steps` | uint | Steps that passed every check: verdicts before `V` that the walk read and checked. |
+| `to_seq` | uint | `V.prev_state.seq`. |
+| `from_seq` | uint | `prev_state.seq` of the oldest verdict reached by a passed step (`to_seq` if none); `to_seq - from_seq = steps`. |
+| `total` | uint | `to_seq + 1`: the allows of the counter up to and including `V`, as `V`'s signed state counts them. |
+| `end` | enum | `genesis` (status `ok` unless evidence or a successor record shows a fork), `max_steps` (`policy_walk_truncated`), or `finding` (a violation or an unchecked hop ended it). |
+
+`total` rests on the gate's signed `seq`, so it is the gate's claim, and
+the walk checks it: L3 makes every step lower `seq` by exactly one, and
+`ok` needs a `seq = 0` verdict that read genesis. A gate that signs a
+smaller `seq` than its real history has started a second chain from
+genesis; it gets `ok` on that chain alone, and any allow of the first chain
+with the same `seq` is a fork once held (successor records, `Evidence`).
 
 Precedence inside `policy`: fail; then `blocked` by a violation; then the
 first unchecked reason of the fast check; then that of the walk; else pass.
@@ -832,6 +945,11 @@ Core 20.1 as amended in `v0-draft.29`: the verdict is `unchecked` whenever
 code 5 in that case. Precedence of exit codes: 4, then 1, then 5, then 3,
 then 2, then 0. The text output starts with the line `GATE INTEGRITY VIOLATED
 (gate_equivocation)` whenever the status is `violated`, including with exit 1.
+After a walk the text output prints one line with the `walk` fields:
+`gate integrity walk: last <steps + 1> of <total> verdicts checked (seq
+<from_seq> to <to_seq>, <steps> of at most <max_steps> steps, ended at
+<end>)`, and with `policy_walk_truncated` it advises raising
+`--max-walk-steps` above `to_seq`.
 
 The report's `policy` block: `mandate_hash`, `mandate_id`, `version`,
 `principal`, `seq` (of `prev_state`), `anchor_time`, `eval_time`, `facts`,
@@ -845,7 +963,9 @@ gate-attested). A verifier MAY skip reading deny records.
   facts, the per-action rules, and that the allow is consistent with the
   exact state the gate signed.
 - With the walk and evidence: that the gate's published chain has no
-  internal contradiction back to the depth reached.
+  internal contradiction back to genesis. `ok` means genesis was reached;
+  a walk cut by the step cap, default or explicit, is `unchecked`
+  (`policy_walk_truncated`) and states the range it read.
 
 Not proven: allows the gate kept outside every chain and every piece of
 evidence (an Authorization of that kind is itself evidence when it surfaces);
@@ -883,8 +1003,8 @@ Package `policy` unless noted. Deny sentinels wrap `ErrDenied`.
 
 Location `spec/vectors/policy/`. Every file has `"format":
 "edicta-policy-vectors/v1"` and `"revision"` set to the revision that last
-changed its bytes: `policy-v1-draft.2` for `mandate.json` and `verify.json`,
-`policy-v1-draft.1` for the others. JSON as core
+changed its bytes: `policy-v1-draft.3` for `mandate.json`,
+`policy-v1-draft.4` for `verify.json`, `policy-v1-draft.1` for the others. JSON as core
 section 13: uints are decimal strings, byte strings and amounts lowercase
 hex, text as JSON strings, optional fields absent when unset. Keys: `agent1`,
 `agent2`, `gate1` of core `keys.json`; principals `p1`, `p2` with seed
@@ -896,11 +1016,11 @@ fields as verified by the core checks).
 | File | Contents |
 |---|---|
 | `facts.json` | `test_extractor`; `cases`: `input`, `cbor_hex`. `reject`: `cbor_hex`, `expect_error` = `ErrFactsInvalid`, `cause`. |
-| `mandate.json` | `tags`, `keys`; `cases` (including a full mandate with `kinds`, `not_before` and every optional field, and a version 2 with the same counter key): `signer`, `input`, `mandate_cbor_hex`, `mandate_hash_hex`, `signed_message_hex`, `signature_hex`, `signed_mandate_hex`, `counter_key_hex`. `reject`: `signed_mandate_hex`, `expect_error` (`ErrMandateInvalid` or `ErrMandateSignature`), `cause`. `adoption` (6.3, from an absent cell): `steps` of `signed_mandate_hex`, `mandate_hash_hex`, `expect` (`genesis`, `use`, `switch` or `refuse` with `error` = `gate.ErrInvalidConfig` and `cause` = `version`, `same_version_other_hash` or `scale`), `version_after`, `scales_after` (the cell after the step; a refusal leaves it unchanged). Cases: a scale change of an unused asset; a scale change after an intermediate version dropped the asset; scales kept with an added asset, then a restart; a lower version; the same version with another hash. |
+| `mandate.json` | `tags`, `keys`; `cases` (including a full mandate with `kinds`, `not_before` and every optional field, and a version 2 with the same counter key): `signer`, `input`, `mandate_cbor_hex`, `mandate_hash_hex`, `signed_message_hex`, `signature_hex`, `signed_mandate_hex`, `counter_key_hex`. `reject`: `signed_mandate_hex`, `expect_error` (`ErrMandateInvalid` or `ErrMandateSignature`), `cause`. `adoption` (6.3): optional `start` (the cell before the first step: `version`, `mandate_hash_hex`, `scales`; absent: no cell), `steps` of `signed_mandate_hex`, `mandate_hash_hex`, `expect` (`genesis`, `use`, `switch` or `refuse` with `error` = `gate.ErrInvalidConfig` and `cause` = `version`, `same_version_other_hash`, `scale` or `scales_full`), `version_after`, `scales_after` (the cell after the step; a refusal leaves it unchanged). Cases: a scale change of an unused asset; a scale change after an intermediate version dropped the asset; scales kept with an added asset, then a restart; a lower version; the same version with another hash; `adopt_scales_full` (a start cell of 1012 assets standing for earlier versions; a switch to exactly 1024; one more asset refused; a version with only known assets switched). |
 | `render.json` | `cases`: `mandate_ref` or `input`, `text`. |
 | `state.json` | `genesis` (bytes, hash, empty ClosedSet bytes and root); `buckets`, `closed_sets`, `states` (input, bytes, hash); `coverage` (two states differing in one open sum, with different hashes); `reject` per structure. |
 | `engine.json` | `scenarios`: `mandate`, optional `start` ledger (state, closed set and bucket bytes), `steps` (admitted `facts` and `t_h`, or a `repeat` form; `expect`: `allow` with `eval_time`, `new_state_hash_hex`, `new_state_cbor_hex`, `rolled_over`, `closed` count and, after a rollover, the closed bucket hash and ClosedSet bytes; or `deny` with the sentinel and, for `ErrHistoryFull`, `cause` = `sum`, `count`, `pairs` or `seq`), `final`. Scenarios: limit edges, bucket rounding, counts, min spacing, clamp, rollover, `not_before`, two assets, retention 767 over 800 hours, every `ErrHistoryFull` cause. |
-| `verify.json` | `gate`, `extractors`; `records` (archive record bytes by canonical path); `cases`: `decision` (the fields the core checks verified), `t_h` (absent: header trust did not pass), `config` (`require_policy`, `policy_full`, `policy_depth`, `principal_keys`, `extractors`, `evidence`), `archive` (paths present), optional `corrupt` (path to replacement bytes), `expect` (`policy` with `status` and `rule` or `reason`; `gate_integrity` with `status`, `reason`, `evidence` verdict hashes; `verdict`; `exit`). One case per outcome row of 13.4: passes (genesis, closed bucket, hour rollover, chain continuity, depth); every unchecked reason; every per-action fail including kind and `not_before`; fails on the signed state; fork by evidence and by successor record; unlinked verdicts; self-inconsistent transition; understated open bucket (fast passes, walk exit 5); version decrease; scale change across a version boundary, consecutive and after an intermediate version dropped the asset (evidence the two verdicts whose mandates disagree); a walk across a version boundary that keeps every scale (no equivocation); seq gap; missing and corrupt history; fail with equivocation (exit 1). |
+| `verify.json` | `gate`, `extractors`; `records` (archive record bytes by canonical path); `cases`: `decision` (the fields the core checks verified), `t_h` (absent: header trust did not pass), `config` (`require_policy`, `policy_full`, `max_walk_steps` (null: the default), `principal_keys`, `extractors`, `evidence`), `archive` (paths present), optional `corrupt` (path to replacement bytes), `expect` (`policy` with `status` and `rule` or `reason`; `gate_integrity` with `status`, `reason`, `evidence` verdict hashes, and `walk` (13.4) when the walk ran; `verdict`; `exit`). One case per outcome row of 13.4: passes (genesis, closed bucket, hour rollover, chain continuity); a cap that reaches genesis exactly (`ok`) and caps of 1 and 2 steps on a chain of 4 (`unchecked`, `policy_walk_truncated`, verdict `valid`, exit 0); every unchecked reason; every per-action fail including kind and `not_before`; fails on the signed state; fork by evidence and by successor record; unlinked verdicts; self-inconsistent transition; understated open bucket (fast passes, walk exit 5); version decrease; scale change across a version boundary, consecutive and after an intermediate version dropped the asset (evidence the two verdicts whose mandates disagree); a walk across a version boundary that keeps every scale (no equivocation); seq gap; missing and corrupt history; fail with equivocation (exit 1). |
 | `archive.json` | `kinds`, `reserved_kinds`, `marker_names`; `cases`: `kind`, `path`, `key_hex`, `record_cbor_hex` (each also in `verify.json`). `reject`: `record_cbor_hex`, `expect_error` = `archive.ErrCorrupt`, `cause`. |
 | `api.json` | the 11.3 mapping and example bodies (deny with key 5, authorize response with key 5, 409 with keys 4 and 5). |
 

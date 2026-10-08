@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.2).
+"""Writes the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.4).
 
 spec/vectors/policy/{facts,mandate,render,state,engine,verify,archive,api}.json
 and spec/vectors/profiles/bank-send/tia_transfer_facts.json. Deterministic:
@@ -29,7 +29,8 @@ VECTORS = HERE.parent
 FORMAT = "edicta-policy-vectors/v1"
 # Each file carries the revision that last changed its bytes.
 REVISION = "policy-v1-draft.1"
-REVISION_2 = "policy-v1-draft.2"
+REVISION_3 = "policy-v1-draft.3"
+REVISION_4 = "policy-v1-draft.4"
 T0 = 1791000000
 GATE_ID = "gate-paper-1"
 
@@ -321,9 +322,22 @@ def gen_adoption():
          [two_assets("ad5", 1), base_mandate("ad5", assets=[dict(ETH), dict(base_mandate("ad5")["assets"][0],
                                                                        per_action_max=P.amt(4000))])]),
     ]
+    cases = [(i, d, ms, None) for i, d, ms in cases]
+    # A cell grown by earlier versions to 1012 assets; only the cell matters, so
+    # those versions are elided and the start cell is given directly.
+    full = [f"test:a{n:04d}" for n in range(1025)]
+    rules = lambda names: [{"asset": a, "scale": 2, "per_action_max": P.amt(1000)} for a in names]  # noqa: E731
+    start = {"version": 63, "mandate_hash": sha("edicta/policy/v1 test mandate|adopt_scales_full start"),
+             "scales": {a: 2 for a in full[:1012]}}
+    cases.append(("adopt_scales_full", "The cell holds 1012 assets. Version 64 adds 12 new ones and reaches the "
+                  "bound of 1024: switched. Version 65 adds one more: refused, the cell keeps version 64. Another "
+                  "version 65 that lists only known assets: switched.",
+                  [base_mandate("ad6", version=64, assets=rules(full[1008:1024])),
+                   base_mandate("ad6", version=65, assets=rules(full[1009:1025])),
+                   base_mandate("ad6", version=65, assets=rules(full[0:16]))], start))
     out = []
-    for i, d, ms in cases:
-        cell, steps = None, []
+    for i, d, ms, start in cases:
+        cell, steps = start, []
         for m in ms:
             sm, mh, _ = P.sign_mandate(SEEDS["p1"], m)
             st = {"signed_mandate_hex": sm.hex(), "mandate_hash_hex": mh.hex()}
@@ -335,7 +349,11 @@ def gen_adoption():
             st["version_after"] = str(cell["version"])
             st["scales_after"] = {a: str(v) for a, v in sorted(cell["scales"].items())}
             steps.append(st)
-        out.append({"id": i, "description": d, "steps": steps})
+        c = {"id": i, "description": d}
+        if start is not None:
+            c["start"] = {"version": str(start["version"]), "mandate_hash_hex": start["mandate_hash"].hex(),
+                          "scales": {a: str(v) for a, v in sorted(start["scales"].items())}}
+        out.append({**c, "steps": steps})
     return out
 
 
@@ -673,7 +691,7 @@ def gen_verify():
             assert pool.get(p, b) == b, p
             pool[p] = b
 
-    def case(i, desc, sim, d, th="same", *, full=False, depth=None, require=False, principals=("p1",),
+    def case(i, desc, sim, d, th="same", *, full=False, steps=None, require=False, principals=("p1",),
              extractors=True, evidence=(), drop=(), corrupt=None, exp=None):
         merge(sim)
         arch = sorted(p for p in sim.recs if p not in drop)
@@ -684,7 +702,7 @@ def gen_verify():
         ext = {P.TEST_ACTION_TYPE: P.TEST_EXTRACTOR} if extractors else {}
         res = P.verify_policy({"archive": P.Archive(recs), "decision": d, "t_h": t_h, "gate_pub": G1,
                                "principals": [PUB[x] for x in principals], "extractors": ext, "full": full,
-                               "depth": depth, "evidence": list(evidence)})
+                               "max_walk_steps": steps, "evidence": list(evidence)})
         if exp:
             got = (res["policy"]["status"], res["policy"].get("rule") or res["policy"].get("reason"),
                    res["gate_integrity"]["status"], res["exit"])
@@ -696,7 +714,7 @@ def gen_verify():
                           "gate_id": d["gate_id"]}}
         if t_h is not None:
             c["t_h"] = str(t_h)
-        c["config"] = {"require_policy": require, "policy_full": full, "policy_depth": str(depth) if depth is not None else None,
+        c["config"] = {"require_policy": require, "policy_full": full, "max_walk_steps": str(steps) if steps is not None else None,
                        "principal_keys": [PUB[x].hex() for x in principals], "extractors": {k: v for k, v in ext.items()},
                        "evidence": [e.hex() for e in evidence]}
         c["archive"] = arch
@@ -732,7 +750,15 @@ def gen_verify():
          "full walk to genesis.", A, a3, full=True, exp=("pass", None, "ok", "0"))
     case("pass_chain_continuity", "a4, full walk a4 -> a3 -> a2 -> a1 -> genesis: every link, seq step, mandate and "
          "transition checks.", A, a4, full=True, exp=("pass", None, "ok", "0"))
-    case("pass_depth_1", "a4, full walk limited to one hop.", A, a4, full=True, depth=1, exp=("pass", None, "ok", "0"))
+    case("pass_depth_1", "a4, full walk capped at one step: a4 -> a3, and a3 is not genesis. The walk is truncated, "
+         "so gate_integrity is unchecked (policy_walk_truncated) even though the cap is explicit; the policy check "
+         "passes and the verdict stays valid.", A, a4, full=True, steps=1,
+         exp=("pass", None, "unchecked", "0"))
+    case("walk_truncated_cap_2", "a4, full walk capped at two steps: a4 -> a3 -> a2, and a2 is not genesis: "
+         "last 3 of 4 verdicts checked, truncated.", A, a4, full=True, steps=2, exp=("pass", None, "unchecked", "0"))
+    case("walk_cap_reaches_genesis", "a4, full walk capped at three steps: a4 -> a3 -> a2 -> a1, and a1 read "
+         "genesis, so no further step is due and the walk is complete.", A, a4, full=True, steps=3,
+         exp=("pass", None, "ok", "0"))
     nopol = dec(A, "a_no_policy_record", F(10), T0 + 7500)
     case("unchecked_verdict_unavailable", "require_policy and no policy_allow record for the decision.", A, nopol,
          require=True, exp=("unchecked", "policy_verdict_unavailable", "not_checked", "2"))
@@ -1112,11 +1138,11 @@ def build() -> dict:
         "policy/facts.json": header({"test_extractor": {"id": P.TEST_EXTRACTOR, "action_type": P.TEST_ACTION_TYPE},
                                      **gen_facts()}),
         "policy/mandate.json": header({"tags": {n: t.decode() for n, t in P.TAG.items()}, **mand,
-                                       "adoption": gen_adoption()}, REVISION_2),
+                                       "adoption": gen_adoption()}, REVISION_3),
         "policy/render.json": header(gen_render(mand)),
         "policy/state.json": header(gen_state()),
         "policy/engine.json": header(gen_engine()),
-        "policy/verify.json": header(ver, REVISION_2),
+        "policy/verify.json": header(ver, REVISION_4),
         "policy/archive.json": header(gen_archive(pool)),
         "policy/api.json": header(gen_api(sims)),
         "profiles/bank-send/tia_transfer_facts.json": gen_tia(),

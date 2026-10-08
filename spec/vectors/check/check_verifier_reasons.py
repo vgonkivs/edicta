@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/verifier/reasons.json (v0-draft.29).
+"""Verifies spec/vectors/verifier/reasons.json (v0-draft.30).
 
 - the reason enum: unique lower-case names, known groups and checks;
 - every reason has at least one case, and every case's reason is in the enum
   and allowed on the check that carries it;
 - the outcome rule: an unchecked check gives verdict unchecked (exit 2),
-  except that an unknown record state never becomes not_authorized; a fail
+  except that an unknown record state never becomes not_authorized, and that
+  a reason carried only by gate_integrity (other than gate_equivocation)
+  leaves the verdict valid (exit 0); a fail
   gives invalid (exit 1); no unchecked case expects invalid;
 - every ref resolves to a vector id in the named file;
 - the execution reasons agree with execution_outcomes.json (the referenced
@@ -68,7 +70,7 @@ def check(path: Path) -> str:
     f = json.loads(raw)
     if path == FILE:
         expect(raw == json.dumps(gen.build(), indent=2, ensure_ascii=True) + "\n", "generator output differs")
-    expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v0-draft.29", "format or revision")
+    expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v0-draft.30", "format or revision")
     expect(set(f) == {"format", "revision", "generator", "description", "reasons", "cases", "boundary"}, "keys")
     enum = {}
     for r in f["reasons"]:
@@ -106,7 +108,12 @@ def check(path: Path) -> str:
         r = enum[e["reason"]]
         expect(e["check"] in r["checks"] or "any" in r["checks"], f"{c['id']}: {e['reason']} not on {e['check']}")
         expect(e["record_state"] in ("authorized", "unknown"), f"{c['id']}: state")
-        expect(e["verdict"] == "unchecked" and e["exit"] == "2", f"{c['id']}: an unchecked check gives unchecked")
+        if e["check"] == "gate_integrity" and r["checks"] == ["gate_integrity"]:
+            # The gate's history was not fully read; the decision's own checks are untouched.
+            expect(r["group"] == "integrity" and e["record_state"] == "authorized" and e["verdict"] == "valid"
+                   and e["exit"] == "0", f"{c['id']}: an integrity-only unchecked keeps the verdict")
+        else:
+            expect(e["verdict"] == "unchecked" and e["exit"] == "2", f"{c['id']}: an unchecked check gives unchecked")
         used.add(e["reason"])
     for c in f["boundary"]:
         e = c["expect"]
@@ -153,7 +160,7 @@ def main() -> int:
     except (Failure, KeyError) as ex:
         print(f"FAIL (reasons.json): {ex}", file=sys.stderr)
         return 1
-    print(f"OK (reasons.json, v0-draft.29): {summary}")
+    print(f"OK (reasons.json, v0-draft.30): {summary}")
     return 0
 
 

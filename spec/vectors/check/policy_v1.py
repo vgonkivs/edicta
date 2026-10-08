@@ -1,4 +1,4 @@
-"""Edicta policy v1 rules (spec/policy-v1.md, policy-v1-draft.2).
+"""Edicta policy v1 rules (spec/policy-v1.md, policy-v1-draft.4).
 
 The generator's rules module: facts, mandate, render, engine, state, verdict,
 archive records and the verifier outcome rules. check_policy.py re-implements
@@ -27,7 +27,10 @@ HOUR = 3600
 RETAIN = 767
 MAX_HOURS = 744
 MAX_PAIRS = 64
-HORIZON = 32 * 86400
+# Scale map of a counter cell: the cell decoder's per-map limit, so every map
+# the gate writes also decodes.
+MAX_SCALES = 1024
+MAX_WALK_STEPS = 10000
 DEPTH = 6
 ENTRIES = 1024
 CAP = {"facts": 512, "mandate": 16384, "verdict": 16384, "bucket": 16384, "state": 16384, "closed": 36864}
@@ -422,6 +425,8 @@ def adopt(cell, m: dict, mh: bytes) -> tuple[str, dict]:
         if scales.get(r["asset"], r["scale"]) != r["scale"]:
             raise PolicyError("ErrInvalidConfig", "scale", r["asset"])
         scales[r["asset"]] = r["scale"]
+    if len(scales) > MAX_SCALES:
+        raise PolicyError("ErrInvalidConfig", "scales_full")
     return "switch", {"version": m["version"], "mandate_hash": mh, "scales": scales}
 
 
@@ -905,10 +910,10 @@ EXTRACTORS = {TEST_EXTRACTOR: test_extract}
 def verify_policy(case: dict) -> dict:
     """case: decision{commitment_hash, agent_pubkey, action_type, action, action_hash, valid_until, gate_id},
     t_h (int or None), gate_pub, principals (list), extractors {type: id}, archive (Archive),
-    full (bool), depth (int or None), evidence (list of bytes). Returns the expectation dict."""
+    full (bool), max_walk_steps (int or None: the default), evidence (list of bytes). Returns the expectation dict."""
     A, d, gp = case["archive"], case["decision"], case["gate_pub"]
     res = {"fail": None, "fast_unchecked": None, "walk_unchecked": None, "violations": [], "walk_ran": False,
-           "blocked_th": False}
+           "blocked_th": False, "walk": None}
 
     def violated(*vs):
         if not res["violations"]:
@@ -1027,17 +1032,16 @@ def verify_policy(case: dict) -> dict:
             mandates[h] = read_mandate(h)
         return mandates[h]
 
+    cap = case["max_walk_steps"] or MAX_WALK_STEPS
+
     def walk():
         res["walk_ran"] = True
         n, hops = V, 0
-        horizon = V["eval_time"] - HORIZON
         walked = [V]
         known = {}
         while n["prev_state"]["seq"] >= 1:
-            if case["depth"] is not None and hops >= case["depth"]:
-                break
-            if n["prev_state"]["last_t"] < horizon:
-                break
+            if hops >= cap:
+                return "policy_walk_truncated", walked
             st, p = read_allow(n["prev_commitment_hash"])
             if st != "ok":
                 return src[st], walked
@@ -1078,6 +1082,11 @@ def verify_policy(case: dict) -> dict:
     walked = [V]
     if case["full"] and not res["violations"]:
         res["walk_unchecked"], walked = walk()
+        end = "genesis" if walked[-1]["prev_state"]["seq"] == 0 else \
+            "max_steps" if res["walk_unchecked"] == "policy_walk_truncated" else "finding"
+        res["walk"] = {"max_steps": str(cap), "steps": str(len(walked) - 1),
+                       "from_seq": str(walked[-1]["prev_state"]["seq"]), "to_seq": str(V["prev_state"]["seq"]),
+                       "total": str(V["prev_state"]["seq"] + 1), "end": end}
         held = list(walked)
         if not res["violations"]:
             for w in walked:
@@ -1127,7 +1136,7 @@ def finish(res: dict) -> dict:
         policy = {"status": "unchecked", "reason": "blocked"}
     elif res["fast_unchecked"]:
         policy = {"status": "unchecked", "reason": res["fast_unchecked"]}
-    elif res["walk_unchecked"]:
+    elif res["walk_unchecked"] and res["walk_unchecked"] != "policy_walk_truncated":
         policy = {"status": "unchecked", "reason": res["walk_unchecked"]}
     else:
         policy = {"status": "pass"}
@@ -1139,6 +1148,8 @@ def finish(res: dict) -> dict:
         gi = {"status": "ok", "reason": None, "evidence": []}
     else:
         gi = {"status": "not_checked", "reason": None, "evidence": []}
+    if res["walk"] is not None:
+        gi["walk"] = res["walk"]
     if policy["status"] == "fail":
         verdict, code = "invalid", 1
     elif viol:

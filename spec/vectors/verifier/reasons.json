@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v0",
-  "revision": "v0-draft.29",
+  "revision": "v0-draft.30",
   "generator": "spec/vectors/check/gen_verifier_reasons.py",
   "description": "Reason enum of core 20.1.1 and one case per reason. Each case starts from a valid, authorized decision with a trusted header and changes what setup says; refs give concrete bytes where a vector has them. expect gives the check that carries the reason, its status, the record state and the verdict with its exit code. boundary lists verified data that proves a violation and stays fail.",
   "reasons": [
@@ -362,6 +362,15 @@
       ],
       "meaning": "Gate-signed verdicts contradict each other (fork, broken link, self-inconsistent transition, seq gap, version decrease or mandate change in one chain). The agent may be honest; the gate is at fault. Exit code 5.",
       "advice": "investigate the gate; the attached verdicts are the evidence"
+    },
+    {
+      "name": "policy_walk_truncated",
+      "group": "integrity",
+      "checks": [
+        "gate_integrity"
+      ],
+      "meaning": "The policy walk took its step cap (default or explicit) before it reached genesis, with no finding. The older part of the gate's chain was not read, so gate_integrity is never ok here. The report gives the walked seq range and the step count. The policy check and the verdict do not change.",
+      "advice": "raise --max-walk-steps above the target's seq"
     }
   ],
   "cases": [
@@ -1276,6 +1285,23 @@
         "exit": "5"
       },
       "request": "verify --policy-full"
+    },
+    {
+      "id": "policy_walk_truncated",
+      "description": "Full policy walk capped at one step on a chain of four allows: gate_integrity is unchecked, the policy check passes and the verdict stays valid.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#pass_depth_1"
+      ],
+      "expect": {
+        "check": "gate_integrity",
+        "status": "unchecked",
+        "reason": "policy_walk_truncated",
+        "record_state": "authorized",
+        "verdict": "valid",
+        "exit": "0"
+      },
+      "request": "verify --policy-full --max-walk-steps 1"
     }
   ],
   "boundary": [

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.2).
+"""Verifies the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.4).
 
 Two independent paths:
 - the generator (gen_policy.py over policy_v1.py) reproduces every file byte
@@ -675,6 +675,9 @@ def check_adoption(cases):
     causes = set()
     for c in cases:
         cell = None
+        if "start" in c:
+            s0 = c["start"]
+            cell = (int(s0["version"]), hx(s0["mandate_hash_hex"]), {a: int(v) for a, v in s0["scales"].items()})
         for st in c["steps"]:
             m, h = mandate_verify(hx(st["signed_mandate_hex"]))
             expect(h.hex() == st["mandate_hash_hex"], c["id"])
@@ -686,10 +689,13 @@ def check_adoption(cases):
                 got, nxt = ("use", cell) if cell[1] == h else ("refuse:same_version_other_hash", cell)
             else:
                 bad = [r[1] for r in m[7] if r[1] in cell[2] and cell[2][r[1]] != r[2]]
+                union = {**cell[2], **{r[1]: r[2] for r in m[7]}}
                 if bad:
                     got, nxt = "refuse:scale", cell
+                elif len(union) > 1024:
+                    got, nxt = "refuse:scales_full", cell
                 else:
-                    got, nxt = "switch", (m[10], h, {**cell[2], **{r[1]: r[2] for r in m[7]}})
+                    got, nxt = "switch", (m[10], h, union)
             want = st["expect"] + (":" + st["cause"] if "cause" in st else "")
             expect(got == want, f"{c['id']}: {got} != {want}")
             if st["expect"] == "refuse":
@@ -699,7 +705,8 @@ def check_adoption(cases):
             expect({a: int(v) for a, v in st["scales_after"].items()} == cell[2], f"{c['id']}: scales")
             expect(st["version_after"] == str(cell[0]), c["id"])
             steps += 1
-    expect({"version", "same_version_other_hash", "scale"} <= causes, "adoption causes")
+    expect({"version", "same_version_other_hash", "scale", "scales_full"} <= causes, "adoption causes")
+    expect(any(len(st["scales_after"]) == 1024 for c in cases for st in c["steps"]), "bound reached")
     return steps
 
 
@@ -812,7 +819,7 @@ def classify(c, records, gate_pub):
     th = int(c["t_h"]) if "t_h" in c else None
     principals = {hx(x) for x in cfg["principal_keys"]}
     xreg = cfg["extractors"]
-    depth = int(cfg["policy_depth"]) if cfg["policy_depth"] is not None else None
+    cap = int(cfg["max_walk_steps"]) if cfg["max_walk_steps"] is not None else 10000
     expect(H(T_ACTION, bytes([len(atype)]), atype.encode(), action).hex() == d["action_hash_hex"], "action hash")
 
     def get(kind, key):
@@ -885,7 +892,8 @@ def classify(c, records, gate_pub):
     hist = {"absent": "state_history_unavailable", "corrupt": "source_corrupt"}
     viol = []
     fail = fast_u = walk_u = None
-    blocked = walked_ok = False
+    blocked = walked_ok = truncated = False
+    walk_report = None
 
     s, V = allow_of(ch)
     if s != "ok":
@@ -955,10 +963,17 @@ def classify(c, records, gate_pub):
     held = [V]
     if cfg["policy_full"] and not viol:
         walked_ok = True
-        n, hops, horizon = V, 0, V[12] - 32 * 86400
+        n, hops = V, 0
         chain = [V]
         seen = {}
-        while n[13][2] >= 1 and (depth is None or hops < depth) and n[13][3] >= horizon:
+        ended = "finding"
+        while True:
+            if n[13][2] == 0:
+                ended = "genesis"
+                break
+            if hops == cap:
+                truncated, ended = True, "max_steps"
+                break
             s, p = allow_of(n[15])
             if s == "ok" and p[4] != n[15]:
                 s = "corrupt"
@@ -994,6 +1009,10 @@ def classify(c, records, gate_pub):
                 break
             chain.append(p)
             n, hops = p, hops + 1
+        # Only a walk that read every link down to a seq-0 verdict, which read genesis, can be ok.
+        walk_report = {"max_steps": str(cap), "steps": str(hops), "from_seq": str(n[13][2]), "to_seq": str(V[13][2]),
+                       "total": str(V[13][2] + 1), "end": ended}
+        expect(hops == V[13][2] - n[13][2], "walk steps against the seq range")
         held = list(chain)
         if not viol:
             for w in chain:
@@ -1033,11 +1052,15 @@ def classify(c, records, gate_pub):
         pol = {"status": "pass"}
     if viol:
         gi = {"status": "violated", "reason": "gate_equivocation", "evidence": [h.hex() for h in viol]}
+    elif walked_ok and (walk_u or truncated):
+        gi = {"status": "unchecked", "reason": walk_u or "policy_walk_truncated", "evidence": []}
     elif walked_ok:
-        gi = {"status": "unchecked", "reason": walk_u, "evidence": []} if walk_u else \
-            {"status": "ok", "reason": None, "evidence": []}
+        expect(walk_report["end"] == "genesis", "ok without genesis")
+        gi = {"status": "ok", "reason": None, "evidence": []}
     else:
         gi = {"status": "not_checked", "reason": None, "evidence": []}
+    if walk_report is not None:
+        gi["walk"] = walk_report
     if fail:
         verdict, code = "invalid", 1
     elif viol:
@@ -1068,7 +1091,10 @@ def check_verify(f):
             "facts_mismatch", "eval_time_mismatch", "anchor_time_mismatch", "mandate_gate_id"} <= rules, "rules")
     expect({c["exit"] for c in (x["expect"] for x in f["cases"])} == {"0", "1", "2", "5"}, "exit codes")
     ids = {c["id"] for c in f["cases"]}
-    for need_id in ("equivocation_fork_evidence", "equivocation_fork_successor", "equivocation_unlinked",
+    trunc = [c for c in f["cases"] if c["expect"]["gate_integrity"]["reason"] == "policy_walk_truncated"]
+    expect(trunc and all(c["expect"]["verdict"] == "valid" and c["expect"]["exit"] == "0"
+                         and c["config"]["max_walk_steps"] is not None for c in trunc), "explicit cap truncates")
+    for need_id in ("pass_depth_1", "walk_truncated_cap_2", "walk_cap_reaches_genesis", "equivocation_fork_evidence", "equivocation_fork_successor", "equivocation_unlinked",
                     "understated_open_bucket_full", "pass_hour_rollover", "pass_chain_continuity",
                     "equivocation_version_decrease", "walk_history_missing", "unchecked_bucket_corrupt",
                     "fail_not_before", "fail_kind"):
@@ -1147,8 +1173,8 @@ def check_tia(f):
     return f"{len(f['cases'])} cases, {len(f['reject'])} reject"
 
 
-# Files whose bytes changed in draft.2; every other file keeps the revision that last changed it.
-DRAFT2 = {"policy/mandate.json", "policy/verify.json"}
+# The revision that last changed each file's bytes; files not listed keep draft.1.
+LAST_CHANGED = {"policy/mandate.json": "policy-v1-draft.3", "policy/verify.json": "policy-v1-draft.4"}
 
 
 def main() -> int:
@@ -1161,7 +1187,7 @@ def main() -> int:
             files[rel] = json.loads(text)
         for rel, d in files.items():
             if rel.startswith("policy/"):
-                want = "policy-v1-draft.2" if rel in DRAFT2 else "policy-v1-draft.1"
+                want = LAST_CHANGED.get(rel, "policy-v1-draft.1")
                 expect(d["format"] == "edicta-policy-vectors/v1" and d["revision"] == want, rel)
         P_ = lambda n: files[f"policy/{n}.json"]  # noqa: E731
         out = [check_facts(P_("facts")), check_mandate(P_("mandate")), check_render(P_("render"), P_("mandate")),
@@ -1171,7 +1197,7 @@ def main() -> int:
     except (Failure, Bad, KeyError, ValueError) as e:
         print(f"FAIL (policy v1): {type(e).__name__}: {e}", file=sys.stderr)
         return 1
-    print("OK (policy v1, policy-v1-draft.2): " + "; ".join(out) + "; generator output identical")
+    print("OK (policy v1, policy-v1-draft.4): " + "; ".join(out) + "; generator output identical")
     return 0
 
 

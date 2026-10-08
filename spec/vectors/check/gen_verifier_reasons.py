@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/verifier/reasons.json (v0-draft.29).
+"""Writes spec/vectors/verifier/reasons.json (v0-draft.30).
 
 The machine-readable reason enum of core section 20.1.1 and one case per
 reason: the check it is reported on, the scenario as overrides of a valid,
@@ -117,6 +117,11 @@ REASONS = [
      "Gate-signed verdicts contradict each other (fork, broken link, self-inconsistent transition, seq gap, version "
      "decrease or mandate change in one chain). The agent may be honest; the gate is at fault. Exit code 5.",
      "investigate the gate; the attached verdicts are the evidence"),
+    ("policy_walk_truncated", "integrity", ["gate_integrity"],
+     "The policy walk took its step cap (default or explicit) before it reached genesis, with no finding. The older "
+     "part of the gate's chain was not read, so gate_integrity is never ok here. The report gives the walked seq "
+     "range and the step count. The policy check and the verdict do not change.",
+     "raise --max-walk-steps above the target's seq"),
 ]
 
 POLICY_CASE = {
@@ -150,6 +155,12 @@ EXECUTION_CASE = {
 def unchecked(check: str, reason: str, *, state="authorized", verdict="unchecked") -> dict:
     return {"check": check, "status": "unchecked", "reason": reason, "record_state": state, "verdict": verdict,
             "exit": str({"unchecked": 2, "not_authorized": 3}[verdict])}
+
+
+def integrity_unchecked(reason: str) -> dict:
+    """An integrity-only reason: the decision verdict is not affected."""
+    return {"check": "gate_integrity", "status": "unchecked", "reason": reason, "record_state": "authorized",
+            "verdict": "valid", "exit": "0"}
 
 
 def violated() -> dict:
@@ -271,6 +282,10 @@ def build() -> dict:
                       ["policy/verify.json#unchecked_t_h_not_verified"], unchecked("policy", "blocked")))
     cases.append(case("policy_gate_equivocation", "Two gate-signed allows from one state of one counter.", {},
                       ["policy/verify.json#equivocation_fork_evidence"], violated(), request="verify --policy-full"))
+    cases.append(case("policy_walk_truncated", "Full policy walk capped at one step on a chain of four allows: "
+                      "gate_integrity is unchecked, the policy check passes and the verdict stays valid.", {},
+                      ["policy/verify.json#pass_depth_1"], integrity_unchecked("policy_walk_truncated"),
+                      request="verify --policy-full --max-walk-steps 1"))
     boundary = [
         case("commitment_rule_broken", "The commitment hashes to the reference and breaks stage S (ttl above "
              "the limit). Every copy has these bytes: fail.", {"commitment": "reject:ttl_3601"},
@@ -293,7 +308,7 @@ def build() -> dict:
     ]
     return {
         "format": "edicta-vectors/v0",
-        "revision": "v0-draft.29",
+        "revision": "v0-draft.30",
         "generator": "spec/vectors/check/gen_verifier_reasons.py",
         "description": (
             "Reason enum of core 20.1.1 and one case per reason. Each case starts from a valid, authorized "
