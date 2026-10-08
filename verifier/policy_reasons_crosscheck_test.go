@@ -70,7 +70,11 @@ func TestPolicyReasonCasesMatchTheVerifyVectors(t *testing.T) {
 						assert.Equal(t, *rc.Expect.Reason, *vc.Expect.Integrity.Reason)
 					} else {
 						assert.Equal(t, rc.Expect.Status, vc.Expect.Integrity.Status)
-						assert.Equal(t, *rc.Expect.Reason, vc.Expect.Policy.Reason)
+						got := vc.Expect.Policy.Reason
+						if got == "" && vc.Expect.Integrity.Reason != nil {
+							got = *vc.Expect.Integrity.Reason // carried by gate_integrity only
+						}
+						assert.Equal(t, *rc.Expect.Reason, got)
 					}
 				default:
 					t.Errorf("unknown check %q", rc.Expect.Check)

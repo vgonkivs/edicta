@@ -30,7 +30,7 @@ func TestRequirePolicyWithoutAllowRecordIsUnchecked(t *testing.T) {
 
 func TestConfigRejectsBadPolicyInputs(t *testing.T) {
 	r := newRig(t, newParts(t))
-	r.deps.Config.PolicyDepth = -1
+	r.deps.Config.MaxWalkSteps = -1
 	_, err := verifier.New(r.deps)
 	require.ErrorIs(t, err, verifier.ErrInvalidConfig)
 

@@ -2,6 +2,7 @@ package verifycli
 
 import (
 	"context"
+	"encoding/json"
 	"crypto/ed25519"
 	"crypto/rand"
 	"testing"
@@ -133,4 +134,28 @@ func TestVerifyPolicyWithoutPrincipalKeyIsNotValid(t *testing.T) {
 	code, out := exec(t, s.args("verify", "--trusted", trusted, "--require-policy"))
 	assert.Equal(t, exitUnchecked, code, out)
 	assert.NotContains(t, out, "verdict: valid")
+}
+
+func TestVerifyPolicyFullGenesisChainReportsTheWalk(t *testing.T) {
+	s := newScenario(t, scenarioOpts{bank: true})
+	pub := addPolicy(t, s, false)
+	trusted := s.chain.trustedFile(t, checkpointH, nil)
+	args := s.args("verify", "--trusted", trusted, "--principal-key", hexOf(pub), "--require-policy", "--policy-full")
+
+	code, out := exec(t, args)
+	assert.Equal(t, exitValid, code, out)
+	assert.Contains(t, out, "gate integrity walk: last 1 of 1 verdicts checked (seq 0 to 0, 0 of at most 10000 steps, ended at genesis)")
+	assert.NotContains(t, out, "advice:")
+
+	code, out = exec(t, append(args, "--max-walk-steps", "1", "--json"))
+	assert.Equal(t, exitValid, code, out)
+	var doc struct {
+		GateIntegrity integrityView `json:"gate_integrity"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &doc))
+	assert.Equal(t, "ok", doc.GateIntegrity.Status)
+	assert.Equal(t, &walkView{MaxSteps: 1, End: "genesis", Total: 1}, doc.GateIntegrity.Walk)
+
+	code, out = exec(t, append(args, "--max-walk-steps", "0"))
+	assert.Equal(t, exitUsage, code, out)
 }

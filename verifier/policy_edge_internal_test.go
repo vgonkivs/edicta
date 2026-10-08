@@ -77,3 +77,37 @@ func TestRequirePolicyWithheldRecords(t *testing.T) {
 	require.NotZero(t, n)
 	require.NotZero(t, decisive, "the decisive records were dropped and checked")
 }
+
+// With the target's mandate unreadable the walk cannot start: it reports no
+// steps and ends on a finding, over the whole claimed chain.
+func TestWalkWithUnreadableMandateReportsZeroSteps(t *testing.T) {
+	d := loadVec(t)
+	for _, c := range d.Cases {
+		if c.ID != "pass_chain_continuity" {
+			continue
+		}
+		cc := c
+		cc.Config.PolicyFull = true
+		cc.Archive = nil
+		dropped := 0
+		for _, p := range c.Archive {
+			if strings.HasPrefix(p, "mandate/") {
+				dropped++
+				continue
+			}
+			cc.Archive = append(cc.Archive, p)
+		}
+		require.NotZero(t, dropped)
+		v, _ := cc.verifier(t, d)
+		out, err := v.checkPolicy(t.Context(), cc.input(t, d))
+		require.NoError(t, err)
+		require.True(t, out.Ran)
+		assert.Equal(t, StatusUnchecked, out.Check.Status)
+		assert.Equal(t, ReasonPolicyMandateUnavailable, out.Check.Reason)
+		assert.Equal(t, IntegrityUnchecked, out.Integrity.Status)
+		assert.Equal(t, ReasonStateHistoryUnavailable, out.Integrity.Reason)
+		assert.Equal(t, &WalkInfo{MaxSteps: DefaultMaxWalkSteps, FromSeq: 3, ToSeq: 3, Total: 4, End: WalkEndFinding}, out.Integrity.Walk)
+		return
+	}
+	t.Fatal("pass_chain_continuity is not in the vectors")
+}

@@ -33,7 +33,7 @@ type vecCase struct {
 	Config struct {
 		RequirePolicy bool              `json:"require_policy"`
 		PolicyFull    bool              `json:"policy_full"`
-		PolicyDepth   *string           `json:"policy_depth"`
+		MaxWalkSteps  *string           `json:"max_walk_steps"`
 		Principals    []string          `json:"principal_keys"`
 		Extractors    map[string]string `json:"extractors"`
 		Evidence      []string          `json:"evidence"`
@@ -50,6 +50,14 @@ type vecCase struct {
 			Status   string   `json:"status"`
 			Reason   *string  `json:"reason"`
 			Evidence []string `json:"evidence"`
+			Walk     *struct {
+				MaxSteps string `json:"max_steps"`
+				Steps    string `json:"steps"`
+				FromSeq  string `json:"from_seq"`
+				ToSeq    string `json:"to_seq"`
+				Total    string `json:"total"`
+				End      string `json:"end"`
+			} `json:"walk"`
 		} `json:"gate_integrity"`
 		Verdict string `json:"verdict"`
 		Exit    string `json:"exit"`
@@ -183,10 +191,10 @@ func (c vecCase) verifier(t testing.TB, d vecDoc) (*Verifier, vecArchive) {
 		GateKeys:      []ed25519.PublicKey{unhex(t, d.Gate.Key)},
 		RequirePolicy: c.Config.RequirePolicy, PolicyFull: c.Config.PolicyFull,
 	}
-	if c.Config.PolicyDepth != nil {
-		n, err := strconv.Atoi(*c.Config.PolicyDepth)
+	if c.Config.MaxWalkSteps != nil {
+		n, err := strconv.Atoi(*c.Config.MaxWalkSteps)
 		require.NoError(t, err)
-		cfg.PolicyDepth = n
+		cfg.MaxWalkSteps = n
 	}
 	for _, k := range c.Config.Principals {
 		cfg.PrincipalKeys = append(cfg.PrincipalKeys, unhex(t, k))
@@ -247,7 +255,7 @@ func exitFor(rep Report) string {
 
 func TestPolicyVerifyVectors(t *testing.T) {
 	d := loadVec(t)
-	require.Len(t, d.Cases, 45)
+	require.Len(t, d.Cases, 47)
 	for _, c := range d.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			v, _ := c.verifier(t, d)
@@ -280,6 +288,18 @@ func TestPolicyVerifyVectors(t *testing.T) {
 				assert.Equal(t, c.Expect.Integrity.Evidence, got)
 			}
 			assert.Len(t, ig.Evidence, len(ig.EvidenceHashes))
+			if w := c.Expect.Integrity.Walk; w != nil {
+				require.NotNil(t, ig.Walk)
+				u := func(s string) uint64 {
+					n, err := strconv.ParseUint(s, 10, 64)
+					require.NoError(t, err)
+					return n
+				}
+				assert.Equal(t, WalkInfo{
+					MaxSteps: u(w.MaxSteps), Steps: u(w.Steps), FromSeq: u(w.FromSeq),
+					ToSeq: u(w.ToSeq), Total: u(w.Total), End: WalkEnd(w.End),
+				}, *ig.Walk)
+			}
 
 			rep := verdictOf(v, out)
 			assert.Equal(t, Verdict(c.Expect.Verdict), rep.Verdict)

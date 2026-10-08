@@ -49,7 +49,7 @@ func loadReasons(t testing.TB) reasonsDoc {
 	require.NoError(t, err)
 	var d reasonsDoc
 	require.NoError(t, json.Unmarshal(raw, &d))
-	require.Equal(t, "v0-draft.29", d.Revision)
+	require.Equal(t, "v0-draft.30", d.Revision)
 	return d
 }
 
@@ -93,7 +93,7 @@ var coveredElsewhere = map[string]string{
 	"policy_policy_principal_untrusted": "TestPolicyVerifyVectors", "policy_policy_no_extractor": "TestPolicyVerifyVectors",
 	"policy_state_history_unavailable": "TestPolicyVerifyVectors", "policy_walk_history_missing": "TestPolicyVerifyVectors",
 	"policy_bucket_corrupt": "TestPolicyVerifyVectors", "policy_t_h_blocked": "TestPolicyVerifyVectors",
-	"policy_gate_equivocation": "TestPolicyVerifyVectors",
+	"policy_gate_equivocation": "TestPolicyVerifyVectors", "policy_walk_truncated": "TestPolicyVerifyVectors",
 }
 
 func TestReasonVectors(t *testing.T) {
@@ -195,12 +195,16 @@ func TestReasonVectors(t *testing.T) {
 		t.Run(c.ID, func(t *testing.T) {
 			require.NotNil(t, c.Expect.Reason)
 			assert.True(t, known[*c.Expect.Reason], "the reason is in the enum")
-			wantStatus, wantExit := "unchecked", "2"
-			if *c.Expect.Reason == "gate_equivocation" {
+			wantStatus, wantExit, wantVerdict := "unchecked", "2", "unchecked"
+			switch *c.Expect.Reason {
+			case "gate_equivocation":
 				wantStatus, wantExit = "violated", "5"
+			case "policy_walk_truncated":
+				// Carried by gate_integrity only: the verdict stays valid.
+				wantVerdict, wantExit = "valid", "0"
 			}
 			assert.Equal(t, wantStatus, c.Expect.Status)
-			assert.Equal(t, "unchecked", c.Expect.Verdict)
+			assert.Equal(t, wantVerdict, c.Expect.Verdict)
 			assert.Equal(t, wantExit, c.Expect.Exit)
 
 			if strings.HasPrefix(c.ID, "execution_") && len(c.Refs) == 1 && strings.Contains(c.Refs[0], "execution_outcomes.json#") {
