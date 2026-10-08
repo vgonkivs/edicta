@@ -18,6 +18,12 @@ import (
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
 
+type adoptionStart struct {
+	Version     string            `json:"version"`
+	MandateHash string            `json:"mandate_hash_hex"`
+	Scales      map[string]string `json:"scales"`
+}
+
 type adoptionStep struct {
 	SignedMandateHex string            `json:"signed_mandate_hex"`
 	Expect           string            `json:"expect"`
@@ -33,6 +39,7 @@ func TestPolicyAdoptionVectors(t *testing.T) {
 	var d struct {
 		Adoption []struct {
 			ID    string         `json:"id"`
+			Start *adoptionStart `json:"start"`
 			Steps []adoptionStep `json:"steps"`
 		} `json:"adoption"`
 	}
@@ -54,7 +61,13 @@ func TestPolicyAdoptionVectors(t *testing.T) {
 				sm, _, err := policy.VerifyMandate(raw)
 				require.NoError(t, err)
 				var rerr error
-				if i == 0 {
+				if i == 0 && c.Start != nil {
+					env = gatefix.New(t,
+						gatefix.WithConfig(func(c *gate.Config) { c.Mandate = raw }),
+						gatefix.WithDeps(func(d *gate.Deps) { d.Extractors = x }))
+					seedStart(t, env, sm, c.Start)
+					rerr = env.Restart()
+				} else if i == 0 {
 					env = gatefix.New(t,
 						gatefix.WithConfig(func(c *gate.Config) { c.Mandate = raw }),
 						gatefix.WithDeps(func(d *gate.Deps) { d.Extractors = x }))
@@ -64,8 +77,11 @@ func TestPolicyAdoptionVectors(t *testing.T) {
 				}
 				if s.Expect == "refuse" {
 					require.ErrorIs(t, rerr, gate.ErrInvalidConfig, "step %d", i)
-					if s.Cause == "scale" {
+					switch s.Cause {
+					case "scale":
 						require.ErrorIs(t, rerr, policy.ErrScaleChanged, "step %d", i)
+					case "scales_full":
+						require.ErrorIs(t, rerr, policy.ErrScalesFull, "step %d", i)
 					}
 				} else {
 					require.NoError(t, rerr, "step %d", i)
@@ -88,6 +104,31 @@ func TestPolicyAdoptionVectors(t *testing.T) {
 			}
 		})
 	}
+}
+
+// seedStart overwrites the genesis cell the fixture wrote with the vector's
+// starting cell: earlier versions already adopted.
+func seedStart(t *testing.T, env *gatefix.Env, sm *policy.SignedMandate, st *adoptionStart) {
+	t.Helper()
+	sr := env.Reg.(registry.StateRegistry)
+	key := registry.StateKey(sm.Mandate.CounterKey())
+	cell, err := sr.State(context.Background(), key)
+	require.NoError(t, err)
+	ctr, err := policy.DecodeCounter(cell.Value)
+	require.NoError(t, err)
+	ctr.Version, err = strconv.ParseUint(st.Version, 10, 64)
+	require.NoError(t, err)
+	mh, err := hex.DecodeString(st.MandateHash)
+	require.NoError(t, err)
+	ctr.MandateHash = mh
+	ctr.Scales = map[string]uint64{}
+	for a, sc := range st.Scales {
+		ctr.Scales[a], err = strconv.ParseUint(sc, 10, 64)
+		require.NoError(t, err)
+	}
+	enc, err := policy.EncodeCounter(ctr)
+	require.NoError(t, err)
+	require.NoError(t, sr.UpdateState(context.Background(), registry.StateTx{Key: key, Expect: cell.Version, Next: registry.NewStateCell(enc)}))
 }
 
 func TestPolicyRetryAfterAMandateChangeGetsTheStoredAuthorization(t *testing.T) {

@@ -347,8 +347,11 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	}
 	copy(res.ActionHash[:], c.Action.Hash)
 
-	// Policy admission. A deny is signed first; the decision record is then
-	// still archived, and an archive failure does not change the deny.
+	// Policy admission. A deny first checks the nonce entry for a retry of an
+	// authorized commitment (the mandate may have changed since), which gets
+	// the stored Authorization and no new deny. Otherwise the deny is signed
+	// and the decision record is still archived; an archive failure does not
+	// change the deny.
 	pin := policyInput{h: h, actionHash: res.ActionHash, agent: c.AgentPubKey, decidedAt: now}
 	key := registry.Key{PubKey: agentKey}
 	copy(key.Nonce[:], c.Nonce)

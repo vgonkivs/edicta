@@ -38,6 +38,7 @@ var (
 	ErrStateInvalid     = errors.New("policy: invalid state")
 	ErrCounterInvalid   = errors.New("policy: invalid counter cell")
 	ErrScaleChanged     = errors.New("policy: asset scale differs from the one the counter recorded")
+	ErrScalesFull       = errors.New("policy: counter scale map is full")
 )
 
 // DenyReasons lists the bare names of the deny sentinels in the order the checks run.

@@ -8,6 +8,10 @@ import (
 	"github.com/vgonkivs/edicta/commitment"
 )
 
+// MaxScales bounds the scale map of a counter cell, the strict decoder's
+// per-map limit, so the gate never writes a cell it cannot read back.
+const MaxScales = 1024
+
 func hashRaw(b []byte) commitment.Hash { return sha256.Sum256(b) }
 
 // Counter is the value of a registry cell: the mandate in force, the chain
@@ -38,6 +42,9 @@ func (c *Counter) Validate() error {
 	}
 	if len(c.Scales) == 0 {
 		return bad("no asset scales")
+	}
+	if len(c.Scales) > MaxScales {
+		return bad("more than %d asset scales", MaxScales)
 	}
 	for a, sc := range c.Scales {
 		if !isPrintable(a, 1, 128) || sc > 255 {
@@ -88,7 +95,8 @@ func NewCounter(m *Mandate, mandateHash commitment.Hash) *Counter {
 // Adopt switches the counter to a later version of its mandate. The new
 // version must give every asset the counter has ever listed the same scale,
 // whether or not the asset was spent or an intermediate version dropped it.
-// On ErrScaleChanged the counter is unchanged.
+// A union of more than MaxScales assets is refused with ErrScalesFull. On
+// either error the counter is unchanged.
 func (c *Counter) Adopt(m *Mandate, mandateHash commitment.Hash) error {
 	for _, a := range m.Assets {
 		if old, ok := c.Scales[a.Asset]; ok && old != a.Scale {
@@ -101,6 +109,9 @@ func (c *Counter) Adopt(m *Mandate, mandateHash commitment.Hash) error {
 	}
 	for _, a := range m.Assets {
 		scales[a.Asset] = a.Scale
+	}
+	if len(scales) > MaxScales {
+		return fmt.Errorf("%w: %d assets, at most %d", ErrScalesFull, len(scales), MaxScales)
 	}
 	c.Version, c.MandateHash, c.Scales = m.Version, bytes.Clone(mandateHash[:]), scales
 	return nil
