@@ -118,6 +118,11 @@ Each mechanism below names what it defends against and what it assumes.
   configuration and, where it signs, its keys). It need not be self-hosted:
   a node on rented or managed infrastructure under the operator's sole
   control counts. Its host is trusted like any host of the operator.
+- "Agent" is any decider that signs commitments: an LLM agent, a bot, a
+  keeper or a script. The gate never asks the agent why an action is
+  allowed. It verifies mathematically that an existing commitment (and the
+  mandate, if one is configured, `spec/policy-v1.md`) allows exactly these
+  action bytes.
 - `tag(t) = uint8(len(t)) || ASCII(t)`, with `1 <= len(t) <= 255`. One length
   byte means there is no width or endianness choice to get wrong.
 

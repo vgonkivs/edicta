@@ -41,6 +41,11 @@ func (e *PolicyFailure) Unwrap() []error {
 // retentionHorizon is how far back the integrity walk goes by default.
 const retentionHorizon = 32 * 24 * 3600
 
+// DefaultPolicyDepth bounds the walk, and with it the memory of the fork
+// search, when the auditor sets no depth. A gate that authorizes more often
+// than this in the horizon leaves the older part of the chain unwalked.
+const DefaultPolicyDepth = 10000
+
 // policyInput is what the core checks verified about the decision, plus the
 // anchor time when header trust passed.
 type policyInput struct {
@@ -295,7 +300,8 @@ func (p *policyRun) run() (policyOutcome, error) {
 	return p.finish(nil)
 }
 
-// fast runs steps 2 to 6 of the fast check. It returns the mandate when it
+// fast reads and verifies the allow, its mandate and its history, then
+// evaluates it on the signed state. It returns the mandate when it
 // could be read.
 func (p *policyRun) fast(allow *allowRec) (*policy.Mandate, error) {
 	v := &allow.sv.Verdict
@@ -517,15 +523,33 @@ func (p *policyRun) integrity(allow *allowRec, m *policy.Mandate) error {
 	if err := p.addEvidence(); err != nil {
 		return err
 	}
-	for i := range p.held {
-		for j := i + 1; j < len(p.held); j++ {
-			if policy.IsFork(p.held[i], p.held[j]) {
-				p.violate(p.heldRaw[p.held[i].Hash], p.heldRaw[p.held[j].Hash])
-				return nil
-			}
-		}
-	}
+	p.findFork()
 	return nil
+}
+
+// findFork indexes the held verdicts by gate, counter and previous sequence
+// number; two commitments on one key are a fork.
+func (p *policyRun) findFork() {
+	type slot struct {
+		gate string
+		ctr  [32]byte
+		seq  uint64
+	}
+	seen := make(map[slot]policy.Held, len(p.held))
+	ctrs := map[*policy.Mandate][32]byte{}
+	for _, h := range p.held {
+		ck, ok := ctrs[h.M]
+		if !ok {
+			ck = h.M.CounterKey()
+			ctrs[h.M] = ck
+		}
+		k := slot{h.V.GateID, ck, h.V.PrevState.Seq}
+		if o, ok := seen[k]; ok && policy.IsFork(o, h) {
+			p.violate(p.heldRaw[o.Hash], p.heldRaw[h.Hash])
+			return
+		}
+		seen[k] = h
+	}
 }
 
 func (p *policyRun) walkStop(st srcStatus) {
@@ -540,8 +564,13 @@ func (p *policyRun) walk(allow *allowRec, m *policy.Mandate) error {
 	cur := policy.Held{V: &allow.sv.Verdict, Hash: allow.hash, M: m}
 	p.held = []policy.Held{cur}
 	target := cur.V
+	depth := p.v.cfg.PolicyDepth
+	if depth == 0 {
+		depth = DefaultPolicyDepth
+	}
+	scales := policy.NewScaleChain()
 	for hops := 0; cur.V.PrevState.Seq > 0; hops++ {
-		if d := p.v.cfg.PolicyDepth; d > 0 && hops >= d {
+		if hops >= depth {
 			break
 		}
 		if cur.V.PrevState.LastT+retentionHorizon < target.EvalTime {
@@ -574,10 +603,15 @@ func (p *policyRun) walk(allow *allowRec, m *policy.Mandate) error {
 		prev := policy.Held{V: &pa.sv.Verdict, Hash: pa.hash, M: pm}
 		p.heldRaw[pa.hash] = pa.raw
 		p.held = append(p.held, prev)
-		if lerr := policy.CheckLink(prev, cur, set); lerr != nil {
-			if errors.Is(lerr, policy.ErrTransition) {
+		scales.Add(cur)
+		if lerr := policy.CheckLink(prev, cur, set, scales); lerr != nil {
+			var se *policy.ScaleError
+			switch {
+			case errors.As(lerr, &se):
+				p.violate(pa.raw, p.heldRaw[se.With.Hash])
+			case errors.Is(lerr, policy.ErrTransition):
 				p.violate(pa.raw)
-			} else {
+			default:
 				p.violate(pa.raw, p.heldRaw[cur.Hash])
 			}
 			return nil

@@ -155,8 +155,8 @@ type Config struct {
 	RequirePolicy bool
 	// PolicyFull also walks the verdict chain and searches for forks.
 	PolicyFull bool
-	// PolicyDepth bounds the walk in hops; 0 walks back to genesis or the
-	// retention horizon.
+	// PolicyDepth bounds the walk in hops; 0 means DefaultPolicyDepth. The
+	// walk also ends at genesis or the retention horizon.
 	PolicyDepth int
 	// Evidence are extra signed verdicts held by the auditor, for example
 	// those agents received. They only ever serve as fork evidence.

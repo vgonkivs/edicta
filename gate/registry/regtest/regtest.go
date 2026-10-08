@@ -493,6 +493,7 @@ func RunState(t *testing.T, open StateOpener) {
 		r := open(t, Epoch)
 		e := fresh(1)
 		e.Verdict = []byte{0xa1, 1}
+		e.ClosedBucket, e.ClosedSet = []byte{0xa1, 2}, []byte{0xa1, 3}
 		c1 := cell(1)
 		must(t, r.ConsumeState(ctx, e, Tolerance, tx(registry.StateCell{}, c1)))
 		require.Equal(t, e, get(t, r, e.Key))
@@ -504,6 +505,12 @@ func RunState(t *testing.T, open StateOpener) {
 		require.Equal(t, e.AuthorizedAt, m.Watermark)
 		must(t, r.AttachReceipt(ctx, e.Key, e.CommitmentHash, []byte{9}))
 		require.Equal(t, e.Verdict, get(t, r, e.Key).Verdict, "the verdict survives AttachReceipt")
+		require.Equal(t, e.ClosedBucket, get(t, r, e.Key).ClosedBucket)
+		require.Equal(t, e.ClosedSet, get(t, r, e.Key).ClosedSet)
+
+		half := fresh(2)
+		half.ClosedBucket = []byte{1}
+		require.ErrorIs(t, r.ConsumeState(ctx, half, Tolerance, tx(c1, cell(2))), registry.ErrInvalidEntry, "a bucket without its set")
 	})
 
 	t.Run("RefusalsWriteNothing", func(t *testing.T) {

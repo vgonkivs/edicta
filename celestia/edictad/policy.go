@@ -115,9 +115,9 @@ func (p *polInfo) allowRecords(closedBucket, closedSet, verdict []byte, h commit
 	return append(recs, succ), nil
 }
 
-// repair writes what the registry lets a scan rebuild: the retained closed
-// buckets and the current closed set. A set that a later one replaced before
-// its write succeeded is not rebuilt.
+// repair writes the retained closed buckets and the current closed set from
+// the counter cell. Older sets and buckets come from the registry entries of
+// the allows that closed them, when the scan reaches those entries.
 func (p *polInfo) repair(ctx context.Context, s *sweeper, st *sweepStats) {
 	cell, err := p.state.State(ctx, registry.StateKey(p.counterKey))
 	if err != nil {

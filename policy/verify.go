@@ -18,7 +18,7 @@ var (
 	// ErrUnlinked: two consecutive verdicts of one counter do not link.
 	ErrUnlinked = errors.New("policy: consecutive verdicts do not link")
 	// ErrChainMandate: the mandates of two linked verdicts break the rules of
-	// one chain (principal, mandate_id, gate_id, version, scale).
+	// one chain (principal, mandate_id, gate_id, version, asset scale).
 	ErrChainMandate = errors.New("policy: mandates of one chain disagree")
 )
 
@@ -73,11 +73,58 @@ func VerifyFast(m *Mandate, v *Verdict, l Ledger) error {
 	return nil
 }
 
+// ScaleError is the finding of a scale that changed along a chain: the
+// earlier verdict's mandate and With's mandate list Asset at different
+// scales. It matches ErrChainMandate.
+type ScaleError struct {
+	Asset string
+	With  Held
+}
+
+func (e *ScaleError) Error() string {
+	return fmt.Sprintf("%s: scale of %s changed", ErrChainMandate, e.Asset)
+}
+
+func (e *ScaleError) Is(t error) bool { return t == ErrChainMandate }
+
+// ScaleChain tracks, during a walk from the newest verdict back, the scale
+// each asset has in the mandates of the verdicts already walked. Walking
+// stops at the first disagreement, so every walked mandate agrees and the
+// nearest verdict that lists an asset stands for all of them.
+type ScaleChain struct{ nearest map[string]scaleRef }
+
+type scaleRef struct {
+	scale uint64
+	held  Held
+}
+
+func NewScaleChain() *ScaleChain { return &ScaleChain{nearest: map[string]scaleRef{}} }
+
+// Add records the assets of h's mandate; h is nearer to the next verdict
+// checked than any verdict added before it.
+func (c *ScaleChain) Add(h Held) {
+	for _, a := range h.M.Assets {
+		c.nearest[a.Asset] = scaleRef{scale: a.Scale, held: h}
+	}
+}
+
+// Check reports the nearest walked verdict whose mandate lists an asset of
+// p's mandate at another scale.
+func (c *ScaleChain) Check(p Held) error {
+	for _, a := range p.M.Assets {
+		if r, ok := c.nearest[a.Asset]; ok && r.scale != a.Scale {
+			return &ScaleError{Asset: a.Asset, With: r.held}
+		}
+	}
+	return nil
+}
+
 // CheckLink checks one hop of a chain: prev is the allow n names as its
-// predecessor, prevSet the closed set of prev's own state. The first failing
+// predecessor, prevSet the closed set of prev's own state, later the scales
+// of the verdicts walked so far (nil skips the scale rule). The first failing
 // rule wins: the verdict link, the state link, the sequence, the mandates,
-// and prev's own transition.
-func CheckLink(prev, next Held, prevSet ClosedSet) error {
+// and prev's own transition. A scale finding is a *ScaleError.
+func CheckLink(prev, next Held, prevSet ClosedSet, later *ScaleChain) error {
 	p, n := prev.V, next.V
 	if !bytes.Equal(prev.Hash[:], n.PrevVerdictHash) || !bytes.Equal(p.CommitmentHash, n.PrevCommitmentHash) {
 		return fmt.Errorf("%w: prev_verdict_hash", ErrUnlinked)
@@ -91,6 +138,11 @@ func CheckLink(prev, next Held, prevSet ClosedSet) error {
 	}
 	if err := checkChainMandates(prev, next); err != nil {
 		return err
+	}
+	if later != nil {
+		if err := later.Check(prev); err != nil {
+			return err
+		}
 	}
 	l, err := NewLedger(*p.PrevState, nil, prevSet)
 	if err != nil {
@@ -113,11 +165,6 @@ func checkChainMandates(prev, next Held) error {
 		return fmt.Errorf("%w: gate_id changed", ErrChainMandate)
 	case pm.Version > nm.Version:
 		return fmt.Errorf("%w: version %d then %d", ErrChainMandate, pm.Version, nm.Version)
-	}
-	for _, a := range pm.Assets {
-		if i := nm.AssetRuleFor(a.Asset); i >= 0 && nm.Assets[i].Scale != a.Scale {
-			return fmt.Errorf("%w: scale of %s changed", ErrChainMandate, a.Asset)
-		}
 	}
 	return nil
 }

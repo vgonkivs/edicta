@@ -37,10 +37,10 @@ var (
 	ErrVerdictSignature = errors.New("policy: verdict signature invalid")
 	ErrStateInvalid     = errors.New("policy: invalid state")
 	ErrCounterInvalid   = errors.New("policy: invalid counter cell")
-	ErrScaleChanged     = errors.New("policy: asset scale differs from the retained state")
+	ErrScaleChanged     = errors.New("policy: asset scale differs from the one the counter recorded")
 )
 
-// DenyReasons lists the bare names of the deny sentinels in spec order.
+// DenyReasons lists the bare names of the deny sentinels in the order the checks run.
 var DenyReasons = []string{
 	"ErrAgentNotCovered", "ErrNoExtractor", "ErrFactsInvalid", "ErrOutsideMandate", "ErrKindNotAllowed",
 	"ErrAssetNotAllowed", "ErrRecipientNotAllowed", "ErrAmountAboveMax", "ErrDecisionAge", "ErrMinSpacing",

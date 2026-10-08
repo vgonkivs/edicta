@@ -176,7 +176,7 @@ func (s *sweeper) entry(ctx context.Context, e registry.Entry, st *sweepStats) b
 	if s.pol == nil || len(e.Verdict) == 0 {
 		return s.put(ctx, auth, st)
 	}
-	recs, err := s.pol.allowRecords(nil, nil, e.Verdict, e.CommitmentHash)
+	recs, err := s.pol.allowRecords(e.ClosedBucket, e.ClosedSet, e.Verdict, e.CommitmentHash)
 	if err != nil {
 		s.log.Error("edictad: the registry's policy verdict does not decode", "commitment_hash", hex.EncodeToString(e.CommitmentHash[:]), "err", err)
 		st.permanent++
@@ -212,8 +212,14 @@ func (s *sweeper) put(ctx context.Context, r archive.Record, st *sweepStats) boo
 		st.repaired++
 	case errors.Is(err, archive.ErrNotFound):
 		st.noDecision++
-	case errors.Is(err, archive.ErrConflict):
+	case errors.Is(err, archive.ErrConflict) && r.Kind() == archive.KindPolicySuccessor:
+		s.log.Error("edictad: a second allow consumed the same policy state: possible fork of the gate's counter", "err", err)
+		st.conflicts++
+	case errors.Is(err, archive.ErrConflict) && r.Kind() == archive.KindAuthorization:
 		s.log.Error("edictad: a second Authorization exists for a commitment; the registry's is authoritative", "err", err)
+		st.conflicts++
+	case errors.Is(err, archive.ErrConflict):
+		s.log.Error("edictad: archive record conflicts with the stored one", "kind", r.Kind(), "err", err)
 		st.conflicts++
 	case permanent(err):
 		s.log.Error("edictad: archive record cannot be written and is dropped", "kind", r.Kind(),

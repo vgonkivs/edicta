@@ -83,3 +83,20 @@ func TestPolicyFlags(t *testing.T) {
 	var ue usageError
 	require.ErrorAs(t, err, &ue)
 }
+
+func TestPrincipalKeyRepeatsAndPolicyDepth(t *testing.T) {
+	hash := strings.Repeat("ab", 32)
+	key := strings.Repeat("cd", 32)
+	var out bytes.Buffer
+	f, err := parseFlags([]string{
+		"verify", hash, "--gate-key", key, "--archive", t.TempDir(), "--policy-depth", "50",
+		"--principal-key", strings.Repeat("01", 32), "--principal-key", strings.Repeat("02", 32) + "," + strings.Repeat("03", 32),
+	}, &out)
+	require.NoError(t, err)
+	assert.Len(t, f.principalKeys, 3)
+	assert.Equal(t, 50, f.policyDepth)
+
+	_, err = parseFlags([]string{"verify", hash, "--gate-key", key, "--archive", t.TempDir(), "--policy-depth", "-1"}, &out)
+	var ue usageError
+	require.ErrorAs(t, err, &ue)
+}

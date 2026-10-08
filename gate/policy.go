@@ -121,11 +121,10 @@ func (g *Gate) adopt(ctx context.Context, pg *policyGate) error {
 		}
 		return nil
 	}
-	if err := policy.CheckScales(m, c.Ledger); err != nil {
+	next := *c
+	if err := next.Adopt(m, pg.mandateHash); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
-	next := *c
-	next.Version, next.MandateHash = m.Version, pg.mandateHash[:]
 	return write(cell.Version, &next)
 }
 
@@ -202,34 +201,33 @@ func (g *Gate) denyVerdict(ctx context.Context, in policyInput, reason error, pr
 	return b, err
 }
 
-// admitPolicy runs stage 4p. A deny comes back with its signed verdict.
-func (g *Gate) admitPolicy(ctx context.Context, c *commitment.Commitment, action []byte, in *policyInput) (verdict []byte, err error) {
+// admitPolicy runs the per-action rules. A deny is returned unsigned (denied
+// is true); the caller signs it once it knows the request is not a retry.
+func (g *Gate) admitPolicy(c *commitment.Commitment, action []byte, in *policyInput) (denied bool, err error) {
 	adm, derr := policy.Admit(g.pol.mandate, g.pol.extractors, policy.Decision{
 		AgentPubKey: c.AgentPubKey, ActionType: c.Action.Type, Action: action, ValidUntil: c.ValidUntil,
 	})
 	in.adm = adm
-	if derr == nil {
-		return nil, nil
+	switch {
+	case derr == nil:
+		return false, nil
+	case errors.Is(derr, policy.ErrDenied):
+		return true, derr
 	}
-	if !errors.Is(derr, policy.ErrDenied) {
-		return nil, fmt.Errorf("gate: policy admission: %w", derr)
-	}
-	b, serr := g.denyVerdict(ctx, *in, derr, nil, 0)
-	if serr != nil {
-		return nil, serr
-	}
-	return b, derr
+	return false, fmt.Errorf("gate: policy admission: %w", derr)
 }
 
-// policyDecision is the outcome of stage 10p for an allow.
+// policyDecision is the outcome of the stateful evaluation for an allow.
 type policyDecision struct {
 	verdict     []byte
 	verdictHash commitment.Hash
 	tx          registry.StateTx
-	step        policy.Step
+	// closedBucket and closedSet are set when the allow closed an hour.
+	closedBucket []byte
+	closedSet    []byte
 }
 
-// evaluatePolicy runs stage 10p and, on allow, signs the allow verdict and
+// evaluatePolicy runs the stateful policy rules and, on allow, signs the allow verdict and
 // builds the cell transaction. On allow the policy lock is held; the caller
 // releases it. On a deny or an error it is already released.
 func (g *Gate) evaluatePolicy(ctx context.Context, p commitment.Params, c *commitment.Commitment, in *policyInput, now2 uint64) (dec *policyDecision, verdict []byte, err error) {
@@ -308,9 +306,18 @@ func (g *Gate) evaluatePolicy(ctx context.Context, p commitment.Params, c *commi
 	if err != nil {
 		return nil, nil, fmt.Errorf("gate: encode counter: %w", err)
 	}
-	held = false
-	return &policyDecision{
-		verdict: vb, verdictHash: vh, step: step,
+	dec = &policyDecision{
+		verdict: vb, verdictHash: vh,
 		tx: registry.StateTx{Key: g.pol.key, Expect: cell.Version, Next: registry.NewStateCell(enc)},
-	}, nil, nil
+	}
+	if step.ClosedBucket != nil {
+		if dec.closedBucket, err = policy.EncodeBucket(step.ClosedBucket); err != nil {
+			return nil, nil, fmt.Errorf("gate: encode closed bucket: %w", err)
+		}
+		if dec.closedSet, err = policy.EncodeClosedSet(step.ClosedSet); err != nil {
+			return nil, nil, fmt.Errorf("gate: encode closed set: %w", err)
+		}
+	}
+	held = false
+	return dec, nil, nil
 }

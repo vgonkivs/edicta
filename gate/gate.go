@@ -17,7 +17,6 @@ import (
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate/registry"
-	"github.com/vgonkivs/edicta/policy"
 )
 
 // Gate is safe for concurrent use. It starts no goroutines.
@@ -351,9 +350,32 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	// Policy admission. A deny is signed first; the decision record is then
 	// still archived, and an archive failure does not change the deny.
 	pin := policyInput{h: h, actionHash: res.ActionHash, agent: c.AgentPubKey, decidedAt: now}
+	key := registry.Key{PubKey: agentKey}
+	copy(key.Nonce[:], c.Nonce)
 	if g.pol != nil {
-		vb, perr := g.admitPolicy(ctx, c, action, &pin)
-		if perr != nil {
+		denied, perr := g.admitPolicy(c, action, &pin)
+		if perr != nil && !denied {
+			return res, perr
+		}
+		if denied {
+			// A retry of a decision that was already authorized gets its
+			// stored Authorization, not a new deny: the mandate may have
+			// changed since.
+			if old, gerr := g.d.Registry.Get(ctx, key); gerr == nil && old.CommitmentHash == h {
+				if g.d.Archiver != nil {
+					if err := g.archiveDecision(ctx, h, envelope, action); err != nil {
+						return res, err
+					}
+					res.DecisionArchived = true
+				}
+				return g.replayArchived(res, old)
+			} else if gerr != nil && !errors.Is(gerr, registry.ErrNotFound) {
+				return res, fmt.Errorf("%w: %w", ErrRegistryUnavailable, gerr)
+			}
+			vb, serr := g.denyVerdict(ctx, pin, perr, nil, 0)
+			if serr != nil {
+				return res, serr
+			}
 			res.PolicyVerdict = vb
 			if vb != nil && g.d.Archiver != nil {
 				if aerr := g.archiveDecision(ctx, h, envelope, action); aerr != nil {
@@ -376,8 +398,6 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	}
 
 	// Advisory nonce check.
-	key := registry.Key{PubKey: agentKey}
-	copy(key.Nonce[:], c.Nonce)
 	switch old, err := g.d.Registry.Get(ctx, key); {
 	case err == nil:
 		return g.replayArchived(res, old)
@@ -473,6 +493,7 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	var cerr error
 	if dec != nil {
 		entry.Verdict = dec.verdict
+		entry.ClosedBucket, entry.ClosedSet = dec.closedBucket, dec.closedSet
 		cerr = g.pol.state.ConsumeState(ctx, entry, g.cfg.ClockTolerance, dec.tx)
 	} else {
 		cerr = g.d.Registry.Consume(ctx, entry, g.cfg.ClockTolerance)
@@ -495,15 +516,7 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	res.AuthorizedAt = now2
 	if dec != nil {
 		res.PolicyVerdict = bytes.Clone(dec.verdict)
-		if cb := dec.step.ClosedBucket; cb != nil {
-			var err error
-			if res.ClosedBucket, err = policy.EncodeBucket(cb); err != nil {
-				g.log.Error("encode closed bucket", "err", err)
-			}
-			if res.ClosedSet, err = policy.EncodeClosedSet(dec.step.ClosedSet); err != nil {
-				g.log.Error("encode closed set", "err", err)
-			}
-		}
+		res.ClosedBucket, res.ClosedSet = bytes.Clone(dec.closedBucket), bytes.Clone(dec.closedSet)
 	}
 	return res, nil
 }
@@ -793,7 +806,9 @@ func (g *Gate) signReceipt(ctx context.Context, h commitment.Hash, ref string, e
 
 // Prune deletes the entries whose decision can no longer pass the time check. It
 // uses the persisted watermark, so a clock that jumps forward cannot prune
-// early.
+// early. With a mandate, an entry also holds the closed history of its
+// allow: the caller must prune only after the archive has acknowledged every
+// record of the entry's chain.
 func (g *Gate) Prune(ctx context.Context) (int, error) {
 	if g.closed.Load() {
 		return 0, ErrClosed

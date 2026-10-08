@@ -123,7 +123,8 @@ func TestSharedCounterAndCounterCell(t *testing.T) {
 	back, err := policy.DecodeCounter(enc)
 	require.NoError(t, err)
 	require.Equal(t, c.Ledger.State, back.Ledger.State)
-	require.NoError(t, policy.CheckScales(m, back.Ledger))
+	require.Equal(t, map[string]uint64{"x:a": m.Assets[0].Scale}, back.Scales)
+	require.NoError(t, back.Adopt(m, policy.HashMandate(canon)))
 	m.Assets[0].Scale = 3
-	require.ErrorIs(t, policy.CheckScales(m, back.Ledger), policy.ErrScaleChanged)
+	require.ErrorIs(t, back.Adopt(m, policy.HashMandate(canon)), policy.ErrScaleChanged)
 }

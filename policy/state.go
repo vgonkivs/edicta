@@ -321,28 +321,4 @@ func (l *Ledger) Validate() error {
 // StateHash returns the hash of the ledger's state.
 func (l *Ledger) StateHash() (commitment.Hash, error) { return HashState(&l.State) }
 
-// CheckScales refuses a mandate that gives an (asset) another scale than the
-// one retained in the ledger.
-func CheckScales(m *Mandate, l Ledger) error {
-	check := func(b *Bucket) error {
-		for _, s := range b.Sums {
-			if i := m.AssetRuleFor(s.Asset); i >= 0 && m.Assets[i].Scale != s.Scale {
-				return fmt.Errorf("%w: %s has scale %d in the state, %d in the mandate", ErrScaleChanged, s.Asset, s.Scale, m.Assets[i].Scale)
-			}
-		}
-		return nil
-	}
-	if l.State.Open != nil {
-		if err := check(l.State.Open); err != nil {
-			return err
-		}
-	}
-	for i := range l.Closed {
-		if err := check(&l.Closed[i]); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 var errMissingBucket = errors.New("policy: closed bucket content missing")

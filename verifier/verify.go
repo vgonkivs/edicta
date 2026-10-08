@@ -791,10 +791,10 @@ func (r *run) anyStatus(s Status) bool {
 }
 
 // policy runs the policy check on the verified decision. It is skipped when
-// the action did not verify, and when the archive holds no allow record and
+// the action did not verify, when the decision is not authorized, and when the archive holds no allow record and
 // the auditor did not require one.
 func (r *run) policy() error {
-	if r.c == nil || r.action == nil {
+	if r.c == nil || r.action == nil || r.rep.State != archive.StateAuthorized {
 		return nil
 	}
 	in := policyInput{

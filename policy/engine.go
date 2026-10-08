@@ -41,7 +41,8 @@ type Step struct {
 	ClosedSet    *ClosedSet // set when this step closed an hour
 }
 
-// Admit runs the per-action rules (P1 to P8). On a deny the Admission holds
+// Admit runs the per-action rules: agent, extractor, facts, validity, kind,
+// asset, recipient and amount. On a deny the Admission holds
 // what was learned so far (the extractor ID, the facts).
 func Admit(m *Mandate, x *Extractors, d Decision) (Admission, error) {
 	var a Admission
@@ -102,17 +103,20 @@ func windowLo(t, hours uint64) uint64 {
 // roll returns a copy of the ledger positioned at bucket k. When an hour
 // closes, the closed bucket and the new closed set come back too; the
 // returned state's closed_root is not updated until the set is hashed.
-func roll(l Ledger, k uint64) (Ledger, *Bucket, *ClosedSet) {
+func roll(l Ledger, k uint64) (Ledger, *Bucket, *ClosedSet, error) {
 	out := Ledger{State: l.State, Set: l.Set, Closed: l.Closed}
 	if l.State.Seq == 0 {
 		out.State.Open = &Bucket{Format: 1, Index: k}
-		return out, nil, nil
+		return out, nil, nil, nil
 	}
 	open := *l.State.Open
 	if k <= open.Index {
-		return out, nil, nil
+		return out, nil, nil, nil
 	}
-	hash, _ := HashBucket(&open)
+	hash, err := HashBucket(&open)
+	if err != nil {
+		return Ledger{}, nil, nil, fmt.Errorf("%w: %w", ErrStateInvalid, err)
+	}
 	cutoff := uint64(0)
 	if k > MaxClosed {
 		cutoff = k - MaxClosed
@@ -134,7 +138,7 @@ func roll(l Ledger, k uint64) (Ledger, *Bucket, *ClosedSet) {
 	closed = append(closed, open)
 	out.Set, out.Closed = set, closed
 	out.State.Open = &Bucket{Format: 1, Index: k}
-	return out, &open, &set
+	return out, &open, &set, nil
 }
 
 // window sums amounts of (asset, scale) and counts over the buckets from lo
@@ -169,7 +173,8 @@ func window(l *Ledger, lo uint64, asset string, scale uint64, wantSum bool) (*bi
 	return sum, count, nil
 }
 
-// Evaluate runs the rules over the ledger (P10 to P14) and, on allow,
+// Evaluate runs the stateful rules over the ledger (not_before, min spacing,
+// period sums, counts, capacity) and, on allow,
 // returns the transition. Denies change nothing.
 func Evaluate(m *Mandate, l Ledger, a Admission, tH uint64) (Step, error) {
 	if a.Asset < 0 || a.Asset >= len(m.Assets) {
@@ -187,7 +192,10 @@ func Evaluate(m *Mandate, l Ledger, a Admission, tH uint64) (Step, error) {
 		return Step{}, ErrMinSpacing
 	}
 	tEff := EvalTime(l.State, tH)
-	rl, _, _ := roll(l, tEff/BucketSeconds)
+	rl, _, _, err := roll(l, tEff/BucketSeconds)
+	if err != nil {
+		return Step{}, err
+	}
 	amount := amountBig(a.Facts.Amount)
 	for _, p := range r.Periods {
 		sum, _, err := window(&rl, windowLo(tEff, p.Hours), r.Asset, r.Scale, true)
@@ -220,7 +228,10 @@ func Apply(l Ledger, d Delta) (Step, error) {
 		return Step{}, fmt.Errorf("%w: %w", ErrFactsInvalid, err)
 	}
 	tEff := EvalTime(l.State, d.TH)
-	rl, closedB, closedSet := roll(l, tEff/BucketSeconds)
+	rl, closedB, closedSet, err := roll(l, tEff/BucketSeconds)
+	if err != nil {
+		return Step{}, err
+	}
 	open := Bucket{Format: 1, Index: rl.State.Open.Index, Count: rl.State.Open.Count, Sums: slices.Clone(rl.State.Open.Sums)}
 	i, found := slices.BinarySearchFunc(open.Sums, Sum{Asset: d.Asset, Scale: d.Scale}, func(a, b Sum) int {
 		return cmpPair(a.Asset, a.Scale, b.Asset, b.Scale)

@@ -247,7 +247,7 @@ func exitFor(rep Report) string {
 
 func TestPolicyVerifyVectors(t *testing.T) {
 	d := loadVec(t)
-	require.Len(t, d.Cases, 42)
+	require.Len(t, d.Cases, 45)
 	for _, c := range d.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			v, _ := c.verifier(t, d)

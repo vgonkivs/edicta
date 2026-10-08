@@ -319,6 +319,46 @@ func TestPolicyCrashAfterTheRolloverCommitIsRepairedOnRestart(t *testing.T) {
 	r.requireHistoryReadable(v3)
 }
 
+// Two rollovers whose policy records never reached the archive, and a retry
+// queue lost with the process: the registry entries still hold the closed
+// bucket and set of each, so the older set is rebuilt too.
+func TestPolicyOlderClosedSetIsRebuiltFromItsEntry(t *testing.T) {
+	r := newRollEnv(t, nil)
+	r.startPolicy()
+	d1 := r.sendAt(1, 3_000_000, t0.Add(-1000*time.Second))
+	st, _, _ := r.authorizeRaw(d1)
+	require.Equal(t, 200, st)
+
+	lost := []archive.Kind{archive.KindPolicyBucket, archive.KindPolicyClosed, archive.KindPolicyAllow, archive.KindPolicySuccessor, archive.KindAuthorization}
+	for _, k := range lost {
+		r.fs.failKind(k, errArchiveDown)
+	}
+	r.clk.set(t0.Add(1200 * time.Second))
+	d2 := r.sendAt(2, 3_000_000, t0.Add(600*time.Second))
+	st, _, _ = r.authorizeRaw(d2)
+	require.Equal(t, 200, st)
+	r.clk.set(t0.Add(1200*time.Second + 2*time.Hour))
+	d3 := r.sendAt(3, 1_000_000, t0.Add(600*time.Second+2*time.Hour))
+	st, _, _ = r.authorizeRaw(d3)
+	require.Equal(t, 200, st)
+	_ = r.srv.Shutdown(bg)
+
+	for _, k := range lost {
+		r.fs.failKind(k, nil)
+	}
+	fresh := blockAt(r.nextH, 8)
+	fresh.Time = r.clk.Now()
+	r.nextH += 10
+	r.chain.AddHeader(fresh)
+	r.startPolicy()
+	eventually(t, func() bool { _, err := r.real.Authorization(bg, d3.hash); return err == nil }, "the Authorization is repaired")
+
+	v3 := r.verdictOf(d3.hash)
+	require.NotEqual(t, r.verdictOf(d2.hash).PrevState.ClosedRoot, v3.PrevState.ClosedRoot, "the second allow starts on an older set")
+	r.requireHistoryReadable(r.verdictOf(d2.hash))
+	r.requireHistoryReadable(v3)
+}
+
 func TestPolicyRestartAdoptionRules(t *testing.T) {
 	r := newRollEnv(t, func(m *policy.Mandate) { m.Version = 2 })
 	r.startPolicy()

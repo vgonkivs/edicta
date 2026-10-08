@@ -149,8 +149,8 @@ type RejectionRecord struct {
 	RejectedAt     uint64
 }
 
-// The policy records carry nested policy structures as the canonical bytes of
-// spec/policy-v1.md. They are strictly decoded when the record is, and the
+// The policy records carry nested policy structures as their canonical bytes.
+// They are strictly decoded when the record is, and the
 // signatures inside are not checked: readers check them.
 
 // MandateRecord holds a SignedMandate.

@@ -42,6 +42,14 @@ type Entry struct {
 	// Verdict is the canonical SignedPolicyVerdict of the allow; nil when the
 	// gate has no mandate.
 	Verdict []byte
+	// ClosedBucket and ClosedSet are the canonical bytes of the bucket the
+	// allow closed and of the closed set it produced; both are nil unless
+	// the allow rolled an hour over. They are archive data kept with the
+	// spend so that the archive can always be rewritten from the registry.
+	// An entry must not be pruned before the archive holds every record
+	// derived from it.
+	ClosedBucket []byte
+	ClosedSet    []byte
 }
 
 // Clone returns a deep copy that preserves nil slices.
@@ -49,6 +57,8 @@ func (e Entry) Clone() Entry {
 	e.Authorization = slices.Clone(e.Authorization)
 	e.Receipt = slices.Clone(e.Receipt)
 	e.Verdict = slices.Clone(e.Verdict)
+	e.ClosedBucket = slices.Clone(e.ClosedBucket)
+	e.ClosedSet = slices.Clone(e.ClosedSet)
 	return e
 }
 
@@ -121,8 +131,17 @@ func CheckConsume(e Entry) error {
 	if e.Path != PathDA && e.Path != PathArchive {
 		return fmt.Errorf("%w: path %d", ErrInvalidEntry, e.Path)
 	}
+	if (e.ClosedBucket == nil) != (e.ClosedSet == nil) || len(e.ClosedBucket) > MaxClosedBucket || len(e.ClosedSet) > MaxClosedSet {
+		return fmt.Errorf("%w: closed bucket and set", ErrInvalidEntry)
+	}
 	return nil
 }
+
+// Size bounds of the closed history kept with an entry.
+const (
+	MaxClosedBucket = 16384
+	MaxClosedSet    = 36864
+)
 
 // Prunable reports whether Prune may delete e at cutoff.
 func Prunable(e Entry, cutoff uint64) bool { return e.ValidUntil < cutoff }
