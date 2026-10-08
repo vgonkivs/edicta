@@ -1,6 +1,34 @@
 # Edicta
 
-Edicta — verifiable decision layer for autonomous agents.
+**Edicta — the boundary between decision and execution.**
+
+> Agents decide freely. They execute only what they committed to beforehand,
+> within the policy their principal signed, and anyone can verify it.
+
+Precisely: "execute only what they committed to" holds when the executor
+enforces the gate's Authorization (or, later, with an on-chain gate). Where the
+executor does not enforce it, an agent can still act outside its commitment,
+but it cannot do so undetected.
+
+## Why
+
+When an automated actor acts with someone else's money, the only evidence of
+what it decided, and why, sits today with its operator. The operator can
+rewrite or hide that evidence after the fact. Edicta makes the decision public
+and committed before the action, so the record no longer depends on the party
+it is supposed to hold to account.
+
+## First use case: AI agents that spend other people's money
+
+Example: a trading agent manages a client's brokerage account. Before each
+order it publishes its decision (the market data it saw, its model and
+policy, and the exact order bytes) and commits to it. The gate authorizes
+only that exact order, inside the limits the client signed, and the broker
+connector places it only with that Authorization. Afterwards the client, or
+an auditor, can check every order against what was decided and when.
+
+The core makes no AI assumptions. A trading bot, a DeFi keeper or a cron
+script that moves funds uses Edicta in exactly the same way.
 
 ## What it does
 
@@ -17,27 +45,6 @@ reported, not proof of execution.
 Afterwards anyone can verify that the decision existed before the action,
 that exactly that action ran, and that the gate authorized it.
 
-## Try it: the demo
-
-One command runs the whole flow on the Celestia Mocha testnet in a few
-minutes: an agent decides on a TIA transfer, the decision is published and
-anchored on Celestia, the gate authorizes it, an executor sends exactly the
-committed transfer, and an independent verifier checks all of it. Then the
-demo tries to cheat (a different amount, a reused decision, a tampered
-archive, a rogue executor) and shows each attempt refused or caught.
-
-```sh
-make demo                      # builds everything into celestia/bin, then runs the demo
-make demo ARGS="--json"        # pass demo flags through ARGS
-```
-
-`make build` only builds (`edicta`, `edictad`, `edicta-live`, `edicta-verify`
-into `celestia/bin/`); `make vet`, `make test` run both Go modules.
-
-The demo prints an address to fund with testnet TIA and starts only after you
-press Enter. Using your own funded key, the trust root, the verdicts and how
-to re-verify a run offline: [celestia/demo/README.md](celestia/demo/README.md).
-
 ## What it does not do
 
 Edicta never evaluates the agent: not its logic, not the truth of its inputs
@@ -47,6 +54,39 @@ the operator's or auditor's job, using the published payload.
 The core is platform-agnostic. An action is an opaque byte string; rails,
 brokers and chains live in profiles. The gate verifies and authorizes, it
 never executes and holds no rail credentials.
+
+## Try it
+
+One command runs the whole flow on the Celestia Mocha testnet in 3 to 5
+minutes. An agent decides on a TIA transfer, and the decision is published as
+a Celestia blob and anchored on chain. A gate, started in-process and reached
+over its real HTTP API, authorizes it. An executor sends exactly the
+committed transfer, and the decision, the Authorization and the payload go to
+the archive. An independent verifier then checks all of it from the archive
+and public RPCs, including proof of the executed transaction. Finally the demo
+tries to cheat four ways (a different amount, a reused decision, a tampered
+archive, a rogue executor) and shows each attempt refused or caught.
+
+```sh
+make demo                      # builds everything into celestia/bin, then runs the demo
+make demo ARGS="--json"        # pass demo flags through ARGS
+```
+
+The demo prints an address to fund with testnet TIA and starts only after you
+press Enter. Using your own funded key, the trust root, the verdicts and how
+to re-verify a run offline: [celestia/demo/README.md](celestia/demo/README.md).
+
+`make build` only builds (`edicta`, `edictad`, `edicta-live`, `edicta-verify`
+into `celestia/bin/`); `make vet` and `make test` run both Go modules. To run
+the tests directly, from the repository root:
+
+```sh
+go test ./...
+go -C celestia test ./...
+```
+
+The older manual runner (`edicta-live`, with your own `edictad` and
+endpoints), step by step: [celestia/README.md](celestia/README.md).
 
 ## Flow
 
@@ -88,36 +128,25 @@ Cross-language test vectors (with an independent Python checker): [spec/vectors/
 
 ## Data availability
 
-- `celestia_blob` (default): the payload is a share-version-1 blob on Celestia L1, paid by `MsgPayForBlobs`. Live on the Mocha testnet.
-- Fibre: the payload is a Fibre blob, anchored on L1 by a `MsgPayForFibre` transaction. A first-class v0 mode, in progress.
+- `celestia_blob` (default): the payload is a share-version-1 blob on Celestia L1, paid by `MsgPayForBlobs`. Live on the Mocha testnet; this is what the demo uses.
+- Fibre: the payload is a Fibre blob, anchored on L1 by a `MsgPayForFibre` transaction. A first-class v0 mode, implemented in the Recorder, the gate and the verifier; not part of the demo, and its first live run is still pending.
 - Archive: long-term copy of the payload for verification after DA retention ends. The hash proves integrity, so the archive is trusted only for availability.
 
 ## Status
 
-The v0 wire format is frozen. The gate, the Go SDK, the Recorder, the `edictad`
-daemon and the tia-transfer demo work end to end on Celestia Mocha. Fibre
-support, the archive and the standalone verifier are in progress. Not
-production-ready.
+The v0 wire format is frozen. The gate, the Go SDK, the Recorder, the
+`edictad` daemon, the archive and the verifier (`edicta verify`, `edicta
+replay`) work end to end; the demo above, with the `celestia_blob` mode, ran
+live on Celestia Mocha. Fibre support is implemented but has not run live
+yet. Principal-signed policy (mandates with spending limits) is in progress.
+Not production-ready.
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `/` (module `github.com/vgonkivs/edicta`) | Core: `commitment` (encoding, hashing, checks), `gate`, `sdk`, `edictaapi` (HTTP API), `dacommit`, `test` |
-| `celestia/` (own module) | Recorder, chain client for the gate, `edictad` daemon, `edicta-live` demo runner |
+| `/` (module `github.com/vgonkivs/edicta`) | Core: `commitment` (encoding, hashing, checks), `gate`, `archive`, `verifier`, `sdk`, `edictaapi` (HTTP API), `dacommit`, `test` |
+| `celestia/` (own module) | Recorder, chain client for the gate, `edictad` daemon, `edicta` CLI (demo, verify), `edicta-live` runner |
 | `fibre/` (own module) | Fibre blob commitment |
 | `examples/` | Profiles in use: `tia-transfer` (Cosmos `MsgSend` on a price trigger) and `dca-agent` (IBKR order, offline with a fake broker) |
 | `spec/` | Specification, profiles, test vectors and their generators |
-
-## Try it
-
-One-command demo on Mocha (`edicta demo`): [celestia/demo/README.md](celestia/demo/README.md).
-
-The older manual runner (`edicta-live`), step by step: [celestia/README.md](celestia/README.md).
-
-Tests, from the repository root:
-
-```
-go test ./...
-go -C celestia test ./...
-```
