@@ -13,6 +13,7 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/policy"
 )
 
 // maxArchiveCalls bounds the archive calls in flight. fsarchive takes no
@@ -240,7 +241,27 @@ func (q *retryQueue) takeDropped() bool {
 	return d
 }
 
+// chain is a group of records that must reach the archive in this order: a
+// record is never written before the ones ahead of it. When a write has to be
+// retried, the queue keeps the tail from the failed record on.
+type chain struct{ recs []archive.Record }
+
+func (c *chain) Kind() archive.Kind {
+	if len(c.recs) == 0 {
+		return 0
+	}
+	return c.recs[len(c.recs)-1].Kind()
+}
+
 func authorizationHash(r archive.Record) (commitment.Hash, bool) {
+	if c, ok := r.(*chain); ok {
+		for _, m := range c.recs {
+			if h, ok := authorizationHash(m); ok {
+				return h, true
+			}
+		}
+		return commitment.Hash{}, false
+	}
 	a, ok := r.(*archive.AuthorizationRecord)
 	if !ok {
 		return commitment.Hash{}, false
@@ -254,11 +275,37 @@ func authorizationHash(r archive.Record) (commitment.Hash, bool) {
 	return h, true
 }
 
+// policyRecordHash is the commitment hash of a policy verdict record.
+func policyRecordHash(r archive.Record) (commitment.Hash, bool) {
+	var b []byte
+	switch r := r.(type) {
+	case *archive.PolicyAllowRecord:
+		b = r.SignedVerdict
+	case *archive.PolicyDenyRecord:
+		b = r.SignedVerdict
+	}
+	sv, _, err := policy.DecodeSignedVerdict(b)
+	if err != nil {
+		return commitment.Hash{}, false
+	}
+	var h commitment.Hash
+	copy(h[:], sv.Verdict.CommitmentHash)
+	return h, true
+}
+
 func recordHash(r archive.Record) string {
+	if c, ok := r.(*chain); ok && len(c.recs) > 0 {
+		return recordHash(c.recs[len(c.recs)-1])
+	}
 	var h commitment.Hash
 	switch r := r.(type) {
 	case *archive.RejectionRecord:
 		h = r.CommitmentHash
+	case *archive.PolicyAllowRecord, *archive.PolicyDenyRecord:
+		var ok bool
+		if h, ok = policyRecordHash(r); !ok {
+			return ""
+		}
 	default:
 		var ok bool
 		if h, ok = authorizationHash(r); !ok {
@@ -297,11 +344,55 @@ type writer struct {
 }
 
 func (w *writer) write(ctx context.Context, r archive.Record) {
+	if c, ok := r.(*chain); ok {
+		w.writeChain(ctx, c)
+		return
+	}
+	if w.writeOne(ctx, r) == writeRetry {
+		w.queue(r)
+	}
+}
+
+func (w *writer) queue(r archive.Record) {
+	queued := w.q.add(r)
+	w.log.Error("edictad: archive write failed", "kind", r.Kind(), "queued", queued)
+}
+
+// writeChain writes the records in order and stops at the first one that has
+// to be retried, queueing it and the ones behind it as one chain. A record
+// that can never be written ends the chain too: the registry still holds the
+// Authorization, and the scan repairs the rest in order.
+func (w *writer) writeChain(ctx context.Context, c *chain) {
+	for i, r := range c.recs {
+		switch w.writeOne(ctx, r) {
+		case writeRetry:
+			w.queue(&chain{recs: c.recs[i:]})
+			return
+		case writeStop:
+			if h, ok := authorizationHash(c); ok {
+				w.q.markDroppedFor(h)
+			}
+			return
+		}
+	}
+}
+
+type writeResult int
+
+const (
+	writeDone writeResult = iota
+	writeRetry
+	writeStop
+)
+
+func (w *writer) writeOne(ctx context.Context, r archive.Record) writeResult {
 	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), w.timeout)
 	defer cancel()
 	_, err := w.io.put(wctx, r)
 	switch {
 	case err == nil:
+	case errors.Is(err, archive.ErrConflict) && r.Kind() == archive.KindPolicySuccessor:
+		w.log.Error("edictad: a second allow consumed the same policy state: possible fork of the gate's counter", "err", err)
 	case errors.Is(err, archive.ErrConflict):
 		w.log.Error("edictad: archive record conflicts with the stored one", "kind", r.Kind(), "err", err)
 	case errors.Is(err, archive.ErrNotFound):
@@ -314,10 +405,12 @@ func (w *writer) write(ctx context.Context, r archive.Record) {
 			// record without the retention inputs.
 			w.q.markDroppedFor(h)
 		}
+		return writeStop
 	default:
-		queued := w.q.add(r)
-		w.log.Error("edictad: archive write failed", "kind", r.Kind(), "queued", queued, "err", err)
+		w.log.Error("edictad: archive write failed", "kind", r.Kind(), "err", err)
+		return writeRetry
 	}
+	return writeDone
 }
 
 // verdicts are the rejection markers, in the order they are matched: an
@@ -355,6 +448,9 @@ func markerName(err error) (string, bool) {
 		if errors.Is(err, o) {
 			return "", false
 		}
+	}
+	if name := policy.ReasonOf(err); name != "" {
+		return name, true
 	}
 	for _, v := range verdicts {
 		if errors.Is(err, v.err) {

@@ -29,6 +29,9 @@ type sweeper struct {
 	// full pass instead.
 	recheck  map[registry.Key]registry.Entry
 	overflow bool
+	// pol is set when the gate has a mandate: the sweep then also repairs
+	// the policy records, ahead of the Authorization record.
+	pol *polInfo
 }
 
 // maxRecheck bounds the entries kept for another look.
@@ -53,6 +56,17 @@ func (s *sweeper) run(ctx context.Context, full bool) sweepResult {
 	st := &res.stats
 	for _, r := range s.q.drain() {
 		perm := st.permanent
+		if c, ok := r.(*chain); ok {
+			rest := s.putChain(ctx, c, st)
+			if h, ok := authorizationHash(r); ok && st.permanent > perm {
+				s.q.markDroppedFor(h)
+			}
+			if rest != nil && !s.q.add(rest) {
+				s.log.Error("edictad: archive retry queue is full; the record is left to the next registry scan",
+					"kind", r.Kind(), "commitment_hash", recordHash(r))
+			}
+			continue
+		}
 		done := s.put(ctx, r, st)
 		if h, ok := authorizationHash(r); ok && st.permanent > perm {
 			// Only the retry of a queued record raises the flag, never the
@@ -68,6 +82,9 @@ func (s *sweeper) run(ctx context.Context, full bool) sweepResult {
 	s.recheckHeld(ctx, st)
 	if full {
 		before := st.failed
+		if s.pol != nil {
+			s.pol.repair(ctx, s, st)
+		}
 		res.incomplete = !s.scan(ctx, st)
 		res.scanFailed = st.failed > before
 	}
@@ -155,7 +172,34 @@ func (s *sweeper) entry(ctx context.Context, e registry.Entry, st *sweepStats) b
 		st.failed++
 		return false
 	}
-	return s.put(ctx, &archive.AuthorizationRecord{SignedAuthorization: e.Authorization, AuthorizedAt: e.AuthorizedAt}, st)
+	auth := &archive.AuthorizationRecord{SignedAuthorization: e.Authorization, AuthorizedAt: e.AuthorizedAt}
+	if s.pol == nil || len(e.Verdict) == 0 {
+		return s.put(ctx, auth, st)
+	}
+	recs, err := s.pol.allowRecords(nil, nil, e.Verdict, e.CommitmentHash)
+	if err != nil {
+		s.log.Error("edictad: the registry's policy verdict does not decode", "commitment_hash", hex.EncodeToString(e.CommitmentHash[:]), "err", err)
+		st.permanent++
+		return true
+	}
+	return s.putChain(ctx, &chain{recs: append(recs, auth)}, st) == nil
+}
+
+// putChain writes the records in order and returns what is left to retry: the
+// tail from the first record that failed for a reason a retry may cure. A
+// record that cannot be written, or whose dependency is missing, ends the
+// chain without a retry, so that nothing is written ahead of it.
+func (s *sweeper) putChain(ctx context.Context, c *chain, st *sweepStats) *chain {
+	for i, r := range c.recs {
+		perm, nodec := st.permanent, st.noDecision
+		if !s.put(ctx, r, st) {
+			return &chain{recs: c.recs[i:]}
+		}
+		if st.permanent > perm || st.noDecision > nodec {
+			return nil
+		}
+	}
+	return nil
 }
 
 // put reports whether the record needs no further retry.

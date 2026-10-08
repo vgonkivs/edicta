@@ -159,6 +159,26 @@ read, so while the archive is down that retry gets 503 as well, and gets the usu
 409 with the stored Authorization afterwards. An archive write that fails after the
 Authorization was signed does not change the 200; the sweep repairs the archive.
 
+### Spending policy (optional `[policy]`)
+
+```toml
+[policy]
+mandate_file = "/etc/edictad/mandate.cbor"
+```
+
+`mandate_file` is a canonical SignedMandate that the principal signed for this
+`gate.gate_id` (build it with `policy.SignMandate`; `policy.Render` gives the text to
+show before signing). The principal key must not be a gate, executor or agent key. A
+mandate needs `archive.dir`, and every entry of `gate.action_types` must have a policy
+extractor; today that is only `application/vnd.edicta.cosmos.bank-send.v0+cbor`
+(Celestia, utia). The decision age cap and the other limits are rules inside the mandate.
+
+At start edictad verifies the mandate, logs its rendered text, and writes the mandate
+record and the genesis closed set to the archive before it listens; a failed write
+refuses the start. To replace a mandate, sign a higher `version` with the same
+`mandate_id` (counters continue) and restart. Auditors verify with
+`edicta-verify --principal-key HEX --require-policy`.
+
 ## 4. Run edicta-live
 
 Dry run first. It does everything except broadcast the transfer: it publishes

@@ -37,6 +37,7 @@ import (
 	"github.com/vgonkivs/edicta/archive/httparchive"
 	"github.com/vgonkivs/edicta/celestia/anchorverify"
 	"github.com/vgonkivs/edicta/celestia/inclusion"
+	"github.com/vgonkivs/edicta/celestia/policyext/tiatransfer"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/fibre/fibrecommit"
@@ -478,10 +479,10 @@ func parseKeyList(s, flag string) ([]ed25519.PublicKey, error) {
 	return keys, nil
 }
 
-// newExtractors is a variable so that the policy extractors of the rails can
-// be registered, and so tests can replace them. An empty registry makes the
-// policy check of every action type unchecked (policy_no_extractor).
-var newExtractors = func() (*policy.Extractors, error) { return policy.NewExtractors() }
+// newExtractors is a variable so that tests can replace it. Only tia-transfer
+// is registered: an action type without an extractor makes its policy check
+// unchecked (policy_no_extractor).
+var newExtractors = func() (*policy.Extractors, error) { return policy.NewExtractors(tiatransfer.New()) }
 
 func committers() (map[commitment.DA]gate.DACommitter, error) {
 	fibreCommitter, err := fibrecommit.New(fibrecommit.DefaultMaxDataSize)

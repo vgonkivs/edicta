@@ -114,6 +114,14 @@ limit, and never more than the lifetime total in any case. If a send ends in an
 unclear state, the demo offers an explicit typed "abandon" confirmation; nothing
 else, including `--yes`, abandons it.
 
+## Spending policy
+
+The demo's edictad takes an optional `[policy] mandate_file` (a canonical SignedMandate
+signed by the principal for the demo gate id). With it the gate denies actions outside
+the mandate, such as an over-limit send, and `edicta-verify --principal-key HEX
+--require-policy` confirms the decision and the denial offline. See the policy section
+of `celestia/README.md`.
+
 ## Trust root (demo mode only)
 
 The verifier walks block headers backward from a header it already trusts. That

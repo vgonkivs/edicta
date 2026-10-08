@@ -33,6 +33,7 @@ type Config struct {
 	Recorder RecorderConfig `toml:"recorder"`
 	Gate     GateConfig     `toml:"gate"`
 	HTTP     HTTPConfig     `toml:"http"`
+	Policy   PolicyConfig   `toml:"policy"`
 }
 
 // NetworkConfig describes the chain access. Zero versions take the defaults of
@@ -241,6 +242,7 @@ func validID(s string, max int) bool {
 // only filled with da = "fibre".
 func (c Config) WithDefaults() Config {
 	c.Archive = c.Archive.withDefaults()
+	c.Policy = c.Policy.WithDefaults()
 	if c.Network.DA == DAConfigFibre {
 		c.Fibre = c.Fibre.withDefaults()
 		if c.Recorder.Enabled {
@@ -354,6 +356,12 @@ func (c Config) ValidateBasic() error {
 		return cfgErr(`network.da "blob" is not a mode: use "celestia_blob"`)
 	default:
 		return cfgErr(`network.da must be "celestia_blob" or "fibre"`)
+	}
+	if err := c.Policy.ValidateBasic(); err != nil {
+		return err
+	}
+	if c.Policy.Enabled() && c.Archive.Dir == "" {
+		return cfgErr("policy.mandate_file needs the archive: archive.dir is required")
 	}
 	if err := c.validateArchive(); err != nil {
 		return err

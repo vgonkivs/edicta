@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -32,6 +33,7 @@ import (
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/gate/dacommit/blobv1"
 	"github.com/vgonkivs/edicta/gate/registry/boltreg"
+	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/retention"
 	"github.com/vgonkivs/edicta/sdk"
 )
@@ -305,6 +307,24 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 	if err != nil {
 		return nil, err
 	}
+	var (
+		mandateBytes []byte
+		mandate      *policy.SignedMandate
+		extractors   *policy.Extractors
+	)
+	if cfg.Policy.Enabled() {
+		if mandateBytes, mandate, _, err = loadMandate(cfg.Policy.MandateFile, cfg.Gate.GateID); err != nil {
+			return nil, err
+		}
+		if extractors, err = policyExtractors(); err != nil {
+			return nil, fmt.Errorf("edictad: policy extractors: %w", err)
+		}
+		for _, t := range cfg.Gate.ActionTypes {
+			if !extractors.Has(t) {
+				return nil, cfgErr("gate.action_types[%q] has no policy extractor; a mandate needs one for every action type", t)
+			}
+		}
+	}
 	var ns []byte
 	if cfg.Recorder.Enabled {
 		if ns, err = cfg.Recorder.namespace(); err != nil {
@@ -367,6 +387,7 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 	gcfg.Scope = commitment.GateScope{GateID: cfg.Gate.GateID, ActionTypes: slices.Clone(cfg.Gate.ActionTypes)}
 	gcfg.ExecutorKeys = execKeys
 	gcfg.AllowedDA = []commitment.DA{cfg.DA()}
+	gcfg.Mandate = mandateBytes
 	gcfg.ArchiveWriteTimeout = time.Duration(cfg.Archive.WriteTimeoutS) * time.Second
 	if fibre {
 		gcfg.FibreMaxDataBytes = cfg.Fibre.MaxDataBytes
@@ -418,6 +439,7 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 		Registry:   reg,
 		Signer:     signer,
 		Logger:     log,
+		Extractors: extractors,
 	}
 	var reader node.FibreAnchorReader
 	if fibre {
@@ -462,8 +484,19 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 	s.gate = g
 
 	timeout := time.Duration(cfg.Archive.WriteTimeoutS) * time.Second
+	var pol *polInfo
+	if mandate != nil {
+		// The registry type is checked by the gate, which refused a mandate
+		// without policy state.
+		pol = &polInfo{gateID: cfg.Gate.GateID, counterKey: mandate.Mandate.CounterKey(), state: reg}
+		if err := publishMandate(ctx, aio, mandateBytes, timeout); err != nil {
+			return fail(err)
+		}
+		log.Info("edictad: mandate in force", "mandate_id", hex.EncodeToString(mandate.Mandate.MandateID),
+			"version", mandate.Mandate.Version, "text", policy.Render(&mandate.Mandate))
+	}
 	q := &retryQueue{}
-	sw := &sweeper{lister: reg, io: aio, q: q, log: log, timeout: timeout}
+	sw := &sweeper{lister: reg, io: aio, q: q, log: log, timeout: timeout, pol: pol}
 	// The pass before the listener has a time budget; what it does not reach
 	// is finished in the background right away.
 	sctx, scancel := context.WithTimeout(ctx, startupSweepBudget)
@@ -536,7 +569,7 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 	}
 
 	var api edictaapi.Gate = &archivingGate{
-		g: g, clock: clock, gateID: cfg.Gate.GateID, q: q,
+		g: g, clock: clock, gateID: cfg.Gate.GateID, q: q, pol: pol,
 		w: &writer{io: aio, q: q, log: log, timeout: timeout},
 	}
 	if d.WrapGate != nil {
@@ -768,6 +801,7 @@ type archivingGate struct {
 	gateID string
 	q      *retryQueue
 	w      *writer
+	pol    *polInfo // nil without a mandate
 }
 
 func (a *archivingGate) Authorize(ctx context.Context, envelope, action []byte) (gate.Result, error) {
@@ -800,9 +834,23 @@ func (a *archivingGate) Authorize(ctx context.Context, envelope, action []byte) 
 func (a *archivingGate) after(ctx context.Context, res gate.Result, err error) {
 	switch {
 	case err == nil:
-		a.w.write(ctx, &archive.AuthorizationRecord{
+		auth := &archive.AuthorizationRecord{
 			SignedAuthorization: res.Authorization, AuthorizedAt: res.AuthorizedAt, K2: k2Record(res.K2),
-		})
+		}
+		if a.pol == nil || len(res.PolicyVerdict) == 0 {
+			a.w.write(ctx, auth)
+			return
+		}
+		// Policy records first, so that a crash leaves no Authorization
+		// record without its verdict.
+		recs, perr := a.pol.allowRecords(res.ClosedBucket, res.ClosedSet, res.PolicyVerdict, res.CommitmentHash)
+		if perr != nil {
+			// The sweep rebuilds the records from the registry.
+			a.w.log.Error("edictad: policy records of an allow cannot be built", "err", perr)
+			a.q.markDroppedFor(res.CommitmentHash)
+			return
+		}
+		a.w.write(ctx, &chain{recs: append(recs, auth)})
 	case errors.Is(err, gate.ErrNonceUsed) && res.Authorization != nil:
 		// The same decision again. The request that issued the Authorization
 		// writes its record, with the retention inputs only it has, or queues
@@ -813,9 +861,14 @@ func (a *archivingGate) after(ctx context.Context, res gate.Result, err error) {
 		if !ok {
 			return
 		}
-		a.w.write(ctx, &archive.RejectionRecord{
+		marker := &archive.RejectionRecord{
 			CommitmentHash: res.CommitmentHash, Error: name, GateID: a.gateID, RejectedAt: uint64(a.clock.Now().Unix()),
-		})
+		}
+		if len(res.PolicyVerdict) > 0 && errors.Is(err, policy.ErrDenied) {
+			a.w.write(ctx, denyChain(res.PolicyVerdict, marker))
+			return
+		}
+		a.w.write(ctx, marker)
 	}
 }
 
