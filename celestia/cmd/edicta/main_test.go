@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -85,7 +86,13 @@ func TestVerifyUsageErrorIsJSONWithTheFlag(t *testing.T) {
 func TestUnknownFlagGivesNoVerdict(t *testing.T) {
 	code, out := edicta(t, "verify", "--no-such-flag")
 	assert.Equal(t, exitUsage, code)
-	assert.NotContains(t, out, "verdict")
+	for _, line := range strings.Split(out, "\n") {
+		assert.False(t, strings.HasPrefix(strings.TrimSpace(line), "verdict:"), "no verdict line: %q", line)
+	}
+	var doc map[string]any
+	if json.Unmarshal([]byte(out), &doc) == nil {
+		assert.NotContains(t, doc, "verdict", "no JSON report either")
+	}
 }
 
 // A live Fibre decision, verified through the real anchor verifier.

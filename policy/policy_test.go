@@ -20,7 +20,7 @@ func (x fakeX) ID() string                             { return x.id }
 func (x fakeX) ActionType() string                     { return x.typ }
 func (x fakeX) Extract(a []byte) (policy.Facts, error) { return x.fn(a) }
 
-func testMandate(t *testing.T) (*policy.Mandate, ed25519.PrivateKey) {
+func testMandate(t testing.TB) (*policy.Mandate, ed25519.PrivateKey) {
 	pseed := sha256.Sum256([]byte("p"))
 	aseed := sha256.Sum256([]byte("a"))
 	p := ed25519.NewKeyFromSeed(pseed[:])
