@@ -1,4 +1,4 @@
-"""Edicta policy v1 rules (spec/policy-v1.md, policy-v1-draft.1).
+"""Edicta policy v1 rules (spec/policy-v1.md, policy-v1-draft.2).
 
 The generator's rules module: facts, mandate, render, engine, state, verdict,
 archive records and the verifier outcome rules. check_policy.py re-implements
@@ -401,6 +401,28 @@ def verify_mandate(b: bytes) -> tuple:
 
 def asset_rule(m: dict, asset: str):
     return next((r for r in m["assets"] if r["asset"] == asset), None)
+
+
+def adopt(cell, m: dict, mh: bytes) -> tuple[str, dict]:
+    """Adoption of a verified mandate against the counter cell (section 6.3).
+
+    cell is None or {"version", "mandate_hash", "scales": {asset: scale}}.
+    Returns (action, next cell); a refusal raises ErrInvalidConfig."""
+    if cell is None:
+        return "genesis", {"version": m["version"], "mandate_hash": mh,
+                           "scales": {r["asset"]: r["scale"] for r in m["assets"]}}
+    if cell["version"] > m["version"]:
+        raise PolicyError("ErrInvalidConfig", "version")
+    if cell["version"] == m["version"]:
+        if cell["mandate_hash"] != mh:
+            raise PolicyError("ErrInvalidConfig", "same_version_other_hash")
+        return "use", cell
+    scales = dict(cell["scales"])
+    for r in m["assets"]:
+        if scales.get(r["asset"], r["scale"]) != r["scale"]:
+            raise PolicyError("ErrInvalidConfig", "scale", r["asset"])
+        scales[r["asset"]] = r["scale"]
+    return "switch", {"version": m["version"], "mandate_hash": mh, "scales": scales}
 
 
 # Render (section 7).
@@ -1010,6 +1032,7 @@ def verify_policy(case: dict) -> dict:
         n, hops = V, 0
         horizon = V["eval_time"] - HORIZON
         walked = [V]
+        known = {}
         while n["prev_state"]["seq"] >= 1:
             if case["depth"] is not None and hops >= case["depth"]:
                 break
@@ -1029,10 +1052,15 @@ def verify_policy(case: dict) -> dict:
             if sp != "ok" or sn != "ok":
                 return src[sp if sp != "ok" else sn], walked
             same = all(mp[x] == mn[x] for x in ("principal", "mandate_id", "gate_id"))
-            scales = all(asset_rule(mn, r["asset"]) is None or asset_rule(mn, r["asset"])["scale"] == r["scale"]
-                         for r in mp["assets"])
-            if not same or mp["version"] > mn["version"] or not scales:
+            if not same or mp["version"] > mn["version"]:
                 violated(p, n)
+                return None, walked
+            for r in mn["assets"]:
+                known[r["asset"]] = (r["scale"], n)
+            clash = next((known[r["asset"]][1] for r in mp["assets"]
+                          if known.get(r["asset"], (r["scale"],))[0] != r["scale"]), None)
+            if clash is not None:
+                violated(p, clash)
                 return None, walked
             st, led = ledger_for(p, mp, False)
             if st == "inconsistent":

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.1).
+"""Writes the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.2).
 
 spec/vectors/policy/{facts,mandate,render,state,engine,verify,archive,api}.json
 and spec/vectors/profiles/bank-send/tia_transfer_facts.json. Deterministic:
@@ -27,7 +27,9 @@ from edicta_v0 import TAG_AUTHORIZATION, TAG_AUTHORIZATION_SIG, action_hash, tag
 HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
 FORMAT = "edicta-policy-vectors/v1"
+# Each file carries the revision that last changed its bytes.
 REVISION = "policy-v1-draft.1"
+REVISION_2 = "policy-v1-draft.2"
 T0 = 1791000000
 GATE_ID = "gate-paper-1"
 
@@ -292,6 +294,49 @@ def gen_mandate():
                 "source": ("core keys.json" if n in CORE_KEYS else f"SHA-256(\"edicta/policy/v1 test principal|{n}\")")}
             for n in ("p1", "p2", "agent1", "agent2", "gate1")}
     return {"keys": keys, "cases": cases, "reject": rej}
+
+
+ETH = {"asset": "test:eth", "scale": 18, "periods": [{"hours": 744, "max": P.amt(10 ** 18)}]}
+
+
+def two_assets(label, version, eth_scale=18, eth=True, extra=()):
+    usd = copy.deepcopy(base_mandate(label)["assets"][0])
+    assets = ([dict(ETH, scale=eth_scale)] if eth else []) + [usd] + list(extra)
+    return base_mandate(label, version=version, assets=sorted(assets, key=lambda r: r["asset"].encode()))
+
+
+def gen_adoption():
+    btc = {"asset": "test:btc", "scale": 8, "per_action_max": P.amt(10 ** 6)}
+    cases = [
+        ("adopt_scale_change_unused", "Version 2 changes the scale of test:eth, which no allow ever used: refused, "
+         "the cell keeps version 1.", [two_assets("ad1", 1), two_assets("ad1", 2, eth_scale=6)]),
+        ("adopt_scale_change_after_drop", "Version 2 drops test:eth, version 3 lists it again at another scale: "
+         "refused, the cell still knows test:eth.", [two_assets("ad2", 1), two_assets("ad2", 2, eth=False),
+                                                     two_assets("ad2", 3, eth_scale=6)]),
+        ("adopt_keep_scales_add_asset", "Version 2 keeps every scale and adds test:btc; a restart with version 2 "
+         "uses the cell.", [two_assets("ad3", 1), two_assets("ad3", 2, extra=[btc]), two_assets("ad3", 2, extra=[btc])]),
+        ("adopt_version_below_cell", "The cell holds version 2; version 1 is refused.",
+         [two_assets("ad4", 2), two_assets("ad4", 1)]),
+        ("adopt_same_version_other_hash", "Version 1 again with another per-action max: refused.",
+         [two_assets("ad5", 1), base_mandate("ad5", assets=[dict(ETH), dict(base_mandate("ad5")["assets"][0],
+                                                                       per_action_max=P.amt(4000))])]),
+    ]
+    out = []
+    for i, d, ms in cases:
+        cell, steps = None, []
+        for m in ms:
+            sm, mh, _ = P.sign_mandate(SEEDS["p1"], m)
+            st = {"signed_mandate_hex": sm.hex(), "mandate_hash_hex": mh.hex()}
+            try:
+                act, cell = P.adopt(cell, m, mh)
+                st["expect"] = act
+            except P.PolicyError as e:
+                st.update(expect="refuse", error="gate.ErrInvalidConfig", cause=e.cause)
+            st["version_after"] = str(cell["version"])
+            st["scales_after"] = {a: str(v) for a, v in sorted(cell["scales"].items())}
+            steps.append(st)
+        out.append({"id": i, "description": d, "steps": steps})
+    return out
 
 
 def gen_render(mandate_file):
@@ -826,6 +871,31 @@ def gen_verify():
     case("equivocation_version_decrease", "g1 under version 2, then g2 under version 1 of the same mandate_id.", V, g2,
          full=True, exp=("unchecked", "blocked", "violated", "5"))
 
+    # Asset scale across mandate versions: the cell keeps every scale an adopted version listed.
+    W = Sim("W", m=two_assets("W", 1))
+    w1 = dec(W, "w1", F(100), T0 + 100); W.step(w1, w1["th"])
+    W.adopt(two_assets("W", 2, extra=[{"asset": "test:btc", "scale": 8, "per_action_max": P.amt(10 ** 6)}]))
+    w2 = dec(W, "w2", F(100), T0 + 200); W.step(w2, w2["th"])
+    case("pass_version_boundary_scales_kept", "w1 under version 1 spends test:usd only; version 2 keeps the scale of "
+         "the unused test:eth and adds test:btc; full walk w2 -> w1 -> genesis finds no equivocation.", W, w2,
+         full=True, exp=("pass", None, "ok", "0"))
+    SC = Sim("SC", m=two_assets("SC", 1))
+    x1 = dec(SC, "x1", F(100), T0 + 100); SC.step(x1, x1["th"])
+    SC.adopt(two_assets("SC", 2, eth_scale=6))
+    x2 = dec(SC, "x2", F(100), T0 + 200); SC.step(x2, x2["th"])
+    case("equivocation_scale_change", "The gate adopted version 2 with test:eth at scale 6 (unused, 18 in version "
+         "1), which adoption refuses; the walk x2 -> x1 reports it.", SC, x2, full=True,
+         exp=("unchecked", "blocked", "violated", "5"))
+    SR = Sim("SR", m=two_assets("SR", 1))
+    y1 = dec(SR, "y1", F(100), T0 + 100); SR.step(y1, y1["th"])
+    SR.adopt(two_assets("SR", 2, eth=False))
+    y2 = dec(SR, "y2", F(100), T0 + 200); SR.step(y2, y2["th"])
+    SR.adopt(two_assets("SR", 3, eth_scale=6))
+    y3 = dec(SR, "y3", F(100), T0 + 300); SR.step(y3, y3["th"])
+    case("equivocation_scale_change_after_drop", "Version 2 dropped test:eth, version 3 lists it at scale 6: no two "
+         "consecutive mandates differ, but y1's and y3's do; evidence y1 and y3.", SR, y3, full=True,
+         exp=("unchecked", "blocked", "violated", "5"))
+
     SG = Sim("SG")
     h1 = dec(SG, "h1", F(100), T0 + 100)
     real = P.apply(SG.led, P.delta_of({"facts": F(100), "anchor_time": h1["th"]}))
@@ -1030,8 +1100,8 @@ def gen_tia():
                           "denom": "utia", "scale": "6"}, "cases": cases, "reject": rej}
 
 
-def header(extra: dict) -> dict:
-    return {"format": FORMAT, "revision": REVISION, "generator": "spec/vectors/check/gen_policy.py", **extra}
+def header(extra: dict, revision: str = REVISION) -> dict:
+    return {"format": FORMAT, "revision": revision, "generator": "spec/vectors/check/gen_policy.py", **extra}
 
 
 def build() -> dict:
@@ -1041,11 +1111,12 @@ def build() -> dict:
     files = {
         "policy/facts.json": header({"test_extractor": {"id": P.TEST_EXTRACTOR, "action_type": P.TEST_ACTION_TYPE},
                                      **gen_facts()}),
-        "policy/mandate.json": header({"tags": {n: t.decode() for n, t in P.TAG.items()}, **mand}),
+        "policy/mandate.json": header({"tags": {n: t.decode() for n, t in P.TAG.items()}, **mand,
+                                       "adoption": gen_adoption()}, REVISION_2),
         "policy/render.json": header(gen_render(mand)),
         "policy/state.json": header(gen_state()),
         "policy/engine.json": header(gen_engine()),
-        "policy/verify.json": header(ver),
+        "policy/verify.json": header(ver, REVISION_2),
         "policy/archive.json": header(gen_archive(pool)),
         "policy/api.json": header(gen_api(sims)),
         "profiles/bank-send/tia_transfer_facts.json": gen_tia(),

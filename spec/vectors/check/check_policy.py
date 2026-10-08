@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.1).
+"""Verifies the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.2).
 
 Two independent paths:
 - the generator (gen_policy.py over policy_v1.py) reproduces every file byte
@@ -657,6 +657,7 @@ def check_mandate(f):
         m2, h2 = mandate_verify(hx(c["signed_mandate_hex"]))
         expect(m2 == m and h2 == h, c["id"])
         expect(counter(m[2], m[9]).hex() == c["counter_key_hex"], c["id"])
+    n_adopt = check_adoption(f["adoption"])
     ck = {c["id"]: c["counter_key_hex"] for c in f["cases"]}
     expect(ck["m_full"] == ck["m_full_v2"], "versions share a counter")
     for r in f["reject"]:
@@ -665,7 +666,41 @@ def check_mandate(f):
             raise Failure(f"{r['id']} accepted")
         except Bad as e:
             expect(e.sentinel == r["expect_error"], f"{r['id']}: {e.sentinel}")
-    return f"{len(f['cases'])} mandates, {len(f['reject'])} reject"
+    return f"{len(f['cases'])} mandates, {len(f['reject'])} reject, {n_adopt} adoption steps"
+
+
+def check_adoption(cases):
+    """Section 6.3 table, with the scale map held in the counter cell."""
+    steps = 0
+    causes = set()
+    for c in cases:
+        cell = None
+        for st in c["steps"]:
+            m, h = mandate_verify(hx(st["signed_mandate_hex"]))
+            expect(h.hex() == st["mandate_hash_hex"], c["id"])
+            if cell is None:
+                got, nxt = "genesis", (m[10], h, {r[1]: r[2] for r in m[7]})
+            elif cell[0] > m[10]:
+                got, nxt = "refuse:version", cell
+            elif cell[0] == m[10]:
+                got, nxt = ("use", cell) if cell[1] == h else ("refuse:same_version_other_hash", cell)
+            else:
+                bad = [r[1] for r in m[7] if r[1] in cell[2] and cell[2][r[1]] != r[2]]
+                if bad:
+                    got, nxt = "refuse:scale", cell
+                else:
+                    got, nxt = "switch", (m[10], h, {**cell[2], **{r[1]: r[2] for r in m[7]}})
+            want = st["expect"] + (":" + st["cause"] if "cause" in st else "")
+            expect(got == want, f"{c['id']}: {got} != {want}")
+            if st["expect"] == "refuse":
+                expect(st["error"] == "gate.ErrInvalidConfig", c["id"])
+                causes.add(st["cause"])
+            cell = nxt
+            expect({a: int(v) for a, v in st["scales_after"].items()} == cell[2], f"{c['id']}: scales")
+            expect(st["version_after"] == str(cell[0]), c["id"])
+            steps += 1
+    expect({"version", "same_version_other_hash", "scale"} <= causes, "adoption causes")
+    return steps
 
 
 def check_render(f, mand):
@@ -922,6 +957,7 @@ def classify(c, records, gate_pub):
         walked_ok = True
         n, hops, horizon = V, 0, V[12] - 32 * 86400
         chain = [V]
+        seen = {}
         while n[13][2] >= 1 and (depth is None or hops < depth) and n[13][3] >= horizon:
             s, p = allow_of(n[15])
             if s == "ok" and p[4] != n[15]:
@@ -937,9 +973,14 @@ def classify(c, records, gate_pub):
             if sp != "ok" or sn != "ok":
                 walk_u = hist[sp if sp != "ok" else sn]
                 break
-            scale_ok = all(rule_of(mn, r[1]) is None or rule_of(mn, r[1])[2] == r[2] for r in mp[7])
-            if (mp[2], mp[9], mp[3]) != (mn[2], mn[9], mn[3]) or mp[10] > mn[10] or not scale_ok:
+            if (mp[2], mp[9], mp[3]) != (mn[2], mn[9], mn[3]) or mp[10] > mn[10]:
                 viol = [vh(p), vh(n)]
+                break
+            # Every mandate reached so far must agree on the scale of each asset it lists.
+            seen.update({r[1]: (r[2], n) for r in mn[7]})
+            other = [seen[r[1]][1] for r in mp[7] if r[1] in seen and seen[r[1]][0] != r[2]]
+            if other:
+                viol = [vh(p), vh(other[0])]
                 break
             s, led = closed_for(p, mp, False)
             if s == "inconsistent":
@@ -1106,6 +1147,10 @@ def check_tia(f):
     return f"{len(f['cases'])} cases, {len(f['reject'])} reject"
 
 
+# Files whose bytes changed in draft.2; every other file keeps the revision that last changed it.
+DRAFT2 = {"policy/mandate.json", "policy/verify.json"}
+
+
 def main() -> int:
     import gen_policy
     try:
@@ -1116,7 +1161,8 @@ def main() -> int:
             files[rel] = json.loads(text)
         for rel, d in files.items():
             if rel.startswith("policy/"):
-                expect(d["format"] == "edicta-policy-vectors/v1" and d["revision"] == "policy-v1-draft.1", rel)
+                want = "policy-v1-draft.2" if rel in DRAFT2 else "policy-v1-draft.1"
+                expect(d["format"] == "edicta-policy-vectors/v1" and d["revision"] == want, rel)
         P_ = lambda n: files[f"policy/{n}.json"]  # noqa: E731
         out = [check_facts(P_("facts")), check_mandate(P_("mandate")), check_render(P_("render"), P_("mandate")),
                check_state(P_("state")), check_engine(P_("engine")), check_verify(P_("verify")),
@@ -1125,7 +1171,7 @@ def main() -> int:
     except (Failure, Bad, KeyError, ValueError) as e:
         print(f"FAIL (policy v1): {type(e).__name__}: {e}", file=sys.stderr)
         return 1
-    print("OK (policy v1, policy-v1-draft.1): " + "; ".join(out) + "; generator output identical")
+    print("OK (policy v1, policy-v1-draft.2): " + "; ".join(out) + "; generator output identical")
     return 0
 
 
