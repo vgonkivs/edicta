@@ -137,3 +137,11 @@ func TestList(t *testing.T) {
 		assert.Equal(t, want, got)
 	})
 }
+
+func TestStateConformance(t *testing.T) {
+	regtest.RunState(t, func(t *testing.T, epoch uint64) registry.StateRegistry {
+		r, err := memreg.New(epoch)
+		require.NoError(t, err)
+		return r
+	})
+}

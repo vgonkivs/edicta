@@ -6,6 +6,7 @@ package boltreg
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -26,11 +27,16 @@ var (
 	keyWatermark  = []byte("watermark")
 	keyCutoff     = []byte("prune_cutoff")
 	keySchema     = []byte("schema_version")
+	bucketState   = []byte("policy_state")
 )
 
 // schemaVersion is the layout of the entries and the metadata. A file without
-// it was written by an earlier layout and is refused.
-const schemaVersion = uint64(1)
+// it was written by an earlier layout and is refused. Schema 2 adds the policy
+// cells and Entry.Verdict; a schema 1 file is upgraded in place, and an older
+// binary then refuses the file instead of dropping verdicts.
+const schemaVersion = uint64(2)
+
+const previousSchema = uint64(1)
 
 const lockTimeout = time.Second
 
@@ -39,7 +45,10 @@ type Registry struct {
 	claimed atomic.Bool
 }
 
-var _ registry.Registry = (*Registry)(nil)
+var (
+	_ registry.Registry      = (*Registry)(nil)
+	_ registry.StateRegistry = (*Registry)(nil)
+)
 
 // Open opens or creates the registry file. On creation the epoch is set to
 // now in the same transaction that creates the buckets; on reopen it is
@@ -56,11 +65,19 @@ func Open(path string, now uint64) (*Registry, error) {
 		if _, err := tx.CreateBucketIfNotExists(bucketEntries); err != nil {
 			return err
 		}
+		if _, err := tx.CreateBucketIfNotExists(bucketState); err != nil {
+			return err
+		}
 		m, err := tx.CreateBucketIfNotExists(bucketMeta)
 		if err != nil {
 			return err
 		}
 		if m.Get(keyEpoch) != nil {
+			if v := m.Get(keySchema); len(v) == 8 && binary.BigEndian.Uint64(v) == previousSchema {
+				if err := m.Put(keySchema, u64(schemaVersion)); err != nil {
+					return err
+				}
+			}
 			_, err := readMeta(m)
 			return err
 		}
@@ -142,6 +159,10 @@ func (r *Registry) Consume(_ context.Context, e registry.Entry, tolerance uint64
 	if err := registry.CheckConsume(e); err != nil {
 		return err
 	}
+	return r.consume(e, tolerance, nil)
+}
+
+func (r *Registry) consume(e registry.Entry, tolerance uint64, stx *registry.StateTx) error {
 	e.Receipt = nil
 	val, err := encode(e)
 	if err != nil {
@@ -168,14 +189,71 @@ func (r *Registry) Consume(_ context.Context, e registry.Entry, tolerance uint64
 		if registry.BelowWatermark(e.AuthorizedAt, tolerance, w) {
 			return fmt.Errorf("%w: authorized_at %d, watermark %d", registry.ErrBelowWatermark, e.AuthorizedAt, w)
 		}
+		if stx != nil {
+			if err := checkCell(tx, *stx); err != nil {
+				return err
+			}
+		}
 		if err := b.Put(dbKey(e.Key), val); err != nil {
 			return err
+		}
+		if stx != nil {
+			if err := tx.Bucket(bucketState).Put(stx.Key[:], stx.Next.Value); err != nil {
+				return err
+			}
 		}
 		if e.AuthorizedAt > w {
 			return m.Put(keyWatermark, u64(e.AuthorizedAt))
 		}
 		return nil
 	})
+}
+
+func currentVersion(tx *bolt.Tx, k registry.StateKey) commitment.Hash {
+	if v := tx.Bucket(bucketState).Get(k[:]); v != nil {
+		return sha256.Sum256(v)
+	}
+	return commitment.Hash{}
+}
+
+func checkCell(tx *bolt.Tx, stx registry.StateTx) error {
+	if currentVersion(tx, stx.Key) != stx.Expect {
+		return fmt.Errorf("%w: policy cell changed", registry.ErrStateConflict)
+	}
+	return nil
+}
+
+func (r *Registry) State(_ context.Context, k registry.StateKey) (registry.StateCell, error) {
+	var out registry.StateCell
+	err := r.db.View(func(tx *bolt.Tx) error {
+		if v := tx.Bucket(bucketState).Get(k[:]); v != nil {
+			out = registry.StateCell{Version: sha256.Sum256(v), Value: bytes.Clone(v)}
+		}
+		return nil
+	})
+	return out, err
+}
+
+func (r *Registry) UpdateState(_ context.Context, stx registry.StateTx) error {
+	if err := registry.CheckStateTx(stx); err != nil {
+		return err
+	}
+	return r.db.Update(func(tx *bolt.Tx) error {
+		if err := checkCell(tx, stx); err != nil {
+			return err
+		}
+		return tx.Bucket(bucketState).Put(stx.Key[:], stx.Next.Value)
+	})
+}
+
+func (r *Registry) ConsumeState(_ context.Context, e registry.Entry, tolerance uint64, stx registry.StateTx) error {
+	if err := registry.CheckConsume(e); err != nil {
+		return err
+	}
+	if err := registry.CheckStateTx(stx); err != nil {
+		return err
+	}
+	return r.consume(e, tolerance, &stx)
 }
 
 func (r *Registry) Get(_ context.Context, k registry.Key) (registry.Entry, error) {

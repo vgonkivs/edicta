@@ -446,3 +446,130 @@ func Run(t *testing.T, open Opener) {
 		}
 	})
 }
+
+// StateOpener returns a new empty state registry whose creation time is epoch.
+type StateOpener func(t *testing.T, epoch uint64) registry.StateRegistry
+
+func cell(b ...byte) registry.StateCell { return registry.NewStateCell(b) }
+
+// RunState executes the suite for the policy cells.
+func RunState(t *testing.T, open StateOpener) {
+	var k registry.StateKey
+	k[0] = 7
+	tx := func(expect, next registry.StateCell) registry.StateTx {
+		return registry.StateTx{Key: k, Expect: expect.Version, Next: next}
+	}
+
+	t.Run("AbsentCellIsZero", func(t *testing.T) {
+		r := open(t, Epoch)
+		c, err := r.State(ctx, k)
+		must(t, err)
+		require.Equal(t, registry.StateCell{}, c)
+	})
+
+	t.Run("UpdateIsCompareAndSwap", func(t *testing.T) {
+		r := open(t, Epoch)
+		c1, c2 := cell(1), cell(2)
+		must(t, r.UpdateState(ctx, tx(registry.StateCell{}, c1)))
+		got, err := r.State(ctx, k)
+		must(t, err)
+		require.Equal(t, c1, got)
+		require.ErrorIs(t, r.UpdateState(ctx, tx(registry.StateCell{}, c2)), registry.ErrStateConflict)
+		require.ErrorIs(t, r.UpdateState(ctx, tx(c2, c2)), registry.ErrStateConflict)
+		must(t, r.UpdateState(ctx, tx(c1, c2)))
+	})
+
+	t.Run("InvalidTxIsRefused", func(t *testing.T) {
+		r := open(t, Epoch)
+		bad := registry.StateTx{Key: k, Next: registry.StateCell{Version: commitment.Hash{1}, Value: []byte{1}}}
+		require.ErrorIs(t, r.UpdateState(ctx, bad), registry.ErrInvalidEntry)
+		require.ErrorIs(t, r.ConsumeState(ctx, fresh(1), Tolerance, bad), registry.ErrInvalidEntry)
+		require.ErrorIs(t, r.UpdateState(ctx, tx(registry.StateCell{}, registry.StateCell{})), registry.ErrInvalidEntry)
+		_, err := r.Get(ctx, key(1))
+		require.ErrorIs(t, err, registry.ErrNotFound)
+	})
+
+	t.Run("ConsumeStateWritesBoth", func(t *testing.T) {
+		r := open(t, Epoch)
+		e := fresh(1)
+		e.Verdict = []byte{0xa1, 1}
+		c1 := cell(1)
+		must(t, r.ConsumeState(ctx, e, Tolerance, tx(registry.StateCell{}, c1)))
+		require.Equal(t, e, get(t, r, e.Key))
+		got, err := r.State(ctx, k)
+		must(t, err)
+		require.Equal(t, c1, got)
+		m, err := r.Meta(ctx)
+		must(t, err)
+		require.Equal(t, e.AuthorizedAt, m.Watermark)
+		must(t, r.AttachReceipt(ctx, e.Key, e.CommitmentHash, []byte{9}))
+		require.Equal(t, e.Verdict, get(t, r, e.Key).Verdict, "the verdict survives AttachReceipt")
+	})
+
+	t.Run("RefusalsWriteNothing", func(t *testing.T) {
+		r := open(t, Epoch)
+		c1, c2 := cell(1), cell(2)
+		must(t, r.ConsumeState(ctx, fresh(1), Tolerance, tx(registry.StateCell{}, c1)))
+
+		// Existing nonce wins over a conflicting cell.
+		err := r.ConsumeState(ctx, fresh(1), Tolerance, tx(registry.StateCell{}, c2))
+		var ee *registry.ExistsError
+		require.ErrorAs(t, err, &ee)
+
+		// A stale cell version is a conflict and leaves the nonce unused.
+		err = r.ConsumeState(ctx, fresh(2), Tolerance, tx(registry.StateCell{}, c2))
+		require.ErrorIs(t, err, registry.ErrStateConflict)
+		_, err = r.Get(ctx, key(2))
+		require.ErrorIs(t, err, registry.ErrNotFound)
+
+		// A watermark refusal leaves the cell alone.
+		old := fresh(3)
+		old.AuthorizedAt = 1
+		err = r.ConsumeState(ctx, old, 0, tx(c1, c2))
+		require.ErrorIs(t, err, registry.ErrBelowWatermark)
+		got, err := r.State(ctx, k)
+		must(t, err)
+		require.Equal(t, c1, got)
+		_, err = r.Get(ctx, key(3))
+		require.ErrorIs(t, err, registry.ErrNotFound)
+
+		// The prune refusal precedes the conflict check.
+		_, err = r.Prune(ctx, 5000)
+		must(t, err)
+		pruned := fresh(4)
+		err = r.ConsumeState(ctx, pruned, Tolerance, tx(registry.StateCell{}, c2))
+		require.ErrorIs(t, err, registry.ErrPrunedWindow)
+	})
+
+	t.Run("ConcurrentConsumeStateOneWinner", func(t *testing.T) {
+		r := open(t, Epoch)
+		const n = 16
+		var wins, conflicts atomic.Int32
+		var wg sync.WaitGroup
+		for i := 1; i <= n; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err := r.ConsumeState(ctx, fresh(byte(i)), Tolerance, tx(registry.StateCell{}, cell(byte(i))))
+				switch {
+				case err == nil:
+					wins.Add(1)
+				case errors.Is(err, registry.ErrStateConflict):
+					conflicts.Add(1)
+				default:
+					t.Errorf("unexpected error: %v", err)
+				}
+			}()
+		}
+		wg.Wait()
+		require.EqualValues(t, 1, wins.Load())
+		require.EqualValues(t, n-1, conflicts.Load())
+		marked := 0
+		for i := 1; i <= n; i++ {
+			if _, err := r.Get(ctx, key(byte(i))); err == nil {
+				marked++
+			}
+		}
+		require.Equal(t, 1, marked, "only the winner marks its nonce")
+	})
+}

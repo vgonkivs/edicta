@@ -19,11 +19,14 @@ type Registry struct {
 	claimed bool
 	entries map[registry.Key]registry.Entry
 	meta    registry.Meta
+	cells   map[registry.StateKey]registry.StateCell
 }
 
 var (
 	_ registry.Registry = (*Registry)(nil)
 	_ registry.Lister   = (*Registry)(nil)
+
+	_ registry.StateRegistry = (*Registry)(nil)
 )
 
 // New creates an empty registry whose creation time is epoch.
@@ -33,6 +36,7 @@ func New(epoch uint64) (*Registry, error) {
 	}
 	return &Registry{
 		entries: make(map[registry.Key]registry.Entry),
+		cells:   make(map[registry.StateKey]registry.StateCell),
 		meta:    registry.Meta{Epoch: epoch, Watermark: epoch},
 	}, nil
 }
@@ -58,6 +62,12 @@ func (r *Registry) Consume(_ context.Context, e registry.Entry, tolerance uint64
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.consumeLocked(e, tolerance, nil)
+}
+
+// consumeLocked checks every refusal before it writes anything, so a refused
+// call leaves no trace.
+func (r *Registry) consumeLocked(e registry.Entry, tolerance uint64, tx *registry.StateTx) error {
 	if old, ok := r.entries[e.Key]; ok {
 		return &registry.ExistsError{Existing: old.Clone()}
 	}
@@ -67,10 +77,57 @@ func (r *Registry) Consume(_ context.Context, e registry.Entry, tolerance uint64
 	if registry.BelowWatermark(e.AuthorizedAt, tolerance, r.meta.Watermark) {
 		return fmt.Errorf("%w: authorized_at %d, watermark %d", registry.ErrBelowWatermark, e.AuthorizedAt, r.meta.Watermark)
 	}
+	if tx != nil {
+		if err := r.checkCellLocked(*tx); err != nil {
+			return err
+		}
+	}
 	e.Receipt = nil
 	r.entries[e.Key] = e.Clone()
 	r.meta.Watermark = max(r.meta.Watermark, e.AuthorizedAt)
+	if tx != nil {
+		r.cells[tx.Key] = registry.StateCell{Version: tx.Next.Version, Value: slices.Clone(tx.Next.Value)}
+	}
 	return nil
+}
+
+func (r *Registry) checkCellLocked(tx registry.StateTx) error {
+	if r.cells[tx.Key].Version != tx.Expect {
+		return fmt.Errorf("%w: policy cell changed", registry.ErrStateConflict)
+	}
+	return nil
+}
+
+func (r *Registry) State(_ context.Context, k registry.StateKey) (registry.StateCell, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c := r.cells[k]
+	return registry.StateCell{Version: c.Version, Value: slices.Clone(c.Value)}, nil
+}
+
+func (r *Registry) UpdateState(_ context.Context, tx registry.StateTx) error {
+	if err := registry.CheckStateTx(tx); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.checkCellLocked(tx); err != nil {
+		return err
+	}
+	r.cells[tx.Key] = registry.StateCell{Version: tx.Next.Version, Value: slices.Clone(tx.Next.Value)}
+	return nil
+}
+
+func (r *Registry) ConsumeState(_ context.Context, e registry.Entry, tolerance uint64, tx registry.StateTx) error {
+	if err := registry.CheckConsume(e); err != nil {
+		return err
+	}
+	if err := registry.CheckStateTx(tx); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.consumeLocked(e, tolerance, &tx)
 }
 
 func (r *Registry) Get(_ context.Context, k registry.Key) (registry.Entry, error) {

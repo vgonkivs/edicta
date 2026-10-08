@@ -5,6 +5,7 @@ package registry
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"slices"
@@ -38,12 +39,16 @@ type Entry struct {
 	ValidUntil     uint64
 	Authorization  []byte // canonical SignedAuthorization; never empty
 	Receipt        []byte // canonical SignedReceipt; nil until attached
+	// Verdict is the canonical SignedPolicyVerdict of the allow; nil when the
+	// gate has no mandate.
+	Verdict []byte
 }
 
 // Clone returns a deep copy that preserves nil slices.
 func (e Entry) Clone() Entry {
 	e.Authorization = slices.Clone(e.Authorization)
 	e.Receipt = slices.Clone(e.Receipt)
+	e.Verdict = slices.Clone(e.Verdict)
 	return e
 }
 
@@ -137,4 +142,56 @@ func BelowWatermark(authorizedAt, tolerance, watermark uint64) bool {
 		sum = ^uint64(0)
 	}
 	return sum < watermark
+}
+
+// StateKey identifies a policy counter cell (the counter key).
+type StateKey [32]byte
+
+// MaxStateValue bounds one cell.
+const MaxStateValue = 16 << 20
+
+// StateCell is one policy counter cell. Version is SHA-256(Value); the zero
+// Version means the cell is absent.
+type StateCell struct {
+	Version commitment.Hash
+	Value   []byte
+}
+
+// NewStateCell builds a cell with its version.
+func NewStateCell(value []byte) StateCell {
+	return StateCell{Version: sha256.Sum256(value), Value: slices.Clone(value)}
+}
+
+// StateTx replaces the cell under Key with Next if the current version is
+// Expect (zero: absent).
+type StateTx struct {
+	Key    StateKey
+	Expect commitment.Hash
+	Next   StateCell
+}
+
+// CheckStateTx validates the transaction given to UpdateState or ConsumeState.
+func CheckStateTx(tx StateTx) error {
+	if len(tx.Next.Value) == 0 || len(tx.Next.Value) > MaxStateValue {
+		return fmt.Errorf("%w: state value of %d bytes", ErrInvalidEntry, len(tx.Next.Value))
+	}
+	if tx.Next.Version != sha256.Sum256(tx.Next.Value) {
+		return fmt.Errorf("%w: state version is not the hash of the value", ErrInvalidEntry)
+	}
+	return nil
+}
+
+// StateRegistry adds the policy counter cells. The cell update and the nonce
+// mark are one atomic, durable transaction in ConsumeState.
+type StateRegistry interface {
+	Registry
+	// State returns the cell; an absent cell is the zero StateCell, not an error.
+	State(ctx context.Context, k StateKey) (StateCell, error)
+	// UpdateState compares and swaps one cell; a different current version
+	// is ErrStateConflict.
+	UpdateState(ctx context.Context, tx StateTx) error
+	// ConsumeState is Consume plus tx in one transaction. It refuses, writing
+	// nothing, with *ExistsError first, then the prune and watermark
+	// refusals of Consume, then ErrStateConflict.
+	ConsumeState(ctx context.Context, e Entry, tolerance uint64, tx StateTx) error
 }
