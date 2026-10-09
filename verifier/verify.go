@@ -404,6 +404,9 @@ func (r *run) payload() error {
 		return nil
 	}
 	o, err := r.openPayload(rec.Blob)
+	if errors.Is(err, errEnvelopeEncode) {
+		return fmt.Errorf("verifier: %w", err)
+	}
 	if err != nil {
 		r.fail(CheckPayload, fmt.Errorf("%w: %w", ErrPayloadInvalid, err))
 		return nil
@@ -415,17 +418,22 @@ func (r *run) payload() error {
 	return nil
 }
 
+// errEnvelopeEncode is a verifier fault, not a finding: the commitment
+// decoded strictly and verified, so encoding it again cannot fail.
+var errEnvelopeEncode = errors.New("re-encoding the verified envelope failed")
+
 // openPayload opens the payload with the first configured recipient key
 // that unwraps it. Without such a key nothing is opened and nil is returned:
 // a payload this auditor cannot read is no finding. Once a key opens it, a
-// plaintext hash or O8 failure is the agent's own contradiction.
+// plaintext hash mismatch or a payload action that differs from the
+// committed one is the agent's own contradiction.
 func (r *run) openPayload(raw []byte) (*sdk.Opened, error) {
 	if len(r.v.cfg.PayloadKeys) == 0 {
 		return nil, nil
 	}
 	env, err := commitment.EncodeSigned(&commitment.SignedCommitment{Commitment: *r.c, Signature: r.sig})
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("%w: %w", errEnvelopeEncode, err)
 	}
 	for _, k := range r.v.cfg.PayloadKeys {
 		o, err := sdk.OpenPayload(env, raw, k)
@@ -440,9 +448,9 @@ func (r *run) openPayload(raw []byte) (*sdk.Opened, error) {
 	return nil, nil
 }
 
-// compareSalt runs after O8 passed: the payload's salt and the archive
-// copy's both hash the committed action, so a difference can only be a bad
-// archive copy, never the agent's.
+// compareSalt runs once the payload's action matched the commitment: the
+// payload's salt and the archive copy's both hash the committed action, so a
+// difference can only be a bad archive copy, never the agent's.
 func (r *run) compareSalt(payloadSalt []byte) {
 	if r.salt == nil || bytes.Equal(r.salt, payloadSalt) {
 		return
