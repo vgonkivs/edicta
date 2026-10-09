@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	contentType    = "application/cbor"
+	contentType = "application/cbor"
 	// The envelope, the action and the salt with their wrapper heads.
 	authorizeLimit = 2176 + 65536 + 35 + 24
 	recordLimit    = 2560
