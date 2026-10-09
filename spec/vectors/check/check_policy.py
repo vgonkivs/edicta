@@ -1690,7 +1690,9 @@ def check_private(f, verify):
     expect(set(dv3) == {1, 2, 3, 4, 5, 6, 7, 19} and dv3[4] == dv[4] and dv3[19] not in (dv[19], dv2[19])
            and dv3[19].hex() == rr["private_hash_hex"] and rr["reason"] == pd["with_key"]["reason"]
            and rr["dedup_key"] == {"commitment_hash": dv[4].hex(), "reason": rr["reason"]}
-           and rr["archive_writes"] == [], "same-reason private retry")
+           and rr["skipped_kinds"] == [9, 15]
+           and rr["archive_writes"] == [{"kind": 5, "path": pd["marker_path"], "idempotent": True}]
+           and pd["marker_path"] == f"rejection/{dv[4].hex()}/ErrDenied", "same-reason private retry")
     mk = lenient(hx(pd["marker_record_cbor_hex"]), "x", 512, 1)
     expect(mk[2] == 5 and mk[4] == "ErrDenied" and pd["marker_path"] == f"rejection/{mk[3].hex()}/ErrDenied", "marker")
     dpp = lenient(hx(pd["with_key"]["private_part_cbor_hex"]), "x", 16384)

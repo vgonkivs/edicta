@@ -1402,12 +1402,14 @@ def same_reason_private_retry(PV, pd, dpp) -> dict:
             "refused again for the first deny's reason (" + dpp["reason"] + "). The gate signs and returns this fresh "
             "deny (new salt, so a new private_hash), but it already archived a private deny with this reason for "
             "this commitment_hash (gate-local index keyed (commitment_hash, reason)), so it writes no kind 9, no "
-            "kind 15 PrivatePart. The ErrDenied marker write is repeated and is a no-op when the marker is present, so "
-            "archive_writes (new records) is empty.",
+            "kind 15 PrivatePart (skipped_kinds). The ErrDenied marker (kind 5) write is still issued; it is idempotent and "
+            "a no-op when the marker is present, so no new record appears.",
             "reason": dpp["reason"], "signed_verdict_hex": sv.hex(), "verdict_hash_hex": vh.hex(),
             "private_hash_hex": pub["private_hash"].hex(),
             "dedup_key": {"commitment_hash": pd["commitment_hash"].hex(), "reason": dpp["reason"]},
-            "archive_writes": []}
+            "skipped_kinds": [9, 15],
+            "archive_writes": [{"kind": 5, "path": f"rejection/{pd['commitment_hash'].hex()}/ErrDenied",
+                                "idempotent": True}]}
 
 
 def private_mandate(label, **kw):
