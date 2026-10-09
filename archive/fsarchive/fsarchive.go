@@ -70,6 +70,7 @@ var (
 	_ archive.Store           = (*Store)(nil)
 	_ archive.PayloadStreamer = (*Store)(nil)
 	_ archive.PolicyReader    = (*Store)(nil)
+	_ archive.PrivateReader   = (*Store)(nil)
 )
 
 // Open uses dir as the archive, creating it if needed. A payload is accepted
@@ -189,10 +190,19 @@ func (s *Store) Put(ctx context.Context, r archive.Record) (archive.Outcome, err
 			return 0, err
 		}
 	case *archive.DecisionRecord:
-		// A private decision needs the encrypted action record first, which
-		// this store does not hold yet.
+		// A private decision needs its encrypted action record first.
 		if r.Form == archive.FormPrivate {
-			return 0, fmt.Errorf("%w: private action record of a private decision", archive.ErrNotFound)
+			sc, err := commitment.DecodeSigned(r.Envelope)
+			if err != nil {
+				return 0, fmt.Errorf("fsarchive: %w", err)
+			}
+			need, err := archive.PrivateBlobPath(policy.PrivateAction, commitment.Hash(sc.Commitment.Action.Hash))
+			if err != nil {
+				return 0, err
+			}
+			if err := s.require(need); err != nil {
+				return 0, err
+			}
 		}
 	case *archive.AuthorizationRecord, *archive.RejectionRecord, *archive.RevealRecord:
 		return s.putDependent(ctx, r, rel, b)
@@ -700,7 +710,15 @@ func (s *Store) checkPolicyDeps(r archive.Record) error {
 		if err := s.require(archive.HashPath(archive.KindDecision, commitment.Hash(sv.Verdict.CommitmentHash))); err != nil {
 			return err
 		}
-		return s.require(archive.PolicyHashPath(archive.KindMandate, commitment.Hash(sv.Verdict.MandateHash)))
+		mh := commitment.Hash(sv.Verdict.MandateHash)
+		if !sv.Verdict.Private() {
+			return s.require(archive.PolicyHashPath(archive.KindMandate, mh))
+		}
+		rel, err := archive.PrivateBlobPath(policy.PrivateMandate, mh)
+		if err != nil {
+			return err
+		}
+		return s.require(rel)
 	case *archive.PolicyDenyRecord:
 		sv, _, err := policy.DecodeSignedVerdict(r.SignedVerdict)
 		if err != nil {
@@ -731,6 +749,15 @@ func (s *Store) checkSuccessor(r *archive.PolicySuccessorRecord) error {
 	prev, ok := v.PrevStateHash()
 	if !ok || v.GateID != r.GateID || !bytes.Equal(prev[:], r.StateHash) {
 		return fmt.Errorf("%w: the allow does not match the successor", archive.ErrCorrupt)
+	}
+	if v.Private() {
+		// The store cannot open a private mandate; readers with an auditor
+		// key check the counter key.
+		rel, err := archive.PrivateBlobPath(policy.PrivateMandate, commitment.Hash(v.MandateHash))
+		if err != nil {
+			return err
+		}
+		return s.require(rel)
 	}
 	m, err := s.Mandate(context.Background(), commitment.Hash(v.MandateHash))
 	if err != nil {
@@ -785,4 +812,12 @@ func (s *Store) PolicyClosed(_ context.Context, h commitment.Hash) (*archive.Pol
 
 func (s *Store) PolicySuccessor(_ context.Context, key commitment.Hash) (*archive.PolicySuccessorRecord, error) {
 	return readAs[*archive.PolicySuccessorRecord](s, archive.PolicyHashPath(archive.KindPolicySuccessor, key))
+}
+
+func (s *Store) PrivateBlob(_ context.Context, kind policy.PrivateKind, h commitment.Hash) (*archive.PrivateBlobRecord, error) {
+	rel, err := archive.PrivateBlobPath(kind, h)
+	if err != nil {
+		return nil, notFound(err)
+	}
+	return readAs[*archive.PrivateBlobRecord](s, rel)
 }

@@ -68,10 +68,15 @@ func ParseKey(path string) (Kind, error) {
 		}
 		return KindAbsenceProof, nil
 	case "policy-deny":
-		if len(parts) != 3 || !isLowerHex32(parts[1]) || !IsPolicyDeny(parts[2]) {
+		if len(parts) != 3 || !isLowerHex32(parts[1]) || !IsPolicyDeny(parts[2]) && !isPrivateDenySegment(parts[2]) {
 			return 0, errBadKey
 		}
 		return KindPolicyDeny, nil
+	case "private":
+		if len(parts) != 3 || len(parts[1]) != 1 || parts[1][0] < '1' || parts[1][0] > '5' || !isLowerHex32(parts[2]) {
+			return 0, errBadKey
+		}
+		return KindPrivateBlob, nil
 	}
 	return 0, errBadKey
 }

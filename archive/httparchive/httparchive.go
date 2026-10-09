@@ -20,6 +20,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/policy"
 )
 
 var (
@@ -40,6 +41,7 @@ const (
 	maxPolicyRecord    = 16384 + 64
 	maxPolicyClosed    = 36864 + 64
 	maxPolicySuccessor = 256
+	maxPrivateBlob     = 69760
 )
 
 // defaultTimeout bounds a read when the caller gives no client of its own.
@@ -142,6 +144,8 @@ func capOf(k archive.Kind) int64 {
 		return maxIntent
 	case archive.KindAbsenceProof:
 		return maxAbsence
+	case archive.KindPrivateBlob:
+		return maxPrivateBlob
 	}
 	return maxRejection
 }
@@ -371,4 +375,14 @@ func (c *Client) PolicyClosed(ctx context.Context, h commitment.Hash) (*archive.
 
 func (c *Client) PolicySuccessor(ctx context.Context, key commitment.Hash) (*archive.PolicySuccessorRecord, error) {
 	return readAs[*archive.PolicySuccessorRecord](ctx, c, archive.PolicyHashPath(archive.KindPolicySuccessor, key))
+}
+
+var _ archive.PrivateReader = (*Client)(nil)
+
+func (c *Client) PrivateBlob(ctx context.Context, kind policy.PrivateKind, h commitment.Hash) (*archive.PrivateBlobRecord, error) {
+	key, err := archive.PrivateBlobPath(kind, h)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", archive.ErrNotFound, err)
+	}
+	return readAs[*archive.PrivateBlobRecord](ctx, c, key)
 }

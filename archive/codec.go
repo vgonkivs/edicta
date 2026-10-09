@@ -53,6 +53,9 @@ func decode(data []byte, clone bool) (Record, error) {
 	if len(data) > MaxRecordSize {
 		return nil, fmt.Errorf("%w: %d bytes", commitment.ErrTooLarge, len(data))
 	}
+	if k, ok := peekKind(data); ok && len(data) > maxSizeOf(k) {
+		return nil, fmt.Errorf("%w: %s record of %d bytes", commitment.ErrTooLarge, k, len(data))
+	}
 	root, err := scanTop(data)
 	if err != nil {
 		return nil, err
@@ -96,6 +99,17 @@ func decode(data []byte, clone bool) (Record, error) {
 		return nil, fmt.Errorf("%w: re-encoding differs", commitment.ErrNonCanonical)
 	}
 	return rec, nil
+}
+
+// peekKind reads the kind of a record that starts as a canonical one: a map
+// whose first pairs are format 1 and a small kind. The kind's cap then
+// applies before parsing, so an oversized record is not scanned in full.
+func peekKind(b []byte) (Kind, bool) {
+	if len(b) < 5 || b[0]>>5 != majMap || b[1] != 0x01 || b[2] != format || b[3] != 0x02 || b[4] >= 24 {
+		return 0, false
+	}
+	k := Kind(b[4])
+	return k, k.valid()
 }
 
 func parseMap(it *gitem, defs []fdef, where string) (*pmap, error) {
@@ -268,6 +282,18 @@ func checkValues(pm *pmap, defs []fdef, kind Kind) error {
 	}
 	if kind == KindDecision && pm.form != FormPublic && pm.form != FormPrivate {
 		return fmt.Errorf("%w: form %d", commitment.ErrInvalidEnum, pm.form)
+	}
+	if kind == KindPrivateBlob {
+		pk := policy.PrivateKind(0)
+		if u := pm.items[3].u; u <= uint64(policy.PrivateAction) {
+			pk = policy.PrivateKind(u)
+		}
+		if !pk.Valid() {
+			return fmt.Errorf("%w: plaintext_kind %d", commitment.ErrInvalidEnum, pm.items[3].u)
+		}
+		if len(pm.items[5].b) > pk.EnvelopeCap() {
+			return fmt.Errorf("%w: envelope of %d bytes for plaintext kind %d", commitment.ErrFieldSize, len(pm.items[5].b), pk)
+		}
 	}
 	if kind == KindRejection && !verdicts[string(pm.items[4].b)] {
 		return fmt.Errorf("%w: %s is not a verdict", commitment.ErrInvalidEnum, pm.items[4].b)
@@ -446,6 +472,8 @@ func build(pm *pmap, kind Kind, clone bool) Record {
 		return &PolicyClosedRecord{ClosedSet: bs(pm, 3)}
 	case KindAnchorIntent, KindAbsenceProof:
 		return buildFast(pm, kind, bs, u)
+	case KindPrivateBlob:
+		return &PrivateBlobRecord{PlaintextKind: policy.PrivateKind(u(pm, 3)), Hash: bs(pm, 4), Envelope: bs(pm, 5)}
 	case KindPolicySuccessor:
 		return &PolicySuccessorRecord{
 			GateID: string(pm.items[3].b), CounterKey: bs(pm, 4), StateHash: bs(pm, 5), CommitmentHash: bs(pm, 6),
@@ -631,6 +659,14 @@ func encodeRaw(r Record) ([]byte, error) {
 		}
 		w.uint(2, uint64(KindPolicyClosed))
 		w.bytes(3, r.ClosedSet)
+	case *PrivateBlobRecord:
+		if r == nil {
+			return nil, errNilRecord
+		}
+		w.uint(2, uint64(KindPrivateBlob))
+		w.uint(3, uint64(r.PlaintextKind))
+		w.bytes(4, r.Hash)
+		w.bytes(5, r.Envelope)
 	case *PolicySuccessorRecord:
 		if r == nil {
 			return nil, errNilRecord
@@ -742,7 +778,20 @@ func policyKeyPath(r Record) (path string, ok bool, err error) {
 		if err != nil {
 			return "", true, fmt.Errorf("archive: signed verdict: %w", err)
 		}
-		p, err := PolicyDenyPath(commitment.Hash(sv.Verdict.CommitmentHash), sv.Verdict.Reason)
+		seg := sv.Verdict.Reason
+		if sv.Verdict.Private() {
+			seg = PrivateDenySegment(commitment.Hash(sv.Verdict.PrivateHash))
+		}
+		p, err := PolicyDenyPath(commitment.Hash(sv.Verdict.CommitmentHash), seg)
+		return p, true, err
+	case *PrivateBlobRecord:
+		if r == nil {
+			return "", false, nil
+		}
+		if len(r.Hash) != 32 {
+			return "", true, fmt.Errorf("archive: private blob hash: %w", commitment.ErrFieldSize)
+		}
+		p, err := PrivateBlobPath(r.PlaintextKind, commitment.Hash(r.Hash))
 		return p, true, err
 	case *PolicyBucketRecord:
 		if r == nil {
@@ -799,10 +848,34 @@ func PolicyHashPath(k Kind, h commitment.Hash) string {
 	return policyDirs[k] + "/" + hex.EncodeToString(h[:])
 }
 
-// PolicyDenyPath is the path of a policy_deny record; reason must be one of
-// the policy deny names.
+// privateDenyPrefix starts the key segment of a private-form deny. A public
+// segment starts with "Err", so the two never collide.
+const privateDenyPrefix = "private-"
+
+// PrivateDenySegment is the key segment of a private-form deny: a private
+// deny shows no reason, and the private_hash keeps every deny of one
+// decision under its own key.
+func PrivateDenySegment(privateHash commitment.Hash) string {
+	return privateDenyPrefix + hex.EncodeToString(privateHash[:])
+}
+
+func isPrivateDenySegment(s string) bool {
+	return len(s) == len(privateDenyPrefix)+64 && s[:len(privateDenyPrefix)] == privateDenyPrefix &&
+		isLowerHex32(s[len(privateDenyPrefix):])
+}
+
+// PrivateBlobPath is the path of a private blob record.
+func PrivateBlobPath(kind policy.PrivateKind, h commitment.Hash) (string, error) {
+	if !kind.Valid() {
+		return "", fmt.Errorf("archive: plaintext kind %d: %w", kind, commitment.ErrInvalidEnum)
+	}
+	return "private/" + strconv.Itoa(int(kind)) + "/" + hex.EncodeToString(h[:]), nil
+}
+
+// PolicyDenyPath is the path of a policy_deny record; reason is one of the
+// policy deny names, or a PrivateDenySegment for a private-form deny.
 func PolicyDenyPath(h commitment.Hash, reason string) (string, error) {
-	if !IsPolicyDeny(reason) {
+	if !IsPolicyDeny(reason) && !isPrivateDenySegment(reason) {
 		return "", fmt.Errorf("archive: %q is not a policy deny name: %w", reason, commitment.ErrInvalidEnum)
 	}
 	return policyDirs[KindPolicyDeny] + "/" + hex.EncodeToString(h[:]) + "/" + reason, nil
@@ -870,6 +943,10 @@ func SameIdentity(a, b Record) bool {
 	case *PolicyClosedRecord:
 		b, ok := b.(*PolicyClosedRecord)
 		return ok && bytes.Equal(a.ClosedSet, b.ClosedSet)
+	case *PrivateBlobRecord:
+		// The key: two envelopes of one plaintext differ in their randomness.
+		b, ok := b.(*PrivateBlobRecord)
+		return ok && a.PlaintextKind == b.PlaintextKind && bytes.Equal(a.Hash, b.Hash)
 	case *PolicySuccessorRecord:
 		// Whole record, so a second commitment under one key is a conflict.
 		b, ok := b.(*PolicySuccessorRecord)

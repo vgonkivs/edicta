@@ -1,6 +1,10 @@
 package archive
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/vgonkivs/edicta/policy"
+)
 
 type ftype uint8
 
@@ -61,6 +65,9 @@ const (
 	maxPolicyRecordSize  = maxPolicyNested + 64
 	maxPolicyClosedSize  = maxPolicyClosedNest + 64
 	maxPolicySuccessSize = 256
+
+	// A private blob fits the action envelope cap plus its record framing.
+	maxPrivateBlobSize = 69760
 )
 
 var k2Schema = []fdef{
@@ -147,6 +154,12 @@ func schemaOf(k Kind) []fdef {
 		rest = intentSchema()
 	case KindAbsenceProof:
 		rest = absenceSchema()
+	case KindPrivateBlob:
+		rest = []fdef{
+			{3, "plaintext_kind", tUint, pReq, 0, 0, nil},
+			{4, "hash", tBstr, pReq, 32, 32, nil},
+			{5, "envelope", tBstr, pReq, 1, policy.MaxPrivateActionEnvelope, nil},
+		}
 	case KindPolicySuccessor:
 		rest = []fdef{
 			{3, "gate_id", tTstr, pReq, 1, 64, nil},
@@ -180,6 +193,8 @@ func maxSizeOf(k Kind) int {
 		return maxIntentSize
 	case KindAbsenceProof:
 		return maxAbsenceSize
+	case KindPrivateBlob:
+		return maxPrivateBlobSize
 	}
 	return MaxRecordSize
 }

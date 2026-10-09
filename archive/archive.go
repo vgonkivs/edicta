@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/policy"
 )
 
 var (
@@ -36,6 +37,7 @@ const (
 	KindPolicyBucket    Kind = 10
 	KindPolicyClosed    Kind = 11
 	KindPolicySuccessor Kind = 12
+	KindPrivateBlob     Kind = 15
 	KindDecision        Kind = 17
 	KindReveal          Kind = 18
 )
@@ -76,18 +78,18 @@ func (k Kind) String() string {
 		return "anchor_intent"
 	case KindAbsenceProof:
 		return "absence_proof"
+	case KindPrivateBlob:
+		return "private_blob"
 	}
 	return "unknown"
 }
 
-// valid reports whether k is a kind this codec reads. Kind 15 (private
-// blob) is assigned but not read yet, so a record that claims it is refused
-// rather than misread.
+// valid reports whether k is a kind this codec reads.
 func (k Kind) valid() bool {
 	switch k {
 	case KindPayload, KindEvidence, KindAuthorization, KindRejection, KindMandate, KindPolicyAllow,
 		KindPolicyDeny, KindPolicyBucket, KindPolicyClosed, KindPolicySuccessor, KindDecision, KindReveal,
-		KindAnchorIntent, KindAbsenceProof:
+		KindAnchorIntent, KindAbsenceProof, KindPrivateBlob:
 		return true
 	}
 	return false
@@ -138,6 +140,16 @@ type DecisionRecord struct {
 	Form       uint64
 	Action     []byte
 	ActionSalt []byte
+}
+
+// PrivateBlobRecord is a private-mode record encrypted to the auditors of
+// the mandate. Hash is the plaintext's hash, blinded with the counter's
+// state_salt for buckets and closed sets; for an action it is the salted
+// action hash.
+type PrivateBlobRecord struct {
+	PlaintextKind policy.PrivateKind
+	Hash          []byte
+	Envelope      []byte
 }
 
 // RevealRecord publishes the action salt of an executed decision whose
@@ -227,6 +239,7 @@ func (*PolicyDenyRecord) Kind() Kind      { return KindPolicyDeny }
 func (*PolicyBucketRecord) Kind() Kind    { return KindPolicyBucket }
 func (*PolicyClosedRecord) Kind() Kind    { return KindPolicyClosed }
 func (*PolicySuccessorRecord) Kind() Kind { return KindPolicySuccessor }
+func (*PrivateBlobRecord) Kind() Kind     { return KindPrivateBlob }
 
 type Outcome int
 
@@ -291,6 +304,13 @@ type Store interface {
 // record that does not decode or does not carry its key.
 type RevealReader interface {
 	Reveal(ctx context.Context, commitmentHash commitment.Hash) (*RevealRecord, error)
+}
+
+// PrivateReader is the optional read side of the private blob records. A
+// reader returns ErrNotFound for an absent key and an ErrCorrupt error for a
+// stored record that does not decode or does not carry its key.
+type PrivateReader interface {
+	PrivateBlob(ctx context.Context, kind policy.PrivateKind, hash commitment.Hash) (*PrivateBlobRecord, error)
 }
 
 // PolicyReader is the optional read side of the policy records. A reader

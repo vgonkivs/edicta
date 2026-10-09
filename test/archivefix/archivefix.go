@@ -19,6 +19,7 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/policy"
 )
 
 type Case struct {
@@ -372,6 +373,11 @@ func Build(t testing.TB, in map[string]any) archive.Record {
 		return &archive.DecisionRecord{
 			Envelope: bytesOf(t, in, "envelope"), Form: numOf(t, in, "form"),
 			Action: bytesOf(t, in, "action"), ActionSalt: bytesOf(t, in, "action_salt"),
+		}
+	case "private_blob", "15":
+		return &archive.PrivateBlobRecord{
+			PlaintextKind: policy.PrivateKind(numOf(t, in, "plaintext_kind")),
+			Hash:          bytesOf(t, in, "hash"), Envelope: bytesOf(t, in, "envelope"),
 		}
 	case "execution_reveal", "18":
 		return &archive.RevealRecord{SignedReceipt: bytesOf(t, in, "signed_receipt"), ActionSalt: bytesOf(t, in, "action_salt")}
