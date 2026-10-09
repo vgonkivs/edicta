@@ -242,7 +242,8 @@ func (r *run) envelope(dec *archive.DecisionRecord) bool {
 	}
 	sc, err := commitment.DecodeSigned(dec.Envelope)
 	if err != nil {
-		if raw, rerr := commitment.EnvelopeCommitment(dec.Envelope); rerr == nil && commitment.HashCanonical(raw) == r.h {
+		if raw, rerr := commitment.EnvelopeCommitment(dec.Envelope); rerr == nil &&
+			commitment.HashCanonicalFor(commitment.CanonicalVersion(raw), raw) == r.h {
 			if _, derr := commitment.Decode(raw); derr != nil {
 				return proven(derr)
 			}
@@ -315,7 +316,7 @@ func (r *run) authorization() error {
 		r.corrupt(CheckAuthorization, ErrAuthorizationInvalid, err)
 		return nil
 	}
-	msg := commitment.AuthorizationSigningMessage(ah)
+	msg := commitment.AuthorizationSigningMessageFor(sa.Authorization.Version, ah)
 	trusted := false
 	for _, k := range r.v.cfg.GateKeys {
 		if ed25519.Verify(k, msg, sa.Signature) {
@@ -336,9 +337,16 @@ func (r *run) authorization() error {
 		return nil
 	}
 	var problem string
+	verr := commitment.ValidateAuthorization(a, nil)
 	switch {
-	case a.Version != 0:
-		problem = fmt.Sprintf("version %d", a.Version)
+	case a.Version != r.c.Version:
+		problem = fmt.Sprintf("authorization version %d, decision version %d", a.Version, r.c.Version)
+	case verr != nil:
+		problem = verr.Error()
+	case a.Version == commitment.VersionV1 && (a.Mode == commitment.ModeFast) != r.c.PayloadRef.Pending():
+		problem = fmt.Sprintf("mode %d does not match the reference form", a.Mode)
+	case a.Mode == commitment.ModeFast && (a.AnchorDeadline <= r.c.PayloadRef.Height || a.AnchorDeadline-r.c.PayloadRef.Height > maxFastWindow):
+		problem = fmt.Sprintf("anchor deadline %d outside (h0, h0 + %d]", a.AnchorDeadline, maxFastWindow)
 	case a.Path != commitment.PathDA && a.Path != commitment.PathArchive:
 		problem = fmt.Sprintf("path %d", a.Path)
 	case !bytes.Equal(a.ActionHash, r.c.Action.Hash):
@@ -353,10 +361,14 @@ func (r *run) authorization() error {
 	}
 	r.auth, r.sa = rec, sa
 	r.rep.AuthorizationVerified = true
-	r.rep.Authorization = &AuthorizationInfo{Path: a.Path, Expires: a.Expires, AuthorizedAt: rec.AuthorizedAt}
+	r.rep.Authorization = &AuthorizationInfo{Version: a.Version, Mode: a.Mode, Path: a.Path, Expires: a.Expires, AuthorizedAt: rec.AuthorizedAt}
 	r.pass(CheckAuthorization)
 	return nil
 }
+
+// maxFastWindow is the largest anchor window any gate configuration allows,
+// in blocks after the reference height.
+const maxFastWindow = 1000
 
 func (r *run) payload() error {
 	ref := r.c.PayloadRef
@@ -800,6 +812,8 @@ func (r *run) policy() error {
 	in := policyInput{
 		Hash: r.h, AgentPub: r.c.AgentPubKey, ActionType: r.c.Action.Type, Action: r.action,
 		ActionHash: r.c.Action.Hash, ValidUntil: r.c.ValidUntil, GateID: r.c.Scope.GateID,
+		Version: r.c.Version, MandateRef: r.c.MandateRef,
+		RequirePolicy: r.sa != nil && r.sa.Authorization.Mode == commitment.ModeFast,
 	}
 	if r.authKey != nil {
 		in.GateKeys = []ed25519.PublicKey{r.authKey}

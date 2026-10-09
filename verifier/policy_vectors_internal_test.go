@@ -28,6 +28,9 @@ type vecCase struct {
 		ActionHash     string `json:"action_hash_hex"`
 		ValidUntil     string `json:"valid_until"`
 		GateID         string `json:"gate_id"`
+		Version        string `json:"version"`
+		MandateRef     string `json:"mandate_ref_hex"`
+		Mode           string `json:"mode"`
 	} `json:"decision"`
 	TH     *string `json:"t_h"`
 	Config struct {
@@ -42,9 +45,10 @@ type vecCase struct {
 	Corrupt map[string]string `json:"corrupt"`
 	Expect  struct {
 		Policy struct {
-			Status string `json:"status"`
-			Rule   string `json:"rule"`
-			Reason string `json:"reason"`
+			Status     string `json:"status"`
+			Rule       string `json:"rule"`
+			Reason     string `json:"reason"`
+			MandateRef string `json:"mandate_ref"`
 		} `json:"policy"`
 		Integrity struct {
 			Status   string   `json:"status"`
@@ -217,6 +221,14 @@ func (c vecCase) input(t testing.TB, d vecDoc) policyInput {
 		Action: unhex(t, c.Decision.Action), ActionHash: unhex(t, c.Decision.ActionHash),
 		ValidUntil: vu, GateID: c.Decision.GateID, GateKeys: []ed25519.PublicKey{unhex(t, d.Gate.Key)},
 	}
+	if c.Decision.Version != "" {
+		in.Version, err = strconv.ParseUint(c.Decision.Version, 10, 64)
+		require.NoError(t, err)
+	}
+	if c.Decision.MandateRef != "" {
+		in.MandateRef = unhex(t, c.Decision.MandateRef)
+	}
+	in.RequirePolicy = c.Decision.Mode == "2"
 	if c.TH != nil {
 		in.TH, err = strconv.ParseUint(*c.TH, 10, 64)
 		require.NoError(t, err)

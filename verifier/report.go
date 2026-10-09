@@ -71,6 +71,8 @@ type HeaderTrustReport struct {
 }
 
 type AuthorizationInfo struct {
+	Version      uint64
+	Mode         uint64 // v1 only: strict or fast
 	Path         commitment.PayloadPath
 	Expires      uint64
 	AuthorizedAt uint64
@@ -166,7 +168,20 @@ type PolicyInfo struct {
 	// Denials are the reasons of the policy deny records of this decision;
 	// ErrDecisionAge is marked gate-attested.
 	Denials []string
+	// MandateRef compares a v1 decision's mandate_ref with the allow's
+	// mandate hash; empty for a v0 decision.
+	MandateRef MandateRefStatus
 }
+
+// MandateRefStatus is how a v1 decision's mandate_ref relates to the mandate
+// the gate allowed it under.
+type MandateRefStatus string
+
+const (
+	MandateRefMatch    MandateRefStatus = "match"
+	MandateRefMismatch MandateRefStatus = "mismatch"
+	MandateRefAbsent   MandateRefStatus = "absent"
+)
 
 type Report struct {
 	Verdict        Verdict

@@ -168,18 +168,28 @@ func gatePub(t testing.TB) ed25519.PublicKey { return gateKey(t).Public().(ed255
 func signAuth(t testing.TB, key ed25519.PrivateKey, h commitment.Hash, c *commitment.Commitment, path commitment.PayloadPath, expires uint64) []byte {
 	t.Helper()
 	a := commitment.Authorization{
+		Version:        c.Version,
 		CommitmentHash: h[:],
 		ActionHash:     c.Action.Hash,
 		GateID:         gatefix.GateID,
 		Expires:        expires,
 		Path:           path,
 	}
+	if c.Version == commitment.VersionV1 {
+		a.Mode = commitment.ModeStrict
+	}
+	return signAuthorization(t, key, a)
+}
+
+// signAuthorization signs a under the tags of its version.
+func signAuthorization(t testing.TB, key ed25519.PrivateKey, a commitment.Authorization) []byte {
+	t.Helper()
 	canon, err := commitment.EncodeAuthorization(&a)
 	require.NoError(t, err)
-	ah := commitment.HashAuthorization(canon)
+	ah := commitment.HashAuthorizationFor(a.Version, canon)
 	b, err := commitment.EncodeSignedAuthorization(&commitment.SignedAuthorization{
 		Authorization: a,
-		Signature:     ed25519.Sign(key, commitment.AuthorizationSigningMessage(ah)),
+		Signature:     ed25519.Sign(key, commitment.AuthorizationSigningMessageFor(a.Version, ah)),
 	})
 	require.NoError(t, err)
 	return b

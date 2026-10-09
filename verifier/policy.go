@@ -56,6 +56,13 @@ type policyInput struct {
 	GateKeys   []ed25519.PublicKey
 	TH         uint64
 	THVerified bool
+	// Version and MandateRef come from the verified envelope.
+	Version    uint64
+	MandateRef []byte
+	// RequirePolicy makes the check required for this decision whatever the
+	// configuration: a fast-mode Authorization is valid only with the
+	// mandate's consent, which only the allow record shows.
+	RequirePolicy bool
 }
 
 type policyOutcome struct {
@@ -102,6 +109,7 @@ type policyRun struct {
 	violHash  []commitment.Hash
 	info      *PolicyInfo
 	stepOneOK bool
+	mandRef   MandateRefStatus
 	held      []policy.Held
 	heldRaw   map[commitment.Hash][]byte
 }
@@ -262,8 +270,9 @@ func missingReason(st srcStatus) Reason {
 
 func (p *policyRun) run() (policyOutcome, error) {
 	var out policyOutcome
+	required := p.v.cfg.RequirePolicy || p.in.RequirePolicy
 	if p.rd == nil {
-		if !p.v.cfg.RequirePolicy {
+		if !required {
 			return out, nil
 		}
 		return p.finish(p.unchecked(ReasonPolicyVerdictUnavailable, errors.New("the archive reads no policy records")))
@@ -273,7 +282,7 @@ func (p *policyRun) run() (policyOutcome, error) {
 		return out, err
 	}
 	switch {
-	case st == srcMissing && !p.v.cfg.RequirePolicy:
+	case st == srcMissing && !required:
 		return out, nil
 	case st == srcMissing:
 		return p.finish(p.unchecked(ReasonPolicyVerdictUnavailable, errors.New("no policy_allow record for the decision")))
@@ -284,6 +293,20 @@ func (p *policyRun) run() (policyOutcome, error) {
 	v := &allow.sv.Verdict
 	if !bytes.Equal(v.ActionHash, p.in.ActionHash) || !bytes.Equal(v.AgentPubKey, p.in.AgentPub) || v.GateID != p.in.GateID {
 		p.violate(allow.raw)
+	}
+	// Both sides are signed: the agent's mandate_ref and the gate's verdict.
+	// An absent reference is the agent's omission, which the envelope alone
+	// cannot turn into a finding about the gate.
+	if p.in.Version == commitment.VersionV1 {
+		switch {
+		case p.in.MandateRef == nil:
+			p.mandRef = MandateRefAbsent
+		case bytes.Equal(p.in.MandateRef, v.MandateHash):
+			p.mandRef = MandateRefMatch
+		default:
+			p.mandRef = MandateRefMismatch
+			p.setFail("mandate_ref_mismatch", fmt.Errorf("decision names mandate %x, allow is under %x", p.in.MandateRef, v.MandateHash))
+		}
 	}
 
 	m, err := p.fast(allow)
@@ -470,6 +493,9 @@ func (p *policyRun) denials() error {
 
 func (p *policyRun) finish(c *Check) (policyOutcome, error) {
 	out := policyOutcome{Ran: true, Info: p.info}
+	if p.info != nil {
+		p.info.MandateRef = p.mandRef
+	}
 	out.Integrity = GateIntegrity{Status: IntegrityNotChecked}
 	switch {
 	case p.violation != nil:
