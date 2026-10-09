@@ -57,6 +57,10 @@ type Result struct {
 	// ClosedBucket and ClosedSet are the canonical bucket and set that this
 	// allow closed an hour with; the caller archives them once.
 	ClosedBucket, ClosedSet []byte
+	// PrivatePart is the canonical PrivatePart of PolicyVerdict when the
+	// mandate has auditors, in clear: the caller archives it only sealed to
+	// the auditors and never returns it to a client.
+	PrivatePart []byte
 }
 
 // K2Inputs are the values the path selection used. BlobRetentionS is set for
@@ -415,11 +419,11 @@ func (g *Gate) authorize(ctx context.Context, envelope, action, salt []byte, ev 
 			} else if gerr != nil && !errors.Is(gerr, registry.ErrNotFound) {
 				return res, fmt.Errorf("%w: %w", ErrRegistryUnavailable, gerr)
 			}
-			vb, serr := g.denyVerdict(ctx, pin, perr, nil, 0)
+			vb, part, serr := g.denyVerdict(ctx, pin, perr, nil, 0)
 			if serr != nil {
 				return res, serr
 			}
-			res.PolicyVerdict = vb
+			res.PolicyVerdict, res.PrivatePart = vb, part
 			if vb != nil && g.d.Archiver != nil {
 				if aerr := g.archiveDecision(ctx, h, envelope, action, salt); aerr != nil {
 					g.log.Warn("decision record not archived after a policy deny", "err", aerr)
@@ -514,9 +518,11 @@ func (g *Gate) authorize(ctx context.Context, envelope, action, salt []byte, ev 
 		if blockTime == 0 {
 			return res, fmt.Errorf("%w: header time is zero", ErrChainUnavailable)
 		}
-		d, vb, perr := g.evaluatePolicy(ctx, p, c, &pin, now2)
+		d, deny, perr := g.evaluatePolicy(ctx, p, c, &pin, now2)
 		if perr != nil {
-			res.PolicyVerdict = vb
+			if deny != nil {
+				res.PolicyVerdict, res.PrivatePart = deny.verdict, deny.part
+			}
 			return res, perr
 		}
 		dec = d
@@ -544,7 +550,7 @@ func (g *Gate) authorize(ctx context.Context, envelope, action, salt []byte, ev 
 	}
 	var cerr error
 	if dec != nil {
-		entry.Verdict = dec.verdict
+		entry.Verdict, entry.PrivatePart = dec.verdict, dec.privatePart
 		entry.ClosedBucket, entry.ClosedSet = dec.closedBucket, dec.closedSet
 		cerr = g.pol.state.ConsumeState(ctx, entry, g.cfg.ClockTolerance, dec.tx)
 	} else {
@@ -569,6 +575,7 @@ func (g *Gate) authorize(ctx context.Context, envelope, action, salt []byte, ev 
 	if dec != nil {
 		res.PolicyVerdict = bytes.Clone(dec.verdict)
 		res.ClosedBucket, res.ClosedSet = bytes.Clone(dec.closedBucket), bytes.Clone(dec.closedSet)
+		res.PrivatePart = bytes.Clone(dec.privatePart)
 	}
 	return res, nil
 }
@@ -624,13 +631,22 @@ func (g *Gate) refuseMandateRef(ctx context.Context, res Result, key registry.Ke
 }
 
 // archiveDecision writes the decision record under its own deadline. A done
-// parent context is the caller's, not an archive fault.
+// parent context is the caller's, not an archive fault. Under a mandate with
+// auditors the action and its salt leave the gate only sealed to them.
 func (g *Gate) archiveDecision(ctx context.Context, h commitment.Hash, envelope, action, salt []byte) error {
+	rec := DecisionRecord{
+		CommitmentHash: h, Envelope: bytes.Clone(envelope), Action: bytes.Clone(action), ActionSalt: bytes.Clone(salt),
+	}
+	if g.pol.private() {
+		sealed, err := g.sealAction(envelope, action, salt)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrArchiveUnavailable, err)
+		}
+		rec.ActionHash, rec.PrivateAction, rec.Action, rec.ActionSalt = sealed.hash, sealed.envelope, nil, nil
+	}
 	wctx, cancel := context.WithTimeout(ctx, g.cfg.ArchiveWriteTimeout)
 	defer cancel()
-	err := g.d.Archiver.Put(wctx, DecisionRecord{
-		CommitmentHash: h, Envelope: bytes.Clone(envelope), Action: bytes.Clone(action), ActionSalt: bytes.Clone(salt),
-	})
+	err := g.d.Archiver.Put(wctx, rec)
 	if err == nil {
 		return nil
 	}
@@ -759,6 +775,7 @@ func (g *Gate) Record(ctx context.Context, envelope []byte, railRef string, exec
 	case ent.CommitmentHash != h:
 		return nil, ErrNotAuthorized
 	case len(ent.Receipt) != 0:
+		g.reveal(ctx, &s.Commitment, h, ent.Receipt, ent.ActionSalt)
 		return bytes.Clone(ent.Receipt), ErrReceiptExists
 	}
 
@@ -772,6 +789,7 @@ func (g *Gate) Record(ctx context.Context, envelope []byte, railRef string, exec
 	}
 	switch err := g.d.Registry.AttachReceipt(ctx, key, h, receipt); {
 	case err == nil:
+		g.reveal(ctx, &s.Commitment, h, receipt, ent.ActionSalt)
 		return receipt, nil
 	case errors.Is(err, registry.ErrNotFound):
 		return nil, ErrNotAuthorized

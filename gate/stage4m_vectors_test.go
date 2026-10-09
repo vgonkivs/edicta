@@ -75,6 +75,13 @@ func TestStage4mVectors(t *testing.T) {
 			switch tc.CommitmentRef {
 			case "v1_mandate_ref":
 				c.MandateRef = named[:]
+				// The agent names m_full in the form the gate runs it: with
+				// auditors it is another mandate with another hash.
+				if gm := tc.GateMandate; gm != nil && gm.Auditors && gm.Mandate == "m_full" {
+					_, priv, err := policy.VerifyMandate(signedMandate(t, stage4mMandate(t, "m_full", true)))
+					require.NoError(t, err)
+					c.MandateRef = priv[:]
+				}
 			case "v1_minimal_included_blob":
 				c.MandateRef = nil
 			default:

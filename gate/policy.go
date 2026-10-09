@@ -3,12 +3,16 @@ package gate
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate/registry"
 	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/policy/privatebox"
 )
 
 // ErrPolicyStateConflict means the counter cell changed under the gate's
@@ -24,7 +28,15 @@ type policyGate struct {
 	state       registry.StateRegistry
 	extractors  *policy.Extractors
 	mu          chan struct{} // capacity 1; held from the cell read through ConsumeState
+	// hasher blinds state hashes with the mandate's state_salt in private
+	// mode; sealer encrypts to its auditors.
+	hasher policy.StateHasher
+	sealer policy.Sealer
 }
+
+// private reports whether the mandate in force has auditors: verdicts are
+// then signed in private form and the action is archived encrypted.
+func (p *policyGate) private() bool { return p != nil && len(p.mandate.Auditors) > 0 }
 
 // setupPolicy validates the mandate against the dependencies and adopts it.
 func (g *Gate) setupPolicy(ctx context.Context) error {
@@ -50,11 +62,6 @@ func (g *Gate) setupPolicy(ctx context.Context) error {
 		if !g.d.Extractors.Has(t) {
 			return bad("action type %q has no extractor", t)
 		}
-	}
-	// This gate cannot yet encrypt the mandate and its verdicts to the
-	// auditors, so serving a private mandate would publish it in clear.
-	if len(m.Auditors) > 0 {
-		return bad("private mandates (auditors) are not supported by this gate")
 	}
 	// A bound below the slack would refuse every pending reference past h0,
 	// after the anchor work: fast mode would be silently unusable.
@@ -89,7 +96,10 @@ func (g *Gate) setupPolicy(ctx context.Context) error {
 		}
 	}
 	pg := &policyGate{mandate: m, mandateHash: h, key: registry.StateKey(m.CounterKey()), state: sr,
-		extractors: g.d.Extractors, mu: make(chan struct{}, 1)}
+		extractors: g.d.Extractors, mu: make(chan struct{}, 1), hasher: policy.NewStateHasher(m), sealer: g.d.Sealer}
+	if pg.sealer == nil {
+		pg.sealer = privatebox.Sealer{}
+	}
 	if err := g.adopt(ctx, pg); err != nil {
 		return err
 	}
@@ -143,6 +153,54 @@ func (g *Gate) adopt(ctx context.Context, pg *policyGate) error {
 	return write(cell.Version, &next)
 }
 
+type sealedAction struct {
+	hash     commitment.Hash
+	envelope []byte
+}
+
+// sealAction encrypts salt || action to the auditors, keyed by the
+// commitment's action hash.
+func (g *Gate) sealAction(envelope, action, salt []byte) (sealedAction, error) {
+	s, err := commitment.DecodeSigned(envelope)
+	if err != nil {
+		return sealedAction{}, fmt.Errorf("gate: decision envelope: %w", err)
+	}
+	plain := make([]byte, 0, len(salt)+len(action))
+	plain = append(append(plain, salt...), action...)
+	env, err := g.pol.sealer.Seal(policy.PrivateAction, plain, g.pol.mandate.Auditors)
+	if err != nil {
+		return sealedAction{}, fmt.Errorf("gate: seal action: %w", err)
+	}
+	return sealedAction{hash: commitment.Hash(s.Commitment.Action.Hash), envelope: env}, nil
+}
+
+// reveal archives the action salt of an executed private decision whose
+// type is configured for the reveal: on a public rail the executed
+// transaction is public anyway, and the salt lets anyone tie it to the
+// salted action hash. A failure does not change the receipt; the repair
+// rewrites it from the registry.
+func (g *Gate) reveal(ctx context.Context, c *commitment.Commitment, h commitment.Hash, receipt, salt []byte) {
+	if !g.RevealsOnExecution(c.Action.Type) || len(salt) == 0 {
+		return
+	}
+	ra, ok := g.d.Archiver.(RevealArchiver)
+	if !ok {
+		return
+	}
+	wctx, cancel := context.WithTimeout(ctx, g.cfg.ArchiveWriteTimeout)
+	defer cancel()
+	if err := ra.PutReveal(wctx, RevealRecord{CommitmentHash: h, Receipt: bytes.Clone(receipt), ActionSalt: bytes.Clone(salt)}); err != nil {
+		g.log.Error("reveal on execution not archived", "commitment_hash", hex.EncodeToString(h[:]), "err", err)
+	}
+}
+
+// RevealsOnExecution reports whether a receipt for an action of this type
+// publishes its salt: the mandate is private, so the decision record holds
+// no salt, and the type is configured for the reveal.
+func (g *Gate) RevealsOnExecution(actionType string) bool {
+	return g.pol.private() && slices.Contains(g.cfg.RevealOnExecution, actionType)
+}
+
 // lockPolicy takes the policy lock, giving up when ctx is done.
 func (g *Gate) lockPolicy(ctx context.Context) error {
 	select {
@@ -174,8 +232,30 @@ func (g *Gate) baseVerdict(in policyInput, outcome uint64) policy.Verdict {
 }
 
 // signVerdict encodes, signs and self-verifies a verdict. It returns the
-// canonical SignedPolicyVerdict and the verdict hash.
-func (g *Gate) signVerdict(ctx context.Context, v *policy.Verdict) ([]byte, commitment.Hash, error) {
+// canonical SignedPolicyVerdict and the verdict hash. Under a private
+// mandate it signs the private form and also returns the canonical
+// PrivatePart, under a fresh salt so that equal parts never share a hash.
+func (g *Gate) signVerdict(ctx context.Context, v *policy.Verdict) ([]byte, commitment.Hash, []byte, error) {
+	var part []byte
+	if g.pol.private() {
+		salt := make([]byte, policy.PrivatePartSaltSize)
+		if _, err := rand.Read(salt); err != nil {
+			return nil, commitment.Hash{}, nil, fmt.Errorf("gate: private part salt: %w", err)
+		}
+		pub, pp, err := policy.SplitVerdict(v, salt, g.pol.hasher)
+		if err != nil {
+			return nil, commitment.Hash{}, nil, fmt.Errorf("gate: split verdict: %w", err)
+		}
+		if part, err = policy.EncodePrivatePart(pp); err != nil {
+			return nil, commitment.Hash{}, nil, fmt.Errorf("gate: encode private part: %w", err)
+		}
+		v = pub
+	}
+	b, h, err := g.signVerdictForm(ctx, v)
+	return b, h, part, err
+}
+
+func (g *Gate) signVerdictForm(ctx context.Context, v *policy.Verdict) ([]byte, commitment.Hash, error) {
 	canon, err := policy.EncodeVerdict(v)
 	if err != nil {
 		return nil, commitment.Hash{}, fmt.Errorf("gate: encode verdict: %w", err)
@@ -196,8 +276,9 @@ func (g *Gate) signVerdict(ctx context.Context, v *policy.Verdict) ([]byte, comm
 }
 
 // denyVerdict signs the deny verdict for reason. The optional parts follow
-// from what the stage had learned.
-func (g *Gate) denyVerdict(ctx context.Context, in policyInput, reason error, prev *policy.State, evalTime uint64) ([]byte, error) {
+// from what the stage had learned; in private mode they go to the returned
+// PrivatePart.
+func (g *Gate) denyVerdict(ctx context.Context, in policyInput, reason error, prev *policy.State, evalTime uint64) (verdict, part []byte, err error) {
 	v := g.baseVerdict(in, policy.OutcomeDeny)
 	name := policy.ReasonOf(reason)
 	v.Reason = name
@@ -212,8 +293,8 @@ func (g *Gate) denyVerdict(ctx context.Context, in policyInput, reason error, pr
 	if name == "ErrDecisionAge" {
 		v.GateClock = 1
 	}
-	b, _, err := g.signVerdict(ctx, &v)
-	return b, err
+	b, _, part, err := g.signVerdict(ctx, &v)
+	return b, part, err
 }
 
 // admitPolicy runs the per-action rules. A deny is returned unsigned (denied
@@ -233,10 +314,15 @@ func (g *Gate) admitPolicy(c *commitment.Commitment, action []byte, in *policyIn
 	return false, fmt.Errorf("gate: policy admission: %w", derr)
 }
 
+// policyDeny is a signed deny verdict and, in private mode, its PrivatePart.
+type policyDeny struct{ verdict, part []byte }
+
 // policyDecision is the outcome of the stateful evaluation for an allow.
 type policyDecision struct {
 	verdict     []byte
 	verdictHash commitment.Hash
+	// privatePart is the canonical PrivatePart of a private-form verdict.
+	privatePart []byte
 	tx          registry.StateTx
 	// closedBucket and closedSet are set when the allow closed an hour.
 	closedBucket []byte
@@ -246,7 +332,7 @@ type policyDecision struct {
 // evaluatePolicy runs the stateful policy rules and, on allow, signs the allow verdict and
 // builds the cell transaction. On allow the policy lock is held; the caller
 // releases it. On a deny or an error it is already released.
-func (g *Gate) evaluatePolicy(ctx context.Context, p commitment.Params, c *commitment.Commitment, in *policyInput, now2 uint64) (dec *policyDecision, verdict []byte, err error) {
+func (g *Gate) evaluatePolicy(ctx context.Context, p commitment.Params, c *commitment.Commitment, in *policyInput, now2 uint64) (dec *policyDecision, deny *policyDeny, err error) {
 	in.decidedAt = now2
 	age := uint64(0)
 	if now2 > in.anchorTime {
@@ -257,11 +343,11 @@ func (g *Gate) evaluatePolicy(ctx context.Context, p commitment.Params, c *commi
 		maxAge = p.MaxTTL(c.PayloadRef.DA)
 	}
 	if age > maxAge {
-		b, serr := g.denyVerdict(ctx, *in, policy.ErrDecisionAge, nil, 0)
+		b, part, serr := g.denyVerdict(ctx, *in, policy.ErrDecisionAge, nil, 0)
 		if serr != nil {
 			return nil, nil, serr
 		}
-		return nil, b, policy.ErrDecisionAge
+		return nil, &policyDeny{verdict: b, part: part}, policy.ErrDecisionAge
 	}
 
 	if err := g.lockPolicy(ctx); err != nil {
@@ -297,11 +383,11 @@ func (g *Gate) evaluatePolicy(ctx context.Context, p commitment.Params, c *commi
 		if policy.ReasonOf(eerr) != "ErrOutsideMandate" {
 			evalTime = policy.EvalTime(prev, in.anchorTime)
 		}
-		b, serr := g.denyVerdict(ctx, *in, eerr, &prev, evalTime)
+		b, part, serr := g.denyVerdict(ctx, *in, eerr, &prev, evalTime)
 		if serr != nil {
 			return nil, nil, serr
 		}
-		return nil, b, eerr
+		return nil, &policyDeny{verdict: b, part: part}, eerr
 	}
 
 	v := g.baseVerdict(*in, policy.OutcomeAllow)
@@ -311,7 +397,7 @@ func (g *Gate) evaluatePolicy(ctx context.Context, p commitment.Params, c *commi
 	if prev.Seq >= 1 {
 		v.PrevCommitmentHash, v.PrevVerdictHash = bytes.Clone(ctr.HeadCommitment), bytes.Clone(ctr.HeadVerdict)
 	}
-	vb, vh, err := g.signVerdict(ctx, &v)
+	vb, vh, part, err := g.signVerdict(ctx, &v)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -323,7 +409,7 @@ func (g *Gate) evaluatePolicy(ctx context.Context, p commitment.Params, c *commi
 		return nil, nil, fmt.Errorf("gate: encode counter: %w", err)
 	}
 	dec = &policyDecision{
-		verdict: vb, verdictHash: vh,
+		verdict: vb, verdictHash: vh, privatePart: part,
 		tx: registry.StateTx{Key: g.pol.key, Expect: cell.Version, Next: registry.NewStateCell(enc)},
 	}
 	if step.ClosedBucket != nil {

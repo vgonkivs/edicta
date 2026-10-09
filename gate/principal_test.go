@@ -1,7 +1,6 @@
 package gate_test
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"testing"
 
@@ -39,14 +38,4 @@ func TestPolicyGateRunsSecp256k1Mandates(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
-}
-
-func TestPolicyGateRefusesPrivateMandates(t *testing.T) {
-	m := baseMandate(t)
-	pub := bytes.Repeat([]byte{9}, 32)
-	m.Auditors = []policy.Auditor{{Kid: policy.AuditorKid(pub), Pubkey: pub, Label: "a1"}}
-	m.StateSalt = bytes.Repeat([]byte{3}, 32)
-	_, err := gatefix.TryNew(t, policyOpts(t, m)...)
-	require.ErrorIs(t, err, gate.ErrInvalidConfig)
-	require.ErrorContains(t, err, "private mandates")
 }

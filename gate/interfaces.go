@@ -43,12 +43,35 @@ const (
 )
 
 // DecisionRecord is the envelope, the action bytes and the action salt
-// exactly as presented, keyed by the commitment hash.
+// exactly as presented, keyed by the commitment hash. Under a mandate with
+// auditors the action bytes and the salt are not in clear: PrivateAction
+// holds salt || bytes sealed to the auditors, the archiver writes it as the
+// private blob of ActionHash first and then the decision in private form,
+// and Action and ActionSalt are nil.
 type DecisionRecord struct {
 	CommitmentHash commitment.Hash
 	Envelope       []byte
 	Action         []byte
 	ActionSalt     []byte
+	ActionHash     commitment.Hash
+	PrivateAction  []byte
+}
+
+// Private reports whether the record is in private form.
+func (r DecisionRecord) Private() bool { return r.PrivateAction != nil }
+
+// RevealRecord publishes the action salt of an executed private decision.
+type RevealRecord struct {
+	CommitmentHash commitment.Hash
+	Receipt        []byte
+	ActionSalt     []byte
+}
+
+// RevealArchiver is implemented by archivers that store the reveal on
+// execution. The gate writes the reveal through it after a receipt; a
+// failure is logged and repaired from the registry.
+type RevealArchiver interface {
+	PutReveal(ctx context.Context, rec RevealRecord) error
 }
 
 // Archiver stores a decision record durably before the gate reads or marks
@@ -143,4 +166,7 @@ type Deps struct {
 	Intents         IntentSource
 	IntentVerifiers map[commitment.DA]IntentVerifier
 	Broadcaster     IntentBroadcaster
+	// Sealer encrypts the private records of a mandate with auditors; nil
+	// means privatebox.Sealer.
+	Sealer policy.Sealer
 }

@@ -53,6 +53,10 @@ type Entry struct {
 	// ActionSalt is the agent's action salt as presented with the
 	// Authorization, kept for the reveal on execution. Gate-local, in clear.
 	ActionSalt []byte
+	// PrivatePart is the canonical PrivatePart of the allow verdict under a
+	// mandate with auditors, in clear: the archive holds it only encrypted,
+	// and the repair re-encrypts it from here.
+	PrivatePart []byte
 }
 
 // Clone returns a deep copy that preserves nil slices.
@@ -63,6 +67,7 @@ func (e Entry) Clone() Entry {
 	e.ClosedBucket = slices.Clone(e.ClosedBucket)
 	e.ClosedSet = slices.Clone(e.ClosedSet)
 	e.ActionSalt = slices.Clone(e.ActionSalt)
+	e.PrivatePart = slices.Clone(e.PrivatePart)
 	return e
 }
 
