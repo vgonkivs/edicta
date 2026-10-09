@@ -42,7 +42,7 @@ def arg(name: str, default: Path) -> Path:
 
 
 DIR = arg("--dir", VECTORS / "api")
-CORE = arg("--core", VECTORS / "v0")
+CORE = arg("--core", VECTORS / "historical" / "v0")
 SPEC = arg("--spec", VECTORS.parent / "decision-commitment-v0.md")
 SPEC_V1 = arg("--spec-v1", VECTORS.parent / "decision-commitment-v1.md")
 V1DIR = arg("--v1", VECTORS / "v1")

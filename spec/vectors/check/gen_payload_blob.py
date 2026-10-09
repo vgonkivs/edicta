@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates payload_blob.json (v0-draft.9; default directory spec/vectors/v0). Deterministic: rerunning yields an identical file.
+"""Generates payload_blob.json (v1-draft.5; default directory spec/vectors/v1). Deterministic: rerunning yields an identical file.
 
 Every value that is random in production is derived from a fixed label here:
   recipient key   (sk, pk) = DeriveKeyPair(SHA-256("edicta/v0 test recipient|" + name))
@@ -30,19 +30,20 @@ try:
 except ImportError:
     sys.exit("missing dependency 'cryptography'; see spec/vectors/check/requirements.txt")
 
-import edicta_payload_v0 as pv
+import edicta_payload as pv
 import hpke_base as hpke
 from cbor_strict import Pairs, Raw, encode
-from edicta_v0 import (TAG_RECEIPT, Params, action_hash, commitment_hash, signing_message, tagged, to_cbor,
-                      verify_for_gate)
+from edicta import (TAG_RECEIPT, Params, action_hash, commitment_hash, signing_message, tagged, to_cbor,
+                    verify_for_gate)
 from profile_dca_agent import (ACTION_TYPE_IBKR_ORDER_V0 as IBKR, MEDIA_TYPE_DCA_V0, dca_consistency,
                                dca_decode, dca_encode, order_decode, order_encode)
 from vecjson import _conv, commitment_to_json, gate_to_json, params_to_json
 
-OUT = Path(__file__).resolve().parent.parent / "v0"
+OUT = Path(__file__).resolve().parent.parent / "v1"
 if "--out" in sys.argv:
     OUT = Path(sys.argv[sys.argv.index("--out") + 1]).resolve()
-FORMAT = "edicta-vectors/v0"
+FORMAT = "edicta-vectors/v1"
+REVISION = "v1-draft.5"
 KAT_RFC_TEXT = Path(__file__).resolve().parent / "hpke_rfc9180_a2_1.json"
 
 AGENT1_SEED = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
@@ -97,7 +98,7 @@ ORDER_BUY = {"account": "DU1234567", "conid": 756733, "symbol": "SPY", "side": 1
              "order_type": 1, "limit_price": 57250000000, "currency": "USD", "tif": 1}
 ORDER_SELL = {"account": "DU1234567", "conid": 756733, "side": 2, "qty": 10000,
               "order_type": 1, "limit_price": 57100000000, "currency": "USD", "tif": 3}
-ACTION_BUY = {"type": IBKR, "data": order_encode(ORDER_BUY)}
+ACTION_BUY = {"type": IBKR, "data": order_encode(ORDER_BUY), "action_salt": h("action-salt/pb buy")}
 
 DCA_MINIMAL = {
     "strategy_id": "dca-spy-weekly",
@@ -118,7 +119,7 @@ POLICY_TEXT = (b"Buy SPY once per week with a limit at most 0.1% above the snaps
 
 def payload_dca_minimal() -> dict:
     return {
-        "version": 0,
+        "version": 1,
         "model": {"id": "example-model"},
         "policy": {"id": "dca-weekly"},
         "context": {"media_type": MEDIA_TYPE_DCA_V0, "data": dca_encode(DCA_MINIMAL)},
@@ -128,7 +129,7 @@ def payload_dca_minimal() -> dict:
 
 def payload_dca_full() -> dict:
     return {
-        "version": 0,
+        "version": 1,
         "model": {"id": "example-model", "version": "2026-06", "digest": h("edicta/v0 test model weights")},
         "policy": {"id": "dca-weekly", "version": "3", "digest": hashlib.sha256(POLICY_TEXT).digest(),
                    "text": POLICY_TEXT},
@@ -141,19 +142,19 @@ def payload_dca_full() -> dict:
 
 def payload_json_sell() -> dict:
     return {
-        "version": 0,
+        "version": 1,
         "model": {"id": "example-model", "version": "2026-06"},
         "policy": {"id": "rebalance-monthly"},
         "context": {"media_type": "application/json",
                     "data": b'{"signal":"rebalance","target_weight_spy":"0.60","current_weight_spy":"0.64"}'},
-        "action": {"type": IBKR, "data": order_encode(ORDER_SELL)},
+        "action": {"type": IBKR, "data": order_encode(ORDER_SELL), "action_salt": h("action-salt/pb sell")},
         "metadata": {"media_type": "text/plain", "data": b"monthly rebalance, SPY overweight by 4 points"},
     }
 
 
 def payload_empty_context() -> dict:
     return {
-        "version": 0,
+        "version": 1,
         "model": {"id": "rule-engine-1"},
         "policy": {"id": "fixed-order"},
         "context": {"media_type": "application/octet-stream", "data": b""},
@@ -187,14 +188,15 @@ def seal_case(case_id: str, plaintext: bytes, names: list, **kw) -> dict:
 
 def commitment_for(case_id: str, p: dict, s: dict) -> dict:
     c = {
-        "version": 0,
+        "version": 1,
         "agent_id": "dca-agent-1",
         "agent_pubkey": Ed25519PrivateKey.from_private_bytes(AGENT1_SEED).public_key().public_bytes_raw(),
         "nonce": h(f"nonce-{case_id}")[:16],
         "issued_at": T0,
         "valid_until": T0 + 900,
         "scope": {"gate_id": GATE["gate_id"]},
-        "action": {"type": p["action"]["type"], "hash": action_hash(p["action"]["type"], p["action"]["data"])},
+        "action": {"type": p["action"]["type"],
+                   "hash": action_hash(p["action"]["type"], p["action"]["action_salt"], p["action"]["data"])},
         "payload_ref": {"da": 2, "namespace": NAMESPACE, "commitment": h(f"share-commitment-{case_id}"),
                         "height": 4200000, "signer": SIGNER},
         "ciphertext_hash": hashlib.sha256(s["blob"]).digest(),
@@ -222,7 +224,7 @@ def valid_case(case_id: str, desc: str, p: dict, names: list) -> tuple[dict, dic
     assert pv.payload_decode(pt) == p
     s = seal_case(case_id, pt, names)
     at = p["action"]["type"]
-    ah = action_hash(at, p["action"]["data"])
+    ah = action_hash(at, p["action"]["action_salt"], p["action"]["data"])
     case = {
         "id": case_id,
         "description": desc,
@@ -253,6 +255,7 @@ def valid_case(case_id: str, desc: str, p: dict, names: list) -> tuple[dict, dic
         "ciphertext_hash_hex": hashlib.sha256(s["blob"]).hexdigest(),
         "action_type": at,
         "action_hex": p["action"]["data"].hex(),
+        "action_salt_hex": p["action"]["action_salt"].hex(),
         "action_hash_hex": ah.hex(),
         "commitment": commitment_for(case_id, p, s),
     })
@@ -272,7 +275,7 @@ def rj(cid: str, stage: str, rule: str, desc: str, blob: bytes, expect: str, **k
     return out
 
 
-def raw_blob(version=0, entries=None, nonce=None, ct=None, base: pv.Blob | None = None) -> pv.Blob:
+def raw_blob(version=1, entries=None, nonce=None, ct=None, base: pv.Blob | None = None) -> pv.Blob:
     return pv.Blob(version, entries if entries is not None else base.recipients,
                    nonce if nonce is not None else base.aead_nonce, ct if ct is not None else base.ciphertext)
 
@@ -316,48 +319,48 @@ def decode_rejects(s1: dict) -> list:
     out.append(rj("pb_duplicate_kid", "decode", "B5",
                   "Two entries, both labelled gate-paper-1; the second wraps the DEK for the auditor key.",
                   blobd, "blob.ErrDuplicateKID"))
-    out.append(rj("pb_blob_version_1", "decode", "B2", "Blob version 1.",
-                  pv.blob_encode(raw_blob(version=1, base=b)), "blob.ErrVersion"))
-    out.append(rj("pb_blob_version_tstr", "decode", "B1", "Blob version is the text string \"0\".",
-                  top((1, "0"), (2, [entry_cbor(e) for e in b.recipients]), (3, b.aead_nonce), (4, b.ciphertext)),
+    out.append(rj("pb_blob_version_0", "decode", "B2", "Blob version 0.",
+                  pv.blob_encode(raw_blob(version=0, base=b)), "blob.ErrVersion"))
+    out.append(rj("pb_blob_version_tstr", "decode", "B1", "Blob version is the text string \"1\".",
+                  top((1, "1"), (2, [entry_cbor(e) for e in b.recipients]), (3, b.aead_nonce), (4, b.ciphertext)),
                   "blob.ErrMalformed"))
     out.append(rj("pb_blob_truncated", "decode", "B1", "Last byte of the blob removed.",
                   raw[:-1], "blob.ErrMalformed"))
     out.append(rj("pb_blob_trailing_byte", "decode", "B7", "One zero byte after the top-level map.",
                   raw + b"\x00", "blob.ErrMalformed"))
     out.append(rj("pb_blob_nonminimal_version", "decode", "B1",
-                  "Version 0 encoded as 0x18 0x00 (non-minimal head).",
-                  top((1, Raw(b"\x18\x00")), (2, [entry_cbor(e) for e in b.recipients]), (3, b.aead_nonce),
+                  "Version 1 encoded as 0x18 0x01 (non-minimal head).",
+                  top((1, Raw(b"\x18\x01")), (2, [entry_cbor(e) for e in b.recipients]), (3, b.aead_nonce),
                       (4, b.ciphertext)), "blob.ErrMalformed"))
     out.append(rj("pb_blob_nonminimal_nonce_len", "decode", "B1",
                   "aead_nonce length 12 encoded as 0x58 0x0c (non-minimal head).",
-                  top((1, 0), (2, [entry_cbor(e) for e in b.recipients]), (3, Raw(b"\x58\x0c" + b.aead_nonce)),
+                  top((1, 1), (2, [entry_cbor(e) for e in b.recipients]), (3, Raw(b"\x58\x0c" + b.aead_nonce)),
                       (4, b.ciphertext)), "blob.ErrMalformed"))
     out.append(rj("pb_blob_unsorted_keys", "decode", "B1", "Top-level keys in the order 1, 3, 2, 4.",
-                  top((1, 0), (3, b.aead_nonce), (2, [entry_cbor(e) for e in b.recipients]), (4, b.ciphertext)),
+                  top((1, 1), (3, b.aead_nonce), (2, [entry_cbor(e) for e in b.recipients]), (4, b.ciphertext)),
                   "blob.ErrMalformed"))
     out.append(rj("pb_blob_extra_key", "decode", "B1", "A fifth top-level key 5.",
-                  top((1, 0), (2, [entry_cbor(e) for e in b.recipients]), (3, b.aead_nonce), (4, b.ciphertext),
+                  top((1, 1), (2, [entry_cbor(e) for e in b.recipients]), (3, b.aead_nonce), (4, b.ciphertext),
                       (5, b"")), "blob.ErrMalformed"))
     indef = b"\x9f" + b"".join(encode(entry_cbor(e)) for e in b.recipients) + b"\xff"
     out.append(rj("pb_blob_indefinite_array", "decode", "B1", "Recipients as an indefinite-length array.",
-                  top((1, 0), (2, Raw(indef)), (3, b.aead_nonce), (4, b.ciphertext)), "blob.ErrMalformed"))
-    out.append(rj("pb_blob_float_version", "decode", "B1", "Version as half-precision float 0.0 (0xf9 0x0000).",
-                  top((1, Raw(b"\xf9\x00\x00")), (2, [entry_cbor(e) for e in b.recipients]), (3, b.aead_nonce),
+                  top((1, 1), (2, Raw(indef)), (3, b.aead_nonce), (4, b.ciphertext)), "blob.ErrMalformed"))
+    out.append(rj("pb_blob_float_version", "decode", "B1", "Version as half-precision float 1.0 (0xf9 0x3c00).",
+                  top((1, Raw(b"\xf9\x3c\x00")), (2, [entry_cbor(e) for e in b.recipients]), (3, b.aead_nonce),
                       (4, b.ciphertext)), "blob.ErrMalformed"))
     out.append(rj("pb_kid_empty", "decode", "B4", "kid of length 0.",
                   blob_with(entries=[entry_with(kid=b"")]), "blob.ErrMalformed"))
     out.append(rj("pb_kid_33_bytes", "decode", "B4", "kid of 33 bytes.",
                   blob_with(entries=[entry_with(kid=b"k" * 33)]), "blob.ErrMalformed"))
     out.append(rj("pb_kid_tstr", "decode", "B4", "kid as a text string.",
-                  top((1, 0), (2, [{1: e0.kid.decode(), 2: e0.enc, 3: e0.wrapped_dek}]), (3, b.aead_nonce),
+                  top((1, 1), (2, [{1: e0.kid.decode(), 2: e0.enc, 3: e0.wrapped_dek}]), (3, b.aead_nonce),
                       (4, b.ciphertext)), "blob.ErrMalformed"))
     out.append(rj("pb_enc_31_bytes", "decode", "B4", "enc of 31 bytes.",
                   blob_with(entries=[entry_with(enc=e0.enc[:31])]), "blob.ErrMalformed"))
     out.append(rj("pb_wrapped_dek_49_bytes", "decode", "B4", "wrapped_dek of 49 bytes.",
                   blob_with(entries=[entry_with(wrapped_dek=e0.wrapped_dek + b"\x00")]), "blob.ErrMalformed"))
     out.append(rj("pb_entry_missing_wrapped_dek", "decode", "B4", "Recipient entry with keys 1 and 2 only.",
-                  top((1, 0), (2, [{1: e0.kid, 2: e0.enc}]), (3, b.aead_nonce), (4, b.ciphertext)),
+                  top((1, 1), (2, [{1: e0.kid, 2: e0.enc}]), (3, b.aead_nonce), (4, b.ciphertext)),
                   "blob.ErrMalformed"))
     out.append(rj("pb_nonce_11_bytes", "decode", "B6", "aead_nonce of 11 bytes.",
                   blob_with(nonce=b.aead_nonce[:11]), "blob.ErrMalformed"))
@@ -418,18 +421,18 @@ def open_rejects(s1: dict, s3: dict) -> list:
     names = ["gate-paper-1"]
     pt = s1["plaintext"]
     variants = [
-        ("pb_hpke_info_unprefixed", "HPKE info is the bare ASCII edicta/v0/payload-dek, without the length byte.",
+        ("pb_hpke_info_unprefixed", "HPKE info is the bare ASCII edicta/v1/payload-dek, without the length byte.",
          {"info": pv.TAG_PAYLOAD_DEK}, "blob.ErrUnwrap"),
-        ("pb_hpke_info_payload_tag", "HPKE info is tag(edicta/v0/payload), the AEAD tag.",
+        ("pb_hpke_info_payload_tag", "HPKE info is tag(edicta/v1/payload), the AEAD tag.",
          {"info": tagged(pv.TAG_PAYLOAD_AEAD)}, "blob.ErrUnwrap"),
         ("pb_hpke_info_empty", "HPKE info is empty.", {"info": b""}, "blob.ErrUnwrap"),
         ("pb_hpke_aad_kid_unprefixed", "HPKE aad is the kid without its length byte.",
          {"aad_of": lambda kid: kid}, "blob.ErrUnwrap"),
-        ("pb_aead_aad_unprefixed", "Payload AEAD aad is the bare ASCII edicta/v0/payload, without the length byte.",
+        ("pb_aead_aad_unprefixed", "Payload AEAD aad is the bare ASCII edicta/v1/payload, without the length byte.",
          {"aead_aad": pv.TAG_PAYLOAD_AEAD}, "blob.ErrDecrypt"),
-        ("pb_aead_aad_receipt_tag", "Payload AEAD aad is tag(edicta/v0/receipt): same length, another tag.",
+        ("pb_aead_aad_receipt_tag", "Payload AEAD aad is tag(edicta/v1/receipt): same length, another tag.",
          {"aead_aad": tagged(TAG_RECEIPT)}, "blob.ErrDecrypt"),
-        ("pb_aead_aad_dek_tag", "Payload AEAD aad is tag(edicta/v0/payload-dek), the HPKE tag.",
+        ("pb_aead_aad_dek_tag", "Payload AEAD aad is tag(edicta/v1/payload-dek), the HPKE tag.",
          {"aead_aad": tagged(pv.TAG_PAYLOAD_DEK)}, "blob.ErrDecrypt"),
         ("pb_aead_aad_empty", "Payload AEAD aad is empty.", {"aead_aad": b""}, "blob.ErrDecrypt"),
     ]
@@ -442,7 +445,7 @@ def open_rejects(s1: dict, s3: dict) -> list:
 def plaintext_rejects(p1: dict, s1: dict) -> list:
     out = []
     at1 = p1["action"]["type"]
-    ah1 = action_hash(at1, p1["action"]["data"])
+    ah1 = action_hash(at1, p1["action"]["action_salt"], p1["action"]["data"])
 
     def sealed(cid, desc, rule, pt_bytes, expect, ph=None, at=at1, ah=ah1):
         s = seal_case(cid, pt_bytes, ["gate-paper-1"])
@@ -462,18 +465,18 @@ def plaintext_rejects(p1: dict, s1: dict) -> list:
     unsorted = encode(Pairs(tuple(sorted(p.items(), key=lambda kv: {5: 0}.get(kv[0], kv[0])))))
     out.append(sealed("pb_payload_unsorted_keys", "Payload keys in the order 5, 1, 2, 3, 4; the hash matches the bytes.",
                       "O8", unsorted, "payload.ErrMalformed"))
-    nonmin = b"\xa5\x01\x18\x00" + pt1[3:]
-    assert pt1[:3] == b"\xa5\x01\x00"
-    out.append(sealed("pb_payload_nonminimal_version", "Payload version 0 encoded as 0x18 0x00.", "O8", nonmin,
+    nonmin = b"\xa5\x01\x18\x01" + pt1[3:]
+    assert pt1[:3] == b"\xa5\x01\x01"
+    out.append(sealed("pb_payload_nonminimal_version", "Payload version 1 encoded as 0x18 0x01.", "O8", nonmin,
                       "payload.ErrMalformed"))
     out.append(sealed("pb_payload_unknown_key", "Payload with an extra key 8.", "O8",
                       encode(w(p, 8, b"x")), "payload.ErrMalformed"))
-    out.append(sealed("pb_payload_float_version", "Payload version as half-precision float 0.0.", "O8",
-                      b"\xa5\x01\xf9\x00\x00" + pt1[3:], "payload.ErrMalformed"))
+    out.append(sealed("pb_payload_float_version", "Payload version as half-precision float 1.0.", "O8",
+                      b"\xa5\x01\xf9\x3c\x00" + pt1[3:], "payload.ErrMalformed"))
     out.append(sealed("pb_payload_trailing_byte", "One zero byte after the payload map.", "O8", pt1 + b"\x00",
                       "payload.ErrMalformed"))
-    out.append(sealed("pb_payload_version_1", "Payload version 1, otherwise valid.", "O8",
-                      encode(w(p, 1, 1)), "payload.ErrVersion"))
+    out.append(sealed("pb_payload_version_0", "Payload version 0, otherwise valid.", "O8",
+                      encode(w(p, 1, 0)), "payload.ErrVersion"))
     ctx_no_mt = w(p, 4, {2: p[4][2]})
     out.append(sealed("pb_payload_context_missing_media_type", "context without key 1 (media_type).", "O8",
                       encode(ctx_no_mt), "payload.ErrMalformed"))
@@ -482,7 +485,7 @@ def plaintext_rejects(p1: dict, s1: dict) -> list:
                       encode(md), "payload.ErrMalformed"))
     for cid, mt, desc in [
         ("pb_payload_media_type_empty", "", "Empty context media_type."),
-        ("pb_payload_media_type_uppercase", "Application/JSON", "Upper-case media_type; v0 requires lower case."),
+        ("pb_payload_media_type_uppercase", "Application/JSON", "Upper-case media_type; media types are lower case."),
         ("pb_payload_media_type_parameter", "application/json;charset=utf-8", "media_type with a parameter."),
         ("pb_payload_media_type_no_slash", "application", "media_type without a subtype."),
         ("pb_payload_media_type_two_slashes", "application/vnd.x/y", "media_type with two slashes."),
@@ -492,19 +495,19 @@ def plaintext_rejects(p1: dict, s1: dict) -> list:
     out.append(sealed("pb_payload_metadata_empty_data", "metadata with an empty data byte string.", "O8",
                       encode(w(p, 7, {1: "application/json", 2: b""})), "payload.ErrMalformed"))
     out.append(sealed("pb_payload_action_type_uppercase", "Payload action.type with an upper-case letter.", "O8",
-                      encode(w(p, 5, {3: "Application/vnd.edicta.ibkr.order.v0+cbor", 4: p[5][4]})), "payload.ErrMalformed"))
+                      encode(w(p, 5, w(p[5], 3, "Application/vnd.edicta.ibkr.order.v0+cbor"))), "payload.ErrMalformed"))
     out.append(sealed("pb_payload_action_data_empty", "Payload action.data is the empty byte string; actions are 1..65536 bytes.",
-                      "O8", encode(w(p, 5, {3: p[5][3], 4: b""})), "payload.ErrMalformed"))
-    out.append(sealed("pb_payload_retired_action_kind_key", "Payload action carries key 1 (kind, retired in draft.9).",
+                      "O8", encode(w(p, 5, w(p[5], 4, b""))), "payload.ErrMalformed"))
+    out.append(sealed("pb_payload_retired_action_kind_key", "Payload action carries key 1 (unassigned).",
                       "O8", encode(w(p, 5, w(p[5], 1, "ibkr.order.v0"))), "payload.ErrMalformed"))
-    out.append(sealed("pb_payload_retired_constraints_key", "Payload carries key 6 (constraints, retired in draft.9).",
+    out.append(sealed("pb_payload_retired_constraints_key", "Payload carries key 6 (unassigned).",
                       "O8", encode(w(p, 6, {1: 120000000000})), "payload.ErrMalformed"))
     other = order_encode(dict(ORDER_BUY, qty=10000))
     out.append(sealed("pb_payload_action_differs", "The commitment's action.hash is over the same order with qty 10000; the payload carries qty 20000.",
-                      "O8", pt1, "sdk.ErrPayloadMismatch", ah=action_hash(IBKR, other)))
+                      "O8", pt1, "sdk.ErrPayloadMismatch", ah=action_hash(IBKR, p1["action"]["action_salt"], other)))
     out.append(sealed("pb_payload_action_type_differs", "The commitment's action.type is application/octet-stream and its hash is over the payload's bytes under that type; the payload's type is the IBKR order type.",
                       "O8", pt1, "sdk.ErrPayloadMismatch", at="application/octet-stream",
-                      ah=action_hash("application/octet-stream", p1["action"]["data"])))
+                      ah=action_hash("application/octet-stream", p1["action"]["action_salt"], p1["action"]["data"])))
     return out
 
 
@@ -586,7 +589,7 @@ def key_commitment_blob(p1: dict) -> dict:
             for rcp, dek in zip(rs, (dek1, dek2)):
                 enc, ctx = hpke.setup_base_s(rcp.pk, pv.hpke_info(), rcp.sk_e)
                 entries.append(pv.Entry(rcp.kid, enc, ctx.seal(pv.hpke_aad(rcp.kid), dek)))
-            blob = pv.blob_encode(pv.Blob(0, entries, nonce, full))
+            blob = pv.blob_encode(pv.Blob(1, entries, nonce, full))
             return {"blob": blob, "m1": m1, "m2": m2, "dek1": dek1, "dek2": dek2, "tries": t + 1}
     raise RuntimeError("no key-commitment solution found")
 
@@ -625,7 +628,7 @@ def build() -> dict:
     g = KEYS["gate-paper-1"]
     ph = hashlib.sha256(kc["m1"]).digest()
     at1 = p1["action"]["type"]
-    ah1 = action_hash(at1, p1["action"]["data"])
+    ah1 = action_hash(at1, p1["action"]["action_salt"], p1["action"]["data"])
     assert pv.open_payload(kc["blob"], g["sk"], g["kid"], ph, at1, ah1) == p1
     kc_case = rj("pb_key_commitment_two_deks", "plaintext", "O7",
                  "One ciphertext that ChaCha20-Poly1305 accepts under two DEKs. gate-paper-1 unwraps DEK1 and opens "
@@ -640,6 +643,7 @@ def build() -> dict:
         assert rcase["expect_error"]
     return {
         "format": FORMAT,
+        "revision": REVISION,
         "suite": {
             "hpke_mode": "0", "kem_id": "32", "kdf_id": "1", "aead_id": "3",
             "hpke_info_hex": pv.hpke_info().hex(),

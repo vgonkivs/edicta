@@ -29,7 +29,7 @@ def arg(name: str, default: Path) -> Path:
     return default
 
 
-CORE = arg("--core", VECTORS / "v0")
+CORE = arg("--core", VECTORS / "historical" / "v0")
 OUT = arg("--out", VECTORS / "api")
 V1 = arg("--v1", VECTORS / "v1")
 FORMAT = "edicta-vectors/v0"

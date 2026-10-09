@@ -49,7 +49,7 @@ def expect(cond: bool, msg: str):
 
 
 def ids_in(rel: str) -> set:
-    d = json.loads((VECTORS / rel).read_text())
+    d = json.loads((VECTORS / ("historical/" + rel if rel.startswith("v0/") else rel)).read_text())
     out = set()
 
     def walk(x):

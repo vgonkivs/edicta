@@ -288,7 +288,7 @@ def check_regenerates(d: Path, core: Path):
 
 def main() -> int:
     d = arg("--dir", VECTORS / "archive")
-    core = arg("--core", VECTORS / "v0")
+    core = arg("--core", VECTORS / "historical" / "v0")
     try:
         f = json.loads((d / "records.json").read_text())
         recs, da_blob, fibre = check_records(f, core)

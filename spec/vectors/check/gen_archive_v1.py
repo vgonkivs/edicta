@@ -26,8 +26,8 @@ import archive_v0 as a0
 import archive_v1 as A
 import edicta_v0 as v0
 import edicta_v1 as v1
-import gen_vectors as g
-import gen_vectors_v1 as gv
+import legacy_gen_vectors_v0 as g
+import legacy_gen_vectors_v1 as gv
 from cbor_strict import encode
 from edicta_v0 import Reject
 
@@ -214,7 +214,7 @@ def archive_vectors() -> tuple:
             m[5] = k2
         return encode(m)
 
-    V0_ENV = bytes.fromhex(json.loads((VECTORS / "v0" / "valid.json").read_text())["cases"][0]["envelope_hex"])
+    V0_ENV = bytes.fromhex(json.loads((VECTORS / "historical" / "v0" / "valid.json").read_text())["cases"][0]["envelope_hex"])
     k2f = ik("authorization_fast_fibre")[5]
     k2s = ik("authorization_strict_fibre")[5]
     over = ik("intent_fibre")

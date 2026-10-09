@@ -39,7 +39,7 @@ def arg(name: str, default: Path) -> Path:
     return default
 
 
-CORE = arg("--core", VECTORS / "v0")
+CORE = arg("--core", VECTORS / "historical" / "v0")
 OUT = arg("--out", VECTORS / "profiles" / "bank-send")
 FORMAT = "edicta-vectors/v0"
 PROFILE = "bank-send"

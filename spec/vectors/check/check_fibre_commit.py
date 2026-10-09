@@ -177,7 +177,7 @@ def check(path: Path, core: Path) -> str:
 
 def main() -> int:
     path = arg("--file", VECTORS / "da" / "fibre_commit.json")
-    core = arg("--core", VECTORS / "v0")
+    core = arg("--core", VECTORS / "historical" / "v0")
     try:
         summary = check(path, core)
     except (Failure, KeyError, StopIteration, ValueError) as e:

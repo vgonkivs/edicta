@@ -42,7 +42,7 @@ def sha(label: str) -> bytes:
     return hashlib.sha256(label.encode()).digest()
 
 
-CORE_KEYS = json.loads((VECTORS / "v0" / "keys.json").read_text())["keys"]
+CORE_KEYS = json.loads((VECTORS / "historical" / "v0" / "keys.json").read_text())["keys"]
 SEEDS = {n: bytes.fromhex(CORE_KEYS[n]["seed_hex"]) for n in ("agent1", "agent2", "gate1")}
 SEEDS["p1"] = sha("edicta/policy/v1 test principal|p1")
 SEEDS["p2"] = sha("edicta/policy/v1 test principal|p2")
@@ -1483,7 +1483,7 @@ def private_cases(case, dec, sims):
 
 def action_envelope_source():
     """The v1 decision whose action kind 15 plaintext 5 carries: core v1 valid.json v1_pending_fibre_mandate_ref."""
-    import gen_vectors_v1 as gv
+    import legacy_gen_vectors_v1 as gv
     gv.build()
     c, _, at, act, salt = gv.VALID["v1_pending_fibre_mandate_ref"]
     return "v1_pending_fibre_mandate_ref", at, salt, act, c["action"]["hash"]

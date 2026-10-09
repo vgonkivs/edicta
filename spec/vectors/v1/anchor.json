@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.4",
+  "revision": "v1-draft.5",
   "margin_cap": "600",
   "k1": [
     {
@@ -24,12 +24,63 @@
     },
     {
       "id": "k1_included_blob",
-      "description": "Included reference: T_ref = T_H, core K1 verbatim.",
+      "description": "Included reference: T_ref = T_H.",
       "da": "2",
       "form": "included",
       "issued_at": "1790997000",
       "t_ref": "1790997000",
       "skew_s": "30"
+    },
+    {
+      "id": "k1_at_limit",
+      "description": "issued_at + skew_s == T_ref: accepted.",
+      "form": "included",
+      "issued_at": "1790996970",
+      "t_ref": "1790997000",
+      "skew_s": "30"
+    },
+    {
+      "id": "k1_one_second_early",
+      "description": "issued_at + skew_s == T_ref - 1.",
+      "form": "included",
+      "issued_at": "1790996969",
+      "t_ref": "1790997000",
+      "skew_s": "30",
+      "expect_error": "ErrIssuedBeforeAnchor"
+    },
+    {
+      "id": "k1_skew_0_equal",
+      "description": "skew_s = 0, issued_at == T_ref: accepted.",
+      "form": "included",
+      "issued_at": "1790997000",
+      "t_ref": "1790997000",
+      "skew_s": "0"
+    },
+    {
+      "id": "k1_skew_0_one_second_early",
+      "description": "skew_s = 0, issued_at == T_ref - 1.",
+      "form": "included",
+      "issued_at": "1790996999",
+      "t_ref": "1790997000",
+      "skew_s": "0",
+      "expect_error": "ErrIssuedBeforeAnchor"
+    },
+    {
+      "id": "k1_minimal_lmt",
+      "description": "issued_at of minimal_lmt, signed 3000 s after the anchor block.",
+      "form": "included",
+      "issued_at": "1791000000",
+      "t_ref": "1790997000",
+      "skew_s": "30"
+    },
+    {
+      "id": "k1_block_time_u64_max",
+      "description": "A block time of 2^64-1 (hostile header): rejected without overflow.",
+      "form": "included",
+      "issued_at": "9223372036854775807",
+      "t_ref": "18446744073709551615",
+      "skew_s": "300",
+      "expect_error": "ErrIssuedBeforeAnchor"
     }
   ],
   "k2": [
@@ -80,7 +131,7 @@
     },
     {
       "id": "k2_included_fibre",
-      "description": "Included Fibre reference: start = min(T_ref, promise creation), core K2.",
+      "description": "Included Fibre reference: start = min(T_ref, promise creation).",
       "da": "1",
       "form": "included",
       "t_ref": "1790997000",
@@ -120,6 +171,308 @@
         "margin": "600",
         "within": false
       }
+    }
+  ],
+  "k2_included": [
+    {
+      "id": "k2_blob_at_limit",
+      "description": "da = 2: valid_until + 600 == T_ref + 14400. DA path.",
+      "da": "2",
+      "valid_until": "1791010800",
+      "t_ref": "1790997000",
+      "blob_retention_s": "14400",
+      "expect": {
+        "within": true,
+        "r": "14400",
+        "start": "1790997000",
+        "margin": "600",
+        "route": "da"
+      }
+    },
+    {
+      "id": "k2_blob_one_second_over",
+      "description": "da = 2: one second past the limit. The DA path is skipped; archive with P1, P2, P3.",
+      "da": "2",
+      "valid_until": "1791010801",
+      "t_ref": "1790997000",
+      "blob_retention_s": "14400",
+      "expect": {
+        "within": false,
+        "r": "14400",
+        "start": "1790997000",
+        "margin": "600",
+        "route": "archive"
+      }
+    },
+    {
+      "id": "k2_blob_minimal_lmt",
+      "description": "da = 2: minimal_lmt valid_until, anchor 3000 s before issued_at.",
+      "da": "2",
+      "valid_until": "1791000900",
+      "t_ref": "1790997000",
+      "blob_retention_s": "14400",
+      "expect": {
+        "within": true,
+        "r": "14400",
+        "start": "1790997000",
+        "margin": "600",
+        "route": "da"
+      }
+    },
+    {
+      "id": "k2_blob_u64_saturation",
+      "description": "da = 2: T_ref + r exceeds 2^64-1; a saturating uint64 sum gives the exact verdict (K1 rejects such a block time first in the pipeline).",
+      "da": "2",
+      "valid_until": "9223372036854775807",
+      "t_ref": "18446744073709551515",
+      "blob_retention_s": "14400",
+      "expect": {
+        "within": true,
+        "r": "14400",
+        "start": "18446744073709551515",
+        "margin": "600",
+        "route": "da"
+      }
+    },
+    {
+      "id": "k2_fibre_at_limit",
+      "description": "da = 1: start = min(T_ref, creation_timestamp) = creation_timestamp; valid_until + 600 == start + 14400.",
+      "da": "1",
+      "valid_until": "1791010795",
+      "t_ref": "1790997000",
+      "fibre_retention_latest_s": "14400",
+      "fibre_retention_at_height_s": "14400",
+      "creation_timestamp": "1790996995",
+      "expect": {
+        "within": true,
+        "r": "14400",
+        "start": "1790996995",
+        "margin": "600",
+        "route": "da"
+      }
+    },
+    {
+      "id": "k2_fibre_one_second_over",
+      "description": "da = 1: one second past the limit; a gate without a Fibre committer cannot take the archive path.",
+      "da": "1",
+      "valid_until": "1791010796",
+      "t_ref": "1790997000",
+      "fibre_retention_latest_s": "14400",
+      "fibre_retention_at_height_s": "14400",
+      "creation_timestamp": "1790996995",
+      "expect": {
+        "within": false,
+        "r": "14400",
+        "start": "1790996995",
+        "margin": "600",
+        "expect_error": "ErrArchiveRecomputeUnsupported"
+      }
+    },
+    {
+      "id": "k2_fibre_creation_after_block",
+      "description": "da = 1: creation_timestamp later than T_ref; start = T_ref.",
+      "da": "1",
+      "valid_until": "1791010800",
+      "t_ref": "1790997000",
+      "fibre_retention_latest_s": "14400",
+      "fibre_retention_at_height_s": "14400",
+      "creation_timestamp": "1790997010",
+      "expect": {
+        "within": true,
+        "r": "14400",
+        "start": "1790997000",
+        "margin": "600",
+        "route": "da"
+      }
+    },
+    {
+      "id": "k2_fibre_creation_unknown",
+      "description": "da = 1: creation_timestamp unknown (0); K2 is false.",
+      "da": "1",
+      "valid_until": "1790997600",
+      "t_ref": "1790997000",
+      "fibre_retention_latest_s": "14400",
+      "fibre_retention_at_height_s": "14400",
+      "creation_timestamp": "0",
+      "expect": {
+        "within": false,
+        "expect_error": "ErrArchiveRecomputeUnsupported"
+      }
+    },
+    {
+      "id": "k2_fibre_at_height_unreadable",
+      "description": "da = 1: retention at the anchor height cannot be read. The gate rejects and never substitutes the latest value.",
+      "da": "1",
+      "valid_until": "1790997600",
+      "t_ref": "1790997000",
+      "fibre_retention_latest_s": "14400",
+      "creation_timestamp": "1790996995",
+      "expect": {
+        "expect_error": "ErrRetentionUnavailable"
+      }
+    },
+    {
+      "id": "k2_fibre_retention_lowered",
+      "description": "da = 1: latest 3600, at H 14400: r = 3600, margin 450; at the limit.",
+      "da": "1",
+      "valid_until": "1791000145",
+      "t_ref": "1790997000",
+      "fibre_retention_latest_s": "3600",
+      "fibre_retention_at_height_s": "14400",
+      "creation_timestamp": "1790996995",
+      "expect": {
+        "within": true,
+        "r": "3600",
+        "start": "1790996995",
+        "margin": "450",
+        "route": "da"
+      }
+    },
+    {
+      "id": "k2_fibre_retention_lowered_over",
+      "description": "da = 1: as above, one second over.",
+      "da": "1",
+      "valid_until": "1791000146",
+      "t_ref": "1790997000",
+      "fibre_retention_latest_s": "3600",
+      "fibre_retention_at_height_s": "14400",
+      "creation_timestamp": "1790996995",
+      "expect": {
+        "within": false,
+        "r": "3600",
+        "start": "1790996995",
+        "margin": "450",
+        "expect_error": "ErrArchiveRecomputeUnsupported"
+      }
+    },
+    {
+      "id": "k2_fibre_retention_raised",
+      "description": "da = 1: latest 14400, at H 3600: r = 3600; at the limit.",
+      "da": "1",
+      "valid_until": "1791000145",
+      "t_ref": "1790997000",
+      "fibre_retention_latest_s": "14400",
+      "fibre_retention_at_height_s": "3600",
+      "creation_timestamp": "1790996995",
+      "expect": {
+        "within": true,
+        "r": "3600",
+        "start": "1790996995",
+        "margin": "450",
+        "route": "da"
+      }
+    },
+    {
+      "id": "k2_fibre_governance_minimum",
+      "description": "da = 1: r = 600 (governance minimum), margin = 75; at the limit.",
+      "da": "1",
+      "valid_until": "1790997520",
+      "t_ref": "1790997000",
+      "fibre_retention_latest_s": "600",
+      "fibre_retention_at_height_s": "600",
+      "creation_timestamp": "1790996995",
+      "expect": {
+        "within": true,
+        "r": "600",
+        "start": "1790996995",
+        "margin": "75",
+        "route": "da"
+      }
+    },
+    {
+      "id": "k2_fibre_governance_minimum_over",
+      "description": "da = 1: r = 600, one second over.",
+      "da": "1",
+      "valid_until": "1790997521",
+      "t_ref": "1790997000",
+      "fibre_retention_latest_s": "600",
+      "fibre_retention_at_height_s": "600",
+      "creation_timestamp": "1790996995",
+      "expect": {
+        "within": false,
+        "r": "600",
+        "start": "1790996995",
+        "margin": "75",
+        "expect_error": "ErrArchiveRecomputeUnsupported"
+      }
+    },
+    {
+      "id": "k2_margin_floor",
+      "description": "da = 2: r = 4799, margin = floor(4799 / 8) = 599 (below the 600 cap); at the limit.",
+      "da": "2",
+      "valid_until": "1791001200",
+      "t_ref": "1790997000",
+      "blob_retention_s": "4799",
+      "expect": {
+        "within": true,
+        "r": "4799",
+        "start": "1790997000",
+        "margin": "599",
+        "route": "da"
+      }
+    },
+    {
+      "id": "k2_margin_cap",
+      "description": "da = 2: r = 4800, margin = 600 (the cap); one second over.",
+      "da": "2",
+      "valid_until": "1791001201",
+      "t_ref": "1790997000",
+      "blob_retention_s": "4800",
+      "expect": {
+        "within": false,
+        "r": "4800",
+        "start": "1790997000",
+        "margin": "600",
+        "route": "archive"
+      }
+    }
+  ],
+  "epoch": [
+    {
+      "id": "epoch_one_second_after",
+      "description": "issued_at == epoch + skew_s + 1: accepted.",
+      "issued_at": "1790913631",
+      "epoch": "1790913600",
+      "skew_s": "30"
+    },
+    {
+      "id": "epoch_at_limit",
+      "description": "issued_at == epoch + skew_s: rejected (strict inequality).",
+      "issued_at": "1790913630",
+      "epoch": "1790913600",
+      "skew_s": "30",
+      "expect_error": "ErrBeforeRegistryEpoch"
+    },
+    {
+      "id": "epoch_before",
+      "description": "issued_at before the registry was created.",
+      "issued_at": "1790913599",
+      "epoch": "1790913600",
+      "skew_s": "30",
+      "expect_error": "ErrBeforeRegistryEpoch"
+    },
+    {
+      "id": "epoch_skew_0",
+      "description": "skew_s = 0, issued_at == epoch + 1: accepted.",
+      "issued_at": "1790913601",
+      "epoch": "1790913600",
+      "skew_s": "0"
+    },
+    {
+      "id": "epoch_skew_0_equal",
+      "description": "skew_s = 0, issued_at == epoch: rejected.",
+      "issued_at": "1790913600",
+      "epoch": "1790913600",
+      "skew_s": "0",
+      "expect_error": "ErrBeforeRegistryEpoch"
+    },
+    {
+      "id": "epoch_u64_max",
+      "description": "epoch = 2^64-1: epoch + skew_s saturates and every issued_at is rejected.",
+      "issued_at": "9223372036854775807",
+      "epoch": "18446744073709551615",
+      "skew_s": "30",
+      "expect_error": "ErrBeforeRegistryEpoch"
     }
   ],
   "window": [
@@ -176,7 +529,7 @@
     },
     {
       "id": "window_blob_gate_min",
-      "description": "da = 2: window = FastWindowBlocks below the mandate bound (replaces window_no_mandate_blob of v1-draft.3: fast mode needs a mandate since v1-draft.4).",
+      "description": "da = 2: window = FastWindowBlocks below the mandate bound.",
       "input": {
         "da": "2",
         "fast_window_blocks": "100",
@@ -295,7 +648,7 @@
     },
     {
       "id": "window_at_bound",
-      "description": "head - h0 == window: the deadline equals the head, below head + MinFastSlackBlocks (accepted in v1-draft.3, refused since v1-draft.4).",
+      "description": "head - h0 == window: the deadline equals the head, below head + MinFastSlackBlocks.",
       "input": {
         "da": "1",
         "fast_window_blocks": "100",

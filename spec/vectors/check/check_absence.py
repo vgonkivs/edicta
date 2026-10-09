@@ -175,7 +175,7 @@ def create_commitment(ns: bytes, version: int, data: bytes, signer: bytes | None
 
 def check_commitment_code() -> int:
     """The AB6 commitment code reproduces every share commitment of v0/da_blob.json (upstream go-square output)."""
-    d = json.loads((VECTORS / "v0" / "da_blob.json").read_text())
+    d = json.loads((VECTORS / "historical" / "v0" / "da_blob.json").read_text())
     for c in d["cases"]:
         size = int(c["size"])
         blob = bytes.fromhex(c["blob_hex"]) if "blob_hex" in c else bytes((7 * i + 3) % 256 for i in range(size))

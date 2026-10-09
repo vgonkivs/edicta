@@ -36,7 +36,7 @@ def arg(name: str, default: Path) -> Path:
     return default
 
 
-CORE = arg("--core", VECTORS / "v0")
+CORE = arg("--core", VECTORS / "historical" / "v0")
 DIR = arg("--dir", VECTORS / "profiles" / "dca-agent")
 FORMAT = "edicta-vectors/v0"
 PROFILE_REVISION = "dca-agent-v0-draft.1"

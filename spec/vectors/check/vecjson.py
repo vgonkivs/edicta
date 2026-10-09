@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from edicta_v0 import AUTHORIZATION, COMMITMENT, RECEIPT, Params
+from edicta import AUTHORIZATION, COMMITMENT, RECEIPT, Params
 
 
 def _conv(obj: dict, schema: dict, to_json: bool) -> dict:

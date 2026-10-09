@@ -21,7 +21,7 @@ from pathlib import Path
 
 import edicta_v0 as v0
 import edicta_v1 as v1
-import gen_vectors as g
+import legacy_gen_vectors_v0 as g
 from cbor_strict import Raw, encode
 from edicta_v0 import Reject
 from vecjson import PATTERNS, _conv, gate_to_json, params_to_json

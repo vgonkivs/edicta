@@ -204,7 +204,7 @@ def check_e2e(f: dict, actions: dict):
         expect(com["action"]["type"] == pf.ACTION_TYPE and com["action"]["hash"] == action_hash(pf.ACTION_TYPE, action),
                f"{c['id']}: committed action")
         a = c["authorization"]
-        keys = json.loads((VECTORS / "v0" / "keys.json").read_text())["keys"]
+        keys = json.loads((VECTORS / "historical" / "v0" / "keys.json").read_text())["keys"]
         ex = c["executor"]
         chk = AuthorizationCheck(bytes.fromhex(keys[a["signer"]]["public_key_hex"]), gate["gate_id"], pf.ACTION_TYPE, action,
                                  int(ex["now"]), int(ex["skew_s"]))

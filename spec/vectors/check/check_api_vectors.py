@@ -34,7 +34,7 @@ def arg(name: str, default: Path) -> Path:
 
 
 DIR = arg("--dir", VECTORS / "api")
-CORE = arg("--core", VECTORS / "v0")
+CORE = arg("--core", VECTORS / "historical" / "v0")
 TAG_HEX = "19" + b"edicta/v0/publish-request".hex()
 
 

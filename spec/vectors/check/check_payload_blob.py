@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies payload_blob.json of a v0-draft.9 vector set (default spec/vectors/v0).
+"""Verifies payload_blob.json of the core vector set (v1-draft.5, default spec/vectors/v1).
 
 Runs the RFC 9180 known-answer tests of the hand-written HPKE first and
 refuses to go on if they fail. Then re-derives every valid case in the seal
@@ -22,13 +22,13 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
-import edicta_payload_v0 as pv
+import edicta_payload as pv
 import hpke_base as hpke
-from edicta_v0 import (Reject, action_hash, check_payload, commitment_hash, decode_signed, tagged,
-                      verify_for_gate)
+from edicta import (Reject, action_hash, check_payload, commitment_hash, decode_signed, tagged,
+                    verify_for_gate)
 from vecjson import _conv, commitment_from_json, gate_from_json, params_from_json
 
-DIR = Path(__file__).resolve().parent.parent / "v0"
+DIR = Path(__file__).resolve().parent.parent / "v1"
 if "--dir" in sys.argv:
     DIR = Path(sys.argv[sys.argv.index("--dir") + 1]).resolve()
 
@@ -80,8 +80,8 @@ def openssl_unwrap(enc: bytes, wrapped: bytes, sk: bytes, kid: bytes):
 def check_suite(v: dict):
     s = v["suite"]
     expect((s["hpke_mode"], s["kem_id"], s["kdf_id"], s["aead_id"]) == ("0", "32", "1", "3"), "suite ids")
-    expect(hx(s["hpke_info_hex"]) == tagged(b"edicta/v0/payload-dek") == b"\x15edicta/v0/payload-dek", "hpke info")
-    expect(hx(s["payload_aad_hex"]) == tagged(b"edicta/v0/payload") == b"\x11edicta/v0/payload", "payload aad")
+    expect(hx(s["hpke_info_hex"]) == tagged(b"edicta/v1/payload-dek") == b"\x15edicta/v1/payload-dek", "hpke info")
+    expect(hx(s["payload_aad_hex"]) == tagged(b"edicta/v1/payload") == b"\x11edicta/v1/payload", "payload aad")
     for name, k in v["recipient_keys"].items():
         sk, pk = hpke.derive_key_pair(hx(k["ikm_hex"]))
         expect(sk.hex() == k["sk_hex"] and pk.hex() == k["pk_hex"], f"recipient key {name}")
@@ -129,14 +129,15 @@ def check_valid(v: dict, keys: dict) -> int:
             entries.append(pv.Entry(kid, enc, wrapped))
         ct = ChaCha20Poly1305(dek).encrypt(nonce, salt + pt, pv.payload_aad())
         expect(ct.hex() == c["ciphertext_hex"], f"{cid}: ciphertext")
-        blob = pv.blob_encode(pv.Blob(0, entries, nonce, ct))
+        blob = pv.blob_encode(pv.Blob(1, entries, nonce, ct))
         expect(blob.hex() == c["blob_hex"], f"{cid}: blob bytes")
         expect(pv.blob_encode(pv.blob_decode(blob)) == blob, f"{cid}: blob round trip")
         expect(str(len(blob)) == c["payload_size"], f"{cid}: payload_size")
         expect(hashlib.sha256(blob).hexdigest() == c["ciphertext_hash_hex"], f"{cid}: ciphertext_hash")
         at, ah = c["action_type"], hx(c["action_hash_hex"])
         expect(at == p["action"]["type"] and hx(c["action_hex"]) == p["action"]["data"], f"{cid}: action fields")
-        expect(action_hash(at, p["action"]["data"]) == ah, f"{cid}: action hash")
+        expect(hx(c["action_salt_hex"]) == p["action"]["action_salt"]
+               and action_hash(at, p["action"]["action_salt"], p["action"]["data"]) == ah, f"{cid}: action hash")
         for r in c["recipients"]:
             sk = hx(keys[r["key"]]["sk_hex"])
             expect(pv.open_payload(blob, sk, hx(r["kid_hex"]), ph, at, ah) == p, f"{cid}: open by {r['key']}")
@@ -157,7 +158,7 @@ def check_valid(v: dict, keys: dict) -> int:
 
 def check_rejects(v: dict, keys: dict) -> set:
     seen = set()
-    expect(not {1, 2} & set(pv.PAYLOAD_ACTION) and 6 not in pv.PAYLOAD, "payload: a retired key is defined again")
+    expect(not {1, 2} & set(pv.PAYLOAD_ACTION) and 6 not in pv.PAYLOAD, "payload: an unassigned key is defined")
     for r in v["reject"]:
         rid, blob, want = r["id"], hx(r["blob_hex"]), r["expect_error"]
         expect(want in SENTINELS, f"{rid}: unknown sentinel {want}")
@@ -193,16 +194,15 @@ def check_rejects(v: dict, keys: dict) -> set:
 
 
 def check_existing_blob(directory: Path):
-    """The pre-existing payload.json blob already follows the strict blob layout."""
+    """The payload.json dummy blob is only hashed by stage P: a reader that decodes it stops at its version."""
     p = json.loads((directory / "payload.json").read_text())
     small = next(c for c in p["cases"] if c["id"] == "ciphertext_hash_small_blob")
-    b = pv.blob_decode(hx(small["blob_hex"]))
-    expect(len(b.recipients) == 2, "payload.json small blob: recipients")
+    raises(lambda: pv.blob_decode(hx(small["blob_hex"])), "blob.ErrVersion", "payload.json small blob")
 
 
 def check(directory: Path = DIR) -> tuple[str, list]:
     v = json.loads((directory / "payload_blob.json").read_text())
-    expect(v["format"] == "edicta-vectors/v0", "payload_blob.json format")
+    expect(v["format"] == "edicta-vectors/v1" and v["revision"] == "v1-draft.5", "payload_blob.json format")
     kat = hpke.run_kat([v["hpke_kat"]])
     check_suite(v)
     keys = v["recipient_keys"]
