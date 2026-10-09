@@ -56,6 +56,10 @@ func (s Ed25519Signer) PublicKey() ed25519.PublicKey { return bytes.Clone(s.pub)
 
 // SignCommitment signs the tagged commitment hash and nothing else.
 func (s Ed25519Signer) SignCommitment(_ context.Context, h commitment.Hash) ([]byte, error) {
+	return s.signMessage(commitment.SigningMessage(h))
+}
+
+func (s Ed25519Signer) signMessage(msg []byte) ([]byte, error) {
 	st := s.state
 	if st == nil {
 		return nil, ErrSignerClosed
@@ -65,7 +69,12 @@ func (s Ed25519Signer) SignCommitment(_ context.Context, h commitment.Hash) ([]b
 	if st.closed {
 		return nil, ErrSignerClosed
 	}
-	return ed25519.Sign(st.key.priv, commitment.SigningMessage(h)), nil
+	return ed25519.Sign(st.key.priv, msg), nil
+}
+
+// SignCommitmentV1 signs the v1-tagged commitment hash and nothing else.
+func (s Ed25519Signer) SignCommitmentV1(_ context.Context, h commitment.Hash) ([]byte, error) {
+	return s.signMessage(commitment.SignedMessage(commitment.VersionV1, h))
 }
 
 // Close zeroes the private key. Later signing calls fail.

@@ -124,6 +124,16 @@ func (s *spySigner) SignCommitment(ctx context.Context, h commitment.Hash) ([]by
 	return s.inner.SignCommitment(ctx, h)
 }
 
+func (s *spySigner) SignCommitmentV1(ctx context.Context, h commitment.Hash) ([]byte, error) {
+	s.mu.Lock()
+	s.hashes = append(s.hashes, h)
+	s.mu.Unlock()
+	if s.override != nil {
+		return s.override(h)
+	}
+	return s.inner.(sdk.V1Signer).SignCommitmentV1(ctx, h)
+}
+
 func (s *spySigner) calls() int { s.mu.Lock(); defer s.mu.Unlock(); return len(s.hashes) }
 
 // committerFn adapts a function to sdk.Committer.

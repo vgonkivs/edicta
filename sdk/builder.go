@@ -46,6 +46,18 @@ func New(cfg Config, d Deps) (*Builder, error) {
 	if d.Publisher == nil || d.Signer == nil || d.Clock == nil {
 		return nil, bad("publisher, signer and clock are required")
 	}
+	switch cfg.Version {
+	case commitment.VersionV0:
+		if cfg.MandateHash != ([32]byte{}) {
+			return nil, bad("a mandate hash needs commitment version 1")
+		}
+	case commitment.VersionV1:
+		if _, ok := d.Signer.(V1Signer); !ok {
+			return nil, bad("commitment version 1 needs a signer that signs v1 commitments")
+		}
+	default:
+		return nil, bad("commitment version %d", cfg.Version)
+	}
 	if n := len(cfg.Recipients); n < blob.MinRecipients || n > blob.MaxRecipients {
 		return nil, bad("%d recipients", n)
 	}
@@ -292,6 +304,8 @@ func (b *Builder) probe(a commitment.Action) error {
 	ns := make([]byte, 29)
 	ns[27] = 1
 	in := input{
+		Version:     b.cfg.Version,
+		MandateRef:  b.mandateRef(),
 		AgentID:     b.cfg.AgentID,
 		AgentPubKey: b.deps.Signer.PublicKey(),
 		IssuedAt:    now,
@@ -367,6 +381,11 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 	if ref.Height == 0 {
 		return nil, fmt.Errorf("%w: no height", ErrPublishResult)
 	}
+	// A pending reference is signed only after its anchor intent was
+	// verified, which this builder does not do yet; v0 has no such form.
+	if ref.Anchor != 0 {
+		return nil, fmt.Errorf("%w: pending reference (anchor %d) not supported", ErrPublishResult, ref.Anchor)
+	}
 	if err := b.checkExpected(ref); err != nil {
 		return nil, err
 	}
@@ -428,6 +447,7 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 		return nil, err
 	}
 	in := input{
+		Version: b.cfg.Version, MandateRef: b.mandateRef(),
 		AgentID: b.cfg.AgentID, AgentPubKey: agentPub, IssuedAt: v.IssuedAt, ValidUntil: v.ValidUntil,
 		Scope: b.cfg.Scope, Action: commitment.Action{Type: s.actionType, Hash: s.actionHash[:]}, Ref: ref,
 		CiphertextHash: s.ciphertextHash, PlaintextHash: s.plaintextHash, PayloadSize: uint64(len(s.blob)),
@@ -463,7 +483,7 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 		return nil, err
 	}
 	s.pinned, s.window = true, v
-	sig, err := b.sign(ctx, h)
+	sig, err := b.sign(ctx, c.Version, h)
 	if err != nil {
 		return nil, err
 	}
@@ -587,11 +607,27 @@ func (b *Builder) runCommitter(c Committer, ref commitment.PayloadRef, raw []byt
 	return guard("committer", func() error { return c.Check(ref, raw) })
 }
 
-// sign calls the signer with the call timeout.
-func (b *Builder) sign(ctx context.Context, h commitment.Hash) (sig []byte, err error) {
+// mandateRef is the configured mandate hash, or nil when none is set.
+func (b *Builder) mandateRef() []byte {
+	if b.cfg.MandateHash == ([32]byte{}) {
+		return nil
+	}
+	return bytes.Clone(b.cfg.MandateHash[:])
+}
+
+// sign calls the signer with the call timeout, under the tag of version.
+func (b *Builder) sign(ctx context.Context, version uint64, h commitment.Hash) (sig []byte, err error) {
 	cctx, cancel := context.WithTimeout(ctx, b.cfg.CallTimeout)
 	defer cancel()
 	err = guard("signer", func() (err error) {
+		if version == commitment.VersionV1 {
+			v1, ok := b.deps.Signer.(V1Signer)
+			if !ok {
+				return fmt.Errorf("%w: signer cannot sign v1 commitments", ErrInvalidConfig)
+			}
+			sig, err = v1.SignCommitmentV1(cctx, h)
+			return err
+		}
 		sig, err = b.deps.Signer.SignCommitment(cctx, h)
 		return err
 	})

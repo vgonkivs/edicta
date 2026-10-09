@@ -12,6 +12,7 @@ import (
 // exported because it carries a nonce and a plaintext hash that only the
 // builder may draw.
 type input struct {
+	Version        uint64
 	AgentID        string
 	AgentPubKey    ed25519.PublicKey
 	Nonce          [16]byte
@@ -23,6 +24,7 @@ type input struct {
 	CiphertextHash commitment.Hash
 	PlaintextHash  commitment.Hash
 	PayloadSize    uint64
+	MandateRef     []byte
 }
 
 // buildCommitment assembles a commitment and runs the gate's decode and static
@@ -30,7 +32,7 @@ type input struct {
 // returned. Rejections are the commitment package's own sentinels.
 func buildCommitment(in input, p commitment.Params) (*commitment.Commitment, error) {
 	c := &commitment.Commitment{
-		Version:        0,
+		Version:        in.Version,
 		AgentID:        in.AgentID,
 		AgentPubKey:    bytes.Clone(in.AgentPubKey),
 		Nonce:          bytes.Clone(in.Nonce[:]),
@@ -42,6 +44,7 @@ func buildCommitment(in input, p commitment.Params) (*commitment.Commitment, err
 		CiphertextHash: bytes.Clone(in.CiphertextHash[:]),
 		PlaintextHash:  bytes.Clone(in.PlaintextHash[:]),
 		PayloadSize:    in.PayloadSize,
+		MandateRef:     bytes.Clone(in.MandateRef),
 	}
 	raw, err := commitment.Encode(c)
 	if err != nil {
