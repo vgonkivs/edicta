@@ -141,7 +141,7 @@ func (h *handler) serve(r *http.Request) (res response) {
 			return h.fail(r, ErrPublishDisabled, nil)
 		}
 		limit = h.cfg.MaxBlobBytes + requestOverhead
-	case "/v0/authorize":
+	case "/v0/authorize", "/v1/authorize":
 		limit = authorizeLimit
 	case "/v0/record":
 		limit = recordLimit
@@ -187,7 +187,7 @@ func (h *handler) serve(r *http.Request) (res response) {
 	switch r.URL.Path {
 	case "/v0/publish":
 		out, err = h.publish(ctx, body)
-	case "/v0/authorize":
+	case "/v0/authorize", "/v1/authorize":
 		out, stored, verdict, err = h.authorize(ctx, body)
 	case "/v0/record":
 		out, stored, err = h.record(ctx, body)
@@ -245,7 +245,8 @@ func (h *handler) failIn(ctx context.Context, r *http.Request, err error, stored
 	switch {
 	case rule.Status == 429:
 		after = retryAfter(err)
-	case errors.Is(err, gate.ErrArchiveUnavailable):
+	case errors.Is(err, gate.ErrArchiveUnavailable),
+		errors.Is(err, gate.ErrAnchorIntentUnavailable), errors.Is(err, gate.ErrAnchorIntentRejected):
 		after = archiveRetryAfter
 	}
 	h.log.Debug("edictaapi: request failed", "path", r.URL.Path, "code", rule.Code, "err", err)

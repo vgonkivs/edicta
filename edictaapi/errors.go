@@ -59,6 +59,8 @@ var table = []ErrorRule{
 	rule(410, "ErrExpired", commitment.ErrExpired),
 	rule(410, "edictaapi.ErrPublishStale", ErrPublishStale),
 	rule(410, "policy.ErrDecisionAge", policy.ErrDecisionAge),
+	rule(410, "ErrH0TooOld", gate.ErrH0TooOld),
+	rule(410, "ErrAnchorWindowClosed", gate.ErrAnchorWindowClosed),
 
 	rule(400, "ErrMalformed", commitment.ErrMalformed),
 	rule(400, "ErrTrailingData", commitment.ErrTrailingData),
@@ -110,6 +112,11 @@ var table = []ErrorRule{
 	rule(403, "policy.ErrPeriodLimit", policy.ErrPeriodLimit),
 	rule(403, "policy.ErrCountLimit", policy.ErrCountLimit),
 	rule(403, "policy.ErrHistoryFull", policy.ErrHistoryFull),
+	rule(403, "ErrVersionNotAccepted", gate.ErrVersionNotAccepted),
+	rule(403, "ErrAnchorPending", gate.ErrAnchorPending),
+	rule(403, "ErrNamespaceNotAllowed", gate.ErrNamespaceNotAllowed),
+	rule(403, "ErrMandateRefMissing", gate.ErrMandateRefMissing),
+	rule(403, "ErrMandateMismatch", gate.ErrMandateMismatch),
 
 	rule(404, "edictaapi.ErrRouteNotFound", ErrRouteNotFound),
 	rule(404, "edictaapi.ErrPublishDisabled", ErrPublishDisabled),
@@ -132,6 +139,8 @@ var table = []ErrorRule{
 	rule(422, "ErrTTLTooLong", commitment.ErrTTLTooLong),
 	rule(422, "ErrNotAuthorized", gate.ErrNotAuthorized),
 	rule(422, "policy.ErrFactsInvalid", policy.ErrFactsInvalid),
+	rule(422, "ErrAnchorIntentInvalid", gate.ErrAnchorIntentInvalid),
+	rule(422, "ErrCertInvalid", gate.ErrCertInvalid),
 
 	rule(425, "ErrNotYetValid", commitment.ErrNotYetValid),
 	rule(425, "ErrAnchorNotFound", gate.ErrAnchorNotFound),
@@ -147,6 +156,8 @@ var table = []ErrorRule{
 	rule(503, "ErrClosed", gate.ErrClosed),
 	rule(503, "ErrArchiveUnavailable", gate.ErrArchiveUnavailable),
 	rule(503, "ErrPolicyStateConflict", gate.ErrPolicyStateConflict),
+	rule(503, "ErrAnchorIntentUnavailable", gate.ErrAnchorIntentUnavailable),
+	rule(503, "ErrAnchorIntentRejected", gate.ErrAnchorIntentRejected),
 
 	rule(504, "edictaapi.ErrDeadline", ErrDeadline),
 	rule(500, codeInternal, ErrInternal),

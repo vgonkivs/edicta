@@ -36,10 +36,10 @@ func TestRoutesMethodsMediaTypes(t *testing.T) {
 	e := newEnv(t, nil)
 	rec := e.do(http.MethodPost, "/v0/nope", cborType, authReq(t))
 	requireErr(t, rec, 404, "edictaapi.ErrRouteNotFound", false)
-	rec = e.do(http.MethodGet, "/v1/authorize", "", nil)
+	rec = e.do(http.MethodPost, "/v2/authorize", cborType, authReq(t))
 	requireErr(t, rec, 404, "edictaapi.ErrRouteNotFound", false)
 
-	for _, p := range []string{"/v0/publish", "/v0/authorize", "/v0/record"} {
+	for _, p := range []string{"/v0/publish", "/v0/authorize", "/v1/authorize", "/v0/record"} {
 		rec = e.do(http.MethodGet, p, "", nil)
 		requireErr(t, rec, 405, "edictaapi.ErrMethodNotAllowed", false)
 		rec = e.do(http.MethodPut, p, cborType, []byte{0xa0})
@@ -185,7 +185,7 @@ func TestErrorTable(t *testing.T) {
 					e.useRequestTimeout(time.Nanosecond)
 				}
 				switch ep {
-				case "/v0/authorize":
+				case "/v0/authorize", "/v1/authorize":
 					e.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) { return gate.Result{}, injected }
 					r := e.post(ep, authReq(t))
 					eb := requireErr(t, r, status, row.Code, retry)
@@ -214,7 +214,7 @@ func TestErrorTable(t *testing.T) {
 			})
 		}
 	}
-	for _, name := range []string{"ErrInvalidParams", "ErrCertInvalid"} {
+	for _, name := range []string{"ErrInvalidParams"} {
 		_, ok := sentinels[name]
 		require.False(t, ok, "%s never crosses the API", name)
 	}
@@ -358,7 +358,7 @@ func TestVectorExamples(t *testing.T) {
 		t.Run(ex.ID, func(t *testing.T) {
 			status := int(u64(t, ex.Status))
 			switch ex.Endpoint {
-			case "/v0/authorize", "/v0/record":
+			case "/v0/authorize", "/v1/authorize", "/v0/record":
 				e := newEnv(t, nil)
 				req := unhex(t, ex.RequestHex)
 				want := decodeMap(t, unhex(t, ex.ResponseHex))
@@ -374,7 +374,7 @@ func TestVectorExamples(t *testing.T) {
 				if status != 400 {
 					reqMap = decodeMap(t, req)
 				}
-				if ex.Endpoint == "/v0/authorize" {
+				if ex.Endpoint != "/v0/record" {
 					e.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
 						if status == 200 {
 							return gate.Result{Authorization: want[1].([]byte)}, nil
@@ -400,7 +400,7 @@ func TestVectorExamples(t *testing.T) {
 					require.Equal(t, wantErr.HasStored, got.HasStored)
 					require.Equal(t, wantErr.Stored, got.Stored)
 				}
-				if ex.Endpoint == "/v0/authorize" && e.gate.authCalls > 0 && reqMap != nil {
+				if ex.Endpoint != "/v0/record" && e.gate.authCalls > 0 && reqMap != nil {
 					require.Equal(t, reqMap[1], e.gate.lastEnv)
 					require.Equal(t, reqMap[2], e.gate.lastAction)
 				}

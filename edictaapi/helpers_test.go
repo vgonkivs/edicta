@@ -521,6 +521,12 @@ var sentinels = map[string]error{
 	"ErrRegistryUnavailable": gate.ErrRegistryUnavailable, "ErrClockRegression": gate.ErrClockRegression,
 	"ErrPayloadAboveCap": gate.ErrPayloadAboveCap, "ErrArchiveUnavailable": gate.ErrArchiveUnavailable,
 	"ErrClosed": gate.ErrClosed, "edictaapi.ErrDeadline": edictaapi.ErrDeadline, "edictaapi.ErrInternal": edictaapi.ErrInternal,
+	"ErrVersionNotAccepted": gate.ErrVersionNotAccepted, "ErrAnchorPending": gate.ErrAnchorPending,
+	"ErrNamespaceNotAllowed": gate.ErrNamespaceNotAllowed, "ErrMandateRefMissing": gate.ErrMandateRefMissing,
+	"ErrMandateMismatch": gate.ErrMandateMismatch, "ErrH0TooOld": gate.ErrH0TooOld,
+	"ErrAnchorWindowClosed": gate.ErrAnchorWindowClosed, "ErrAnchorIntentInvalid": gate.ErrAnchorIntentInvalid,
+	"ErrCertInvalid": gate.ErrCertInvalid, "ErrAnchorIntentUnavailable": gate.ErrAnchorIntentUnavailable,
+	"ErrAnchorIntentRejected": gate.ErrAnchorIntentRejected,
 }
 
 func sentinelFor(code string) (error, bool) {
