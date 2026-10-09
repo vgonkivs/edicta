@@ -107,12 +107,6 @@ type Blob struct {
 	Ciphertext []byte // includes the 16-byte Poly1305 tag
 }
 
-var (
-	// A tag is its length byte followed by the ASCII text.
-	payloadAAD = append([]byte{byte(len(TagPayloadAEAD))}, TagPayloadAEAD...)
-	dekInfo    = append([]byte{byte(len(TagPayloadDEK))}, TagPayloadDEK...)
-)
-
 func suite() (hpke.KDF, hpke.AEAD) { return hpke.HKDFSHA256(), hpke.ChaCha20Poly1305() }
 
 func entryAAD(kid []byte) []byte {
@@ -123,14 +117,44 @@ func entryAAD(kid []byte) []byte {
 // wraps the DEK for every recipient and returns the canonical blob and the
 // salt. Randomness comes from crypto/rand only; a caller cannot supply any.
 func Seal(plaintext []byte, rs []Recipient) (raw []byte, salt [SaltSize]byte, err error) {
-	raw, err = seal(&salt, plaintext, rs)
+	raw, err = seal(&salt, plaintext, rs, payloadSuite, MaxSealSize)
 	if err != nil {
 		return nil, [SaltSize]byte{}, err
 	}
 	return raw, salt, nil
 }
 
-func seal(salt *[SaltSize]byte, plaintext []byte, rs []Recipient) ([]byte, error) {
+// Suite is the domain of one envelope family: the tag used as the AEAD aad,
+// the tag used as the HPKE info of the DEK wraps, and the cap of the encoded
+// envelope. The payload and the policy's private records share the layout
+// and differ only here.
+type Suite struct {
+	AEADTag string
+	DEKTag  string
+	MaxSize int
+}
+
+func (s Suite) aad() []byte  { return append([]byte{byte(len(s.AEADTag))}, s.AEADTag...) }
+func (s Suite) info() []byte { return append([]byte{byte(len(s.DEKTag))}, s.DEKTag...) }
+
+func (s Suite) valid() bool {
+	return s.AEADTag != "" && s.DEKTag != "" && len(s.AEADTag) < 256 && len(s.DEKTag) < 256 &&
+		s.MaxSize > 0 && s.MaxSize <= MaxDecodeSize
+}
+
+var payloadSuite = Suite{AEADTag: TagPayloadAEAD, DEKTag: TagPayloadDEK, MaxSize: MaxDecodeSize}
+
+// SealWith seals plaintext under the suite's tags. The envelope salt is drawn
+// as for a payload and discarded: the suite's readers do not use it.
+func SealWith(s Suite, plaintext []byte, rs []Recipient) ([]byte, error) {
+	if !s.valid() {
+		return nil, fmt.Errorf("%w: invalid suite", ErrMalformed)
+	}
+	var salt [SaltSize]byte
+	return seal(&salt, plaintext, rs, s, s.MaxSize)
+}
+
+func seal(salt *[SaltSize]byte, plaintext []byte, rs []Recipient, s Suite, maxSize int) ([]byte, error) {
 	if len(rs) < MinRecipients || len(rs) > MaxRecipients {
 		return nil, fmt.Errorf("%w: %d", ErrRecipients, len(rs))
 	}
@@ -148,7 +172,7 @@ func seal(salt *[SaltSize]byte, plaintext []byte, rs []Recipient) ([]byte, error
 		return nil, err
 	}
 	ctLen := SaltSize + len(plaintext) + chacha20poly1305.Overhead
-	if size := encodedSize(kids, ctLen); size > MaxSealSize {
+	if size := encodedSize(kids, ctLen); size > maxSize {
 		return nil, fmt.Errorf("%w: %d bytes", ErrTooLarge, size)
 	}
 
@@ -164,7 +188,7 @@ func seal(salt *[SaltSize]byte, plaintext []byte, rs []Recipient) ([]byte, error
 		if err != nil {
 			return nil, fmt.Errorf("%w: recipient %d: %v", ErrRecipientKey, i, err)
 		}
-		enc, sender, err := hpke.NewSender(pk, kdf, aead, dekInfo)
+		enc, sender, err := hpke.NewSender(pk, kdf, aead, s.info())
 		if err != nil {
 			return nil, fmt.Errorf("blob: hpke sender for recipient %d: %w", i, err)
 		}
@@ -188,7 +212,7 @@ func seal(salt *[SaltSize]byte, plaintext []byte, rs []Recipient) ([]byte, error
 	msg := make([]byte, 0, SaltSize+len(plaintext))
 	msg = append(msg, salt[:]...)
 	msg = append(msg, plaintext...)
-	b.Ciphertext = cipher.Seal(nil, b.AEADNonce[:], msg, payloadAAD)
+	b.Ciphertext = cipher.Seal(nil, b.AEADNonce[:], msg, s.aad())
 	clear(msg)
 	return Encode(b)
 }
@@ -479,50 +503,76 @@ func Decode(raw []byte) (*Blob, error) {
 // commit to its key. Callers that need the committed decision use
 // sdk.OpenPayload, which compares the plaintext hash before parsing.
 func Open(raw []byte, k RecipientKey) (salt [SaltSize]byte, plaintext []byte, err error) {
+	salt, plaintext, _, err = open(raw, k, payloadSuite, false)
+	return salt, plaintext, err
+}
+
+// OpenWith opens an envelope of the suite. It tries the entry whose kid is
+// k.KID first and then every other entry, and returns the plaintext without
+// the envelope salt and the kid of the entry that opened. The binding caveat
+// of Open applies: the caller compares the plaintext's hash.
+func OpenWith(s Suite, raw []byte, k RecipientKey) (plaintext, kid []byte, err error) {
+	if !s.valid() {
+		return nil, nil, fmt.Errorf("%w: invalid suite", ErrMalformed)
+	}
+	if len(raw) > s.MaxSize {
+		return nil, nil, fmt.Errorf("%w: %d bytes", ErrTooLarge, len(raw))
+	}
+	_, plaintext, kid, err = open(raw, k, s, true)
+	return plaintext, kid, err
+}
+
+// open tries the entries of k.KID first and, with others set, every other
+// entry after them. The first unwrap that succeeds decides: an AEAD failure
+// then is ErrDecrypt, never a reason to try another entry.
+func open(raw []byte, k RecipientKey, s Suite, others bool) (salt [SaltSize]byte, plaintext, kid []byte, err error) {
 	if k.key == nil || k.key.pk == nil || k.key.pk.Curve() != ecdh.X25519() {
-		return salt, nil, fmt.Errorf("%w: not an X25519 private key", ErrRecipientKey)
+		return salt, nil, nil, fmt.Errorf("%w: not an X25519 private key", ErrRecipientKey)
 	}
 	b, err := Decode(raw)
 	if err != nil {
-		return salt, nil, err
+		return salt, nil, nil, err
 	}
-	var candidates []*Entry
+	var candidates, rest []*Entry
 	for i := range b.Recipients {
 		if len(k.KID) == 0 || bytes.Equal(b.Recipients[i].KID, k.KID) {
 			candidates = append(candidates, &b.Recipients[i])
+		} else if others {
+			rest = append(rest, &b.Recipients[i])
 		}
 	}
+	candidates = append(candidates, rest...)
 	if len(candidates) == 0 {
-		return salt, nil, ErrNoRecipient
+		return salt, nil, nil, ErrNoRecipient
 	}
 	kdf, aead := suite()
 	sk, err := hpke.NewDHKEMPrivateKey(k.key.pk)
 	if err != nil {
-		return salt, nil, fmt.Errorf("%w: %v", ErrRecipientKey, err)
+		return salt, nil, nil, fmt.Errorf("%w: %v", ErrRecipientKey, err)
 	}
 	for _, e := range candidates {
-		dek, ok := unwrap(e, sk, kdf, aead)
+		dek, ok := unwrap(e, sk, kdf, aead, s.info())
 		if !ok {
 			continue
 		}
 		defer clear(dek)
 		cipher, err := chacha20poly1305.New(dek)
 		if err != nil {
-			return salt, nil, fmt.Errorf("blob: aead: %w", err)
+			return salt, nil, nil, fmt.Errorf("blob: aead: %w", err)
 		}
-		msg, err := cipher.Open(nil, b.AEADNonce[:], b.Ciphertext, payloadAAD)
+		msg, err := cipher.Open(nil, b.AEADNonce[:], b.Ciphertext, s.aad())
 		if err != nil {
-			return salt, nil, ErrDecrypt
+			return salt, nil, nil, ErrDecrypt
 		}
 		defer clear(msg)
 		copy(salt[:], msg)
-		return salt, bytes.Clone(msg[SaltSize:]), nil
+		return salt, bytes.Clone(msg[SaltSize:]), bytes.Clone(e.KID), nil
 	}
-	return salt, nil, ErrUnwrap
+	return salt, nil, nil, ErrUnwrap
 }
 
-func unwrap(e *Entry, sk hpke.PrivateKey, kdf hpke.KDF, aead hpke.AEAD) ([]byte, bool) {
-	r, err := hpke.NewRecipient(e.Enc[:], sk, kdf, aead, dekInfo)
+func unwrap(e *Entry, sk hpke.PrivateKey, kdf hpke.KDF, aead hpke.AEAD, info []byte) ([]byte, bool) {
+	r, err := hpke.NewRecipient(e.Enc[:], sk, kdf, aead, info)
 	if err != nil {
 		return nil, false
 	}

@@ -129,7 +129,7 @@ func CheckLink(prev, next Held, prevSet ClosedSet, later *ScaleChain) error {
 	if !bytes.Equal(prev.Hash[:], n.PrevVerdictHash) || !bytes.Equal(p.CommitmentHash, n.PrevCommitmentHash) {
 		return fmt.Errorf("%w: prev_verdict_hash", ErrUnlinked)
 	}
-	nPrev, ok := n.PrevStateHash()
+	nPrev, ok := heldPrevHash(next)
 	if !ok || !bytes.Equal(nPrev[:], p.NewStateHash) {
 		return fmt.Errorf("%w: new_state_hash differs from the next prev_state_hash", ErrUnlinked)
 	}
@@ -150,10 +150,40 @@ func CheckLink(prev, next Held, prevSet ClosedSet, later *ScaleChain) error {
 	}
 	d, _ := p.Delta()
 	step, err := Apply(l, d)
-	if err != nil || !bytes.Equal(step.NewHash[:], p.NewStateHash) {
+	if err != nil {
+		return fmt.Errorf("%w: transition of the earlier verdict", ErrTransition)
+	}
+	nh, err := NewStateHasher(prev.M).StateHash(&step.Next.State)
+	if err != nil || !bytes.Equal(nh[:], p.NewStateHash) {
 		return fmt.Errorf("%w: transition of the earlier verdict", ErrTransition)
 	}
 	return nil
+}
+
+// heldPrevHash is prev_state_hash of a held verdict: key 20 of a private
+// form, else the hash of prev_state under the hasher of its mandate, so that
+// a merged private verdict compares blinded hashes.
+func heldPrevHash(h Held) (commitment.Hash, bool) {
+	if h.V.PrivateHash != nil || h.M == nil {
+		return h.V.PrevStateHash()
+	}
+	if h.V.PrevState == nil {
+		return commitment.Hash{}, false
+	}
+	ph, err := NewStateHasher(h.M).StateHash(h.V.PrevState)
+	return ph, err == nil
+}
+
+// IsHashFork is the fork rule without the auditor key: two allows of one
+// gate under one mandate_hash that read the same prev_state_hash and differ
+// in commitment.
+func IsHashFork(a, b *Verdict) bool {
+	if a.GateID != b.GateID || !bytes.Equal(a.MandateHash, b.MandateHash) || bytes.Equal(a.CommitmentHash, b.CommitmentHash) {
+		return false
+	}
+	ah, aok := a.PrevStateHash()
+	bh, bok := b.PrevStateHash()
+	return aok && bok && ah == bh
 }
 
 func checkChainMandates(prev, next Held) error {

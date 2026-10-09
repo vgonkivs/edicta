@@ -30,6 +30,9 @@ type Counter struct {
 	HeadVerdict    []byte            `cbor:"6,keyasint,omitempty"`
 	Ledger         Ledger            `cbor:"7,keyasint"`
 	Scales         map[string]uint64 `cbor:"8,keyasint"`
+	// StateSalt is the state_salt of genesis for a private counter. Every
+	// version blinds with it, since the chain links cross versions.
+	StateSalt []byte `cbor:"9,keyasint,omitempty"`
 }
 
 func (c *Counter) Validate() error {
@@ -50,6 +53,9 @@ func (c *Counter) Validate() error {
 		if !isPrintable(a, 1, 128) || sc > 255 {
 			return bad("scale of an asset")
 		}
+	}
+	if c.StateSalt != nil && len(c.StateSalt) != stateSaltSize {
+		return bad("state_salt of %d bytes", len(c.StateSalt))
 	}
 	linked := c.Ledger.State.Seq >= 1
 	if linked != (len(c.HeadCommitment) == 32) || linked != (len(c.HeadVerdict) == 32) {
@@ -85,6 +91,7 @@ func DecodeCounter(b []byte) (*Counter, error) {
 // NewCounter is the genesis cell of a mandate.
 func NewCounter(m *Mandate, mandateHash commitment.Hash) *Counter {
 	c := &Counter{Format: 1, MandateID: bytes.Clone(m.MandateID), Version: m.Version, MandateHash: bytes.Clone(mandateHash[:]), Ledger: GenesisLedger()}
+	c.StateSalt = bytes.Clone(m.StateSalt)
 	c.Scales = map[string]uint64{}
 	for _, a := range m.Assets {
 		c.Scales[a.Asset] = a.Scale
@@ -95,9 +102,14 @@ func NewCounter(m *Mandate, mandateHash commitment.Hash) *Counter {
 // Adopt switches the counter to a later version of its mandate. The new
 // version must give every asset the counter has ever listed the same scale,
 // whether or not the asset was spent or an intermediate version dropped it.
-// A union of more than MaxScales assets is refused with ErrScalesFull. On
-// either error the counter is unchanged.
+// A union of more than MaxScales assets is refused with ErrScalesFull. A
+// mandate whose state_salt (absent for a public one) differs from the
+// counter's is refused first with ErrStateSaltChanged. On any error the
+// counter is unchanged.
 func (c *Counter) Adopt(m *Mandate, mandateHash commitment.Hash) error {
+	if !bytes.Equal(c.StateSalt, m.StateSalt) {
+		return ErrStateSaltChanged
+	}
 	for _, a := range m.Assets {
 		if old, ok := c.Scales[a.Asset]; ok && old != a.Scale {
 			return fmt.Errorf("%w: %s has scale %d in the counter, %d in the mandate", ErrScaleChanged, a.Asset, old, a.Scale)

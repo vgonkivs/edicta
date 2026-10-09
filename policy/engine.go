@@ -37,7 +37,9 @@ type Delta struct {
 
 // Step is the result of an allowed transition.
 type Step struct {
-	Next         Ledger
+	Next Ledger
+	// NewHash is the state hash of Next; Evaluate blinds it for a private
+	// mandate, Apply never does.
 	NewHash      commitment.Hash
 	EvalTime     uint64
 	ClosedBucket *Bucket    // set when this step closed an hour
@@ -221,7 +223,15 @@ func Evaluate(m *Mandate, l Ledger, a Admission, tH uint64) (Step, error) {
 			return Step{}, ErrCountLimit
 		}
 	}
-	return Apply(l, Delta{Asset: r.Asset, Scale: r.Scale, Amount: a.Facts.Amount, TH: tH})
+	step, err := Apply(l, Delta{Asset: r.Asset, Scale: r.Scale, Amount: a.Facts.Amount, TH: tH})
+	if err != nil || len(m.Auditors) == 0 {
+		return step, err
+	}
+	// A private counter publishes only blinded state hashes.
+	if step.NewHash, err = NewStateHasher(m).StateHash(&step.Next.State); err != nil {
+		return Step{}, err
+	}
+	return step, nil
 }
 
 var maxSum = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
