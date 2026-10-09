@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/principalsig"
 )
 
 func readVec(t testing.TB, name string, v any) {
@@ -78,6 +79,13 @@ type jMandate struct {
 	MaxDecisionAge string   `json:"max_decision_age"`
 	MinSpacing     string   `json:"min_spacing"`
 	Kinds          []string `json:"kinds"`
+	SigType        string   `json:"sig_type"`
+	PrincipalHRP   string   `json:"principal_hrp"`
+	FastMode       string   `json:"fast_mode_max_delay"`
+	Auditors       []struct {
+		Kid    string `json:"kid"`
+		Pubkey string `json:"pubkey"`
+	} `json:"auditors"`
 }
 
 func (j jMandate) mandate(t testing.TB) *policy.Mandate {
@@ -85,6 +93,10 @@ func (j jMandate) mandate(t testing.TB) *policy.Mandate {
 		Format: u64(t, j.Format), Principal: hx(t, j.Principal), GateID: j.GateID,
 		NotBefore: u64(t, j.NotBefore), NotAfter: u64(t, j.NotAfter), MandateID: hx(t, j.MandateID),
 		Version: u64(t, j.Version), MaxDecisionAge: u64(t, j.MaxDecisionAge), MinSpacing: u64(t, j.MinSpacing), Kinds: j.Kinds,
+		SigType: u64(t, j.SigType), PrincipalHRP: j.PrincipalHRP, FastModeMaxDelay: u64(t, j.FastMode),
+	}
+	for _, a := range j.Auditors {
+		m.Auditors = append(m.Auditors, policy.Auditor{Kid: hx(t, a.Kid), Pubkey: hx(t, a.Pubkey)})
 	}
 	for _, a := range j.Agents {
 		m.Agents = append(m.Agents, hx(t, a))
@@ -180,8 +192,13 @@ func TestMandateVectors(t *testing.T) {
 			h := policy.HashMandate(canon)
 			require.Equal(t, c.MandateHash, hex.EncodeToString(h[:]))
 			require.Equal(t, c.SignedMessage, hex.EncodeToString(policy.MandateSigningMessage(h)))
-			priv := ed25519.NewKeyFromSeed(hx(t, f.Keys[c.Signer].SeedHex))
-			signed, h2, err := policy.SignMandate(priv, m)
+			seed := hx(t, f.Keys[c.Signer].SeedHex)
+			var signer principalsig.Signer = principalsig.NewEd25519Signer(ed25519.NewKeyFromSeed(seed))
+			if m.SigType != 0 {
+				signer, err = principalsig.NewSecp256k1Signer(principalsig.Scheme(m.SigType), seed, m.PrincipalHRP)
+				require.NoError(t, err)
+			}
+			signed, h2, err := policy.SignMandateWith(signer, m)
 			require.NoError(t, err)
 			require.Equal(t, h, h2)
 			require.Equal(t, c.SignedMandateHex, hex.EncodeToString(signed))

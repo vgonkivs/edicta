@@ -159,7 +159,7 @@ func CheckLink(prev, next Held, prevSet ClosedSet, later *ScaleChain) error {
 func checkChainMandates(prev, next Held) error {
 	pm, nm := prev.M, next.M
 	switch {
-	case !bytes.Equal(pm.Principal, nm.Principal), !bytes.Equal(pm.MandateID, nm.MandateID):
+	case pm.SigType != nm.SigType, !bytes.Equal(pm.Principal, nm.Principal), !bytes.Equal(pm.MandateID, nm.MandateID):
 		return fmt.Errorf("%w: principal or mandate_id changed", ErrChainMandate)
 	case prev.V.GateID != next.V.GateID, pm.GateID != nm.GateID:
 		return fmt.Errorf("%w: gate_id changed", ErrChainMandate)

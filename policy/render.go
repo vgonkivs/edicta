@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/vgonkivs/edicta/principalsig"
 )
 
 func fmtAmount(b []byte, scale uint64) string {
@@ -21,17 +23,45 @@ func fmtAmount(b []byte, scale uint64) string {
 
 func fmtTime(t uint64) string { return time.Unix(int64(t), 0).UTC().Format("2006-01-02T15:04:05Z") }
 
+func principalLine(m *Mandate) string {
+	switch m.SigType {
+	case SigTypeADR036:
+		addr, err := principalsig.CosmosAddress(m.Principal, m.PrincipalHRP)
+		if err != nil {
+			addr = "invalid-principal"
+		}
+		return "principal: cosmos " + addr + " (adr-036)"
+	case SigTypeEIP712:
+		return "principal: ethereum 0x" + hex.EncodeToString(m.Principal) + " (eip-712)"
+	}
+	return "principal: ed25519 " + hex.EncodeToString(m.Principal)
+}
+
 // Render is the deterministic text a wallet or CLI shows before the principal
-// signs. The signature covers the CBOR, not this text.
+// signs. Under ADR-036 the wallet signs this text followed by the hash line,
+// so any difference between two renderers makes a valid mandate unverifiable.
 func Render(m *Mandate) string {
 	var sb strings.Builder
 	line := func(s string) { sb.WriteString(s); sb.WriteByte('\n') }
 	line("Edicta mandate v1")
-	line("principal: " + hex.EncodeToString(m.Principal))
 	line("mandate_id: " + hex.EncodeToString(m.MandateID))
 	line("version: " + strconv.FormatUint(m.Version, 10))
 	line("gate: " + m.GateID)
-	line("valid: anchor time from " + fmtTime(m.NotBefore) + " ; decision valid_until up to " + fmtTime(m.NotAfter))
+	line(principalLine(m))
+	if m.FastModeMaxDelay == 0 {
+		line("fast mode: not allowed")
+	} else {
+		line("fast mode: allowed, anchor at most " + strconv.FormatUint(m.FastModeMaxDelay, 10) + " blocks after the reference height")
+	}
+	if len(m.Auditors) == 0 {
+		line("auditors: none (public mandate)")
+	} else {
+		line("auditors: " + strconv.Itoa(len(m.Auditors)) + " (private mandate)")
+		for _, a := range m.Auditors {
+			line("  - " + hex.EncodeToString(a.Kid))
+		}
+	}
+	line("valid: reference time from " + fmtTime(m.NotBefore) + " ; decision valid_until up to " + fmtTime(m.NotAfter))
 	if m.MaxDecisionAge == 0 {
 		line("max decision age: default (MaxTTL of the payload's DA)")
 	} else {
@@ -83,9 +113,10 @@ func Render(m *Mandate) string {
 		line("count: max " + strconv.FormatUint(c.MaxCount, 10) + " actions " + window(c.Hours))
 	}
 	line("notes:")
-	line("  - Limits are measured on the anchor time of each decision (block time of its payload), not on execution time.")
+	line("  - Limits are measured on the reference time of each decision (block time at its payload reference height), not on execution time.")
 	line("  - Limits use hourly buckets; a bucket partly inside a window counts fully, so a limit may cover up to one extra hour (a \"per 1h\" limit may span up to 2h): the gate may deny early, never allow extra.")
 	line("  - Limits count authorizations, not executions.")
 	line("  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.")
+	line("  - In fast mode the gate may authorize before the payload is anchored on L1; the anchor must land within the stated number of blocks or the decision is invalid.")
 	return sb.String()
 }
