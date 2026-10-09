@@ -151,7 +151,7 @@ repairs read the Authorization from the registry, so the record has no retention
 inputs, because only the request that issued the Authorization has them. At most 64 archive calls run at once, and one more gets the
 retryable 503.
 
-If the archive is down, `POST /v0/authorize` answers 503 with `ErrArchiveUnavailable`
+If the archive is down, `POST /v1/authorize` answers 503 with `ErrArchiveUnavailable`
 and `Retry-After: 5`, nothing is signed and the nonce stays unused, so the same
 request succeeds once the archive is back. This also holds for a retry of a
 decision that was already authorized: the archive write comes before the nonce
@@ -327,7 +327,7 @@ defaults that apply only to this mode:
   upload. Set it to at least the cost of one upload for every drain slot (two), so
   a submit whose outcome is still unknown cannot leave a later one failing on
   chain and wasting its fee.
-- `submit_timeout_s` (default 300, 1..600): bound of one submit. `/v0/publish` has
+- `submit_timeout_s` (default 300, 1..600): bound of one submit. `/v1/publish` has
   its own deadline of `submit_timeout_s + 120` seconds, so the submit is not cut
   short by the 2 minute deadline of the other routes.
 - `upload_drain_s` (default 120, 1..600): how long shard uploads may continue after

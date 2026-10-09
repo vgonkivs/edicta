@@ -119,22 +119,22 @@ agent --payload--> Recorder --> DA layer (Celestia blob or Fibre), anchored at h
 
 - Deterministic CBOR (RFC 8949 core deterministic encoding, further restricted: integer map keys, no floats, no tags, optional fields absent rather than null).
 - SHA-256 for every hash, Ed25519 for every signature.
-- Every hash and signature is domain-separated by a length-prefixed tag (`edicta/v0/...`).
-- The action is opaque: `{type, hash}`, where `type` is a media type and `hash` is a tagged hash over the type and the exact action bytes.
+- Every hash and signature is domain-separated by a length-prefixed tag (`edicta/v1/...`).
+- The action is opaque: `{type, hash}`, where `type` is a media type and `hash` is a tagged hash over the type, a fresh 32-byte salt and the exact action bytes; the salt travels with the bytes to the gate and the executor and inside the encrypted payload.
 
-Specification: [spec/decision-commitment-v0.md](spec/decision-commitment-v0.md).
+Specification: [spec/decision-commitment-v1.md](spec/decision-commitment-v1.md).
 Profiles: [spec/profiles/](spec/profiles/).
 Cross-language test vectors (with an independent Python checker): [spec/vectors/](spec/vectors/).
 
 ## Data availability
 
 - `celestia_blob` (default): the payload is a share-version-1 blob on Celestia L1, paid by `MsgPayForBlobs`. Live on the Mocha testnet; this is what the demo uses.
-- Fibre: the payload is a Fibre blob, anchored on L1 by a `MsgPayForFibre` transaction. A first-class v0 mode, implemented in the Recorder, the gate and the verifier; not part of the demo, and its first live run is still pending.
+- Fibre: the payload is a Fibre blob, anchored on L1 by a `MsgPayForFibre` transaction. A first-class mode, implemented in the Recorder, the gate and the verifier; not part of the demo, and its first live run is still pending.
 - Archive: long-term copy of the payload for verification after DA retention ends. The hash proves integrity, so the archive is trusted only for availability.
 
 ## Status
 
-The v0 wire format is frozen. The gate, the Go SDK, the Recorder, the
+Wire version 1 (the earlier v0 drafts are superseded and unsupported). The gate, the Go SDK, the Recorder, the
 `edictad` daemon, the archive and the verifier (`edicta verify`, `edicta
 replay`) work end to end; the demo above, with the `celestia_blob` mode, ran
 live on Celestia Mocha. Fibre support is implemented but has not run live
