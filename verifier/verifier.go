@@ -177,7 +177,8 @@ type Config struct {
 	// those agents received. They only ever serve as fork evidence.
 	Evidence [][]byte
 	// PayloadKeys are payload recipient keys the auditor holds. With one
-	// that opens the payload, the payload check also runs O5 to O8 and the
+	// that opens the payload, the payload check also checks the plaintext
+	// hash and that the payload's action matches the committed one, and the
 	// payload's action salt is compared with the archive copy's.
 	PayloadKeys []blob.RecipientKey
 }
@@ -374,6 +375,10 @@ func New(d Deps) (*Verifier, error) {
 	v.cfg.PrincipalSchemes = slices.Clone(d.Config.PrincipalSchemes)
 	for _, e := range d.Config.Evidence {
 		v.cfg.Evidence = append(v.cfg.Evidence, bytes.Clone(e))
+	}
+	for _, k := range d.Config.PayloadKeys {
+		k.KID = bytes.Clone(k.KID)
+		v.cfg.PayloadKeys = append(v.cfg.PayloadKeys, k)
 	}
 	return v, nil
 }
