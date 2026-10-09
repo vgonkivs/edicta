@@ -31,12 +31,11 @@ func ParsePrincipal(s string) (PrincipalID, error) {
 		id := PrincipalID{Principal: b}
 		return id, id.Validate()
 	case "cosmos":
-		id := PrincipalID{SigType: uint8(SigTypeADR036), Principal: []byte(val)}
-		if err := id.Validate(); err != nil {
-			return PrincipalID{}, err
+		canon, err := principalsig.CanonicalCosmosAddress(val)
+		if err != nil {
+			return PrincipalID{}, fmt.Errorf("%w: %w", ErrPrincipalPin, err)
 		}
-		id.Principal = []byte(strings.ToLower(val))
-		return id, nil
+		return PrincipalID{SigType: uint8(SigTypeADR036), Principal: []byte(canon)}, nil
 	case "eth":
 		b, err := hex.DecodeString(strings.TrimPrefix(strings.ToLower(val), "0x"))
 		if err != nil {
@@ -77,7 +76,11 @@ func (id PrincipalID) Pins(m *Mandate) bool {
 	}
 	if m.SigType == SigTypeADR036 {
 		addr, err := principalsig.CosmosAddress(m.Principal, m.PrincipalHRP)
-		return err == nil && addr == strings.ToLower(string(id.Principal))
+		if err != nil {
+			return false
+		}
+		pin, err := principalsig.CanonicalCosmosAddress(string(id.Principal))
+		return err == nil && addr == pin
 	}
 	return bytes.Equal(id.Principal, m.Principal)
 }

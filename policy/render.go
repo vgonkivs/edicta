@@ -58,7 +58,7 @@ func Render(m *Mandate) string {
 	} else {
 		line("auditors: " + strconv.Itoa(len(m.Auditors)) + " (private mandate)")
 		for _, a := range m.Auditors {
-			line("  - " + hex.EncodeToString(a.Kid))
+			line("  - " + AuditorLine(a))
 		}
 	}
 	line("valid: reference time from " + fmtTime(m.NotBefore) + " ; decision valid_until up to " + fmtTime(m.NotAfter))
@@ -118,5 +118,24 @@ func Render(m *Mandate) string {
 	line("  - Limits count authorizations, not executions.")
 	line("  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.")
 	line("  - In fast mode the gate may authorize before the payload is anchored on L1; the anchor must land within the stated number of blocks or the decision is invalid.")
+	if len(m.Auditors) > 0 {
+		line("  - Labels are not verified; check each key fingerprint or address out of band.")
+	}
 	return sb.String()
+}
+
+// Fingerprint is a 16-byte kid as 8 groups of 4 lower-case hex digits.
+func Fingerprint(kid []byte) string {
+	h := hex.EncodeToString(kid)
+	var groups []string
+	for i := 0; i+4 <= len(h); i += 4 {
+		groups = append(groups, h[i:i+4])
+	}
+	return strings.Join(groups, " ")
+}
+
+// AuditorLine is how every Edicta tool prints an auditor: the untrusted label
+// marked as such, beside the full fingerprint that is the trust step.
+func AuditorLine(a Auditor) string {
+	return "Auditor \"" + a.Label + "\" (label not verified) - key fingerprint: " + Fingerprint(a.Kid)
 }

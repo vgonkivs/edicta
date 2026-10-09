@@ -166,3 +166,76 @@ func TestRefusals(t *testing.T) {
 		assert.Contains(t, errOut, "usage")
 	}
 }
+
+func TestPrivateMandateAndAddressBook(t *testing.T) {
+	cases, seeds := vectors(t)
+	c := cases["m_full"]
+	bob := strings.Repeat("09", 32)
+	alice := strings.Repeat("0a", 32)
+	mallory := strings.Repeat("0b", 32)
+
+	priv := filepath.Join(t.TempDir(), "private.cbor")
+	code, _, errOut := call("private", "--mandate", file(t, "m.hex", c.Cbor),
+		"--auditor", "Bob:"+bob, "--auditor", "Alice:"+alice, "--new-id", "--out", priv)
+	require.Equal(t, exitOK, code, errOut)
+
+	again := filepath.Join(t.TempDir(), "again.cbor")
+	code, _, errOut = call("private", "--mandate", file(t, "m.hex", c.Cbor), "--auditor", "Bob:"+bob, "--new-id", "--out", again)
+	require.Equal(t, exitOK, code, errOut)
+	a, err := os.ReadFile(priv)
+	require.NoError(t, err)
+	b, err := os.ReadFile(again)
+	require.NoError(t, err)
+	assert.NotEqual(t, a, b, "mandate_id and state_salt are drawn fresh")
+
+	book := filepath.Join(t.TempDir(), "book.json")
+	code, out, errOut := call("render", "--mandate", priv, "--book", book)
+	require.Equal(t, exitOK, code, errOut)
+	assert.Contains(t, out, `Auditor "Bob" (label not verified) - key fingerprint: `)
+	assert.Contains(t, out, "Labels are not verified")
+	assert.Contains(t, errOut, `auditor label "Bob" is new`)
+
+	key := file(t, "key.hex", seeds[c.Signer]+"\n")
+	code, _, errOut = call("sign", "--mandate", priv, "--scheme", "ed25519", "--key", key, "--book", book)
+	require.Equal(t, exitOK, code, errOut)
+	assert.Contains(t, errOut, "counters of this mandate start at zero")
+	_, err = os.Stat(book)
+	require.NoError(t, err, "sign records the labels")
+
+	swapped := filepath.Join(t.TempDir(), "swapped.cbor")
+	code, _, errOut = call("private", "--mandate", file(t, "m.hex", c.Cbor),
+		"--auditor", "Bob:"+mallory, "--auditor", "Alice:"+alice, "--new-id", "--out", swapped)
+	require.Equal(t, exitOK, code, errOut)
+	code, _, errOut = call("sign", "--mandate", swapped, "--scheme", "ed25519", "--key", key, "--book", book)
+	assert.Equal(t, exitInvalid, code)
+	assert.Contains(t, errOut, `WARNING: auditor label "Bob" maps to another key`)
+	code, _, errOut = call("sign", "--mandate", swapped, "--scheme", "ed25519", "--key", key, "--book", book, "--accept-new-key")
+	require.Equal(t, exitOK, code, errOut)
+
+	signed := filepath.Join(t.TempDir(), "signed.cbor")
+	code, _, errOut = call("sign", "--mandate", priv, "--scheme", "ed25519", "--key", key, "--out", signed, "--book", book, "--accept-new-key")
+	require.Equal(t, exitOK, code, errOut)
+	code, _, errOut = call("publish", "--signed", signed, "--archive", t.TempDir())
+	assert.Equal(t, exitInvalid, code, "a private mandate is never published in clear")
+	assert.Contains(t, errOut, "private mandate")
+}
+
+func TestSignWarnsOnModeSwitch(t *testing.T) {
+	cases, seeds := vectors(t)
+	c := cases["m_full"]
+	key := file(t, "key.hex", seeds[c.Signer]+"\n")
+	public := filepath.Join(t.TempDir(), "public.cbor")
+	code, _, errOut := call("sign", "--mandate", file(t, "m.hex", c.Cbor), "--scheme", "ed25519", "--key", key, "--out", public)
+	require.Equal(t, exitOK, code, errOut)
+
+	code, _, errOut = call("sign", "--mandate", file(t, "m.hex", c.Cbor), "--scheme", "ed25519", "--key", key, "--replaces", public)
+	require.Equal(t, exitOK, code, errOut)
+	assert.NotContains(t, errOut, "start at zero", "same mandate_id, same mode")
+
+	priv := filepath.Join(t.TempDir(), "private.cbor")
+	code, _, errOut = call("private", "--mandate", file(t, "m.hex", c.Cbor), "--auditor", "Bob:"+strings.Repeat("09", 32), "--out", priv)
+	require.Equal(t, exitOK, code, errOut)
+	code, _, errOut = call("sign", "--mandate", priv, "--scheme", "ed25519", "--key", key, "--replaces", public)
+	require.Equal(t, exitOK, code, errOut)
+	assert.Contains(t, errOut, "switches between public and private mode")
+}

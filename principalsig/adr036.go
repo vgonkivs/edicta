@@ -74,6 +74,17 @@ func ValidHRP(hrp string) bool {
 	return true
 }
 
+// CanonicalCosmosAddress parses a bech32 account address (BIP-173, checksum,
+// no mixed case) and returns its canonical lower-case re-encoding, so pins
+// compare one text per address.
+func CanonicalCosmosAddress(s string) (string, error) {
+	hrp, addr, err := ParseCosmosAddress(s)
+	if err != nil {
+		return "", err
+	}
+	return bech32Encode(hrp, addr[:])
+}
+
 // ParseCosmosAddress decodes a bech32 account address into its hrp and the
 // 20-byte address.
 func ParseCosmosAddress(s string) (string, [20]byte, error) {

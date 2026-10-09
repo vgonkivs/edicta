@@ -43,7 +43,10 @@ func TestPolicyGateRunsSecp256k1Mandates(t *testing.T) {
 
 func TestPolicyGateRefusesPrivateMandates(t *testing.T) {
 	m := baseMandate(t)
-	m.Auditors = []policy.Auditor{{Kid: []byte("a1"), Pubkey: bytes.Repeat([]byte{9}, 32)}}
+	pub := bytes.Repeat([]byte{9}, 32)
+	m.Auditors = []policy.Auditor{{Kid: policy.AuditorKid(pub), Pubkey: pub, Label: "a1"}}
+	m.StateSalt = bytes.Repeat([]byte{3}, 32)
 	_, err := gatefix.TryNew(t, policyOpts(t, m)...)
 	require.ErrorIs(t, err, gate.ErrInvalidConfig)
+	require.ErrorContains(t, err, "private mandates")
 }

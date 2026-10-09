@@ -101,3 +101,23 @@ func TestMandateSchemeRules(t *testing.T) {
 	m.Auditors = []policy.Auditor{}
 	require.ErrorIs(t, m.ValidateBasic(), policy.ErrMandateInvalid)
 }
+
+// A cosmos pin keeps the canonical lower-case re-encoding, whatever case the
+// user typed.
+func TestCosmosPinIsCanonical(t *testing.T) {
+	id, err := policy.ParsePrincipal("cosmos:CELESTIA1HJLQ8G26HNKWSEGD75VWQQLF39A7GCH9U7YER7")
+	require.NoError(t, err)
+	assert.Equal(t, "celestia1hjlq8g26hnkwsegd75vwqqlf39a7gch9u7yer7", string(id.Principal))
+	assert.Equal(t, "cosmos:celestia1hjlq8g26hnkwsegd75vwqqlf39a7gch9u7yer7", id.String())
+}
+
+// Every tool prints an auditor with the unverified label beside the full
+// fingerprint, and the kid is the one derived from the key.
+func TestAuditorLine(t *testing.T) {
+	pub := bytes.Repeat([]byte{9}, 32)
+	a := policy.Auditor{Kid: policy.AuditorKid(pub), Pubkey: pub, Label: "Bob"}
+	require.Len(t, a.Kid, 16)
+	line := policy.AuditorLine(a)
+	assert.Contains(t, line, `Auditor "Bob" (label not verified) - key fingerprint: `)
+	assert.Len(t, policy.Fingerprint(a.Kid), 39, "8 groups of 4 hex digits")
+}

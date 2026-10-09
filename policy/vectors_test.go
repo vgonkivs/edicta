@@ -85,7 +85,9 @@ type jMandate struct {
 	Auditors       []struct {
 		Kid    string `json:"kid"`
 		Pubkey string `json:"pubkey"`
+		Label  string `json:"label"`
 	} `json:"auditors"`
+	StateSalt string `json:"state_salt"`
 }
 
 func (j jMandate) mandate(t testing.TB) *policy.Mandate {
@@ -96,7 +98,10 @@ func (j jMandate) mandate(t testing.TB) *policy.Mandate {
 		SigType: u64(t, j.SigType), PrincipalHRP: j.PrincipalHRP, FastModeMaxDelay: u64(t, j.FastMode),
 	}
 	for _, a := range j.Auditors {
-		m.Auditors = append(m.Auditors, policy.Auditor{Kid: hx(t, a.Kid), Pubkey: hx(t, a.Pubkey)})
+		m.Auditors = append(m.Auditors, policy.Auditor{Kid: hx(t, a.Kid), Pubkey: hx(t, a.Pubkey), Label: a.Label})
+	}
+	if j.StateSalt != "" {
+		m.StateSalt = hx(t, j.StateSalt)
 	}
 	for _, a := range j.Agents {
 		m.Agents = append(m.Agents, hx(t, a))
@@ -171,6 +176,7 @@ func TestMandateVectors(t *testing.T) {
 			ID          string `json:"id"`
 			SignedHex   string `json:"signed_mandate_hex"`
 			ExpectError string `json:"expect_error"`
+			Cause       string `json:"cause"`
 		} `json:"reject"`
 	}
 	readVec(t, "mandate.json", &f)
@@ -218,6 +224,9 @@ func TestMandateVectors(t *testing.T) {
 				require.ErrorIs(t, err, policy.ErrMandateSignature)
 			default:
 				require.ErrorIs(t, err, policy.ErrMandateInvalid)
+			}
+			if r.Cause == "ErrAuditorKidMismatch" {
+				require.ErrorIs(t, err, policy.ErrAuditorKidMismatch)
 			}
 		})
 	}

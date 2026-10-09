@@ -1,6 +1,9 @@
 package policy
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // ErrDenied is the umbrella every policy deny wraps.
 var ErrDenied = errors.New("policy: denied")
@@ -31,14 +34,17 @@ var (
 
 // Structural sentinels.
 var (
-	ErrMandateInvalid   = errors.New("policy: invalid mandate")
-	ErrMandateSignature = errors.New("policy: mandate signature invalid")
-	ErrVerdictInvalid   = errors.New("policy: invalid verdict")
-	ErrVerdictSignature = errors.New("policy: verdict signature invalid")
-	ErrStateInvalid     = errors.New("policy: invalid state")
-	ErrCounterInvalid   = errors.New("policy: invalid counter cell")
-	ErrScaleChanged     = errors.New("policy: asset scale differs from the one the counter recorded")
-	ErrScalesFull       = errors.New("policy: counter scale map is full")
+	ErrMandateInvalid = errors.New("policy: invalid mandate")
+	// ErrAuditorKidMismatch is an auditor kid that is not derived from its
+	// key; it wraps ErrMandateInvalid.
+	ErrAuditorKidMismatch = fmt.Errorf("%w: auditor kid is not derived from its key", ErrMandateInvalid)
+	ErrMandateSignature   = errors.New("policy: mandate signature invalid")
+	ErrVerdictInvalid     = errors.New("policy: invalid verdict")
+	ErrVerdictSignature   = errors.New("policy: verdict signature invalid")
+	ErrStateInvalid       = errors.New("policy: invalid state")
+	ErrCounterInvalid     = errors.New("policy: invalid counter cell")
+	ErrScaleChanged       = errors.New("policy: asset scale differs from the one the counter recorded")
+	ErrScalesFull         = errors.New("policy: counter scale map is full")
 )
 
 // DenyReasons lists the bare names of the deny sentinels in the order the checks run.

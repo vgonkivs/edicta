@@ -53,13 +53,42 @@ type Mandate struct {
 	PrincipalHRP     string    `cbor:"15,keyasint,omitempty"`
 	FastModeMaxDelay uint64    `cbor:"16,keyasint,omitempty"`
 	Auditors         []Auditor `cbor:"17,keyasint,omitempty"`
+	// StateSalt blinds the private counter's state hashes; present iff
+	// Auditors is. It is a secret and never rendered.
+	StateSalt []byte `cbor:"18,keyasint,omitempty"`
 }
 
-// Auditor is an X25519 key a private mandate is encrypted to.
+// TagAuditorKid is the domain tag of an auditor kid.
+const TagAuditorKid = "edicta/v1/auditor-kid"
+
+const (
+	auditorKidSize    = 16
+	auditorKeySize    = 32
+	maxAuditorLabel   = 64
+	stateSaltSize     = 32
+	maxAuditorsInList = 16
+)
+
+// Auditor is an X25519 key a private mandate is encrypted to. Kid is derived
+// from the key; Label is untrusted text chosen by whoever built the mandate.
 type Auditor struct {
 	Kid    []byte `cbor:"1,keyasint"`
 	Pubkey []byte `cbor:"2,keyasint"`
+	Label  string `cbor:"3,keyasint"`
 }
+
+// AuditorKid is SHA-256(tag(edicta/v1/auditor-kid) || pubkey)[0..16].
+func AuditorKid(pubkey []byte) []byte {
+	h := sha256.New()
+	h.Write([]byte{byte(len(TagAuditorKid))})
+	h.Write([]byte(TagAuditorKid))
+	h.Write(pubkey)
+	return h.Sum(nil)[:auditorKidSize]
+}
+
+// validLabelChar is printable ASCII without the quote and the backslash, so
+// a label renders inside quotes without escaping.
+func validLabelChar(c byte) bool { return c >= 0x20 && c <= 0x7e && c != '"' && c != '\\' }
 
 const (
 	SigTypeADR036 = uint64(principalsig.CosmosADR036)
@@ -220,23 +249,58 @@ func (m *Mandate) ValidateBasic() error {
 // with it is all zero exactly for the low-order points.
 var lowOrderProbe = bytes.Repeat([]byte{1}, 32)
 
+// validateAuditors runs the decoding checks of every entry first, then the
+// value rules in their normative order, then the state salt rule.
 func (m *Mandate) validateAuditors() error {
 	if m.Auditors == nil {
+		if m.StateSalt != nil {
+			return fmt.Errorf("%w: state_salt on a public mandate: %w", ErrMandateInvalid, commitment.ErrUnknownKey)
+		}
 		return nil
 	}
-	if n := len(m.Auditors); n < 1 || n > 16 {
+	if n := len(m.Auditors); n < 1 || n > maxAuditorsInList {
 		return fmt.Errorf("%w: %d auditors: %w", ErrMandateInvalid, n, commitment.ErrFieldSize)
 	}
 	for i, a := range m.Auditors {
-		if len(a.Kid) < 1 || len(a.Kid) > 32 || len(a.Pubkey) != 32 {
+		if len(a.Kid) != auditorKidSize || len(a.Pubkey) != auditorKeySize || len(a.Label) < 1 || len(a.Label) > maxAuditorLabel {
 			return fmt.Errorf("%w: auditor %d: %w", ErrMandateInvalid, i, commitment.ErrFieldSize)
 		}
-		if i > 0 && bytes.Compare(m.Auditors[i-1].Kid, a.Kid) >= 0 {
+		for j := 0; j < len(a.Label); j++ {
+			if !validLabelChar(a.Label[j]) {
+				return fmt.Errorf("%w: auditor %d label: %w", ErrMandateInvalid, i, commitment.ErrInvalidString)
+			}
+		}
+	}
+	for i, a := range m.Auditors {
+		if a.Label[0] == ' ' || a.Label[len(a.Label)-1] == ' ' {
+			return fmt.Errorf("%w: auditor %d label has a leading or trailing space: %w", ErrMandateInvalid, i, commitment.ErrInvalidString)
+		}
+		if !bytes.Equal(a.Kid, AuditorKid(a.Pubkey)) {
+			return fmt.Errorf("%w: auditor %d", ErrAuditorKidMismatch, i)
+		}
+	}
+	for i := 1; i < len(m.Auditors); i++ {
+		if bytes.Compare(m.Auditors[i-1].Kid, m.Auditors[i].Kid) >= 0 {
 			return bad("auditors not strictly ascending by kid")
 		}
+	}
+	labels := make(map[string]bool, len(m.Auditors))
+	for i, a := range m.Auditors {
+		if labels[a.Label] {
+			return bad("auditor %d repeats a label", i)
+		}
+		labels[a.Label] = true
+	}
+	for i, a := range m.Auditors {
 		if _, err := curve25519.X25519(lowOrderProbe, a.Pubkey); err != nil {
 			return fmt.Errorf("%w: auditor %d: %w: low-order point", ErrMandateInvalid, i, commitment.ErrInvalidPublicKey)
 		}
+	}
+	switch {
+	case m.StateSalt == nil:
+		return fmt.Errorf("%w: state_salt: %w", ErrMandateInvalid, commitment.ErrMissingField)
+	case len(m.StateSalt) != stateSaltSize:
+		return fmt.Errorf("%w: state_salt of %d bytes: %w", ErrMandateInvalid, len(m.StateSalt), commitment.ErrFieldSize)
 	}
 	return nil
 }
