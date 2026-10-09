@@ -33,7 +33,7 @@ func TestArchiveUnavailableWinsOverContextErrors(t *testing.T) {
 				e.useRequestTimeout(time.Nanosecond)
 			}
 			e.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) { return gate.Result{}, tc.err }
-			rec := e.post("/v0/authorize", authReq(t))
+			rec := e.post("/v1/authorize", authReq(t))
 			requireErr(t, rec, 503, "ErrArchiveUnavailable", true)
 			assert.Equal(t, "5", rec.Header().Get("Retry-After"))
 			require.NotEmpty(t, rec.Header().Get("Retry-After"))

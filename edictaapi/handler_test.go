@@ -19,13 +19,15 @@ import (
 )
 
 const (
-	authorizeLimit = 67736
+	authorizeLimit = 67771
 	recordLimit    = 2560
 )
 
 func authReq(t testing.TB) []byte {
-	return encMap(t, map[uint64]any{1: []byte("envelope"), 2: []byte("action")})
+	return encMap(t, map[uint64]any{1: []byte("envelope"), 2: []byte("action"), 3: testSalt})
 }
+
+var testSalt = bytes.Repeat([]byte{0x5a}, 32)
 
 func recReq(t testing.TB) []byte {
 	return encMap(t, map[uint64]any{1: []byte("envelope"), 2: "rail-ref-1",
@@ -34,28 +36,28 @@ func recReq(t testing.TB) []byte {
 
 func TestRoutesMethodsMediaTypes(t *testing.T) {
 	e := newEnv(t, nil)
-	rec := e.do(http.MethodPost, "/v0/nope", cborType, authReq(t))
+	rec := e.do(http.MethodPost, "/v1/nope", cborType, authReq(t))
 	requireErr(t, rec, 404, "edictaapi.ErrRouteNotFound", false)
 	rec = e.do(http.MethodPost, "/v2/authorize", cborType, authReq(t))
 	requireErr(t, rec, 404, "edictaapi.ErrRouteNotFound", false)
 
-	for _, p := range []string{"/v0/publish", "/v0/authorize", "/v1/authorize", "/v0/record"} {
+	for _, p := range []string{"/v1/publish", "/v1/authorize", "/v1/record"} {
 		rec = e.do(http.MethodGet, p, "", nil)
 		requireErr(t, rec, 405, "edictaapi.ErrMethodNotAllowed", false)
 		rec = e.do(http.MethodPut, p, cborType, []byte{0xa0})
 		requireErr(t, rec, 405, "edictaapi.ErrMethodNotAllowed", false)
 	}
-	rec = e.do(http.MethodPost, "/v0/health", cborType, []byte{0xa0})
+	rec = e.do(http.MethodPost, "/v1/health", cborType, []byte{0xa0})
 	requireErr(t, rec, 405, "edictaapi.ErrMethodNotAllowed", false)
 
 	for _, ct := range []string{"application/json", "", "text/plain", "application/cbor-seq"} {
-		for _, p := range []string{"/v0/publish", "/v0/authorize", "/v0/record"} {
+		for _, p := range []string{"/v1/publish", "/v1/authorize", "/v1/record"} {
 			rec = e.do(http.MethodPost, p, ct, authReq(t))
 			requireErr(t, rec, 415, "edictaapi.ErrMediaType", false)
 		}
 	}
 	// Media type is checked before size: an oversized body with a wrong type is 415.
-	rec = e.do(http.MethodPost, "/v0/authorize", "application/json", make([]byte, authorizeLimit+1))
+	rec = e.do(http.MethodPost, "/v1/authorize", "application/json", make([]byte, authorizeLimit+1))
 	requireErr(t, rec, 415, "edictaapi.ErrMediaType", false)
 	require.Zero(t, e.gate.calls())
 }
@@ -66,9 +68,9 @@ func TestBodyLimits(t *testing.T) {
 		path  string
 		limit int
 	}{
-		{"/v0/authorize", authorizeLimit},
-		{"/v0/record", recordLimit},
-		{"/v0/publish", int(maxBlobVec) + 256},
+		{"/v1/authorize", authorizeLimit},
+		{"/v1/record", recordLimit},
+		{"/v1/publish", int(maxBlobVec) + 256},
 	}
 	for _, c := range cases {
 		t.Run(c.path, func(t *testing.T) {
@@ -91,16 +93,16 @@ func TestWrapperDecoding(t *testing.T) {
 		body []byte
 		code string
 	}{
-		{"truncated", "/v0/authorize", []byte{0xa2, 0x01}, "ErrMalformed"},
-		{"trailing", "/v0/authorize", append(append([]byte{}, good...), 0x00), "ErrTrailingData"},
-		{"unknown key", "/v0/authorize", encMap(t, map[uint64]any{1: []byte("e"), 2: []byte("a"), 9: []byte("x")}), "ErrUnknownKey"},
-		{"missing key", "/v0/authorize", encMap(t, map[uint64]any{1: []byte("e")}), "ErrMissingField"},
-		{"wrong type", "/v0/authorize", encMap(t, map[uint64]any{1: "text", 2: []byte("a")}), "ErrWrongType"},
-		{"float", "/v0/authorize", []byte{0xfb, 0x3f, 0xf0, 0, 0, 0, 0, 0, 0}, ""},
-		{"record truncated", "/v0/record", []byte{0xa4, 0x01}, "ErrMalformed"},
-		{"record unknown key", "/v0/record", encMap(t, map[uint64]any{1: []byte("e"), 2: "r", 3: make([]byte, 32), 4: make([]byte, 64), 5: 1}), "ErrUnknownKey"},
-		{"record short pubkey", "/v0/record", encMap(t, map[uint64]any{1: []byte("e"), 2: "r", 3: make([]byte, 31), 4: make([]byte, 64)}), "ErrFieldSize"},
-		{"record short sig", "/v0/record", encMap(t, map[uint64]any{1: []byte("e"), 2: "r", 3: make([]byte, 32), 4: make([]byte, 63)}), "ErrFieldSize"},
+		{"truncated", "/v1/authorize", []byte{0xa2, 0x01}, "ErrMalformed"},
+		{"trailing", "/v1/authorize", append(append([]byte{}, good...), 0x00), "ErrTrailingData"},
+		{"unknown key", "/v1/authorize", encMap(t, map[uint64]any{1: []byte("e"), 2: []byte("a"), 9: []byte("x")}), "ErrUnknownKey"},
+		{"missing key", "/v1/authorize", encMap(t, map[uint64]any{1: []byte("e")}), "ErrMissingField"},
+		{"wrong type", "/v1/authorize", encMap(t, map[uint64]any{1: "text", 2: []byte("a")}), "ErrWrongType"},
+		{"float", "/v1/authorize", []byte{0xfb, 0x3f, 0xf0, 0, 0, 0, 0, 0, 0}, ""},
+		{"record truncated", "/v1/record", []byte{0xa4, 0x01}, "ErrMalformed"},
+		{"record unknown key", "/v1/record", encMap(t, map[uint64]any{1: []byte("e"), 2: "r", 3: make([]byte, 32), 4: make([]byte, 64), 5: 1}), "ErrUnknownKey"},
+		{"record short pubkey", "/v1/record", encMap(t, map[uint64]any{1: []byte("e"), 2: "r", 3: make([]byte, 31), 4: make([]byte, 64)}), "ErrFieldSize"},
+		{"record short sig", "/v1/record", encMap(t, map[uint64]any{1: []byte("e"), 2: "r", 3: make([]byte, 32), 4: make([]byte, 63)}), "ErrFieldSize"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -121,14 +123,14 @@ func TestAuthorizeAndRecordPassBytesThrough(t *testing.T) {
 	e.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
 		return gate.Result{Authorization: []byte("signed-authorization")}, nil
 	}
-	rec := e.post("/v0/authorize", authReq(t))
+	rec := e.post("/v1/authorize", authReq(t))
 	require.Equal(t, 200, rec.Code)
 	require.Equal(t, cborType, rec.Header().Get("Content-Type"))
 	require.Equal(t, []byte("signed-authorization"), decodeMap(t, rec.Body.Bytes())[1])
 	require.Equal(t, []byte("envelope"), e.gate.lastEnv)
 	require.Equal(t, []byte("action"), e.gate.lastAction)
 
-	rec = e.post("/v0/record", recReq(t))
+	rec = e.post("/v1/record", recReq(t))
 	require.Equal(t, 200, rec.Code)
 	require.Equal(t, []byte("receipt"), decodeMap(t, rec.Body.Bytes())[1])
 	require.Equal(t, "rail-ref-1", e.gate.lastRef)
@@ -141,7 +143,7 @@ func TestHealth(t *testing.T) {
 	e.health.info = edictaapi.HealthInfo{Status: 1, ChainID: "mocha-4", HeadHeight: 10, HeadTime: 20, GateID: gateIDVec,
 		GatePubKey: bytes.Repeat([]byte{1}, 32), RecorderSigner: bytes.Repeat([]byte{2}, 20),
 		Namespace: bytes.Repeat([]byte{3}, 29), AllowedDA: []uint64{2}}
-	rec := e.do(http.MethodGet, "/v0/health", "", nil)
+	rec := e.do(http.MethodGet, "/v1/health", "", nil)
 	require.Equal(t, 200, rec.Code)
 	require.Equal(t, cborType, rec.Header().Get("Content-Type"))
 	m := decodeMap(t, rec.Body.Bytes())
@@ -153,12 +155,12 @@ func TestHealth(t *testing.T) {
 	require.Equal(t, []any{uint64(2)}, m[9])
 
 	e.health.info.RecorderSigner, e.health.info.Namespace = nil, nil
-	m = decodeMap(t, e.do(http.MethodGet, "/v0/health", "", nil).Body.Bytes())
+	m = decodeMap(t, e.do(http.MethodGet, "/v1/health", "", nil).Body.Bytes())
 	require.NotContains(t, m, uint64(7))
 	require.NotContains(t, m, uint64(8))
 
 	e.health.err = gate.ErrClosed
-	requireErr(t, e.do(http.MethodGet, "/v0/health", "", nil), 503, "ErrClosed", true)
+	requireErr(t, e.do(http.MethodGet, "/v1/health", "", nil), 503, "ErrClosed", true)
 }
 
 // TestErrorTable drives every row of errors.json through the handler on every endpoint it lists.
@@ -185,25 +187,25 @@ func TestErrorTable(t *testing.T) {
 					e.useRequestTimeout(time.Nanosecond)
 				}
 				switch ep {
-				case "/v0/authorize", "/v1/authorize":
+				case "/v1/authorize":
 					e.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) { return gate.Result{}, injected }
 					r := e.post(ep, authReq(t))
 					eb := requireErr(t, r, status, row.Code, retry)
 					checkNoLeak(t, row.Code, eb)
 					checkExtras(t, r, status)
-				case "/v0/record":
+				case "/v1/record":
 					e.gate.recFn = func(context.Context, []byte, string, []byte, []byte) ([]byte, error) { return nil, injected }
 					r := e.post(ep, recReq(t))
 					eb := requireErr(t, r, status, row.Code, retry)
 					checkNoLeak(t, row.Code, eb)
 					checkExtras(t, r, status)
-				case "/v0/publish":
+				case "/v1/publish":
 					e.pub.err = injected
 					r := e.post(ep, signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("blob-"+row.Code)))
 					eb := requireErr(t, r, status, row.Code, retry)
 					checkNoLeak(t, row.Code, eb)
 					checkExtras(t, r, status)
-				case "/v0/health":
+				case "/v1/health":
 					e.health.err = injected
 					r := e.do(http.MethodGet, ep, "", nil)
 					eb := requireErr(t, r, status, row.Code, retry)
@@ -255,7 +257,7 @@ func TestErrorTableFirstMatchOrder(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			e := newEnv(t, nil)
 			e.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) { return gate.Result{}, c.err }
-			requireErr(t, e.post("/v0/authorize", authReq(t)), c.status, c.code, c.retry)
+			requireErr(t, e.post("/v1/authorize", authReq(t)), c.status, c.code, c.retry)
 		})
 	}
 }
@@ -276,7 +278,7 @@ func TestConflictStored(t *testing.T) {
 		e.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
 			return gate.Result{Authorization: stored}, gate.ErrNonceUsed
 		}
-		eb := requireErr(t, e.post("/v0/authorize", authReq(t)), 409, "ErrNonceUsed", false)
+		eb := requireErr(t, e.post("/v1/authorize", authReq(t)), 409, "ErrNonceUsed", false)
 		require.True(t, eb.HasStored)
 		require.Equal(t, stored, eb.Stored)
 	})
@@ -285,7 +287,7 @@ func TestConflictStored(t *testing.T) {
 		e.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
 			return gate.Result{}, gate.ErrNonceUsed
 		}
-		eb := requireErr(t, e.post("/v0/authorize", authReq(t)), 409, "ErrNonceUsed", false)
+		eb := requireErr(t, e.post("/v1/authorize", authReq(t)), 409, "ErrNonceUsed", false)
 		require.False(t, eb.HasStored, "key 4 absent: no oracle on used nonces")
 	})
 	t.Run("stored authorization never leaks with another error", func(t *testing.T) {
@@ -293,12 +295,12 @@ func TestConflictStored(t *testing.T) {
 		e.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
 			return gate.Result{Authorization: stored}, gate.ErrBeforeRegistryEpoch
 		}
-		eb := requireErr(t, e.post("/v0/authorize", authReq(t)), 409, "ErrBeforeRegistryEpoch", false)
+		eb := requireErr(t, e.post("/v1/authorize", authReq(t)), 409, "ErrBeforeRegistryEpoch", false)
 		require.False(t, eb.HasStored)
 		e.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
 			return gate.Result{Authorization: stored}, fmt.Errorf("w: %w", gate.ErrChainUnavailable)
 		}
-		eb = requireErr(t, e.post("/v0/authorize", authReq(t)), 503, "ErrChainUnavailable", true)
+		eb = requireErr(t, e.post("/v1/authorize", authReq(t)), 503, "ErrChainUnavailable", true)
 		require.False(t, eb.HasStored)
 	})
 	t.Run("receipt exists returns the stored receipt", func(t *testing.T) {
@@ -306,7 +308,7 @@ func TestConflictStored(t *testing.T) {
 		e.gate.recFn = func(context.Context, []byte, string, []byte, []byte) ([]byte, error) {
 			return []byte("stored-receipt"), fmt.Errorf("record: %w", gate.ErrReceiptExists)
 		}
-		eb := requireErr(t, e.post("/v0/record", recReq(t)), 409, "ErrReceiptExists", false)
+		eb := requireErr(t, e.post("/v1/record", recReq(t)), 409, "ErrReceiptExists", false)
 		require.True(t, eb.HasStored)
 		require.Equal(t, []byte("stored-receipt"), eb.Stored)
 	})
@@ -315,7 +317,7 @@ func TestConflictStored(t *testing.T) {
 		e.gate.recFn = func(context.Context, []byte, string, []byte, []byte) ([]byte, error) {
 			return []byte("leak"), gate.ErrNotAuthorized
 		}
-		eb := requireErr(t, e.post("/v0/record", recReq(t)), 422, "ErrNotAuthorized", false)
+		eb := requireErr(t, e.post("/v1/record", recReq(t)), 422, "ErrNotAuthorized", false)
 		require.False(t, eb.HasStored)
 	})
 }
@@ -325,7 +327,7 @@ func TestBareDeadlineIsInternal(t *testing.T) {
 	e.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
 		return gate.Result{}, fmt.Errorf("wrapped: %w", context.DeadlineExceeded)
 	}
-	requireErr(t, e.post("/v0/authorize", authReq(t)), 500, "edictaapi.ErrInternal", false)
+	requireErr(t, e.post("/v1/authorize", authReq(t)), 500, "edictaapi.ErrInternal", false)
 }
 
 func TestDeadline(t *testing.T) {
@@ -337,17 +339,17 @@ func TestDeadline(t *testing.T) {
 		return gate.Result{}, ctx.Err()
 	}
 	e.h = edictaapi.NewHandler(e.gate, e.pub, e.allow, e.quota, e.health, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	requireErr(t, e.post("/v0/authorize", authReq(t)), 504, "edictaapi.ErrDeadline", true)
+	requireErr(t, e.post("/v1/authorize", authReq(t)), 504, "edictaapi.ErrDeadline", true)
 }
 
 func TestPublishDisabled(t *testing.T) {
 	sk, pubHex := testKey(1)
 	e := newEnv(t, map[string]string{"agent-a": pubHex}, withoutPublisher())
-	rec := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("blob")))
+	rec := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("blob")))
 	requireErr(t, rec, 404, "edictaapi.ErrPublishDisabled", false)
 	require.Zero(t, e.fq.count())
 	// The rest of the API still works.
-	require.Equal(t, 200, e.post("/v0/authorize", authReq(t)).Code)
+	require.Equal(t, 200, e.post("/v1/authorize", authReq(t)).Code)
 }
 
 // TestVectorExamples replays the examples of errors.json that need only the handler and fakes.
@@ -358,7 +360,7 @@ func TestVectorExamples(t *testing.T) {
 		t.Run(ex.ID, func(t *testing.T) {
 			status := int(u64(t, ex.Status))
 			switch ex.Endpoint {
-			case "/v0/authorize", "/v1/authorize", "/v0/record":
+			case "/v1/authorize", "/v1/record":
 				e := newEnv(t, nil)
 				req := unhex(t, ex.RequestHex)
 				want := decodeMap(t, unhex(t, ex.ResponseHex))
@@ -374,7 +376,7 @@ func TestVectorExamples(t *testing.T) {
 				if status != 400 {
 					reqMap = decodeMap(t, req)
 				}
-				if ex.Endpoint != "/v0/record" {
+				if ex.Endpoint != "/v1/record" {
 					e.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
 						if status == 200 {
 							return gate.Result{Authorization: want[1].([]byte)}, nil
@@ -400,11 +402,11 @@ func TestVectorExamples(t *testing.T) {
 					require.Equal(t, wantErr.HasStored, got.HasStored)
 					require.Equal(t, wantErr.Stored, got.Stored)
 				}
-				if ex.Endpoint != "/v0/record" && e.gate.authCalls > 0 && reqMap != nil {
+				if ex.Endpoint != "/v1/record" && e.gate.authCalls > 0 && reqMap != nil {
 					require.Equal(t, reqMap[1], e.gate.lastEnv)
 					require.Equal(t, reqMap[2], e.gate.lastAction)
 				}
-			case "/v0/health":
+			case "/v1/health":
 				e := newEnv(t, nil)
 				m := decodeMap(t, unhex(t, ex.ResponseHex))
 				info := edictaapi.HealthInfo{Status: m[1].(uint64), ChainID: m[2].(string), HeadHeight: m[3].(uint64),
@@ -419,10 +421,10 @@ func TestVectorExamples(t *testing.T) {
 					info.AllowedDA = append(info.AllowedDA, d.(uint64))
 				}
 				e.health.info = info
-				rec := e.do(http.MethodGet, "/v0/health", "", nil)
+				rec := e.do(http.MethodGet, "/v1/health", "", nil)
 				require.Equal(t, 200, rec.Code)
 				require.Equal(t, unhex(t, ex.ResponseHex), rec.Body.Bytes())
-			case "/v0/publish":
+			case "/v1/publish":
 				e := newEnv(t, nil)
 				switch ex.ID {
 				case "publish_wrong_media_type":

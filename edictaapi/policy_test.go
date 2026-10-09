@@ -34,7 +34,7 @@ func TestPolicyErrorMapping(t *testing.T) {
 			ce.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
 				return gate.Result{PolicyVerdict: []byte("verdict")}, c.err
 			}
-			_, _, err := ce.client.AuthorizeWithVerdict(ctx, []byte("e"), []byte("a"))
+			_, _, err := ce.client.AuthorizeWithVerdict(ctx, []byte("e"), []byte("a"), testSalt)
 			var ae *edictaapi.Error
 			require.ErrorAs(t, err, &ae)
 			require.Equal(t, c.status, ae.Status)
@@ -54,11 +54,11 @@ func TestAuthorizeResponseCarriesTheVerdict(t *testing.T) {
 	ce.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
 		return gate.Result{Authorization: []byte("auth"), PolicyVerdict: []byte("verdict")}, nil
 	}
-	auth, verdict, err := ce.client.AuthorizeWithVerdict(context.Background(), []byte("e"), []byte("a"))
+	auth, verdict, err := ce.client.AuthorizeWithVerdict(context.Background(), []byte("e"), []byte("a"), testSalt)
 	require.NoError(t, err)
 	require.Equal(t, []byte("auth"), auth)
 	require.Equal(t, []byte("verdict"), verdict)
-	auth, err = ce.client.Authorize(context.Background(), []byte("e"), []byte("a"))
+	auth, err = ce.client.Authorize(context.Background(), []byte("e"), []byte("a"), testSalt)
 	require.NoError(t, err)
 	require.Equal(t, []byte("auth"), auth)
 }

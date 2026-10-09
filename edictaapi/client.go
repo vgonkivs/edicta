@@ -158,7 +158,7 @@ func (c *Client) Publish(ctx context.Context, blob []byte) (sdk.Published, error
 	if err != nil {
 		return sdk.Published{}, err
 	}
-	out, err := c.do(ctx, http.MethodPost, "/v0/publish", body)
+	out, err := c.do(ctx, http.MethodPost, "/v1/publish", body)
 	if err != nil {
 		return sdk.Published{}, err
 	}
@@ -195,23 +195,23 @@ var (
 
 // Authorize returns the SignedAuthorization bytes. On ErrNonceUsed the
 // *Error may carry the stored one in Stored; verify it like any Authorization.
-func (c *Client) Authorize(ctx context.Context, envelope, action []byte) ([]byte, error) {
-	auth, _, err := c.AuthorizeWithVerdict(ctx, envelope, action)
+func (c *Client) Authorize(ctx context.Context, envelope, action, salt []byte) ([]byte, error) {
+	auth, _, err := c.AuthorizeWithVerdict(ctx, envelope, action, salt)
 	return auth, err
 }
 
 // AuthorizeWithVerdict is Authorize that also returns the signed policy
 // verdict, nil when the gate has no mandate. On a policy deny the *Error
 // carries the deny verdict in PolicyVerdict.
-func (c *Client) AuthorizeWithVerdict(ctx context.Context, envelope, action []byte) (auth, verdict []byte, err error) {
-	body := encodeMap(kv{key: 1, kind: fBytes, b: envelope}, kv{key: 2, kind: fBytes, b: action})
-	out, err := c.do(ctx, http.MethodPost, "/v0/authorize", body)
+func (c *Client) AuthorizeWithVerdict(ctx context.Context, envelope, action, salt []byte) (auth, verdict []byte, err error) {
+	body := encodeMap(kv{key: 1, kind: fBytes, b: envelope}, kv{key: 2, kind: fBytes, b: action}, kv{key: 3, kind: fBytes, b: salt})
+	out, err := c.do(ctx, http.MethodPost, "/v1/authorize", body)
 	if err != nil {
 		return nil, nil, err
 	}
 	f, err := decodeFields(out, authorizeResponseSchema)
 	if err != nil {
-		return nil, nil, fmt.Errorf("edictaapi: /v0/authorize response: %w", err)
+		return nil, nil, fmt.Errorf("edictaapi: /v1/authorize response: %w", err)
 	}
 	if n := f[5]; n != nil {
 		verdict = bytes.Clone(n.b)
@@ -228,7 +228,7 @@ func (c *Client) Record(ctx context.Context, envelope []byte, railRef string, pu
 		kv{key: 3, kind: fBytes, b: pub},
 		kv{key: 4, kind: fBytes, b: sig},
 	)
-	return c.single(ctx, "/v0/record", body)
+	return c.single(ctx, "/v1/record", body)
 }
 
 func (c *Client) single(ctx context.Context, path string, body []byte) ([]byte, error) {
@@ -246,7 +246,7 @@ func (c *Client) single(ctx context.Context, path string, body []byte) ([]byte, 
 // Health returns the server's health. Treat it as information, not as trusted
 // configuration.
 func (c *Client) Health(ctx context.Context) (HealthInfo, error) {
-	out, err := c.do(ctx, http.MethodGet, "/v0/health", nil)
+	out, err := c.do(ctx, http.MethodGet, "/v1/health", nil)
 	if err != nil {
 		return HealthInfo{}, err
 	}

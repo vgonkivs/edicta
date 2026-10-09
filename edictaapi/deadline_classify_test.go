@@ -26,7 +26,7 @@ func TestRecorderErrorsWrappingADeadlineAreNot504(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			e := newEnv(t, map[string]string{"agent-a": pubHex})
 			e.pub.err = c.err
-			requireErr(t, e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("a"))), 503, c.code, true)
+			requireErr(t, e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("a"))), 503, c.code, true)
 		})
 	}
 }
@@ -41,7 +41,7 @@ func TestOnlyTheHandlersOwnDeadlineIs504(t *testing.T) {
 		return sdk.Published{}, ctx.Err()
 	}
 	e.h = edictaapi.NewHandler(e.gate, e.pub, e.allow, e.quota, e.health, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	requireErr(t, e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("a"))), 504, "edictaapi.ErrDeadline", true)
+	requireErr(t, e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("a"))), 504, "edictaapi.ErrDeadline", true)
 }
 
 func TestPublishHasItsOwnDeadline(t *testing.T) {
@@ -55,6 +55,6 @@ func TestPublishHasItsOwnDeadline(t *testing.T) {
 		return sdk.Published{}, ctx.Err()
 	}
 	e.h = edictaapi.NewHandler(e.gate, e.pub, e.allow, e.quota, e.health, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	rec := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("a")))
+	rec := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("a")))
 	assert.NotEqual(t, 504, rec.Code, "the request deadline does not apply to publish")
 }

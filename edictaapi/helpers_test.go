@@ -183,6 +183,7 @@ type fakeGate struct {
 	recCalls   int
 	lastEnv    []byte
 	lastAction []byte
+	lastSalt   []byte
 	lastRef    string
 	lastPub    []byte
 	lastSig    []byte
@@ -190,10 +191,11 @@ type fakeGate struct {
 	recFn      func(ctx context.Context, env []byte, ref string, pub, sig []byte) ([]byte, error)
 }
 
-func (g *fakeGate) Authorize(ctx context.Context, env, action []byte) (gate.Result, error) {
+func (g *fakeGate) Authorize(ctx context.Context, env, action, salt []byte) (gate.Result, error) {
 	g.mu.Lock()
 	g.authCalls++
 	g.lastEnv, g.lastAction = append([]byte(nil), env...), append([]byte(nil), action...)
+	g.lastSalt = append([]byte(nil), salt...)
 	fn := g.authFn
 	g.mu.Unlock()
 	if fn == nil {
@@ -521,7 +523,7 @@ var sentinels = map[string]error{
 	"ErrRegistryUnavailable": gate.ErrRegistryUnavailable, "ErrClockRegression": gate.ErrClockRegression,
 	"ErrPayloadAboveCap": gate.ErrPayloadAboveCap, "ErrArchiveUnavailable": gate.ErrArchiveUnavailable,
 	"ErrClosed": gate.ErrClosed, "edictaapi.ErrDeadline": edictaapi.ErrDeadline, "edictaapi.ErrInternal": edictaapi.ErrInternal,
-	"ErrVersionNotAccepted": gate.ErrVersionNotAccepted, "ErrAnchorPending": gate.ErrAnchorPending,
+	"ErrAnchorPending": gate.ErrAnchorPending,
 	"ErrNamespaceNotAllowed": gate.ErrNamespaceNotAllowed, "ErrMandateRefMissing": gate.ErrMandateRefMissing,
 	"ErrMandateMismatch": gate.ErrMandateMismatch, "ErrH0TooOld": gate.ErrH0TooOld,
 	"ErrAnchorWindowClosed": gate.ErrAnchorWindowClosed, "ErrAnchorIntentInvalid": gate.ErrAnchorIntentInvalid,

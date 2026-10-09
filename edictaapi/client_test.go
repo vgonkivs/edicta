@@ -75,7 +75,7 @@ func TestClientRoundTrips(t *testing.T) {
 	ce.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
 		return gate.Result{Authorization: []byte("auth-bytes")}, nil
 	}
-	auth, err := ce.client.Authorize(ctx, []byte("env"), []byte("act"))
+	auth, err := ce.client.Authorize(ctx, []byte("env"), []byte("act"), testSalt)
 	require.NoError(t, err)
 	require.Equal(t, []byte("auth-bytes"), auth)
 	require.Equal(t, []byte("env"), ce.gate.lastEnv)
@@ -118,13 +118,13 @@ func TestClientErrorsMapToSentinels(t *testing.T) {
 			}
 			var err error
 			switch {
-			case contains(row.Endpoints, "/v0/authorize"):
+			case contains(row.Endpoints, "/v1/authorize"):
 				ce.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) { return gate.Result{}, injected }
-				_, err = ce.client.Authorize(ctx, []byte("e"), []byte("a"))
-			case contains(row.Endpoints, "/v0/record"):
+				_, err = ce.client.Authorize(ctx, []byte("e"), []byte("a"), testSalt)
+			case contains(row.Endpoints, "/v1/record"):
 				ce.gate.recFn = func(context.Context, []byte, string, []byte, []byte) ([]byte, error) { return nil, injected }
 				_, err = ce.client.Record(ctx, []byte("e"), "r", make([]byte, 32), make([]byte, 64))
-			case contains(row.Endpoints, "/v0/publish"):
+			case contains(row.Endpoints, "/v1/publish"):
 				ce.pub.err = injected
 				_, err = ce.client.Publish(ctx, []byte("blob"))
 			default:
@@ -157,7 +157,7 @@ func contains(xs []string, s string) bool {
 func TestClientAnchorTooOldAlsoMatchesPayloadUnavailable(t *testing.T) {
 	ce := newClientEnv(t)
 	ce.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) { return gate.Result{}, gate.ErrAnchorTooOld }
-	_, err := ce.client.Authorize(context.Background(), []byte("e"), []byte("a"))
+	_, err := ce.client.Authorize(context.Background(), []byte("e"), []byte("a"), testSalt)
 	require.ErrorIs(t, err, gate.ErrAnchorTooOld)
 	var ae *edictaapi.Error
 	require.ErrorAs(t, err, &ae)
@@ -170,7 +170,7 @@ func TestClientStoredOn409(t *testing.T) {
 	ce.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
 		return gate.Result{Authorization: []byte("stored-auth")}, gate.ErrNonceUsed
 	}
-	_, err := ce.client.Authorize(context.Background(), []byte("e"), []byte("a"))
+	_, err := ce.client.Authorize(context.Background(), []byte("e"), []byte("a"), testSalt)
 	require.ErrorIs(t, err, gate.ErrNonceUsed)
 	var ae *edictaapi.Error
 	require.ErrorAs(t, err, &ae)
@@ -280,7 +280,7 @@ func rawClient(t *testing.T, rs *rawServer, opts ...edictaapi.ClientOption) (*ed
 func TestClientDoesNotRetryByDefault(t *testing.T) {
 	rs := newRaw(t, rawResp{status: 503, code: "ErrChainUnavailable", retryable: true}, authOK(t))
 	c, _ := rawClient(t, rs)
-	_, err := c.Authorize(context.Background(), []byte("e"), []byte("a"))
+	_, err := c.Authorize(context.Background(), []byte("e"), []byte("a"), testSalt)
 	require.ErrorIs(t, err, gate.ErrChainUnavailable)
 	require.Equal(t, 1, rs.n())
 	require.Equal(t, []string{cborType}, rs.ctypes)
@@ -300,7 +300,7 @@ func TestClientRetriesOnlyRetryableStatuses(t *testing.T) {
 			rs := newRaw(t, rawResp{status: int(u64(t, status)), code: row.Code, retryable: row.Retryable == "1"}, authOK(t))
 			w := &waits{}
 			c, _ := rawClient(t, rs, edictaapi.WithRetry(3, w.fn))
-			out, err := c.Authorize(context.Background(), []byte("e"), []byte("a"))
+			out, err := c.Authorize(context.Background(), []byte("e"), []byte("a"), testSalt)
 			if row.Retryable == "1" {
 				require.NoError(t, err)
 				require.Equal(t, []byte("auth"), out)
@@ -320,7 +320,7 @@ func TestClientRetryBudgetAndRetryAfter(t *testing.T) {
 	rs := newRaw(t, rawResp{status: 429, code: "edictaapi.ErrQuotaExceeded", retryable: true, retryAfter: "7"})
 	w := &waits{}
 	c, _ := rawClient(t, rs, edictaapi.WithRetry(3, w.fn))
-	_, err := c.Authorize(context.Background(), []byte("e"), []byte("a"))
+	_, err := c.Authorize(context.Background(), []byte("e"), []byte("a"), testSalt)
 	require.ErrorIs(t, err, edictaapi.ErrQuotaExceeded)
 	require.Equal(t, 3, rs.n(), "maxAttempts is the total number of requests")
 	require.Equal(t, []int{1, 2}, w.attempts)
@@ -332,7 +332,7 @@ func TestClientRetryStopsWhenWaitFails(t *testing.T) {
 	rs := newRaw(t, rawResp{status: 503, code: "ErrChainUnavailable", retryable: true}, authOK(t))
 	w := &waits{err: context.Canceled}
 	c, _ := rawClient(t, rs, edictaapi.WithRetry(5, w.fn))
-	_, err := c.Authorize(context.Background(), []byte("e"), []byte("a"))
+	_, err := c.Authorize(context.Background(), []byte("e"), []byte("a"), testSalt)
 	require.ErrorIs(t, err, context.Canceled)
 	require.Equal(t, 1, rs.n())
 }
@@ -355,7 +355,7 @@ func TestClientPublishRetryResendsSameSignedRequest(t *testing.T) {
 func TestClientUnknownCodeIsInternal(t *testing.T) {
 	rs := newRaw(t, rawResp{status: 418, code: "weird.ErrNew"})
 	c, _ := rawClient(t, rs)
-	_, err := c.Authorize(context.Background(), []byte("e"), []byte("a"))
+	_, err := c.Authorize(context.Background(), []byte("e"), []byte("a"), testSalt)
 	require.ErrorIs(t, err, edictaapi.ErrInternal)
 }
 
@@ -375,7 +375,7 @@ func TestClientBareDeadlineIsInternal(t *testing.T) {
 	ce.gate.authFn = func(context.Context, []byte, []byte) (gate.Result, error) {
 		return gate.Result{}, context.DeadlineExceeded
 	}
-	_, err := ce.client.Authorize(context.Background(), []byte("e"), []byte("a"))
+	_, err := ce.client.Authorize(context.Background(), []byte("e"), []byte("a"), testSalt)
 	var ae *edictaapi.Error
 	require.ErrorAs(t, err, &ae)
 	require.Equal(t, 500, ae.Status)

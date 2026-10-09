@@ -57,7 +57,7 @@ func FuzzPublishHandler(f *testing.F) {
 	f.Fuzz(func(t *testing.T, b []byte) {
 		e := newEnv(t, nil)
 		e.pub.result, _ = testRef(t)
-		rec := e.post("/v0/publish", b)
+		rec := e.post("/v1/publish", b)
 		require.NotEqual(t, http.StatusInternalServerError, rec.Code, "%x", b)
 		if rec.Code != 200 {
 			parseErr(t, rec.Body.Bytes())

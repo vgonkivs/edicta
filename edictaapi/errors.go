@@ -112,7 +112,6 @@ var table = []ErrorRule{
 	rule(403, "policy.ErrPeriodLimit", policy.ErrPeriodLimit),
 	rule(403, "policy.ErrCountLimit", policy.ErrCountLimit),
 	rule(403, "policy.ErrHistoryFull", policy.ErrHistoryFull),
-	rule(403, "ErrVersionNotAccepted", gate.ErrVersionNotAccepted),
 	rule(403, "ErrAnchorPending", gate.ErrAnchorPending),
 	rule(403, "ErrNamespaceNotAllowed", gate.ErrNamespaceNotAllowed),
 	rule(403, "ErrMandateRefMissing", gate.ErrMandateRefMissing),

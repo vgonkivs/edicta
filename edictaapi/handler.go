@@ -23,7 +23,8 @@ import (
 
 const (
 	contentType    = "application/cbor"
-	authorizeLimit = 2176 + 65536 + 24 // section 18.2
+	// The envelope, the action and the salt with their wrapper heads.
+	authorizeLimit = 2176 + 65536 + 35 + 24
 	recordLimit    = 2560
 	// maxResponse bounds what the client reads from a server.
 	maxResponse = 1 << 20
@@ -31,11 +32,11 @@ const (
 
 // Gate is the gate operations the handler serves.
 type Gate interface {
-	Authorize(ctx context.Context, envelope, action []byte) (gate.Result, error)
+	Authorize(ctx context.Context, envelope, action, salt []byte) (gate.Result, error)
 	Record(ctx context.Context, envelope []byte, railRef string, execPub, execSig []byte) ([]byte, error)
 }
 
-// Health reports the state served at GET /v0/health.
+// Health reports the state served at GET /v1/health.
 type Health interface {
 	Health(ctx context.Context) (HealthInfo, error)
 }
@@ -58,7 +59,7 @@ type HandlerConfig struct {
 	// RequestTimeout bounds each request; expiry is reported as ErrDeadline.
 	// Zero means no timeout beyond the request context.
 	RequestTimeout time.Duration
-	// PublishTimeout, when set, replaces RequestTimeout for /v0/publish: a
+	// PublishTimeout, when set, replaces RequestTimeout for /v1/publish: a
 	// publish waits on a network upload that can outlast an authorization.
 	PublishTimeout time.Duration
 }
@@ -76,7 +77,7 @@ type handler struct {
 }
 
 // NewHandler returns the HTTP handler of section 18. p may be nil: publishing
-// is then disabled and /v0/publish answers 404 ErrPublishDisabled.
+// is then disabled and /v1/publish answers 404 ErrPublishDisabled.
 func NewHandler(g Gate, p sdk.Publisher, al gate.Allowlist, q Quota, h Health, cfg HandlerConfig, log *slog.Logger) http.Handler {
 	if log == nil {
 		log = slog.Default()
@@ -136,16 +137,16 @@ func (h *handler) serve(r *http.Request) (res response) {
 	var limit uint64
 	method := http.MethodPost
 	switch r.URL.Path {
-	case "/v0/publish":
+	case "/v1/publish":
 		if h.p == nil {
 			return h.fail(r, ErrPublishDisabled, nil)
 		}
 		limit = h.cfg.MaxBlobBytes + requestOverhead
-	case "/v0/authorize", "/v1/authorize":
+	case "/v1/authorize":
 		limit = authorizeLimit
-	case "/v0/record":
+	case "/v1/record":
 		limit = recordLimit
-	case "/v0/health":
+	case "/v1/health":
 		method = http.MethodGet
 	default:
 		return h.fail(r, ErrRouteNotFound, nil)
@@ -158,7 +159,7 @@ func (h *handler) serve(r *http.Request) (res response) {
 
 	ctx := r.Context()
 	timeout := h.cfg.RequestTimeout
-	if r.URL.Path == "/v0/publish" && h.cfg.PublishTimeout > 0 {
+	if r.URL.Path == "/v1/publish" && h.cfg.PublishTimeout > 0 {
 		timeout = h.cfg.PublishTimeout
 	}
 	if timeout > 0 {
@@ -185,11 +186,11 @@ func (h *handler) serve(r *http.Request) (res response) {
 	var out []byte
 	var stored, verdict []byte
 	switch r.URL.Path {
-	case "/v0/publish":
+	case "/v1/publish":
 		out, err = h.publish(ctx, body)
-	case "/v0/authorize", "/v1/authorize":
+	case "/v1/authorize":
 		out, stored, verdict, err = h.authorize(ctx, body)
-	case "/v0/record":
+	case "/v1/record":
 		out, stored, err = h.record(ctx, body)
 	}
 	if err != nil {
@@ -282,6 +283,7 @@ var (
 	authorizeSchema = []fspec{
 		{key: 1, name: "envelope", kind: fBytes, max: unbounded, required: true},
 		{key: 2, name: "action", kind: fBytes, max: unbounded, required: true},
+		{key: 3, name: "action_salt", kind: fBytes, min: commitment.ActionSaltSize, max: commitment.ActionSaltSize, required: true},
 	}
 	recordSchema = []fspec{
 		{key: 1, name: "envelope", kind: fBytes, max: unbounded, required: true},
@@ -296,7 +298,7 @@ func (h *handler) authorize(ctx context.Context, body []byte) (out, stored, verd
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	res, err := h.g.Authorize(ctx, f[1].b, f[2].b)
+	res, err := h.g.Authorize(ctx, f[1].b, f[2].b, f[3].b)
 	if err != nil {
 		return nil, res.Authorization, res.PolicyVerdict, err
 	}

@@ -97,7 +97,7 @@ func TestPublishAcceptedVectors(t *testing.T) {
 			var want []byte
 			e.pub.result, want = testRef(t)
 			blob := c.blob(t)
-			rec := e.post("/v0/publish", c.request(t))
+			rec := e.post("/v1/publish", c.request(t))
 			require.Equal(t, 200, rec.Code, "%x", rec.Body.Bytes())
 			require.Equal(t, cborType, rec.Header().Get("Content-Type"))
 			require.Equal(t, want, rec.Body.Bytes())
@@ -123,7 +123,7 @@ func TestPublishRejectVectors(t *testing.T) {
 				e.rebuild()
 			}
 			status, retry := statusOf(t, c.Expect)
-			requireErr(t, e.post("/v0/publish", c.request(t)), status, c.Expect, retry)
+			requireErr(t, e.post("/v1/publish", c.request(t)), status, c.Expect, retry)
 			require.Zero(t, e.pub.count(), "nothing is submitted")
 			require.Zero(t, e.fq.count(), "nothing is charged")
 		})
@@ -171,8 +171,8 @@ func TestPublishUnknownAgentEqualsBadSignature(t *testing.T) {
 	other, _ := testKey(2)
 	e := newEnv(t, map[string]string{"agent-a": pubHex})
 	blob := []byte("some blob")
-	unknown := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-zzz", sk, nowVec, blob))
-	badSig := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", other, nowVec, blob))
+	unknown := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-zzz", sk, nowVec, blob))
+	badSig := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", other, nowVec, blob))
 	requireErr(t, unknown, 401, "edictaapi.ErrPublishSignature", false)
 	requireErr(t, badSig, 401, "edictaapi.ErrPublishSignature", false)
 	require.Equal(t, unknown.Body.Bytes(), badSig.Body.Bytes(), "no allowlist oracle: identical bodies")
@@ -183,9 +183,9 @@ func TestPublishUnknownAgentEqualsBadSignature(t *testing.T) {
 func TestPublishSignatureBoundToServerGateID(t *testing.T) {
 	sk, pubHex := testKey(1)
 	e := newEnv(t, map[string]string{"agent-a": pubHex})
-	rec := e.post("/v0/publish", signedPublish(t, "other-gate", "agent-a", sk, nowVec, []byte("b")))
+	rec := e.post("/v1/publish", signedPublish(t, "other-gate", "agent-a", sk, nowVec, []byte("b")))
 	requireErr(t, rec, 401, "edictaapi.ErrPublishSignature", false)
-	rec = e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("b")))
+	rec = e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("b")))
 	require.Equal(t, 200, rec.Code)
 }
 
@@ -194,7 +194,7 @@ func TestPublishGateKeyAsAgentKeyRefused(t *testing.T) {
 	e := newEnv(t, map[string]string{"agent-g": pubHex})
 	e.cfg.GateKeys = append(e.cfg.GateKeys, sk.Public().(ed25519.PublicKey))
 	e.rebuild()
-	rec := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-g", sk, nowVec, []byte("b")))
+	rec := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-g", sk, nowVec, []byte("b")))
 	requireErr(t, rec, 403, "ErrAgentKeyIsGateKey", false)
 	require.Zero(t, e.pub.count())
 	require.Zero(t, e.fq.count())
@@ -218,7 +218,7 @@ func TestPublishStaleWindow(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			e := newEnv(t, map[string]string{"agent-a": pubHex})
-			rec := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, c.at, []byte("blob")))
+			rec := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, c.at, []byte("blob")))
 			if c.ok {
 				require.Equal(t, 200, rec.Code)
 				return
@@ -231,7 +231,7 @@ func TestPublishStaleWindow(t *testing.T) {
 	t.Run("stale precedes quota", func(t *testing.T) {
 		e := newEnv(t, map[string]string{"agent-a": pubHex})
 		e.fq.err = edictaapi.ErrQuotaExceeded
-		rec := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec-w-1, []byte("b")))
+		rec := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec-w-1, []byte("b")))
 		requireErr(t, rec, 410, "edictaapi.ErrPublishStale", false)
 	})
 }
@@ -243,12 +243,12 @@ func TestPublishDedupeByBlobHash(t *testing.T) {
 	e.pub.result, _ = testRef(t)
 	blob := []byte("one blob, many requests")
 
-	first := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec, blob))
+	first := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec, blob))
 	require.Equal(t, 200, first.Code)
-	retry := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec+5, blob))
+	retry := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec+5, blob))
 	require.Equal(t, 200, retry.Code)
 	require.Equal(t, first.Body.Bytes(), retry.Body.Bytes(), "same payload_ref, block_time, retention_start")
-	other := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-b", skB, nowVec+6, blob))
+	other := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-b", skB, nowVec+6, blob))
 	require.Equal(t, 200, other.Code)
 	require.Equal(t, first.Body.Bytes(), other.Body.Bytes(), "two agents, same bytes, same ref")
 	require.Equal(t, 1, e.pub.count(), "submitted once")
@@ -257,14 +257,14 @@ func TestPublishDedupeByBlobHash(t *testing.T) {
 	// Entries live at least 2*(skew+300) after publication.
 	e.clock.Advance(2 * window)
 	now := nowVec + uint64(2*window/time.Second)
-	again := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", skA, now, blob))
+	again := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", skA, now, blob))
 	require.Equal(t, 200, again.Code)
 	require.Equal(t, first.Body.Bytes(), again.Body.Bytes())
 	require.Equal(t, 1, e.pub.count())
 	require.Equal(t, 1, e.fq.count())
 
 	// A different blob is a different publication and is charged.
-	e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", skA, now, []byte("a different blob")))
+	e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", skA, now, []byte("a different blob")))
 	require.Equal(t, 2, e.pub.count())
 	require.Equal(t, 2, e.fq.count())
 }
@@ -275,11 +275,11 @@ func TestPublishFailureIsNotRemembered(t *testing.T) {
 	e.pub.result, _ = testRef(t)
 	e.pub.err = gate.ErrChainUnavailable
 	blob := []byte("blob")
-	requireErr(t, e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, blob)), 503, "ErrChainUnavailable", true)
+	requireErr(t, e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, blob)), 503, "ErrChainUnavailable", true)
 	e.pub.mu.Lock()
 	e.pub.err = nil
 	e.pub.mu.Unlock()
-	rec := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec+1, blob))
+	rec := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec+1, blob))
 	require.Equal(t, 200, rec.Code)
 	require.Equal(t, 2, e.pub.count())
 }
@@ -303,7 +303,7 @@ func TestPublishConcurrentSameBlobSubmitsOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	fire := func(i int) {
 		defer wg.Done()
-		rec := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec+uint64(i), blob))
+		rec := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec+uint64(i), blob))
 		out <- res{rec.Code, rec.Body.Bytes()}
 	}
 	wg.Add(1)
@@ -332,7 +332,7 @@ func TestPublishConcurrentSameBlobSubmitsOnce(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, e.pub.count())
-	final := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec+9, blob))
+	final := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec+9, blob))
 	require.Equal(t, 200, final.Code)
 	require.Equal(t, 1, e.pub.count())
 }
@@ -344,30 +344,30 @@ func TestPublishQuotas(t *testing.T) {
 	t.Run("blobs per hour", func(t *testing.T) {
 		e := newEnv(t, allow, withRealQuota(edictaapi.QuotaConfig{BlobsPerHour: 2, BytesPerDay: 1 << 20}))
 		for i := 0; i < 2; i++ {
-			rec := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec, []byte("blob"+strconv.Itoa(i))))
+			rec := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec, []byte("blob"+strconv.Itoa(i))))
 			require.Equal(t, 200, rec.Code)
 		}
-		rec := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec, []byte("blob-3")))
+		rec := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec, []byte("blob-3")))
 		requireErr(t, rec, 429, "edictaapi.ErrQuotaExceeded", true)
 		n, err := strconv.Atoi(rec.Header().Get("Retry-After"))
 		require.NoError(t, err)
 		require.Positive(t, n)
 		require.Equal(t, 2, e.pub.count(), "no fee is spent over quota")
 		// Quotas are per agent.
-		rec = e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-b", skB, nowVec, []byte("blob-b")))
+		rec = e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-b", skB, nowVec, []byte("blob-b")))
 		require.Equal(t, 200, rec.Code)
 		// A deduplicated request over quota is still answered: it spends nothing.
-		rec = e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec+1, []byte("blob0")))
+		rec = e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec+1, []byte("blob0")))
 		require.Equal(t, 200, rec.Code)
 		// After the window tokens return.
 		e.clock.Advance(time.Hour)
-		rec = e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec+3600, []byte("blob-4")))
+		rec = e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec+3600, []byte("blob-4")))
 		require.Equal(t, 200, rec.Code)
 	})
 	t.Run("bytes per day", func(t *testing.T) {
 		e := newEnv(t, allow, withRealQuota(edictaapi.QuotaConfig{BlobsPerHour: 100, BytesPerDay: 10}))
-		require.Equal(t, 200, e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec, []byte("12345678"))).Code)
-		rec := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec, []byte("abcdefgh")))
+		require.Equal(t, 200, e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec, []byte("12345678"))).Code)
+		rec := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", skA, nowVec, []byte("abcdefgh")))
 		requireErr(t, rec, 429, "edictaapi.ErrQuotaExceeded", true)
 		require.Equal(t, 1, e.pub.count())
 	})
@@ -375,7 +375,7 @@ func TestPublishQuotas(t *testing.T) {
 		e := newEnv(t, allow)
 		e.fq.err = edictaapi.ErrQuotaExceeded
 		// bad signature: 401, not 429, and the quota is never consulted
-		rec := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", skB, nowVec, []byte("b")))
+		rec := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", skB, nowVec, []byte("b")))
 		requireErr(t, rec, 401, "edictaapi.ErrPublishSignature", false)
 		require.Zero(t, e.fq.count())
 	})
@@ -385,11 +385,11 @@ func TestPublisherErrorsAreMapped(t *testing.T) {
 	sk, pubHex := testKey(1)
 	e := newEnv(t, map[string]string{"agent-a": pubHex})
 	e.pub.err = errRecOutcomeUnk
-	requireErr(t, e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("a"))), 503, "recorder.ErrOutcomeUnknown", true)
+	requireErr(t, e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("a"))), 503, "recorder.ErrOutcomeUnknown", true)
 	e.pub.err = errRecTooLarge
-	requireErr(t, e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("b"))), 413, "recorder.ErrTooLarge", false)
+	requireErr(t, e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("b"))), 413, "recorder.ErrTooLarge", false)
 	e.pub.err = errors.New("secret-detail")
-	rec := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("c")))
+	rec := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("c")))
 	eb := requireErr(t, rec, 500, "edictaapi.ErrInternal", false)
 	require.NotContains(t, eb.Message, "secret-detail")
 }
@@ -400,18 +400,18 @@ func TestPublishBlobAtLimit(t *testing.T) {
 	e.cfg.MaxBlobBytes = 64
 	e.rebuild()
 	e.pub.result, _ = testRef(t)
-	require.Equal(t, 200, e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, make([]byte, 64))).Code)
-	requireErr(t, e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, make([]byte, 65))), 413, "ErrTooLarge", false)
+	require.Equal(t, 200, e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, make([]byte, 64))).Code)
+	requireErr(t, e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, make([]byte, 65))), 413, "ErrTooLarge", false)
 }
 
 func TestPublishInvalidRefFromRecorderIsInternal(t *testing.T) {
 	sk, pubHex := testKey(1)
 	e := newEnv(t, map[string]string{"agent-a": pubHex})
 	e.pub.result.Ref.Commitment = e.pub.result.Ref.Commitment[:31] // invalid ref: never served
-	rec := e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("blob")))
+	rec := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("blob")))
 	eb := requireErr(t, rec, 500, "edictaapi.ErrInternal", false)
 	require.NotContains(t, eb.Message, "commitment")
 	e.pub.result = sdk.Published{}
-	rec = e.post("/v0/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("blob2")))
+	rec = e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("blob2")))
 	requireErr(t, rec, 500, "edictaapi.ErrInternal", false)
 }

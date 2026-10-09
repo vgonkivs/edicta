@@ -9,7 +9,7 @@ import (
 )
 
 // TagPublishRequest is the domain tag of the publish message (section 17.1).
-const TagPublishRequest = "edicta/v0/publish-request"
+const TagPublishRequest = "edicta/v1/publish-request"
 
 const (
 	maxUint63 = uint64(1)<<63 - 1
@@ -17,7 +17,7 @@ const (
 	requestOverhead = 256
 )
 
-// PublishRequest is the decoded body of POST /v0/publish.
+// PublishRequest is the decoded body of POST /v1/publish.
 type PublishRequest struct {
 	Blob        []byte // aliases the decoded input
 	AgentID     string
