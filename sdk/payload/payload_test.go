@@ -22,7 +22,7 @@ func requireOnly(t *testing.T, err, want error) {
 }
 
 func TestConstants(t *testing.T) {
-	assert.EqualValues(t, 0, payload.Version)
+	assert.EqualValues(t, 1, payload.Version)
 }
 
 // Every valid vector: Encode gives the spec plaintext byte for byte, Decode
@@ -62,13 +62,15 @@ func TestActionEncodesAsTypeAndData(t *testing.T) {
 
 			var act map[uint64]any
 			require.NoError(t, cbor.Unmarshal(m[5], &act))
-			assert.Len(t, act, 2)
+			assert.Len(t, act, 3)
 			assert.Equal(t, c.ActionType, act[3])
 			assert.Equal(t, c.Action, act[4])
+			assert.Equal(t, c.ActionSalt, act[5])
 			assert.Equal(t, c.ActionType, c.Payload.Action.Type)
 			assert.Equal(t, c.Action, c.Payload.Action.Data)
+			assert.Equal(t, c.ActionSalt, c.Payload.Action.Salt)
 
-			h, err := commitment.ActionHash(c.Payload.Action.Type, c.Payload.Action.Data)
+			h, err := commitment.ActionHash(c.Payload.Action.Type, c.Payload.Action.Salt, c.Payload.Action.Data)
 			require.NoError(t, err)
 			assert.Equal(t, c.ActionHash, h)
 		})
@@ -87,7 +89,7 @@ func TestPayloadShape(t *testing.T) {
 		return out
 	}
 	assert.ElementsMatch(t, []string{"Version", "Model", "Policy", "Context", "Action", "Metadata"}, names(payload.Payload{}))
-	assert.ElementsMatch(t, []string{"Type", "Data"}, names(payload.Action{}))
+	assert.ElementsMatch(t, []string{"Type", "Data", "Salt"}, names(payload.Action{}))
 }
 
 // The plaintext-stage vectors that name a payload sentinel, decoded after the
@@ -222,7 +224,11 @@ func TestDecodeRejects(t *testing.T) {
 		{"truncated", base[:len(base)-1], payload.ErrMalformed},
 		{"trailing byte", append(append([]byte{}, base...), 0x00), payload.ErrMalformed},
 		{"non-minimal map head", append([]byte{0xb8, 0x07}, base[1:]...), payload.ErrMalformed},
-		{"version 1", mut(func(m map[uint64]any) { m[1] = uint64(1) }), payload.ErrVersion},
+		{"version 0", mut(func(m map[uint64]any) { m[1] = uint64(0) }), payload.ErrVersion},
+		{"version 2", mut(func(m map[uint64]any) { m[1] = uint64(2) }), payload.ErrVersion},
+		{"action salt missing", mut(func(m map[uint64]any) { delete(sub(m, 5), 5) }), payload.ErrMalformed},
+		{"action salt 31 bytes", mut(func(m map[uint64]any) { sub(m, 5)[5] = make([]byte, 31) }), payload.ErrMalformed},
+		{"action salt text", mut(func(m map[uint64]any) { sub(m, 5)[5] = string(make([]byte, 32)) }), payload.ErrMalformed},
 		{"version 2", mut(func(m map[uint64]any) { m[1] = uint64(2) }), payload.ErrVersion},
 		{"version float", mut(func(m map[uint64]any) { m[1] = float64(0) }), payload.ErrMalformed},
 		{"version text", mut(func(m map[uint64]any) { m[1] = "0" }), payload.ErrMalformed},
@@ -332,7 +338,9 @@ func TestEncodeRejects(t *testing.T) {
 		mod  func(p *payload.Payload)
 		want error
 	}{
-		{"version 1", func(p *payload.Payload) { p.Version = 1 }, payload.ErrVersion},
+		{"version 0", func(p *payload.Payload) { p.Version = 0 }, payload.ErrVersion},
+		{"action salt missing", func(p *payload.Payload) { p.Action.Salt = nil }, payload.ErrMalformed},
+		{"action salt 33 bytes", func(p *payload.Payload) { p.Action.Salt = make([]byte, 33) }, payload.ErrMalformed},
 		{"model id empty", func(p *payload.Payload) { p.Model.ID = "" }, payload.ErrMalformed},
 		{"model id 129", func(p *payload.Payload) { p.Model.ID = strings.Repeat("a", 129) }, payload.ErrMalformed},
 		{"model id non-ascii", func(p *payload.Payload) { p.Model.ID = "mé" }, payload.ErrMalformed},
@@ -382,7 +390,7 @@ func TestEncodeAcceptsActionLimits(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := sdkfix.ClonePayload(v.Cases[0].Payload)
-			p.Action = payload.Action{Type: tt.typ, Data: tt.data}
+			p.Action = payload.Action{Type: tt.typ, Data: tt.data, Salt: make([]byte, commitment.ActionSaltSize)}
 			b, err := payload.Encode(p)
 			require.NoError(t, err)
 			d, err := payload.Decode(b)

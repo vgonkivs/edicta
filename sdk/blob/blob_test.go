@@ -24,7 +24,7 @@ func requireOnly(t *testing.T, err, want error) {
 }
 
 func TestConstants(t *testing.T) {
-	assert.EqualValues(t, 0, blob.Version)
+	assert.EqualValues(t, 1, blob.Version)
 	assert.Equal(t, 1, blob.MinRecipients)
 	assert.Equal(t, 16, blob.MaxRecipients)
 	assert.Equal(t, 32, blob.MaxKIDSize)
@@ -35,8 +35,8 @@ func TestConstants(t *testing.T) {
 	assert.Equal(t, 49, blob.MinCiphertextSize)
 	assert.EqualValues(t, commitment.MaxPayloadSize, blob.MaxDecodeSize)
 	assert.EqualValues(t, commitment.MaxPayloadSize-5, blob.MaxSealSize)
-	assert.Equal(t, "edicta/v0/payload", blob.TagPayloadAEAD)
-	assert.Equal(t, "edicta/v0/payload-dek", blob.TagPayloadDEK)
+	assert.Equal(t, "edicta/v1/payload", blob.TagPayloadAEAD)
+	assert.Equal(t, "edicta/v1/payload-dek", blob.TagPayloadDEK)
 }
 
 func newKey(t *testing.T, kid string) (blob.Recipient, *ecdh.PrivateKey) {
@@ -77,7 +77,7 @@ func TestRoundTrip(t *testing.T) {
 			b, err := blob.Decode(raw)
 			require.NoError(t, err)
 			require.Len(t, b.Recipients, n)
-			assert.EqualValues(t, 0, b.Version)
+			assert.EqualValues(t, 1, b.Version)
 			assert.Len(t, b.Ciphertext, blob.SaltSize+len(pt)+16)
 			enc, err := blob.Encode(b)
 			require.NoError(t, err)
@@ -298,7 +298,7 @@ func entry(kid string, fill byte) blob.Entry {
 
 func TestEncodeRejects(t *testing.T) {
 	ok := func() *blob.Blob {
-		return &blob.Blob{Recipients: []blob.Entry{entry("a", 1)}, Ciphertext: make([]byte, blob.MinCiphertextSize)}
+		return &blob.Blob{Version: blob.Version, Recipients: []blob.Entry{entry("a", 1)}, Ciphertext: make([]byte, blob.MinCiphertextSize)}
 	}
 	many := func(n int) []blob.Entry {
 		var es []blob.Entry
@@ -312,7 +312,8 @@ func TestEncodeRejects(t *testing.T) {
 		mod  func(b *blob.Blob)
 		want error
 	}{
-		{"version 1", func(b *blob.Blob) { b.Version = 1 }, blob.ErrVersion},
+		{"version 0", func(b *blob.Blob) { b.Version = 0 }, blob.ErrVersion},
+		{"version 2", func(b *blob.Blob) { b.Version = 2 }, blob.ErrVersion},
 		{"no recipients", func(b *blob.Blob) { b.Recipients = nil }, blob.ErrRecipients},
 		{"17 recipients", func(b *blob.Blob) { b.Recipients = many(17) }, blob.ErrRecipients},
 		{"duplicate kid", func(b *blob.Blob) { b.Recipients = []blob.Entry{entry("a", 1), entry("a", 2)} }, blob.ErrDuplicateKID},

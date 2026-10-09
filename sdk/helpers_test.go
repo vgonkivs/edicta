@@ -124,16 +124,6 @@ func (s *spySigner) SignCommitment(ctx context.Context, h commitment.Hash) ([]by
 	return s.inner.SignCommitment(ctx, h)
 }
 
-func (s *spySigner) SignCommitmentV1(ctx context.Context, h commitment.Hash) ([]byte, error) {
-	s.mu.Lock()
-	s.hashes = append(s.hashes, h)
-	s.mu.Unlock()
-	if s.override != nil {
-		return s.override(h)
-	}
-	return s.inner.(sdk.V1Signer).SignCommitmentV1(ctx, h)
-}
-
 func (s *spySigner) calls() int { s.mu.Lock(); defer s.mu.Unlock(); return len(s.hashes) }
 
 // committerFn adapts a function to sdk.Committer.
@@ -212,6 +202,20 @@ func (r *rig) commit() *sdk.Result {
 	return res
 }
 
+// withSalt is p with the action salt the builder drew.
+func withSalt(p *payload.Payload, salt []byte) *payload.Payload {
+	q := *p
+	q.Action.Salt = salt
+	return &q
+}
+
+func (r *rig) commitPayload(p *payload.Payload) *sdk.Result {
+	r.t.Helper()
+	res, err := r.builder().Commit(bg, p)
+	require.NoError(r.t, err)
+	return res
+}
+
 // requireValidAtGate runs the gate's own stateless checks on the result.
 func requireValidAtGate(t testing.TB, res *sdk.Result, at uint64) {
 	t.Helper()
@@ -220,7 +224,7 @@ func requireValidAtGate(t testing.TB, res *sdk.Result, at uint64) {
 	require.Equal(t, res.CommitmentHash, h)
 	require.Equal(t, res.Commitment, s.Commitment)
 	require.NoError(t, commitment.CheckScope(&s.Commitment, scope))
-	require.NoError(t, commitment.CheckAction(&s.Commitment, res.Action))
+	require.NoError(t, commitment.CheckAction(&s.Commitment, res.Action, res.ActionSalt))
 	require.NoError(t, commitment.CheckPayload(&s.Commitment, res.Blob))
 	require.NoError(t, commitment.CheckAnchorTime(&s.Commitment, res.Published.BlockTime, params))
 }

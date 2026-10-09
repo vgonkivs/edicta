@@ -60,7 +60,7 @@ func TestBuildCommitmentReproducesAValidVector(t *testing.T) {
 	got, err := commitment.Encode(c)
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
-	assert.EqualValues(t, 0, c.Version)
+	assert.EqualValues(t, commitment.Version, c.Version)
 }
 
 // Every stage S vector of reject.json, rebuilt from its input, is refused with
@@ -69,7 +69,9 @@ func TestBuildCommitmentReproducesAValidVector(t *testing.T) {
 func TestBuildCommitmentRefusesEveryStageSVector(t *testing.T) {
 	n := 0
 	for _, in := range sdkfix.RejectInputs(t) {
-		if in.Stage != "S" || in.ID == "version_1" {
+		// The builder always writes the one version, so the version rule has
+		// no input to rebuild.
+		if in.Stage != "S" || in.Rule == "S1" {
 			continue
 		}
 		n++

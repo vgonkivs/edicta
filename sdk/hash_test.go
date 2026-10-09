@@ -43,11 +43,10 @@ func TestCiphertextHashVector(t *testing.T) {
 	sum := sha256.Sum256(raw)
 	assert.Equal(t, gatefix.MustHex(t, c.CiphertextHashHex), sum[:])
 	assert.EqualValues(t, gatefix.U64(t, c.PayloadSize), len(raw))
-	b, err := blob.Decode(raw)
-	require.NoError(t, err, "the existing payload blob follows the strict layout")
-	enc, err := blob.Encode(b)
-	require.NoError(t, err)
-	assert.Equal(t, raw, enc)
+	// Dummy bytes in the shape of a blob of version 0: stage P only hashes
+	// them, and a reader stops at the version.
+	_, err := blob.Decode(raw)
+	require.ErrorIs(t, err, blob.ErrVersion)
 }
 
 // plaintext_hash = SHA-256(salt || plaintext), no domain tag.
@@ -87,7 +86,7 @@ func TestBuilderHashesMatchTheSpecDefinitions(t *testing.T) {
 	k := r.vec.Key(t, "auditor-1")
 	salt, pt, err := blob.Open(published, k.OpenKey(true))
 	require.NoError(t, err)
-	assert.Equal(t, encoded(t, r.payload()), pt, "the plaintext is the canonical encoding of the payload")
+	assert.Equal(t, encoded(t, withSalt(r.payload(), res.ActionSalt)), pt, "the plaintext is the canonical encoding of the payload with the drawn salt")
 	aead := append(append([]byte{}, salt[:]...), pt...) // exactly what the AEAD returned
 	ph := sha256.Sum256(aead)
 	assert.Equal(t, ph[:], res.Commitment.PlaintextHash, "plaintext_hash = SHA-256(salt || plaintext)")

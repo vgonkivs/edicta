@@ -54,13 +54,6 @@ type Signer interface {
 	SignCommitment(ctx context.Context, h commitment.Hash) ([]byte, error)
 }
 
-// V1Signer signs v1 commitments. A builder configured for version 1 needs a
-// signer that implements it; the v0 method keeps its frozen meaning.
-type V1Signer interface {
-	// SignCommitmentV1 signs commitment.SignedMessage(1, h) and nothing else.
-	SignCommitmentV1(ctx context.Context, h commitment.Hash) ([]byte, error)
-}
-
 type Clock interface{ Now() time.Time }
 
 type ChainParams interface {
@@ -111,9 +104,7 @@ const (
 )
 
 type Config struct {
-	// Version is the commitment format: 0 or 1.
-	Version uint64
-	// MandateHash, when nonzero, is the mandate_ref of a v1 commitment: the
+	// MandateHash, when nonzero, is the mandate_ref of the commitment: the
 	// hash of the mandate the agent acts under. The SDK does not check it;
 	// a gate with another mandate refuses the commitment.
 	MandateHash [32]byte

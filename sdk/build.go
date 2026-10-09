@@ -12,7 +12,6 @@ import (
 // exported because it carries a nonce and a plaintext hash that only the
 // builder may draw.
 type input struct {
-	Version        uint64
 	AgentID        string
 	AgentPubKey    ed25519.PublicKey
 	Nonce          [16]byte
@@ -32,7 +31,7 @@ type input struct {
 // returned. Rejections are the commitment package's own sentinels.
 func buildCommitment(in input, p commitment.Params) (*commitment.Commitment, error) {
 	c := &commitment.Commitment{
-		Version:        in.Version,
+		Version:        commitment.Version,
 		AgentID:        in.AgentID,
 		AgentPubKey:    bytes.Clone(in.AgentPubKey),
 		Nonce:          bytes.Clone(in.Nonce[:]),

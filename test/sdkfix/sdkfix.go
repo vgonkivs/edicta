@@ -1,4 +1,4 @@
-// Package sdkfix loads spec/vectors/v0/payload_blob.json and builds the
+// Package sdkfix loads spec/vectors/v1/payload_blob.json and builds the
 // recipient keys, payloads and envelopes the SDK tests share. It is used by
 // tests only and does not import package sdk, so the lower packages can use it
 // before sdk exists.
@@ -44,6 +44,7 @@ type jsonPayload struct {
 	Action  struct {
 		Type string `json:"type"`
 		Data string `json:"data"`
+		Salt string `json:"action_salt"`
 	} `json:"action"`
 	Metadata *jsonData `json:"metadata"`
 }
@@ -71,6 +72,7 @@ type jsonCase struct {
 	ActionType        string          `json:"action_type"`
 	ActionHex         string          `json:"action_hex"`
 	ActionHashHex     string          `json:"action_hash_hex"`
+	ActionSaltHex     string          `json:"action_salt_hex"`
 	Commitment        struct {
 		CommitmentHashHex string `json:"commitment_hash_hex"`
 		EnvelopeHex       string `json:"envelope_hex"`
@@ -168,6 +170,7 @@ type Case struct {
 	CiphertextHash commitment.Hash
 	ActionType     string
 	Action         []byte
+	ActionSalt     []byte
 	ActionHash     commitment.Hash
 	Envelope       []byte
 	CommitmentHash commitment.Hash
@@ -238,7 +241,7 @@ func toPayload(t testing.TB, j jsonPayload) *payload.Payload {
 			Digest: hexb(t, j.Policy.Digest), Text: hexb(t, j.Policy.Text),
 		},
 		Context: payload.Data{MediaType: j.Context.MediaType, Bytes: hexb(t, j.Context.Data)},
-		Action:  payload.Action{Type: j.Action.Type, Data: hexb(t, j.Action.Data)},
+		Action:  payload.Action{Type: j.Action.Type, Data: hexb(t, j.Action.Data), Salt: hexb(t, j.Action.Salt)},
 	}
 	if j.Metadata != nil {
 		p.Metadata = &payload.Data{MediaType: j.Metadata.MediaType, Bytes: hexb(t, j.Metadata.Data)}
@@ -285,6 +288,7 @@ func Load(t testing.TB) *Vectors {
 			CiphertextHash: hash32(t, c.CiphertextHashHex),
 			ActionType:     c.ActionType,
 			Action:         hexb(t, c.ActionHex),
+			ActionSalt:     hexb(t, c.ActionSaltHex),
 			ActionHash:     hash32(t, c.ActionHashHex),
 			Envelope:       hexb(t, c.Commitment.EnvelopeHex),
 			CommitmentHash: hash32(t, c.Commitment.CommitmentHashHex),
@@ -430,6 +434,7 @@ type rejectJSON struct {
 		Rule   string `json:"rule"`
 		Expect string `json:"expect_error"`
 		Input  *struct {
+			Version     string `json:"version"`
 			AgentID     string `json:"agent_id"`
 			AgentPubKey string `json:"agent_pubkey"`
 			Nonce       string `json:"nonce"`
@@ -448,10 +453,12 @@ type rejectJSON struct {
 				Commitment string `json:"commitment"`
 				Height     string `json:"height"`
 				Signer     string `json:"signer"`
+				Anchor     string `json:"anchor"`
 			} `json:"payload_ref"`
 			CiphertextHash string `json:"ciphertext_hash"`
 			PlaintextHash  string `json:"plaintext_hash"`
 			PayloadSize    string `json:"payload_size"`
+			MandateRef     string `json:"mandate_ref"`
 		} `json:"input"`
 		Params *struct {
 			Fibre string `json:"fibre_retention_s"`
@@ -498,7 +505,11 @@ func RejectInputs(t testing.TB) []RejectInput {
 			PlaintextHash:  hexb(t, in.PlaintextHash),
 			PayloadSize:    gatefix.U64(t, in.PayloadSize),
 		}
-		com.Version = gatefix.U64(t, "0")
+		com.Version = gatefix.U64(t, in.Version)
+		com.MandateRef = hexb(t, in.MandateRef)
+		if in.PayloadRef.Anchor != "" {
+			com.PayloadRef.Anchor = gatefix.U64(t, in.PayloadRef.Anchor)
+		}
 		p := def
 		if c.Params != nil {
 			p = commitment.Params{
@@ -533,6 +544,7 @@ func ClonePayload(p *payload.Payload) *payload.Payload {
 	out.Policy.Version, out.Policy.Digest, out.Policy.Text = str(p.Policy.Version), cp(p.Policy.Digest), cp(p.Policy.Text)
 	out.Context.Bytes = cp(p.Context.Bytes)
 	out.Action.Data = cp(p.Action.Data)
+	out.Action.Salt = cp(p.Action.Salt)
 	if p.Metadata != nil {
 		m := *p.Metadata
 		m.Bytes = cp(p.Metadata.Bytes)

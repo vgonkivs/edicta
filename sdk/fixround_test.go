@@ -208,9 +208,9 @@ func TestFinalizeRetryReusesTheNonceAtTheGate(t *testing.T) {
 			if order == "leaked first" {
 				a, b = b, a
 			}
-			first, err := e.env.AuthorizeWith(a, res.Action)
+			first, err := e.env.AuthorizeWithSalt(a, res.Action, res.ActionSalt)
 			require.NoError(t, err)
-			second, err := e.env.AuthorizeWith(b, res.Action)
+			second, err := e.env.AuthorizeWithSalt(b, res.Action, res.ActionSalt)
 			require.ErrorIs(t, err, gate.ErrNonceUsed)
 			assert.Equal(t, first.Authorization, second.Authorization, "one Authorization for one decision")
 		})

@@ -56,7 +56,7 @@ func OpenPayload(envelope, blobBytes []byte, k blob.RecipientKey) (*Opened, erro
 	if err != nil {
 		return nil, err
 	}
-	if p.Action.Type != s.Commitment.Action.Type || commitment.CheckAction(&s.Commitment, p.Action.Data) != nil {
+	if p.Action.Type != s.Commitment.Action.Type || commitment.CheckAction(&s.Commitment, p.Action.Data, p.Action.Salt) != nil {
 		return nil, ErrPayloadMismatch
 	}
 	return &Opened{CommitmentHash: h, Commitment: s.Commitment, Payload: p}, nil

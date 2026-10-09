@@ -100,14 +100,15 @@ func TestCommitHappyPath(t *testing.T) {
 
 	requireValidAtGate(t, res, now)
 	c := res.Commitment
-	assert.EqualValues(t, 0, c.Version)
+	assert.EqualValues(t, commitment.Version, c.Version)
 	assert.Equal(t, "dca-agent-1", c.AgentID)
 	assert.Equal(t, gatefix.Pub(t, "agent1"), c.AgentPubKey)
 	assert.Len(t, c.Nonce, 16)
 	assert.Equal(t, r.cfg.Scope, c.Scope)
 
 	p := r.payload()
-	wantHash, err := commitment.ActionHash(p.Action.Type, p.Action.Data)
+	require.Len(t, res.ActionSalt, commitment.ActionSaltSize)
+	wantHash, err := commitment.ActionHash(p.Action.Type, res.ActionSalt, p.Action.Data)
 	require.NoError(t, err)
 	assert.Equal(t, p.Action.Type, c.Action.Type, "the committed type is the payload's")
 	assert.Equal(t, wantHash[:], c.Action.Hash, "the committed hash is over the payload's bytes")
@@ -118,7 +119,7 @@ func TestCommitHappyPath(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, h, res.CommitmentHash)
 	assert.True(t, res.DAChecked)
-	require.NoError(t, commitment.CheckAction(&c, res.Action), "the gate's action check passes on the result")
+	require.NoError(t, commitment.CheckAction(&c, res.Action, res.ActionSalt), "the gate's action check passes on the result")
 
 	pub := res.Published
 	assert.Equal(t, pub.Ref, c.PayloadRef)
@@ -585,7 +586,7 @@ func TestSealedKeepsItsOwnCopyOfTheDecision(t *testing.T) {
 	res, err := b.Finalize(bg, s, pub)
 	require.NoError(t, err)
 	want := r.payload().Action
-	h, err := commitment.ActionHash(want.Type, want.Data)
+	h, err := commitment.ActionHash(want.Type, res.ActionSalt, want.Data)
 	require.NoError(t, err)
 	assert.Equal(t, h[:], res.Commitment.Action.Hash, "the commitment follows what was sealed")
 	assert.Equal(t, want.Data, res.Action, "the result carries what was sealed")

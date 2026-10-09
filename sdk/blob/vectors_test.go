@@ -54,7 +54,7 @@ func TestVectorCases(t *testing.T) {
 		t.Run(c.ID, func(t *testing.T) {
 			b, err := blob.Decode(c.Blob)
 			require.NoError(t, err)
-			assert.EqualValues(t, 0, b.Version)
+			assert.EqualValues(t, 1, b.Version)
 			require.Len(t, b.Recipients, len(c.Recipients))
 			for i, r := range c.Recipients {
 				assert.Equal(t, r.KID, b.Recipients[i].KID)
@@ -68,7 +68,7 @@ func TestVectorCases(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, c.Blob, enc, "Encode(Decode(x)) == x")
 
-			var built blob.Blob
+			built := blob.Blob{Version: blob.Version}
 			copy(built.AEADNonce[:], c.Nonce)
 			built.Ciphertext = c.Ciphertext
 			for _, r := range c.Recipients {

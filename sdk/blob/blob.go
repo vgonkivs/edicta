@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	Version           = 0
+	Version           = 1
 	MinRecipients     = 1
 	MaxRecipients     = 16
 	MaxKIDSize        = 32
@@ -31,8 +31,8 @@ const (
 	MaxDecodeSize     = commitment.MaxPayloadSize
 	MaxSealSize       = commitment.MaxPayloadSize - 5
 
-	TagPayloadAEAD = "edicta/v0/payload"
-	TagPayloadDEK  = "edicta/v0/payload-dek"
+	TagPayloadAEAD = "edicta/v1/payload"
+	TagPayloadDEK  = "edicta/v1/payload-dek"
 
 	dekSize = chacha20poly1305.KeySize
 )
@@ -158,7 +158,7 @@ func seal(salt *[SaltSize]byte, plaintext []byte, rs []Recipient) ([]byte, error
 	rand.Read(dek)
 	defer clear(dek)
 
-	b := &Blob{Recipients: make([]Entry, len(rs))}
+	b := &Blob{Version: Version, Recipients: make([]Entry, len(rs))}
 	for i, r := range rs {
 		pk, err := hpke.NewDHKEMPublicKey(r.PublicKey)
 		if err != nil {
@@ -276,7 +276,7 @@ func Encode(b *Blob) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %d bytes", ErrTooLarge, size)
 	}
 	out := make([]byte, 0, size)
-	out = append(out, 0xa4, 0x01, 0x00, 0x02)
+	out = append(out, 0xa4, 0x01, Version, 0x02)
 	out = appendHead(out, 4, uint64(len(b.Recipients)))
 	for i := range b.Recipients {
 		e := &b.Recipients[i]
@@ -415,7 +415,7 @@ func Decode(raw []byte) (*Blob, error) {
 	if n < MinRecipients || n > MaxRecipients {
 		return nil, fmt.Errorf("%w: %d", ErrRecipients, n)
 	}
-	b := &Blob{Recipients: make([]Entry, n)}
+	b := &Blob{Version: Version, Recipients: make([]Entry, n)}
 	seen := make(map[string]struct{}, n)
 	for i := range b.Recipients {
 		e := &b.Recipients[i]

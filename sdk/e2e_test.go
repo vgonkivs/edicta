@@ -52,21 +52,21 @@ func TestEndToEndAuthorizeOnce(t *testing.T) {
 	require.True(t, res.DAChecked)
 	e.stage(res)
 
-	gres, err := e.env.AuthorizeWith(res.Envelope, res.Action)
+	gres, err := e.env.AuthorizeWithSalt(res.Envelope, res.Action, res.ActionSalt)
 	require.NoError(t, err, "the gate authorizes what the SDK signed")
 	assert.Equal(t, res.CommitmentHash, gres.CommitmentHash)
 	assert.Equal(t, registry.PathDA, gres.Path)
 
-	gatefix.CheckAuthorization(t, gres.Authorization, res.Action, &res.Commitment, res.CommitmentHash,
+	gatefix.CheckAuthorizationSalted(t, gres.Authorization, res.Action, res.ActionSalt, &res.Commitment, res.CommitmentHash,
 		commitment.PathDA, 0, uint64(e.env.Clock.Now().Unix()))
 
 	t.Run("a second submission returns the same single Authorization", func(t *testing.T) {
-		again, err := e.env.AuthorizeWith(res.Envelope, res.Action)
+		again, err := e.env.AuthorizeWithSalt(res.Envelope, res.Action, res.ActionSalt)
 		require.ErrorIs(t, err, gate.ErrNonceUsed)
 		assert.Equal(t, gres.Authorization, again.Authorization)
 	})
 	t.Run("every recipient reads the decision that was executed", func(t *testing.T) {
-		want := encoded(t, e.rig.payload())
+		want := encoded(t, withSalt(e.rig.payload(), res.ActionSalt))
 		for _, n := range []string{"gate-paper-1", "auditor-1"} {
 			o, err := sdk.OpenPayload(res.Envelope, res.Blob, e.rig.vec.Key(t, n).OpenKey(true))
 			require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestEndToEndRetentionClamp(t *testing.T) {
 		assert.Equal(t, "retention", res.Validity.ClampedBy)
 		assert.EqualValues(t, now+1800, res.Validity.ValidUntil)
 		e.stage(res)
-		gres, err := e.env.AuthorizeWith(res.Envelope, res.Action)
+		gres, err := e.env.AuthorizeWithSalt(res.Envelope, res.Action, res.ActionSalt)
 		require.NoError(t, err)
 		assert.Equal(t, registry.PathDA, gres.Path)
 	})
@@ -126,7 +126,7 @@ func TestEndToEndFibreWithOptOut(t *testing.T) {
 	env.DA.Put(res.Published.Ref, res.Blob)
 	dac.Bind(res.Published.Ref.Commitment, res.Blob)
 
-	gres, err := env.AuthorizeWith(res.Envelope, res.Action)
+	gres, err := env.AuthorizeWithSalt(res.Envelope, res.Action, res.ActionSalt)
 	require.NoError(t, err)
 	assert.Equal(t, registry.PathDA, gres.Path)
 	assert.NotEmpty(t, gres.Authorization)

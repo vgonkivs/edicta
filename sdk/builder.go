@@ -46,18 +46,6 @@ func New(cfg Config, d Deps) (*Builder, error) {
 	if d.Publisher == nil || d.Signer == nil || d.Clock == nil {
 		return nil, bad("publisher, signer and clock are required")
 	}
-	switch cfg.Version {
-	case commitment.VersionV0:
-		if cfg.MandateHash != ([32]byte{}) {
-			return nil, bad("a mandate hash needs commitment version 1")
-		}
-	case commitment.VersionV1:
-		if _, ok := d.Signer.(V1Signer); !ok {
-			return nil, bad("commitment version 1 needs a signer that signs v1 commitments")
-		}
-	default:
-		return nil, bad("commitment version %d", cfg.Version)
-	}
 	if n := len(cfg.Recipients); n < blob.MinRecipients || n > blob.MaxRecipients {
 		return nil, bad("%d recipients", n)
 	}
@@ -160,6 +148,7 @@ type Sealed struct {
 	plaintextHash  commitment.Hash
 	actionType     string
 	action         []byte
+	actionSalt     []byte
 	actionHash     commitment.Hash
 
 	mu   sync.Mutex
@@ -175,9 +164,11 @@ type Result struct {
 	Envelope       []byte
 	CommitmentHash commitment.Hash
 	Commitment     commitment.Commitment
-	// Action is the exact action bytes the gate and the executor must be
-	// given; ActionHash is the hash the commitment carries for them.
+	// Action and ActionSalt are what the gate and the executor must be given
+	// with the envelope; ActionHash is the salted hash the commitment carries
+	// for them. The salt is as secret as the action bytes.
 	Action     []byte
+	ActionSalt []byte
 	ActionHash commitment.Hash
 	Blob       []byte
 	Published  Published
@@ -254,11 +245,20 @@ func (b *Builder) now() (now uint64, err error) {
 var probeParams = commitment.Params{FibreRetentionS: 14400, BlobRetentionS: 14400}
 
 // Seal encodes and encrypts the payload. Nothing is published, and a decision
-// the gate would refuse statically is refused here.
+// the gate would refuse statically is refused here. Seal draws a fresh action
+// salt and writes it into the payload; a salt the caller put there is
+// replaced, because a chosen or reused salt would let one dictionary run test
+// several decisions.
 func (b *Builder) Seal(ctx context.Context, p *payload.Payload) (*Sealed, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if p == nil {
+		return nil, fmt.Errorf("%w: nil payload", payload.ErrMalformed)
+	}
+	salted := *p
+	salted.Action.Salt = newActionSalt()
+	p = &salted
 	plaintext, err := payload.Encode(p)
 	if err != nil {
 		return nil, err
@@ -267,7 +267,7 @@ func (b *Builder) Seal(ctx context.Context, p *payload.Payload) (*Sealed, error)
 		return nil, fmt.Errorf("%w: plaintext of %d bytes", payload.ErrTooLarge, len(plaintext))
 	}
 	action := bytes.Clone(p.Action.Data)
-	ah, err := commitment.ActionHashFor(b.cfg.Version, p.Action.Type, action)
+	ah, err := commitment.ActionHash(p.Action.Type, p.Action.Salt, action)
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +288,7 @@ func (b *Builder) Seal(ctx context.Context, p *payload.Payload) (*Sealed, error)
 	}
 	sealed := &Sealed{
 		blob: raw, ciphertextHash: sha256.Sum256(raw), plaintextHash: ph,
-		actionType: p.Action.Type, action: action, actionHash: ah,
+		actionType: p.Action.Type, action: action, actionSalt: p.Action.Salt, actionHash: ah,
 	}
 	rand.Read(sealed.nonce[:])
 	return sealed, nil
@@ -304,7 +304,6 @@ func (b *Builder) probe(a commitment.Action) error {
 	ns := make([]byte, 29)
 	ns[27] = 1
 	in := input{
-		Version:     b.cfg.Version,
 		MandateRef:  b.mandateRef(),
 		AgentID:     b.cfg.AgentID,
 		AgentPubKey: b.deps.Signer.PublicKey(),
@@ -382,7 +381,7 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 		return nil, fmt.Errorf("%w: no height", ErrPublishResult)
 	}
 	// A pending reference is signed only after its anchor intent was
-	// verified, which this builder does not do yet; v0 has no such form.
+	// verified, which this builder does not do yet.
 	if ref.Anchor != 0 {
 		return nil, fmt.Errorf("%w: pending reference (anchor %d) not supported", ErrPublishResult, ref.Anchor)
 	}
@@ -447,8 +446,8 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 		return nil, err
 	}
 	in := input{
-		Version: b.cfg.Version, MandateRef: b.mandateRef(),
-		AgentID: b.cfg.AgentID, AgentPubKey: agentPub, IssuedAt: v.IssuedAt, ValidUntil: v.ValidUntil,
+		MandateRef: b.mandateRef(),
+		AgentID:    b.cfg.AgentID, AgentPubKey: agentPub, IssuedAt: v.IssuedAt, ValidUntil: v.ValidUntil,
 		Scope: b.cfg.Scope, Action: commitment.Action{Type: s.actionType, Hash: s.actionHash[:]}, Ref: ref,
 		CiphertextHash: s.ciphertextHash, PlaintextHash: s.plaintextHash, PayloadSize: uint64(len(s.blob)),
 	}
@@ -483,7 +482,7 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 		return nil, err
 	}
 	s.pinned, s.window = true, v
-	sig, err := b.sign(ctx, c.Version, h)
+	sig, err := b.sign(ctx, h)
 	if err != nil {
 		return nil, err
 	}
@@ -507,7 +506,7 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 	}
 	return &Result{
 		Envelope: env, CommitmentHash: h, Commitment: sc.Commitment, Blob: bytes.Clone(s.blob),
-		Action: bytes.Clone(s.action), ActionHash: s.actionHash,
+		Action: bytes.Clone(s.action), ActionSalt: bytes.Clone(s.actionSalt), ActionHash: s.actionHash,
 		Published: Published{Ref: ref, BlockTime: pub.BlockTime, RetentionStart: pub.RetentionStart},
 		Validity:  v, DAChecked: checked,
 	}, nil
@@ -615,19 +614,18 @@ func (b *Builder) mandateRef() []byte {
 	return bytes.Clone(b.cfg.MandateHash[:])
 }
 
-// sign calls the signer with the call timeout, under the tag of version.
-func (b *Builder) sign(ctx context.Context, version uint64, h commitment.Hash) (sig []byte, err error) {
+// newActionSalt is the only source of action salts.
+func newActionSalt() []byte {
+	salt := make([]byte, commitment.ActionSaltSize)
+	rand.Read(salt)
+	return salt
+}
+
+// sign calls the signer with the call timeout.
+func (b *Builder) sign(ctx context.Context, h commitment.Hash) (sig []byte, err error) {
 	cctx, cancel := context.WithTimeout(ctx, b.cfg.CallTimeout)
 	defer cancel()
 	err = guard("signer", func() (err error) {
-		if version == commitment.VersionV1 {
-			v1, ok := b.deps.Signer.(V1Signer)
-			if !ok {
-				return fmt.Errorf("%w: signer cannot sign v1 commitments", ErrInvalidConfig)
-			}
-			sig, err = v1.SignCommitmentV1(cctx, h)
-			return err
-		}
 		sig, err = b.deps.Signer.SignCommitment(cctx, h)
 		return err
 	})

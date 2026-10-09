@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	Version = 0
+	Version = 1
 
 	maxMediaType = 64
 	maxID        = 128
@@ -46,11 +46,12 @@ type Policy struct {
 	Text    []byte  `cbor:"4,keyasint,omitempty"`
 }
 
-// Action is the cleartext action: its type and the exact bytes whose hash the
-// commitment carries.
+// Action is the cleartext action: its type, the exact bytes and the salt
+// whose salted hash the commitment carries.
 type Action struct {
 	Type string `cbor:"3,keyasint"`
 	Data []byte `cbor:"4,keyasint"`
+	Salt []byte `cbor:"5,keyasint"`
 }
 
 // Payload keys 1..5 and 7 are in use; key 6 is retired and never reused.
@@ -166,6 +167,9 @@ func validate(p *Payload) error {
 	}
 	if n := len(p.Action.Data); n < 1 || n > commitment.MaxActionSize {
 		return fmt.Errorf("%w: action data of %d bytes", ErrMalformed, n)
+	}
+	if len(p.Action.Salt) != commitment.ActionSaltSize {
+		return fmt.Errorf("%w: action salt of %d bytes", ErrMalformed, len(p.Action.Salt))
 	}
 	return nil
 }

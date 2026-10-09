@@ -40,7 +40,7 @@ func TestRoundTripEveryRecipient(t *testing.T) {
 			r := newRig(t)
 			r.cfg.Recipients = r.vec.Recipients(t, names...)
 			res := r.commit()
-			want := encoded(t, r.payload())
+			want := encoded(t, withSalt(r.payload(), res.ActionSalt))
 			for _, n := range names {
 				k := r.vec.Key(t, n)
 				for _, withKID := range []bool{true, false} {
@@ -50,7 +50,8 @@ func TestRoundTripEveryRecipient(t *testing.T) {
 					assert.Equal(t, res.Commitment, o.Commitment)
 					assert.Equal(t, want, encoded(t, o.Payload), "the recipient reads the decision that was committed")
 					assert.Equal(t, res.Action, o.Payload.Action.Data, "the recipient reads the exact action bytes")
-					assert.NoError(t, commitment.CheckAction(&o.Commitment, o.Payload.Action.Data), "the opened action matches the committed hash")
+					assert.Equal(t, res.ActionSalt, o.Payload.Action.Salt, "the payload carries the salt of the committed hash")
+					assert.NoError(t, commitment.CheckAction(&o.Commitment, o.Payload.Action.Data, o.Payload.Action.Salt), "the opened action matches the committed hash")
 				}
 			}
 		})
