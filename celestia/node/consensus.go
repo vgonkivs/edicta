@@ -28,6 +28,7 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	fibretypes "github.com/celestiaorg/celestia-app/v10/x/fibre/types"
+	squaretx "github.com/celestiaorg/go-square/v4/tx"
 
 	"github.com/vgonkivs/edicta/celestia/heightcheck"
 )
@@ -248,7 +249,11 @@ func fibreParams(r *fibretypes.QueryParamsResponse) (FibreParams, error) {
 	if d <= 0 {
 		return FibreParams{}, fmt.Errorf("%w: x/fibre shard retention is not positive", ErrUnsupported)
 	}
-	return FibreParams{RetentionS: uint64(d.Seconds()), PromiseHeightWindow: r.Params.PaymentPromiseHeightWindow}, nil
+	fp := FibreParams{RetentionS: uint64(d.Seconds()), PromiseHeightWindow: r.Params.PaymentPromiseHeightWindow}
+	if t := r.Params.PaymentPromiseTimeout; t > 0 {
+		fp.PromiseTimeoutS = uint64(t.Seconds())
+	}
+	return fp, nil
 }
 
 // pinned sends the height in x-cosmos-block-height and returns the response
@@ -519,9 +524,13 @@ const (
 )
 
 // Broadcast sends txRaw unchanged in sync mode and returns its hash, the
-// SHA-256 of the bytes, which it checks against the node's answer.
+// SHA-256 of the bytes (of the inner tx for a BlobTx, as the chain names
+// it), which it checks against the node's answer.
 func (c *ConsensusClient) Broadcast(ctx context.Context, txRaw []byte) ([32]byte, error) {
 	want := sha256.Sum256(txRaw)
+	if btx, isBlob, err := squaretx.UnmarshalBlobTx(txRaw); isBlob && err == nil {
+		want = sha256.Sum256(btx.Tx)
+	}
 	r, err := c.tx.BroadcastTx(ctx, &txtypes.BroadcastTxRequest{TxBytes: txRaw, Mode: txtypes.BroadcastMode_BROADCAST_MODE_SYNC})
 	if err != nil {
 		err = classifyGRPC(ctx, err)
