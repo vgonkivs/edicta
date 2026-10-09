@@ -269,15 +269,13 @@ func checkValues(pm *pmap, defs []fdef, kind Kind) error {
 			return err
 		}
 		a := &sa.Authorization
-		switch {
-		case a.Version != 0:
-			return fmt.Errorf("%w: %d", commitment.ErrUnsupportedVersion, a.Version)
-		case a.Expires > math.MaxInt64 || uint64(a.Path) > math.MaxInt64:
-			return fmt.Errorf("%w: authorization", commitment.ErrIntRange)
-		case a.Path != commitment.PathDA && a.Path != commitment.PathArchive:
-			return fmt.Errorf("%w: path %d", commitment.ErrInvalidEnum, a.Path)
-		case a.Expires == 0:
-			return fmt.Errorf("%w: expires", commitment.ErrZeroValue)
+		if err := commitment.ValidateAuthorization(a, nil); err != nil {
+			return err
+		}
+		// A fast-mode Authorization needs its window in the K2 inputs, a key
+		// this codec does not define yet.
+		if a.Mode == commitment.ModeFast {
+			return fmt.Errorf("%w: fast_window of a fast-mode authorization", commitment.ErrMissingField)
 		}
 	}
 	return nil

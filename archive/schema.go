@@ -170,6 +170,8 @@ var verdicts = map[string]bool{
 	"ErrDACommitmentMismatch":        true,
 	"ErrExpired":                     true,
 	"ErrIssuedBeforeAnchor":          true,
+	"ErrMandateMismatch":             true,
+	"ErrMandateRefMissing":           true,
 	"ErrNonceUsed":                   true,
 	"ErrNotYetValid":                 true,
 	"ErrPayloadHashMismatch":         true,
