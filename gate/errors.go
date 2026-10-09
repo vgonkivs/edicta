@@ -53,20 +53,16 @@ var (
 	ErrInvalidConfig = errors.New("gate: invalid configuration")
 )
 
-// Refusals of the commitment's version and reference form, and of the
-// mandate reference.
+// Refusals of the reference form and of the mandate reference.
 var (
-	// ErrVersionNotAccepted is a v0 commitment at a gate that requires v1:
-	// a mandate is configured, or AcceptV0 is off.
-	ErrVersionNotAccepted = errors.New("gate: commitment version not accepted")
 	// ErrAnchorPending is a pending payload reference at a gate that does
 	// not run fast mode.
 	ErrAnchorPending = errors.New("gate: pending payload reference and fast mode is off")
-	// ErrMandateRefMissing is a v1 commitment without mandate_ref at a gate
+	// ErrMandateRefMissing is a commitment without mandate_ref at a gate
 	// with a mandate.
 	ErrMandateRefMissing = errors.New("gate: commitment names no mandate")
 	// ErrMandateMismatch is a mandate_ref other than the hash of the mandate
-	// in force.
+	// in force, or any mandate_ref at a gate without a mandate.
 	ErrMandateMismatch = errors.New("gate: commitment names another mandate")
 )
 

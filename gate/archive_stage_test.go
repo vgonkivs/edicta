@@ -357,7 +357,7 @@ func TestArchiveParentContext(t *testing.T) {
 		a.block = true
 		a.onPut = cancel
 		a.mu.Unlock()
-		_, err := e.Gate.Authorize(ctx, b, gatefix.Action(t))
+		_, err := e.Gate.Authorize(ctx, b, gatefix.Action(t), gatefix.Salt(t))
 		require.ErrorIs(t, err, context.Canceled)
 		assert.NotErrorIs(t, err, gate.ErrArchiveUnavailable)
 		e.RequireUntouched(c)
@@ -367,7 +367,7 @@ func TestArchiveParentContext(t *testing.T) {
 		e, c, b, _ := happy(t, withArchiver(a))
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := e.Gate.Authorize(ctx, b, gatefix.Action(t))
+		_, err := e.Gate.Authorize(ctx, b, gatefix.Action(t), gatefix.Salt(t))
 		require.ErrorIs(t, err, context.Canceled)
 		assert.Empty(t, a.puts())
 		e.RequireUntouched(c)

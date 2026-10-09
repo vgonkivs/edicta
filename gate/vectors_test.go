@@ -56,6 +56,7 @@ func TestRejectVectorsThroughAuthorize(t *testing.T) {
 			ActionHex   string   `json:"action_hex"`
 			Pattern     string   `json:"action_pattern"`
 			ActionSize  string   `json:"action_size"`
+			SaltHex     string   `json:"action_salt_hex"`
 		} `json:"cases"`
 	}
 	gatefix.ReadVector(t, "reject.json", &rf)
@@ -76,25 +77,25 @@ func TestRejectVectorsThroughAuthorize(t *testing.T) {
 				gatefix.WithAllowlist(map[string][]byte{"dca-agent-1": gatefix.Pub(t, "agent1")}))
 			want, ok := gatefix.Sentinel(rc.ExpectError)
 			require.Truef(t, ok, "unknown sentinel %s", rc.ExpectError)
-			action := gatefix.Action(t)
+			action, salt := gatefix.Action(t), gatefix.Salt(t)
 			if rc.Stage == "A" {
 				action = gatefix.ActionOf(t, rc.ActionHex, rc.Pattern, rc.ActionSize)
+				salt = nil
+				if rc.SaltHex != "" {
+					salt = gatefix.MustHex(t, rc.SaltHex)
+				}
 			}
-			env := gatefix.MustHex(t, rc.EnvelopeHex)
-			// A v0-shaped commitment with version 1 is a v0-reader vector; the
-			// gate reads it as v1, where its v0 signature does not verify.
-			if raw, err := commitment.EnvelopeCommitment(env); err == nil && commitment.CanonicalVersion(raw) == commitment.VersionV1 {
-				want = commitment.ErrSignatureInvalid
-			}
-			_, err := e.AuthorizeWith(env, action)
+			_, err := e.AuthorizeWithSalt(gatefix.MustHex(t, rc.EnvelopeHex), action, salt)
 			require.ErrorIs(t, err, want)
 		})
 	}
 }
 
 // TestValidVectorsReachChainStage: every valid vector passes all stateless
-// stages, including the action check on its own bytes, the registry epoch, the key roles and the allowlist, and stops at
-// the anchor lookup because no anchor exists in the fake.
+// stages, including the action check on its own bytes and salt, the registry
+// epoch, the key roles and the allowlist. An included reference stops at the
+// anchor lookup because no anchor exists in the fake; a pending one at the
+// fast-mode refusal, and one that names a mandate at this gate without one.
 func TestValidVectorsReachChainStage(t *testing.T) {
 	var vf struct {
 		Params vParams `json:"params"`
@@ -104,12 +105,16 @@ func TestValidVectorsReachChainStage(t *testing.T) {
 			EnvelopeHex string   `json:"envelope_hex"`
 			Now         string   `json:"now"`
 			Params      *vParams `json:"params"`
+			Gate        *vScope  `json:"gate"`
+			Pending     bool     `json:"pending"`
 			Input       struct {
-				AgentID string `json:"agent_id"`
+				AgentID    string `json:"agent_id"`
+				MandateRef string `json:"mandate_ref"`
 			} `json:"input"`
 			ActionHex  string `json:"action_hex"`
 			Pattern    string `json:"action_pattern"`
 			ActionSize string `json:"action_size"`
+			SaltHex    string `json:"action_salt_hex"`
 		} `json:"cases"`
 	}
 	gatefix.ReadVector(t, "valid.json", &vf)
@@ -119,13 +124,25 @@ func TestValidVectorsReachChainStage(t *testing.T) {
 			if vc.Params != nil {
 				p = *vc.Params
 			}
+			g := vf.Gate
+			if vc.Gate != nil {
+				g = *vc.Gate
+			}
 			e := gatefix.New(t,
-				gatefix.WithScope(vf.Gate.scope(t)),
+				gatefix.WithScope(g.scope(t)),
 				gatefix.WithParams(p.params(t)),
 				gatefix.WithNow(gatefix.U64(t, vc.Now)),
 				gatefix.WithAllowlist(map[string][]byte{vc.Input.AgentID: gatefix.Pub(t, "agent1")}))
-			_, err := e.AuthorizeWith(gatefix.MustHex(t, vc.EnvelopeHex), gatefix.ActionOf(t, vc.ActionHex, vc.Pattern, vc.ActionSize))
-			require.ErrorIs(t, err, gate.ErrAnchorNotFound)
+			_, err := e.AuthorizeWithSalt(gatefix.MustHex(t, vc.EnvelopeHex),
+				gatefix.ActionOf(t, vc.ActionHex, vc.Pattern, vc.ActionSize), gatefix.MustHex(t, vc.SaltHex))
+			switch {
+			case vc.Pending:
+				require.ErrorIs(t, err, gate.ErrAnchorPending)
+			case vc.Input.MandateRef != "":
+				require.ErrorIs(t, err, gate.ErrMandateMismatch)
+			default:
+				require.ErrorIs(t, err, gate.ErrAnchorNotFound)
+			}
 		})
 	}
 }
@@ -137,8 +154,9 @@ func TestAnchorK1Vectors(t *testing.T) {
 	var af struct {
 		K1 []struct {
 			ID          string `json:"id"`
+			Form        string `json:"form"`
 			IssuedAt    string `json:"issued_at"`
-			BlockTime   string `json:"block_time"`
+			BlockTime   string `json:"t_ref"`
 			SkewS       string `json:"skew_s"`
 			ExpectError string `json:"expect_error"`
 		} `json:"k1"`
@@ -147,8 +165,10 @@ func TestAnchorK1Vectors(t *testing.T) {
 	ran := 0
 	for _, v := range af.K1 {
 		skew, issued, th := gatefix.U64(t, v.SkewS), gatefix.U64(t, v.IssuedAt), gatefix.U64(t, v.BlockTime)
-		if th >= bigTime {
-			continue // covered by the pure function tests
+		// A pending reference needs stage K-fast, which this gate does not
+		// run; very large times are covered by the pure function tests.
+		if th >= bigTime || v.Form == "pending" {
+			continue
 		}
 		ran++
 		t.Run(v.ID, func(t *testing.T) {
@@ -176,7 +196,7 @@ func TestAnchorK2Vectors(t *testing.T) {
 			ID                string  `json:"id"`
 			DA                string  `json:"da"`
 			ValidUntil        string  `json:"valid_until"`
-			BlockTime         string  `json:"block_time"`
+			BlockTime         string  `json:"t_ref"`
 			BlobRetentionS    string  `json:"blob_retention_s"`
 			FibreLatest       string  `json:"fibre_retention_latest_s"`
 			FibreAtHeight     *string `json:"fibre_retention_at_height_s"`
@@ -186,7 +206,7 @@ func TestAnchorK2Vectors(t *testing.T) {
 				Route       string `json:"route"`
 				ExpectError string `json:"expect_error"`
 			} `json:"expect"`
-		} `json:"k2"`
+		} `json:"k2_included"`
 	}
 	gatefix.ReadVector(t, "anchor.json", &af)
 	ran := 0

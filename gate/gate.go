@@ -119,6 +119,14 @@ func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
 	if d.Archiver != nil && isNilDep(d.Archiver) {
 		return nil, bad("archiver is a typed nil; leave it nil to skip the archive stage")
 	}
+	if cfg.FastMode {
+		if len(cfg.Mandate) == 0 {
+			return nil, causeErr(CauseFastModeWithoutMandate, "fast mode needs a mandate")
+		}
+		if d.Archiver == nil {
+			return nil, bad("fast mode needs an archive")
+		}
+	}
 	committers := make(map[commitment.DA]DACommitter, len(d.Committers))
 	for da, c := range d.Committers {
 		if !isNilDep(c) {
@@ -140,6 +148,11 @@ func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
 	}
 	cfg.Scope.ActionTypes = slices.Clone(cfg.Scope.ActionTypes)
 	cfg.AllowedDA = slices.Clone(cfg.AllowedDA)
+	cfg.RevealOnExecution = slices.Clone(cfg.RevealOnExecution)
+	cfg.PendingNamespaces = slices.Clone(cfg.PendingNamespaces)
+	for i, ns := range cfg.PendingNamespaces {
+		cfg.PendingNamespaces[i] = bytes.Clone(ns)
+	}
 
 	g := &Gate{cfg: cfg, d: d, log: d.Logger, gateKeys: make(map[[32]byte]struct{}), sem: newWeightedSem(cfg.MaxFetchBytes)}
 	if g.log == nil {
@@ -251,12 +264,12 @@ func (g *Gate) bumpWatermark(v uint64) {
 }
 
 // Authorize verifies the envelope and, if every check passes, signs an
-// Authorization for exactly the presented action bytes, consumes the nonce
-// and stores the Authorization in one registry transaction, and only then
-// returns it. A nonce that is already used gives ErrNonceUsed; the stored
-// Authorization comes back with it only if the same commitment is presented
-// with the committed action bytes.
-func (g *Gate) Authorize(ctx context.Context, envelope, action []byte) (res Result, err error) {
+// Authorization for exactly the presented action bytes and salt, consumes
+// the nonce and stores the Authorization in one registry transaction, and
+// only then returns it. A nonce that is already used gives ErrNonceUsed; the
+// stored Authorization comes back with it only if the same commitment is
+// presented with the committed action bytes and salt.
+func (g *Gate) Authorize(ctx context.Context, envelope, action, salt []byte) (res Result, err error) {
 	var ev AdmissionEvent
 	defer func() {
 		if g.d.Metrics != nil {
@@ -264,11 +277,12 @@ func (g *Gate) Authorize(ctx context.Context, envelope, action []byte) (res Resu
 			g.d.Metrics.Admission(ev)
 		}
 	}()
-	return g.authorize(ctx, envelope, action, &ev)
+	return g.authorize(ctx, envelope, action, salt, &ev)
 }
 
-func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *AdmissionEvent) (Result, error) {
+func (g *Gate) authorize(ctx context.Context, envelope, action, salt []byte, ev *AdmissionEvent) (Result, error) {
 	envelope = bytes.Clone(envelope)
+	salt = bytes.Clone(salt)
 	if g.closed.Load() {
 		return Result{}, ErrClosed
 	}
@@ -313,11 +327,8 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 		c.PayloadSize > g.cfg.FibreMaxDataBytes {
 		return res, fmt.Errorf("%w: payload_size %d, limit %d", ErrPayloadAboveCap, c.PayloadSize, g.cfg.FibreMaxDataBytes)
 	}
-	if c.Version == commitment.VersionV0 && (!g.cfg.AcceptV0 || g.pol != nil) {
-		return res, fmt.Errorf("%w: version %d", ErrVersionNotAccepted, c.Version)
-	}
-	// This gate has no fast mode, so it authorizes only after the anchor is
-	// proven at the reference height.
+	// Stage K-fast is not implemented, so even a gate with FastMode on
+	// authorizes only after the anchor is proven at the reference height.
 	if c.PayloadRef.Pending() {
 		return res, ErrAnchorPending
 	}
@@ -350,7 +361,7 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	// The presented bytes must be exactly the committed ones. This runs before
 	// any registry read, so bytes that do not match learn nothing about a
 	// used nonce.
-	if err := commitment.CheckAction(c, action); err != nil {
+	if err := commitment.CheckAction(c, action, salt); err != nil {
 		return res, err
 	}
 	copy(res.ActionHash[:], c.Action.Hash)
@@ -364,13 +375,12 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	key := registry.Key{PubKey: agentKey}
 	copy(key.Nonce[:], c.Nonce)
 
-	// Mandate reference: the agent must have committed to the mandate in
-	// force. No verdict is signed for a refusal here, since the gate never
-	// signs one under a mandate the agent did not name.
-	if g.pol != nil {
-		if merr := g.checkMandateRef(c); merr != nil {
-			return g.refuseBeforePolicy(ctx, res, key, envelope, action, merr)
-		}
+	// Mandate reference, at every gate: the agent must have committed to the
+	// mandate in force, or to none at a gate without one. No verdict is
+	// signed for a refusal here, since the gate never signs one under a
+	// mandate the agent did not name.
+	if merr := g.checkMandateRef(c); merr != nil {
+		return g.refuseMandateRef(ctx, res, key, envelope, action, salt, merr)
 	}
 
 	if g.pol != nil {
@@ -384,7 +394,7 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 			// changed since.
 			if old, gerr := g.d.Registry.Get(ctx, key); gerr == nil && old.CommitmentHash == h {
 				if g.d.Archiver != nil {
-					if err := g.archiveDecision(ctx, h, envelope, action); err != nil {
+					if err := g.archiveDecision(ctx, h, envelope, action, salt); err != nil {
 						return res, err
 					}
 					res.DecisionArchived = true
@@ -399,7 +409,7 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 			}
 			res.PolicyVerdict = vb
 			if vb != nil && g.d.Archiver != nil {
-				if aerr := g.archiveDecision(ctx, h, envelope, action); aerr != nil {
+				if aerr := g.archiveDecision(ctx, h, envelope, action, salt); aerr != nil {
 					g.log.Warn("decision record not archived after a policy deny", "err", aerr)
 				} else {
 					res.DecisionArchived = true
@@ -412,7 +422,7 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	// Archive the decision before any nonce read, so a request that is
 	// refused later or retried still leaves the signed decision behind.
 	if g.d.Archiver != nil {
-		if err := g.archiveDecision(ctx, h, envelope, action); err != nil {
+		if err := g.archiveDecision(ctx, h, envelope, action, salt); err != nil {
 			return res, err
 		}
 		res.DecisionArchived = true
@@ -497,7 +507,7 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 		return res, fmt.Errorf("gate: %w", err)
 	}
 	expires := min(c.ValidUntil, satAdd(now2, g.cfg.MaxAuthorizationTTL))
-	signed, err := g.signAuthorization(ctx, h, res.ActionHash, c, action, path, expires, now2)
+	signed, err := g.signAuthorization(ctx, h, res.ActionHash, c, action, salt, path, expires, now2)
 	if err != nil {
 		return res, err
 	}
@@ -509,7 +519,7 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	}
 	entry := registry.Entry{
 		Key: key, CommitmentHash: h, ActionHash: res.ActionHash, Path: path,
-		AuthorizedAt: now2, ValidUntil: c.ValidUntil, Authorization: signed,
+		AuthorizedAt: now2, ValidUntil: c.ValidUntil, Authorization: signed, ActionSalt: salt,
 	}
 	var cerr error
 	if dec != nil {
@@ -543,8 +553,16 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 }
 
 // checkMandateRef compares the commitment's mandate_ref with the hash of the
-// mandate in force, in constant time.
+// mandate in force, in constant time. Without a mandate any mandate_ref is
+// refused: the agent said the principal's limits apply, and nothing here
+// would apply them.
 func (g *Gate) checkMandateRef(c *commitment.Commitment) error {
+	if g.pol == nil {
+		if c.MandateRef != nil {
+			return fmt.Errorf("%w: this gate has no mandate", ErrMandateMismatch)
+		}
+		return nil
+	}
 	if c.MandateRef == nil {
 		return ErrMandateRefMissing
 	}
@@ -554,26 +572,26 @@ func (g *Gate) checkMandateRef(c *commitment.Commitment) error {
 	return nil
 }
 
-// refuseBeforePolicy answers a refusal that comes before policy admission.
-// A retry of a decision authorized earlier (before a mandate change) gets its
-// stored Authorization. Otherwise the decision record is archived, as after a
-// policy deny, and the refusal stands whether or not that write succeeds.
-func (g *Gate) refuseBeforePolicy(ctx context.Context, res Result, key registry.Key, envelope, action []byte, refusal error) (Result, error) {
+// refuseMandateRef answers a mandate reference refusal. A retry of a
+// decision authorized earlier (before a mandate change) gets its stored
+// Authorization and nothing is written. Otherwise only a commitment that
+// names no mandate gets its decision record, as after a policy deny: one
+// that names another mandate may have been committed under a private one,
+// and a record in the form of the mandate in force would publish or
+// misdirect its action bytes and salt.
+func (g *Gate) refuseMandateRef(ctx context.Context, res Result, key registry.Key, envelope, action, salt []byte, refusal error) (Result, error) {
 	old, gerr := g.d.Registry.Get(ctx, key)
 	switch {
 	case gerr == nil && old.CommitmentHash == res.CommitmentHash:
-		if g.d.Archiver != nil {
-			if err := g.archiveDecision(ctx, res.CommitmentHash, envelope, action); err != nil {
-				return res, err
-			}
-			res.DecisionArchived = true
-		}
 		return g.replayArchived(res, old)
 	case gerr != nil && !errors.Is(gerr, registry.ErrNotFound):
 		return res, fmt.Errorf("%w: %w", ErrRegistryUnavailable, gerr)
 	}
+	if !errors.Is(refusal, ErrMandateRefMissing) {
+		return res, refusal
+	}
 	if g.d.Archiver != nil {
-		if err := g.archiveDecision(ctx, res.CommitmentHash, envelope, action); err != nil {
+		if err := g.archiveDecision(ctx, res.CommitmentHash, envelope, action, salt); err != nil {
 			g.log.Warn("decision record not archived after a refusal", "err", err)
 		} else {
 			res.DecisionArchived = true
@@ -584,10 +602,12 @@ func (g *Gate) refuseBeforePolicy(ctx context.Context, res Result, key registry.
 
 // archiveDecision writes the decision record under its own deadline. A done
 // parent context is the caller's, not an archive fault.
-func (g *Gate) archiveDecision(ctx context.Context, h commitment.Hash, envelope, action []byte) error {
+func (g *Gate) archiveDecision(ctx context.Context, h commitment.Hash, envelope, action, salt []byte) error {
 	wctx, cancel := context.WithTimeout(ctx, g.cfg.ArchiveWriteTimeout)
 	defer cancel()
-	err := g.d.Archiver.Put(wctx, DecisionRecord{CommitmentHash: h, Envelope: bytes.Clone(envelope), Action: bytes.Clone(action)})
+	err := g.d.Archiver.Put(wctx, DecisionRecord{
+		CommitmentHash: h, Envelope: bytes.Clone(envelope), Action: bytes.Clone(action), ActionSalt: bytes.Clone(salt),
+	})
 	if err == nil {
 		return nil
 	}
@@ -617,7 +637,7 @@ func (g *Gate) replay(h, actionHash commitment.Hash, old registry.Entry) (Result
 	res.ActionHash = actionHash
 	sa, ah, err := commitment.DecodeSignedAuthorization(old.Authorization)
 	if err != nil ||
-		!ed25519.Verify(g.signerPub, commitment.AuthorizationSigningMessageFor(sa.Authorization.Version, ah), sa.Signature) ||
+		!ed25519.Verify(g.signerPub, commitment.AuthorizationSigningMessage(ah), sa.Signature) ||
 		subtle.ConstantTimeCompare(sa.Authorization.CommitmentHash, h[:]) != 1 ||
 		subtle.ConstantTimeCompare(sa.Authorization.ActionHash, actionHash[:]) != 1 {
 		g.log.Error("stored authorization disagrees with the commitment",
@@ -636,25 +656,22 @@ func (g *Gate) replay(h, actionHash commitment.Hash, old registry.Entry) (Result
 }
 
 // signAuthorization builds, signs and self-verifies the Authorization.
-func (g *Gate) signAuthorization(ctx context.Context, h, actionHash commitment.Hash, c *commitment.Commitment, action []byte, path registry.Path, expires, now uint64) ([]byte, error) {
-	// The Authorization has the commitment's version; a v1 one states the
-	// mode, which is strict because the anchor was proven above.
+func (g *Gate) signAuthorization(ctx context.Context, h, actionHash commitment.Hash, c *commitment.Commitment, action, salt []byte, path registry.Path, expires, now uint64) ([]byte, error) {
+	// The mode is strict: the anchor was proven above.
 	a := commitment.Authorization{
-		Version:        c.Version,
+		Version:        commitment.Version,
 		CommitmentHash: h[:],
 		ActionHash:     actionHash[:],
 		GateID:         g.cfg.Scope.GateID,
 		Expires:        expires,
 		Path:           commitment.PayloadPath(path),
-	}
-	if c.Version == commitment.VersionV1 {
-		a.Mode = commitment.ModeStrict
+		Mode:           commitment.ModeStrict,
 	}
 	canon, err := commitment.EncodeAuthorization(&a)
 	if err != nil {
 		return nil, fmt.Errorf("gate: encode authorization: %w", err)
 	}
-	sig, err := g.sign(ctx, commitment.AuthorizationSigningMessageFor(a.Version, commitment.HashAuthorizationFor(a.Version, canon)))
+	sig, err := g.sign(ctx, commitment.AuthorizationSigningMessage(commitment.HashAuthorization(canon)))
 	if err != nil {
 		return nil, fmt.Errorf("gate: sign authorization: %w", err)
 	}
@@ -664,7 +681,7 @@ func (g *Gate) signAuthorization(ctx context.Context, h, actionHash commitment.H
 	}
 	_, _, err = commitment.VerifyAuthorization(b, commitment.AuthorizationCheck{
 		GatePubKey: g.signerPub, GateID: g.cfg.Scope.GateID, ActionType: c.Action.Type,
-		Action: action, Now: now, SkewS: g.cfg.SkewS,
+		Action: action, ActionSalt: salt, Now: now, SkewS: g.cfg.SkewS,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gate: authorization does not verify: %w", err)
@@ -836,6 +853,7 @@ func (g *Gate) sign(ctx context.Context, msg []byte) (sig []byte, err error) {
 
 func (g *Gate) signReceipt(ctx context.Context, h commitment.Hash, ref string, executorPub, executorSig []byte, recordedAt uint64) ([]byte, error) {
 	r := commitment.Receipt{
+		Version:        commitment.Version,
 		CommitmentHash: h[:],
 		GateID:         g.cfg.Scope.GateID,
 		GatePubKey:     g.signerPub,

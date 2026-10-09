@@ -50,6 +50,9 @@ type Entry struct {
 	// derived from it.
 	ClosedBucket []byte
 	ClosedSet    []byte
+	// ActionSalt is the agent's action salt as presented with the
+	// Authorization, kept for the reveal on execution. Gate-local, in clear.
+	ActionSalt []byte
 }
 
 // Clone returns a deep copy that preserves nil slices.
@@ -59,6 +62,7 @@ func (e Entry) Clone() Entry {
 	e.Verdict = slices.Clone(e.Verdict)
 	e.ClosedBucket = slices.Clone(e.ClosedBucket)
 	e.ClosedSet = slices.Clone(e.ClosedSet)
+	e.ActionSalt = slices.Clone(e.ActionSalt)
 	return e
 }
 

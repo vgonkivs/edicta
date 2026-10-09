@@ -201,7 +201,7 @@ func TestStalledDependenciesAreCutByChainTimeout(t *testing.T) {
 			b, _ := gatefix.Sign(t, "agent1", c)
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			_, err := e.Gate.Authorize(ctx, b, gatefix.Action(t))
+			_, err := e.Gate.Authorize(ctx, b, gatefix.Action(t), gatefix.Salt(t))
 			require.NoError(t, ctx.Err(), "the gate must return before the caller's deadline")
 			matched := false
 			for _, w := range tc.want {
@@ -479,7 +479,7 @@ func TestClosedGateRefusesEverything(t *testing.T) {
 	require.NoError(t, e.Gate.Close())
 	ctx := context.Background()
 
-	res, err := e.Gate.Authorize(ctx, b, gatefix.Action(t))
+	res, err := e.Gate.Authorize(ctx, b, gatefix.Action(t), gatefix.Salt(t))
 	require.ErrorIs(t, err, gate.ErrClosed)
 	require.Nil(t, res.Authorization)
 	_, err = e.Record(b, "ref-1")

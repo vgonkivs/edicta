@@ -56,6 +56,12 @@ func (g *Gate) setupPolicy(ctx context.Context) error {
 	if len(m.Auditors) > 0 {
 		return bad("private mandates (auditors) are not supported by this gate")
 	}
+	// A bound below the slack would refuse every pending reference past h0,
+	// after the anchor work: fast mode would be silently unusable.
+	if g.cfg.FastMode && m.FastModeMaxDelay != 0 && m.FastModeMaxDelay < g.cfg.MinFastSlackBlocks+1 {
+		return causeErr(CauseFastDelayBelowSlack, "fast_mode_max_delay %d below min_fast_slack_blocks %d + 1",
+			m.FastModeMaxDelay, g.cfg.MinFastSlackBlocks)
+	}
 	// Roles compare as (sig_type, bytes): only an Ed25519 principal can be one
 	// of the gate's Ed25519 keys, and padding a shorter principal to 32 bytes
 	// could match a key it is not.

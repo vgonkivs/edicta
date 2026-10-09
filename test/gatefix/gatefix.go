@@ -41,10 +41,18 @@ const (
 	RailRef = "9876543210"
 )
 
-// VectorPath returns the absolute path of a file in spec/vectors/v0.
+// VectorPath returns the absolute path of a file in spec/vectors/v1. The
+// shared keys and the DA blob commitments live outside that directory.
 func VectorPath(name string) string {
 	_, file, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(file), "..", "..", "spec", "vectors", "v0", name)
+	root := filepath.Join(filepath.Dir(file), "..", "..", "spec", "vectors")
+	switch name {
+	case "keys.json":
+		return filepath.Join(root, name)
+	case "da_blob.json":
+		return filepath.Join(root, "da", "blob_commit.json")
+	}
+	return filepath.Join(root, "v1", name)
 }
 
 // ReadVector parses a vector file into v.
@@ -173,9 +181,10 @@ func RealCommitment(t testing.TB) []byte {
 }
 
 type validCase struct {
-	ID          string `json:"id"`
-	EnvelopeHex string `json:"envelope_hex"`
-	ActionHex   string `json:"action_hex"`
+	ID            string `json:"id"`
+	EnvelopeHex   string `json:"envelope_hex"`
+	ActionHex     string `json:"action_hex"`
+	ActionSaltHex string `json:"action_salt_hex"`
 }
 
 func validCaseByID(t testing.TB, id string) validCase {
@@ -198,6 +207,13 @@ func validCaseByID(t testing.TB, id string) validCase {
 func Action(t testing.TB) []byte {
 	t.Helper()
 	return MustHex(t, validCaseByID(t, "minimal_lmt").ActionHex)
+}
+
+// Salt returns the action salt the templates commit with: the salt of the
+// minimal_lmt vector.
+func Salt(t testing.TB) []byte {
+	t.Helper()
+	return MustHex(t, validCaseByID(t, "minimal_lmt").ActionSaltHex)
 }
 
 // ActionOf materializes the action bytes of a vector: literal hex, or a
@@ -228,11 +244,11 @@ func Variant(t testing.TB, c *commitment.Commitment, i int) *commitment.Commitme
 	return WithAction(t, c, ActionType, OtherAction(t, i))
 }
 
-// WithAction returns a clone committed to the given type and action bytes.
-// The result is unsigned.
+// WithAction returns a clone committed to the given type and action bytes
+// under the template salt. The result is unsigned.
 func WithAction(t testing.TB, c *commitment.Commitment, actionType string, action []byte) *commitment.Commitment {
 	t.Helper()
-	h, err := commitment.ActionHash(actionType, action)
+	h, err := commitment.ActionHash(actionType, Salt(t), action)
 	require.NoError(t, err, "action hash")
 	d := Clone(c)
 	d.Action = commitment.Action{Type: actionType, Hash: h[:]}
@@ -277,10 +293,10 @@ func FibreBlob() []byte {
 	return b
 }
 
-// FibreTemplate is the fibre_small_payload commitment bound to FibreBlob.
-// Unsigned.
+// FibreTemplate is the fibre_small_payload commitment bound to FibreBlob and
+// committed to the template action and salt. Unsigned.
 func FibreTemplate(t testing.TB) *commitment.Commitment {
-	c := validEnvelope(t, "fibre_small_payload")
+	c := WithAction(t, validEnvelope(t, "fibre_small_payload"), ActionType, Action(t))
 	sum := sha256.Sum256(FibreBlob())
 	c.CiphertextHash = sum[:]
 	c.PayloadSize = uint64(len(FibreBlob()))
@@ -329,7 +345,7 @@ func SignWith(t testing.TB, priv ed25519.PrivateKey, c *commitment.Commitment) (
 		require.NoError(t, err, "hash")
 		s = &commitment.SignedCommitment{
 			Commitment: *Clone(c),
-			Signature:  ed25519.Sign(priv, commitment.SignedMessage(c.Version, h)),
+			Signature:  ed25519.Sign(priv, commitment.SigningMessage(h)),
 		}
 	} else {
 		require.NoError(t, err, "sign")
@@ -490,15 +506,21 @@ func (e *Env) RecordAs(executor string, b []byte, railRef string) ([]byte, error
 	return e.Gate.Record(context.Background(), b, railRef, k.Public().(ed25519.PublicKey), RecordSigFor(e.T, k, e.Cfg.Scope.GateID, b, railRef))
 }
 
-// Authorize calls the gate with a background context and the template action,
-// which every template and its variants commit to.
+// Authorize calls the gate with a background context and the template action
+// and salt, which every template and its variants commit to.
 func (e *Env) Authorize(b []byte) (gate.Result, error) {
 	return e.AuthorizeWith(b, Action(e.T))
 }
 
-// AuthorizeWith calls the gate with explicit action bytes.
+// AuthorizeWith calls the gate with explicit action bytes and the template
+// salt.
 func (e *Env) AuthorizeWith(b, action []byte) (gate.Result, error) {
-	return e.Gate.Authorize(context.Background(), b, action)
+	return e.AuthorizeWithSalt(b, action, Salt(e.T))
+}
+
+// AuthorizeWithSalt calls the gate with explicit action bytes and salt.
+func (e *Env) AuthorizeWithSalt(b, action, salt []byte) (gate.Result, error) {
+	return e.Gate.Authorize(context.Background(), b, action, salt)
 }
 
 // BlockTime is the header time Stage uses for c: 1000 s before issued_at.
@@ -567,7 +589,7 @@ func CheckReceipt(t testing.TB, receipt []byte, h commitment.Hash, wantRef strin
 	require.Equalf(t, wantRef, r.RailRef, "receipt fields %+v", r)
 	require.Equalf(t, gateID, r.GateID, "receipt fields %+v", r)
 	require.Equalf(t, string(gatePub), string(r.GatePubKey), "receipt fields %+v", r)
-	require.EqualValuesf(t, 0, r.Version, "receipt version %+v", r)
+	require.EqualValuesf(t, commitment.Version, r.Version, "receipt version %+v", r)
 	// Anyone can check the executor's claim without trusting the gate.
 	require.NoError(t, commitment.VerifyRecordRequest(h, r.GateID, r.RailRef, r.ExecutorPubKey, r.ExecutorSignature), "executor signature in the receipt")
 	require.NotEqual(t, string(gatePub), string(r.ExecutorPubKey), "executor key is the gate key")
@@ -580,9 +602,16 @@ func CheckReceipt(t testing.TB, receipt []byte, h commitment.Hash, wantRef strin
 // returns the decoded value.
 func CheckAuthorization(t testing.TB, auth, action []byte, c *commitment.Commitment, h commitment.Hash, path commitment.PayloadPath, wantExpires, now uint64) *commitment.SignedAuthorization {
 	t.Helper()
+	return CheckAuthorizationSalted(t, auth, action, Salt(t), c, h, path, wantExpires, now)
+}
+
+// CheckAuthorizationSalted is CheckAuthorization for an action committed
+// under another salt than the template's.
+func CheckAuthorizationSalted(t testing.TB, auth, action, salt []byte, c *commitment.Commitment, h commitment.Hash, path commitment.PayloadPath, wantExpires, now uint64) *commitment.SignedAuthorization {
+	t.Helper()
 	require.NotEmpty(t, auth, "no authorization")
 	sa, _, err := commitment.VerifyAuthorization(auth, commitment.AuthorizationCheck{
-		GatePubKey: Pub(t, "gate1"), GateID: GateID, ActionType: c.Action.Type, Action: action, Now: now, SkewS: 30,
+		GatePubKey: Pub(t, "gate1"), GateID: GateID, ActionType: c.Action.Type, Action: action, ActionSalt: salt, Now: now, SkewS: 30,
 	})
 	require.NoError(t, err, "VerifyAuthorization")
 	a := sa.Authorization
@@ -590,10 +619,8 @@ func CheckAuthorization(t testing.TB, auth, action []byte, c *commitment.Commitm
 	require.Equal(t, string(c.Action.Hash), string(a.ActionHash))
 	require.Equal(t, GateID, a.GateID)
 	require.Equal(t, path, a.Path)
-	require.Equal(t, c.Version, a.Version, "the Authorization has the commitment's version")
-	if c.Version == commitment.VersionV1 {
-		require.EqualValues(t, commitment.ModeStrict, a.Mode)
-	}
+	require.EqualValues(t, commitment.Version, a.Version)
+	require.EqualValues(t, commitment.ModeStrict, a.Mode)
 	if wantExpires != 0 {
 		require.Equal(t, wantExpires, a.Expires)
 	}
@@ -626,7 +653,7 @@ func KnownSentinels() []error {
 		gate.ErrDACommitmentMismatch, gate.ErrArchiveRecomputeUnsupported, gate.ErrPayloadUnavailable,
 		gate.ErrChainUnavailable, gate.ErrRegistryUnavailable, gate.ErrAllowlistUnavailable, gate.ErrClosed, gate.ErrRegistryInUse, gate.ErrClockRegression,
 		gate.ErrNotAuthorized, gate.ErrReceiptExists, gate.ErrExecutorNotAllowed, commitment.ErrKeyRole,
-		gate.ErrVersionNotAccepted, gate.ErrAnchorPending, gate.ErrMandateRefMissing, gate.ErrMandateMismatch,
+		gate.ErrAnchorPending, gate.ErrMandateRefMissing, gate.ErrMandateMismatch,
 		context.Canceled, context.DeadlineExceeded,
 	}
 }

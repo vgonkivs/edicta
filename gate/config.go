@@ -3,6 +3,7 @@ package gate
 import (
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/vgonkivs/edicta/commitment"
@@ -18,6 +19,30 @@ const (
 	// fibreFetchFactor is how many times a Fibre payload's size the fetch
 	// budget must cover.
 	fibreFetchFactor = 13
+
+	defaultFastWindowBlocks       = 100
+	defaultMaxH0AgeBlocks         = 10
+	defaultMinFastSlackBlocks     = 3
+	defaultMinPromiseSlackSeconds = 15
+	maxFastWindowBlocks           = 1000
+	maxMinFastSlackBlocks         = 100
+	maxMinPromiseSlackSeconds     = 600
+	namespaceSize                 = 29
+)
+
+// Causes of ErrInvalidConfig for the fast-mode and reveal settings. They are
+// stable so that operators and tests can tell the refusals apart.
+const (
+	CausePendingNamespaces        = "pending_namespaces"
+	CauseFastWindowBlocks         = "fast_window_blocks"
+	CauseMaxH0AgeBlocks           = "max_h0_age_blocks"
+	CauseMinFastSlackBlocks       = "min_fast_slack_blocks"
+	CauseMinPromiseSlackSeconds   = "min_promise_slack_seconds"
+	CauseRevealOnExecution        = "reveal_on_execution"
+	CauseRevealNotPublicExecution = "reveal_not_public_execution"
+	CauseAgePlusSlack             = "age_plus_slack"
+	CauseFastModeWithoutMandate   = "fast_mode_without_mandate"
+	CauseFastDelayBelowSlack      = "fast_delay_below_slack"
 )
 
 type Config struct {
@@ -48,9 +73,28 @@ type Config struct {
 	ExecutorKeys [][32]byte
 	// Mandate is the canonical SignedMandate; empty means no policy.
 	Mandate []byte
-	// AcceptV0 admits v0 commitments. It is ignored, as if false, when a
-	// Mandate is configured: a v0 commitment cannot name its mandate.
-	AcceptV0 bool
+
+	// FastMode admits pending payload references. It needs a mandate,
+	// PendingNamespaces and an archive. This gate does not run stage K-fast
+	// yet, so it still refuses every pending reference.
+	FastMode bool
+	// FastWindowBlocks bounds anchor_deadline - h0; 1..1000.
+	FastWindowBlocks uint64
+	// MaxH0AgeBlocks bounds head - h0 at authorization; 1..FastWindowBlocks-1.
+	MaxH0AgeBlocks uint64
+	// MinFastSlackBlocks is the least anchor_deadline - head; 1..100.
+	MinFastSlackBlocks uint64
+	// MinPromiseSlackSeconds is the least time a Fibre promise must have
+	// left at authorization; 1..600.
+	MinPromiseSlackSeconds uint64
+	// PendingNamespaces are the namespaces a pending reference may name.
+	PendingNamespaces [][]byte
+	// RebroadcastIntent re-sends a Fibre anchor intent; nil means true.
+	RebroadcastIntent *bool
+	// RevealOnExecution lists the action types whose salt is revealed once
+	// a receipt is recorded. Each must be allowlisted and registered with a
+	// public-execution profile.
+	RevealOnExecution []string
 }
 
 // DefaultConfig holds the defaults; the zero value of Config is not usable.
@@ -68,8 +112,11 @@ func DefaultConfig() Config {
 		PruneGrace:          3600,
 		MaxAuthorizationTTL: 300,
 		ArchiveWriteTimeout: defaultArchiveWriteTimeout,
-		// v0 stays accepted by default until the v1 format is frozen.
-		AcceptV0: true,
+
+		FastWindowBlocks:       defaultFastWindowBlocks,
+		MaxH0AgeBlocks:         defaultMaxH0AgeBlocks,
+		MinFastSlackBlocks:     defaultMinFastSlackBlocks,
+		MinPromiseSlackSeconds: defaultMinPromiseSlackSeconds,
 	}
 }
 
@@ -85,6 +132,14 @@ func (c Config) withDefaults() Config {
 		c.AllowedDA = []commitment.DA{commitment.DAFibre, commitment.DACelestiaBlob}
 	}
 	return c
+}
+
+// rebroadcastIntent is RebroadcastIntent with its default applied.
+func (c Config) rebroadcastIntent() bool { return c.RebroadcastIntent == nil || *c.RebroadcastIntent }
+
+// causeErr is ErrInvalidConfig with a stable cause.
+func causeErr(cause, format string, a ...any) error {
+	return fmt.Errorf("%w: %s: %s", ErrInvalidConfig, cause, fmt.Sprintf(format, a...))
 }
 
 // ValidateBasic checks the fields that need no dependency. Defaults are not
@@ -124,5 +179,60 @@ func (c Config) ValidateBasic() error {
 	if _, err := normalizeDA(c.AllowedDA); err != nil {
 		return bad("%v", err)
 	}
+	return c.validateFast()
+}
+
+// validateFast checks the fast-mode and reveal settings in table order,
+// then the cross-field rule. The bounds hold whether or not FastMode is on,
+// so that turning it on never meets a bad value first.
+func (c Config) validateFast() error {
+	if c.FastMode && len(c.PendingNamespaces) == 0 {
+		return causeErr(CausePendingNamespaces, "fast mode needs at least one pending namespace")
+	}
+	switch {
+	case c.FastWindowBlocks < 1 || c.FastWindowBlocks > maxFastWindowBlocks:
+		return causeErr(CauseFastWindowBlocks, "%d outside 1..%d", c.FastWindowBlocks, maxFastWindowBlocks)
+	case c.MaxH0AgeBlocks < 1 || c.MaxH0AgeBlocks >= c.FastWindowBlocks:
+		return causeErr(CauseMaxH0AgeBlocks, "%d outside 1..%d", c.MaxH0AgeBlocks, c.FastWindowBlocks-1)
+	case c.MinFastSlackBlocks < 1 || c.MinFastSlackBlocks > maxMinFastSlackBlocks:
+		return causeErr(CauseMinFastSlackBlocks, "%d outside 1..%d", c.MinFastSlackBlocks, maxMinFastSlackBlocks)
+	case c.MinPromiseSlackSeconds < 1 || c.MinPromiseSlackSeconds > maxMinPromiseSlackSeconds:
+		return causeErr(CauseMinPromiseSlackSeconds, "%d outside 1..%d", c.MinPromiseSlackSeconds, maxMinPromiseSlackSeconds)
+	}
+	for i, ns := range c.PendingNamespaces {
+		if !validPendingNamespace(ns) {
+			return causeErr(CausePendingNamespaces, "namespace %d is not a user blob namespace", i)
+		}
+	}
+	for _, t := range c.RevealOnExecution {
+		if !slices.Contains(c.Scope.ActionTypes, t) {
+			return causeErr(CauseRevealOnExecution, "%q is not an allowed action type", t)
+		}
+		if !PublicExecution(t) {
+			return causeErr(CauseRevealNotPublicExecution, "%q has no profile with public execution", t)
+		}
+	}
+	if c.MaxH0AgeBlocks+c.MinFastSlackBlocks > c.FastWindowBlocks {
+		return causeErr(CauseAgePlusSlack, "max_h0_age_blocks %d + min_fast_slack_blocks %d above fast_window_blocks %d",
+			c.MaxH0AgeBlocks, c.MinFastSlackBlocks, c.FastWindowBlocks)
+	}
 	return nil
+}
+
+// validPendingNamespace is the user blob namespace rule of the commitment.
+func validPendingNamespace(ns []byte) bool {
+	if len(ns) != namespaceSize || ns[0] != 0 {
+		return false
+	}
+	for _, b := range ns[1:19] {
+		if b != 0 {
+			return false
+		}
+	}
+	for _, b := range ns[19:28] {
+		if b != 0 {
+			return true
+		}
+	}
+	return false
 }

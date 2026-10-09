@@ -51,10 +51,10 @@ func FuzzAuthorize(f *testing.F) {
 		p := commitment.Params{FibreRetentionS: 14400, BlobRetentionS: 14400, SkewS: 30}
 		s, _, verr := commitment.VerifyForGate(data, gatefix.Now, e.Cfg.Scope, p)
 		require.NoError(t, verr, "authorized an envelope that fails verification")
-		require.NoError(t, commitment.CheckAction(&s.Commitment, presented), "authorized bytes other than the committed ones")
+		require.NoError(t, commitment.CheckAction(&s.Commitment, presented, gatefix.Salt(t)), "authorized bytes other than the committed ones")
 		_, _, aerr := commitment.VerifyAuthorization(res.Authorization, commitment.AuthorizationCheck{
 			GatePubKey: gatefix.Pub(t, "gate1"), GateID: gatefix.GateID, ActionType: s.Commitment.Action.Type,
-			Action: presented, Now: gatefix.Now, SkewS: 30,
+			Action: presented, ActionSalt: gatefix.Salt(t), Now: gatefix.Now, SkewS: 30,
 		})
 		require.NoError(t, aerr)
 

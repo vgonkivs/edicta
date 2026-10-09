@@ -42,12 +42,13 @@ const (
 	RetentionBoth     RetentionSource = 3
 )
 
-// DecisionRecord is the envelope and the action bytes exactly as presented,
-// keyed by the commitment hash.
+// DecisionRecord is the envelope, the action bytes and the action salt
+// exactly as presented, keyed by the commitment hash.
 type DecisionRecord struct {
 	CommitmentHash commitment.Hash
 	Envelope       []byte
 	Action         []byte
+	ActionSalt     []byte
 }
 
 // Archiver stores a decision record durably before the gate reads or marks

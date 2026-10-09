@@ -93,7 +93,7 @@ func TestCancelDuringFetchWritesNothing(t *testing.T) {
 	e, c, b, _ := happy(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	e.DA.OnFetch(cancel)
-	_, err := e.Gate.Authorize(ctx, b, gatefix.Action(t))
+	_, err := e.Gate.Authorize(ctx, b, gatefix.Action(t), gatefix.Salt(t))
 	e.RequireRejected(c, err, context.Canceled)
 }
 

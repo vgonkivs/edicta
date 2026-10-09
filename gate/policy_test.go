@@ -72,7 +72,7 @@ func newPolicyEnv(t *testing.T, m *policy.Mandate, extra ...gatefix.Option) *pEn
 	e := gatefix.New(t, policyOpts(t, m, extra...)...)
 	c := gatefix.Template(t)
 	e.StageDA(c, gatefix.Blob(t))
-	c.Version = commitment.VersionV1
+	c.Version = commitment.Version
 	p := &pEnv{Env: e, t: t, base: c, m: m}
 	p.rebase()
 	return p

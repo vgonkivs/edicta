@@ -152,7 +152,7 @@ func TestPanicAfterTheMarkIsRepairedOnALaterTick(t *testing.T) {
 	reg.armed.Store(true)
 	func() {
 		defer func() { _ = recover() }()
-		_, _ = ag.Authorize(context.Background(), b, gatefix.Action(t))
+		_, _ = ag.Authorize(context.Background(), b, gatefix.Action(t), gatefix.Salt(t))
 	}()
 	assert.False(t, q.holds(h), "the hold is released")
 	_, err := reg.Get(context.Background(), gatefix.KeyOf(c))

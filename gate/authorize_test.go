@@ -85,8 +85,8 @@ func TestAuthorizationBytesMatchTheWireFormat(t *testing.T) {
 	require.NoError(t, err)
 
 	a := commitment.Authorization{
-		Version: 0, CommitmentHash: h[:], ActionHash: c.Action.Hash,
-		GateID: gatefix.GateID, Expires: gatefix.Now + 300, Path: commitment.PathDA,
+		Version: 1, CommitmentHash: h[:], ActionHash: c.Action.Hash,
+		GateID: gatefix.GateID, Expires: gatefix.Now + 300, Path: commitment.PathDA, Mode: commitment.ModeStrict,
 	}
 	canon, err := commitment.EncodeAuthorization(&a)
 	require.NoError(t, err)
@@ -114,12 +114,12 @@ func TestAuthorizationBindsTheActionType(t *testing.T) {
 	require.NoError(t, err)
 	_, _, err = commitment.VerifyAuthorization(res.Authorization, commitment.AuthorizationCheck{
 		GatePubKey: gatefix.Pub(t, "gate1"), GateID: gatefix.GateID, ActionType: "application/json",
-		Action: gatefix.Action(t), Now: gatefix.Now, SkewS: 30,
+		Action: gatefix.Action(t), ActionSalt: gatefix.Salt(t), Now: gatefix.Now, SkewS: 30,
 	})
 	require.ErrorIs(t, err, commitment.ErrActionMismatch)
 	_, _, err = commitment.VerifyAuthorization(res.Authorization, commitment.AuthorizationCheck{
 		GatePubKey: gatefix.Pub(t, "gate1"), GateID: "gate-paper-2", ActionType: c.Action.Type,
-		Action: gatefix.Action(t), Now: gatefix.Now, SkewS: 30,
+		Action: gatefix.Action(t), ActionSalt: gatefix.Salt(t), Now: gatefix.Now, SkewS: 30,
 	})
 	require.ErrorIs(t, err, commitment.ErrScopeMismatch)
 }
@@ -705,7 +705,7 @@ func TestExecutionSurfaceIsGone(t *testing.T) {
 	})
 	require.False(t, ok, "Reconcile")
 	_, ok = g.(interface {
-		Authorize(context.Context, []byte, []byte) (gate.Result, error)
+		Authorize(context.Context, []byte, []byte, []byte) (gate.Result, error)
 	})
 	require.True(t, ok, "Authorize")
 	_, ok = g.(interface {
