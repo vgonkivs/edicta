@@ -2,7 +2,7 @@ package edictaapi
 
 import "fmt"
 
-// HealthInfo is the answer of GET /v1/health (section 18.2). It is
+// HealthInfo is the answer of GET /v1/health. It is
 // informational: a caller must not take keys or namespaces from it as trusted
 // configuration.
 type HealthInfo struct {

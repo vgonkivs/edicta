@@ -221,8 +221,8 @@ func RecordRequestMessage(h Hash, gateID, railRef string) ([]byte, error) {
 	return tagged(TagRecordRequest, h[:], []byte{byte(len(gateID))}, []byte(gateID), []byte{byte(len(railRef))}, []byte(railRef)), nil
 }
 
-// VerifyRecordRequest checks the reference, the executor key (G0) and the
-// executor's signature. Whether the key is an allowed executor is the
+// VerifyRecordRequest checks the reference, the executor key (no weak key)
+// and the executor's signature. Whether the key is an allowed executor is the
 // caller's business.
 func VerifyRecordRequest(h Hash, gateID, railRef string, executorPub ed25519.PublicKey, sig []byte) error {
 	msg, err := RecordRequestMessage(h, gateID, railRef)

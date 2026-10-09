@@ -76,8 +76,8 @@ func SignatureSize(s Scheme) int {
 	return 0
 }
 
-// CheckPrincipal checks the principal's encoding for the scheme: a G0-checked
-// Ed25519 key, a compressed secp256k1 point, or a 20-byte address.
+// CheckPrincipal checks the principal's encoding for the scheme: an Ed25519
+// key that passes the low-order and canonical-encoding checks, a compressed secp256k1 point, or a 20-byte address.
 func CheckPrincipal(s Scheme, principal []byte) error {
 	switch s {
 	case Ed25519:

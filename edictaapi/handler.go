@@ -343,7 +343,8 @@ func (h *handler) publish(ctx context.Context, body []byte) ([]byte, error) {
 	case err != nil:
 		return nil, err
 	}
-	// G0 (checked first), then G2 and G1 (cofactorless, S < L) by crypto/ed25519.
+	// The weak-key check runs first; crypto/ed25519 then checks S < L and the
+	// signature itself (cofactorless).
 	if commitment.CheckPublicKey(key[:]) != nil {
 		return nil, ErrPublishSignature
 	}
