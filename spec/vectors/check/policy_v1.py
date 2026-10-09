@@ -13,7 +13,7 @@ import re
 from datetime import datetime, timezone
 
 from cbor_strict import encode
-from edicta_v0 import ID_CHARS, Reject, _verify_tagged_hash
+from edicta import ID_CHARS, Reject, _verify_tagged_hash
 from ed25519_point import public_key_problem
 
 FAMILY = b"edicta/policy/v1/"
@@ -1108,7 +1108,7 @@ def plaintext_hash(pk: int, b: bytes, action_type: str | None = None) -> bytes:
 def private_seal(plaintext: bytes, auditors: list, salt: bytes, dek: bytes, aead_nonce: bytes, sk_es: list,
                  info: bytes | None = None, aead_aad: bytes | None = None) -> tuple:
     """The core payload blob layout with the policy tags. Returns (envelope, per-auditor trace)."""
-    import edicta_payload_v0 as pl
+    import edicta_payload as pl
     rs = [pl.Recipient(a["kid"], a["pubkey"], sk) for a, sk in zip(auditors, sk_es)]
     return pl.seal(salt, plaintext, rs, dek, aead_nonce, info=tagged("private-dek") if info is None else info,
                    aead_aad=tagged("private") if aead_aad is None else aead_aad, check=False)
@@ -1118,7 +1118,7 @@ def private_open(env: bytes, keys: list, pk: int, want: bytes, action_type: str 
     """Reader rules of section 9.5. keys: X25519 private keys. Returns ('ok', plaintext, kid),
     ('corrupt', cause, None) or ('private', None, None). A reader tries the entry of its own derived kid first."""
     import hpke_base as hpke
-    import edicta_payload_v0 as pl
+    import edicta_payload as pl
     from cryptography.exceptions import InvalidTag
     from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
     if len(env) > (PRIVATE_ACTION_CAP if pk == 5 else PRIVATE_CAP):
@@ -1162,7 +1162,7 @@ REC_CAP = {7: 16448, 8: 16448, 9: 16448, 10: 16448, 11: 36928, 12: 256, 15: 6976
 
 
 def record(kind: int, **f) -> bytes:
-    m = {1: 0, 2: kind}
+    m = {1: 1, 2: kind}
     if kind in (7, 8, 9, 10, 11):
         m[3] = f["body"]
     elif kind == 15:
@@ -1190,7 +1190,7 @@ def decode_record(b: bytes) -> dict:
             raise PolicyError(s, "ErrMissingField")
         if m[key][0] != 0:
             raise PolicyError(s, "ErrWrongType")
-    if m[1][1] != 0:
+    if m[1][1] != 1:
         raise PolicyError(s, "ErrUnsupportedVersion")
     kind = m[2][1]
     if kind not in KIND_NAMES:
@@ -1311,7 +1311,7 @@ def verify_policy(case: dict) -> dict:
     A, d, gp = case["archive"], case["decision"], case["gate_pub"]
     keys = case.get("auditor_keys", [])
     schemes = case.get("schemes", (None, SIG_ADR036, SIG_EIP712))
-    v1 = d.get("version", 0) == 1
+    v1 = True
     res = {"fail": None, "fast_unchecked": None, "walk_unchecked": None, "violations": [], "walk_ran": False,
            "blocked_th": False, "walk": None, "report": {}}
 
@@ -1365,8 +1365,9 @@ def verify_policy(case: dict) -> dict:
 
     def logical(v, m):
         """The public-form verdict: v itself in public form; in private form the merge with its PrivatePart.
-        Returns (status, verdict): ok, absent, corrupt, private, or inconsistent (a decrypted state that does not
-        hash to key 20 under the mandate's salt)."""
+        Returns (status, verdict): ok, absent, corrupt, private, inconsistent (a decrypted state that does not
+        hash to key 20 under the mandate's salt), or self_inconsistent (a PrivatePart that hashes to the signed
+        private_hash but breaks the presence rule: the gate signed a contradiction)."""
         if verdict_form(v) == "public":
             return "ok", v
         h = v["private_hash"]
@@ -1385,7 +1386,7 @@ def verify_policy(case: dict) -> dict:
                         check_merged(v, pp)
                         logicals[h] = ("ok", merged)
                     except PolicyError:
-                        logicals[h] = ("corrupt", None)
+                        logicals[h] = ("self_inconsistent", merged)
         return logicals[h]
 
     def read_struct(kind, pk, h, dec, m):
@@ -1476,6 +1477,21 @@ def verify_policy(case: dict) -> dict:
         if st == "inconsistent":
             violated(V)
             return None, m
+        if st == "self_inconsistent":
+            # The verdict itself is the evidence. The policy is still judged on what the verifier derives on
+            # its own: its extractor's facts stand in for missing ones, and a deny on them is a fail.
+            res["pp_violation"] = [V]
+            if "facts" not in VL:
+                xid = case["extractors"].get(d["action_type"])
+                if xid is None:
+                    return ("unchecked", "policy_no_extractor"), m
+                try:
+                    VL = dict(VL, facts=EXTRACTORS[xid](d["action"]), extractor=xid)
+                except PolicyError:
+                    return ("unchecked", "blocked"), m
+            if any(k not in VL for k in ("extractor", "anchor_time", "eval_time", "prev_state")):
+                return ("unchecked", "blocked"), m
+            st = "ok"
         if st != "ok":
             return ("unchecked", src[st]), m
         out = facts_check(VL)
@@ -1540,6 +1556,9 @@ def verify_policy(case: dict) -> dict:
         for s_, x in ((sn_, n), (sp_, p)):
             if s_ == "inconsistent":
                 violated(x)
+                return None
+            if s_ == "self_inconsistent":
+                res["pp_violation"] = res.get("pp_violation") or [x]
                 return None
         if sp_ != "ok" or sn_ != "ok":
             return src[sp_ if sp_ != "ok" else sn_]
@@ -1647,6 +1666,7 @@ def verify_policy(case: dict) -> dict:
 
 def finish(res: dict) -> dict:
     viol = bool(res["violations"])
+    pp = res.get("pp_violation") if not viol else None
     if res.get("no_target"):
         policy = {"status": "unchecked", "reason": res["fast_unchecked"]}
     elif res["fail"]:
@@ -1664,6 +1684,9 @@ def finish(res: dict) -> dict:
     policy |= res.get("report", {})
     if viol:
         gi = {"status": "violated", "reason": "gate_equivocation", "evidence": [h.hex() for h in res["violations"]]}
+    elif pp:
+        gi = {"status": "violated", "reason": "gate_signed_inconsistent_private_part",
+              "evidence": [verdict_hash_of(x).hex() for x in pp]}
     elif res["walk_ran"] and res["walk_unchecked"]:
         gi = {"status": "unchecked", "reason": res["walk_unchecked"], "evidence": []}
     elif res["walk_ran"]:
@@ -1674,7 +1697,7 @@ def finish(res: dict) -> dict:
         gi["walk"] = res["walk"]
     if policy["status"] == "fail":
         verdict, code = "invalid", 1
-    elif viol:
+    elif viol or pp:
         verdict, code = "unchecked", 5
     elif policy["status"] == "unchecked":
         verdict, code = "unchecked", 2

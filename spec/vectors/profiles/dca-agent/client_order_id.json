@@ -1,92 +1,140 @@
 {
   "format": "edicta-vectors/v0",
   "profile": "dca-agent",
-  "revision": "dca-agent-v0-draft.1",
-  "core_revision": "v0-draft.9",
+  "revision": "dca-agent-v0-draft.4",
+  "core_revision": "v1-draft.5",
   "cases": [
     {
       "id": "coid_minimal_lmt",
       "commitment_ref": "minimal_lmt",
-      "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
-      "client_order_id": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d"
+      "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe",
+      "client_order_id": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe"
     },
     {
       "id": "coid_ttl_exactly_max",
       "commitment_ref": "ttl_exactly_max",
-      "commitment_hash_hex": "fb01a68758599a7fff154d811d957743a8b7a0d5da539f2e9ba5bbc97ccf2f95",
-      "client_order_id": "fb01a68758599a7fff154d811d957743a8b7a0d5da539f2e9ba5bbc97ccf2f95"
+      "commitment_hash_hex": "ead4b8f003881bf8615145b09ff307752bb00343449d340b1bf0a32685c97c1d",
+      "client_order_id": "ead4b8f003881bf8615145b09ff307752bb00343449d340b1bf0a32685c97c1d"
     },
     {
       "id": "coid_fibre_small_payload",
       "commitment_ref": "fibre_small_payload",
-      "commitment_hash_hex": "476a1b65952e00d9cd36df2547b9c4404cb5f4b3606671f8e3c30cef5ec3249a",
-      "client_order_id": "476a1b65952e00d9cd36df2547b9c4404cb5f4b3606671f8e3c30cef5ec3249a"
+      "commitment_hash_hex": "3e13dd25c51f419bf9ace50e2faec5922143979262efc031fb05aafb174cb3ad",
+      "client_order_id": "3e13dd25c51f419bf9ace50e2faec5922143979262efc031fb05aafb174cb3ad"
     },
     {
       "id": "coid_blob_large_payload",
       "commitment_ref": "blob_large_payload",
-      "commitment_hash_hex": "c7fcd1e90bcfdebd6fbbcff52c2b5396286ee30ddb27a26ee6fbb4761b002f06",
-      "client_order_id": "c7fcd1e90bcfdebd6fbbcff52c2b5396286ee30ddb27a26ee6fbb4761b002f06"
+      "commitment_hash_hex": "da8ed6a60ff32206c7ae04e065a9c444b9522d2f5a0d60fb89271dcb72bc9d41",
+      "client_order_id": "da8ed6a60ff32206c7ae04e065a9c444b9522d2f5a0d60fb89271dcb72bc9d41"
     },
     {
       "id": "coid_issued_at_within_skew",
       "commitment_ref": "issued_at_within_skew",
-      "commitment_hash_hex": "05ed769054e928f73065401f878e8b7ae560189df9f18ee5f19633893f7fb988",
-      "client_order_id": "05ed769054e928f73065401f878e8b7ae560189df9f18ee5f19633893f7fb988"
+      "commitment_hash_hex": "ff6843164541feafa1f7e7b5eea4b60c7c529619d98214d8fa75d309acc03707",
+      "client_order_id": "ff6843164541feafa1f7e7b5eea4b60c7c529619d98214d8fa75d309acc03707"
     },
     {
       "id": "coid_int_head_widths",
       "commitment_ref": "int_head_widths",
-      "commitment_hash_hex": "e8d05098f9a5861184d24183498ed2090ef15ede5fb7babb391707c00dd109c0",
-      "client_order_id": "e8d05098f9a5861184d24183498ed2090ef15ede5fb7babb391707c00dd109c0"
+      "commitment_hash_hex": "0b68aadccb5573bde3a2837b6773efa543272876b8f77826b8432845543e9b5e",
+      "client_order_id": "0b68aadccb5573bde3a2837b6773efa543272876b8f77826b8432845543e9b5e"
     },
     {
       "id": "coid_int_head_widths_1_2",
       "commitment_ref": "int_head_widths_1_2",
-      "commitment_hash_hex": "dd7335246c58e7a3c84e688f1e127b1fcff09ed3b2d453b3088b806f66d3da9f",
-      "client_order_id": "dd7335246c58e7a3c84e688f1e127b1fcff09ed3b2d453b3088b806f66d3da9f"
+      "commitment_hash_hex": "b29405ef0f8cf234bb403864023a540d1400ff9a2d840467288999170b49c7bb",
+      "client_order_id": "b29405ef0f8cf234bb403864023a540d1400ff9a2d840467288999170b49c7bb"
     },
     {
       "id": "coid_int_head_widths_2_3",
       "commitment_ref": "int_head_widths_2_3",
-      "commitment_hash_hex": "935d53290b9908deee832974da984388d4a8590341e5b98320992c56f7578e7c",
-      "client_order_id": "935d53290b9908deee832974da984388d4a8590341e5b98320992c56f7578e7c"
+      "commitment_hash_hex": "a302d4ab539ae9a0f53ca56c0efa33c47fa562d8d13bccf0b4e568f38c7f53c3",
+      "client_order_id": "a302d4ab539ae9a0f53ca56c0efa33c47fa562d8d13bccf0b4e568f38c7f53c3"
     },
     {
       "id": "coid_max_int_values",
       "commitment_ref": "max_int_values",
-      "commitment_hash_hex": "fa77770d413a881845a3e23512cf72dba125324c85d576f9de84672ec681f3f9",
-      "client_order_id": "fa77770d413a881845a3e23512cf72dba125324c85d576f9de84672ec681f3f9"
+      "commitment_hash_hex": "b70ec1e30285fe8695ee8be0034472a1aafd081dfe434955d4f17072ffba29a9",
+      "client_order_id": "b70ec1e30285fe8695ee8be0034472a1aafd081dfe434955d4f17072ffba29a9"
     },
     {
       "id": "coid_ttl_max_at_601s_retention",
       "commitment_ref": "ttl_max_at_601s_retention",
-      "commitment_hash_hex": "5af3c1f022ad6820a7f8f8304dab62c719f839a92bc6486ed4314a6a8bd53b38",
-      "client_order_id": "5af3c1f022ad6820a7f8f8304dab62c719f839a92bc6486ed4314a6a8bd53b38"
+      "commitment_hash_hex": "2698a13b6f4e260c65992286b2752037460b80be44eaaab78914b19f86f5ff7e",
+      "client_order_id": "2698a13b6f4e260c65992286b2752037460b80be44eaaab78914b19f86f5ff7e"
     },
     {
       "id": "coid_action_type_128_chars",
       "commitment_ref": "action_type_128_chars",
-      "commitment_hash_hex": "173e64766eb31860ce8998101224f39128303d620761ecd24e944c71de0fae71",
-      "client_order_id": "173e64766eb31860ce8998101224f39128303d620761ecd24e944c71de0fae71"
+      "commitment_hash_hex": "b3ffcd6d47eeacca9440892e1c8f9f2fd30b4130189eb3890b3f7ade9908fa65",
+      "client_order_id": "b3ffcd6d47eeacca9440892e1c8f9f2fd30b4130189eb3890b3f7ade9908fa65"
     },
     {
       "id": "coid_action_one_byte",
       "commitment_ref": "action_one_byte",
-      "commitment_hash_hex": "33e5b1e17af0cc2600a5836092e1131c5060a9a68225d99801f20427e413577a",
-      "client_order_id": "33e5b1e17af0cc2600a5836092e1131c5060a9a68225d99801f20427e413577a"
+      "commitment_hash_hex": "6a9e4b8de98c70ebf678c19ba50c705dc24fff34b81c6178864134b790c47338",
+      "client_order_id": "6a9e4b8de98c70ebf678c19ba50c705dc24fff34b81c6178864134b790c47338"
     },
     {
       "id": "coid_action_max_size",
       "commitment_ref": "action_max_size",
-      "commitment_hash_hex": "aec1abfde27483c54144d6d6d084a2405e08607bafe72a5e5f4ab93d4768f8f3",
-      "client_order_id": "aec1abfde27483c54144d6d6d084a2405e08607bafe72a5e5f4ab93d4768f8f3"
+      "commitment_hash_hex": "fc1f7b4bcd04c33d74453492dc2f25aaf37827814c81ed49024357fef0d1eeb3",
+      "client_order_id": "fc1f7b4bcd04c33d74453492dc2f25aaf37827814c81ed49024357fef0d1eeb3"
     },
     {
       "id": "coid_action_json_bytes",
       "commitment_ref": "action_json_bytes",
-      "commitment_hash_hex": "48834b7710c23b6c8b550ae505b1577198ddabe13914ef8a2a64ba9f49682a2d",
-      "client_order_id": "48834b7710c23b6c8b550ae505b1577198ddabe13914ef8a2a64ba9f49682a2d"
+      "commitment_hash_hex": "6cf62a19a9e3dff644f938ce3afe374e58b5238a6b1293ec8ebb5f7257493817",
+      "client_order_id": "6cf62a19a9e3dff644f938ce3afe374e58b5238a6b1293ec8ebb5f7257493817"
+    },
+    {
+      "id": "coid_v1_minimal_included_fibre",
+      "commitment_ref": "v1_minimal_included_fibre",
+      "commitment_hash_hex": "b47f7af8860abf7867b99d6792a899c85682bea88fc31ba13228a1358072d10f",
+      "client_order_id": "b47f7af8860abf7867b99d6792a899c85682bea88fc31ba13228a1358072d10f"
+    },
+    {
+      "id": "coid_v1_minimal_included_blob",
+      "commitment_ref": "v1_minimal_included_blob",
+      "commitment_hash_hex": "47537d042ac0374ed83df47f299b134449d98afa1a1b44b10d92594b6aa71357",
+      "client_order_id": "47537d042ac0374ed83df47f299b134449d98afa1a1b44b10d92594b6aa71357"
+    },
+    {
+      "id": "coid_v1_pending_fibre",
+      "commitment_ref": "v1_pending_fibre",
+      "commitment_hash_hex": "0d61d854ac65c5962775d633b8096fdabbf555fb60a6eae9d697bdfa50ed5c36",
+      "client_order_id": "0d61d854ac65c5962775d633b8096fdabbf555fb60a6eae9d697bdfa50ed5c36"
+    },
+    {
+      "id": "coid_v1_pending_blob",
+      "commitment_ref": "v1_pending_blob",
+      "commitment_hash_hex": "f1fb44e0488fc2f994271cb9361e7b9c9909a4b5a18d4cf817983a1a0433e304",
+      "client_order_id": "f1fb44e0488fc2f994271cb9361e7b9c9909a4b5a18d4cf817983a1a0433e304"
+    },
+    {
+      "id": "coid_v1_mandate_ref",
+      "commitment_ref": "v1_mandate_ref",
+      "commitment_hash_hex": "b5b85333367aaee03e782640b900a53f6cac0212eef6b296a6b9a7730c39293c",
+      "client_order_id": "b5b85333367aaee03e782640b900a53f6cac0212eef6b296a6b9a7730c39293c"
+    },
+    {
+      "id": "coid_v1_pending_fibre_mandate_ref",
+      "commitment_ref": "v1_pending_fibre_mandate_ref",
+      "commitment_hash_hex": "946fb7305a4946881f8e1a7693ab6f3dc9ed500ee9db61557e1897aef2c4c72b",
+      "client_order_id": "946fb7305a4946881f8e1a7693ab6f3dc9ed500ee9db61557e1897aef2c4c72b"
+    },
+    {
+      "id": "coid_v1_pending_blob_mandate_ref",
+      "commitment_ref": "v1_pending_blob_mandate_ref",
+      "commitment_hash_hex": "dd74311a20767f46d5ea9370545e9da7bc80238c7a7a27e16e126d8b5a57e6a0",
+      "client_order_id": "dd74311a20767f46d5ea9370545e9da7bc80238c7a7a27e16e126d8b5a57e6a0"
+    },
+    {
+      "id": "coid_v1_maximal",
+      "commitment_ref": "v1_maximal",
+      "commitment_hash_hex": "022d5ab7bce97640713d3a09669d879c079c696a17cf4d574930189425980e88",
+      "client_order_id": "022d5ab7bce97640713d3a09669d879c079c696a17cf4d574930189425980e88"
     }
   ]
 }

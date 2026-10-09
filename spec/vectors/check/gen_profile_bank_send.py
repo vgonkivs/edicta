@@ -7,7 +7,7 @@ writes with the real cosmos-sdk types, so run it first
 (cd spec/vectors/tools/banksend-gen && go run .).
 
 Usage: python3 spec/vectors/check/gen_profile_bank_send.py [--core DIR] [--out DIR]
-Defaults: --core spec/vectors/v0; --out spec/vectors/profiles/bank-send.
+Defaults: --core spec/vectors/v1; --out spec/vectors/profiles/bank-send.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 import profile_bank_send as pf
 from cbor_strict import Pairs, Raw, encode
-from edicta_v0 import (AUTHORIZATION, AuthorizationCheck, Params, TAG_AUTHORIZATION_SIG, action_hash,
+from edicta import (AUTHORIZATION, AuthorizationCheck, Params, TAG_AUTHORIZATION_SIG, action_hash,
                        authorization_expires, authorization_hash, commitment_hash, signing_message, to_cbor,
                        verify_authorization, verify_for_gate)
 from vecjson import authorization_to_json, commitment_to_json, gate_to_json, params_to_json
@@ -39,14 +39,16 @@ def arg(name: str, default: Path) -> Path:
     return default
 
 
-CORE = arg("--core", VECTORS / "historical" / "v0")
+CORE = arg("--core", VECTORS / "v1")
 OUT = arg("--out", VECTORS / "profiles" / "bank-send")
 FORMAT = "edicta-vectors/v0"
 PROFILE = "bank-send"
 PROFILE_REVISION = "bank-send-v0-draft.1"
 # Files whose bytes or meaning changed in draft.2 carry it; the others keep draft.1.
 PROFILE_REVISION_2 = "bank-send-v0-draft.2"
-CORE_REVISION = "v0-draft.11"
+CORE_REVISION = "v1-draft.5"
+# action.json and e2e.json carry the salted core action hash.
+PROFILE_REVISION_11 = "bank-send-v0-draft.11"
 T0 = 1791000000
 
 
@@ -99,8 +101,9 @@ def action_vectors() -> dict:
         c = {"id": cid, "description": desc}
         if msg_ref:
             c["msg_ref"] = msg_ref
-        c.update({"input": {"chain_id": chain_id, "msg_hex": m.hex()}, "cbor_hex": b.hex(),
-                  "action_hash_hex": action_hash(pf.ACTION_TYPE, b).hex()})
+        salt = lab("action-salt/" + cid)
+        c.update({"input": {"chain_id": chain_id, "msg_hex": m.hex()}, "cbor_hex": b.hex(), "action_salt_hex": salt.hex(),
+                  "action_hash_hex": action_hash(pf.ACTION_TYPE, salt, b).hex()})
         cases.append(c)
 
     add("action_minimal_mocha", "msg_minimal for chain id mocha-4.", "mocha-4", "msg_minimal")
@@ -147,7 +150,7 @@ def action_vectors() -> dict:
     r("action_null_msg", "msg is CBOR null.", b"\xa2\x01" + encode("mocha-4") + b"\x02\xf6")
     r("action_tagged_msg", "msg wrapped in tag 24 (encoded CBOR data item).",
       b"\xa2\x01" + encode("mocha-4") + b"\x02\xd8\x18" + encode(good))
-    return dict(header(), action_type=pf.ACTION_TYPE, cases=cases, reject=rej)
+    return dict(header(PROFILE_REVISION_11), action_type=pf.ACTION_TYPE, cases=cases, reject=rej)
 
 
 # executor.json
@@ -381,7 +384,7 @@ def price_trigger_vectors() -> dict:
 # e2e.json: commitment -> Authorization -> executor checks -> TxBody
 
 def e2e_vectors() -> dict:
-    keys = json.loads((CORE / "keys.json").read_text())["keys"]
+    keys = json.loads((VECTORS / "keys.json").read_text())["keys"]
 
     def sk(name):
         return Ed25519PrivateKey.from_private_bytes(bytes.fromhex(keys[name]["seed_hex"]))
@@ -389,13 +392,14 @@ def e2e_vectors() -> dict:
     gate = {"gate_id": "edictad-mocha-1", "action_types": [pf.ACTION_TYPE]}
     params = Params()
     action = pf.action_encode("mocha-4", msg("msg_minimal"))
+    salt = lab("action-salt/e2e_minimal_mocha")
     context = pf.pt_encode(pt_base())
     T_H = T0 + 30
     c = {
-        "version": 0, "agent_id": "tia-transfer-agent", "agent_pubkey": bytes.fromhex(keys["agent1"]["public_key_hex"]),
+        "version": 1, "agent_id": "tia-transfer-agent", "agent_pubkey": bytes.fromhex(keys["agent1"]["public_key_hex"]),
         "nonce": lab("edicta/v0 test bank e2e nonce")[:16], "issued_at": T_H + 10, "valid_until": T_H + 10 + 900,
         "scope": {"gate_id": gate["gate_id"]},
-        "action": {"type": pf.ACTION_TYPE, "hash": action_hash(pf.ACTION_TYPE, action)},
+        "action": {"type": pf.ACTION_TYPE, "hash": action_hash(pf.ACTION_TYPE, salt, action)},
         "payload_ref": {"da": 2, "namespace": bytes(19) + b"edicta/d07", "commitment": lab("edicta/v0 test bank e2e share commitment"),
                         "height": 6543200, "signer": lab("edicta/v0 test recorder account")[:20]},
         "ciphertext_hash": lab("edicta/v0 test bank e2e blob"), "plaintext_hash": lab("edicta/v0 test bank e2e plaintext"),
@@ -408,13 +412,14 @@ def e2e_vectors() -> dict:
     now_gate = T0 + 60
     verify_for_gate(env, now_gate, gate, params)
 
-    a = {"version": 0, "commitment_hash": ch, "action_hash": c["action"]["hash"], "gate_id": gate["gate_id"],
-         "expires": authorization_expires(c["valid_until"], now_gate, 300), "path": 1}
+    a = {"version": 1, "commitment_hash": ch, "action_hash": c["action"]["hash"], "gate_id": gate["gate_id"],
+         "expires": authorization_expires(c["valid_until"], now_gate, 300), "path": 1, "mode": 1}
     acanon = encode(to_cbor(a, AUTHORIZATION))
     asig = sk("gate1").sign(signing_message(authorization_hash(acanon), TAG_AUTHORIZATION_SIG))
     signed_auth = encode({1: Raw(acanon), 2: asig})
     now_exec = T0 + 65
-    chk = AuthorizationCheck(bytes.fromhex(keys["gate1"]["public_key_hex"]), gate["gate_id"], pf.ACTION_TYPE, action, now_exec, 30)
+    chk = AuthorizationCheck(bytes.fromhex(keys["gate1"]["public_key_hex"]), gate["gate_id"], pf.ACTION_TYPE, action, now_exec, 30,
+                             salt)
     verify_authorization(signed_auth, chk)
 
     d = domain_default()
@@ -437,6 +442,7 @@ def e2e_vectors() -> dict:
                        "placeholders": {"payload_ref.commitment": "SHA-256 of a label, not a real share commitment",
                                         "ciphertext_hash": "SHA-256 of a label", "plaintext_hash": "SHA-256 of a label"}},
         "action_hex": action.hex(),
+        "action_salt_hex": salt.hex(),
         "context": {"media_type": pf.MEDIA_TYPE_PRICE_TRIGGER, "cbor_hex": context.hex(), "expect_failed": []},
         "authorization": {"signer": "gate1", "authorized_at": str(now_gate), "max_authorization_ttl_s": "300",
                           "input": authorization_to_json(a), "signed_authorization_hex": signed_auth.hex()},
@@ -445,7 +451,7 @@ def e2e_vectors() -> dict:
                      "head_height": str(H0), "head_time": str(Th), "timeout_height": str(th),
                      "memo": ch.hex(), "body_hex": body.hex()},
     }
-    return dict(header(PROFILE_REVISION_2), core_revision=CORE_REVISION, cases=[case])
+    return dict(header(PROFILE_REVISION_11), core_revision=CORE_REVISION, cases=[case])
 
 
 def main():

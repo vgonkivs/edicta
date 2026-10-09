@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/v1/archive.json and spec/vectors/v1/verify.json (v1-draft.4). Deterministic.
+"""Writes spec/vectors/v1/archive.json and spec/vectors/v1/verify.json (v1-draft.5). Deterministic.
 
-Records of kinds 13, 14 (small synthetic proof parts: the record layer never
-verifies them; da/absence.json carries real ones), 15 (taken from
-policy/private.json), decision and Authorization records of v1 decisions
-with K2 input key 9, and the rejects of core v1 section 15. verify.json
-gives the outcome of the authorization, anchor and retention_replay checks
-for a v1 decision from archived records plus abstract evidence and absence
-results (whose bytes are vectored in the core files and in da/absence.json).
+Archive format 1 records of kinds 13, 14 (small synthetic proof parts: the
+record layer never verifies them; da/absence.json carries real ones), 15
+(taken from policy/private.json), 17 and 18, Authorization records with K2
+input key 9, and their rejects. verify.json gives the outcome of the
+authorization, anchor, retention_replay, decision and action checks from
+archived records plus abstract evidence and absence results (whose bytes are
+vectored in the core files and in da/absence.json). spec/vectors/archive/
+(gen_archive.py) covers the payload, evidence and rejection kinds.
 
 Usage: python3 spec/vectors/check/gen_archive_v1.py [--out DIR]
 """
@@ -22,25 +23,22 @@ import hashlib
 import json
 from pathlib import Path
 
-import archive_v0 as a0
-import archive_v1 as A
-import edicta_v0 as v0
-import edicta_v1 as v1
-import legacy_gen_vectors_v0 as g
-import legacy_gen_vectors_v1 as gv
+import archive as A
+import edicta as E
+import gen_vectors as gv
 from cbor_strict import encode
-from edicta_v0 import Reject
+from edicta import Reject
 
 VECTORS = Path(__file__).resolve().parent.parent
 OUT = VECTORS / "v1"
 if "--out" in sys.argv:
     OUT = Path(sys.argv[sys.argv.index("--out") + 1]).resolve()
-FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.4"
-T0, NOW = g.T0, g.NOW
+FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.5"
+T0, NOW = gv.T0, gv.NOW
 WINDOW = 3
 T_REF = T0 - 12
 CREATED = T0 - 20
-# Fast mode needs a mandate (core v1 7.4), so the fast-mode decisions name one.
+# Fast mode needs a mandate, so the fast-mode decisions name one.
 PF, PB = "v1_pending_fibre_mandate_ref", "v1_pending_blob_mandate_ref"
 
 
@@ -64,34 +62,25 @@ def js(x):
 
 def valid(ref: str):
     c, canon, at, act, salt = gv.VALID[ref]
-    sig = gv.sign_v1(canon)[2]
+    sig = gv.sign_commitment(canon)[2]
     return c, gv.env(canon, sig), act, salt
 
 
 def receipt_bytes(ref: str, rail_ref: str) -> bytes:
-    """A signed receipt (core 14.1) for a v1 decision, by gate1 for executor1."""
-    from cbor_strict import Raw
-    chash = v1.commitment_hash_v1(gv.VALID[ref][1])
-    r = g.receipt_for(chash, rail_ref)
-    canon = encode(v0.to_cbor(r, v0.RECEIPT))
-    sig = g.sk("gate1").sign(v0.tagged(v0.TAG_RECEIPT_SIG) + v0.receipt_hash(canon))
-    out = encode({1: Raw(canon), 2: sig})
-    v0.verify_receipt(out)
+    """A signed receipt for a decision, by gate1 for executor1."""
+    out = gv.signed_receipt(gv.receipt_for(E.commitment_hash(gv.VALID[ref][1]), rail_ref))
+    E.verify_receipt(out)
     return out
 
 
-def auth(ref: str, mode: int, deadline: int | None, path: int = v0.PATH_DA, version: int = 1) -> bytes:
+def auth(ref: str, mode: int, deadline: int | None, path: int = E.PATH_DA) -> bytes:
     a = gv.base_auth(ref, path, mode, deadline)
-    if version == 0:
-        a = {k: x for k, x in a.items() if k not in ("mode", "anchor_deadline")} | {"version": 0}
-        canon = encode(v0.to_cbor(a, v0.AUTHORIZATION))
-        return bytes.fromhex(gv.auth_fields(None, canon, "v0")["signed_authorization_hex"])
     return bytes.fromhex(gv.auth_fields(None, gv.auth_canon(a))["signed_authorization_hex"])
 
 
 def k2_fibre(fast_window: int | None = None, block_time: int = T_REF) -> dict:
     k = {"da": 1, "checked_at": NOW, "block_time": block_time, "retention_latest_s": 14400,
-         "retention_at_height_s": 14400, "retention_source": a0.SOURCE_DIRECT, "promise_created": CREATED}
+         "retention_at_height_s": 14400, "retention_source": A.SOURCE_DIRECT, "promise_created": CREATED}
     if fast_window is not None:
         k["fast_window"] = fast_window
     return k
@@ -113,13 +102,13 @@ def records() -> dict:
     h0f, h0b = pf["payload_ref"]["height"], pb["payload_ref"]["height"]
     out["decision_pending_fibre"] = ({"kind": 17, "envelope": pf_env, "form": 1, "action": pf_act,
                                       "action_salt": pf_salt},
-                                     f"Decision record v1 (kind 17, form 1: public) of {PF}: the action bytes and the "
+                                     f"Decision record (kind 17, form 1: public) of {PF}: the action bytes and the "
                                      "salt in clear.")
     out["decision_pending_blob"] = ({"kind": 17, "envelope": pb_env, "form": 1, "action": pb_act,
-                                     "action_salt": pb_salt}, f"Decision record v1, form 1, of {PB}.")
+                                     "action_salt": pb_salt}, f"Decision record, form 1, of {PB}.")
     out["decision_included_fibre"] = ({"kind": 17, "envelope": inc_env, "form": 1, "action": inc_act,
                                        "action_salt": inc_salt},
-                                      "Decision record v1, form 1, of v1_minimal_included_fibre.")
+                                      "Decision record, form 1, of v1_minimal_included_fibre.")
     out["reveal_pending_fibre"] = (
         {"kind": 18, "signed_receipt": receipt_bytes(PF, "a" * 64), "action_salt": pf_salt},
         f"Execution reveal (kind 18) of {PF}: the receipt gate1 issued for executor1's claim (rail_ref a 64-hex tx "
@@ -128,14 +117,14 @@ def records() -> dict:
     out["authorization_fast_fibre"] = (
         {"kind": 4, "signed_authorization": auth(PF, 2, h0f + WINDOW), "authorized_at": NOW,
          "k2": k2_fibre(WINDOW)},
-        f"Authorization v1, mode 2, anchor_deadline h0 + {WINDOW}; K2 inputs with fast_window {WINDOW} and "
+        f"Authorization, mode 2, anchor_deadline h0 + {WINDOW}; K2 inputs with fast_window {WINDOW} and "
         "block_time = T_ref.")
     out["authorization_fast_blob"] = (
         {"kind": 4, "signed_authorization": auth(PB, 2, h0b + WINDOW), "authorized_at": NOW,
-         "k2": k2_blob(WINDOW)}, "Authorization v1 for the pending blob reference, fast_window 3.")
+         "k2": k2_blob(WINDOW)}, "Authorization for the pending blob reference, fast_window 3.")
     out["authorization_strict_fibre"] = (
         {"kind": 4, "signed_authorization": auth("v1_minimal_included_fibre", 1, None), "authorized_at": NOW,
-         "k2": k2_fibre()}, "Authorization v1, mode 1 (included reference): K2 without key 9.")
+         "k2": k2_fibre()}, "Authorization, mode 1 (included reference): K2 without key 9.")
     out["intent_fibre"] = (
         {"kind": 13, "da": 1, "commitment": pf["payload_ref"]["commitment"], "namespace": pf["payload_ref"]["namespace"],
          "ref_height": h0f, "tx": ph("intent fibre tx", 320), "created_at": CREATED},
@@ -168,7 +157,7 @@ def records() -> dict:
                                    f"Kind 15 plaintext 5 (action): salt || action bytes of {PF}, encrypted to the "
                                    "mandate's auditors; the same bytes as policy/private.json envelope_action.")
     out["decision_private_fibre"] = ({"kind": 17, "envelope": pf_env, "form": 2},
-                                     f"Decision record v1, form 2 (private), of {PF}: the envelope only; the action "
+                                     f"Decision record, form 2 (private), of {PF}: the envelope only; the action "
                                      "and the salt are in the kind 15 (5, action_hash) record, written first (AW4).")
     out["decision_pending_fibre_wrong_salt"] = (
         {"kind": 17, "envelope": pf_env, "form": 1, "action": pf_act, "action_salt": bytes([pf_salt[0] ^ 1]) + pf_salt[1:]},
@@ -178,18 +167,10 @@ def records() -> dict:
         {"kind": 18, "signed_receipt": receipt_bytes(PF, "a" * 64), "action_salt": bytes([pf_salt[0] ^ 1]) + pf_salt[1:]},
         "A reveal whose salt has one bit flipped: decodes; the verifier's reveal path finds it corrupt.")
     for err in ("ErrMandateMismatch", "ErrH0TooOld", "ErrAnchorWindowClosed", "ErrFastModeNotAllowed"):
-        out[f"rejection_{err}"] = ({"kind": 5, "commitment_hash": v1.commitment_hash_v1(gv.VALID[PF][1]),
-                                    "error": err, "gate_id": g.GID, "rejected_at": NOW},
-                                   f"Rejection marker {err} (core v1 11.3).")
+        out[f"rejection_{err}"] = ({"kind": 5, "commitment_hash": E.commitment_hash(gv.VALID[PF][1]),
+                                    "error": err, "gate_id": gv.GID, "rejected_at": NOW},
+                                   f"Rejection marker {err}.")
     return out
-
-
-def v0_reader(b: bytes) -> str:
-    try:
-        a0.decode_record(b)
-        return "accepts"
-    except Reject as e:
-        return e.sentinel
 
 
 def archive_vectors() -> tuple:
@@ -202,8 +183,8 @@ def archive_vectors() -> tuple:
         path = A.key_path(key)
         by_name[name] = (r, b, path)
         cases.append({"id": name, "description": desc, "kind": str(r["kind"]), "path": path, "input": js(r),
-                      "record_cbor_hex": b.hex(), "v0_reader": v0_reader(b)})
-    ik = lambda n: a0._to_int_keys({"format": 0, **by_name[n][0]}, A.schema_of(by_name[n][0]["kind"]))  # noqa: E731
+                      "record_cbor_hex": b.hex()})
+    ik = lambda n: A._to_int_keys({"format": A.FORMAT, **by_name[n][0]}, A.schema_of(by_name[n][0]["kind"]))  # noqa: E731
 
     def mut(n, drop=(), k2=None, **kw):
         m = ik(n)
@@ -214,7 +195,6 @@ def archive_vectors() -> tuple:
             m[5] = k2
         return encode(m)
 
-    V0_ENV = bytes.fromhex(json.loads((VECTORS / "historical" / "v0" / "valid.json").read_text())["cases"][0]["envelope_hex"])
     k2f = ik("authorization_fast_fibre")[5]
     k2s = ik("authorization_strict_fibre")[5]
     over = ik("intent_fibre")
@@ -249,26 +229,28 @@ def archive_vectors() -> tuple:
         ("private_action_envelope_69633", "Kind 15 plaintext_kind 5 with a 69,633-byte envelope.",
          mut("private_part", k3=5, k5=ph("envelope 69633", 69633))),
         ("header_empty", "Kind 14 with an empty header.", mut("absence_blob", k7=b"")),
-        ("decision_v1_form1_missing_salt", "Kind 17 form 1 without action_salt.",
+        ("decision_form1_missing_salt", "Kind 17 form 1 without action_salt.",
          mut("decision_pending_fibre", drop=(6,))),
-        ("decision_v1_form1_missing_action", "Kind 17 form 1 without action.",
+        ("decision_form1_missing_action", "Kind 17 form 1 without action.",
          mut("decision_pending_fibre", drop=(5,))),
-        ("decision_v1_form2_with_action", "Kind 17 form 2 with the action and the salt.",
+        ("decision_form2_with_action", "Kind 17 form 2 with the action and the salt.",
          mut("decision_pending_fibre", k4=2)),
-        ("decision_v1_salt_31", "Kind 17 action_salt of 31 bytes.",
+        ("decision_salt_31", "Kind 17 action_salt of 31 bytes.",
          mut("decision_pending_fibre", k6=b"\x01" * 31)),
-        ("decision_v1_form_3", "Kind 17 form 3.", mut("decision_pending_fibre", k4=3)),
-        ("decision_v1_v0_envelope", "Kind 17 holding a v0 envelope (core minimal_lmt).",
-         mut("decision_pending_fibre", k3=V0_ENV)),
-        ("kind3_with_v1_envelope", "Kind 3 holding a v1 envelope: kind 3 is frozen and has no field for the salt.",
-         encode({1: 0, 2: 3, 3: ik("decision_pending_fibre")[3], 4: ik("decision_pending_fibre")[5]})),
+        ("decision_form_3", "Kind 17 form 3.", mut("decision_pending_fibre", k4=3)),
+        ("kind_3_unassigned", "Kind 3 (the decision record of the v0 drafts) holding an envelope and action bytes: "
+         "kind 3 is unassigned in format 1.",
+         encode({1: 1, 2: 3, 3: ik("decision_pending_fibre")[3], 4: ik("decision_pending_fibre")[5]})),
+        ("format_0_decision", "decision_pending_fibre under format 0: refused at the header.",
+         encode({**ik("decision_pending_fibre"), 1: 0})),
         ("reveal_salt_33", "Kind 18 action_salt of 33 bytes.", mut("reveal_pending_fibre", k4=b"\x01" * 33)),
         ("reveal_receipt_garbage", "Kind 18 whose signed_receipt does not decode.",
          mut("reveal_pending_fibre", k3=b"\xa0")),
-        ("rejection_not_a_marker", "Kind 5 with ErrVersionNotAccepted: a stage 1 refusal, never a marker.",
-         mut("rejection_ErrH0TooOld", k4="ErrVersionNotAccepted")),
-        ("kind_16_reserved", "Kind 16 (reserved for the batch record): undefined.", encode({1: 0, 2: 16, 3: b"\x01"})),
-        ("kind_6_reserved", "Kind 6 stays undefined.", encode({1: 0, 2: 6, 3: b"\x01"})),
+        ("rejection_not_a_marker", "Kind 5 with ErrAnchorPending: a stage 1 refusal, never a marker.",
+         mut("rejection_ErrH0TooOld", k4="ErrAnchorPending")),
+        ("kind_16_reserved", "Kind 16 (reserved for the batch record): undefined.", encode({1: 1, 2: 16, 3: b"\x01"})),
+        ("kind_6_reserved", "Kind 6 stays undefined.", encode({1: 1, 2: 6, 3: b"\x01"})),
+        ("kind_19_undefined", "Kind 19: undefined.", encode({1: 1, 2: 19, 3: b"\x01"})),
     ]
     large_specs = [
         ("header_over_2p22", "Kind 14 header of 2^22 + 1 bytes (field limit).", "absence_blob", 7, "header big",
@@ -316,8 +298,8 @@ def archive_vectors() -> tuple:
                   "path": A.key_path((14, 2, r3["commitment"], r3["height"] + 1)), "record_cbor_hex": b3.hex(),
                   "expect_error": "archive.ErrCorrupt"})
     r4, b4, path4 = by_name["decision_pending_fibre"]
-    other_c = v1.commitment_hash_v1(gv.VALID[PB][1]).hex()
-    reads.append({"id": "decision_v1_key_mismatch", "description": f"The kind 17 record of {PF} stored under the "
+    other_c = E.commitment_hash(gv.VALID[PB][1]).hex()
+    reads.append({"id": "decision_key_mismatch", "description": f"The kind 17 record of {PF} stored under the "
                   f"commitment hash of {PB}.", "path": f"decision/{other_c}", "record_cbor_hex": b4.hex(),
                   "expect_error": "archive.ErrCorrupt"})
     r5, b5, path5 = by_name["reveal_pending_fibre"]
@@ -327,12 +309,12 @@ def archive_vectors() -> tuple:
         got = A.key_path(A.record_key(A.decode_record(bytes.fromhex(x["record_cbor_hex"]))))
         assert (got == x["path"]) == (x["expect_error"] is None), x["id"]
     return {"format": FORMAT, "revision": REVISION, "generator": "spec/vectors/check/gen_archive_v1.py",
-            "description": "Archive records of core v1 section 11. v0_reader is the result of the frozen v0 record "
-            "decoder (decoding only: a v1 envelope with version 1 decodes there and is refused later at stage S).",
+            "description": "Archive records of format 1, kinds 13, 14, 15, 17, 18 and the Authorization with K2 "
+            "input key 9.",
             "kinds": {str(k): {"name": A.KIND_NAMES[k], "cap": str(A.MAX_KIND_SIZE[k])} for k in (13, 14, 15, 17, 18)},
-            "reserved_kinds": [str(k) for k in A.RESERVED_KINDS], "marker_names_added": list(A.VERDICTS_V1[len(a0.VERDICTS):]),
+            "unassigned_kinds": [str(k) for k in A.UNASSIGNED_KINDS], "marker_names": sorted(A.VERDICTS),
             "large_note": "reject_large: the record is base_case with field replaced by the placeholder of "
-            "placeholder_label and field_size (archive_v0.placeholder), given by size and SHA-256 only.",
+            "placeholder_label and field_size (archive.placeholder), given by size and SHA-256 only.",
             "cases": cases, "reject": out, "reject_large": large, "reads": reads}, by_name
 
 
@@ -351,8 +333,6 @@ def verify_vectors(by_name: dict) -> dict:
                                             "authorized_at": NOW})
     put("authorization_fast_fibre_deadline_1001", {"kind": 4, "authorized_at": NOW,
                                                    "signed_authorization": auth(PF, 2, h0 + 1001)})
-    put("authorization_fast_fibre_v0", {"kind": 4, "signed_authorization": auth(PF, 0, None, version=0),
-                                        "authorized_at": NOW})
     put("authorization_fast_fibre_window_2", {"kind": 4, "signed_authorization": auth(PF, 2, d),
                                               "authorized_at": NOW, "k2": k2_fibre(WINDOW - 1)})
     allrec = {**by_name, **extra}
@@ -360,10 +340,10 @@ def verify_vectors(by_name: dict) -> dict:
 
     def case(i, desc, decision, authorization, *, evidence=None, head=None, absence=None, needs_results=False,
              replay=False, refs=()):
-        c = v1.decode_signed_v1(allrec[decision][0]["envelope"])[0]["commitment"]
+        c = A.decode_envelope(allrec[decision][0]["envelope"])[0]
         a = A.decode_authorization(allrec[authorization][0]["signed_authorization"])
         k2 = allrec[authorization][0].get("k2")
-        h0_, pending = c["payload_ref"]["height"], v1.is_pending(c)
+        h0_, pending = c["payload_ref"]["height"], E.is_pending(c)
         head = head if head is not None else h0_ + WINDOW + 1
         absence = absence or {}
         rule = A.authorization_rules(c, a)
@@ -373,7 +353,7 @@ def verify_vectors(by_name: dict) -> dict:
             report["mode"] = "fast" if a["mode"] == 2 else "strict"
         if pending:
             report["h0"] = str(h0_)
-            if rule or a["version"] != 1:
+            if rule:
                 exp["anchor"] = {"status": "unchecked", "reason": "blocked", "blocked_by": "authorization"}
             else:
                 report["anchor_deadline"] = str(a["anchor_deadline"])
@@ -434,11 +414,11 @@ def verify_vectors(by_name: dict) -> dict:
     case("fast_evidence_not_verifying", "Evidence that does not verify is a source problem; the rows for no usable "
          "evidence decide: absence proven, fail.", df, af, evidence={"height": h0 + 1, "verifies": False},
          absence=proven)
-    case("auth_mode_mismatch", "Pending reference, Authorization v1 in mode 1 (A2).", df,
+    case("auth_mode_mismatch", "Pending reference, Authorization in mode 1 (A1).", df,
          "authorization_fast_fibre_mode_1")
-    case("auth_deadline_over_1000", "anchor_deadline = h0 + 1001 (A3).", df, "authorization_fast_fibre_deadline_1001")
-    case("auth_version_mismatch", "v1 decision, Authorization v0 (A1).", df, "authorization_fast_fibre_v0")
-    case("auth_strict_included", "Control: included reference, Authorization v1 mode 1; the anchor check is core.",
+    case("auth_deadline_over_1000", "anchor_deadline = h0 + 1001 (A2).", df, "authorization_fast_fibre_deadline_1001")
+    case("auth_strict_included", "Control: included reference, Authorization mode 1; the anchor check is the "
+         "included one.",
          "decision_included_fibre", "authorization_strict_fibre")
     case("replay_fast_window_inconsistent", "replay: K2 fast_window 2, the Authorization's deadline is h0 + 3.", df,
          "authorization_fast_fibre_window_2", evidence={"height": h0 + 1, "verifies": True}, replay=True)
@@ -449,17 +429,19 @@ def verify_vectors(by_name: dict) -> dict:
                   {x for c in acases for x in (c["decision"], c.get("private_record"), c.get("reveal")) if x})
     recs = {n: {"path": allrec[n][2], "record_cbor_hex": allrec[n][1].hex()} for n in used}
     return {"format": FORMAT, "revision": REVISION, "generator": "spec/vectors/check/gen_archive_v1.py",
-            "description": "Verifier outcomes of core v1 10.1 to 10.3 for a v1 decision. decision and authorization "
+            "description": "Verifier outcomes of the authorization, anchor and retention_replay checks for a decision. decision and authorization "
             "name records (records: path and bytes; the archive.json case of the same name has the same bytes). evidence and absence are the "
             "results of verifying those proofs (bytes in the core evidence vectors and da/absence.json): a height "
             "of [h0, deadline] not listed has no proof. trusted_head is the height header trust reached. expect "
-            "gives each check's outcome, the v1 report fields (10.6) and the verdict when every other check passes.",
+            "gives each check's outcome, the report fields and the verdict when every other check passes.",
             "window": str(WINDOW), "records": recs, "cases": cases,
-            "action_description": "action_cases: the decision and action checks of core v1 10.7 for a v1 decision. "
+            "action_description": "action_cases: the decision and action checks for a decision. "
             "decision, private_record (kind 15 plaintext 5) and reveal (kind 18) name records; auditor_key names a "
             "policy/private.json auditor key the verifier holds; checker gives the execution checker's profile flag "
             "public_execution and, when the reveal path runs, tx_action_hex = ActionFromTx(tx, chain_id) of the tx "
-            "bound to the receipt's rail_ref; payload_salt_hex is the action_salt of a payload that passed O8 v1.",
+            "bound to the receipt's rail_ref; payload_salt_hex is the action_salt carried by the payload, and "
+            "payload_o8 = fail says that payload failed O8 (O8 runs before the salt comparison, which then does not "
+            "run).",
             "action_cases": acases}
 
 
@@ -468,15 +450,15 @@ def action_cases(allrec: dict) -> list:
     sk = {n: bytes.fromhex(k["sk_hex"]) for n, k in priv["auditor_keys"].items()}
     import policy_v1 as Pol
     c_pf, _, _, act, salt = gv.VALID[PF]
-    kind3 = encode({1: 0, 2: 3, 3: allrec["decision_pending_fibre"][0]["envelope"], 4: act})
-    allrec["decision_kind3_v1_envelope"] = (None, kind3, f"decision/{v1.commitment_hash_v1(gv.VALID[PF][1]).hex()}")
+    broken = {k: x for k, x in allrec["decision_pending_fibre"][0].items() if k != "action_salt"}
+    allrec["decision_corrupt"] = (None, encode(A.to_cbor(broken)), allrec["decision_pending_fibre"][2])
     out = []
 
-    def case(i, desc, decision, private_record=None, key=None, reveal=None, checker=None, payload_salt=None):
+    def case(i, desc, decision, private_record=None, key=None, reveal=None, checker=None, payload_salt=None,
+             payload_o8=None):
         rec_b = allrec[decision][1]
         try:
             dec = A.decode_record(rec_b)
-            A.decode_decision_envelope(dec["kind"], dec["envelope"])
             exp = {"decision": {"status": "pass"}}
         except Reject:
             exp = {"decision": {"status": "unchecked", "reason": "source_corrupt"}}
@@ -490,7 +472,11 @@ def action_cases(allrec: dict) -> list:
             rv = None
             if reveal and checker and checker["public_execution"]:
                 rv = {"salt": allrec[reveal][0]["action_salt"], "action": bytes.fromhex(checker["tx_action_hex"])}
-            r = A.action_rules(c_pf, dec, opened, dec["form"] == 2 and private_record is None, rv, payload_salt)
+            # O8 runs first: a payload that fails it is a payload fail and gives no salt to compare.
+            if payload_o8 == "fail":
+                exp["payload"] = {"status": "fail", "rule": "O8"}
+            r = A.action_rules(c_pf, dec, opened, dec["form"] == 2 and private_record is None, rv,
+                               None if payload_o8 == "fail" else payload_salt)
             exp["action"] = {k: x for k, x in r.items() if k in ("status", "reason", "action_source")}
         j = {"id": i, "description": desc, "decision": decision}
         for k, x in (("private_record", private_record), ("auditor_key", key), ("reveal", reveal)):
@@ -500,18 +486,20 @@ def action_cases(allrec: dict) -> list:
             j["checker"] = checker
         if payload_salt:
             j["payload_salt_hex"] = payload_salt.hex()
+        if payload_o8:
+            j["payload_o8"] = payload_o8
         j["expect"] = exp
         out.append(j)
 
     onchain = {"public_execution": True, "tx_action_hex": act.hex()}
-    case("decision_v1_public_pass", "Form 1: ActionHashV1(type, key 6, key 5) equals action_hash.",
+    case("decision_v1_public_pass", "Form 1: ActionHash(type, key 6, key 5) equals action_hash.",
          "decision_pending_fibre")
     case("decision_v1_public_wrong_salt", "Form 1 with a wrong salt: unchecked, source_corrupt.",
          "decision_pending_fibre_wrong_salt")
     case("decision_v1_private_without_key", "Form 2, the kind 15 action record present, no auditor key: "
          "policy_private (exit 2).", "decision_private_fibre", "private_action_fibre")
     case("decision_v1_private_with_key", "Form 2 with auditor-1's key: kind 15 opens, the plaintext salt || bytes "
-         "hashes to action_hash under the v1 tag.", "decision_private_fibre", "private_action_fibre", "auditor-1")
+         "hashes to action_hash.", "decision_private_fibre", "private_action_fibre", "auditor-1")
     case("decision_v1_private_blob_missing", "Form 2 and no kind 15 (5, action_hash) record in any copy: "
          "decision_unavailable, naming it.", "decision_private_fibre")
     case("reveal_public_execution_pass", "Form 2, no key, a kind 18 reveal, and a public_execution checker whose "
@@ -527,13 +515,17 @@ def action_cases(allrec: dict) -> list:
     case("reveal_offchain_profile", "A reveal exists but the checker's profile has public_execution false "
          "(off-chain rail): the reveal path does not run, policy_private.", "decision_private_fibre",
          "private_action_fibre", reveal="reveal_pending_fibre", checker={"public_execution": False})
-    case("payload_archive_salt_equal", "Control: the payload's action_salt (O8 v1 passed) equals the form 1 salt.",
+    case("payload_archive_salt_equal", "Control: the payload's action_salt (O8 passed) equals the form 1 salt.",
          "decision_pending_fibre", payload_salt=salt)
     case("payload_archive_salt_mismatch", "The payload's action_salt differs from the archive copy, which itself "
          "hashes correctly (stand-in for a collision; the rule is defence in depth): unchecked, source_corrupt, never "
          "an agent violation.", "decision_pending_fibre", payload_salt=bytes([salt[0] ^ 0x80]) + salt[1:])
-    case("kind3_with_v1_envelope", "The record under decision/<hex> is kind 3 holding a v1 envelope: the decision "
-         "check is unchecked, source_corrupt.", "decision_kind3_v1_envelope")
+    case("payload_o8_fails_before_salt_compare", "The payload's salt differs from the committed one, so O8 fails: a "
+         "payload fail (the agent's signed payload contradicts its commitment). The comparison with the archive copy "
+         "does not run, so the action check passes from the form 1 record.", "decision_pending_fibre",
+         payload_salt=bytes([salt[0] ^ 0x80]) + salt[1:], payload_o8="fail")
+    case("decision_record_corrupt", "The record under decision/<hex> is the form 1 record without its salt (it does "
+         "not decode): the decision check is unchecked, source_corrupt.", "decision_corrupt")
     return out
 
 

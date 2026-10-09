@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/verifier/reasons.json (v0-draft.30, with the additions of core v1 section 14, v1-draft.4).
+"""Writes spec/vectors/verifier/reasons.json (v1-draft.5).
 
-The machine-readable reason enum of core section 20.1.1 and one case per
+The machine-readable verifier reason enum and one case per
 reason: the check it is reported on, the scenario as overrides of a valid,
 authorized decision, the vectors that give concrete bytes for it, and the
 expected check status, verdict and exit code. A second list holds the
@@ -29,8 +29,8 @@ OUT = VECTORS / "verifier" / "reasons.json"
 # name, group, checks, meaning, advice
 REASONS = [
     ("decision_unavailable", "archive", ["decision", "action"],
-     "No decision record for the reference in any checked archive copy. Since core v1-draft.4 also on action: a "
-     "private-form v1 decision record whose kind 15 action record is absent.", "another archive copy"),
+     "No decision record for the reference in any checked archive copy. On action: a private-form decision "
+     "record whose kind 15 action record is absent.", "another archive copy"),
     ("payload_unavailable", "archive", ["payload"],
      "The payload record is missing in every checked copy. It signals a retention failure of the operator and "
      "can feed an external accountability policy. It is not a verdict on the decision.", "another archive copy"),
@@ -40,7 +40,7 @@ REASONS = [
                                    "receipt", "policy", "gate_integrity"],
      "Bytes from a source fail a check that a genuine copy passes: strict decoding, the key check, a hash or DA "
      "commitment against the commitment, a signature that the commitment hash does not cover, or an archived "
-     "proof (da = 2 commitment proof, Fibre CV1 to CV8, anchor proof forms 0 and 1).", "another copy"),
+     "proof (da = 2 commitment proof, Fibre CV1 to CV8, the anchor proof).", "another copy"),
     ("chain_mismatch", "archive", ["header_trust", "anchor"],
      "An archived header at a needed height does not link to the trusted chain (HT3, HT5, OH6), or the archived "
      "evidence names another height than the decision.", "another archive copy, or check the trusted header"),
@@ -67,9 +67,6 @@ REASONS = [
      "that is not on record for gate_id.", "the receipt of this decision"),
     ("replay_inputs_missing", "archive", ["retention_replay"],
      "The Authorization record carries no K2 inputs (repaired from the registry).", "another archive copy"),
-    ("replay_unconfirmed", "archive", ["retention_replay"],
-     "promise_created is earlier than the archived anchor's and the anchor proof is form 0, which shows no other "
-     "candidate (19.2).", "an archive copy with a form-1 anchor proof"),
     ("replay_inconsistent", "archive", ["retention_replay"],
      "K2 recomputed from the recorded inputs disagrees with the Authorization's path, or promise_created matches "
      "no candidate. The K2 inputs are unsigned archive data, so a gate error and an altered record look the "
@@ -118,12 +115,16 @@ REASONS = [
      "Gate-signed verdicts contradict each other (fork, broken link, self-inconsistent transition, seq gap, version "
      "decrease or mandate change in one chain). The agent may be honest; the gate is at fault. Exit code 5.",
      "investigate the gate; the attached verdicts are the evidence"),
+    ("gate_signed_inconsistent_private_part", "integrity", ["gate_integrity"],
+     "A private-form verdict's PrivatePart opens and hashes to the gate-signed private_hash but breaks the presence "
+     "rule of the verdict's outcome: the gate signed a contradiction. The policy check runs on what the verifier "
+     "derives itself (its extractor's facts stand in for missing ones); a deny there is a policy fail, otherwise the "
+     "decision verdict stays unchecked. Exit code 5.", "investigate the gate; the attached verdict is the evidence"),
     ("policy_walk_truncated", "integrity", ["gate_integrity"],
      "The policy walk took its step cap (default or explicit) before it reached genesis, with no finding. The older "
      "part of the gate's chain was not read, so gate_integrity is never ok here. The report gives the walked seq "
      "range and the step count. The policy check and the verdict do not change.",
      "raise --max-walk-steps above the target's seq"),
-    # Format v1 additions (core v1 14.1); the enum stays closed.
     ("anchor_pending", "header", ["anchor"],
      "Pending reference, no usable evidence, and the trusted header is below anchor_deadline (or anchor_deadline + 1 "
      "when a results proof is needed): not decidable yet.", "retry later or with a newer checkpoint"),
@@ -183,6 +184,11 @@ def violated() -> dict:
             "verdict": "unchecked", "exit": "5"}
 
 
+def violated_private_part() -> dict:
+    return {"check": "gate_integrity", "status": "violated", "reason": "gate_signed_inconsistent_private_part",
+            "record_state": "authorized", "verdict": "unchecked", "exit": "5"}
+
+
 def failed(check: str, *, state="authorized") -> dict:
     return {"check": check, "status": "fail", "reason": None, "record_state": state, "verdict": "invalid",
             "exit": "1"}
@@ -217,7 +223,7 @@ def build() -> dict:
              "genuine one.", {"envelope_signature": "one byte flipped"}, [], unchecked("envelope", "source_corrupt")),
         case("authorization_signature_altered", "The Authorization record's gate signature does not verify.",
              {"authorization": "signature one byte flipped"},
-             ["v0/authorization.json#authorization_signed_by_other_gate"],
+             ["v1/authorization.json#authorization_signed_by_other_gate"],
              unchecked("authorization", "source_corrupt")),
         case("evidence_other_height", "The evidence record names another height than payload_ref.height.",
              {"evidence": "record:evidence_da2_minimal_lmt_other_height"},
@@ -229,7 +235,7 @@ def build() -> dict:
              {"evidence": "da1 with mutation share_flip"}, ["da/fibre_anchor.json#share_flip"],
              unchecked("anchor", "source_corrupt")),
         case("receipt_signature_altered", "The given receipt's gate signature does not verify.",
-             {"receipt": "receipt_wrong_hash_tag"}, ["v0/receipt.json#receipt_wrong_hash_tag"],
+             {"receipt": "receipt_wrong_hash_tag"}, ["v1/receipt.json#receipt_wrong_hash_tag"],
              unchecked("receipt", "source_corrupt")),
         case("archived_header_not_linking", "The archived header at payload_ref.height does not link to the "
              "trusted chain. Header trust is unchecked, and the anchor checked against that header is not "
@@ -259,16 +265,13 @@ def build() -> dict:
              unchecked("header_trust", "header_disagreement")),
         case("anchor_time_blocked", "Header trust is unchecked, so K1 has no trusted T_H: anchor_time is "
              "blocked, even if the untrusted header would fail K1.", {"trusted": "none", "issued_at": "K1 fails"},
-             ["v0/anchor.json#k1_one_second_early"], unchecked("anchor_time", "blocked")),
+             ["v1/anchor.json#k1_one_second_early"], unchecked("anchor_time", "blocked")),
         case("receipt_other_decision", "A receipt that verifies but names another commitment_hash.",
              {"receipt": "valid, for another commitment"}, [], unchecked("receipt", "receipt_mismatch")),
         case("replay_no_k2", "replay: the Authorization record has no K2 inputs.",
              {"authorization": "record:authorization_minimal_lmt_da_repaired"},
              ["archive/records.json#authorization_minimal_lmt_da_repaired"],
              unchecked("retention_replay", "replay_inputs_missing"), request="replay"),
-        case("replay_form0_earlier", "replay, da = 1: promise_created is earlier than the archived anchor's and "
-             "the anchor proof is form 0.", {"evidence": "da1 form 0", "promise_created": "anchor - 1"}, [],
-             unchecked("retention_replay", "replay_unconfirmed"), request="replay"),
         case("replay_path_inconsistent", "replay: the recorded K2 inputs make K2 false, but the Authorization's "
              "path is 1.", {"authorization": "path 1, k2.block_time moved back past the window"}, [],
              unchecked("retention_replay", "replay_inconsistent"), request="replay"),
@@ -295,6 +298,9 @@ def build() -> dict:
                       ["policy/verify.json#unchecked_bucket_corrupt"], unchecked("policy", "source_corrupt")))
     cases.append(case("policy_t_h_blocked", "Header trust did not pass, so the policy rules on T_H are blocked.", {},
                       ["policy/verify.json#unchecked_t_h_not_verified"], unchecked("policy", "blocked")))
+    cases.append(case("policy_private_part_inconsistent", "With an auditor key, an allow's PrivatePart hashes to the "
+                      "signed private_hash but carries a deny reason; the facts and state it carries allow.", {},
+                      ["policy/private.json#private_part_row_mismatch"], violated_private_part()))
     cases.append(case("policy_gate_equivocation", "Two gate-signed allows from one state of one counter.", {},
                       ["policy/verify.json#equivocation_fork_evidence"], violated(), request="verify --policy-full"))
     cases.append(case("policy_walk_truncated", "Full policy walk capped at one step on a chain of four allows: "
@@ -323,15 +329,15 @@ def build() -> dict:
     boundary = [
         case("commitment_rule_broken", "The commitment hashes to the reference and breaks stage S (ttl above "
              "the limit). Every copy has these bytes: fail.", {"commitment": "reject:ttl_3601"},
-             ["v0/reject.json#ttl_3601"], failed("envelope")),
+             ["v1/reject.json#ttl_3601"], failed("envelope")),
         case("agent_key_small_order", "The committed agent_pubkey is of small order (G0): it is inside the "
              "commitment hash, so fail.", {"commitment": "reject:pubkey_order8_a"},
-             ["v0/reject.json#pubkey_order8_a"], failed("envelope")),
+             ["v1/reject.json#pubkey_order8_a"], failed("envelope")),
         case("issued_before_anchor", "K1 against T_H of a header that passed header trust.",
-             {"issued_at": "K1 fails"}, ["v0/anchor.json#k1_one_second_early"], failed("anchor_time")),
+             {"issued_at": "K1 fails"}, ["v1/anchor.json#k1_one_second_early"], failed("anchor_time")),
         case("payload_action_differs", "A recipient opens a payload whose bytes match the commitment, and the "
              "payload's action differs from the committed one (O8).", {"payload": "opened, action differs"},
-             ["v0/payload_blob.json#pb_payload_action_differs"], failed("payload")),
+             ["v1/payload_blob.json#pb_payload_action_differs"], failed("payload")),
         case("policy_amount_above_max", "The gate allowed an amount above the mandate's per-action maximum.", {},
              ["policy/verify.json#fail_amount_above_max"], failed("policy")),
         case("policy_period_limit_on_signed_state", "The gate-signed prev_state proves the allow broke a period limit.",
@@ -339,15 +345,15 @@ def build() -> dict:
         case("execution_body_mismatch", "The tx bytes hash to rail_ref and carry another body.", {},
              ["verifier/execution_outcomes.json#fail_body_mismatch"], failed("execution"),
              request="verify --check-execution"),
-        # Format v1 fail rules (core v1 14.2).
         case("anchor_absent", "Fast mode: absence proven for every height of [h0, anchor_deadline].", {},
              ["v1/verify.json#fast_absent_proven"], failed("anchor")),
-        case("authorization_version_mismatch", "A1: an Authorization v0 for a v1 decision.", {},
-             ["v1/verify.json#auth_version_mismatch"], failed("authorization")),
-        case("authorization_mode_mismatch", "A2: mode 1 for a pending reference.", {},
+        case("authorization_mode_mismatch", "A1: mode 1 for a pending reference.", {},
              ["v1/verify.json#auth_mode_mismatch"], failed("authorization")),
-        case("authorization_deadline_over_1000", "A3: anchor_deadline above h0 + 1000.", {},
+        case("authorization_deadline_over_1000", "A2: anchor_deadline above h0 + 1000.", {},
              ["v1/verify.json#auth_deadline_over_1000"], failed("authorization")),
+        case("policy_private_part_inconsistent_denies", "A PrivatePart that hashes to private_hash lacks the facts; "
+             "the verifier's own extraction denies the allowed action.", {},
+             ["policy/private.json#private_part_missing_facts_denies"], failed("policy")),
         case("policy_mandate_ref_mismatch", "The envelope's mandate_ref differs from the allow verdict's mandate_hash.",
              {}, ["policy/verify.json#mandate_ref_mismatch"], failed("policy")),
         case("policy_fast_mode_not_allowed", "A fast-mode Authorization under a mandate without fast_mode_max_delay.",
@@ -356,11 +362,11 @@ def build() -> dict:
              ["policy/verify.json#fast_mode_delay_exceeded"], failed("policy")),
     ]
     return {
-        "format": "edicta-vectors/v0",
-        "revision": "v1-draft.4",
+        "format": "edicta-vectors/v1",
+        "revision": "v1-draft.5",
         "generator": "spec/vectors/check/gen_verifier_reasons.py",
         "description": (
-            "Reason enum of core 20.1.1 and one case per reason. Each case starts from a valid, authorized "
+            "The verifier reason enum and one case per reason. Each case starts from a valid, authorized "
             "decision with a trusted header and changes what setup says; refs give concrete bytes where a vector "
             "has them. expect gives the check that carries the reason, its status, the record state and the "
             "verdict with its exit code. boundary lists verified data that proves a violation and stays fail."),

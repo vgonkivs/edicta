@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v0",
-  "revision": "v0-draft.28",
+  "revision": "v1-draft.5",
   "profile": "bank-send",
   "profile_revision": "bank-send-v0-draft.7",
   "generator": "spec/vectors/check/gen_execution_outcomes.py",
@@ -55,6 +55,7 @@
   },
   "live": {
     "source": "celestia/railverify/testdata/tx_prove_1442606.json and header_1442606.json (Mocha, 2026-10-07, bank-send section 6)",
+    "provenance": "Captured from a decision of the unsupported v0 drafts; the commitment hash in the tx memo is an opaque 32-byte input here. The capture is a Celestia fact and is not recaptured.",
     "chain_id": "mocha-5",
     "height": "1442606",
     "rail_ref": "a9a1550e0ba85fe6f8facebf26978b7f7dbfb399987b6d86d78b9b6340245971",

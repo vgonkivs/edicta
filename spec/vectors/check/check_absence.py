@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/da/absence.json (v1-draft.4, core v1 10.4) without Go and without the network.
+"""Verifies spec/vectors/da/absence.json (v1-draft.5) without Go and without the network.
 
 Runs AB1 to AB5 on the bytes of every kind 14 record, with the code that
-already checks the v0 anchor proof and result proof:
-- the record layer: archive_v1.decode_record, and the record names the query
+already checks the anchor proof and result proof:
+- the record layer: archive.decode_record, and the record names the query
   (da, commitment, namespace, height);
 - AB1: the SignedHeader's header at h, its CometBFT hash (check_fibre_cert)
   equal to the trusted hash, the commit at h for that hash;
@@ -21,7 +21,7 @@ already checks the v0 anchor proof and result proof:
 - AB6 (da = 2): sparse-share parsing as go-square ParseBlobs and the share
   commitment as go-square CreateCommitment (threshold 64, RFC 6962 root over
   the NMT subtree roots), both written here and first checked against every
-  commitment of v0/da_blob.json.
+  commitment of da/blob_commit.json.
 Then the window result as 10.2 reads it, the coverage of the section 15
 names and rules, the live Mocha cases (same rules, their own chain_id and
 trusted hashes), the tail rule on the live blocks of live_tail_rule, the
@@ -41,14 +41,14 @@ import json
 import math
 from pathlib import Path
 
-import archive_v1 as A
+import archive as A
 import check_execution_outcomes as EO
 import check_fibre_anchor as FA
 import check_fibre_cert as FC
 
 HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
-FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.4"
+FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.5"
 APP_VERSION = 10
 SYNTHETIC = ("fibre_candidate_nonzero_code", "fibre_present", "window_three_heights_proven",
              "window_one_height_missing", "tampered_row_root", "cut_namespace_entry", "candidate_other_app_version",
@@ -174,8 +174,8 @@ def create_commitment(ns: bytes, version: int, data: bytes, signer: bytes | None
 
 
 def check_commitment_code() -> int:
-    """The AB6 commitment code reproduces every share commitment of v0/da_blob.json (upstream go-square output)."""
-    d = json.loads((VECTORS / "historical" / "v0" / "da_blob.json").read_text())
+    """The AB6 commitment code reproduces every share commitment of da/blob_commit.json (upstream go-square output)."""
+    d = json.loads((VECTORS / "da" / "blob_commit.json").read_text())
     for c in d["cases"]:
         size = int(c["size"])
         blob = bytes.fromhex(c["blob_hex"]) if "blob_hex" in c else bytes((7 * i + 3) % 256 for i in range(size))

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/v1/archive.json and spec/vectors/v1/verify.json (v1-draft.4).
+"""Verifies spec/vectors/v1/archive.json and spec/vectors/v1/verify.json (v1-draft.5).
 
 - the generator (gen_archive_v1.py) reproduces both files byte for byte;
-- every record decodes with archive_v1 to its input, re-encodes to its bytes,
-  and its path is recomputed here from the literal key formulas of core v1
-  11.1 (not from archive_v1);
+- every record decodes with archive.py to its input, re-encodes to its bytes,
+  and its path is recomputed here from the literal key formulas (not from
+  archive.py);
 - every reject is refused, every read case compares path and key;
-- the verify outcomes are recomputed here from the rule tables of core v1
-  10.1 to 10.3, independently of archive_v1's rule functions, with the
-  Authorization and commitment re-read from the record bytes.
+- the verify outcomes are recomputed here from the rule tables, independently
+  of archive.py's rule functions, with the Authorization and commitment re-read
+  from the record bytes.
 
 Usage: python3 spec/vectors/check/check_archive_v1.py
 """
@@ -23,20 +23,19 @@ import hashlib
 import json
 from pathlib import Path
 
-import archive_v0 as a0
-import archive_v1 as A
-from edicta_v0 import Reject
+import archive as A
+from edicta import Reject
 
 DIR = Path(__file__).resolve().parent.parent / "v1"
 REQUIRED_VERIFY = ("fast_pass_in_window", "fast_h_below_h0", "fast_late_absence_proven", "fast_late_absence_unproven",
                    "fast_pending", "fast_absent_proven", "fast_absence_missing_height", "auth_mode_mismatch",
-                   "auth_deadline_over_1000", "auth_version_mismatch", "replay_fast_window_inconsistent")
-REQUIRED_REJECT = ("signer_on_fibre_intent", "fast_window_on_strict", "kind_16_reserved", "decision_v1_form1_missing_salt",
-                   "decision_v1_form2_with_action", "decision_v1_salt_31", "decision_v1_form_3", "decision_v1_v0_envelope",
-                   "kind3_with_v1_envelope", "private_envelope_empty", "private_envelope_65537",
+                   "auth_deadline_over_1000", "replay_fast_window_inconsistent")
+REQUIRED_REJECT = ("signer_on_fibre_intent", "fast_window_on_strict", "kind_16_reserved", "decision_form1_missing_salt",
+                   "decision_form2_with_action", "decision_salt_31", "decision_form_3", "kind_3_unassigned",
+                   "kind_19_undefined", "format_0_decision", "private_envelope_empty", "private_envelope_65537",
                    "private_action_envelope_69633", "header_empty")
-REQUIRED_READS = ("absence_key_mismatch", "decision_v1_key_mismatch")
-REVISION = "v1-draft.4"
+REQUIRED_READS = ("absence_key_mismatch", "decision_key_mismatch")
+REVISION = "v1-draft.5"
 
 
 class Failure(Exception):
@@ -62,13 +61,10 @@ def path_of(rec: dict, b: bytes) -> str:
         return f"private/{rec['plaintext_kind']}/{rec['hash'].hex()}"
     if k == 5:
         return f"rejection/{rec['commitment_hash'].hex()}/{rec['error']}"
-    if k in (3, 17):
+    if k == 17:
         canon = commitment_bytes(rec["envelope"])
-        ver = canon_version(canon)
-        expect(ver == (1 if k == 17 else 0), "kind 3 holds v0 envelopes, kind 17 v1 envelopes")
-        t = b"edicta/v1/decision-commitment" if ver == 1 else b"edicta/v0/decision-commitment"
-        tag = bytes([len(t)]) + t
-        return f"decision/{H(tag, canon).hex()}"
+        expect(canon_version(canon) == 1, "kind 17 holds a version 1 envelope")
+        return f"decision/{H(b'\x1dedicta/v1/decision-commitment', canon).hex()}"
     if k == 18:
         return f"reveal/{small_map(commitment_bytes(rec['signed_receipt']))[2].hex()}"
     a = auth_map(rec["signed_authorization"])
@@ -100,7 +96,7 @@ def skip(b: bytes, i: int) -> int:
 
 
 def commitment_bytes(env: bytes) -> bytes:
-    """Key 1 of the signed envelope, spliced verbatim (both versions)."""
+    """Key 1 of the signed envelope, spliced verbatim."""
     _, n, i = head(env, 0)
     _, key, i = head(env, i)
     expect(key == 1, "envelope key 1")
@@ -168,14 +164,7 @@ def check_archive(f: dict, verify: dict) -> str:
         rec = A.decode_record(b)
         expect(A.encode_record(rec) == b and str(rec["kind"]) == c["kind"], c["id"])
         expect(path_of(rec, b) == c["path"], f"{c['id']}: path")
-        try:
-            a0.decode_record(b)
-            v0r = "accepts"
-        except Reject as e:
-            v0r = e.sentinel
-        expect(v0r == c["v0_reader"], f"{c['id']}: v0 reader")
-        if rec["kind"] in (13, 14, 15, 17, 18):
-            expect(v0r == "ErrInvalidEnum", f"{c['id']}: a v0 reader refuses the new kinds")
+        expect(b[1:3] == b"\x01\x01", f"{c['id']}: format 1 header")
         if rec["kind"] == 4 and "k2" in rec:
             a = auth_map(rec["signed_authorization"])
             fast = a[1] == 1 and a.get(7) == 2
@@ -196,7 +185,7 @@ def check_archive(f: dict, verify: dict) -> str:
                 ok = form1_ok(rec)
                 expect(ok == (not c["id"].endswith("_wrong_salt")),
                        f"{c['id']}: form 1 bytes and salt give the committed action_hash")
-    expect({4, 5, 13, 14, 15, 17, 18} <= kinds and 3 not in kinds, "kinds covered (no kind 3 for v1 decisions)")
+    expect({4, 5, 13, 14, 15, 17, 18} <= kinds and 3 not in kinds, "kinds covered (kind 3 is unassigned)")
     for r in f["reject"]:
         try:
             A.decode_record(bytes.fromhex(r["record_cbor_hex"]))
@@ -206,7 +195,7 @@ def check_archive(f: dict, verify: dict) -> str:
     for x in f["reject_large"]:
         base = next(c for c in f["cases"] if c["id"] == x["base_case"])
         rec = A.decode_record(bytes.fromhex(base["record_cbor_hex"]))
-        m = a0._to_int_keys({"format": 0, **rec}, A.schema_of(rec["kind"]))
+        m = A._to_int_keys({"format": 1, **rec}, A.schema_of(rec["kind"]))
         n = int(x["field_size"])
         m[int(x["field"])] = b"".join(hashlib.sha256(f"edicta/v0 test archive placeholder|{x['placeholder_label']}|{i}"
                                                      .encode()).digest() for i in range((n + 31) // 32))[:n]
@@ -228,7 +217,7 @@ def check_archive(f: dict, verify: dict) -> str:
     ids = {r["id"] for r in f["reject"]}
     expect(all(i in ids for i in REQUIRED_REJECT), "required rejects")
     expect(all(i in {x["id"] for x in f["reads"]} for i in REQUIRED_READS), "required reads")
-    expect(f["reserved_kinds"] == ["6", "16"], "reserved kinds")
+    expect(f["unassigned_kinds"] == ["3", "6", "16"], "unassigned kinds")
     return f"{len(f['cases'])} records, {len(f['reject'])} reject, {len(f['reads'])} reads"
 
 
@@ -241,12 +230,11 @@ def outcome(c: dict, records: dict, window: int) -> dict:
     pending, h0 = ref.get(6) == 2, ref[4]
     head_ = int(c["trusted_head"])
     out = {}
-    if a[1] != cm["version"]:
+    expect(a[1] == cm["version"] == 1, "version 1 decision and Authorization")
+    if a.get(7) != (2 if pending else 1):
         rule = "A1"
-    elif a.get(7) != (2 if pending else 1):
-        rule = "A2"
     elif pending and not (h0 < a[8] <= h0 + 1000):
-        rule = "A3"
+        rule = "A2"
     else:
         rule = None
     out["authorization"] = {"status": "fail", "rule": rule} if rule else {"status": "pass"}
@@ -334,7 +322,7 @@ def form1_ok(rec: dict) -> bool:
 
 
 def action_outcome(c: dict, records: dict, sks: dict) -> dict:
-    """Core v1 10.7 from the table, independently of archive_v1.action_rules."""
+    """The decision and action checks from the table, independently of archive.action_rules."""
     import check_policy as CP
     b = bytes.fromhex(records[c["decision"]]["record_cbor_hex"])
     try:
@@ -370,6 +358,8 @@ def action_outcome(c: dict, records: dict, sks: dict) -> dict:
             res, salt = {"status": "pass", "action_source": "reveal"}, rv["action_salt"]
         else:
             return out | {"action": {"status": "unchecked", "reason": "policy_private"}}
+    if c.get("payload_o8") == "fail":
+        return out | {"payload": {"status": "fail", "rule": "O8"}, "action": res}
     if "payload_salt_hex" in c and bytes.fromhex(c["payload_salt_hex"]) != salt:
         return out | {"action": {"status": "unchecked", "reason": "source_corrupt"}}
     return out | {"action": res}
@@ -394,7 +384,8 @@ def check_verify(f: dict) -> str:
         expect(got == c["expect"], f"{c['id']}: {got} != {c['expect']}")
     need = {"decision_v1_public_pass", "decision_v1_public_wrong_salt", "decision_v1_private_without_key",
             "decision_v1_private_with_key", "decision_v1_private_blob_missing", "reveal_public_execution_pass",
-            "reveal_wrong_salt", "reveal_offchain_profile", "payload_archive_salt_mismatch", "kind3_with_v1_envelope"}
+            "reveal_wrong_salt", "reveal_offchain_profile", "payload_archive_salt_mismatch", "decision_record_corrupt",
+            "payload_o8_fails_before_salt_compare"}
     expect(need <= {c["id"] for c in f["action_cases"]}, "required action cases")
     for c in f["cases"]:
         got = outcome(c, f["records"], int(f["window"]))

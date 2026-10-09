@@ -1,7 +1,7 @@
 """Rules of the dca-agent profile (IBKR order action, DCA context, client order id, executor checks).
 
 Python side of the cross-language check for examples/dca-agent. The core
-(edicta_v0.py) never imports this module: to the core an IBKR order is an
+(edicta.py) never imports this module: to the core an IBKR order is an
 opaque byte string with a type.
 
 Sentinel names carry the Go package that owns them: ibkrorder.ErrX, dca.ErrX
@@ -11,7 +11,7 @@ and ibkr.ErrX.
 from __future__ import annotations
 
 from cbor_strict import CBORError, Item, decode_strict, encode
-from edicta_v0 import ID_CHARS, MAX_INT, PRINTABLE, Reject, _schema_decode, to_cbor
+from edicta import ID_CHARS, MAX_INT, PRINTABLE, Reject, _schema_decode, to_cbor
 
 ACTION_TYPE_IBKR_ORDER_V0 = "application/vnd.edicta.ibkr.order.v0+cbor"
 MEDIA_TYPE_DCA_V0 = "application/vnd.edicta.dca.v0+cbor"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/verifier/execution_outcomes.json (v0-draft.28).
+"""Verifies spec/vectors/verifier/execution_outcomes.json (v1-draft.5).
 
 - structure: format, revision, keys of every section and case, value sets,
   unique ids, decimal uints, lower-case hex;
@@ -39,14 +39,14 @@ import json
 import re
 from pathlib import Path
 
-from edicta_v0 import Reject
+from edicta import Reject
 from check_fibre_cert import header_hash, merkle, put_uvarint
 from profile_bank_send import _read_varint, action_decode, check_body
 
 HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
 FORMAT = "edicta-vectors/v0"
-REVISION = "v0-draft.28"
+REVISION = "v1-draft.5"
 PROFILE_REVISION = "bank-send-v0-draft.7"
 
 UNCHECKED_CAUSES = {
@@ -373,7 +373,7 @@ def check_result_proof(f: dict) -> int:
 
 def check_proofs(f: dict) -> int:
     live = f["live"]
-    expect(set(live) == {"source", "chain_id", "height", "rail_ref", "code", "tx_hex", "data_hash_hex"}, "live keys")
+    expect(set(live) == {"source", "provenance", "chain_id", "height", "rail_ref", "code", "tx_hex", "data_hash_hex"}, "live keys")
     tx = hexb(live["tx_hex"])
     expect(hashlib.sha256(tx).hexdigest() == live["rail_ref"], "live: tx does not hash to rail_ref")
     expect(len(hexb(live["data_hash_hex"])) == 32 and uint(live["height"]) > 0 and uint(live["code"]) == 0, "live")

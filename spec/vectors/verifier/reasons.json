@@ -1,8 +1,8 @@
 {
-  "format": "edicta-vectors/v0",
-  "revision": "v1-draft.4",
+  "format": "edicta-vectors/v1",
+  "revision": "v1-draft.5",
   "generator": "spec/vectors/check/gen_verifier_reasons.py",
-  "description": "Reason enum of core 20.1.1 and one case per reason. Each case starts from a valid, authorized decision with a trusted header and changes what setup says; refs give concrete bytes where a vector has them. expect gives the check that carries the reason, its status, the record state and the verdict with its exit code. boundary lists verified data that proves a violation and stays fail.",
+  "description": "The verifier reason enum and one case per reason. Each case starts from a valid, authorized decision with a trusted header and changes what setup says; refs give concrete bytes where a vector has them. expect gives the check that carries the reason, its status, the record state and the verdict with its exit code. boundary lists verified data that proves a violation and stays fail.",
   "reasons": [
     {
       "name": "decision_unavailable",
@@ -11,7 +11,7 @@
         "decision",
         "action"
       ],
-      "meaning": "No decision record for the reference in any checked archive copy. Since core v1-draft.4 also on action: a private-form v1 decision record whose kind 15 action record is absent.",
+      "meaning": "No decision record for the reference in any checked archive copy. On action: a private-form decision record whose kind 15 action record is absent.",
       "advice": "another archive copy"
     },
     {
@@ -46,7 +46,7 @@
         "policy",
         "gate_integrity"
       ],
-      "meaning": "Bytes from a source fail a check that a genuine copy passes: strict decoding, the key check, a hash or DA commitment against the commitment, a signature that the commitment hash does not cover, or an archived proof (da = 2 commitment proof, Fibre CV1 to CV8, anchor proof forms 0 and 1).",
+      "meaning": "Bytes from a source fail a check that a genuine copy passes: strict decoding, the key check, a hash or DA commitment against the commitment, a signature that the commitment hash does not cover, or an archived proof (da = 2 commitment proof, Fibre CV1 to CV8, the anchor proof).",
       "advice": "another copy"
     },
     {
@@ -156,15 +156,6 @@
       ],
       "meaning": "The Authorization record carries no K2 inputs (repaired from the registry).",
       "advice": "another archive copy"
-    },
-    {
-      "name": "replay_unconfirmed",
-      "group": "archive",
-      "checks": [
-        "retention_replay"
-      ],
-      "meaning": "promise_created is earlier than the archived anchor's and the anchor proof is form 0, which shows no other candidate (19.2).",
-      "advice": "an archive copy with a form-1 anchor proof"
     },
     {
       "name": "replay_inconsistent",
@@ -366,6 +357,15 @@
       "advice": "investigate the gate; the attached verdicts are the evidence"
     },
     {
+      "name": "gate_signed_inconsistent_private_part",
+      "group": "integrity",
+      "checks": [
+        "gate_integrity"
+      ],
+      "meaning": "A private-form verdict's PrivatePart opens and hashes to the gate-signed private_hash but breaks the presence rule of the verdict's outcome: the gate signed a contradiction. The policy check runs on what the verifier derives itself (its extractor's facts stand in for missing ones); a deny there is a policy fail, otherwise the decision verdict stays unchecked. Exit code 5.",
+      "advice": "investigate the gate; the attached verdict is the evidence"
+    },
+    {
       "name": "policy_walk_truncated",
       "group": "integrity",
       "checks": [
@@ -538,7 +538,7 @@
         "authorization": "signature one byte flipped"
       },
       "refs": [
-        "v0/authorization.json#authorization_signed_by_other_gate"
+        "v1/authorization.json#authorization_signed_by_other_gate"
       ],
       "expect": {
         "check": "authorization",
@@ -610,7 +610,7 @@
         "receipt": "receipt_wrong_hash_tag"
       },
       "refs": [
-        "v0/receipt.json#receipt_wrong_hash_tag"
+        "v1/receipt.json#receipt_wrong_hash_tag"
       ],
       "expect": {
         "check": "receipt",
@@ -778,7 +778,7 @@
         "issued_at": "K1 fails"
       },
       "refs": [
-        "v0/anchor.json#k1_one_second_early"
+        "v1/anchor.json#k1_one_second_early"
       ],
       "expect": {
         "check": "anchor_time",
@@ -818,24 +818,6 @@
         "check": "retention_replay",
         "status": "unchecked",
         "reason": "replay_inputs_missing",
-        "record_state": "authorized",
-        "verdict": "unchecked",
-        "exit": "2"
-      },
-      "request": "replay"
-    },
-    {
-      "id": "replay_form0_earlier",
-      "description": "replay, da = 1: promise_created is earlier than the archived anchor's and the anchor proof is form 0.",
-      "setup": {
-        "evidence": "da1 form 0",
-        "promise_created": "anchor - 1"
-      },
-      "refs": [],
-      "expect": {
-        "check": "retention_replay",
-        "status": "unchecked",
-        "reason": "replay_unconfirmed",
         "record_state": "authorized",
         "verdict": "unchecked",
         "exit": "2"
@@ -1311,6 +1293,22 @@
       }
     },
     {
+      "id": "policy_private_part_inconsistent",
+      "description": "With an auditor key, an allow's PrivatePart hashes to the signed private_hash but carries a deny reason; the facts and state it carries allow.",
+      "setup": {},
+      "refs": [
+        "policy/private.json#private_part_row_mismatch"
+      ],
+      "expect": {
+        "check": "gate_integrity",
+        "status": "violated",
+        "reason": "gate_signed_inconsistent_private_part",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "5"
+      }
+    },
+    {
       "id": "policy_gate_equivocation",
       "description": "Two gate-signed allows from one state of one counter.",
       "setup": {},
@@ -1466,7 +1464,7 @@
         "commitment": "reject:ttl_3601"
       },
       "refs": [
-        "v0/reject.json#ttl_3601"
+        "v1/reject.json#ttl_3601"
       ],
       "expect": {
         "check": "envelope",
@@ -1484,7 +1482,7 @@
         "commitment": "reject:pubkey_order8_a"
       },
       "refs": [
-        "v0/reject.json#pubkey_order8_a"
+        "v1/reject.json#pubkey_order8_a"
       ],
       "expect": {
         "check": "envelope",
@@ -1502,7 +1500,7 @@
         "issued_at": "K1 fails"
       },
       "refs": [
-        "v0/anchor.json#k1_one_second_early"
+        "v1/anchor.json#k1_one_second_early"
       ],
       "expect": {
         "check": "anchor_time",
@@ -1520,7 +1518,7 @@
         "payload": "opened, action differs"
       },
       "refs": [
-        "v0/payload_blob.json#pb_payload_action_differs"
+        "v1/payload_blob.json#pb_payload_action_differs"
       ],
       "expect": {
         "check": "payload",
@@ -1597,24 +1595,8 @@
       }
     },
     {
-      "id": "authorization_version_mismatch",
-      "description": "A1: an Authorization v0 for a v1 decision.",
-      "setup": {},
-      "refs": [
-        "v1/verify.json#auth_version_mismatch"
-      ],
-      "expect": {
-        "check": "authorization",
-        "status": "fail",
-        "reason": null,
-        "record_state": "authorized",
-        "verdict": "invalid",
-        "exit": "1"
-      }
-    },
-    {
       "id": "authorization_mode_mismatch",
-      "description": "A2: mode 1 for a pending reference.",
+      "description": "A1: mode 1 for a pending reference.",
       "setup": {},
       "refs": [
         "v1/verify.json#auth_mode_mismatch"
@@ -1630,13 +1612,29 @@
     },
     {
       "id": "authorization_deadline_over_1000",
-      "description": "A3: anchor_deadline above h0 + 1000.",
+      "description": "A2: anchor_deadline above h0 + 1000.",
       "setup": {},
       "refs": [
         "v1/verify.json#auth_deadline_over_1000"
       ],
       "expect": {
         "check": "authorization",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    },
+    {
+      "id": "policy_private_part_inconsistent_denies",
+      "description": "A PrivatePart that hashes to private_hash lacks the facts; the verifier's own extraction denies the allowed action.",
+      "setup": {},
+      "refs": [
+        "policy/private.json#private_part_missing_facts_denies"
+      ],
+      "expect": {
+        "check": "policy",
         "status": "fail",
         "reason": null,
         "record_state": "authorized",

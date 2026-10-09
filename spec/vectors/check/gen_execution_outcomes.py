@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/verifier/execution_outcomes.json (v0-draft.28).
+"""Writes spec/vectors/verifier/execution_outcomes.json (v1-draft.5).
 
 The outcome table of the execution check (core section 20.2, bank-send
 section 3.4): one case per cause of `unchecked` and per cause of `fail`, and
@@ -560,7 +560,7 @@ def build() -> dict:
 
     return {
         "format": "edicta-vectors/v0",
-        "revision": "v0-draft.28",
+        "revision": "v1-draft.5",
         "profile": "bank-send",
         "profile_revision": "bank-send-v0-draft.7",
         "generator": "spec/vectors/check/gen_execution_outcomes.py",
@@ -602,6 +602,8 @@ def build() -> dict:
         "live": {
             "source": "celestia/railverify/testdata/tx_prove_1442606.json and header_1442606.json (Mocha, "
                       "2026-10-07, bank-send section 6)",
+            "provenance": "Captured from a decision of the unsupported v0 drafts; the commitment hash in the tx memo "
+                          "is an opaque 32-byte input here. The capture is a Celestia fact and is not recaptured.",
             "chain_id": hdr["chain_id"],
             "height": hdr["height"],
             "rail_ref": live["hash"].lower(),

@@ -33,7 +33,7 @@ import hashlib
 import json
 from pathlib import Path
 
-import archive_v1 as A
+import archive as A
 
 VECTORS = Path(__file__).resolve().parent.parent
 OUT = VECTORS / "da"
@@ -42,14 +42,28 @@ if "--out" in sys.argv:
 LIVE_FILE = None
 if "--live" in sys.argv:
     LIVE_FILE = Path(sys.argv[sys.argv.index("--live") + 1]).resolve()
-FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.4"
+FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.5"
 LIVE_KEYS = ("live", "live_source", "live_tail_rule")
 
 
 def live_sections() -> dict:
     src = LIVE_FILE or (VECTORS / "da" / "absence.json")
     d = json.loads(src.read_text())
-    return {k: d[k] for k in LIVE_KEYS}
+    out = {k: d[k] for k in LIVE_KEYS}
+    for case in out["live"]:
+        for r in case["records"]:
+            r.update(record_entry_format_1(bytes.fromhex(r["record_hex"])))
+    return out
+
+
+def record_entry_format_1(b: bytes) -> dict:
+    """A captured kind 14 record under the archive header of format 1. The capture tool wrote the header of
+    the earlier format 0; only that value changes, every Celestia byte stays as captured."""
+    assert b[0] in range(0xa0, 0xb8) and b[1] == 0x01 and b[2] in (0x00, 0x01), b[:3].hex()
+    b = b[:2] + b"\x01" + b[3:]
+    rec = A.decode_record(b)
+    assert rec["kind"] == A.KIND_ABSENCE
+    return {"record_hex": b.hex(), "sha256": hashlib.sha256(b).hexdigest(), "size": str(len(b))}
 APP_VERSION = 10
 
 CHAIN_ID = "edicta-synth-1"

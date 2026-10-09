@@ -50,7 +50,6 @@ T_SUCC = bytes.fromhex("1a") + b"edicta/policy/v1/successor"
 T_PRIV_PART = bytes.fromhex("1d") + b"edicta/policy/v1/private-part"
 T_PRIV_AEAD = bytes.fromhex("18") + b"edicta/policy/v1/private"
 T_PRIV_DEK = bytes.fromhex("1c") + b"edicta/policy/v1/private-dek"
-T_ACTION = bytes.fromhex("10") + b"edicta/v0/action"
 T_ACTION_V1 = bytes.fromhex("10") + b"edicta/v1/action"
 T_STATE_BLIND = bytes.fromhex("1c") + b"edicta/policy/v1/state-blind"
 T_BLIND_KEY = bytes.fromhex("1a") + b"edicta/policy/v1/blind-key"
@@ -525,7 +524,7 @@ RCAP = {7: 16448, 8: 16448, 9: 16448, 10: 16448, 11: 36928, 12: 256, 15: 69760}
 def read_record(b):
     s = "archive.ErrCorrupt"
     r = lenient(b, s, 69760, 1)
-    need(isinstance(r, dict) and 1 in r and 2 in r and r[1] == 0 and r[2] in PATH and len(b) <= RCAP[r[2]], s)
+    need(isinstance(r, dict) and 1 in r and 2 in r and r[1] == 1 and r[2] in PATH and len(b) <= RCAP[r[2]], s)
     kind = r[2]
     try:
         if kind == 15:
@@ -587,7 +586,7 @@ def envelope_parts(env, cap=65536):
     need(len(env) <= cap, s)
     e = lenient(env, s, cap, 3)
     keys(e, s, (1, 2, 3, 4))
-    need(e[1] == 0 and isinstance(e[2], list) and 1 <= len(e[2]) <= 16, s)
+    need(e[1] == 1 and isinstance(e[2], list) and 1 <= len(e[2]) <= 16, s)
     for x in e[2]:
         keys(x, s, (1, 2, 3))
         need(isinstance(x[1], bytes) and 1 <= len(x[1]) <= 32, s)
@@ -1108,7 +1107,8 @@ def classify(c, records, gate_pub):
     arch.update({p: hx(b) for p, b in c.get("corrupt", {}).items()})
     ch, action, atype = hx(d["commitment_hash_hex"]), hx(d["action_hex"]), d["action_type"]
     th = int(c["t_h"]) if "t_h" in c else None
-    v1 = d.get("version") == "1"
+    expect(d.get("version") == "1", "every decision is a v1 decision")
+    v1 = True
     mode = int(d.get("mode", "1"))
     trusted = set()
     for x in cfg["principal_keys"]:
@@ -1123,11 +1123,8 @@ def classify(c, records, gate_pub):
     sks = [hx(x) for x in cfg.get("auditor_keys", [])]
     xreg = cfg["extractors"]
     cap = int(cfg["max_walk_steps"]) if cfg["max_walk_steps"] is not None else 10000
-    if v1:
-        expect(H(T_ACTION_V1, bytes([len(atype)]), atype.encode(), hx(d["action_salt_hex"]), action).hex()
-               == d["action_hash_hex"], "salted action hash of a v1 decision")
-    else:
-        expect(H(T_ACTION, bytes([len(atype)]), atype.encode(), action).hex() == d["action_hash_hex"], "action hash")
+    expect(H(T_ACTION_V1, bytes([len(atype)]), atype.encode(), hx(d["action_salt_hex"]), action).hex()
+           == d["action_hash_hex"], "salted action hash")
     GEN_HASH = H(T_STATE, encode(GEN))
 
     def get(kind, key):
@@ -1196,8 +1193,8 @@ def classify(c, records, gate_pub):
 
     def logical(v):
         """(status, merged verdict): the verdict itself in public form; in private form merged with its opened
-        PrivatePart. 'bad': the opened state does not hash to key 20 under the mandate's salt; 'corrupt': the
-        PrivatePart presence does not fit the public outcome."""
+        PrivatePart. 'bad': the opened state does not hash to key 20 under the mandate's salt; 'pp': the PrivatePart
+        hashes to key 19 but its presence does not fit the public outcome (a gate-signed contradiction)."""
         if 19 not in v:
             return "ok", v
         if v[19] not in pcache:
@@ -1216,7 +1213,7 @@ def classify(c, records, gate_pub):
                         v_verdict(mg)
                         pcache[v[19]] = ("ok", mg)
                     except Bad:
-                        pcache[v[19]] = ("corrupt", None)
+                        pcache[v[19]] = ("pp", mg)
         return pcache[v[19]]
 
     def state(v):
@@ -1278,6 +1275,7 @@ def classify(c, records, gate_pub):
     hist = {"absent": "state_history_unavailable", "corrupt": "source_corrupt", "private": "policy_private",
             "scheme": "principal_scheme_unsupported"}
     viol = []
+    pp_viol = []
     fail = fast_u = walk_u = None
     blocked = walked_ok = truncated = False
     walk_report = None
@@ -1330,6 +1328,19 @@ def classify(c, records, gate_pub):
         if s == "bad":
             viol.append(vh(V))
             return None
+        if s == "pp":
+            pp_viol.append(vh(V))
+            if 10 not in VL:
+                if xreg.get(atype) != TEST_X:
+                    return "u", "policy_no_extractor"
+                try:
+                    VL = dict(VL)
+                    VL[10], VL[9] = facts_dec(action), TEST_X
+                except Bad:
+                    return "u", "blocked"
+            if not all(k in VL for k in (9, 11, 12, 13)):
+                return "u", "blocked"
+            s = "ok"
         if s != "ok":
             return "u", hist[s]
         r = facts(VL)
@@ -1418,6 +1429,9 @@ def classify(c, records, gate_pub):
                 (sp_, stp), (sn_, stn) = state(p), state(n)
                 if "bad" in (sp_, sn_):
                     viol = [vh(n if sn_ == "bad" else p)]
+                    break
+                if "pp" in (sp_, sn_):
+                    pp_viol = pp_viol or [vh(n if sn_ == "pp" else p)]
                     break
                 if sp_ != "ok" or sn_ != "ok":
                     walk_u = hist[sp_ if sp_ != "ok" else sn_]
@@ -1508,6 +1522,9 @@ def classify(c, records, gate_pub):
     pol |= report
     if viol:
         gi = {"status": "violated", "reason": "gate_equivocation", "evidence": [h.hex() for h in viol]}
+    elif pp_viol:
+        gi = {"status": "violated", "reason": "gate_signed_inconsistent_private_part",
+              "evidence": [h.hex() for h in pp_viol]}
     elif walked_ok and (walk_u or truncated):
         gi = {"status": "unchecked", "reason": walk_u or "policy_walk_truncated", "evidence": []}
     elif walked_ok:
@@ -1519,7 +1536,7 @@ def classify(c, records, gate_pub):
         gi["walk"] = walk_report
     if fail:
         verdict, code = "invalid", 1
-    elif viol:
+    elif viol or pp_viol:
         verdict, code = "unchecked", 5
     elif pol["status"] == "unchecked":
         verdict, code = "unchecked", 2
@@ -1561,10 +1578,12 @@ def check_verify(f):
     expect({"mandate_ref_mismatch", "ErrFastModeNotAllowed", "fast_mode_delay"} <= rules, "draft.5 rules")
     expect("principal_scheme_unsupported" in reasons, "draft.5 reasons")
     for c in f["cases"]:
-        # The draft.5 report fields appear for v1 decisions only, so draft.4 cases keep their bytes.
         v1 = c["decision"].get("version") == "1"
+        expect(v1, f"{c['id']}: every decision is a v1 decision")
         no_record = c["expect"]["policy"].get("reason") == "policy_verdict_unavailable"
-        expect(("mode" in c["expect"]["policy"]) == (v1 and not no_record), c["id"])
+        # The mode follows the decision's verdict, so a verdict that cannot be read reports none.
+        unreadable = no_record or c["expect"]["policy"].get("reason") == "source_corrupt"
+        expect(("mode" in c["expect"]["policy"]) or unreadable, c["id"])
         if v1 and c["decision"]["mode"] == "2" and no_record:
             expect(not c["config"]["require_policy"] and c["expect"]["verdict"] == "unchecked", c["id"])
     return f"{len(f['records'])} records, {len(f['cases'])} cases"
@@ -1678,6 +1697,7 @@ def check_private(f, verify):
                     "private_with_key_anchor_time_mismatch", "private_wrong_key", "private_part_hash_differs",
                     "private_state_not_key_20", "private_fork_without_key", "private_walk_without_key",
                     "verdict_form_mismatch", "private_part_row_mismatch", "private_part_allow_missing_facts",
+                    "private_part_missing_facts_denies",
                     "state_salt_wrong", "chain_continuity_without_salt"):
         expect(need_id in ids, need_id)
     return (f"{len(f['envelopes'])} envelopes, {len(f['reject'])} reject, {len(pv['reject'])} verdict reject, "
@@ -1724,11 +1744,9 @@ def check_api(f, verify):
             a = lenient(body[1], "api", 256, 2)
             v, _ = verdict_verify(body[5], gate_pub)
             expect(v[7] == 1 and a[1][2] == v[4] and a[1][3] == v[5] and a[1][4] == v[2], x["id"])
-            ver = b"v1" if a[1][1] == 1 else b"v0"
-            expect((a[1][1] == 1) == (x.get("endpoint") == "/v1/authorize") and (a[1][1] != 1 or a[1].get(7) == 1),
-                   x["id"])
-            expect(sig_ok(gate_pub, bytes.fromhex("1b") + b"edicta/" + ver + b"/authorization-sig",
-                          H(bytes.fromhex("17") + b"edicta/" + ver + b"/authorization", encode(a[1])), a[2]), x["id"])
+            expect(a[1][1] == 1 and a[1].get(7) == 1 and "endpoint" not in x, x["id"])
+            expect(sig_ok(gate_pub, bytes.fromhex("1b") + b"edicta/v1/authorization-sig",
+                          H(bytes.fromhex("17") + b"edicta/v1/authorization", encode(a[1])), a[2]), x["id"])
             continue
         expect(set(body) <= {1, 2, 3, 4, 5}, x["id"])
         st = next(m for m in f["mapping"] if m["code"] == body[1]) if body[1] != "ErrNonceUsed" else None
@@ -1775,8 +1793,8 @@ def check_tia(f):
 
 # The revision that last changed each file's bytes; files not listed keep draft.1.
 LAST_CHANGED = {"policy/mandate.json": "policy-v1-draft.7", "policy/render.json": "policy-v1-draft.7",
-                "policy/verify.json": "policy-v1-draft.7", "policy/archive.json": "policy-v1-draft.7",
-                "policy/api.json": "policy-v1-draft.7", "policy/private.json": "policy-v1-draft.7"}
+                "policy/verify.json": "policy-v1-draft.8", "policy/archive.json": "policy-v1-draft.8",
+                "policy/api.json": "policy-v1-draft.8", "policy/private.json": "policy-v1-draft.8"}
 
 
 def main() -> int:
@@ -1800,7 +1818,7 @@ def main() -> int:
     except (Failure, Bad, KeyError, ValueError) as e:
         print(f"FAIL (policy v1): {type(e).__name__}: {e}", file=sys.stderr)
         return 1
-    print("OK (policy v1, policy-v1-draft.7): " + "; ".join(out) + "; generator output identical")
+    print("OK (policy v1, policy-v1-draft.8): " + "; ".join(out) + "; generator output identical")
     return 0
 
 

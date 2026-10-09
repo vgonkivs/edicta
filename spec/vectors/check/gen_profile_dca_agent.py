@@ -6,7 +6,7 @@ commitment hashes are read from the core vector set, so run gen_vectors.py
 first.
 
 Usage: python3 spec/vectors/check/gen_profile_dca_agent.py [--core DIR] [--out DIR]
-Defaults: --core spec/vectors/v0; --out spec/vectors/profiles/dca-agent.
+Defaults: --core spec/vectors/v1; --out spec/vectors/profiles/dca-agent.
 """
 
 from __future__ import annotations
@@ -20,7 +20,9 @@ import struct
 from pathlib import Path
 
 from cbor_strict import Pairs, Raw, encode
-from edicta_v0 import Reject, action_hash, to_cbor
+import hashlib
+
+from edicta import Reject, action_hash, to_cbor
 from gen_payload_blob import DCA_MINIMAL, DCA_WITH_FILLS, T0, w
 import profile_dca_agent as pf
 
@@ -34,11 +36,13 @@ def arg(name: str, default: Path) -> Path:
     return default
 
 
-CORE = arg("--core", VECTORS / "historical" / "v0")
+CORE = arg("--core", VECTORS / "v1")
 OUT = arg("--out", VECTORS / "profiles" / "dca-agent")
 FORMAT = "edicta-vectors/v0"
 PROFILE = "dca-agent"
 PROFILE_REVISION = "dca-agent-v0-draft.1"
+# Files whose content the salted core action hash changed.
+REVISIONS = {"ibkr_order.json": "dca-agent-v0-draft.4", "client_order_id.json": "dca-agent-v0-draft.4"}
 ACCOUNT = "DU1234567"
 
 ORDER_MINIMAL = {"account": ACCOUNT, "conid": 265598, "side": 1, "qty": 100000, "order_type": 1,
@@ -69,8 +73,13 @@ def outcome(fn, *args):
     return None
 
 
-def header() -> dict:
-    return {"format": FORMAT, "profile": PROFILE, "revision": PROFILE_REVISION}
+def header(name: str = "") -> dict:
+    return {"format": FORMAT, "profile": PROFILE, "revision": REVISIONS.get(name, PROFILE_REVISION)}
+
+
+def salt_of(label: str) -> bytes:
+    """The core vectors' fixed action salt of a label: SHA-256("action-salt/" + label)."""
+    return hashlib.sha256(("action-salt/" + label).encode()).digest()
 
 
 def ibkr_order_vectors(core_valid: dict, core_auth: dict) -> dict:
@@ -80,8 +89,10 @@ def ibkr_order_vectors(core_valid: dict, core_auth: dict) -> dict:
         b = pf.order_encode(o)
         assert pf.order_decode(b) == o
         pf.order_validate(o)
+        salt = salt_of(ref if ref is not None else cid)
         case = {"id": cid, "description": desc, "input": order_to_json(o), "cbor_hex": b.hex(),
-                "action_hash_hex": action_hash(pf.ACTION_TYPE_IBKR_ORDER_V0, b).hex(),
+                "action_salt_hex": salt.hex(),
+                "action_hash_hex": action_hash(pf.ACTION_TYPE_IBKR_ORDER_V0, salt, b).hex(),
                 "qty_decimal": pf.decimal(o["qty"], 4)}
         if "limit_price" in o:
             case["limit_price_decimal"] = pf.decimal(o["limit_price"], 8)
@@ -186,7 +197,7 @@ def ibkr_order_vectors(core_valid: dict, core_auth: dict) -> dict:
               bytes.fromhex(next(c for c in invalid if c["id"] == "order_mkt")["cbor_hex"]), 0, account="DU7654321") == "ibkrorder.ErrInvalid"
     assert ex("exec_malformed", "Bytes that are not a canonical order.", good + b"\x00", 0) == "ibkrorder.ErrMalformed"
 
-    return dict(header(), action_type=pf.ACTION_TYPE_IBKR_ORDER_V0, cases=cases, malformed=malformed,
+    return dict(header("ibkr_order.json"), action_type=pf.ACTION_TYPE_IBKR_ORDER_V0, cases=cases, malformed=malformed,
                 invalid=invalid, executor=executor)
 
 
@@ -252,7 +263,7 @@ def client_order_id_vectors(core_valid: dict) -> dict:
         hh = bytes.fromhex(v["commitment_hash_hex"])
         cases.append({"id": f"coid_{v['id']}", "commitment_ref": v["id"], "commitment_hash_hex": v["commitment_hash_hex"],
                       "client_order_id": pf.client_order_id(hh)})
-    return dict(header(), core_revision=core_valid["revision"], cases=cases)
+    return dict(header("client_order_id.json"), core_revision=core_valid["revision"], cases=cases)
 
 
 def write(name: str, obj: dict):
@@ -263,8 +274,8 @@ def write(name: str, obj: dict):
 
 def main():
     valid = json.loads((CORE / "valid.json").read_text())
-    if valid.get("revision") != "v0-draft.9":
-        sys.exit(f"{CORE} is not a v0-draft.9 vector set")
+    if valid.get("revision") != "v1-draft.5":
+        sys.exit(f"{CORE} is not a v1-draft.5 vector set")
     auth = json.loads((CORE / "authorization.json").read_text())
     OUT.mkdir(parents=True, exist_ok=True)
     write("ibkr_order.json", ibkr_order_vectors(valid, auth))

@@ -131,7 +131,7 @@ def check(path: Path, core: Path) -> str:
     p = bytes.fromhex(small["blob_hex"])
     expect(accepted["fibre_minimal_lmt_payload"][0] == p, "fibre_minimal_lmt_payload is not the minimal_lmt blob")
     pc = accepted["fibre_minimal_lmt_payload"][1]
-    da = json.loads((core / "da_blob.json").read_text())
+    da = json.loads((VECTORS / "da" / "blob_commit.json").read_text())
     da2 = next(c for c in da["cases"] if c["id"] == "blob_v1_minimal_lmt_payload")["commitment_hex"]
 
     rej = {}
@@ -158,7 +158,7 @@ def check(path: Path, core: Path) -> str:
            "over-maximum reject")
 
     anchor = json.loads((core / "anchor.json").read_text())
-    k2 = {c["id"]: c for c in anchor["k2"]}
+    k2 = {c["id"]: c for c in anchor["k2_included"]}
     listed = set()
     for r in f["anchor_k2_with_fibre_committer"]:
         c = k2.get(r["anchor_ref"])
@@ -177,7 +177,7 @@ def check(path: Path, core: Path) -> str:
 
 def main() -> int:
     path = arg("--file", VECTORS / "da" / "fibre_commit.json")
-    core = arg("--core", VECTORS / "historical" / "v0")
+    core = arg("--core", VECTORS / "v1")
     try:
         summary = check(path, core)
     except (Failure, KeyError, StopIteration, ValueError) as e:

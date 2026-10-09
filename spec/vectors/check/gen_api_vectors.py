@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Generates spec/vectors/api/publish_request.json (v0-draft.11). Deterministic.
+"""Generates spec/vectors/api/publish_request.json (v1-draft.5). Deterministic.
 
 Usage: python3 spec/vectors/check/gen_api_vectors.py [--core DIR] [--out DIR]
-Defaults: --core spec/vectors/v0; --out spec/vectors/api.
+Defaults: --core spec/vectors/v1; --out spec/vectors/api.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-import edicta_publish_v0 as pr
+import edicta_publish as pr
 from cbor_strict import Pairs, Raw, encode
-from edicta_v0 import Reject, commitment_hash, decode_signed, signing_message, tagged
+from edicta import Reject, commitment_hash, decode_signed, signing_message, tagged
 from vecjson import commitment_from_json, pattern_bytes
 
 HERE = Path(__file__).resolve().parent
@@ -32,10 +32,10 @@ def arg(name: str, default: Path) -> Path:
     return default
 
 
-CORE = arg("--core", VECTORS / "historical" / "v0")
+CORE = arg("--core", VECTORS / "v1")
 OUT = arg("--out", VECTORS / "api")
-FORMAT = "edicta-vectors/v0"
-REVISION = "v0-draft.11"
+FORMAT = "edicta-vectors/v1"
+REVISION = "v1-draft.5"
 T0 = 1791000000
 NOW = T0 + 60
 SKEW = 30
@@ -46,7 +46,7 @@ GID = "edictad-1"
 
 
 def main():
-    keys = json.loads((CORE / "keys.json").read_text())["keys"]
+    keys = json.loads((VECTORS / "keys.json").read_text())["keys"]
 
     def sk(name):
         return Ed25519PrivateKey.from_private_bytes(bytes.fromhex(keys[name]["seed_hex"]))
@@ -155,12 +155,12 @@ def main():
       "edictaapi.ErrPublishSignature")
     r("pr_sig_untagged", "G", "PR3", "Signed without the tag.",
       signed(msg=pr.publish_message(GID, aid, NOW, blob)[26:]), "edictaapi.ErrPublishSignature")
-    r("pr_sig_under_commitment_tag", "G", "PR3", "Signed under edicta/v0/sig over SHA-256 of the publish message.",
+    r("pr_sig_under_commitment_tag", "G", "PR3", "Signed under edicta/v1/sig over SHA-256 of the publish message.",
       signed(msg=signing_message(hashlib.sha256(pr.publish_message(GID, aid, NOW, blob)).digest())), "edictaapi.ErrPublishSignature")
     r("pr_sig_hashed_message", "G", "PR3", "Signed over SHA-256 of the publish message.",
       signed(msg=hashlib.sha256(pr.publish_message(GID, aid, NOW, blob)).digest()), "edictaapi.ErrPublishSignature")
-    r("pr_sig_record_request_tag", "G", "PR3", "The same layout under edicta/v0/record-request.",
-      signed(msg=tagged(b"edicta/v0/record-request") + pr.publish_message(GID, aid, NOW, blob)[26:]), "edictaapi.ErrPublishSignature")
+    r("pr_sig_record_request_tag", "G", "PR3", "The same layout under edicta/v1/record-request.",
+      signed(msg=tagged(b"edicta/v1/record-request") + pr.publish_message(GID, aid, NOW, blob)[26:]), "edictaapi.ErrPublishSignature")
     s_bad = sig[:32] + (int.from_bytes(sig[32:], "little") + 2**252 + 27742317777372353535851937790883648493).to_bytes(32, "little")
     r("pr_sig_noncanonical_s", "G", "PR3", "S + L in place of S.", encode({1: blob, 2: aid, 3: NOW, 4: s_bad}),
       "edictaapi.ErrPublishSignature")

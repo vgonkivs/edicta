@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/verifier/reasons.json (v0-draft.30 plus core v1 section 14, v1-draft.4).
+"""Verifies spec/vectors/verifier/reasons.json (v1-draft.5).
 
 - the reason enum: unique lower-case names, known groups and checks;
 - every reason has at least one case, and every case's reason is in the enum
@@ -49,7 +49,7 @@ def expect(cond: bool, msg: str):
 
 
 def ids_in(rel: str) -> set:
-    d = json.loads((VECTORS / ("historical/" + rel if rel.startswith("v0/") else rel)).read_text())
+    d = json.loads((VECTORS / rel).read_text())
     out = set()
 
     def walk(x):
@@ -70,7 +70,7 @@ def check(path: Path) -> str:
     f = json.loads(raw)
     if path == FILE:
         expect(raw == json.dumps(gen.build(), indent=2, ensure_ascii=True) + "\n", "generator output differs")
-    expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v1-draft.4", "format or revision")
+    expect(f["format"] == "edicta-vectors/v1" and f["revision"] == "v1-draft.5", "format or revision")
     expect(set(f) == {"format", "revision", "generator", "description", "reasons", "cases", "boundary"}, "keys")
     enum = {}
     for r in f["reasons"]:
@@ -101,8 +101,9 @@ def check(path: Path) -> str:
     for c in f["cases"]:
         e = c["expect"]
         if e["status"] == "violated":
-            expect(e["check"] == "gate_integrity" and e["reason"] == "gate_equivocation" and e["verdict"] == "unchecked"
-                   and e["exit"] == "5", f"{c['id']}: equivocation gives unchecked, exit 5")
+            expect(e["check"] == "gate_integrity" and e["reason"] in ("gate_equivocation",
+                                                                      "gate_signed_inconsistent_private_part")
+                   and e["verdict"] == "unchecked" and e["exit"] == "5", f"{c['id']}: a violation gives unchecked, exit 5")
             used.add(e["reason"])
             continue
         expect(e["status"] == "unchecked" and e["reason"] in enum, f"{c['id']}: reason")
@@ -175,7 +176,7 @@ def main() -> int:
     except (Failure, KeyError) as ex:
         print(f"FAIL (reasons.json): {ex}", file=sys.stderr)
         return 1
-    print(f"OK (reasons.json, v1-draft.4): {summary}")
+    print(f"OK (reasons.json, v1-draft.5): {summary}")
     return 0
 
 

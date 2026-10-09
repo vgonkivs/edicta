@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Generates spec/vectors/archive/records.json and state.json (v0-draft.20):
-archive record format 0 of section 19. Deterministic.
+"""Generates spec/vectors/archive/records.json and state.json (v1-draft.5): archive records of
+format 1 for the payload, evidence, decision, Authorization and rejection kinds. Deterministic.
 
-Decisions, Authorizations and payloads are real vector data from the core set
-(valid.json, authorization.json, keys.json) and the DA sets (v0/da_blob.json,
-da/fibre_commit.json). Celestia objects inside evidence records (headers,
-proofs, txs, validator sets) are placeholders: format 0 carries them as
-opaque byte strings, and these files fix the record layout, not their content.
+Decisions, Authorizations and payloads are real vector data from the core set (v1/valid.json,
+v1/authorization.json, keys.json) and the DA sets (da/blob_commit.json, da/fibre_commit.json).
+Celestia objects inside evidence records (headers, proofs, txs, validator sets) are placeholders: the
+record layer carries them as opaque byte strings, and these files fix the record layout, not their
+content. spec/vectors/v1/archive.json (gen_archive_v1.py) covers the other kinds.
 
 Usage: python3 spec/vectors/check/gen_archive.py [--core DIR] [--out DIR]
-Defaults: --core spec/vectors/v0; --out spec/vectors/archive.
+Defaults: --core spec/vectors/v1; --out spec/vectors/archive.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import hashlib
 import json
 from pathlib import Path
 
-import archive_v0 as av
+import archive as av
 from cbor_strict import Pairs, Raw, encode
 from ed25519_point import BASE, L, challenge, encode as pt_encode, mul
 
@@ -36,10 +36,10 @@ def arg(name: str, default: Path) -> Path:
     return default
 
 
-CORE = arg("--core", VECTORS / "historical" / "v0")
+CORE = arg("--core", VECTORS / "v1")
 OUT = arg("--out", VECTORS / "archive")
-FORMAT = "edicta-vectors/v0"
-REVISION = "v0-draft.20"
+FORMAT = "edicta-vectors/v1"
+REVISION = "v1-draft.5"
 GENERATOR = "spec/vectors/check/gen_archive.py"
 INLINE_MAX = 1024
 RECORD_INLINE_MAX = 4096
@@ -52,9 +52,9 @@ def load(p: Path) -> dict:
 
 VALID = {c["id"]: c for c in load(CORE / "valid.json")["cases"]}
 AUTHS = {c["id"]: c for c in load(CORE / "authorization.json")["cases"]}
-DA_BLOB = {c["id"]: c for c in load(CORE / "da_blob.json")["cases"]}
+DA_BLOB = {c["id"]: c for c in load(VECTORS / "da" / "blob_commit.json")["cases"]}
 FIBRE = {c["id"]: c for c in load(VECTORS / "da" / "fibre_commit.json")["cases"]}
-KEYS = load(CORE / "keys.json")["keys"]
+KEYS = load(VECTORS / "keys.json")["keys"]
 
 
 PERIOD = bytes((7 * i + 3) & 0xFF for i in range(256))
@@ -167,14 +167,13 @@ def evidence_da1(label: str, height: int) -> dict:
             "anchor_tx_index": 0, "tx_code": 0, "system_blob": ph(f"{label}|system_blob", 90),
             "system_blob_proof": ph(f"{label}|system_blob_proof", 160), "promise_height": 1402813,
             "promise_header": ph(f"{label}|promise_header", 96),
-            "historical_info": ph(f"{label}|historical_info", 300),
-            "promise_valset": ph(f"{label}|promise_valset", 200)}
+            "historical_info": ph(f"{label}|historical_info", 300)}
 
 
 def decision(case_id: str, envelope: bytes | None = None) -> dict:
     c = VALID[case_id]
     return {"kind": av.KIND_DECISION, "envelope": envelope or bytes.fromhex(c["envelope_hex"]),
-            "action": action_of(c)}
+            "form": av.FORM_PUBLIC, "action": action_of(c), "action_salt": bytes.fromhex(c["action_salt_hex"])}
 
 
 def authorization(auth_id: str, k2: dict | None) -> dict:
@@ -206,11 +205,11 @@ def rejection(case_id: str, error: str, at: int) -> dict:
 T_H = 1790999950
 
 CASES = [
-    ("payload_da2_minimal_lmt", "da = 2 payload of valid case minimal_lmt (da_blob.json blob_v1_minimal_lmt_payload); namespace and signer present because the share commitment covers them.",
+    ("payload_da2_minimal_lmt", "da = 2 payload of valid case minimal_lmt (da/blob_commit.json blob_v1_minimal_lmt_payload); namespace and signer present because the share commitment covers them.",
      payload_da2("blob_v1_minimal_lmt_payload", 4199990), {"da_blob": "blob_v1_minimal_lmt_payload"}, []),
     ("payload_da2_minimal_lmt_later_intent", "Same blob archived again with a later intent height: same identity, the stored record (first intent) is kept.",
      payload_da2("blob_v1_minimal_lmt_payload", 4199995), {"da_blob": "blob_v1_minimal_lmt_payload"}, []),
-    ("payload_da2_256k", "da = 2 payload of 262144 bytes (blob length head of 5 bytes), da_blob.json blob_v1_size_262144.",
+    ("payload_da2_256k", "da = 2 payload of 262144 bytes (blob length head of 5 bytes), da/blob_commit.json blob_v1_size_262144.",
      payload_da2("blob_v1_size_262144", 4199990), {"da_blob": "blob_v1_size_262144"}, []),
     ("payload_da2_wrong_commitment", "Well-formed record whose commitment is not the share commitment of its blob (it is that of blob_v1_size_1): the store refuses it before writing.",
      {**payload_da2("blob_v1_minimal_lmt_payload", 4199990), "commitment": bytes.fromhex(DA_BLOB["blob_v1_size_1"]["commitment_hex"])},
@@ -228,11 +227,11 @@ CASES = [
      evidence_da2("ev2h", 4200001, False), {"da_blob": "blob_v1_minimal_lmt_payload"}, ["header", "blob_proof"]),
     ("evidence_da1_live", "da = 1 evidence at the live anchor height 1402819, valset height 1402813; no PFF tx proof (optional).",
      evidence_da1("ev1", 1402819), {"fibre_commit": "fibre_live_mocha_popsmin1"},
-     ["header", "anchor_tx", "system_blob", "system_blob_proof", "promise_header", "historical_info", "promise_valset"]),
+     ["header", "anchor_tx", "system_blob", "system_blob_proof", "promise_header", "historical_info"]),
     ("evidence_da1_live_other_height", "da = 1 evidence for the same key at another height: conflict.",
      evidence_da1("ev1h", 1402820), {"fibre_commit": "fibre_live_mocha_popsmin1"},
-     ["header", "anchor_tx", "system_blob", "system_blob_proof", "promise_header", "historical_info", "promise_valset"]),
-    ("decision_minimal_lmt", "Decision record of valid case minimal_lmt.",
+     ["header", "anchor_tx", "system_blob", "system_blob_proof", "promise_header", "historical_info"]),
+    ("decision_minimal_lmt", "Decision record (kind 17, form 1: the action bytes and the salt in clear) of valid case minimal_lmt.",
      decision("minimal_lmt"), {"valid": "minimal_lmt"}, []),
     ("decision_minimal_lmt_resigned", "Same commitment, a second valid signature by agent1 (another nonce r): different bytes under the same key, a conflict the gate treats as success (AR2).",
      decision("minimal_lmt", resign(VALID["minimal_lmt"], "minimal_lmt")), {"valid": "minimal_lmt"}, []),
@@ -322,16 +321,21 @@ def build_rejects(recs: dict):
         ("rec_trailing_byte", "A valid rejection record followed by one byte.", good_r + b"\x00", "ErrTrailingData"),
         ("rec_float", "format encoded as a float.", Raw(b""), "ErrFloat"),
         ("rec_tag", "A tagged bstr as the commitment.", Raw(b""), "ErrTag"),
-        ("rec_unsorted", "kind before format.", cbor_map([(2, 5), (1, 0)]), "ErrUnsortedMap"),
-        ("rec_non_minimal", "format 0 encoded in two bytes.", Raw(b""), "ErrNonMinimalInt"),
+        ("rec_unsorted", "kind before format.", cbor_map([(2, 5), (1, 1)]), "ErrUnsortedMap"),
+        ("rec_non_minimal", "format 1 encoded in two bytes.", Raw(b""), "ErrNonMinimalInt"),
         ("rec_too_many_entries", "25 entries in one map.", cbor_map([(k, 0) for k in range(1, 26)]), "ErrTooLarge"),
         ("rec_nesting_3", "A map inside the K2 map.", mutate(a, k2={**k2_2, 2: {1: 0}}), "ErrNestingTooDeep"),
         ("rec_format_missing", "No format key.", cbor_map([(2, 5)]), "ErrMissingField"),
-        ("rec_format_1", "format = 1.", mutate(r, format=1), "ErrUnsupportedVersion"),
-        ("rec_kind_missing", "No kind key.", cbor_map([(1, 0)]), "ErrMissingField"),
-        ("rec_kind_tstr", "kind as a text string.", cbor_map([(1, 0), (2, "rejection")]), "ErrWrongType"),
+        ("rec_format_0", "format = 0: archive records of the unsupported v0 drafts are refused at the header.",
+         mutate(r, format=0), "ErrUnsupportedVersion"),
+        ("rec_format_2", "format = 2.", mutate(r, format=2), "ErrUnsupportedVersion"),
+        ("rec_kind_missing", "No kind key.", cbor_map([(1, 1)]), "ErrMissingField"),
+        ("rec_kind_tstr", "kind as a text string.", cbor_map([(1, 1), (2, "rejection")]), "ErrWrongType"),
         ("rec_kind_0", "kind = 0.", mutate(r, kind=0), "ErrInvalidEnum"),
         ("rec_kind_6", "kind = 6.", mutate(r, kind=6), "ErrInvalidEnum"),
+        ("rec_kind_3", "kind = 3: unassigned in format 1 (the decision record is kind 17).", mutate(r, kind=3),
+         "ErrInvalidEnum"),
+        ("rec_kind_19", "kind = 19: undefined.", mutate(r, kind=19), "ErrInvalidEnum"),
         ("rec_kind_size_cap", "A decision record labelled as a rejection: above the 256-byte cap of that kind, refused before the schema.",
          mutate(d, kind=5), "ErrTooLarge"),
         ("rec_kind_mismatch", "An Authorization record labelled as a rejection: key 3 is not a 32-byte hash.",
@@ -364,7 +368,11 @@ def build_rejects(recs: dict):
         ("decision_envelope_trailing", "Envelope with a trailing byte.", mutate(d, envelope=d["envelope"] + b"\x00"), "ErrTrailingData"),
         ("decision_envelope_not_envelope", "Envelope bytes that are a SignedAuthorization.",
          mutate(d, envelope=a["signed_authorization"]), "ErrWrongType"),
-        ("decision_unknown_key", "Decision key 5.", mutate(d, key_5=b"\x01"), "ErrUnknownKey"),
+        ("decision_unknown_key", "Decision key 7.", mutate(d, key_7=b"\x01"), "ErrUnknownKey"),
+        ("decision_envelope_version_0", "A decision record whose envelope carries version 0 (a v0-shaped commitment): refused like any envelope failing S1.",
+         mutate(d, envelope=_version0_envelope(d["envelope"])), "ErrUnsupportedVersion"),
+        ("evidence_da1_promise_valset", "da = 1 evidence with key 18: unassigned in format 1.",
+         mutate(e1, key_18=b"\x01"), "ErrUnknownKey"),
         ("authorization_garbage", "signed_authorization that is not CBOR.", mutate(a, signed_authorization=b"\xff"), "ErrMalformed"),
         ("authorization_path_3", "An Authorization with path = 3 (signature irrelevant at decoding).",
          mutate(a, signed_authorization=_path3(a["signed_authorization"])), "ErrInvalidEnum"),
@@ -392,11 +400,11 @@ def build_rejects(recs: dict):
     for item in rej:
         rid, desc, data, cause = item[:4]
         if rid == "rec_float":
-            data = bytes([0xA2, 0x01, 0xF9, 0x00, 0x00, 0x02, 0x05])
+            data = bytes([0xA2, 0x01, 0xF9, 0x3C, 0x00, 0x02, 0x05])
         elif rid == "rec_tag":
             data = mutate(p1, commitment=Raw(bytes([0xC2]) + encode(p1["commitment"])))
         elif rid == "rec_non_minimal":
-            data = bytes([0xA2, 0x01, 0x18, 0x00, 0x02, 0x05])
+            data = bytes([0xA2, 0x01, 0x18, 0x01, 0x02, 0x05])
         if isinstance(data, Raw):
             data = data.data
         try:
@@ -443,7 +451,7 @@ def strict_rejects(recs: dict, good_r: bytes) -> list:
          mutate(p1, blob=Raw(b"\x5f" + encode(p1["blob"]) + b"\xff")), "ErrIndefiniteLength"),
         ("rec_break_stray", "A break byte (0xff) as the value of format: additional info 31 on major 7.",
          mutate(r, format=Raw(b"\xff")), "ErrMalformed"),
-        ("rec_duplicate_key", "Key 1 (format) twice, both 0.",
+        ("rec_duplicate_key", "Key 1 (format) twice, both 1.",
          pairs(r_pairs[:1] + r_pairs[:1] + r_pairs[1:]), "ErrDuplicateKey"),
         ("rec_duplicate_last_key", "Key 6 (rejected_at) twice with different values.",
          pairs(r_pairs + [(6, r["rejected_at"] + 1)]), "ErrDuplicateKey"),
@@ -476,12 +484,12 @@ def strict_rejects(recs: dict, good_r: bytes) -> list:
         ("decision_envelope_unsorted", "Envelope with its two keys swapped: stage 8, cause from section 6.",
          mutate(d, envelope=_swap_envelope(d["envelope"])), "ErrUnsortedMap"),
         # Several defects: the earliest stage of section 19.1 decides.
-        ("multi_unsorted_and_format_1", "Stage 2 before stage 3: kind before format, and format = 1.",
-         pairs([(2, 5), (1, 1)] + r_pairs[2:]), "ErrUnsortedMap", ("ErrUnsortedMap", "ErrUnsupportedVersion")),
-        ("multi_format_1_and_kind_size", "Stage 3 before stage 4: a decision record labelled as a rejection, with format = 1.",
-         mutate(d, format=1, kind=5), "ErrUnsupportedVersion", ("ErrUnsupportedVersion", "ErrTooLarge")),
+        ("multi_unsorted_and_format_0", "Stage 2 before stage 3: kind before format, and format = 0.",
+         pairs([(2, 5), (1, 0)] + r_pairs[2:]), "ErrUnsortedMap", ("ErrUnsortedMap", "ErrUnsupportedVersion")),
+        ("multi_format_0_and_kind_size", "Stage 3 before stage 4: a decision record labelled as a rejection, with format = 0.",
+         mutate(d, format=0, kind=5), "ErrUnsupportedVersion", ("ErrUnsupportedVersion", "ErrTooLarge")),
         ("multi_kind_missing_and_format_tstr", "Stage 3 reads format before kind: format as text, kind absent.",
-         pairs([(1, "0")] + r_pairs[2:]), "ErrWrongType", ("ErrWrongType", "ErrMissingField")),
+         pairs([(1, "1")] + r_pairs[2:]), "ErrWrongType", ("ErrWrongType", "ErrMissingField")),
         ("multi_unknown_key_and_missing", "Stage 5 before stage 6: da = 2 payload with key 9 and without signer.",
          mutate(p2, signer=None, key_9=1), "ErrUnknownKey", ("ErrUnknownKey", "ErrMissingField")),
         ("multi_undefined_for_da_and_missing", "Stage 5 before stage 6, for one da: da = 1 evidence with a blob_proof (not defined for da = 1) and without historical_info (required for da = 1).",
@@ -523,7 +531,7 @@ def large_rejects(recs: dict) -> list:
         ("payload_max_record_size", "Exactly MaxRecordSize bytes: stage 1 and the payload cap of stage 4 pass (the bound is inclusive); the blob above 2^27 fails at stage 5.",
          av.MAX_RECORD_SIZE, "ErrFieldSize"),
     ):
-        fixed = encode(Pairs(((1, 0), (2, av.KIND_PAYLOAD), (3, 1), (4, p1["commitment"])))) + b"\x07\x5a"
+        fixed = encode(Pairs(((1, 1), (2, av.KIND_PAYLOAD), (3, 1), (4, p1["commitment"])))) + b"\x07\x5a"
         n = size - len(fixed) - 4
         prefix = bytes([0xA5]) + fixed[1:] + n.to_bytes(4, "big")
         data = prefix + pattern(n)
@@ -544,6 +552,13 @@ def _swap_envelope(env: bytes) -> bytes:
     """{1: commitment, 2: signature} re-emitted as {2: signature, 1: commitment}."""
     assert env[0] == 0xA2 and env[1] == 0x01 and env[-67:-64] == b"\x02\x58\x40"
     return b"\xa2" + env[-67:] + env[1:-67]
+
+
+def _version0_envelope(env: bytes) -> bytes:
+    """The envelope with its commitment's version (key 1) set to 0; decoding reads no signature."""
+    i = env.find(bytes([0x01, 0x01]), 2)
+    assert env[:2] == b"\xa2\x01" and i == 3, i
+    return env[:i + 1] + b"\x00" + env[i + 2:]
 
 
 def _path3(sa: bytes) -> bytes:
@@ -718,10 +733,11 @@ def main() -> int:
         "max_depth": str(av.MAX_DEPTH),
         "max_entries": str(av.MAX_PAIRS),
         "max_opaque_size": str(av.MAX_OPAQUE),
-        "verdicts": list(av.VERDICTS),
+        "verdicts": sorted(av.VERDICTS),
     }
     header = {"format": FORMAT, "revision": REVISION, "generator": GENERATOR,
-              "refs": {"core": "spec/vectors/v0", "fibre_commit": "spec/vectors/da/fibre_commit.json"}}
+              "refs": {"core": "spec/vectors/v1", "blob_commit": "spec/vectors/da/blob_commit.json",
+                       "fibre_commit": "spec/vectors/da/fibre_commit.json"}}
     records = {**header, "params": params, "patterns": PATTERNS,
                "placeholder": "SHA-256(\"edicta/v0 test archive placeholder|\" + label + \"|\" + i) for i = 0, 1, ..., concatenated and cut to the size; not valid upstream encodings",
                "cases": cases, "reject": rejects, "reject_large": large_rejects(recs)}

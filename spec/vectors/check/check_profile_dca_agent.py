@@ -8,7 +8,7 @@ the authorized bytes pass the executor, and every DCA payload in
 payload_blob.json is consistent with its action.
 
 Usage: python3 spec/vectors/check/check_profile_dca_agent.py [--core DIR] [--dir DIR]
-Defaults: --core spec/vectors/v0;
+Defaults: --core spec/vectors/v1;
 --dir spec/vectors/profiles/dca-agent.
 """
 
@@ -21,9 +21,9 @@ sys.dont_write_bytecode = True
 import json
 from pathlib import Path
 
-import edicta_v0 as core
+import edicta as core
 import profile_dca_agent as pf
-from edicta_v0 import AuthorizationCheck, Reject, action_hash
+from edicta import AuthorizationCheck, Reject, action_hash
 from vecjson import action_from_case
 
 HERE = Path(__file__).resolve().parent
@@ -36,10 +36,11 @@ def arg(name: str, default: Path) -> Path:
     return default
 
 
-CORE = arg("--core", VECTORS / "historical" / "v0")
+CORE = arg("--core", VECTORS / "v1")
 DIR = arg("--dir", VECTORS / "profiles" / "dca-agent")
 FORMAT = "edicta-vectors/v0"
 PROFILE_REVISION = "dca-agent-v0-draft.1"
+REVISIONS = {"ibkr_order.json": "dca-agent-v0-draft.4", "client_order_id.json": "dca-agent-v0-draft.4"}
 
 
 class Failure(Exception):
@@ -90,13 +91,15 @@ def check_orders(f: dict, core_valid: dict, core_auth: dict) -> int:
         expect(pf.order_encode(o) == b, f"{cid}: encoding")
         expect(pf.order_decode(b) == o, f"{cid}: decode round trip")
         pf.order_validate(o)
-        expect(action_hash(f["action_type"], b).hex() == c["action_hash_hex"], f"{cid}: action hash")
+        expect(action_hash(f["action_type"], bytes.fromhex(c["action_salt_hex"]), b).hex() == c["action_hash_hex"],
+               f"{cid}: action hash")
         expect(pf.decimal(o["qty"], 4) == c["qty_decimal"], f"{cid}: qty decimal")
         if "limit_price" in o:
             expect(pf.decimal(o["limit_price"], 8) == c["limit_price_decimal"], f"{cid}: limit_price decimal")
         if "core_commitment_ref" in c:
             ref = next(v for v in core_valid["cases"] if v["id"] == c["core_commitment_ref"])
-            expect(ref["action_hex"] == c["cbor_hex"] and ref["input"]["action"]["hash"] == c["action_hash_hex"],
+            expect(ref["action_hex"] == c["cbor_hex"] and ref["input"]["action"]["hash"] == c["action_hash_hex"]
+                   and ref["action_salt_hex"] == c["action_salt_hex"],
                    f"{cid}: not the action of core {c['core_commitment_ref']}")
     for r in f["malformed"]:
         expect(outcome(pf.order_decode, bytes.fromhex(r["cbor_hex"])) == r["expect_error"] == "ibkrorder.ErrMalformed", r["id"])
@@ -113,7 +116,8 @@ def check_orders(f: dict, core_valid: dict, core_auth: dict) -> int:
             expect(bytes.fromhex(blk["action_hex"]) == b and blk["action_type"] == pf.ACTION_TYPE_IBKR_ORDER_V0,
                    f"{x['id']}: not the authorized bytes")
             core.verify_authorization(bytes.fromhex(a["signed_authorization_hex"]), AuthorizationCheck(
-                bytes.fromhex(blk["gate_pubkey_hex"]), blk["gate_id"], blk["action_type"], b, int(blk["now"]), int(blk["skew_s"])))
+                bytes.fromhex(blk["gate_pubkey_hex"]), blk["gate_id"], blk["action_type"], b, int(blk["now"]),
+                int(blk["skew_s"]), bytes.fromhex(blk["action_salt_hex"])))
         got = outcome(pf.executor_static_check, b, cfg["account"], int(cfg["max_notional"]))
         expect(got == x.get("expect_error"), f"{x['id']}: got {got}, want {x.get('expect_error')}")
     # Every IBKR action in the core set is a valid order of this profile.
@@ -169,14 +173,15 @@ def check_coid(f: dict, core_valid: dict):
 def main() -> int:
     try:
         core_valid = json.loads((CORE / "valid.json").read_text())
-        expect(core_valid.get("revision") == "v0-draft.9", f"{CORE} is not a v0-draft.9 set")
+        expect(core_valid.get("revision") == "v1-draft.5", f"{CORE} is not a v1-draft.5 set")
         core_auth = json.loads((CORE / "authorization.json").read_text())
         core_blob = json.loads((CORE / "payload_blob.json").read_text())
         orders = load(DIR, "ibkr_order.json")
         dca = load(DIR, "dca_context.json")
         coid = load(DIR, "client_order_id.json")
         for name, f in (("ibkr_order.json", orders), ("dca_context.json", dca), ("client_order_id.json", coid)):
-            expect(f["profile"] == "dca-agent" and f["revision"] == PROFILE_REVISION, f"{name}: profile header")
+            expect(f["profile"] == "dca-agent" and f["revision"] == REVISIONS.get(name, PROFILE_REVISION),
+                   f"{name}: profile header")
         n_core = check_orders(orders, core_valid, core_auth)
         n_dca = check_dca(dca, core_blob)
         check_coid(coid, core_valid)

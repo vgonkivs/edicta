@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/api/publish_request.json (v0-draft.11).
+"""Verifies spec/vectors/api/publish_request.json (v1-draft.5).
 
 Rebuilds every publish message from literal tag bytes, checks the agent
 signatures, the request and response encodings, and runs the stateless
@@ -19,8 +19,8 @@ import json
 import struct
 from pathlib import Path
 
-import edicta_publish_v0 as pr
-from edicta_v0 import Reject, decode_signed
+import edicta_publish as pr
+from edicta import Reject, decode_signed
 from vecjson import commitment_from_json, pattern_bytes
 
 HERE = Path(__file__).resolve().parent
@@ -34,8 +34,8 @@ def arg(name: str, default: Path) -> Path:
 
 
 DIR = arg("--dir", VECTORS / "api")
-CORE = arg("--core", VECTORS / "historical" / "v0")
-TAG_HEX = "19" + b"edicta/v0/publish-request".hex()
+CORE = arg("--core", VECTORS / "v1")
+TAG_HEX = "19" + b"edicta/v1/publish-request".hex()
 
 
 class Failure(Exception):
@@ -50,8 +50,8 @@ def expect(cond: bool, msg: str):
 def main() -> int:
     try:
         f = json.loads((DIR / "publish_request.json").read_text())
-        expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v0-draft.11", "header")
-        expect(f["tag"]["tagged_hex"] == TAG_HEX and f["tag"]["ascii"] == "edicta/v0/publish-request", "tag")
+        expect(f["format"] == "edicta-vectors/v1" and f["revision"] == "v1-draft.5", "header")
+        expect(f["tag"]["tagged_hex"] == TAG_HEX and f["tag"]["ascii"] == "edicta/v1/publish-request", "tag")
         expect(int(f["publish_window_s"]) == pr.PUBLISH_WINDOW_S and int(f["request_overhead"]) == pr.REQUEST_OVERHEAD,
                "constants")
         srv = f["server"]
@@ -101,7 +101,7 @@ def main() -> int:
     except (Failure, Reject) as e:
         print(f"FAIL (api): {e}", file=sys.stderr)
         return 1
-    print(f"OK (api, v0-draft.11): {len(f['cases'])} publish request, {len(f['reject'])} publish reject, "
+    print(f"OK (api, v1-draft.5): {len(f['cases'])} publish request, {len(f['reject'])} publish reject, "
           f"{len(f['response'])} publish response")
     return 0
 

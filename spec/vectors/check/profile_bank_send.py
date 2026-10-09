@@ -3,7 +3,7 @@
 Python side of the cross-language check for examples/tia-transfer. The
 protobuf here is hand-written over the wire format on purpose: the expected
 bytes in msg_send.json and tx.json come from gogoproto (banksend-gen), so
-agreement is between two independent encoders. The core (edicta_v0.py) never
+agreement is between two independent encoders. The core (edicta.py) never
 imports this module.
 
 Sentinel names carry the Go package that owns them: bankmsg.ErrX,
@@ -16,7 +16,7 @@ import hashlib
 import re
 
 from cbor_strict import CBORError, decode_strict, encode
-from edicta_v0 import ID_CHARS, MAX_INT, Reject, _schema_decode, to_cbor
+from edicta import ID_CHARS, MAX_INT, Reject, _schema_decode, to_cbor
 
 ACTION_TYPE = "application/vnd.edicta.cosmos.bank-send.v0+cbor"
 MEDIA_TYPE_PRICE_TRIGGER = "application/vnd.edicta.price-trigger.v0+cbor"

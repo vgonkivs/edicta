@@ -1,7 +1,7 @@
 {
   "format": "edicta-vectors/v0",
   "profile": "dca-agent",
-  "revision": "dca-agent-v0-draft.1",
+  "revision": "dca-agent-v0-draft.4",
   "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
   "cases": [
     {
@@ -18,7 +18,8 @@
         "tif": "1"
       },
       "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
-      "action_hash_hex": "f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb",
+      "action_salt_hex": "aa697e02c466b796bcf0d5b680a59fab232a6345cc4493ec49a29ead42b34126",
+      "action_hash_hex": "c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f",
       "qty_decimal": "10",
       "limit_price_decimal": "190.5",
       "core_commitment_ref": "minimal_lmt"
@@ -38,7 +39,8 @@
         "symbol": "SPY"
       },
       "cbor_hex": "a90169445531323334353637021a000b8bfd0363535059040105194e200601071b0000000d545dac8008635553440901",
-      "action_hash_hex": "1c0ed0f95bd15fbec1bad90c78a6bd6bab854a3b56ff423e1e6561cecdd57a25",
+      "action_salt_hex": "34702f57f55ae7925853612cdbbda0c39f994d4f5a6f93e1bb3241e4b673e18e",
+      "action_hash_hex": "ae649495c38f409fd732ba2b8172318e971e7122aa4da06cf4704aa79e2144e3",
       "qty_decimal": "2",
       "limit_price_decimal": "572.5"
     },
@@ -56,7 +58,8 @@
         "tif": "3"
       },
       "cbor_hex": "a80169445531323334353637021a000b8bfd0402051927100601071b0000000d4b6cdb0008635553440903",
-      "action_hash_hex": "211e28418ad41b389c1d9d0d40079f8c4fbba68b494ffede899d1e637a266a43",
+      "action_salt_hex": "3d34c0b74e5a2d6f56467f71b6578c81ce1d17b3531bbf5e91089b3cbbf7ef35",
+      "action_hash_hex": "29a5aab54b73c9ead019f38b0b901f2d5c0df5c18377c243753c9c6647ac63c7",
       "qty_decimal": "1",
       "limit_price_decimal": "571"
     },
@@ -74,7 +77,8 @@
         "tif": "2"
       },
       "cbor_hex": "a80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440902",
-      "action_hash_hex": "89a327367fcaec36d4ccfcc55cf26773b7a5cadfbb858cf625e686060145d984",
+      "action_salt_hex": "76ea337e34c5bb5b5d7f9344912f8965c8f99eb44db8ccb32b4c39645b0ca9c1",
+      "action_hash_hex": "51397326d4125095ce2b416e79d9e3c2ae8016d58ac122733f26975315128243",
       "qty_decimal": "10",
       "limit_price_decimal": "190.5"
     },
@@ -92,7 +96,8 @@
         "tif": "1"
       },
       "cbor_hex": "a80169445531323334353637021a00040d7e040105010601070108635553440901",
-      "action_hash_hex": "dca2359b609a44a1899da49de41e141fb39b4122d8bf8c4aa90f64070aa77591",
+      "action_salt_hex": "a90b9b163cdf1bfd5ed43a946c58039f6fd3d81fb3579d0483863925d5efd606",
+      "action_hash_hex": "3cfeb943d24b25fbb946c1e8a1c8cbea60937baad8ad53c342eaa8ce10c3929f",
       "qty_decimal": "0.0001",
       "limit_price_decimal": "0.00000001"
     },
@@ -110,7 +115,8 @@
         "tif": "1"
       },
       "cbor_hex": "a80169445531323334353637021b7fffffffffffffff0401051b7fffffffffffffff0601071b7fffffffffffffff08635553440901",
-      "action_hash_hex": "946503829affe31788a6cd1118ed219c86479ddc509c09cf8afe713d21099aac",
+      "action_salt_hex": "194abdd6c6e8f32839aefb011e7d7b760dc1b2c049a703d86fe54715a0b450aa",
+      "action_hash_hex": "a1971c06bff6ebc95d3250ce35e37ed88c233516849077398503a1b891f0a416",
       "qty_decimal": "922337203685477.5807",
       "limit_price_decimal": "92233720368.54775807"
     }

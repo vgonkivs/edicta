@@ -1,38 +1,58 @@
-"""Archive record format 0 (spec section 19, v0-draft.20).
+"""Archive records, format 1 (spec/decision-commitment-v1.md section 19, v1-draft.5).
 
-Encoding, strict decoding, keys, identities and the reference write rules of
-the archive. Independent of the Go implementation on purpose, like
-edicta_v0.py.
+Encoding, strict decoding, keys, identities, the reference write rules and the verifier rules of the
+archive records. Kind numbers are scoped per archive format; in format 1 kind 3 is unassigned and the
+decision record is kind 17. Independent of the Go implementation on purpose, like edicta.py.
 """
 
 from __future__ import annotations
 
 import hashlib
 
+import edicta as E
 from cbor_strict import CBORError, Item, encode
-from edicta_v0 import (
-    ID_CHARS, MAX_INT, Reject, decode_signed, decode_signed_authorization, namespace_ok,
-    validate_authorization_static,
+from edicta import (
+    ID_CHARS, MAX_INT, Reject, decode_signed, decode_signed_authorization, decode_signed_receipt, namespace_ok,
+    validate_authorization_static, validate_receipt_static,
 )
 
-FORMAT = 0
+FORMAT = 1
 
 KIND_PAYLOAD = 1
 KIND_EVIDENCE = 2
-KIND_DECISION = 3
 KIND_AUTHORIZATION = 4
 KIND_REJECTION = 5
-KIND_NAMES = {KIND_PAYLOAD: "payload", KIND_EVIDENCE: "evidence", KIND_DECISION: "decision",
-              KIND_AUTHORIZATION: "authorization", KIND_REJECTION: "rejection"}
+KIND_INTENT = 13
+KIND_ABSENCE = 14
+KIND_PRIVATE = 15
+KIND_DECISION = 17
+KIND_REVEAL = 18
+# Never assigned (6), reserved (16), or unassigned in format 1 (3): refused like any undefined kind.
+UNASSIGNED_KINDS = (3, 6, 16)
+KIND_NAMES = {KIND_PAYLOAD: "payload", KIND_EVIDENCE: "evidence", KIND_AUTHORIZATION: "authorization",
+              KIND_REJECTION: "rejection", KIND_INTENT: "anchor_intent", KIND_ABSENCE: "absence_proof",
+              KIND_PRIVATE: "private_blob", KIND_DECISION: "decision", KIND_REVEAL: "execution_reveal"}
 KIND_BY_NAME = {v: k for k, v in KIND_NAMES.items()}
+FORM_PUBLIC = 1
+FORM_PRIVATE = 2
+PLAINTEXT_ACTION = 5
+MAX_PRIVATE_ENVELOPE = 1 << 16
+MAX_ACTION_ENVELOPE = 69632
+MAX_TX = 1 << 16
+MAX_PROOF_PART = 1 << 22
+MAX_NAMESPACE_DATA = 1 << 24
 
 MAX_RECORD_SIZE = (1 << 27) + 4096
 MAX_KIND_SIZE = {
     KIND_PAYLOAD: MAX_RECORD_SIZE,
     KIND_EVIDENCE: 1 << 25,
-    KIND_DECISION: 69632,
     KIND_AUTHORIZATION: 512,
     KIND_REJECTION: 256,
+    KIND_INTENT: 65600,
+    KIND_ABSENCE: 1 << 24,
+    KIND_PRIVATE: 69760,
+    KIND_DECISION: 69632,
+    KIND_REVEAL: 640,
 }
 MAX_DEPTH = 2
 MAX_PAIRS = 24
@@ -43,19 +63,19 @@ SOURCE_DIRECT = 1
 SOURCE_OBSERVED = 2
 SOURCE_BOTH = 3
 
-# Verdict sentinels of section 8.7 stages 5 to 12, the only names a
-# rejection record may carry (AR5).
+# Verdict sentinels of the gate's refusal stages, the only names a rejection record may carry.
 VERDICTS = (
     "ErrActionMismatch", "ErrAnchorNotFound", "ErrAnchorTooOld", "ErrArchiveRecomputeUnsupported",
     "ErrDACommitmentMismatch", "ErrExpired", "ErrIssuedBeforeAnchor", "ErrNonceUsed", "ErrNotYetValid",
     "ErrPayloadHashMismatch", "ErrPayloadSizeMismatch", "ErrPayloadUnavailable", "ErrRetentionUnavailable",
+    "ErrMandateRefMissing", "ErrMandateMismatch", "ErrAnchorIntentInvalid", "ErrCertInvalid", "ErrH0TooOld",
+    "ErrAnchorWindowClosed", "ErrFastModeNotAllowed", "ErrDenied",
 )
 NAME_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
 
-# Presence conditions. R: required. O: optional. R1/R2: required when da is
-# 1/2 and undefined for the other da. O1: optional for da = 1 only. R1O2:
-# required for da = 1, optional for da = 2. TX: allowed only next to
-# anchor_tx (index required with it, proof optional).
+# Presence conditions. R: required. O: optional. R1/R2: required when da is 1/2 and undefined for the
+# other da. O1: optional for da = 1 only. R1O2: required for da = 1, optional for da = 2. TXI/TXP: allowed
+# only next to anchor_tx (index required with it, proof optional).
 R, O, R1, R2, O1, R1O2, TXI, TXP = "R", "O", "R1", "R2", "O1", "R1O2", "TXI", "TXP"
 
 K2 = {
@@ -67,6 +87,7 @@ K2 = {
     6: ("retention_at_height_s", "uint", R1, None),
     7: ("retention_source", "uint", R1, None),
     8: ("promise_created", "uint", O1, None),
+    9: ("fast_window", "uint", O, None),
 }
 
 COMMON = {
@@ -83,6 +104,8 @@ SCHEMAS = {
         7: ("blob", "bstr", R, (1, MAX_BLOB)),
         8: ("intent_height", "uint", R, None),
     },
+    # Key 18 is unassigned: the CometBFT validator set at the promise height is not archived, because the
+    # certificate check builds that set from historical_info and binds it to promise_header.
     KIND_EVIDENCE: {
         3: ("da", "uint", R, None),
         4: ("commitment", "bstr", R, (32, 32)),
@@ -99,11 +122,6 @@ SCHEMAS = {
         15: ("promise_height", "uint", R1, None),
         16: ("promise_header", "bstr", R1, (1, MAX_OPAQUE)),
         17: ("historical_info", "bstr", R1, (1, MAX_OPAQUE)),
-        18: ("promise_valset", "bstr", R1, (1, MAX_OPAQUE)),
-    },
-    KIND_DECISION: {
-        3: ("envelope", "bstr", R, (1, 2176)),
-        4: ("action", "bstr", R, (1, 1 << 16)),
     },
     KIND_AUTHORIZATION: {
         3: ("signed_authorization", "bstr", R, (1, 256)),
@@ -116,24 +134,63 @@ SCHEMAS = {
         5: ("gate_id", "tstr", R, (1, 64)),
         6: ("rejected_at", "uint", R, None),
     },
+    KIND_INTENT: {
+        3: ("da", "uint", R, None),
+        4: ("commitment", "bstr", R, (32, 32)),
+        5: ("namespace", "bstr", R, (29, 29)),
+        6: ("ref_height", "uint", R, None),
+        7: ("tx", "bstr", R, (1, MAX_TX)),
+        8: ("signer", "bstr", R2, (20, 20)),
+        9: ("created_at", "uint", R, None),
+    },
+    KIND_ABSENCE: {
+        3: ("da", "uint", R, None),
+        4: ("commitment", "bstr", R, (32, 32)),
+        5: ("namespace", "bstr", R, (29, 29)),
+        6: ("height", "uint", R, None),
+        7: ("header", "bstr", R, (1, MAX_PROOF_PART)),
+        8: ("dah", "bstr", R, (1, MAX_PROOF_PART)),
+        9: ("namespace_data", "bstr", R, (0, MAX_NAMESPACE_DATA)),
+        10: ("results", "bstr", O1, (1, MAX_PROOF_PART)),
+        11: ("next_header", "bstr", O1, (1, MAX_PROOF_PART)),
+    },
+    KIND_PRIVATE: {
+        3: ("plaintext_kind", "uint", R, None),
+        4: ("hash", "bstr", R, (32, 32)),
+        5: ("envelope", "bstr", R, (1, MAX_ACTION_ENVELOPE)),
+    },
+    KIND_DECISION: {
+        3: ("envelope", "bstr", R, (1, E.MAX_SIGNED_SIZE)),
+        4: ("form", "uint", R, None),
+        5: ("action", "bstr", O, (1, E.MAX_ACTION_SIZE)),
+        6: ("action_salt", "bstr", O, (E.ACTION_SALT_SIZE, E.ACTION_SALT_SIZE)),
+    },
+    KIND_REVEAL: {
+        3: ("signed_receipt", "bstr", R, (1, E.MAX_RECEIPT_SIZE)),
+        4: ("action_salt", "bstr", R, (E.ACTION_SALT_SIZE, E.ACTION_SALT_SIZE)),
+    },
 }
 
 NONZERO = {"intent_height", "height", "promise_height", "authorized_at", "rejected_at", "checked_at",
-           "block_time", "blob_retention_s", "retention_latest_s", "retention_at_height_s", "promise_created"}
+           "block_time", "blob_retention_s", "retention_latest_s", "retention_at_height_s", "promise_created",
+           "ref_height", "created_at", "fast_window"}
 
-# Fields that decide whether a second write of the same key is the same
-# record (section 19.4). Everything else is first-write-wins.
+# Fields that decide whether a second write of the same key is the same record. None: the whole record.
+# Kinds 14 and 15 keep the first write (identity is the key).
 IDENTITY = {
     KIND_PAYLOAD: ("da", "commitment", "namespace", "signer", "blob"),
     KIND_EVIDENCE: ("da", "commitment", "namespace", "height"),
-    KIND_DECISION: ("envelope", "action"),
     KIND_AUTHORIZATION: ("signed_authorization",),
     KIND_REJECTION: ("commitment_hash", "error"),
+    KIND_INTENT: None,
+    KIND_DECISION: None,
+    KIND_REVEAL: None,
+    KIND_ABSENCE: (),
+    KIND_PRIVATE: (),
 }
 
 
 # ---------------------------------------------------------------- encoding
-
 def _to_int_keys(rec: dict, schema: dict) -> dict:
     by_name = {f[0]: (k, f) for k, f in schema.items()}
     out = {}
@@ -317,9 +374,23 @@ def _uints(rec: dict, schema: dict):
             yield name, rec[name]
 
 
+def decode_authorization(sa: bytes) -> dict:
+    """Kind 4 field 3: a SignedAuthorization that decodes and passes stage S."""
+    signed, _ = decode_signed_authorization(sa)
+    validate_authorization_static(signed["authorization"])
+    return signed["authorization"]
+
+
+def decode_envelope(env: bytes) -> tuple:
+    """An archived envelope: stage D, then version 1. Returns (commitment, commitment_hash)."""
+    signed, canon = decode_signed(env)
+    if signed["commitment"]["version"] != E.VERSION:
+        raise Reject("ErrUnsupportedVersion", f"envelope version {signed['commitment']['version']}")
+    return signed["commitment"], E.commitment_hash(canon)
+
+
 def _values(rec: dict, kind: int):
-    schema = schema_of(kind)
-    uints = list(_uints(rec, schema))
+    uints = list(_uints(rec, schema_of(kind)))
     for name, val in uints:
         if val > MAX_INT:
             raise Reject("ErrIntRange", f"{name} = {val}")
@@ -331,18 +402,43 @@ def _values(rec: dict, kind: int):
     k2 = rec.get("k2", {})
     if "retention_source" in k2 and k2["retention_source"] not in (SOURCE_DIRECT, SOURCE_OBSERVED, SOURCE_BOTH):
         raise Reject("ErrInvalidEnum", f"retention_source = {k2['retention_source']}")
+    if kind == KIND_PRIVATE and rec["plaintext_kind"] not in (1, 2, 3, 4, PLAINTEXT_ACTION):
+        raise Reject("ErrInvalidEnum", f"plaintext_kind = {rec['plaintext_kind']}")
+    if kind == KIND_PRIVATE and rec["plaintext_kind"] != PLAINTEXT_ACTION and len(rec["envelope"]) > MAX_PRIVATE_ENVELOPE:
+        raise Reject("ErrFieldSize", f"private_blob.envelope: {len(rec['envelope'])} bytes for plaintext kind "
+                                     f"{rec['plaintext_kind']}")
+    if kind == KIND_DECISION:
+        if rec["form"] not in (FORM_PUBLIC, FORM_PRIVATE):
+            raise Reject("ErrInvalidEnum", f"form = {rec['form']}")
+        for name in ("action", "action_salt"):
+            if rec["form"] == FORM_PRIVATE and name in rec:
+                raise Reject("ErrUnknownKey", f"decision.{name}: not defined for form 2")
+            if rec["form"] == FORM_PUBLIC and name not in rec:
+                raise Reject("ErrMissingField", f"decision.{name}")
     if kind == KIND_REJECTION and rec["error"] not in VERDICTS:
         raise Reject("ErrInvalidEnum", f"error {rec['error']} is not a verdict sentinel")
     for name, val in uints:
         if name in NONZERO and val == 0:
             raise Reject("ErrZeroValue", name)
+    if "fast_window" in k2 and k2["fast_window"] > E.MAX_FAST_WINDOW:
+        raise Reject("ErrIntRange", f"fast_window = {k2['fast_window']}")
     if "namespace" in rec and not namespace_ok(rec["namespace"]):
         raise Reject("ErrInvalidNamespace", rec["namespace"].hex())
     if kind == KIND_DECISION:
-        decode_signed(rec["envelope"])
+        decode_envelope(rec["envelope"])
+    if kind == KIND_REVEAL:
+        signed, _ = decode_signed_receipt(rec["signed_receipt"])
+        validate_receipt_static(signed["receipt"])
     if kind == KIND_AUTHORIZATION:
-        sa, _ = decode_signed_authorization(rec["signed_authorization"])
-        validate_authorization_static(sa["authorization"])
+        a = decode_authorization(rec["signed_authorization"])
+        fast = a["mode"] == E.MODE_FAST
+        if "k2" in rec and fast and "fast_window" not in k2:
+            raise Reject("ErrMissingField", "authorization.k2.fast_window")
+        if "fast_window" in k2 and not fast:
+            raise Reject("ErrUnknownKey", "authorization.k2.fast_window: only with a mode 2 Authorization")
+    if kind == KIND_ABSENCE and ("results" in rec) != ("next_header" in rec):
+        raise Reject("ErrMissingField" if "results" in rec else "ErrUnknownKey",
+                     "absence_proof.next_header: present iff results")
 
 
 def decode_record(data: bytes) -> dict:
@@ -380,9 +476,7 @@ def decode_record(data: bytes) -> dict:
 # ---------------------------------------------------------------- keys
 
 def commitment_hash_of_envelope(envelope: bytes) -> bytes:
-    from edicta_v0 import commitment_hash
-    _, canon = decode_signed(envelope)
-    return commitment_hash(canon)
+    return decode_envelope(envelope)[1]
 
 
 def record_key(rec: dict) -> tuple:
@@ -391,9 +485,16 @@ def record_key(rec: dict) -> tuple:
         return (kind, rec["da"], rec["commitment"])
     if kind == KIND_DECISION:
         return (kind, commitment_hash_of_envelope(rec["envelope"]))
+    if kind == KIND_REVEAL:
+        return (kind, decode_signed_receipt(rec["signed_receipt"])[0]["receipt"]["commitment_hash"])
     if kind == KIND_AUTHORIZATION:
-        sa, _ = decode_signed_authorization(rec["signed_authorization"])
-        return (kind, sa["authorization"]["commitment_hash"])
+        return (kind, decode_authorization(rec["signed_authorization"])["commitment_hash"])
+    if kind == KIND_INTENT:
+        return (kind, rec["da"], rec["commitment"], rec["ref_height"])
+    if kind == KIND_ABSENCE:
+        return (kind, rec["da"], rec["commitment"], rec["height"])
+    if kind == KIND_PRIVATE:
+        return (kind, rec["plaintext_kind"], rec["hash"])
     return (kind, rec["commitment_hash"], rec["error"])
 
 
@@ -403,11 +504,28 @@ def key_path(key: tuple) -> str:
         return f"{KIND_NAMES[kind]}/{key[1]}/{key[2].hex()}"
     if kind == KIND_REJECTION:
         return f"rejection/{key[1].hex()}/{key[2]}"
+    if kind == KIND_INTENT:
+        return f"intent/{key[1]}/{key[2].hex()}/{key[3]}"
+    if kind == KIND_ABSENCE:
+        return f"absence/{key[1]}/{key[2].hex()}/{key[3]}"
+    if kind == KIND_PRIVATE:
+        return f"private/{key[1]}/{key[2].hex()}"
+    if kind == KIND_REVEAL:
+        return f"reveal/{key[1].hex()}"
     return f"{KIND_NAMES[kind]}/{key[1].hex()}"
 
 
 def identity(rec: dict) -> tuple:
-    return tuple(rec.get(n) for n in IDENTITY[rec["kind"]])
+    fields = IDENTITY[rec["kind"]]
+    if fields is None:
+        return tuple(sorted((k, v) for k, v in rec.items() if not isinstance(v, dict)))
+    return tuple(rec.get(n) for n in fields)
+
+
+def same_identity(old: dict, new: dict) -> bool:
+    if IDENTITY[new["kind"]] is None:
+        return old == new
+    return identity(old) == identity(new)
 
 
 # ---------------------------------------------------------------- reference store
@@ -429,15 +547,15 @@ class Corrupt(Exception):
 
 
 def k2_da_matches(auth: dict, decision_rec: dict) -> bool:
-    """The da of the K2 inputs is the decision's payload_ref.da (section 19.2)."""
+    """The da of the K2 inputs is the decision's payload_ref.da."""
     if "k2" not in auth:
         return True
-    env, _ = decode_signed(decision_rec["envelope"])
-    return auth["k2"]["da"] == env["commitment"]["payload_ref"]["da"]
+    c, _ = decode_envelope(decision_rec["envelope"])
+    return auth["k2"]["da"] == c["payload_ref"]["da"]
 
 
 class Store:
-    """Reference semantics of section 19.4 and 19.5, in memory."""
+    """Reference write and read semantics of the archive, in memory."""
 
     def __init__(self, da_check):
         self.records: dict = {}
@@ -449,7 +567,7 @@ class Store:
         if old is None:
             self.records[key] = encode_record(rec)
             return True
-        if identity(decode_record(old)) == identity(rec):
+        if same_identity(decode_record(old), rec):
             return False
         raise Conflict(key_path(key))
 
@@ -471,8 +589,7 @@ class Store:
         return self._put(rec)
 
     def authorization(self, h: bytes) -> dict:
-        """Reads the Authorization record of h with the reader checks of
-        section 19.2 and 19.3. Raises NotFound or Corrupt."""
+        """Reads the Authorization record of h with the reader checks. Raises NotFound or Corrupt."""
         data = self.records.get((KIND_AUTHORIZATION, h))
         if data is None:
             raise NotFound("no Authorization record")
@@ -500,7 +617,7 @@ class Store:
 
 
 def k2_holds(env: dict, k2: dict) -> bool:
-    """Rule K2 of section 11.2 recomputed from archived inputs."""
+    """Rule K2 recomputed from archived inputs."""
     c = env["commitment"]
     if k2["da"] == 2:
         r, start = k2["blob_retention_s"], k2["block_time"]
@@ -513,12 +630,95 @@ def k2_holds(env: dict, k2: dict) -> bool:
     return c["valid_until"] + margin <= start + r
 
 
+# Verifier rules on decoded inputs.
+
+def authorization_rules(c: dict, a: dict) -> str | None:
+    """A1, A2 on the decision's commitment and the archived Authorization. Returns the failing rule or None."""
+    pending = E.is_pending(c)
+    if a["mode"] != (E.MODE_FAST if pending else E.MODE_STRICT):
+        return "A1"
+    if pending:
+        h0 = c["payload_ref"]["height"]
+        if not h0 < a["anchor_deadline"] <= h0 + E.MAX_FAST_WINDOW:
+            return "A2"
+    return None
+
+
+def first_unproven(h0: int, d: int, absence: dict, want: str = "absent") -> int | None:
+    return next((h for h in range(h0, d + 1) if absence.get(h) != want), None)
+
+
+def anchor_pending_rules(h0: int, d: int, evidence: dict | None, head: int, absence: dict,
+                         needs_results: bool) -> dict:
+    """The anchor check of a pending reference. evidence: None or {height, verifies}; absence: height ->
+    'absent' | 'present' | 'unproven' (a missing height is unproven). Returns status, reason or rule, and report."""
+    if evidence is not None and evidence["verifies"]:
+        hh = evidence["height"]
+        if hh < h0:
+            return {"status": "unchecked", "reason": "source_corrupt"}
+        if hh <= d:
+            return {"status": "pass", "anchor_height": hh, "publication": "anchored"}
+        miss = first_unproven(h0, d, absence)
+        if miss is None:
+            return {"status": "fail", "rule": "anchor_absent", "anchor_height": hh, "publication": "failed"}
+        return {"status": "unchecked", "reason": "absence_unproven", "first_unproven": miss, "anchor_height": hh,
+                "publication": "unknown"}
+    if head < (d + 1 if needs_results else d):
+        return {"status": "unchecked", "reason": "anchor_pending", "publication": "unknown"}
+    present = next((h for h in range(h0, d + 1) if absence.get(h) == "present"), None)
+    if present is not None:
+        return {"status": "unchecked", "reason": "evidence_unavailable", "anchor_height": present,
+                "publication": "unknown"}
+    miss = first_unproven(h0, d, absence)
+    if miss is None:
+        return {"status": "fail", "rule": "anchor_absent", "publication": "failed"}
+    return {"status": "unchecked", "reason": "absence_unproven", "first_unproven": miss, "publication": "unknown"}
+
+
+def replay_rules(c: dict, a: dict, k2: dict | None) -> dict:
+    """retention_replay: K2 on the archived inputs, and the fast window."""
+    if k2 is None:
+        return {"status": "unchecked", "reason": "replay_inputs_missing"}
+    if "fast_window" in k2 and a["anchor_deadline"] - c["payload_ref"]["height"] > k2["fast_window"]:
+        return {"status": "unchecked", "reason": "replay_inconsistent"}
+    if not k2_holds({"commitment": c}, k2) and a["path"] == E.PATH_DA:
+        return {"status": "unchecked", "reason": "replay_inconsistent"}
+    return {"status": "pass"}
+
+
+def action_rules(c: dict, decision: dict | None, opened_plaintext: bytes | None, private_absent: bool,
+                 reveal: dict | None, payload_salt: bytes | None = None) -> dict:
+    """The action check of a decision, on decoded inputs.
+
+    decision: the kind 17 decision record; opened_plaintext: kind 15 (5, ...) opened with a key (salt || bytes), or None;
+    private_absent: that record is absent in every copy; reveal: None or {"salt", "action"} where action is A' from
+    the profile's ActionFromTx (None when the reveal path does not apply); payload_salt: the salt of a payload that
+    passed O8. Returns status, reason, action_source and the salt used."""
+    t, want = c["action"]["type"], c["action"]["hash"]
+    salt = None
+    if decision["form"] == FORM_PUBLIC:
+        if not E.action_matches(t, decision["action_salt"], decision["action"], want):
+            return {"status": "unchecked", "reason": "source_corrupt"}
+        out, salt = {"status": "pass", "action_source": "decision_record"}, decision["action_salt"]
+    elif opened_plaintext is not None:
+        if len(opened_plaintext) < 33 or not E.action_matches(t, opened_plaintext[:32], opened_plaintext[32:], want):
+            return {"status": "unchecked", "reason": "source_corrupt"}
+        out, salt = {"status": "pass", "action_source": "private_blob"}, opened_plaintext[:32]
+    elif private_absent:
+        return {"status": "unchecked", "reason": "decision_unavailable"}
+    elif reveal is not None and reveal.get("action") is not None:
+        if not E.action_matches(t, reveal["salt"], reveal["action"], want):
+            return {"status": "unchecked", "reason": "source_corrupt", "record": "reveal"}
+        out, salt = {"status": "pass", "action_source": "reveal"}, reveal["salt"]
+    else:
+        return {"status": "unchecked", "reason": "policy_private"}
+    if payload_salt is not None and payload_salt != salt:
+        return {"status": "unchecked", "reason": "source_corrupt", "record": out["action_source"]}
+    return out
+
+
 def placeholder(label: str, size: int) -> bytes:
     """Deterministic stand-in for an upstream object the Python side cannot build."""
-    out = b""
-    i = 0
-    while len(out) < size:
-        out += hashlib.sha256(f"edicta/v0 test archive placeholder|{label}|{i}".encode()).digest()
-        i += 1
-    return out[:size]
-
+    n = (size + 31) // 32
+    return b"".join(hashlib.sha256(f"edicta/v0 test archive placeholder|{label}|{i}".encode()).digest()
+                    for i in range(n))[:size]

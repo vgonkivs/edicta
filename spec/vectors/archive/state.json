@@ -1,9 +1,10 @@
 {
-  "format": "edicta-vectors/v0",
-  "revision": "v0-draft.20",
+  "format": "edicta-vectors/v1",
+  "revision": "v1-draft.5",
   "generator": "spec/vectors/check/gen_archive.py",
   "refs": {
-    "core": "spec/vectors/v0",
+    "core": "spec/vectors/v1",
+    "blob_commit": "spec/vectors/da/blob_commit.json",
     "fibre_commit": "spec/vectors/da/fibre_commit.json"
   },
   "records": "spec/vectors/archive/records.json",
@@ -156,7 +157,7 @@
           "put": "decision_minimal_lmt",
           "expect": "written",
           "state_after": {
-            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe",
             "state": "pending",
             "rejections": []
           }
@@ -173,7 +174,7 @@
           "put": "authorization_minimal_lmt_da",
           "expect": "written",
           "state_after": {
-            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe",
             "state": "authorized",
             "rejections": []
           }
@@ -190,7 +191,7 @@
           "put": "rejection_minimal_lmt_not_yet_valid",
           "expect": "unchanged",
           "state_after": {
-            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe",
             "state": "authorized",
             "rejections": []
           }
@@ -213,7 +214,7 @@
           "put": "rejection_minimal_lmt_not_yet_valid",
           "expect": "written",
           "state_after": {
-            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe",
             "state": "rejected",
             "rejections": [
               "ErrNotYetValid"
@@ -224,7 +225,7 @@
           "put": "rejection_minimal_lmt_not_yet_valid_later",
           "expect": "unchanged",
           "state_after": {
-            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe",
             "state": "rejected",
             "rejections": [
               "ErrNotYetValid"
@@ -235,7 +236,7 @@
           "put": "rejection_minimal_lmt_payload_unavailable",
           "expect": "written",
           "state_after": {
-            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe",
             "state": "rejected",
             "rejections": [
               "ErrNotYetValid",
@@ -247,7 +248,7 @@
           "put": "authorization_minimal_lmt_da_repaired",
           "expect": "written",
           "state_after": {
-            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe",
             "state": "authorized",
             "rejections": [
               "ErrNotYetValid",
@@ -275,7 +276,7 @@
           "put": "decision_action_json_bytes",
           "expect": "written",
           "state_after": {
-            "commitment_hash_hex": "48834b7710c23b6c8b550ae505b1577198ddabe13914ef8a2a64ba9f49682a2d",
+            "commitment_hash_hex": "6cf62a19a9e3dff644f938ce3afe374e58b5238a6b1293ec8ebb5f7257493817",
             "state": "pending",
             "rejections": []
           }
@@ -284,7 +285,7 @@
           "put": "rejection_action_json_bytes_expired",
           "expect": "written",
           "state_after": {
-            "commitment_hash_hex": "48834b7710c23b6c8b550ae505b1577198ddabe13914ef8a2a64ba9f49682a2d",
+            "commitment_hash_hex": "6cf62a19a9e3dff644f938ce3afe374e58b5238a6b1293ec8ebb5f7257493817",
             "state": "rejected",
             "rejections": [
               "ErrExpired"
@@ -309,7 +310,7 @@
           "put": "rejection_fibre_small_payload_retention",
           "expect": "written",
           "state_after": {
-            "commitment_hash_hex": "476a1b65952e00d9cd36df2547b9c4404cb5f4b3606671f8e3c30cef5ec3249a",
+            "commitment_hash_hex": "3e13dd25c51f419bf9ace50e2faec5922143979262efc031fb05aafb174cb3ad",
             "state": "rejected",
             "rejections": [
               "ErrRetentionUnavailable"
@@ -320,7 +321,7 @@
           "put": "authorization_fibre_small_payload",
           "expect": "written",
           "state_after": {
-            "commitment_hash_hex": "476a1b65952e00d9cd36df2547b9c4404cb5f4b3606671f8e3c30cef5ec3249a",
+            "commitment_hash_hex": "3e13dd25c51f419bf9ace50e2faec5922143979262efc031fb05aafb174cb3ad",
             "state": "authorized",
             "rejections": [
               "ErrRetentionUnavailable"
@@ -342,7 +343,7 @@
           "put": "rejection_minimal_lmt_not_yet_valid",
           "expect": "archive.ErrNotFound",
           "state_after": {
-            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe",
             "state": "absent",
             "rejections": []
           }
@@ -351,7 +352,7 @@
           "put": "authorization_minimal_lmt_da",
           "expect": "archive.ErrNotFound",
           "state_after": {
-            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe",
             "state": "absent",
             "rejections": []
           }
@@ -418,7 +419,7 @@
           "put": "authorization_minimal_lmt_da_k2_da1",
           "expect": "archive.ErrCorrupt",
           "state_after": {
-            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe",
             "state": "pending",
             "rejections": []
           }
@@ -427,7 +428,7 @@
           "put": "authorization_minimal_lmt_da",
           "expect": "written",
           "state_after": {
-            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe",
             "state": "authorized",
             "rejections": []
           }
@@ -436,7 +437,7 @@
           "put": "authorization_minimal_lmt_da_k2_da1",
           "expect": "archive.ErrCorrupt",
           "state_after": {
-            "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+            "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe",
             "state": "authorized",
             "rejections": []
           }
@@ -488,7 +489,7 @@
       ],
       "read": {
         "kind": "authorization",
-        "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d"
+        "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe"
       },
       "expect": "archive.ErrCorrupt"
     },
@@ -501,7 +502,7 @@
       ],
       "read": {
         "kind": "authorization",
-        "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d"
+        "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe"
       },
       "expect": "ok"
     },
@@ -514,7 +515,7 @@
       ],
       "read": {
         "kind": "authorization",
-        "commitment_hash_hex": "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d"
+        "commitment_hash_hex": "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe"
       },
       "expect": "ok"
     }

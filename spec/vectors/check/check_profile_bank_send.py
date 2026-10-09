@@ -29,7 +29,7 @@ import json
 from pathlib import Path
 
 import profile_bank_send as pf
-from edicta_v0 import (AuthorizationCheck, Reject, action_hash, check_rail_ref, commitment_hash, decode_signed,
+from edicta import (AuthorizationCheck, Reject, action_hash, check_rail_ref, commitment_hash, decode_signed,
                        verify_authorization, verify_for_gate)
 from vecjson import gate_from_json, params_from_json
 
@@ -46,9 +46,9 @@ def arg(name: str, default: Path) -> Path:
 DIR = arg("--dir", VECTORS / "profiles" / "bank-send")
 FORMAT = "edicta-vectors/v0"
 REVISIONS = {"msg_send.json": "bank-send-v0-draft.1", "tx.json": "bank-send-v0-draft.1",
-             "action.json": "bank-send-v0-draft.1", "executor.json": "bank-send-v0-draft.1",
+             "action.json": "bank-send-v0-draft.11", "executor.json": "bank-send-v0-draft.1",
              "timeout_height.json": "bank-send-v0-draft.2", "price_trigger.json": "bank-send-v0-draft.1",
-             "e2e.json": "bank-send-v0-draft.2"}
+             "e2e.json": "bank-send-v0-draft.11"}
 FILES = ("msg_send.json", "tx.json", "action.json", "executor.json", "timeout_height.json", "price_trigger.json", "e2e.json")
 
 
@@ -131,7 +131,8 @@ def check_actions(f: dict, msgs: dict) -> dict:
         b = bytes.fromhex(c["cbor_hex"])
         expect(pf.action_encode(c["input"]["chain_id"], m) == b, f"{c['id']}: encoding")
         expect(pf.action_decode(b) == {"chain_id": c["input"]["chain_id"], "msg": m}, f"{c['id']}: decoding")
-        expect(action_hash(pf.ACTION_TYPE, b).hex() == c["action_hash_hex"], f"{c['id']}: action hash")
+        expect(action_hash(pf.ACTION_TYPE, bytes.fromhex(c["action_salt_hex"]), b).hex() == c["action_hash_hex"],
+               f"{c['id']}: action hash")
         out[c["id"]] = b
     for c in f["reject"]:
         got = outcome(pf.action_decode, bytes.fromhex(c["cbor_hex"]))
@@ -201,13 +202,14 @@ def check_e2e(f: dict, actions: dict):
         action = bytes.fromhex(c["action_hex"])
         expect(action == actions["action_minimal_mocha"], f"{c['id']}: action is action_minimal_mocha")
         com = signed["commitment"]
-        expect(com["action"]["type"] == pf.ACTION_TYPE and com["action"]["hash"] == action_hash(pf.ACTION_TYPE, action),
-               f"{c['id']}: committed action")
+        salt = bytes.fromhex(c["action_salt_hex"])
+        expect(com["version"] == 1 and com["action"]["type"] == pf.ACTION_TYPE
+               and com["action"]["hash"] == action_hash(pf.ACTION_TYPE, salt, action), f"{c['id']}: committed action")
         a = c["authorization"]
-        keys = json.loads((VECTORS / "historical" / "v0" / "keys.json").read_text())["keys"]
+        keys = json.loads((VECTORS / "keys.json").read_text())["keys"]
         ex = c["executor"]
         chk = AuthorizationCheck(bytes.fromhex(keys[a["signer"]]["public_key_hex"]), gate["gate_id"], pf.ACTION_TYPE, action,
-                                 int(ex["now"]), int(ex["skew_s"]))
+                                 int(ex["now"]), int(ex["skew_s"]), salt)
         sa, _ = verify_authorization(bytes.fromhex(a["signed_authorization_hex"]), chk)
         auth = sa["authorization"]
         expect(auth["commitment_hash"] == ch, f"{c['id']}: Authorization names the commitment")

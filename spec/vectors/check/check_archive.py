@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/archive/records.json and state.json (v0-draft.20).
+"""Verifies spec/vectors/archive/records.json and state.json (v1-draft.5, archive format 1).
 
 - every case: the record rebuilt from `input` encodes to the listed bytes,
   decodes strictly back to `input`, and sits under the listed key;
-- cross-references: payloads against v0/da_blob.json and
-  da/fibre_commit.json, decisions against v0/valid.json (a re-signed envelope
-  must carry another valid agent signature over the same commitment),
-  Authorizations against v0/authorization.json and the gate key, K2 inputs
+- cross-references: payloads against da/blob_commit.json and
+  da/fibre_commit.json, decisions against v1/valid.json (a re-signed envelope
+  must carry another valid agent signature over the same commitment; the
+  salted action hash), Authorizations against v1/authorization.json and the gate key, K2 inputs
   against the decision (same da; K2 failing implies path = 2), rejection
   markers against the decision's hash and gate_id;
 - every reject fails strict decoding with its cause, including the records
@@ -35,16 +35,16 @@ from pathlib import Path
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-import archive_v0 as av
-from edicta_v0 import (
+import archive as av
+from edicta import (
     Reject, TAG_AUTHORIZATION_SIG, action_hash, authorization_hash, commitment_hash, decode_signed,
     decode_signed_authorization, tagged,
 )
 
 HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
-FORMAT = "edicta-vectors/v0"
-REVISION = "v0-draft.20"
+FORMAT = "edicta-vectors/v1"
+REVISION = "v1-draft.5"
 
 
 class Failure(Exception):
@@ -125,18 +125,21 @@ def ed_ok(pub: bytes, msg: bytes, sig: bytes) -> bool:
 def check_records(f: dict, core: Path):
     expect(f["format"] == FORMAT and f["revision"] == REVISION, "records.json header")
     p = f["params"]
-    expect(p["format"] == "0" and p["max_depth"] == "2" and p["max_entries"] == "24", "params")
-    expect(p["kinds"] == {"payload": "1", "evidence": "2", "decision": "3", "authorization": "4", "rejection": "5"},
-           "kinds")
+    expect(p["format"] == "1" and p["max_depth"] == "2" and p["max_entries"] == "24", "params")
+    expect(p["kinds"] == {"payload": "1", "evidence": "2", "authorization": "4", "rejection": "5",
+                          "anchor_intent": "13", "absence_proof": "14", "private_blob": "15", "decision": "17",
+                          "execution_reveal": "18"}, "kinds")
     expect(p["max_record_size"] == str((1 << 27) + 4096) and p["max_opaque_size"] == str(1 << 22), "sizes")
     expect(p["max_kind_size"] == {"payload": str((1 << 27) + 4096), "evidence": str(1 << 25), "decision": "69632",
-                                  "authorization": "512", "rejection": "256"}, "kind sizes")
+                                  "authorization": "512", "rejection": "256", "anchor_intent": "65600",
+                                  "absence_proof": str(1 << 24), "private_blob": "69760", "execution_reveal": "640"},
+           "kind sizes")
     expect(p["verdicts"] == sorted(p["verdicts"]) and set(p["verdicts"]) == set(av.VERDICTS), "verdicts")
 
     valid = {c["id"]: c for c in json.loads((core / "valid.json").read_text())["cases"]}
     auths = {c["id"]: c for c in json.loads((core / "authorization.json").read_text())["cases"]}
-    keys = json.loads((core / "keys.json").read_text())["keys"]
-    da_blob = {c["id"]: c for c in json.loads((core / "da_blob.json").read_text())["cases"]}
+    keys = json.loads((VECTORS / "keys.json").read_text())["keys"]
+    da_blob = {c["id"]: c for c in json.loads((VECTORS / "da" / "blob_commit.json").read_text())["cases"]}
     fibre = {c["id"]: c for c in json.loads((VECTORS / "da" / "fibre_commit.json").read_text())["cases"]}
     gate_pub = bytes.fromhex(keys["gate1"]["public_key_hex"])
 
@@ -172,7 +175,9 @@ def check_records(f: dict, core: Path):
             v = valid[refs["valid"]]
             signed, canon = decode_signed(rec["envelope"])
             expect(commitment_hash(canon).hex() == v["commitment_hash_hex"], f"{cid}: commitment hash")
-            expect(action_hash(v["action_type"], rec["action"]).hex() == v["action_hash_hex"], f"{cid}: action")
+            expect(rec["form"] == av.FORM_PUBLIC and rec["action_salt"].hex() == v["action_salt_hex"], f"{cid}: form")
+            expect(action_hash(v["action_type"], rec["action_salt"], rec["action"]).hex() == v["action_hash_hex"],
+                   f"{cid}: action")
             msg = bytes.fromhex(v["signed_message_hex"])
             expect(ed_ok(signed["commitment"]["agent_pubkey"], msg, signed["signature"]), f"{cid}: agent signature")
             resigned = rec["envelope"].hex() != v["envelope_hex"]
@@ -288,7 +293,7 @@ def check_regenerates(d: Path, core: Path):
 
 def main() -> int:
     d = arg("--dir", VECTORS / "archive")
-    core = arg("--core", VECTORS / "historical" / "v0")
+    core = arg("--core", VECTORS / "v1")
     try:
         f = json.loads((d / "records.json").read_text())
         recs, da_blob, fibre = check_records(f, core)
