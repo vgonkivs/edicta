@@ -1,0 +1,331 @@
+{
+  "format": "edicta-vectors/v1",
+  "revision": "v1-draft.2",
+  "margin_cap": "600",
+  "k1": [
+    {
+      "id": "k1_pending_fibre_at_limit",
+      "description": "Pending Fibre reference: issued_at + skew == T_ref (header time at h0).",
+      "da": "1",
+      "form": "pending",
+      "issued_at": "1790996970",
+      "t_ref": "1790997000",
+      "skew_s": "30"
+    },
+    {
+      "id": "k1_pending_blob_one_second_early",
+      "description": "Pending blob reference: issued_at + skew == T_ref - 1.",
+      "da": "2",
+      "form": "pending",
+      "issued_at": "1790996969",
+      "t_ref": "1790997000",
+      "skew_s": "30",
+      "expect_error": "ErrIssuedBeforeAnchor"
+    },
+    {
+      "id": "k1_included_blob",
+      "description": "Included reference: T_ref = T_H, core K1 verbatim.",
+      "da": "2",
+      "form": "included",
+      "issued_at": "1790997000",
+      "t_ref": "1790997000",
+      "skew_s": "30"
+    }
+  ],
+  "k2": [
+    {
+      "id": "k2_pending_fibre_created_before",
+      "description": "Pending Fibre: intent created_at = floor(promise.creation_timestamp) = T_ref - 20, so start = created_at; valid_until + 600 == start + 14400.",
+      "da": "1",
+      "form": "pending",
+      "t_ref": "1790997000",
+      "valid_until": "1791010780",
+      "retention_s": "14400",
+      "intent_created_at": "1790996980",
+      "expect": {
+        "start": "1790996980",
+        "margin": "600",
+        "within": true
+      }
+    },
+    {
+      "id": "k2_pending_fibre_one_over",
+      "description": "Same, one second over.",
+      "da": "1",
+      "form": "pending",
+      "t_ref": "1790997000",
+      "valid_until": "1791010781",
+      "retention_s": "14400",
+      "intent_created_at": "1790996980",
+      "expect": {
+        "start": "1790996980",
+        "margin": "600",
+        "within": false
+      }
+    },
+    {
+      "id": "k2_pending_fibre_created_after",
+      "description": "created_at after T_ref (clock skew of the promise): start = T_ref.",
+      "da": "1",
+      "form": "pending",
+      "t_ref": "1790997000",
+      "valid_until": "1791010800",
+      "retention_s": "14400",
+      "intent_created_at": "1790997005",
+      "expect": {
+        "start": "1790997000",
+        "margin": "600",
+        "within": true
+      }
+    },
+    {
+      "id": "k2_included_fibre",
+      "description": "Included Fibre reference: start = min(T_ref, promise creation), core K2.",
+      "da": "1",
+      "form": "included",
+      "t_ref": "1790997000",
+      "valid_until": "1791010793",
+      "retention_s": "14400",
+      "creation_timestamp": "1790996993",
+      "expect": {
+        "start": "1790996993",
+        "margin": "600",
+        "within": true
+      }
+    },
+    {
+      "id": "k2_pending_blob",
+      "description": "Pending blob: start = T_ref (header time at h0).",
+      "da": "2",
+      "form": "pending",
+      "t_ref": "1790997000",
+      "valid_until": "1791010800",
+      "retention_s": "14400",
+      "expect": {
+        "start": "1790997000",
+        "margin": "600",
+        "within": true
+      }
+    },
+    {
+      "id": "k2_pending_blob_one_over",
+      "description": "Pending blob, one second over.",
+      "da": "2",
+      "form": "pending",
+      "t_ref": "1790997000",
+      "valid_until": "1791010801",
+      "retention_s": "14400",
+      "expect": {
+        "start": "1790997000",
+        "margin": "600",
+        "within": false
+      }
+    }
+  ],
+  "window": [
+    {
+      "id": "window_gate_min",
+      "description": "FastWindowBlocks 100 is the smallest bound.",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200126",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "500",
+        "chain_window": "1000"
+      },
+      "expect": {
+        "anchor_deadline": "4200223"
+      }
+    },
+    {
+      "id": "window_mandate_min",
+      "description": "The mandate's fast_mode_max_delay 40 is the smallest bound.",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200126",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "40",
+        "chain_window": "1000"
+      },
+      "expect": {
+        "anchor_deadline": "4200163"
+      }
+    },
+    {
+      "id": "window_chain_min",
+      "description": "The chain's payment_promise_height_window 30 is the smallest bound.",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200126",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "500",
+        "chain_window": "30"
+      },
+      "expect": {
+        "anchor_deadline": "4200153"
+      }
+    },
+    {
+      "id": "window_no_mandate_blob",
+      "description": "da = 2 at a gate without a mandate: window = FastWindowBlocks.",
+      "input": {
+        "da": "2",
+        "fast_window_blocks": "100",
+        "h0": "4200000",
+        "head": "4200000",
+        "max_h0_age": "10",
+        "timeout_height": "0"
+      },
+      "expect": {
+        "anchor_deadline": "4200100"
+      }
+    },
+    {
+      "id": "timeout_lowers_deadline",
+      "description": "da = 2: timeout_height h0 + 25 < h0 + 100 lowers the deadline.",
+      "input": {
+        "da": "2",
+        "fast_window_blocks": "100",
+        "h0": "4200000",
+        "head": "4200001",
+        "max_h0_age": "10",
+        "timeout_height": "4200025"
+      },
+      "expect": {
+        "anchor_deadline": "4200025"
+      }
+    },
+    {
+      "id": "timeout_above_window",
+      "description": "da = 2: timeout_height above h0 + window does not raise it.",
+      "input": {
+        "da": "2",
+        "fast_window_blocks": "100",
+        "h0": "4200000",
+        "head": "4200001",
+        "max_h0_age": "10",
+        "timeout_height": "4200500"
+      },
+      "expect": {
+        "anchor_deadline": "4200100"
+      }
+    },
+    {
+      "id": "timeout_zero_ignored",
+      "description": "da = 2: timeout_height 0 means none.",
+      "input": {
+        "da": "2",
+        "fast_window_blocks": "100",
+        "h0": "4200000",
+        "head": "4200001",
+        "max_h0_age": "10",
+        "timeout_height": "0"
+      },
+      "expect": {
+        "anchor_deadline": "4200100"
+      }
+    },
+    {
+      "id": "h0_age_at_bound",
+      "description": "head - h0 == MaxH0AgeBlocks: accepted.",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200133",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "500",
+        "chain_window": "1000"
+      },
+      "expect": {
+        "anchor_deadline": "4200223"
+      }
+    },
+    {
+      "id": "h0_too_old",
+      "description": "head - h0 == MaxH0AgeBlocks + 1.",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200134",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "500",
+        "chain_window": "1000"
+      },
+      "expect": {
+        "expect_error": "ErrH0TooOld"
+      }
+    },
+    {
+      "id": "window_closed",
+      "description": "head - h0 = 6 within the age bound 10 but above the window 5 (mandate bound).",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200129",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "5",
+        "chain_window": "1000"
+      },
+      "expect": {
+        "expect_error": "ErrAnchorWindowClosed"
+      }
+    },
+    {
+      "id": "window_at_bound",
+      "description": "head - h0 == window: accepted, deadline = h0 + window.",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200128",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "5",
+        "chain_window": "1000"
+      },
+      "expect": {
+        "anchor_deadline": "4200128"
+      }
+    },
+    {
+      "id": "window_chain_zero",
+      "description": "Chain payment_promise_height_window 0: window 0 is refused (window >= 1), even at head = h0.",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200123",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "500",
+        "chain_window": "0"
+      },
+      "expect": {
+        "expect_error": "ErrAnchorWindowClosed"
+      }
+    },
+    {
+      "id": "head_below_h0",
+      "description": "Head below h0: the consensus endpoint is behind.",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200122",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "500",
+        "chain_window": "1000"
+      },
+      "expect": {
+        "expect_error": "ErrChainUnavailable"
+      }
+    }
+  ]
+}

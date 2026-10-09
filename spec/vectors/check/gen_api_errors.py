@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Generates spec/vectors/api/errors.json (v0-draft.17): the HTTP error mapping of
-section 18 and example request and response bytes per endpoint. Deterministic.
+"""Generates spec/vectors/api/errors.json: the HTTP error mapping of core section 18
+(v0-draft.17) with the additive codes of core v1 section 13 (v1-draft.2), and example
+request and response bytes per endpoint. Deterministic.
 
 Usage: python3 spec/vectors/check/gen_api_errors.py [--core DIR] [--out DIR]
 Defaults: --core spec/vectors/v0; --out spec/vectors/api.
@@ -30,10 +31,12 @@ def arg(name: str, default: Path) -> Path:
 
 CORE = arg("--core", VECTORS / "v0")
 OUT = arg("--out", VECTORS / "api")
+V1 = arg("--v1", VECTORS / "v1")
 FORMAT = "edicta-vectors/v0"
-REVISION = "v0-draft.17"
+REVISION = "v1-draft.2"
 
 P, A, R, H = "/v0/publish", "/v0/authorize", "/v0/record", "/v0/health"
+A1 = "/v1/authorize"
 POSTS = [P, A, R]
 ALL = [P, A, R, H]
 
@@ -111,12 +114,32 @@ ERRORS = [
     ("edictaapi.ErrInternal", 500, "none", ALL, "18.3"),
 ]
 
+# Core v1 section 13: these wrap no core sentinel and match after every existing code of their status, in
+# this order. policy.ErrFastModeNotAllowed is matched with the policy codes (spec/vectors/policy/api.json).
+V1_ERRORS = [
+    ("ErrVersionNotAccepted", 403, "none", [A, A1], "core v1 V0"),
+    ("ErrAnchorPending", 403, "none", [A, A1], "core v1 C5a"),
+    ("ErrNamespaceNotAllowed", 403, "none", [A, A1], "core v1 C5b"),
+    ("ErrMandateRefMissing", 403, "none", [A, A1], "core v1 M1"),
+    ("ErrMandateMismatch", 403, "none", [A, A1], "core v1 M2"),
+    ("ErrH0TooOld", 410, "none", [A, A1], "core v1 F5, B4"),
+    ("ErrAnchorWindowClosed", 410, "none", [A, A1], "core v1 F5, F6, B4, B5"),
+    ("ErrAnchorIntentInvalid", 422, "none", [A, A1], "core v1 F2, B2"),
+    ("ErrCertInvalid", 422, "none", [A, A1], "core v1 F4"),
+    ("ErrAnchorIntentUnavailable", 503, "none", [A, A1], "core v1 F1, B1"),
+    ("ErrAnchorIntentRejected", 503, "none", [A, A1], "core v1 F6, B5"),
+]
+for _e in V1_ERRORS:
+    _at = max(i for i, x in enumerate(ERRORS) if x[1] == _e[1])
+    _run = [i for i in range(_at + 1, len(ERRORS)) if ERRORS[i][1] == _e[1]]
+    ERRORS.insert((_run[-1] if _run else _at) + 1, _e)
+
 REMOVED = "removed in draft.9; never reported"
 CLIENT = "client side (SDK producer checks or payload opening); never crosses the API"
 PROFILE = "dca-agent profile, executor side; never crosses the API"
 NOT_API = {
     "ErrInvalidParams": "the gate's own parameters; reported as edictaapi.ErrInternal",
-    "ErrCertInvalid": "reserved for fast mode; not defined in v0",
+    "ErrFastModeRefused": "profile executors (core v1 6.3); never crosses the API",
     **{n: REMOVED for n in ["ErrUnsupportedActionKind", "ErrUnsupportedRail", "ErrUnsupportedOrderType", "ErrLimitPrice",
                             "ErrAccountMismatch", "ErrChainIDRule", "ErrDeadlineRange", "ErrPriceBound",
                             "ErrNotionalExceeded"]},
@@ -138,6 +161,8 @@ MESSAGES = {
     "edictaapi.ErrQuotaExceeded": "edictaapi: quota exceeded for this agent",
     "edictaapi.ErrMediaType": "edictaapi: content type must be application/cbor",
     "ErrChainUnavailable": "gate: chain data unavailable",
+    "ErrAnchorPending": "gate: pending payload reference and fast mode is off",
+    "ErrVersionNotAccepted": "gate: commitment version not accepted",
 }
 
 
@@ -232,9 +257,35 @@ def main():
                      "Recorder disabled (keys 7 and 8 absent), both DA types allowed.", "status": "200",
                      "response_cbor_hex": encode(health_off).hex()})
 
+    v1valid = by_id(json.loads((V1 / "valid.json").read_text()), "cases")
+    v1auth = by_id(json.loads((V1 / "authorization.json").read_text()), "cases")
+    vb = v1valid["v1_minimal_included_blob"]
+    v1_req = encode({1: bytes.fromhex(vb["envelope_hex"]), 2: bytes.fromhex(vb["action_hex"])})
+    v1_resp = encode({1: bytes.fromhex(v1auth["auth_v1_strict_da"]["signed_authorization_hex"])})
+    vp = v1valid["v1_pending_blob"]
+    for path, ident, desc in ((A, "authorize_v1_on_v0_path", "A v1 envelope on /v0/authorize: the version comes "
+                               "from the signed bytes, so the answer is the Authorization v1 of auth_v1_strict_da."),
+                              (A1, "authorize_v1_alias", "The same request on the alias /v1/authorize: same handler, "
+                               "same answer.")):
+        examples.append({"id": ident, "endpoint": path, "method": "POST", "description": desc, "vectors": "v1",
+                         "commitment_ref": "v1_minimal_included_blob", "authorization_ref": "auth_v1_strict_da",
+                         "request_cbor_hex": v1_req.hex(), "status": "200", "response_cbor_hex": v1_resp.hex()})
+    examples.append({"id": "authorize_v0_alias_version_not_accepted", "endpoint": A1, "method": "POST",
+                     "description": "minimal_lmt (v0) on /v1/authorize at a gate with AcceptV0 false: 403.",
+                     "commitment_ref": "minimal_lmt", "request_cbor_hex": authorize_req.hex(), "status": "403",
+                     "response_cbor_hex": error_body("ErrVersionNotAccepted").hex()})
+    examples.append({"id": "authorize_pending_fast_mode_off", "endpoint": A, "method": "POST", "description":
+                     "v1_pending_blob at a gate whose FastMode is off: 403, nothing written.", "vectors": "v1",
+                     "commitment_ref": "v1_pending_blob",
+                     "request_cbor_hex": encode({1: bytes.fromhex(vp["envelope_hex"]),
+                                                 2: bytes.fromhex(vp["action_hex"])}).hex(),
+                     "status": "403", "response_cbor_hex": error_body("ErrAnchorPending").hex()})
+
     out = {"format": FORMAT, "revision": REVISION, "content_type": "application/cbor",
            "endpoints": {"publish": {"method": "POST", "path": P, "request_limit": "max_blob_bytes + 256"},
                          "authorize": {"method": "POST", "path": A, "request_limit": "67736"},
+                         "authorize_v1_alias": {"method": "POST", "path": A1, "request_limit": "67736",
+                                                "alias_of": A},
                          "record": {"method": "POST", "path": R, "request_limit": "2560"},
                          "health": {"method": "GET", "path": H}},
            "statuses": {str(k): {"retryable": str(x)} for k, x in STATUSES.items()},

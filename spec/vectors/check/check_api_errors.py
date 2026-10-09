@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/api/errors.json (v0-draft.17) against the spec text and the core vectors.
+"""Verifies spec/vectors/api/errors.json against the spec texts (core v0-draft.17 section 18, core v1
+v1-draft.2 sections 12 and 13) and the core v0 and v1 vectors.
 
 - Every sentinel named in section 12 of the spec is either mapped (errors) or
   listed in not_api_visible, never both; codes are unique.
@@ -25,6 +26,7 @@ import re
 from pathlib import Path
 
 import edicta_publish_v0 as pr
+import edicta_v1 as v1
 from cbor_strict import CBORError, decode_strict, encode, to_plain
 from edicta_v0 import (ID_CHARS, AuthorizationCheck, Reject, _schema_decode, decode_signed, verify_authorization,
                        verify_receipt)
@@ -42,6 +44,8 @@ def arg(name: str, default: Path) -> Path:
 DIR = arg("--dir", VECTORS / "api")
 CORE = arg("--core", VECTORS / "v0")
 SPEC = arg("--spec", VECTORS.parent / "decision-commitment-v0.md")
+SPEC_V1 = arg("--spec-v1", VECTORS.parent / "decision-commitment-v1.md")
+V1DIR = arg("--v1", VECTORS / "v1")
 PLACEHOLDERS = {"commitment.ErrX", "pkg.ErrName"}
 RETRYABLE = {425, 429, 503, 504}
 
@@ -89,9 +93,12 @@ def spec_section(text: str, start: str, end: str | None) -> str:
     return text[a:text.index(end, a)] if end else text[a:]
 
 
-def check_mapping(f: dict, spec: str) -> dict:
+def check_mapping(f: dict, spec: str, spec_v1: str) -> dict:
     sec12 = spec_section(spec, "## 12. Sentinel errors", "## 13. Test vectors")
     names = set(re.findall(r"`((?:[a-z]+\.)?Err[A-Za-z0-9]+)`", sec12)) - PLACEHOLDERS
+    v1_12 = spec_section(spec_v1, "## 12. Sentinels", "## 13. HTTP")
+    # Policy codes are mapped in spec/vectors/policy/api.json.
+    names |= {n for n in re.findall(r"`((?:[a-z]+\.)?Err[A-Za-z0-9]+)`", v1_12) if not n.startswith("policy.")}
     codes = [e["code"] for e in f["errors"]]
     expect(len(codes) == len(set(codes)), "duplicate codes")
     hidden = [n["name"] for n in f["not_api_visible"]]
@@ -121,14 +128,25 @@ def check_mapping(f: dict, spec: str) -> dict:
         st = int(cells[0])
         for code in re.findall(r"`([^`]+)`", cells[1]):
             spec_order.append((code, st))
+    v1_table = spec_section(spec_section(spec_v1, "## 13. HTTP", "## 14."), "| Status | Codes, in match order |", "\n\n")
+    for line in v1_table.splitlines()[2:]:
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        st = int(cells[0])
+        for code in re.findall(r"`((?:[a-z]+\.)?Err[A-Za-z0-9]+)`", cells[1]):
+            if code.startswith("policy."):
+                continue
+            last = max(i for i, (_, s_) in enumerate(spec_order) if s_ == st)
+            spec_order.insert(last + 1, (code, st))
     expect(spec_order == [(e["code"], int(e["status"])) for e in f["errors"]],
-           "errors.json differs from the section 18.3 table (codes, statuses or order)")
+           "errors.json differs from the section 18.3 table plus core v1 section 13 (codes, statuses or order)")
     return {e["code"]: e for e in f["errors"]}
 
 
 def check_examples(f: dict, by_code: dict):
     valid = {c["id"]: c for c in json.loads((CORE / "valid.json").read_text())["cases"]}
     auth = {c["id"]: c for c in json.loads((CORE / "authorization.json").read_text())["cases"]}
+    valid1 = {c["id"]: c for c in json.loads((V1DIR / "valid.json").read_text())["cases"]}
+    auth1 = {c["id"]: c for c in json.loads((V1DIR / "authorization.json").read_text())["cases"]}
     rcp = {c["id"]: c for c in json.loads((CORE / "receipt.json").read_text())["cases"]}
     pub = json.loads((DIR / "publish_request.json").read_text())
     pub_cases = {c["id"]: c for c in pub["cases"]}
@@ -138,10 +156,12 @@ def check_examples(f: dict, by_code: dict):
         resp = bytes.fromhex(x["response_cbor_hex"])
         st = int(x["status"])
         req = bytes.fromhex(x["request_cbor_hex"]) if "request_cbor_hex" in x else None
-        if x["endpoint"] == "/v0/authorize" and st != 400:
+        is_v1 = x.get("vectors") == "v1"
+        if x["endpoint"] in ("/v0/authorize", "/v1/authorize") and st != 400:
             r = decode(req, AUTHORIZE_REQ, w)
             if "commitment_ref" in x:
-                expect(r["envelope"].hex() == valid[x["commitment_ref"]]["envelope_hex"], f"{w}: envelope")
+                expect(r["envelope"].hex() == (valid1 if is_v1 else valid)[x["commitment_ref"]]["envelope_hex"],
+                       f"{w}: envelope")
         if x["endpoint"] == "/v0/record":
             r = decode(req, RECORD_REQ, w)
             decode_signed(r["envelope"])
@@ -151,15 +171,17 @@ def check_examples(f: dict, by_code: dict):
         if x["endpoint"] == "/v0/health":
             expect(req is None and x["method"] == "GET", f"{w}: health has no body")
         if st == 200:
-            if x["endpoint"] == "/v0/authorize":
+            if x["endpoint"] in ("/v0/authorize", "/v1/authorize"):
                 sa = decode(resp, AUTHORIZE_RESP, w)["signed_authorization"]
-                a = auth[x["authorization_ref"]]
+                a = (auth1 if is_v1 else auth)[x["authorization_ref"]]
                 expect(sa.hex() == a["signed_authorization_hex"], f"{w}: authorization")
                 c = a["check"]
                 ab = bytes.fromhex(c["action_hex"])
                 expect(ab == r["action"], f"{w}: action")
-                verify_authorization(sa, AuthorizationCheck(bytes.fromhex(c["gate_pubkey_hex"]), c["gate_id"],
-                                                            c["action_type"], ab, int(c["now"]), int(c["skew_s"])))
+                ver, _, _ = v1.verify_authorization_any(sa, v1.CheckV1(bytes.fromhex(c["gate_pubkey_hex"]), c["gate_id"],
+                                                                       c["action_type"], ab, int(c["now"]),
+                                                                       int(c["skew_s"])))
+                expect(ver == v1.envelope_version(r["envelope"]), f"{w}: Authorization version is not the envelope's")
             elif x["endpoint"] == "/v0/record":
                 sr = decode(resp, RECORD_RESP, w)["signed_receipt"]
                 rc = rcp[x["receipt_ref"]]
@@ -201,18 +223,19 @@ def check_health(b: bytes, w: str):
 def main() -> int:
     try:
         f = json.loads((DIR / "errors.json").read_text())
-        expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v0-draft.17", "header")
+        expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v1-draft.2", "header")
         expect(f["content_type"] == "application/cbor", "content type")
         spec = SPEC.read_text()
-        by_code = check_mapping(f, spec)
+        by_code = check_mapping(f, spec, SPEC_V1.read_text())
+        expect(f["endpoints"]["authorize_v1_alias"]["alias_of"] == f["endpoints"]["authorize"]["path"], "alias")
         check_examples(f, by_code)
         ids = [x["id"] for x in f["examples"]]
         expect(len(ids) == len(set(ids)), "duplicate example ids")
     except (Failure, Reject, CBORError) as e:
         print(f"FAIL (api errors): {e}", file=sys.stderr)
         return 1
-    print(f"OK (api errors, v0-draft.17): {len(f['errors'])} codes, {len(f['not_api_visible'])} not API-visible, "
-          f"{len(f['examples'])} examples; section 12 fully covered, section 18.3 table matches")
+    print(f"OK (api errors, v1-draft.2): {len(f['errors'])} codes, {len(f['not_api_visible'])} not API-visible, "
+          f"{len(f['examples'])} examples; core and core v1 section 12 covered, 18.3 plus v1 section 13 match")
     return 0
 
 

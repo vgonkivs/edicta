@@ -2,9 +2,11 @@
 
 Edicta profile for the dogfood agent in `examples/dca-agent`.
 
-Status: revision `dca-agent-v0-draft.1` (2026-10-04). Working draft, subject
+Status: revision `dca-agent-v0-draft.2` (2026-10-09). Working draft, subject
 to change. Built on the core spec `spec/decision-commitment-v0.md`,
-revision `v0-draft.9`; section numbers prefixed "core" refer to it.
+revision `v0-draft.9`; section numbers prefixed "core" refer to it. Since
+`dca-agent-v0-draft.2` the executor also accepts Authorization v1 of
+`spec/decision-commitment-v1.md` (`v1-draft.2`, "core v1").
 
 Keywords MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Items marked
 `UNVERIFIED` are facts about IBKR that must be confirmed before a real
@@ -27,6 +29,11 @@ do. It is the first profile and the reference for core section 16.2.
 The profile depends on the core only through `ActionHash`, `VerifyAuthorization`
 and `commitment_hash`; a core draft bump that keeps those three unchanged does
 not change this profile's bytes.
+
+| Revision | Change | Vectors |
+|---|---|---|
+| `dca-agent-v0-draft.1` | First draft. | Initial set. |
+| `dca-agent-v0-draft.2` | Rule X1 verifies both Authorization versions (core 15.3 for v0, core v1 6.3 for v1); new configuration `accept_versions` (default `{0, 1}`) and `refuse_fast_mode` (default false); new rule X1a refuses `mode = 2` when `refuse_fast_mode` is set (`ibkr.ErrFastModeRefused`). Action and context media types, encodings and every other rule unchanged; `commitment_hash` stays the idempotency key for both versions (a v1 hash is computed under the v1 tag, core v1 4.5). Outcome change: an executor at the defaults now accepts an Authorization v1 it refused before. | Every file byte-identical (`dca-agent-v0-draft.1`). The v1 Authorization check is covered by core `spec/vectors/v1/authorization.json`, as X1 is by the v0 one. |
 
 ## 1. Threat model
 
@@ -118,6 +125,8 @@ In this order; every failure is `ibkrorder.ErrInvalid`:
 | `account` | The one IBKR account this executor's credentials trade. |
 | `max_notional` | Operator risk limit, `10^8` scale, per order; `0` disables it. |
 | `skew_s` | Clock tolerance for `VerifyAuthorization`, `0..300`. |
+| `accept_versions` | Authorization versions accepted, a non-empty subset of `{0, 1}`; default `{0, 1}` (passed as `check.accept_versions`, core v1 6.3). |
+| `refuse_fast_mode` | Refuse an Authorization v1 with `mode = 2` (fast: the payload was attested available but not yet anchored on L1 when the gate authorized); default false. |
 | `exec_timeout` | Bound on one placement call. |
 
 ### 3.2 Rules
@@ -126,7 +135,8 @@ In this order; every failure is `ibkrorder.ErrInvalid`:
 
 | Rule | Check or step | On failure |
 |---|---|---|
-| X1 | `VerifyAuthorization(authorization, {gate_pubkey, gate_id, type = application/vnd.edicta.ibkr.order.v0+cbor, action_bytes, now, skew_s})` (core 15.3) | the core sentinel |
+| X1 | `VerifyAuthorization(authorization, {gate_pubkey, gate_id, type = application/vnd.edicta.ibkr.order.v0+cbor, action_bytes, now, skew_s, accept_versions})`: core 15.3 for `version = 0`, core v1 6.3 for `version = 1` (stages D, S including `mode` and `anchor_deadline`, G under the v1 tags, X1 to X4) | the core sentinel |
+| X1a | If the Authorization is v1 with `mode = 2` and `refuse_fast_mode` is set: refuse. Otherwise record the mode (and `anchor_deadline` for `mode = 2`) with the dedupe record, for the operator's audit | `ibkr.ErrFastModeRefused` |
 | X2 | `ibkrorder.Decode(action_bytes)`: the order is parsed from the authorized bytes, never taken from the caller (core I3). The broker request is built only from this result, by the total mapping of 3.3 (`RequestFromOrder`); the executor never calls `ibkrorder.Encode`, never fills defaults, and sends nothing the order does not contain except `cOID` and the account path | `ibkrorder.ErrMalformed` |
 | X3 | `ibkrorder.Validate(order)` | `ibkrorder.ErrInvalid` |
 | X4 | `order.account == account` | `ibkr.ErrAccountMismatch` |
@@ -156,6 +166,12 @@ local to the executor):
   declared absent. Otherwise the record stays in flight for an operator.
 - The dedupe record is kept at least until `expires + skew_s` (core I5); the
   in-flight record until it is resolved.
+- Fast mode (core v1 6.4). An Authorization with `mode = 2` was issued before
+  the payload's L1 anchor landed; the anchor is due by `anchor_deadline`, and
+  if it never lands the decision is provably invalid afterwards, possibly
+  after the order was placed. An operator who needs "anchored before the
+  order" sets `refuse_fast_mode`. X1a runs before any parsing of the order, so
+  a refused Authorization never reaches the broker.
 
 ### 3.3 Field mapping to the IBKR Web API
 
@@ -334,6 +350,7 @@ Threat notes:
 |---|---|---|
 | `ibkrorder.ErrMalformed` | 2.3, X2 | `ibkr_order.json` `malformed`, `exec_malformed` |
 | `ibkrorder.ErrInvalid` | V1 to V5, X3 | `ibkr_order.json` `invalid`, `exec_invalid_before_account` |
+| `ibkr.ErrFastModeRefused` | X1a | none (configuration; core `v1/authorization.json` holds fast-mode Authorizations) |
 | `ibkr.ErrAccountMismatch` | X4 | `exec_account_mismatch`, `exec_account_before_risk` |
 | `ibkr.ErrRiskLimit` | X5 | `exec_notional_over`, `exec_notional_uint64_wrap` |
 | `ibkr.ErrSeen` | X6 | none (store state; example tests) |

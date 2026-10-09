@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v0",
-  "revision": "v0-draft.30",
+  "revision": "v1-draft.2",
   "generator": "spec/vectors/check/gen_verifier_reasons.py",
   "description": "Reason enum of core 20.1.1 and one case per reason. Each case starts from a valid, authorized decision with a trusted header and changes what setup says; refs give concrete bytes where a vector has them. expect gives the check that carries the reason, its status, the record state and the verdict with its exit code. boundary lists verified data that proves a violation and stays fail.",
   "reasons": [
@@ -132,7 +132,8 @@
         "header_trust",
         "execution",
         "retention_replay",
-        "policy"
+        "policy",
+        "anchor"
       ],
       "meaning": "The check needs another check that did not pass; the report names that check.",
       "advice": "fix the named check"
@@ -371,6 +372,43 @@
       ],
       "meaning": "The policy walk took its step cap (default or explicit) before it reached genesis, with no finding. The older part of the gate's chain was not read, so gate_integrity is never ok here. The report gives the walked seq range and the step count. The policy check and the verdict do not change.",
       "advice": "raise --max-walk-steps above the target's seq"
+    },
+    {
+      "name": "anchor_pending",
+      "group": "header",
+      "checks": [
+        "anchor"
+      ],
+      "meaning": "Pending reference, no usable evidence, and the trusted header is below anchor_deadline (or anchor_deadline + 1 when a results proof is needed): not decidable yet.",
+      "advice": "retry later or with a newer checkpoint"
+    },
+    {
+      "name": "absence_unproven",
+      "group": "archive",
+      "checks": [
+        "anchor"
+      ],
+      "meaning": "Pending reference, no evidence inside the window, and the absence proofs for [h0, anchor_deadline] are missing, incomplete or fail. Names the first height not proven.",
+      "advice": "another archive copy or --absence-source"
+    },
+    {
+      "name": "policy_private",
+      "group": "configuration",
+      "checks": [
+        "policy",
+        "gate_integrity"
+      ],
+      "meaning": "The record needed is a private blob (kind 15) and no configured auditor key opens it. Names the first record.",
+      "advice": "an auditor key of the mandate"
+    },
+    {
+      "name": "principal_scheme_unsupported",
+      "group": "configuration",
+      "checks": [
+        "policy"
+      ],
+      "meaning": "The verifier build lacks the principal signature scheme the mandate names.",
+      "advice": "a verifier build with that scheme"
     }
   ],
   "cases": [
@@ -1302,6 +1340,87 @@
         "exit": "0"
       },
       "request": "verify --policy-full --max-walk-steps 1"
+    },
+    {
+      "id": "anchor_pending",
+      "description": "Fast mode: no evidence yet and the trusted head is below the anchor deadline.",
+      "setup": {},
+      "refs": [
+        "v1/verify.json#fast_pending"
+      ],
+      "expect": {
+        "check": "anchor",
+        "status": "unchecked",
+        "reason": "anchor_pending",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "absence_unproven",
+      "description": "Fast mode: no evidence, and the absence proof of one height of the window is missing.",
+      "setup": {},
+      "refs": [
+        "v1/verify.json#fast_absence_missing_height"
+      ],
+      "expect": {
+        "check": "anchor",
+        "status": "unchecked",
+        "reason": "absence_unproven",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "policy_private",
+      "description": "Private mandate and no auditor key: the rules cannot be checked.",
+      "setup": {},
+      "refs": [
+        "policy/private.json#private_without_key"
+      ],
+      "expect": {
+        "check": "policy",
+        "status": "unchecked",
+        "reason": "policy_private",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "policy_private_walk",
+      "description": "Private mandate, full walk without an auditor key: L1 and L2 pass down to the genesis hash, gate_integrity stays unchecked.",
+      "setup": {},
+      "refs": [
+        "policy/private.json#private_walk_without_key"
+      ],
+      "expect": {
+        "check": "gate_integrity",
+        "status": "unchecked",
+        "reason": "policy_private",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "request": "verify --policy-full"
+    },
+    {
+      "id": "policy_principal_scheme_unsupported",
+      "description": "The mandate's principal scheme is not in this verifier build.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#principal_scheme_unsupported"
+      ],
+      "expect": {
+        "check": "policy",
+        "status": "unchecked",
+        "reason": "principal_scheme_unsupported",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
     }
   ],
   "boundary": [
@@ -1425,6 +1544,118 @@
         "exit": "1"
       },
       "request": "verify --check-execution"
+    },
+    {
+      "id": "anchor_absent",
+      "description": "Fast mode: absence proven for every height of [h0, anchor_deadline].",
+      "setup": {},
+      "refs": [
+        "v1/verify.json#fast_absent_proven"
+      ],
+      "expect": {
+        "check": "anchor",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    },
+    {
+      "id": "authorization_version_mismatch",
+      "description": "A1: an Authorization v0 for a v1 decision.",
+      "setup": {},
+      "refs": [
+        "v1/verify.json#auth_version_mismatch"
+      ],
+      "expect": {
+        "check": "authorization",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    },
+    {
+      "id": "authorization_mode_mismatch",
+      "description": "A2: mode 1 for a pending reference.",
+      "setup": {},
+      "refs": [
+        "v1/verify.json#auth_mode_mismatch"
+      ],
+      "expect": {
+        "check": "authorization",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    },
+    {
+      "id": "authorization_deadline_over_1000",
+      "description": "A3: anchor_deadline above h0 + 1000.",
+      "setup": {},
+      "refs": [
+        "v1/verify.json#auth_deadline_over_1000"
+      ],
+      "expect": {
+        "check": "authorization",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    },
+    {
+      "id": "policy_mandate_ref_mismatch",
+      "description": "The envelope's mandate_ref differs from the allow verdict's mandate_hash.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#mandate_ref_mismatch"
+      ],
+      "expect": {
+        "check": "policy",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    },
+    {
+      "id": "policy_fast_mode_not_allowed",
+      "description": "A fast-mode Authorization under a mandate without fast_mode_max_delay.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#fast_mode_not_allowed"
+      ],
+      "expect": {
+        "check": "policy",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    },
+    {
+      "id": "policy_fast_mode_delay",
+      "description": "anchor_deadline - h0 above the mandate's fast_mode_max_delay.",
+      "setup": {},
+      "refs": [
+        "policy/verify.json#fast_mode_delay_exceeded"
+      ],
+      "expect": {
+        "check": "policy",
+        "status": "fail",
+        "reason": null,
+        "record_state": "authorized",
+        "verdict": "invalid",
+        "exit": "1"
+      }
     }
   ]
 }

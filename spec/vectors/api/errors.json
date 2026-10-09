@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v0",
-  "revision": "v0-draft.17",
+  "revision": "v1-draft.2",
   "content_type": "application/cbor",
   "endpoints": {
     "publish": {
@@ -12,6 +12,12 @@
       "method": "POST",
       "path": "/v0/authorize",
       "request_limit": "67736"
+    },
+    "authorize_v1_alias": {
+      "method": "POST",
+      "path": "/v1/authorize",
+      "request_limit": "67736",
+      "alias_of": "/v0/authorize"
     },
     "record": {
       "method": "POST",
@@ -103,6 +109,28 @@
         "/v0/publish"
       ],
       "rules": "PR5"
+    },
+    {
+      "code": "ErrH0TooOld",
+      "status": "410",
+      "retryable": "0",
+      "stored": "none",
+      "endpoints": [
+        "/v0/authorize",
+        "/v1/authorize"
+      ],
+      "rules": "core v1 F5, B4"
+    },
+    {
+      "code": "ErrAnchorWindowClosed",
+      "status": "410",
+      "retryable": "0",
+      "stored": "none",
+      "endpoints": [
+        "/v0/authorize",
+        "/v1/authorize"
+      ],
+      "rules": "core v1 F5, F6, B4, B5"
     },
     {
       "code": "ErrMalformed",
@@ -517,6 +545,61 @@
       "rules": "RQ4"
     },
     {
+      "code": "ErrVersionNotAccepted",
+      "status": "403",
+      "retryable": "0",
+      "stored": "none",
+      "endpoints": [
+        "/v0/authorize",
+        "/v1/authorize"
+      ],
+      "rules": "core v1 V0"
+    },
+    {
+      "code": "ErrAnchorPending",
+      "status": "403",
+      "retryable": "0",
+      "stored": "none",
+      "endpoints": [
+        "/v0/authorize",
+        "/v1/authorize"
+      ],
+      "rules": "core v1 C5a"
+    },
+    {
+      "code": "ErrNamespaceNotAllowed",
+      "status": "403",
+      "retryable": "0",
+      "stored": "none",
+      "endpoints": [
+        "/v0/authorize",
+        "/v1/authorize"
+      ],
+      "rules": "core v1 C5b"
+    },
+    {
+      "code": "ErrMandateRefMissing",
+      "status": "403",
+      "retryable": "0",
+      "stored": "none",
+      "endpoints": [
+        "/v0/authorize",
+        "/v1/authorize"
+      ],
+      "rules": "core v1 M1"
+    },
+    {
+      "code": "ErrMandateMismatch",
+      "status": "403",
+      "retryable": "0",
+      "stored": "none",
+      "endpoints": [
+        "/v0/authorize",
+        "/v1/authorize"
+      ],
+      "rules": "core v1 M2"
+    },
+    {
       "code": "edictaapi.ErrRouteNotFound",
       "status": "404",
       "retryable": "0",
@@ -705,6 +788,28 @@
         "/v0/record"
       ],
       "rules": "RQ5"
+    },
+    {
+      "code": "ErrAnchorIntentInvalid",
+      "status": "422",
+      "retryable": "0",
+      "stored": "none",
+      "endpoints": [
+        "/v0/authorize",
+        "/v1/authorize"
+      ],
+      "rules": "core v1 F2, B2"
+    },
+    {
+      "code": "ErrCertInvalid",
+      "status": "422",
+      "retryable": "0",
+      "stored": "none",
+      "endpoints": [
+        "/v0/authorize",
+        "/v1/authorize"
+      ],
+      "rules": "core v1 F4"
     },
     {
       "code": "ErrNotYetValid",
@@ -904,6 +1009,28 @@
       "rules": "Recorder Fibre escrow preflight"
     },
     {
+      "code": "ErrAnchorIntentUnavailable",
+      "status": "503",
+      "retryable": "1",
+      "stored": "none",
+      "endpoints": [
+        "/v0/authorize",
+        "/v1/authorize"
+      ],
+      "rules": "core v1 F1, B1"
+    },
+    {
+      "code": "ErrAnchorIntentRejected",
+      "status": "503",
+      "retryable": "1",
+      "stored": "none",
+      "endpoints": [
+        "/v0/authorize",
+        "/v1/authorize"
+      ],
+      "rules": "core v1 F6, B5"
+    },
+    {
       "code": "edictaapi.ErrDeadline",
       "status": "504",
       "retryable": "1",
@@ -936,8 +1063,8 @@
       "reason": "the gate's own parameters; reported as edictaapi.ErrInternal"
     },
     {
-      "name": "ErrCertInvalid",
-      "reason": "reserved for fast mode; not defined in v0"
+      "name": "ErrFastModeRefused",
+      "reason": "profile executors (core v1 6.3); never crosses the API"
     },
     {
       "name": "ErrUnsupportedActionKind",
@@ -1202,6 +1329,51 @@
       "description": "Degraded, Recorder disabled (keys 7 and 8 absent), both DA types allowed.",
       "status": "200",
       "response_cbor_hex": "a7010202676d6f6368612d34031a0063d79c041a6ac07e00056c676174652d70617065722d31065820fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802509820102"
+    },
+    {
+      "id": "authorize_v1_on_v0_path",
+      "endpoint": "/v0/authorize",
+      "method": "POST",
+      "description": "A v1 envelope on /v0/authorize: the version comes from the signed bytes, so the answer is the Authorization v1 of auth_v1_strict_da.",
+      "vectors": "v1",
+      "commitment_ref": "v1_minimal_included_blob",
+      "authorization_ref": "auth_v1_strict_da",
+      "request_cbor_hex": "a2015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a045049a9f25e96ec2916fab1ae99eefa4f39051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d025840c625996865d759d2eb51d616593b782e348ff937686a434536779d278990269e976b539f95ed7b04ca7f5ad0df4569f1c04f31692adb96a6b9bf48722b9f0a0102582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "status": "200",
+      "response_cbor_hex": "a10158a6a201a701010258208420a22f031e7c9bf1cea8992d777b4566be4232128eae65796c740341f4651c035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f28060107010258407194bda04bc81ba22de7812ab285e2af0a1a478d61e02cdcdb4a1cc60e0cf75d9cc3bac11fa3afd7d5a14d8963d0c4042b36613a195de5754990ccbbe2c1a601"
+    },
+    {
+      "id": "authorize_v1_alias",
+      "endpoint": "/v1/authorize",
+      "method": "POST",
+      "description": "The same request on the alias /v1/authorize: same handler, same answer.",
+      "vectors": "v1",
+      "commitment_ref": "v1_minimal_included_blob",
+      "authorization_ref": "auth_v1_strict_da",
+      "request_cbor_hex": "a2015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a045049a9f25e96ec2916fab1ae99eefa4f39051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d025840c625996865d759d2eb51d616593b782e348ff937686a434536779d278990269e976b539f95ed7b04ca7f5ad0df4569f1c04f31692adb96a6b9bf48722b9f0a0102582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "status": "200",
+      "response_cbor_hex": "a10158a6a201a701010258208420a22f031e7c9bf1cea8992d777b4566be4232128eae65796c740341f4651c035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f28060107010258407194bda04bc81ba22de7812ab285e2af0a1a478d61e02cdcdb4a1cc60e0cf75d9cc3bac11fa3afd7d5a14d8963d0c4042b36613a195de5754990ccbbe2c1a601"
+    },
+    {
+      "id": "authorize_v0_alias_version_not_accepted",
+      "endpoint": "/v1/authorize",
+      "method": "POST",
+      "description": "minimal_lmt (v0) on /v1/authorize at a gate with AcceptV0 false: 403.",
+      "commitment_ref": "minimal_lmt",
+      "request_cbor_hex": "a2015901a4a201ac0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584037a1f97bfc37eb4988a05b6ac66582939032f2d83c722eaab0d17bfe7e1f0c99ed8bc1677d820ca8eafac46c488646ce5945f972745790c340c40ffcac1ce30702582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "status": "403",
+      "response_cbor_hex": "a3017545727256657273696f6e4e6f744163636570746564027825676174653a20636f6d6d69746d656e742076657273696f6e206e6f742061636365707465640300"
+    },
+    {
+      "id": "authorize_pending_fast_mode_off",
+      "endpoint": "/v0/authorize",
+      "method": "POST",
+      "description": "v1_pending_blob at a gate whose FastMode is off: 403, nothing written.",
+      "vectors": "v1",
+      "commitment_ref": "v1_pending_blob",
+      "request_cbor_hex": "a2015901a6a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04505a1501af2f0c508319e9eb6feaa854ca051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0aa6010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e6006020b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d0258402bc5d96d0a1098e78bf8ea7c32a251c9468a10672a748b74e44b27eeeb2b1ba4eea7a49d083ca46de250aa520d8b1963e4578fb8f76f04498b8c6ab32ee1780f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "status": "403",
+      "response_cbor_hex": "a30170457272416e63686f7250656e64696e67027834676174653a2070656e64696e67207061796c6f6164207265666572656e636520616e642066617374206d6f6465206973206f66660300"
     }
   ]
 }

@@ -11,7 +11,11 @@ check_profile_bank_send.py and the API vectors by check_api_vectors.py
 da/fibre_commit.json by check_fibre_commit.py, da/fibre_cert.json by
 check_fibre_cert.py and da/fibre_anchor.json by check_fibre_anchor.py, and
 verifier/execution_outcomes.json by check_execution_outcomes.py and
-verifier/reasons.json by check_verifier_reasons.py.
+verifier/reasons.json by check_verifier_reasons.py. Format v1: spec/vectors/v1
+by check_vectors_v1.py (archive.json and verify.json by check_archive_v1.py),
+the principal signature vectors by check_principal.py, the policy vectors
+(including private mode) by check_policy.py, da/absence.json by
+check_absence.py.
 
 Usage: python3 spec/vectors/check/check_vectors.py [--dir DIR]
 Without --dir, spec/vectors/v0, the profile and the API vectors are checked; with
@@ -632,6 +636,10 @@ def main() -> int:
     rc |= run_script(HERE / "check_execution_outcomes.py")
     rc |= run_script(HERE / "check_verifier_reasons.py")
     rc |= run_script(HERE / "check_policy.py")
+    rc |= run_script(HERE / "check_vectors_v1.py")
+    rc |= run_script(HERE / "check_archive_v1.py")
+    rc |= run_script(HERE / "check_principal.py")
+    rc |= run_script(HERE / "check_absence.py")
     return rc
 
 

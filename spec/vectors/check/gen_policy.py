@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.4).
+"""Writes the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.6).
 
 spec/vectors/policy/{facts,mandate,render,state,engine,verify,archive,api}.json
 and spec/vectors/profiles/bank-send/tia_transfer_facts.json. Deterministic:
@@ -23,6 +23,7 @@ import policy_v1 as P
 import profile_bank_send as bs
 from cbor_strict import Raw, encode
 from edicta_v0 import TAG_AUTHORIZATION, TAG_AUTHORIZATION_SIG, action_hash, tagged
+from edicta_v1 import TAG_AUTHORIZATION_SIG_V1, TAG_AUTHORIZATION_V1
 
 HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
@@ -31,6 +32,7 @@ FORMAT = "edicta-policy-vectors/v1"
 REVISION = "policy-v1-draft.1"
 REVISION_3 = "policy-v1-draft.3"
 REVISION_4 = "policy-v1-draft.4"
+REVISION_6 = "policy-v1-draft.6"
 T0 = 1791000000
 GATE_ID = "gate-paper-1"
 
@@ -46,6 +48,22 @@ SEEDS["p2"] = sha("edicta/policy/v1 test principal|p2")
 PUB = {n: P.ed_pub(s) for n, s in SEEDS.items()}
 A1, A2, G1 = PUB["agent1"], PUB["agent2"], PUB["gate1"]
 AGENTS = sorted([A1, A2])
+
+import principal_crypto as PC  # noqa: E402
+
+# secp256k1 test principals (sig_type 2 and 3) and X25519 auditor keys.
+SECP = {n: sha("edicta/policy/v1 test principal secp|" + n) for n in ("p1", "p2")}
+SECP_PUB = {n: PC.pub_compressed(s) for n, s in SECP.items()}
+ETH_ADDR = {n: PC.eth_address(PC.pub_point(s)) for n, s in SECP.items()}
+HRP = "celestia"
+
+
+def auditor_key(kid: bytes) -> tuple:
+    import hpke_base
+    return hpke_base.derive_key_pair(sha("edicta/policy/v1 test auditor|" + kid.decode()))
+
+
+AUDITORS = [{"kid": kid, "pubkey": auditor_key(kid)[1]} for kid in (b"auditor-1", b"auditor-2")]
 
 
 def mid(label: str) -> bytes:
@@ -192,19 +210,50 @@ def mandate_inputs():
             ("m_minimal", "Required fields only; mandate_id all zero; recipients any, kinds any, defaults.", "p1",
              minimal),
             ("m_big", "Principal p2; scale 0 with per-action max 2^256 - 1; bounds of every range.", "p2", big),
-            ("m_scale18", "Scale 18 amounts and a 744 h window.", "p1", scale18)]
+            ("m_scale18", "Scale 18 amounts and a 744 h window.", "p1", scale18)] + scheme_mandates(full)
+
+
+def scheme_mandates(full: dict) -> list:
+    """Draft.5 cases: one full mandate per secp256k1 scheme, fast-mode consent, private mode."""
+    adr = dict(copy.deepcopy(full), principal=SECP_PUB["p1"], mandate_id=mid("m_adr036"), sig_type=2,
+               principal_hrp=HRP)
+    eth = dict(copy.deepcopy(full), principal=ETH_ADDR["p1"], mandate_id=mid("m_eip712"), sig_type=3)
+    fast = dict(copy.deepcopy(full), mandate_id=mid("m_fast_mode"), fast_mode_max_delay=100)
+    priv = dict(copy.deepcopy(full), mandate_id=mid("m_private"), auditors=AUDITORS)
+    return [("m_adr036", "m_full under Cosmos ADR-036 (sig_type 2): secp256k1 principal p1, HRP celestia; the "
+             "signature is over the amino sign document whose data is the rendered text ending in the mandate hash.",
+             "p1_secp", adr),
+            ("m_eip712", "m_full under EIP-712 (sig_type 3): the principal is the Ethereum address of secp256k1 p1.",
+             "p1_secp", eth),
+            ("m_fast_mode", "m_full with fast_mode_max_delay 100 blocks (fast mode allowed).", "p1", fast),
+            ("m_private", "m_full with two auditors (private mode).", "p1", priv)]
+
+
+def seed_of(signer: str) -> bytes:
+    return SECP[signer[:-5]] if signer.endswith("_secp") else SEEDS[signer]
+
+
+def scheme_fields(m: dict, h: bytes) -> dict:
+    st = m.get("sig_type")
+    if st == 2:
+        data = P.adr036_data(m, h)
+        return {"adr036_signer": P.adr036_signer(m), "adr036_data": data,
+                "signdoc": P.adr036_signdoc(data, P.adr036_signer(m)).decode()}
+    if st == 3:
+        return {"eip712_digest_hex": P.eip712_parts(m, h)["digest"].hex()}
+    return {}
 
 
 def gen_mandate():
     cases = []
     for i, d, signer, m in mandate_inputs():
-        sm, h, sig = P.sign_mandate(SEEDS[signer], m)
+        sm, h, sig = P.sign_mandate(seed_of(signer), m)
         canon = P.mandate_cbor(m)
         assert P.verify_mandate(sm)[1] == h
         cases.append({"id": i, "description": d, "signer": signer, "input": js(m), "mandate_cbor_hex": canon.hex(),
                       "mandate_hash_hex": h.hex(), "signed_message_hex": P.signed_message("mandate-sig", h).hex(),
                       "signature_hex": sig.hex(), "signed_mandate_hex": sm.hex(),
-                      "counter_key_hex": P.counter_key(m["principal"], m["mandate_id"]).hex()})
+                      "counter_key_hex": P.counter_key_of(m).hex(), **scheme_fields(m, h)})
     base = base_mandate("m_reject")
     good = raw_signed_mandate(SEEDS["p1"], base)
     small_order = bytes([1]) + bytes(31)
@@ -276,25 +325,127 @@ def gen_mandate():
         ("gate_id_space", "gate_id with a space.", m_(gate_id="gate 1"), "ErrMandateInvalid"),
         ("kinds_grammar", "A kind with an upper-case letter.", m_(kinds=["Transfer"]), "ErrMandateInvalid"),
         ("kinds_unsorted", "Kinds descending.", m_(kinds=["transfer", "swap"]), "ErrMandateInvalid"),
-        ("unknown_key_14", "Mandate key 14.", encode({1: Raw(encode({**P.to_cbor(base, P.S_MANDATE), 14: 1})),
-                                                      2: bytes(64)}), "ErrMandateInvalid"),
+        ("unknown_key_14", "Mandate key 14 = 1. Before draft.5 the key was unknown; since draft.5 it is sig_type and "
+         "the value 1 is refused (bytes unchanged, same error).",
+         encode({1: Raw(encode({**P.to_cbor(base, P.S_MANDATE), 14: 1})), 2: bytes(64)}), "ErrMandateInvalid"),
         ("signature_63", "Signature of 63 bytes.", good[:-66] + encode(bytes(63)), "ErrMandateInvalid"),
         ("trailing", "A zero byte after the signed mandate.", good + b"\x00", "ErrMandateInvalid"),
         ("too_large", "16385 bytes, refused before parsing.", good + bytes(16385 - len(good)), "ErrMandateInvalid"),
     ]
+    rejects += scheme_rejects(base)
     rej = []
-    for i, d, b, want in rejects:
+    for row in rejects:
+        i, d, b, want = row[:4]
         try:
             P.verify_mandate(b)
             raise AssertionError(f"{i} verifies")
         except P.PolicyError as e:
             assert e.sentinel == want, (i, e.sentinel, e.cause)
-            rej.append({"id": i, "description": d, "signed_mandate_hex": b.hex(), "expect_error": want,
-                        "cause": e.cause})
+            r = {"id": i, "description": d, "signed_mandate_hex": b.hex(), "expect_error": want, "cause": e.cause}
+            if len(row) > 4:
+                r["rule"] = row[4]
+            rej.append(r)
     keys = {n: {"seed_hex": SEEDS[n].hex(), "public_key_hex": PUB[n].hex(),
                 "source": ("core keys.json" if n in CORE_KEYS else f"SHA-256(\"edicta/policy/v1 test principal|{n}\")")}
             for n in ("p1", "p2", "agent1", "agent2", "gate1")}
+    for n in ("p1", "p2"):
+        keys[n + "_secp"] = {"seed_hex": SECP[n].hex(), "public_key_compressed_hex": SECP_PUB[n].hex(),
+                             "eth_address_hex": ETH_ADDR[n].hex(),
+                             "cosmos_address": PC.cosmos_address(SECP_PUB[n], HRP),
+                             "source": f"SHA-256(\"edicta/policy/v1 test principal secp|{n}\"), secp256k1 scalar"}
+    for a in AUDITORS:
+        sk_, pk_ = auditor_key(a["kid"])
+        keys["auditor:" + a["kid"].decode()] = {"kid_hex": a["kid"].hex(), "sk_hex": sk_.hex(), "pk_hex": pk_.hex(),
+                                                "source": "DeriveKeyPair(SHA-256(\"edicta/policy/v1 test auditor|\" "
+                                                          "+ kid)), RFC 9180 section 7.1.3"}
     return {"keys": keys, "cases": cases, "reject": rej}
+
+
+def not_on_curve_x() -> bytes:
+    x = 1
+    while PC.decompress(b"\x02" + x.to_bytes(32, "big")) is not None:
+        x += 1
+    return b"\x02" + x.to_bytes(32, "big")
+
+
+def scheme_rejects(base: dict) -> list:
+    """Draft.5 rejects: value rules of keys 14 to 17 and the principal, and one bad signature per scheme."""
+    adr = dict(base, principal=SECP_PUB["p1"], sig_type=2, principal_hrp=HRP)
+    eth = dict(base, principal=ETH_ADDR["p1"], sig_type=3)
+    z64, z65 = bytes(64), bytes(65)
+
+    def raw(m, sig):
+        return encode({1: Raw(encode(P.to_cbor(m, P.S_MANDATE))), 2: sig})
+
+    def without(m, key):
+        return {k: v for k, v in m.items() if k != key}
+
+    def signed(m, seed):
+        return P.sign_mandate(seed, m)[0]
+
+    def flip_last_sig_byte(b: bytes, n: int) -> bytes:
+        x = bytearray(b)
+        x[-1 if n == 64 else -2] ^= 1
+        return bytes(x)
+
+    good_adr = signed(adr, SECP["p1"])
+    good_eth = signed(eth, SECP["p1"])
+    sig_eth = good_eth[-65:]
+    high_s = sig_eth[:32] + (PC.N - int.from_bytes(sig_eth[32:64], "big")).to_bytes(32, "big") + bytes([sig_eth[64] ^ 1])
+    kid_low = [{"kid": b"auditor-1", "pubkey": AUDITORS[0]["pubkey"]}, {"kid": b"auditor-2", "pubkey": bytes(32)}]
+    return [
+        ("sig_type_1_present", "sig_type 1: Ed25519 has one encoding, the absent key.", raw(dict(base, sig_type=1), z64),
+         "ErrMandateInvalid", "sig_type"),
+        ("sig_type_4", "sig_type 4 (reserved).", raw(dict(base, sig_type=4), z64), "ErrMandateInvalid", "sig_type"),
+        ("hrp_without_adr036", "principal_hrp on an Ed25519 mandate.", raw(dict(base, principal_hrp=HRP), z64),
+         "ErrMandateInvalid", "principal_hrp"),
+        ("adr036_without_hrp", "sig_type 2 without principal_hrp.", raw(without(adr, "principal_hrp"), z64),
+         "ErrMandateInvalid", "principal_hrp"),
+        ("hrp_uppercase", "principal_hrp with an upper-case letter (decoding charset).",
+         raw(dict(adr, principal_hrp="Celestia"), z64), "ErrMandateInvalid", "principal_hrp"),
+        ("principal_32_for_adr036", "sig_type 2 with a 32-byte principal.", raw(dict(adr, principal=PUB["p1"]), z64),
+         "ErrMandateInvalid", "principal"),
+        ("principal_not_on_curve", "sig_type 2 with a compressed key whose x has no point on secp256k1.",
+         raw(dict(adr, principal=not_on_curve_x()), z64), "ErrMandateInvalid", "principal"),
+        ("principal_prefix_04", "sig_type 2 with first byte 0x04.", raw(dict(adr, principal=b"\x04" + SECP_PUB["p1"][1:]),
+                                                                        z64), "ErrMandateInvalid", "principal"),
+        ("principal_21_for_eip712", "sig_type 3 with a 21-byte principal.",
+         raw(dict(eth, principal=ETH_ADDR["p1"] + b"\x00"), z65), "ErrMandateInvalid", "principal"),
+        ("principal_20_for_ed25519", "Ed25519 (sig_type absent) with a 20-byte principal.",
+         raw(dict(base, principal=ETH_ADDR["p1"]), z64), "ErrMandateInvalid", "principal"),
+        ("signature_64_for_eip712", "sig_type 3 with a 64-byte signature.", raw(eth, z64), "ErrMandateInvalid",
+         "signature"),
+        ("signature_65_for_ed25519", "Ed25519 with a 65-byte signature.", raw(base, z65), "ErrMandateInvalid",
+         "signature"),
+        ("fast_mode_max_delay_0", "fast_mode_max_delay 0: off has one encoding, the absent key.",
+         raw(dict(base, fast_mode_max_delay=0), z64), "ErrMandateInvalid", "fast_mode_max_delay"),
+        ("fast_mode_max_delay_1001", "fast_mode_max_delay 1001.", raw(dict(base, fast_mode_max_delay=1001), z64),
+         "ErrMandateInvalid", "fast_mode_max_delay"),
+        ("auditors_unsorted", "Auditors descending by kid.", raw(dict(base, auditors=list(reversed(AUDITORS))), z64),
+         "ErrMandateInvalid", "auditors"),
+        ("auditors_duplicate_kid", "One kid twice.", raw(dict(base, auditors=[AUDITORS[0], AUDITORS[0]]), z64),
+         "ErrMandateInvalid", "auditors"),
+        ("auditor_low_order", "An auditor key that is a low-order X25519 point (all zero).",
+         raw(dict(base, auditors=kid_low), z64), "ErrMandateInvalid", "auditors"),
+        ("auditors_17", "Seventeen auditors.", raw(dict(base, auditors=[
+            {"kid": b"auditor-%02d" % i, "pubkey": AUDITORS[0]["pubkey"]} for i in range(17)]), z64),
+         "ErrMandateInvalid", "auditors"),
+        ("sig_bad_adr036", "sig_type 2, last signature byte flipped.", flip_last_sig_byte(good_adr, 64),
+         "ErrMandateSignature", "signature"),
+        ("sig_bad_eip712", "sig_type 3, last byte of s flipped.", flip_last_sig_byte(good_eth, 65),
+         "ErrMandateSignature", "signature"),
+        ("sig_high_s_eip712", "sig_type 3 with s replaced by n - s and v flipped (the same point, high s).",
+         good_eth[:-65] + high_s, "ErrMandateSignature", "signature"),
+        ("sig_v_0_eip712", "sig_type 3 with v = 0 (recovery id without the 27 offset).",
+         good_eth[:-1] + bytes([sig_eth[64] - 27]), "ErrMandateSignature", "signature"),
+        ("sig_eip712_other_key", "sig_type 3 signed by secp256k1 p2, names the address of p1.", signed_raw_eth(eth),
+         "ErrMandateSignature", "signature"),
+    ]
+
+
+def signed_raw_eth(m: dict) -> bytes:
+    h = P.mandate_hash(encode(P.to_cbor(m, P.S_MANDATE)))
+    return encode({1: Raw(encode(P.to_cbor(m, P.S_MANDATE))), 2: PC.sign_eth(SECP["p2"], P.eip712_parts(m, h)["digest"])})
 
 
 ETH = {"asset": "test:eth", "scale": 18, "periods": [{"hours": 744, "max": P.amt(10 ** 18)}]}
@@ -366,6 +517,21 @@ def gen_render(mandate_file):
                          count_limits=None, max_decision_age=None, min_spacing=None, kinds=None)
     extra = {k: v for k, v in extra.items() if v is not None}
     out.append({"id": "render_recipients_any_scale0", "input": js(extra), "text": P.render(extra)})
+    for c in out:
+        if "mandate_ref" in c:
+            mc = next(x for x in mandate_file["cases"] if x["id"] == c["mandate_ref"])
+            if "adr036_data" in mc:
+                c["adr036_data"] = mc["adr036_data"]
+    esc = dict(base_mandate("render_escape", assets=[{"asset": "test:<a&b>", "scale": 2, "per_action_max": P.amt(100),
+                                                      "recipients": ["x&y", "x<y>"]}]),
+               principal=SECP_PUB["p2"], sig_type=2, principal_hrp=HRP)
+    h = P.mandate_hash(P.mandate_cbor(esc))
+    data = P.adr036_data(esc, h)
+    out.append({"id": "render_escape_adr036", "description": "Asset and recipients with <, > and &. The rendered "
+                "text and D carry them as is; the amino sign document carries D only in base64, so the JSON escapes "
+                "of section 6.2 never apply to D (they would apply only to a signer or other field holding those "
+                "characters).", "input": js(esc), "text": P.render(esc), "adr036_data": data,
+                "signdoc": P.adr036_signdoc(data, P.adr036_signer(esc)).decode()})
     return {"cases": out}
 
 
@@ -591,17 +757,39 @@ def gen_engine():
 
 # Gate simulator for verify.json.
 
+def private_randomness(label: str, n: int) -> dict:
+    """Envelope randomness from a label, as the core payload vectors do; production draws it from a CSPRNG."""
+    import hpke_base
+    return {"salt": sha("edicta/policy/v1 test private salt|" + label),
+            "dek": sha("edicta/policy/v1 test private dek|" + label),
+            "aead_nonce": sha("edicta/policy/v1 test private aead nonce|" + label)[:12],
+            "ikme": [sha(f"edicta/policy/v1 test private ephemeral|{label}|{i}") for i in range(n)],
+            "sk_es": [hpke_base.derive_key_pair(sha(f"edicta/policy/v1 test private ephemeral|{label}|{i}"))[0]
+                      for i in range(n)]}
+
+
+def private_record(pk: int, plaintext: bytes, h: bytes, auditors: list) -> tuple:
+    label = f"{pk}/{h.hex()}"
+    rnd = private_randomness(label, len(auditors))
+    env, trace = P.private_seal(plaintext, auditors, rnd["salt"], rnd["dek"], rnd["aead_nonce"], rnd["sk_es"])
+    return P.record(15, plaintext_kind=pk, hash=h, envelope=env), env, rnd, trace
+
+
 class Sim:
     def __init__(self, label, m=None, signer="p1"):
         self.m = m or base_mandate(label)
         self.signer = signer
-        self.sm, self.mh, _ = P.sign_mandate(SEEDS[signer], self.m)
+        self.sm, self.mh, _ = P.sign_mandate(seed_of(signer), self.m)
         self.led = {"state": P.GENESIS, "set": P.EMPTY_CLOSED, "buckets": {}}
         self.head = None
         self.recs = {}
         self.label = label
-        self.put(P.record(7, body=self.sm))
-        self.put(P.record(11, body=P.closed_cbor(P.EMPTY_CLOSED)))
+        self.put_mandate()
+        self.put_struct(11, 3, P.closed_cbor(P.EMPTY_CLOSED), P.EMPTY_ROOT)
+
+    @property
+    def private(self):
+        return "auditors" in self.m
 
     def put(self, rec):
         r = P.decode_record(rec)
@@ -610,20 +798,52 @@ class Sim:
         self.recs[r["path"]] = rec
         return r["path"]
 
+    def put_private(self, pk, plaintext, h):
+        return self.put(private_record(pk, plaintext, h, self.m["auditors"])[0])
+
+    def put_mandate(self):
+        if self.private:
+            self.put_private(1, self.sm, self.mh)
+        else:
+            self.put(P.record(7, body=self.sm))
+
+    def put_struct(self, kind, pk, body, h):
+        if self.private:
+            self.put_private(pk, body, h)
+        else:
+            self.put(P.record(kind, body=body))
+
     def adopt(self, m):
         self.m = m
-        self.sm, self.mh, _ = P.sign_mandate(SEEDS[self.signer], m)
-        self.put(P.record(7, body=self.sm))
+        self.sm, self.mh, _ = P.sign_mandate(seed_of(self.signer), m)
+        self.put_mandate()
 
-    def decision(self, label, facts, agent=A1, valid_until=None, th=T0):
+    def decision(self, label, facts, agent=A1, valid_until=None, th=T0, v1=None):
         action = P.encode_facts(facts) if isinstance(facts, dict) else facts
-        return {"label": label, "commitment_hash": ch_of(self.label + "/" + label), "agent_pubkey": agent,
-                "action_type": P.TEST_ACTION_TYPE, "action": action, "action_hash": action_hash(P.TEST_ACTION_TYPE, action),
-                "valid_until": valid_until if valid_until is not None else th + 900, "gate_id": GATE_ID}
+        d = {"label": label, "commitment_hash": ch_of(self.label + "/" + label), "agent_pubkey": agent,
+             "action_type": P.TEST_ACTION_TYPE, "action": action, "action_hash": action_hash(P.TEST_ACTION_TYPE, action),
+             "valid_until": valid_until if valid_until is not None else th + 900, "gate_id": GATE_ID}
+        if v1 is not None:
+            d.update({"version": 1, "mandate_ref": self.mh, "mode": 1}, **v1)
+            d["pending"] = d["mode"] == 2
+        return d
 
     def base_verdict(self, d, now):
         return {"format": 1, "gate_id": GATE_ID, "mandate_hash": self.mh, "commitment_hash": d["commitment_hash"],
                 "action_hash": d["action_hash"], "agent_pubkey": d["agent_pubkey"], "decided_at": now}
+
+    def state_read(self, v, st):
+        """Puts the state read into v in the form of the mandate; private mode archives the PrivatePart."""
+        if self.private:
+            pp = {"format": 1, "prev_state": st}
+            v.update(private_hash=P.private_hash(pp), prev_state_hash=P.state_hash(st))
+        else:
+            v["prev_state"] = st
+
+    def put_private_part(self, st):
+        if self.private:
+            pp = {"format": 1, "prev_state": st}
+            self.put_private(4, P.private_part_cbor(pp), P.private_hash(pp))
 
     def sign(self, v):
         return P.sign_verdict(SEEDS["gate1"], v)
@@ -651,29 +871,34 @@ class Sim:
         r = P.evaluate(self.m, led, f, th)
         if "deny" in r:
             if honest:
-                v.update(outcome=2, reason=r["deny"], extractor=xid, facts=f, anchor_time=th, prev_state=led["state"])
+                v.update(outcome=2, reason=r["deny"], extractor=xid, facts=f, anchor_time=th)
+                self.state_read(v, led["state"])
                 if r["deny"] != "ErrOutsideMandate":
                     v["eval_time"] = r["eval_time"]
                 sv, vh = self.sign(v)
                 if archive:
+                    self.put_private_part(led["state"])
                     self.put(P.record(9, body=sv))
                 return sv, vh, v
             r = P.apply(led, {"asset": f["asset"], "scale": f["scale"], "amount": f["amount"], "t_h": th})
         hd = head if head is not None else self.head
         v.update(outcome=1, extractor=P.TEST_EXTRACTOR, facts=f, anchor_time=th, eval_time=r["eval_time"],
-                 prev_state=led["state"], new_state_hash=r["new_hash"])
+                 new_state_hash=r["new_hash"])
+        self.state_read(v, led["state"])
         if led["state"]["seq"] >= 1:
             v.update(prev_commitment_hash=hd[0], prev_verdict_hash=hd[1])
         if mutate:
             mutate(v, r)
         sv, vh = self.sign(v)
         if archive:
+            self.put_private_part(led["state"])
             if r["closed_bucket"] is not None:
-                self.put(P.record(10, body=P.bucket_cbor(r["closed_bucket"])))
-                self.put(P.record(11, body=P.closed_cbor(r["closed_set"])))
+                b = P.bucket_cbor(r["closed_bucket"])
+                self.put_struct(10, 2, b, P.bucket_hash(r["closed_bucket"]))
+                self.put_struct(11, 3, P.closed_cbor(r["closed_set"]), P.closed_root(r["closed_set"]))
             self.put(P.record(8, body=sv))
             if successor:
-                self.put(P.record(12, gate_id=GATE_ID, counter_key=P.counter_key(self.m["principal"], self.m["mandate_id"]),
+                self.put(P.record(12, gate_id=GATE_ID, counter_key=P.counter_key_of(self.m),
                                   state_hash=P.state_hash(led["state"]), commitment_hash=d["commitment_hash"]))
         if commit:
             self.led = next_ledger if next_ledger is not None else r["next"]
@@ -681,47 +906,80 @@ class Sim:
         return sv, vh, v
 
 
+PRINCIPALS = {"p1": PUB["p1"], "p2": PUB["p2"], "p1_cosmos": ("cosmos", PC.cosmos_address(SECP_PUB["p1"], HRP)),
+              "p1_eth": ("eth", ETH_ADDR["p1"])}
+SCHEMES = {"ed25519": None, "cosmos": 2, "eth": 3}
+AUDITOR_SK = {n: auditor_key(n.encode())[0] for n in ("auditor-1", "auditor-2", "auditor-3")}
+
+
+def principal_json(x) -> str:
+    if isinstance(x, bytes):
+        return x.hex()
+    return f"{x[0]}:{x[1]}" if x[0] == "cosmos" else f"eth:0x{x[1].hex()}"
+
+
+def decision_json(d: dict) -> dict:
+    j = {"commitment_hash_hex": d["commitment_hash"].hex(), "agent_pubkey_hex": d["agent_pubkey"].hex(),
+         "action_type": d["action_type"], "action_hex": d["action"].hex(), "action_hash_hex": d["action_hash"].hex(),
+         "valid_until": str(d["valid_until"]), "gate_id": d["gate_id"]}
+    if d.get("version") == 1:
+        j["version"] = "1"
+        if d["mandate_ref"] is not None:
+            j["mandate_ref_hex"] = d["mandate_ref"].hex()
+        j["mode"] = str(d["mode"])
+        if d["mode"] == 2:
+            j.update(h0=str(d["h0"]), anchor_deadline=str(d["anchor_deadline"]))
+    return j
+
+
 def gen_verify():
     pool = {}
     cases = []
     sims = {}
+    ppool = {}
+    pcases = []
 
-    def merge(sim):
+    def merge(sim, pl):
         for p, b in sim.recs.items():
-            assert pool.get(p, b) == b, p
-            pool[p] = b
+            assert pl.get(p, b) == b, p
+            pl[p] = b
 
     def case(i, desc, sim, d, th="same", *, full=False, steps=None, require=False, principals=("p1",),
-             extractors=True, evidence=(), drop=(), corrupt=None, exp=None):
-        merge(sim)
+             extractors=True, evidence=(), drop=(), corrupt=None, exp=None, schemes=None, auditors=(),
+             private=False):
+        out, pl = (pcases, ppool) if private else (cases, pool)
+        merge(sim, pl)
         arch = sorted(p for p in sim.recs if p not in drop)
         cor = dict(corrupt or {})
         recs = {p: sim.recs[p] for p in arch}
         recs.update(cor)
         t_h = d["th"] if th == "same" else th
         ext = {P.TEST_ACTION_TYPE: P.TEST_EXTRACTOR} if extractors else {}
-        res = P.verify_policy({"archive": P.Archive(recs), "decision": d, "t_h": t_h, "gate_pub": G1,
-                               "principals": [PUB[x] for x in principals], "extractors": ext, "full": full,
-                               "max_walk_steps": steps, "evidence": list(evidence)})
+        inp = {"archive": P.Archive(recs), "decision": d, "t_h": t_h, "gate_pub": G1,
+               "principals": [PRINCIPALS[x] for x in principals], "extractors": ext, "full": full,
+               "max_walk_steps": steps, "evidence": list(evidence), "auditor_keys": [AUDITOR_SK[a] for a in auditors]}
+        if schemes is not None:
+            inp["schemes"] = tuple(SCHEMES[x] for x in schemes)
+        res = P.verify_policy(inp)
         if exp:
             got = (res["policy"]["status"], res["policy"].get("rule") or res["policy"].get("reason"),
                    res["gate_integrity"]["status"], res["exit"])
             assert got == exp, (i, got, exp)
-        c = {"id": i, "description": desc,
-             "decision": {"commitment_hash_hex": d["commitment_hash"].hex(), "agent_pubkey_hex": d["agent_pubkey"].hex(),
-                          "action_type": d["action_type"], "action_hex": d["action"].hex(),
-                          "action_hash_hex": d["action_hash"].hex(), "valid_until": str(d["valid_until"]),
-                          "gate_id": d["gate_id"]}}
+        c = {"id": i, "description": desc, "decision": decision_json(d)}
         if t_h is not None:
             c["t_h"] = str(t_h)
         c["config"] = {"require_policy": require, "policy_full": full, "max_walk_steps": str(steps) if steps is not None else None,
-                       "principal_keys": [PUB[x].hex() for x in principals], "extractors": {k: v for k, v in ext.items()},
-                       "evidence": [e.hex() for e in evidence]}
+                       "principal_keys": [principal_json(PRINCIPALS[x]) for x in principals],
+                       "extractors": {k: v for k, v in ext.items()}, "evidence": [e.hex() for e in evidence]}
+        if schemes is not None:
+            c["config"]["principal_schemes"] = list(schemes)
+        if auditors:
+            c["config"]["auditor_keys"] = [AUDITOR_SK[a].hex() for a in auditors]
         c["archive"] = arch
         if cor:
             c["corrupt"] = {p: b.hex() for p, b in cor.items()}
         c["expect"] = res
-        cases.append(c)
+        out.append(c)
 
     def dec(sim, label, facts, th, **kw):
         d = sim.decision(label, facts, th=th, **kw)
@@ -790,13 +1048,13 @@ def gen_verify():
 
     # A dishonest gate: one fresh counter per case, the target is the cheat.
     def cheat(i, desc, rule, facts, th=T0 + 100, prior=(), m=None, d_over=None, honest_facts=None, mutate=None,
-              t_h="same", exp_gi="not_checked"):
+              t_h="same", exp_gi="not_checked", **kw):
         S = Sim("X-" + i, m=m)
         for j, (pf, pt) in enumerate(prior):
             S.step(dec(S, f"prior{j}", pf, pt), pt)
         d = dec(S, "cheat", facts, th, **(d_over or {}))
         S.step(d, th, honest=False, facts=honest_facts, mutate=mutate)
-        case(i, desc, S, d, th=t_h, exp=("fail", rule, exp_gi, "1"))
+        case(i, desc, S, d, th=t_h, exp=("fail", rule, exp_gi, "1"), **kw)
         return S, d
 
     cheat("fail_amount_above_max", "Allowed 6000 above per_action_max 5000.", "ErrAmountAboveMax", F(6000))
@@ -944,14 +1202,230 @@ def gen_verify():
     case("invalid_and_equivocation", "i1 is above per_action_max and also forks with i1x: fail stays fail (exit 1), "
          "gate_integrity is still violated.", IE, i1, evidence=[svix], exp=("fail", "ErrAmountAboveMax", "violated", "1"))
 
-    ids = [c["id"] for c in cases]
+    archive_pool = dict(pool)
+    draft5_cases(case, dec, cheat, sims)
+    private_cases(case, dec, sims)
+
+    ids = [c["id"] for c in cases + pcases]
     assert len(ids) == len(set(ids))
-    return {"gate": {"gate_id": GATE_ID, "gate_pubkey_hex": G1.hex()},
-            "extractors": {P.TEST_ACTION_TYPE: P.TEST_EXTRACTOR},
-            "records": {p: pool[p].hex() for p in sorted(pool)}, "cases": cases}, pool, sims
+    head = {"gate": {"gate_id": GATE_ID, "gate_pubkey_hex": G1.hex()},
+            "extractors": {P.TEST_ACTION_TYPE: P.TEST_EXTRACTOR}}
+    return ({**head, "records": {p: pool[p].hex() for p in sorted(pool)}, "cases": cases}, archive_pool, sims,
+            {**head, "records": {p: ppool[p].hex() for p in sorted(ppool)}, "cases": pcases})
 
 
-def gen_archive(pool):
+def draft5_cases(case, dec, cheat, sims):
+    """Policy-v1-draft.5 verifier cases: the verified decision is a v1 one (mandate_ref, mode, h0, deadline)."""
+    MR = Sim("MR")
+    sims["MR"] = MR
+    r1 = dec(MR, "r1", F(100), T0 + 100, v1={}); MR.step(r1, r1["th"])
+    case("mandate_ref_match", "v1 decision whose mandate_ref equals the allow verdict's mandate_hash; reported "
+         "as match.", MR, r1, exp=("pass", None, "not_checked", "0"))
+    r2 = dec(MR, "r2", F(100), T0 + 200, v1={"mandate_ref": sha("edicta/policy/v1 test other mandate")})
+    MR.step(r2, r2["th"])
+    case("mandate_ref_mismatch", "The agent committed to another mandate; the gate allowed under its own: both "
+         "inputs are signed, so this is a fail.", MR, r2, exp=("fail", "mandate_ref_mismatch", "not_checked", "1"))
+    r3 = dec(MR, "r3", F(100), T0 + 300, v1={"mandate_ref": None}); MR.step(r3, r3["th"])
+    case("mandate_ref_absent", "v1 decision without mandate_ref: the gate skipped its own rule, which the envelope "
+         "alone cannot prove; reported as absent, not a fail.", MR, r3, exp=("pass", None, "not_checked", "0"))
+    pend = {"mode": 2, "h0": 1000, "anchor_deadline": 1050}
+    cheat("fast_mode_not_allowed", "Fast-mode Authorization (pending reference) under a mandate without "
+          "fast_mode_max_delay: P15.", "ErrFastModeNotAllowed", F(100), d_over={"v1": pend})
+    fm = lambda label: base_mandate(label, fast_mode_max_delay=10)  # noqa: E731
+    FX = Sim("FX", m=fm("FX"))
+    x = dec(FX, "x1", F(100), T0 + 100, v1={"mode": 2, "h0": 1000, "anchor_deadline": 1011}); FX.step(x, x["th"])
+    case("fast_mode_delay_exceeded", "anchor_deadline - h0 = 11 above the mandate's fast_mode_max_delay 10: the "
+         "gate issued a deadline beyond the principal's bound.", FX, x, exp=("fail", "fast_mode_delay", "not_checked", "1"))
+    FW = Sim("FW", m=fm("FW"))
+    x = dec(FW, "w1", F(100), T0 + 100, v1={"mode": 2, "h0": 1000, "anchor_deadline": 1010}); FW.step(x, x["th"])
+    case("fast_mode_within_bound", "anchor_deadline - h0 = 10, exactly the mandate's bound.", FW, x,
+         exp=("pass", None, "not_checked", "0"))
+    adr = base_mandate("PC", principal=SECP_PUB["p1"], sig_type=2, principal_hrp=HRP)
+    PCo = Sim("PC", m=adr, signer="p1_secp")
+    x = dec(PCo, "c1", F(100), T0 + 100, v1={}); PCo.step(x, x["th"])
+    case("principal_scheme_unsupported", "ADR-036 mandate; this verifier build has Ed25519 and EIP-712 only.", PCo, x,
+         principals=("p1_cosmos",), schemes=("ed25519", "eth"),
+         exp=("unchecked", "principal_scheme_unsupported", "not_checked", "2"))
+    case("principal_cosmos_pinned", "ADR-036 mandate; the verifier pins the principal by its bech32 address "
+         "(--principal cosmos:<address>).", PCo, x, principals=("p1_cosmos",), exp=("pass", None, "not_checked", "0"))
+    eth = base_mandate("PE", principal=ETH_ADDR["p1"], sig_type=3)
+    PE = Sim("PE", m=eth, signer="p1_secp")
+    x = dec(PE, "e1", F(100), T0 + 100, v1={}); PE.step(x, x["th"])
+    case("principal_eth_pinned", "EIP-712 mandate; the verifier pins the principal by its address "
+         "(--principal eth:0x<address>).", PE, x, principals=("p1_eth",), exp=("pass", None, "not_checked", "0"))
+    case("principal_eth_not_cosmos", "EIP-712 mandate; the verifier pins only a Cosmos address of the same "
+         "secp256k1 key: the comparison is per scheme.", PE, x, principals=("p1_cosmos",),
+         exp=("unchecked", "policy_principal_untrusted", "not_checked", "2"))
+    FT = Sim("FT", m=fm("FT"))
+    x = dec(FT, "t1", F(100), T0 + 100, v1={"mode": 2, "h0": 1000, "anchor_deadline": 1005}); FT.step(x, x["th"])
+    case("anchor_time_t_ref_pending", "Pending reference: the verdict's anchor_time is T_ref, the header time at h0, "
+         "and matches the verified T_ref.", FT, x, exp=("pass", None, "not_checked", "0"))
+
+
+def private_cases(case, dec, sims):
+    """Private mode (policy 9.5, 13.2, 13.3): the cases of private.json."""
+    pm = lambda label, **kw: base_mandate(label, auditors=AUDITORS, **kw)  # noqa: E731
+    PV = Sim("PV", m=pm("PV"))
+    p1 = dec(PV, "p1", F(1000), T0 + 100, v1={}); PV.step(p1, p1["th"])
+    p2 = dec(PV, "p2", F(500, "test:bob"), T0 + 200, v1={}); PV.step(p2, p2["th"])
+    p3 = dec(PV, "p3", F(1500), T0 + 7300, v1={}); PV.step(p3, p3["th"])
+    p4 = dec(PV, "p4", F(400), T0 + 7400, v1={}); PV.step(p4, p4["th"])
+    sims["PV"] = PV
+    sims["PV_targets"] = (p1, p4)
+    k = ("auditor-2",)
+    case("private_with_key_pass", "Private mandate; auditor-2's key opens the mandate, the PrivateParts, the "
+         "closed bucket and the ClosedSets; fast check and walk p4 -> genesis as in public mode.", PV, p4, full=True,
+         auditors=k, private=True, exp=("pass", None, "ok", "0"))
+    case("private_without_key", "No auditor key: facts and anchor_time pass, the rest is policy_private.", PV, p4,
+         private=True, exp=("unchecked", "policy_private", "not_checked", "2"))
+    case("private_wrong_key", "A key the envelopes do not list (auditor-3): nothing opens, policy_private.", PV, p4,
+         auditors=("auditor-3",), private=True, exp=("unchecked", "policy_private", "not_checked", "2"))
+    pp_path = next(p for p in PV.recs if p.startswith("private/4/") and
+                   P.decode_record(PV.recs[p])["key"] == P.verify_verdict(
+                       P.decode_record(PV.recs[f"policy-allow/{p4['commitment_hash'].hex()}"])["body"], G1)[0]["private_hash"])
+    other = private_record(4, P.private_part_cbor({"format": 1, "prev_state": P.GENESIS}),
+                           P.decode_record(PV.recs[pp_path])["key"], AUDITORS)[0]
+    case("private_part_hash_differs", "The record under p4's private_hash opens to another PrivatePart (genesis): "
+         "its hash differs from the key, source_corrupt.", PV, p4, auditors=k, corrupt={pp_path: other}, private=True,
+         exp=("unchecked", "source_corrupt", "not_checked", "2"))
+    case("private_walk_without_key", "Full walk without the key: L1 and L2 on public fields (key 20) down to the "
+         "genesis hash; gate_integrity unchecked (policy_private), never ok.", PV, p4, full=True, private=True,
+         exp=("unchecked", "policy_private", "unchecked", "2"))
+
+    def cheat(i, desc, exp, facts=F(100), honest_facts=None, mutate=None, prior=(), **kw):
+        S = Sim("PX-" + i, m=pm("PX-" + i))
+        for j, (pf, pt) in enumerate(prior):
+            S.step(dec(S, f"prior{j}", pf, pt, v1={}), pt)
+        d = dec(S, "cheat", facts, T0 + 7300, v1={})
+        S.step(d, d["th"], honest=False, facts=honest_facts, mutate=mutate)
+        case(i, desc, S, d, private=True, exp=exp, **kw)
+
+    cheat("private_without_key_facts_mismatch", "No key; the gate signed amount 100, the action bytes say 1000.",
+          ("fail", "facts_mismatch", "not_checked", "1"), facts=F(1000), honest_facts=F(100))
+
+    def late(v, r):
+        v["anchor_time"] += 60
+        v["eval_time"] += 60
+    cheat("private_without_key_anchor_time_mismatch", "No key; anchor_time 60 s after the verified T_ref.",
+          ("fail", "anchor_time_mismatch", "not_checked", "1"), mutate=late)
+
+    def junk20(v, r):
+        v["prev_state_hash"] = sha("edicta/policy/v1 test junk prev_state_hash")
+    cheat("private_state_not_key_20", "The PrivatePart opens and hashes to private_hash, but its state does not hash "
+          "to the signed prev_state_hash (key 20).", ("unchecked", "blocked", "violated", "5"), mutate=junk20,
+          prior=[(F(100), T0 + 100)], auditors=k)
+
+    def public_form(v, r):
+        st = PF.led["state"]
+        del v["private_hash"], v["prev_state_hash"]
+        v["prev_state"] = st
+    PF = Sim("PF", m=pm("PF"))
+    x = dec(PF, "f1", F(100), T0 + 100, v1={})
+    PF.step(x, x["th"], mutate=public_form)
+    case("verdict_form_mismatch", "The mandate has auditors but the allow verdict carries prev_state in clear "
+         "(public form).", PF, x, auditors=k, private=True, exp=("unchecked", "blocked", "violated", "5"))
+
+    PK = Sim("PK", m=pm("PK"))
+    g = copy.deepcopy(PK.led)
+    q1 = dec(PK, "q1", F(100), T0 + 100, v1={}); PK.step(q1, q1["th"])
+    q1x = dec(PK, "q1x", F(1900), T0 + 110, v1={})
+    svx, _, _ = PK.step(q1x, q1x["th"], ledger=g, commit=False, archive=False)
+    case("private_fork_without_key", "Two private-form allows with the same mandate_hash and the same "
+         "prev_state_hash (genesis), different commitments; q1x is evidence. No key: the hash form of the fork rule.",
+         PK, q1, evidence=[svx], private=True, exp=("unchecked", "blocked", "violated", "5"))
+
+
+def gen_private(priv: dict, sims: dict) -> dict:
+    """private.json: section 9.5 envelopes, a private-form verdict and the private-mode verifier cases."""
+    PV = sims["PV"]
+    names = ("auditor-1", "auditor-2", "auditor-3")
+    keys = {n: {"kid_hex": n.encode().hex(), "ikm_hex": sha("edicta/policy/v1 test auditor|" + n).hex(),
+                "sk_hex": AUDITOR_SK[n].hex(), "pk_hex": auditor_key(n.encode())[1].hex()} for n in names}
+    envs = []
+    for pk in (1, 2, 3, 4):
+        path = sorted(p for p in PV.recs if p.startswith(f"private/{pk}/"))[-1]
+        r = P.decode_record(PV.recs[path])
+        st, pt, _ = P.private_open(r["envelope"], [AUDITOR_SK["auditor-1"]], pk, r["key"])
+        assert st == "ok"
+        rec, env, rnd, trace = private_record(pk, pt, r["key"], AUDITORS)
+        assert rec == PV.recs[path]
+        envs.append({"id": f"envelope_{P.PLAINTEXT_KINDS[pk]}", "plaintext_kind": str(pk), "path": path,
+                     "plaintext_cbor_hex": pt.hex(), "hash_hex": r["key"].hex(), "salt_hex": rnd["salt"].hex(),
+                     "dek_hex": rnd["dek"].hex(), "aead_nonce_hex": rnd["aead_nonce"].hex(),
+                     "recipients": [{"kid_hex": a["kid"].hex(), "ikme_hex": rnd["ikme"][i].hex(),
+                                     "enc_hex": trace[i]["enc"].hex(), "wrapped_dek_hex": trace[i]["wrapped_dek"].hex()}
+                                    for i, a in enumerate(AUDITORS)],
+                     "envelope_hex": env.hex(), "record_cbor_hex": rec.hex()})
+    p4 = sims["PV_targets"][1]
+    sv = P.decode_record(PV.recs[f"policy-allow/{p4['commitment_hash'].hex()}"])["body"]
+    v, vh = P.verify_verdict(sv, G1)
+    st, ppb, _ = P.private_open(P.decode_record(PV.recs[f"private/4/{v['private_hash'].hex()}"])["envelope"],
+                                [AUDITOR_SK["auditor-2"]], 4, v["private_hash"])
+    pp = P.decode_private_part(ppb)
+    verdict = {"signed_verdict_hex": sv.hex(), "verdict_hash_hex": vh.hex(), "private_hash_hex": v["private_hash"].hex(),
+               "prev_state_hash_hex": v["prev_state_hash"].hex(), "private_part_cbor_hex": ppb.hex(),
+               "private_part": js(pp), "prev_state_cbor_hex": P.state_cbor(pp["prev_state"]).hex()}
+    base = envs[3]
+    pt, h = bytes.fromhex(base["plaintext_cbor_hex"]), bytes.fromhex(base["hash_hex"])
+    rnd = private_randomness("4/" + base["hash_hex"], 2)
+    tampered = bytearray(bytes.fromhex(base["envelope_hex"])); tampered[-1] ^= 1
+    from edicta_payload_v0 import payload_aad, hpke_info
+    wrong_aad = P.private_seal(pt, AUDITORS, rnd["salt"], rnd["dek"], rnd["aead_nonce"], rnd["sk_es"], aead_aad=payload_aad())[0]
+    wrong_info = P.private_seal(pt, AUDITORS, rnd["salt"], rnd["dek"], rnd["aead_nonce"], rnd["sk_es"], info=hpke_info())[0]
+    n = 65536 - 300
+    while len(P.private_seal(bytes(n), AUDITORS, rnd["salt"], rnd["dek"], rnd["aead_nonce"], rnd["sk_es"])[0]) <= P.PRIVATE_CAP:
+        n += 1
+    big = P.private_seal(bytes(n), AUDITORS, rnd["salt"], rnd["dek"], rnd["aead_nonce"], rnd["sk_es"])[0]
+    rej = []
+    for i, d, env, want in [
+            ("envelope_cap_exceeded", "An envelope of 65,537 bytes, one above the private cap: refused before decoding.",
+             big, "source_corrupt"),
+            ("tampered_ciphertext", "The last ciphertext byte flipped: the DEK unwraps with a listed key, the AEAD "
+             "fails.", bytes(tampered), "source_corrupt"),
+            ("wrong_tag_aad", "Sealed with the core payload AEAD tag (edicta/v0/payload) as aad: the DEK unwraps, the "
+             "AEAD fails.", wrong_aad, "source_corrupt"),
+            ("wrong_tag_dek_info", "DEK wrapped with the core HPKE info (edicta/v0/payload-dek): no entry unwraps with "
+             "the policy info, so nothing opens.", wrong_info, "policy_private")]:
+        st, cause, _ = P.private_open(env, [AUDITOR_SK["auditor-1"], AUDITOR_SK["auditor-2"]], 4, h)
+        got = {"corrupt": "source_corrupt", "private": "policy_private"}[st]
+        assert got == want, (i, st, cause)
+        rej.append({"id": i, "description": d, "plaintext_kind": "4", "hash_hex": h.hex(),
+                    "auditor_keys": ["auditor-1", "auditor-2"], "envelope_hex": env.hex(), "expect": want})
+    vrej = []
+    g1 = P.verify_verdict(P.decode_record(PV.recs[f"policy-allow/{sims['PV_targets'][0]['commitment_hash'].hex()}"])["body"], G1)[0]
+    for i, d, vv in [
+            ("verdict_mixed_forms", "Private form plus prev_state in clear (keys 13, 19, 20).",
+             dict(v, prev_state=pp["prev_state"])),
+            ("verdict_private_hash_only", "Key 19 without key 20.", {k: x for k, x in v.items() if k != "prev_state_hash"}),
+            ("verdict_state_hash_only", "Key 20 without key 19.", {k: x for k, x in v.items() if k != "private_hash"}),
+            ("verdict_genesis_with_chain_keys", "Private-form allow whose prev_state_hash is the genesis hash, with "
+             "keys 15 and 16.", dict(g1, prev_commitment_hash=bytes(32), prev_verdict_hash=bytes(32))),
+            ("verdict_later_without_chain_keys", "Private-form allow whose prev_state_hash is not the genesis hash, "
+             "without keys 15 and 16.", {k: x for k, x in v.items() if k not in ("prev_commitment_hash", "prev_verdict_hash")})]:
+        b = encode({1: P.to_cbor(vv, P.S_VERDICT), 2: bytes(64)})
+        try:
+            P.decode_signed_verdict(b)
+            raise AssertionError(i)
+        except P.PolicyError as e:
+            vrej.append({"id": i, "description": d, "signed_verdict_hex": b.hex(), "expect_error": "ErrVerdictInvalid",
+                         "cause": e.cause})
+    verdict["reject"] = vrej
+    return {"tags": {n: P.TAG[n].decode() for n in ("private-part", "private", "private-dek")},
+            "cap": str(P.PRIVATE_CAP), "auditor_keys": keys,
+            "derivation": {
+                "auditor_key": "(sk, pk) = DeriveKeyPair(SHA-256(\"edicta/policy/v1 test auditor|\" + name)), RFC 9180 "
+                               "section 7.1.3; kid = ASCII(name)",
+                "ephemeral_key": "skE = DeriveKeyPair(SHA-256(\"edicta/policy/v1 test private ephemeral|\" + label + "
+                                 "\"|\" + index)).sk; index is the 0-based auditor position",
+                "dek": "SHA-256(\"edicta/policy/v1 test private dek|\" + label)",
+                "aead_nonce": "SHA-256(\"edicta/policy/v1 test private aead nonce|\" + label)[0:12]",
+                "salt": "SHA-256(\"edicta/policy/v1 test private salt|\" + label)",
+                "label": "decimal plaintext_kind + \"/\" + hash hex (the record key)",
+                "note": "Production draws all of these from a CSPRNG. Rejects reuse the PrivatePart envelope's randomness."},
+            "envelopes": envs, "private_verdict": verdict, "reject": rej, **priv}
+
+
+def gen_archive(pool, ppool):
     cases = []
     seen = set()
     for p in sorted(pool):
@@ -963,6 +1437,11 @@ def gen_archive(pool):
                       "key_hex": r["key"].hex(), "record_cbor_hex": pool[p].hex()})
         if len(cases) >= 7:
             break
+    for pk in (1, 2, 3, 4):
+        p = next(p for p in sorted(ppool) if p.startswith(f"private/{pk}/"))
+        r = P.decode_record(ppool[p])
+        cases.append({"id": f"private_blob_{P.PLAINTEXT_KINDS[pk]}", "kind": "15", "path": r["path"],
+                      "key_hex": r["key"].hex(), "plaintext_kind": str(pk), "record_cbor_hex": ppool[p].hex()})
     allow = next(pool[p] for p in sorted(pool) if p.startswith("policy-allow/"))
     deny = next(pool[p] for p in sorted(pool) if p.startswith("policy-deny/"))
     succ = next(pool[p] for p in sorted(pool) if p.startswith("policy-successor/"))
@@ -986,6 +1465,23 @@ def gen_archive(pool):
         ("successor_missing_commitment", "Kind 12 without key 6.", encode({1: 0, 2: 12, 3: GATE_ID, 4: bytes(32), 5: bytes(32)})),
         ("trailing", "A zero byte after a successor record.", succ + b"\x00"),
     ]
+    priv = P.decode_record(next(ppool[p] for p in sorted(ppool) if p.startswith("private/4/")))
+    pr = lambda kw: encode({1: 0, 2: 15, 3: 4, 4: priv["key"], 5: priv["envelope"], **kw})  # noqa: E731
+    rej += [
+        ("private_kind_5", "Kind 15 with plaintext_kind 5.", pr({3: 5})),
+        ("private_kind_0", "Kind 15 with plaintext_kind 0.", pr({3: 0})),
+        ("private_hash_31", "Kind 15 hash of 31 bytes.", pr({4: priv["key"][:31]})),
+        ("private_envelope_empty", "Kind 15 with an empty envelope.", pr({5: b""})),
+        ("private_envelope_tstr", "Kind 15 envelope as text.", pr({5: "x"})),
+        ("private_missing_envelope", "Kind 15 without key 5.", encode({1: 0, 2: 15, 3: 4, 4: priv["key"]})),
+        ("private_unknown_key", "Kind 15 with key 6.", pr({6: 0})),
+        ("private_over_cap", "Kind 15 of 65,601 bytes.", None),
+    ]
+    head = encode({1: 0, 2: 15, 3: 4, 4: priv["key"]})
+    filler = 65601 - (len(head) + 1 + 5)
+    big = bytes([0xa4]) + head[1:] + bytes([0x05, 0x5a]) + filler.to_bytes(4, "big") + bytes(filler)
+    assert len(big) == 65601
+    rej[-1] = (rej[-1][0], rej[-1][1], big)
     out = []
     for i, d, b in rej:
         try:
@@ -998,14 +1494,15 @@ def gen_archive(pool):
             "reserved_kinds": ["6"], "marker_names": REASON_MARKERS, "cases": cases, "reject": out}
 
 
-REASON_MARKERS = ["ErrAgentNotCovered", "ErrNoExtractor", "ErrFactsInvalid", "ErrOutsideMandate", "ErrKindNotAllowed",
+REASON_MARKERS = ["ErrAgentNotCovered", "ErrFastModeNotAllowed", "ErrNoExtractor", "ErrFactsInvalid", "ErrOutsideMandate", "ErrKindNotAllowed",
                   "ErrAssetNotAllowed", "ErrRecipientNotAllowed", "ErrAmountAboveMax", "ErrDecisionAge", "ErrMinSpacing",
                   "ErrPeriodLimit", "ErrCountLimit", "ErrHistoryFull"]
 
 API = [("403", "policy.ErrAgentNotCovered"), ("403", "policy.ErrNoExtractor"), ("403", "policy.ErrOutsideMandate"),
        ("403", "policy.ErrKindNotAllowed"), ("403", "policy.ErrAssetNotAllowed"), ("403", "policy.ErrRecipientNotAllowed"),
        ("403", "policy.ErrAmountAboveMax"), ("403", "policy.ErrMinSpacing"), ("403", "policy.ErrPeriodLimit"),
-       ("403", "policy.ErrCountLimit"), ("403", "policy.ErrHistoryFull"), ("410", "policy.ErrDecisionAge"),
+       ("403", "policy.ErrCountLimit"), ("403", "policy.ErrHistoryFull"), ("403", "policy.ErrFastModeNotAllowed"),
+       ("410", "policy.ErrDecisionAge"),
        ("422", "policy.ErrFactsInvalid"), ("503", "ErrPolicyStateConflict")]
 
 
@@ -1050,6 +1547,18 @@ def gen_api(sims):
         {"id": "authorize_state_conflict", "status": "503", "description": "Compare-and-swap conflict: retryable, no "
          "verdict.", "response_cbor_hex": err("ErrPolicyStateConflict", 503, "gate: policy state changed concurrently", 1).hex()},
     ]
+    MR = sims["MR"]
+    r1 = ch_of("MR/r1")
+    allow1 = P.decode_record(MR.recs[f"policy-allow/{r1.hex()}"])["body"]
+    v1, _ = P.verify_verdict(allow1, G1)
+    auth1 = {1: 1, 2: v1["commitment_hash"], 3: v1["action_hash"], 4: GATE_ID, 5: T0 + 100 + 300, 6: 1, 7: 1}
+    canon1 = encode(auth1)
+    ah1 = hashlib.sha256(tagged(TAG_AUTHORIZATION_V1) + canon1).digest()
+    sa1 = encode({1: Raw(canon1), 2: P.ed_sign(SEEDS["gate1"], tagged(TAG_AUTHORIZATION_SIG_V1) + ah1)})
+    ex.append({"id": "authorize_allow_v1_alias", "status": "200", "endpoint": "/v1/authorize",
+               "description": "Allow on the alias path for a v1 decision (verify.json mandate_ref_match): an "
+               "Authorization v1 (mode 1, strict) in key 1 and the allow verdict in key 5.",
+               "response_cbor_hex": encode({1: sa1, 5: allow1}).hex(), "authorization_input": js(auth1)})
     return {"mapping": [{"status": s, "code": c, "retryable": "1" if s == "503" else "0"} for s, c in API],
             "match_rule": "after every core code of the same status", "examples": ex}
 
@@ -1133,18 +1642,20 @@ def header(extra: dict, revision: str = REVISION) -> dict:
 def build() -> dict:
     """Returns {relative path: file content (str)}."""
     mand = gen_mandate()
-    ver, pool, sims = gen_verify()
+    ver, pool, sims, priv = gen_verify()
+    ppool = {p: bytes.fromhex(b) for p, b in priv["records"].items()}
     files = {
         "policy/facts.json": header({"test_extractor": {"id": P.TEST_EXTRACTOR, "action_type": P.TEST_ACTION_TYPE},
                                      **gen_facts()}),
         "policy/mandate.json": header({"tags": {n: t.decode() for n, t in P.TAG.items()}, **mand,
-                                       "adoption": gen_adoption()}, REVISION_3),
-        "policy/render.json": header(gen_render(mand)),
+                                       "adoption": gen_adoption()}, REVISION_6),
+        "policy/render.json": header(gen_render(mand), REVISION_6),
         "policy/state.json": header(gen_state()),
         "policy/engine.json": header(gen_engine()),
-        "policy/verify.json": header(ver, REVISION_4),
-        "policy/archive.json": header(gen_archive(pool)),
-        "policy/api.json": header(gen_api(sims)),
+        "policy/verify.json": header(ver, REVISION_6),
+        "policy/private.json": header(gen_private(priv, sims), REVISION_6),
+        "policy/archive.json": header(gen_archive(pool, ppool), REVISION_6),
+        "policy/api.json": header(gen_api(sims), REVISION_6),
         "profiles/bank-send/tia_transfer_facts.json": gen_tia(),
     }
     return {k: json.dumps(v, indent=2, ensure_ascii=True) + "\n" for k, v in files.items()}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/verifier/reasons.json (v0-draft.30).
+"""Writes spec/vectors/verifier/reasons.json (v0-draft.30, with the additions of core v1 section 14, v1-draft.2).
 
 The machine-readable reason enum of core section 20.1.1 and one case per
 reason: the check it is reported on, the scenario as overrides of a valid,
@@ -59,7 +59,7 @@ REASONS = [
     ("header_disagreement", "header", ["header_trust", "execution"],
      "header disagreement with trusted chain: possible bad trusted header, hostile source, or fork (OH5, OH7, "
      "HT6, EX5 (d)).", "check the trusted header against an independent source"),
-    ("blocked", "dependency", ["anchor_time", "header_trust", "execution", "retention_replay", "policy"],
+    ("blocked", "dependency", ["anchor_time", "header_trust", "execution", "retention_replay", "policy", "anchor"],
      "The check needs another check that did not pass; the report names that check.", "fix the named check"),
     ("receipt_mismatch", "input", ["receipt"],
      "A receipt that verifies but is not this decision's: another commitment_hash or gate_id, or a gate key "
@@ -122,6 +122,19 @@ REASONS = [
      "part of the gate's chain was not read, so gate_integrity is never ok here. The report gives the walked seq "
      "range and the step count. The policy check and the verdict do not change.",
      "raise --max-walk-steps above the target's seq"),
+    # Format v1 additions (core v1 14.1); the enum stays closed.
+    ("anchor_pending", "header", ["anchor"],
+     "Pending reference, no usable evidence, and the trusted header is below anchor_deadline (or anchor_deadline + 1 "
+     "when a results proof is needed): not decidable yet.", "retry later or with a newer checkpoint"),
+    ("absence_unproven", "archive", ["anchor"],
+     "Pending reference, no evidence inside the window, and the absence proofs for [h0, anchor_deadline] are "
+     "missing, incomplete or fail. Names the first height not proven.", "another archive copy or --absence-source"),
+    ("policy_private", "configuration", ["policy", "gate_integrity"],
+     "The record needed is a private blob (kind 15) and no configured auditor key opens it. Names the first record.",
+     "an auditor key of the mandate"),
+    ("principal_scheme_unsupported", "configuration", ["policy"],
+     "The verifier build lacks the principal signature scheme the mandate names.",
+     "a verifier build with that scheme"),
 ]
 
 POLICY_CASE = {
@@ -286,6 +299,19 @@ def build() -> dict:
                       "gate_integrity is unchecked, the policy check passes and the verdict stays valid.", {},
                       ["policy/verify.json#pass_depth_1"], integrity_unchecked("policy_walk_truncated"),
                       request="verify --policy-full --max-walk-steps 1"))
+    cases += [
+        case("anchor_pending", "Fast mode: no evidence yet and the trusted head is below the anchor deadline.", {},
+             ["v1/verify.json#fast_pending"], unchecked("anchor", "anchor_pending")),
+        case("absence_unproven", "Fast mode: no evidence, and the absence proof of one height of the window is "
+             "missing.", {}, ["v1/verify.json#fast_absence_missing_height"], unchecked("anchor", "absence_unproven")),
+        case("policy_private", "Private mandate and no auditor key: the rules cannot be checked.", {},
+             ["policy/private.json#private_without_key"], unchecked("policy", "policy_private")),
+        case("policy_private_walk", "Private mandate, full walk without an auditor key: L1 and L2 pass down to the "
+             "genesis hash, gate_integrity stays unchecked.", {}, ["policy/private.json#private_walk_without_key"],
+             unchecked("gate_integrity", "policy_private"), request="verify --policy-full"),
+        case("policy_principal_scheme_unsupported", "The mandate's principal scheme is not in this verifier build.",
+             {}, ["policy/verify.json#principal_scheme_unsupported"], unchecked("policy", "principal_scheme_unsupported")),
+    ]
     boundary = [
         case("commitment_rule_broken", "The commitment hashes to the reference and breaks stage S (ttl above "
              "the limit). Every copy has these bytes: fail.", {"commitment": "reject:ttl_3601"},
@@ -305,10 +331,25 @@ def build() -> dict:
         case("execution_body_mismatch", "The tx bytes hash to rail_ref and carry another body.", {},
              ["verifier/execution_outcomes.json#fail_body_mismatch"], failed("execution"),
              request="verify --check-execution"),
+        # Format v1 fail rules (core v1 14.2).
+        case("anchor_absent", "Fast mode: absence proven for every height of [h0, anchor_deadline].", {},
+             ["v1/verify.json#fast_absent_proven"], failed("anchor")),
+        case("authorization_version_mismatch", "A1: an Authorization v0 for a v1 decision.", {},
+             ["v1/verify.json#auth_version_mismatch"], failed("authorization")),
+        case("authorization_mode_mismatch", "A2: mode 1 for a pending reference.", {},
+             ["v1/verify.json#auth_mode_mismatch"], failed("authorization")),
+        case("authorization_deadline_over_1000", "A3: anchor_deadline above h0 + 1000.", {},
+             ["v1/verify.json#auth_deadline_over_1000"], failed("authorization")),
+        case("policy_mandate_ref_mismatch", "The envelope's mandate_ref differs from the allow verdict's mandate_hash.",
+             {}, ["policy/verify.json#mandate_ref_mismatch"], failed("policy")),
+        case("policy_fast_mode_not_allowed", "A fast-mode Authorization under a mandate without fast_mode_max_delay.",
+             {}, ["policy/verify.json#fast_mode_not_allowed"], failed("policy")),
+        case("policy_fast_mode_delay", "anchor_deadline - h0 above the mandate's fast_mode_max_delay.", {},
+             ["policy/verify.json#fast_mode_delay_exceeded"], failed("policy")),
     ]
     return {
         "format": "edicta-vectors/v0",
-        "revision": "v0-draft.30",
+        "revision": "v1-draft.2",
         "generator": "spec/vectors/check/gen_verifier_reasons.py",
         "description": (
             "Reason enum of core 20.1.1 and one case per reason. Each case starts from a valid, authorized "

@@ -3,9 +3,11 @@
 Edicta profile for a bank transfer on a Cosmos SDK chain, used by the demo in
 `examples/tia-transfer`.
 
-Status: revision `bank-send-v0-draft.8` (2026-10-07). Working draft, subject
+Status: revision `bank-send-v0-draft.9` (2026-10-09). Working draft, subject
 to change. Built on the core spec `spec/decision-commitment-v0.md`, revision
-`v0-draft.11`. Section 3.4 needs core `v0-draft.28` (core section 20). Section 2.4 needs
+`v0-draft.11`. Rule T1 also accepts Authorization v1 of
+`spec/decision-commitment-v1.md` (`v1-draft.2`, "core v1") since
+`bank-send-v0-draft.9`. Section 3.4 needs core `v0-draft.28` (core section 20). Section 2.4 needs
 `spec/policy-v1.md` (`policy-v1-draft.1`). Section
 numbers prefixed "core" refer to the core spec.
 
@@ -38,6 +40,7 @@ Changes:
 | `bank-send-v0-draft.6` | Execution check outcomes under core `v0-draft.27` 20.2.1 (human decisions of 2026-10-07). The rules are evaluated in a new order: BX0, BX1, then per candidate BX2, BX3, BX5, header trust, BX6, then BX8, RP and BX9. Changes: (1) New BX0. A configured chain id other than the action's is `unchecked` (`railverify.ErrChainConfig`); it was `fail`. (2) BX1: a malformed `rail_ref` is still `fail`, now `railverify.ErrRailRefMalformed`. Not found and unavailable set the candidate aside, and alternates are tried. (3) BX2 and BX6: wrong bytes and a bad proof set the candidate aside and end `unchecked` (was `fail`). (4) BX4: compared only with a trusted header. A different chain id is `fail` only with proven inclusion. (5) BX5 runs before header trust. (6) New result proof RP1 to RP6: block results from any source are recomputed to `last_results_hash` of the trusted header at `height + 1`, with the index bound by the share proof or uniform codes. (7) BX7 becomes the fact `outcome`. New BX9: a nonzero code is `fail` only when proven (`ErrTxFailed`); `pass` needs a proven code, or the interim cross confirmation. Cross agreement never gives `fail`. (8) BX8: per-source `agree`, `disagree` or `fault`; a mismatch is `unchecked`. (9) Threat note rewritten. New sentinels `ErrRailRefMalformed`, `ErrChainConfig`, `ErrResultUnconfirmed`, `ErrResultsProof`. `ErrTxHashMismatch` and `ErrTxProof` become `unchecked` classes. Rail facts: results hashing, result order and `block_results` availability. Executor rules and every encoding are unchanged. | Every file byte-identical. New: core `spec/vectors/verifier/execution_outcomes.json` (section 8). |
 | `bank-send-v0-draft.7` | Under core `v0-draft.28`. (1) BX7 and BX9: the interim cross-confirmed `pass` is removed (human decision of 2026-10-07: it held until the result proof landed, and it has landed). `result = cross-confirmed` is reported only, and `pass` needs `inclusion = proven` and `result = proven`. A success that only agreeing sources confirm is `unchecked` (was `pass`). (2) RP5: a new way (b) binds the index for a tx at any position. The block's txs from any source (`/block`) are rebuilt into the square as celestia-app `v10.4.0-mocha` `ProcessProposal` builds it (go-square `v4.0.1`), and the rebuilt data root MUST equal `data_hash` of the trusted header. The share-0 way stays (a); uniform codes become (c). (3) Rail facts: the square rebuild, the result count per block, and the ante handler in `ProcessProposal` (VERIFIED by code). The last one resolves the `UNVERIFIED` item of the BX threat note. (4) Threat note: no interim; the block source. Executor rules and every encoding are unchanged. | Every profile file byte-identical. Core `execution_outcomes.json` regenerated (`v0-draft.28`, section 8). |
 | `bank-send-v0-draft.8` | New section 2.4: the policy extractor `celestia/tia-transfer/v1` (policy v1, task 028). It maps a bank-send action whose MsgSend decodes with HRP `celestia` and denom `utia` to facts; everything else is `policy.ErrFactsInvalid`. Encodings, executor rules and every existing outcome unchanged. | New: `tia_transfer_facts.json` (5 cases, 15 must-deny), written by `spec/vectors/check/gen_policy.py` from the existing action and msg vectors, checked by `check_policy.py`. Every other file byte-identical. |
+| `bank-send-v0-draft.9` | Rule T1 verifies both Authorization versions (core 15.3 for v0, core v1 6.3 for v1); new configuration `accept_versions` (default `{0, 1}`) and `refuse_fast_mode` (default false); new rule T1a refuses `mode = 2` when `refuse_fast_mode` is set (`transfer.ErrFastModeRefused`). Fast mode (core v1 6.4): an Authorization with `mode = 2` was issued before the payload's L1 anchor landed; if the anchor misses `anchor_deadline` the decision is provably invalid afterwards, possibly after the transfer was signed, so an operator who needs "anchored before the transfer" refuses fast mode. Encodings, the body rule, the execution check and every other rule unchanged; `commitment_hash` in the memo (3.1) is the v1 hash for a v1 decision. Outcome change: an executor at the defaults now accepts an Authorization v1 it refused before. | Every file byte-identical. The v1 Authorization check is covered by core `spec/vectors/v1/authorization.json`, as T1 is by the v0 one. |
 
 Editorial clarification of `bank-send-v0-draft.4` (2026-10-05, no bump): T10
 names the loop height as the status node's latest committed height and the
@@ -315,6 +318,8 @@ inclusion never implies `outcome = success`; RP decides it.
 | `max_timeout_blocks` | Cap on `timeout_height - H0`, `1..10000`, default 200. |
 | `rebroadcast_every` | Resend interval, default 10 s. |
 | `skew_s` | Clock tolerance, `0..300`. |
+| `accept_versions` | Authorization versions accepted, a non-empty subset of `{0, 1}`; default `{0, 1}` (passed as `check.accept_versions`, core v1 6.3). |
+| `refuse_fast_mode` | Refuse an Authorization v1 with `mode = 2` (fast: the payload was attested available but not yet anchored on L1 when the gate authorized); default false. |
 | `hand_off_grace` | How long after `expires` the executor keeps watching a transaction whose `timeout_height` the head has not passed (a stalled or halted chain), default 10 min. Never negative. |
 | `indexer_lag_blocks` | How many blocks past `timeout_height` the status node's height must be before T12 (a) applies, default 3. It covers the lag of the node's transaction indexer behind block commit, not reorgs (CometBFT has instant finality). Never negative; 0 is allowed but not recommended. |
 | `confirm_delay` | Wait before the second status query of T12 (a), default 2 s, at most `rebroadcast_every`. |
@@ -326,7 +331,8 @@ inclusion never implies `outcome = success`; RP decides it.
 
 | Rule | Step | On failure |
 |---|---|---|
-| T1 | `VerifyAuthorization` with the pinned key and gate id, `type = application/vnd.edicta.cosmos.bank-send.v0+cbor`, the exact action bytes, clock and `skew_s` (core 15.3) | the core sentinel |
+| T1 | `VerifyAuthorization` with the pinned key and gate id, `type = application/vnd.edicta.cosmos.bank-send.v0+cbor`, the exact action bytes, clock, `skew_s` and `accept_versions`: core 15.3 for `version = 0`, core v1 6.3 for `version = 1` (stages D, S including `mode` and `anchor_deadline`, G under the v1 tags, X1 to X4) | the core sentinel |
+| T1a | If the Authorization is v1 with `mode = 2` and `refuse_fast_mode` is set: refuse, before anything is decoded or signed. Otherwise record the mode (and `anchor_deadline` for `mode = 2`) with the dedupe record, for the operator's audit | `transfer.ErrFastModeRefused` |
 | T2 | `bankaction.Decode(action_bytes)` (2.2) | `bankaction.ErrMalformed` |
 | T3 | `chain_id == Domain.chain_id`, bytewise (core I4) | `transfer.ErrChainMismatch` |
 | T4 | `bankmsg.Decode(msg, Domain.hrp)` (2.3) | `bankmsg.ErrMalformed` |
@@ -566,6 +572,7 @@ recipient of the payload (core 9.1); it is never public in clear text.
 | `bankaction.ErrMalformed` | 2.2, T2 | `action.json` `reject`, `exec_action_malformed` |
 | `bankaction.ErrBodyMismatch` | 3.3 | `tx.json` `body_reject` |
 | `bankmsg.ErrMalformed` | 2.3, T4 | `msg_send.json` `reject`, `exec_msg_*` |
+| `transfer.ErrFastModeRefused` | T1a | none (configuration; core `v1/authorization.json` holds fast-mode Authorizations) |
 | `transfer.ErrChainMismatch` | T3 | `exec_chain_mismatch`, `exec_chain_id_case`, `exec_chain_before_msg` |
 | `transfer.ErrSenderMismatch` | T5 | `exec_sender_mismatch`, `exec_sender_before_denom` |
 | `transfer.ErrDenomMismatch` | T5 | `exec_denom_mismatch`, `exec_denom_before_destination` |

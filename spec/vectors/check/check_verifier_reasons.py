@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/verifier/reasons.json (v0-draft.30).
+"""Verifies spec/vectors/verifier/reasons.json (v0-draft.30 plus core v1 section 14, v1-draft.2).
 
 - the reason enum: unique lower-case names, known groups and checks;
 - every reason has at least one case, and every case's reason is in the enum
@@ -70,7 +70,7 @@ def check(path: Path) -> str:
     f = json.loads(raw)
     if path == FILE:
         expect(raw == json.dumps(gen.build(), indent=2, ensure_ascii=True) + "\n", "generator output differs")
-    expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v0-draft.30", "format or revision")
+    expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v1-draft.2", "format or revision")
     expect(set(f) == {"format", "revision", "generator", "description", "reasons", "cases", "boundary"}, "keys")
     enum = {}
     for r in f["reasons"]:
@@ -78,7 +78,8 @@ def check(path: Path) -> str:
         expect(re.fullmatch(r"[a-z][a-z0-9_]*", r["name"]) is not None and r["name"] not in enum, f"name {r['name']}")
         expect(r["group"] in GROUPS and set(r["checks"]) <= CHECKS and r["checks"], f"reason {r['name']}")
         enum[r["name"]] = r
-    for need in ("payload_unavailable", "source_corrupt", "chain_mismatch", "header_disagreement"):
+    for need in ("payload_unavailable", "source_corrupt", "chain_mismatch", "header_disagreement", "anchor_pending",
+                 "absence_unproven", "policy_private", "principal_scheme_unsupported"):
         expect(need in enum, f"missing reason {need}")
     seen_ids, used, ref_cache = set(), set(), {}
 
@@ -142,14 +143,22 @@ def main() -> int:
     except (Failure, KeyError, ValueError) as e:
         print(f"FAIL (reasons.json): {type(e).__name__}: {e}", file=sys.stderr)
         return 1
-    pol = json.loads((VECTORS / "policy" / "verify.json").read_text())
-    pby = {c["id"]: c for c in pol["cases"]}
+    pby = {}
+    for rel in ("policy/verify.json", "policy/private.json"):
+        pby |= {f"{rel}#{c['id']}": c for c in json.loads((VECTORS / rel).read_text())["cases"]}
+    vby = {f"v1/verify.json#{c['id']}": c for c in json.loads((VECTORS / "v1" / "verify.json").read_text())["cases"]}
     f = json.loads(path.read_text())
     try:
+        expect("anchor" in next(r for r in f["reasons"] if r["name"] == "blocked")["checks"], "blocked on anchor")
         for c in f["cases"] + f["boundary"]:
             for ref in c["refs"]:
-                if ref.startswith("policy/verify.json#"):
-                    pe = pby[ref.partition("#")[2]]["expect"]
+                if ref in vby:
+                    ve, e = vby[ref]["expect"], c["expect"]
+                    expect(ve["exit"] == e["exit"] and ve["verdict"] == e["verdict"], f"{c['id']}: verdict differs")
+                    vc = ve[e["check"]]
+                    expect(vc["status"] == e["status"] and vc.get("reason") == e["reason"], f"{c['id']}: check differs")
+                if ref in pby:
+                    pe = pby[ref]["expect"]
                     e = c["expect"]
                     expect(pe["exit"] == e["exit"] and pe["verdict"] == e["verdict"], f"{c['id']}: verdict differs")
                     if e["check"] == "policy" and e["status"] == "unchecked":
@@ -160,7 +169,7 @@ def main() -> int:
     except (Failure, KeyError) as ex:
         print(f"FAIL (reasons.json): {ex}", file=sys.stderr)
         return 1
-    print(f"OK (reasons.json, v0-draft.30): {summary}")
+    print(f"OK (reasons.json, v1-draft.2): {summary}")
     return 0
 
 
