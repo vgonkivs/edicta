@@ -197,7 +197,9 @@ func (c vecCase) verifier(t testing.TB, d vecDoc) (*Verifier, vecArchive) {
 		cfg.MaxWalkSteps = n
 	}
 	for _, k := range c.Config.Principals {
-		cfg.PrincipalKeys = append(cfg.PrincipalKeys, unhex(t, k))
+		id, err := policy.ParsePrincipal(k)
+		require.NoError(t, err)
+		cfg.PrincipalKeys = append(cfg.PrincipalKeys, id)
 	}
 	for _, e := range c.Config.Evidence {
 		cfg.Evidence = append(cfg.Evidence, unhex(t, e))

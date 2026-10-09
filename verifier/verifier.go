@@ -147,8 +147,9 @@ type ExecutionChecker interface {
 type Config struct {
 	Params   commitment.Params
 	GateKeys []ed25519.PublicKey
-	// PrincipalKeys are the mandate principals the auditor trusts.
-	PrincipalKeys []ed25519.PublicKey
+	// PrincipalKeys are the mandate principals the auditor trusts, typed by
+	// scheme (policy.ParsePrincipal); a pin matches only its own scheme.
+	PrincipalKeys []policy.PrincipalID
 	// RequirePolicy states that the gate had a mandate: the policy check then
 	// runs for every authorized decision, also when the archive holds no
 	// allow record.
@@ -182,11 +183,14 @@ func (c Config) ValidateBasic() error {
 		}
 	}
 	for i, k := range c.PrincipalKeys {
-		if err := commitment.CheckPublicKey(k); err != nil {
+		if err := k.Validate(); err != nil {
 			return fmt.Errorf("%w: principal key %d: %w", ErrInvalidConfig, i, err)
 		}
+		if k.SigType != 0 {
+			continue
+		}
 		for _, g := range c.GateKeys {
-			if string(g) == string(k) {
+			if string(g) == string(k.Principal) {
 				return fmt.Errorf("%w: principal key %d is a gate key", ErrInvalidConfig, i)
 			}
 		}
@@ -332,7 +336,7 @@ func New(d Deps) (*Verifier, error) {
 		v.cfg.GateKeys = append(v.cfg.GateKeys, append(ed25519.PublicKey(nil), k...))
 	}
 	for _, k := range d.Config.PrincipalKeys {
-		v.cfg.PrincipalKeys = append(v.cfg.PrincipalKeys, append(ed25519.PublicKey(nil), k...))
+		v.cfg.PrincipalKeys = append(v.cfg.PrincipalKeys, policy.PrincipalID{SigType: k.SigType, Principal: bytes.Clone(k.Principal)})
 	}
 	for _, e := range d.Config.Evidence {
 		v.cfg.Evidence = append(v.cfg.Evidence, bytes.Clone(e))

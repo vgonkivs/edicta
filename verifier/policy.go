@@ -318,7 +318,7 @@ func (p *policyRun) fast(allow *allowRec) (*policy.Mandate, error) {
 		return nil, nil
 	}
 	p.fillInfo(allow, m)
-	if !p.principalTrusted(m.Principal) {
+	if !p.principalTrusted(m) {
 		p.setFast(p.unchecked(ReasonPolicyPrincipalUntrusted, errors.New("the mandate's principal is not a trusted key")))
 		return m, nil
 	}
@@ -382,9 +382,9 @@ func (p *policyRun) fast(allow *allowRec) (*policy.Mandate, error) {
 	return m, nil
 }
 
-func (p *policyRun) principalTrusted(pub []byte) bool {
+func (p *policyRun) principalTrusted(m *policy.Mandate) bool {
 	for _, k := range p.v.cfg.PrincipalKeys {
-		if bytes.Equal(k, pub) {
+		if k.Pins(m) {
 			return true
 		}
 	}

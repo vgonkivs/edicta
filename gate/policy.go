@@ -51,17 +51,26 @@ func (g *Gate) setupPolicy(ctx context.Context) error {
 			return bad("action type %q has no extractor", t)
 		}
 	}
-	var pk [32]byte
-	copy(pk[:], m.Principal)
-	if _, ok := g.gateKeys[pk]; ok {
-		return fmt.Errorf("%w: principal key is a gate key", commitment.ErrKeyRole)
+	// This gate cannot yet encrypt the mandate and its verdicts to the
+	// auditors, so serving a private mandate would publish it in clear.
+	if len(m.Auditors) > 0 {
+		return bad("private mandates (auditors) are not supported by this gate")
 	}
-	if _, ok := g.executors[pk]; ok {
-		return fmt.Errorf("%w: principal key is an executor key", commitment.ErrKeyRole)
-	}
-	hk, hasKeys := g.d.Allowlist.(hasKey)
-	if hasKeys && hk.HasKey(pk) {
-		return fmt.Errorf("%w: principal key is an agent key", commitment.ErrKeyRole)
+	// Roles compare as (sig_type, bytes): only an Ed25519 principal can be one
+	// of the gate's Ed25519 keys, and padding a shorter principal to 32 bytes
+	// could match a key it is not.
+	if m.SigType == 0 {
+		var pk [32]byte
+		copy(pk[:], m.Principal)
+		if _, ok := g.gateKeys[pk]; ok {
+			return fmt.Errorf("%w: principal key is a gate key", commitment.ErrKeyRole)
+		}
+		if _, ok := g.executors[pk]; ok {
+			return fmt.Errorf("%w: principal key is an executor key", commitment.ErrKeyRole)
+		}
+		if hk, ok := g.d.Allowlist.(hasKey); ok && hk.HasKey(pk) {
+			return fmt.Errorf("%w: principal key is an agent key", commitment.ErrKeyRole)
+		}
 	}
 	for i, a := range m.Agents {
 		var ak [32]byte

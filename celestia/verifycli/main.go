@@ -147,7 +147,7 @@ type flags struct {
 	checkExec     bool
 	params        commitment.Params
 	asJSON        bool
-	principalKeys []ed25519.PublicKey
+	principalKeys []policy.PrincipalID
 	requirePolicy bool
 	policyFull    bool
 	maxWalkSteps  int
@@ -158,7 +158,7 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	const usage = "usage: verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) " +
 		"[--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)] [--cross-check URL]... [--exclude-host HOST]... " +
 		"[--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution] " +
-		"[--principal-key HEX]... [--require-policy] [--policy-full] [--max-walk-steps N] [--policy-evidence FILE]... [--json]"
+		"[--principal-key HEX]... [--principal ed25519:HEX|cosmos:BECH32|eth:0xHEX]... [--require-policy] [--policy-full] [--max-walk-steps N] [--policy-evidence FILE]... [--json]"
 	var f flags
 	if len(args) == 0 || (args[0] != "verify" && args[0] != "replay") {
 		return f, usagef("%s", usage)
@@ -189,7 +189,9 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	fs.IntVar(&f.maxWalkSteps, "max-walk-steps", verifier.DefaultMaxWalkSteps, "most steps the policy walk takes toward genesis (at least 1)")
 	fs.IntVar(&f.maxWalkSteps, "policy-depth", verifier.DefaultMaxWalkSteps, "alias of --max-walk-steps")
 	var principals multiFlag
-	fs.Var(&principals, "principal-key", "trusted mandate principal public key, hex (repeatable; commas also separate keys)")
+	fs.Var(&principals, "principal-key", "trusted Ed25519 mandate principal public key, hex (repeatable; commas also separate keys)")
+	var typedPrincipals multiFlag
+	fs.Var(&typedPrincipals, "principal", "trusted mandate principal by scheme: ed25519:HEX, cosmos:BECH32 or eth:0xHEX (repeatable; commas also separate)")
 	var evidence multiFlag
 	fs.Var(&evidence, "policy-evidence", "file with a signed policy verdict held by the auditor, for fork detection (repeatable)")
 	var ckpt, cross, exclude, txRPC multiFlag
@@ -227,8 +229,21 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 		return f, usageError{err}
 	}
 	if len(principals) > 0 {
-		if f.principalKeys, err = parseKeyList(strings.Join(principals, ","), "--principal-key"); err != nil {
+		keys, err := parseKeyList(strings.Join(principals, ","), "--principal-key")
+		if err != nil {
 			return f, usageError{err}
+		}
+		for _, k := range keys {
+			f.principalKeys = append(f.principalKeys, policy.PrincipalID{Principal: k})
+		}
+	}
+	for _, s := range typedPrincipals {
+		for _, part := range strings.Split(s, ",") {
+			id, err := policy.ParsePrincipal(strings.TrimSpace(part))
+			if err != nil {
+				return f, usagef("--principal: %v", err)
+			}
+			f.principalKeys = append(f.principalKeys, id)
 		}
 	}
 	f.evidencePaths = evidence
