@@ -287,6 +287,7 @@ func (g *Gate) Authorize(ctx context.Context, envelope, action, salt []byte) (re
 
 func (g *Gate) authorize(ctx context.Context, envelope, action, salt []byte, ev *AdmissionEvent) (Result, error) {
 	envelope = bytes.Clone(envelope)
+	action = bytes.Clone(action)
 	salt = bytes.Clone(salt)
 	if g.closed.Load() {
 		return Result{}, ErrClosed
