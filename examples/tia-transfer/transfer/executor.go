@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/vgonkivs/edicta/commitment"
@@ -25,6 +26,9 @@ const ActionType = bankaction.ActionType
 var (
 	// ErrInvalidConfig means NewExecutor refused its arguments.
 	ErrInvalidConfig = errors.New("transfer: invalid configuration")
+	// ErrFastModeRefused is an Authorization v1 in fast mode at an executor
+	// configured to act only on decisions anchored before the authorization.
+	ErrFastModeRefused = errors.New("transfer: fast-mode authorization refused")
 	// ErrHandedOff means the executor stopped waiting or the node rejected the
 	// transaction, and the operator takes over. Library users can call Resume to
 	// look the transaction up again. No second transaction is built for the decision.
@@ -107,6 +111,12 @@ type Config struct {
 	GateID     string
 	// SkewS is the clock tolerance, 0..300.
 	SkewS uint64
+	// AcceptVersions lists the Authorization versions accepted, a subset of
+	// {0, 1}; empty means both.
+	AcceptVersions []uint64
+	// RefuseFastMode refuses an Authorization v1 in fast mode, issued before
+	// the payload's anchor landed on L1.
+	RefuseFastMode bool
 	// MaxAmount in base units; 0 disables the check.
 	MaxAmount uint64
 	// MaxFee is the fee cap handed to the Rail's signer, which enforces it.
@@ -161,6 +171,8 @@ func NewExecutor(cfg Config, d Domain, r Rail, s Store, c Clock) (*Executor, err
 		return nil, bad("empty gate id")
 	case cfg.SkewS > maxSkewS:
 		return nil, bad("skew %d above %d", cfg.SkewS, maxSkewS)
+	case slices.ContainsFunc(cfg.AcceptVersions, func(v uint64) bool { return v != commitment.VersionV0 && v != commitment.VersionV1 }):
+		return nil, bad("authorization version outside {0, 1}")
 	case cfg.MaxTimeoutBlocks > bankaction.MaxTimeoutBlocks:
 		return nil, bad("max timeout blocks above %d", bankaction.MaxTimeoutBlocks)
 	case cfg.HandOffGrace < 0:
@@ -180,6 +192,7 @@ func NewExecutor(cfg Config, d Domain, r Rail, s Store, c Clock) (*Executor, err
 	}
 	cfg.GatePubKey = bytes.Clone(cfg.GatePubKey)
 	cfg.SignKey = bytes.Clone(cfg.SignKey)
+	cfg.AcceptVersions = slices.Clone(cfg.AcceptVersions)
 	cfg.Destinations = append([]string(nil), cfg.Destinations...)
 	if cfg.MaxTimeoutBlocks == 0 {
 		cfg.MaxTimeoutBlocks = defaultMaxTimeoutBlocks
@@ -231,10 +244,15 @@ func (e *Executor) Execute(ctx context.Context, authorization, action []byte) (R
 	action = bytes.Clone(action)
 	sa, _, err := commitment.VerifyAuthorization(authorization, commitment.AuthorizationCheck{
 		GatePubKey: e.cfg.GatePubKey, GateID: e.cfg.GateID, ActionType: ActionType,
-		Action: action, Now: e.now(), SkewS: e.cfg.SkewS,
+		Action: action, Now: e.now(), SkewS: e.cfg.SkewS, AcceptVersions: e.cfg.AcceptVersions,
 	})
 	if err != nil {
 		return Result{}, err
+	}
+	// Before anything is decoded or signed: the operator chose to act only
+	// on anchored decisions.
+	if e.cfg.RefuseFastMode && sa.Authorization.Mode == commitment.ModeFast {
+		return Result{}, ErrFastModeRefused
 	}
 	a, _, err := bankaction.CheckExecution(action, bankaction.Domain(e.dom), e.limits)
 	if err != nil {

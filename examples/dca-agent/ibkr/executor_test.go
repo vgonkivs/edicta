@@ -83,7 +83,7 @@ func authorize(t *testing.T, key ed25519.PrivateKey, ch commitment.Hash, actionT
 	}
 	canon, err := commitment.EncodeAuthorization(&a)
 	require.NoError(t, err)
-	sig := ed25519.Sign(key, commitment.AuthorizationSigningMessage(commitment.HashAuthorization(canon)))
+	sig := ed25519.Sign(key, commitment.AuthorizationSigningMessageFor(a.Version, commitment.HashAuthorizationFor(a.Version, canon)))
 	out, err := commitment.EncodeSignedAuthorization(&commitment.SignedAuthorization{Authorization: a, Signature: sig})
 	require.NoError(t, err)
 	return out

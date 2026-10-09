@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
+	"slices"
 	"time"
 
 	"github.com/vgonkivs/edicta/commitment"
@@ -20,6 +21,10 @@ var ErrInvalidConfig = errors.New("ibkr: invalid configuration")
 // record stays in flight; a later Execute resolves it by lookup and never by
 // sending again.
 var ErrOutcomeUnknown = errors.New("ibkr: order outcome unknown")
+
+// ErrFastModeRefused is an Authorization v1 in fast mode at an executor
+// configured to act only on decisions anchored before the authorization.
+var ErrFastModeRefused = errors.New("ibkr: fast-mode authorization refused")
 
 const (
 	maxSkewS           = 300
@@ -44,6 +49,12 @@ type ExecutorConfig struct {
 	// SignKey is the executor's own key for record requests. Optional: without
 	// it RecordRequest fails. It must be on the gate's executor allowlist.
 	SignKey ed25519.PrivateKey
+	// AcceptVersions lists the Authorization versions accepted, a subset of
+	// {0, 1}; empty means both.
+	AcceptVersions []uint64
+	// RefuseFastMode refuses an Authorization v1 in fast mode, issued before
+	// the payload's anchor landed on L1.
+	RefuseFastMode bool
 }
 
 // Executor places an authorized order once.
@@ -78,7 +89,13 @@ func NewExecutor(cfg ExecutorConfig, b Broker, s Store, c Clock) (*Executor, err
 	case b == nil || s == nil || c == nil:
 		return nil, bad("nil broker, store or clock")
 	}
+	for _, v := range cfg.AcceptVersions {
+		if v != commitment.VersionV0 && v != commitment.VersionV1 {
+			return nil, bad("authorization version %d", v)
+		}
+	}
 	cfg.SignKey = bytes.Clone(cfg.SignKey)
+	cfg.AcceptVersions = slices.Clone(cfg.AcceptVersions)
 	if cfg.ExecTimeout == 0 {
 		cfg.ExecTimeout = defaultExecTimeout
 	}
@@ -104,10 +121,15 @@ func (e *Executor) Execute(ctx context.Context, authorization, action []byte) (s
 	action = bytes.Clone(action)
 	sa, _, err := commitment.VerifyAuthorization(authorization, commitment.AuthorizationCheck{
 		GatePubKey: e.cfg.GatePubKey, GateID: e.cfg.GateID, ActionType: ibkrorder.ActionType,
-		Action: action, Now: e.now(), SkewS: e.cfg.SkewS,
+		Action: action, Now: e.now(), SkewS: e.cfg.SkewS, AcceptVersions: e.cfg.AcceptVersions,
 	})
 	if err != nil {
 		return "", err
+	}
+	// Before the order is parsed: the operator chose to act only on anchored
+	// decisions.
+	if e.cfg.RefuseFastMode && sa.Authorization.Mode == commitment.ModeFast {
+		return "", ErrFastModeRefused
 	}
 	o, err := CheckOrder(e.cfg.Check, action)
 	if err != nil {
