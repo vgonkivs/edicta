@@ -125,7 +125,7 @@ func TestStoredRecordsReadBack(t *testing.T) {
 	assert.Equal(t, e, gotE)
 
 	d := fx.Cases["decision_minimal_lmt"].Record.(*archive.DecisionRecord)
-	h := hashOf(t, "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d")
+	h := hashOf(t, "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe")
 	gotD, err := s.Decision(bg, h)
 	require.NoError(t, err)
 	assert.Equal(t, d, gotD)
@@ -254,7 +254,7 @@ func TestMarkerAfterAuthorizedIsSkippedNotRefused(t *testing.T) {
 func TestAuthorizedIsFinal(t *testing.T) {
 	fx := archivefix.Load(t)
 	s, _ := open(t, fx)
-	h := hashOf(t, "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d")
+	h := hashOf(t, "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe")
 	for _, id := range []string{
 		"decision_minimal_lmt", "rejection_minimal_lmt_not_yet_valid", "authorization_minimal_lmt_da",
 		"rejection_minimal_lmt_payload_unavailable", "decision_minimal_lmt", "authorization_minimal_lmt_da_repaired",
@@ -318,7 +318,7 @@ func TestFailedWriteLeavesNothing(t *testing.T) {
 	p := fx.Cases["payload_da2_minimal_lmt"].Record.(*archive.PayloadRecord)
 	_, err := s.Payload(bg, p.DA, p.Commitment)
 	require.ErrorIs(t, err, archive.ErrNotFound)
-	st, err := s.State(bg, hashOf(t, "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d"))
+	st, err := s.State(bg, hashOf(t, "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe"))
 	require.NoError(t, err)
 	assert.Equal(t, "absent", stateName(st))
 }
@@ -364,7 +364,7 @@ func TestInterruptedWriteIsInvisible(t *testing.T) {
 	for _, f := range archivefix.Files(t, dir) {
 		assert.NotEqual(t, c.Key, f)
 	}
-	h := hashOf(t, "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d")
+	h := hashOf(t, "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe")
 	_, err := s.Decision(bg, h)
 	require.ErrorIs(t, err, archive.ErrNotFound)
 	st, err := s.State(bg, h)
@@ -411,7 +411,7 @@ func TestRecordUnderWrongKeyIsCorrupt(t *testing.T) {
 	_, err = s.Evidence(bg, ev.DA, other.Commitment)
 	require.ErrorIs(t, err, archive.ErrCorrupt)
 
-	h2 := hashOf(t, "476a1b65952e00d9cd36df2547b9c4404cb5f4b3606671f8e3c30cef5ec3249a")
+	h2 := hashOf(t, "3e13dd25c51f419bf9ace50e2faec5922143979262efc031fb05aafb174cb3ad")
 	plant(t, dir, "decision/"+hex.EncodeToString(h2[:]), fx.Cases["decision_minimal_lmt"].CBOR)
 	_, err = s.Decision(bg, h2)
 	require.ErrorIs(t, err, archive.ErrCorrupt)
@@ -420,7 +420,7 @@ func TestRecordUnderWrongKeyIsCorrupt(t *testing.T) {
 	_, err = s.Authorization(bg, h2)
 	require.ErrorIs(t, err, archive.ErrCorrupt)
 
-	h := hashOf(t, "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d")
+	h := hashOf(t, "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe")
 	plant(t, dir, "rejection/"+hex.EncodeToString(h[:])+"/ErrExpired", fx.Cases["rejection_minimal_lmt_not_yet_valid"].CBOR)
 	_, err = s.Rejection(bg, h, "ErrExpired")
 	require.ErrorIs(t, err, archive.ErrCorrupt)
@@ -596,7 +596,7 @@ func TestConcurrentDifferentIdentity(t *testing.T) {
 func TestConcurrentMarkersAndAuthorization(t *testing.T) {
 	fx := archivefix.Load(t)
 	s, _ := open(t, fx)
-	h := hashOf(t, "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d")
+	h := hashOf(t, "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe")
 	_, err := s.Put(bg, fx.Cases["decision_minimal_lmt"].Record)
 	require.NoError(t, err)
 

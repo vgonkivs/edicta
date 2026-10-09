@@ -12,7 +12,8 @@ import (
 	"github.com/vgonkivs/edicta/policy"
 )
 
-const formatV0 = 0
+// format is the archive record format this codec reads and writes.
+const format = 1
 
 var errNilRecord = errors.New("archive: nil record")
 
@@ -43,6 +44,9 @@ type pmap struct {
 	subs  map[uint64]*pmap
 	da    uint64
 	hasDA bool
+	// form is the decision record's form, read before the keys it governs.
+	form    uint64
+	hasForm bool
 }
 
 func decode(data []byte, clone bool) (Record, error) {
@@ -69,7 +73,7 @@ func decode(data []byte, clone bool) (Record, error) {
 			return nil, fmt.Errorf("%w: record.%s", commitment.ErrWrongType, c.name)
 		}
 	}
-	if top[1].u != formatV0 {
+	if top[1].u != format {
 		return nil, fmt.Errorf("%w: format %d", commitment.ErrUnsupportedVersion, top[1].u)
 	}
 	kind := Kind(top[2].u)
@@ -151,6 +155,9 @@ func parseMap(it *gitem, defs []fdef, where string) (*pmap, error) {
 		if d.name == "da" {
 			pm.da, pm.hasDA = v.u, true
 		}
+		if d.name == "form" {
+			pm.form, pm.hasForm = v.u, true
+		}
 	}
 	for i := range defs {
 		d := &defs[i]
@@ -171,6 +178,8 @@ func (pm *pmap) checkDefined(d *fdef, path string) error {
 	case pTxIndex, pTxProof:
 		_, ok := pm.items[8]
 		bad = !ok
+	case pForm1:
+		bad = pm.hasForm && pm.form == FormPrivate
 	}
 	if bad {
 		return fmt.Errorf("%w: %s is not defined here", commitment.ErrUnknownKey, path)
@@ -189,6 +198,8 @@ func (pm *pmap) required(d *fdef) bool {
 	case pTxIndex:
 		_, ok := pm.items[8]
 		return ok
+	case pForm1:
+		return pm.hasForm && pm.form == FormPublic
 	}
 	return false
 }
@@ -219,6 +230,7 @@ var nonZero = map[string]bool{
 	"intent_height": true, "height": true, "promise_height": true, "authorized_at": true,
 	"rejected_at": true, "checked_at": true, "block_time": true, "blob_retention_s": true,
 	"retention_latest_s": true, "retention_at_height_s": true, "promise_created": true,
+	"fast_window": true,
 }
 
 func checkValues(pm *pmap, defs []fdef, kind Kind) error {
@@ -229,6 +241,9 @@ func checkValues(pm *pmap, defs []fdef, kind Kind) error {
 		}
 		if u.name == "tx_code" && u.v != 0 {
 			return fmt.Errorf("%w: tx_code %d, only 0 is archived", commitment.ErrIntRange, u.v)
+		}
+		if u.name == "fast_window" && u.v > maxFastWindow {
+			return fmt.Errorf("%w: fast_window %d", commitment.ErrIntRange, u.v)
 		}
 	}
 	maps := []*pmap{pm}
@@ -245,6 +260,9 @@ func checkValues(pm *pmap, defs []fdef, kind Kind) error {
 			return fmt.Errorf("%w: retention_source %d", commitment.ErrInvalidEnum, it.u)
 		}
 	}
+	if kind == KindDecision && pm.form != FormPublic && pm.form != FormPrivate {
+		return fmt.Errorf("%w: form %d", commitment.ErrInvalidEnum, pm.form)
+	}
 	if kind == KindRejection && !verdicts[string(pm.items[4].b)] {
 		return fmt.Errorf("%w: %s is not a verdict", commitment.ErrInvalidEnum, pm.items[4].b)
 	}
@@ -260,8 +278,12 @@ func checkValues(pm *pmap, defs []fdef, kind Kind) error {
 	case KindMandate, KindPolicyAllow, KindPolicyDeny, KindPolicyBucket, KindPolicyClosed:
 		return checkPolicyBody(kind, pm.items[3].b)
 	case KindDecision:
-		if _, err := commitment.DecodeSigned(pm.items[3].b); err != nil {
+		s, err := commitment.DecodeSigned(pm.items[3].b)
+		if err != nil {
 			return err
+		}
+		if s.Commitment.Version != commitment.Version {
+			return fmt.Errorf("%w: decision of version %d", commitment.ErrUnsupportedVersion, s.Commitment.Version)
 		}
 	case KindAuthorization:
 		sa, _, err := commitment.DecodeSignedAuthorization(pm.items[3].b)
@@ -269,14 +291,46 @@ func checkValues(pm *pmap, defs []fdef, kind Kind) error {
 			return err
 		}
 		a := &sa.Authorization
-		if err := commitment.ValidateAuthorization(a, nil); err != nil {
+		if err := commitment.ValidateAuthorization(a); err != nil {
 			return err
 		}
-		// A fast-mode Authorization needs its window in the K2 inputs, a key
-		// this codec does not define yet.
-		if a.Mode == commitment.ModeFast {
-			return fmt.Errorf("%w: fast_window of a fast-mode authorization", commitment.ErrMissingField)
+		if k2, ok := pm.subs[5]; ok {
+			_, has := k2.items[9]
+			switch {
+			case has && a.Mode != commitment.ModeFast:
+				return fmt.Errorf("%w: fast_window of a strict authorization", commitment.ErrUnknownKey)
+			case !has && a.Mode == commitment.ModeFast:
+				return fmt.Errorf("%w: fast_window of a fast-mode authorization", commitment.ErrMissingField)
+			}
 		}
+	case KindReveal:
+		if _, _, err := commitment.DecodeSignedReceipt(pm.items[3].b); err != nil {
+			return err
+		}
+		if err := checkReceiptStatic(pm.items[3].b); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkReceiptStatic runs the receipt's stage S rules; its signatures are the
+// verifier's to check.
+func checkReceiptStatic(b []byte) error {
+	sr, _, err := commitment.DecodeSignedReceipt(b)
+	if err != nil {
+		return err
+	}
+	r := &sr.Receipt
+	switch {
+	case r.Version != commitment.Version:
+		return fmt.Errorf("%w: receipt version %d", commitment.ErrUnsupportedVersion, r.Version)
+	case r.Version > math.MaxInt64 || r.RecordedAt > math.MaxInt64:
+		return fmt.Errorf("%w: receipt", commitment.ErrIntRange)
+	case r.RecordedAt == 0:
+		return fmt.Errorf("%w: recorded_at", commitment.ErrZeroValue)
+	case bytes.Equal(r.ExecutorPubKey, r.GatePubKey):
+		return fmt.Errorf("%w: executor key is the gate key", commitment.ErrKeyRole)
 	}
 	return nil
 }
@@ -358,17 +412,19 @@ func build(pm *pmap, kind Kind, clone bool) Record {
 			Height: u(pm, 6), Header: bs(pm, 7), AnchorTx: bs(pm, 8), AnchorTxIndex: u(pm, 9),
 			AnchorTxProof: bs(pm, 10), BlobProof: bs(pm, 11), TxCode: u(pm, 12),
 			SystemBlob: bs(pm, 13), SystemBlobProof: bs(pm, 14), PromiseHeight: u(pm, 15),
-			PromiseHeader: bs(pm, 16), HistoricalInfo: bs(pm, 17), PromiseValset: bs(pm, 18),
+			PromiseHeader: bs(pm, 16), HistoricalInfo: bs(pm, 17),
 		}
 	case KindDecision:
-		return &DecisionRecord{Envelope: bs(pm, 3), Action: bs(pm, 4)}
+		return &DecisionRecord{Envelope: bs(pm, 3), Form: u(pm, 4), Action: bs(pm, 5), ActionSalt: bs(pm, 6)}
+	case KindReveal:
+		return &RevealRecord{SignedReceipt: bs(pm, 3), ActionSalt: bs(pm, 4)}
 	case KindAuthorization:
 		r := &AuthorizationRecord{SignedAuthorization: bs(pm, 3), AuthorizedAt: u(pm, 4)}
 		if k := pm.subs[5]; k != nil {
 			r.K2 = &K2Inputs{
 				DA: commitment.DA(u(k, 1)), CheckedAt: u(k, 2), BlockTime: u(k, 3),
 				BlobRetentionS: u(k, 4), RetentionLatestS: u(k, 5), RetentionAtHeightS: u(k, 6),
-				RetentionSource: RetentionSource(u(k, 7)), PromiseCreated: u(k, 8),
+				RetentionSource: RetentionSource(u(k, 7)), PromiseCreated: u(k, 8), FastWindow: u(k, 9),
 			}
 		}
 		return r
@@ -454,7 +510,7 @@ func (w *mapWriter) finish() []byte {
 // refuse the record.
 func encodeRaw(r Record) ([]byte, error) {
 	w := &mapWriter{}
-	w.uint(1, formatV0)
+	w.uint(1, format)
 	switch r := r.(type) {
 	case *PayloadRecord:
 		if r == nil {
@@ -493,14 +549,22 @@ func encodeRaw(r Record) ([]byte, error) {
 		}
 		w.opt(16, r.PromiseHeader)
 		w.opt(17, r.HistoricalInfo)
-		w.opt(18, r.PromiseValset)
 	case *DecisionRecord:
 		if r == nil {
 			return nil, errNilRecord
 		}
 		w.uint(2, uint64(KindDecision))
 		w.bytes(3, r.Envelope)
-		w.bytes(4, r.Action)
+		w.uint(4, r.Form)
+		w.opt(5, r.Action)
+		w.opt(6, r.ActionSalt)
+	case *RevealRecord:
+		if r == nil {
+			return nil, errNilRecord
+		}
+		w.uint(2, uint64(KindReveal))
+		w.bytes(3, r.SignedReceipt)
+		w.bytes(4, r.ActionSalt)
 	case *AuthorizationRecord:
 		if r == nil {
 			return nil, errNilRecord
@@ -513,7 +577,7 @@ func encodeRaw(r Record) ([]byte, error) {
 			s.uint(1, uint64(k.DA))
 			s.uint(2, k.CheckedAt)
 			s.uint(3, k.BlockTime)
-			for i, v := range []uint64{k.BlobRetentionS, k.RetentionLatestS, k.RetentionAtHeightS, uint64(k.RetentionSource), k.PromiseCreated} {
+			for i, v := range []uint64{k.BlobRetentionS, k.RetentionLatestS, k.RetentionAtHeightS, uint64(k.RetentionSource), k.PromiseCreated, k.FastWindow} {
 				if v != 0 {
 					s.uint(uint64(4+i), v)
 				}
@@ -596,6 +660,14 @@ func KeyPath(r Record) (string, error) {
 				return "", fmt.Errorf("archive: decision hash: %w", err)
 			}
 			return HashPath(KindDecision, h), nil
+		}
+	case *RevealRecord:
+		if r != nil {
+			sr, _, err := commitment.DecodeSignedReceipt(r.SignedReceipt)
+			if err != nil {
+				return "", fmt.Errorf("archive: reveal receipt: %w", err)
+			}
+			return HashPath(KindReveal, commitment.Hash(sr.Receipt.CommitmentHash)), nil
 		}
 	case *AuthorizationRecord:
 		if r != nil {
@@ -689,7 +761,7 @@ func DataPath(k Kind, da commitment.DA, commit []byte) (string, error) {
 	return k.String() + "/" + strconv.FormatUint(uint64(da), 10) + "/" + hex.EncodeToString(commit), nil
 }
 
-// HashPath is the path of a decision or Authorization record.
+// HashPath is the path of a decision, Authorization or reveal record.
 func HashPath(k Kind, h commitment.Hash) string {
 	return k.String() + "/" + hex.EncodeToString(h[:])
 }
@@ -742,7 +814,11 @@ func SameIdentity(a, b Record) bool {
 			bytes.Equal(a.Namespace, b.Namespace) && a.Height == b.Height
 	case *DecisionRecord:
 		b, ok := b.(*DecisionRecord)
-		return ok && bytes.Equal(a.Envelope, b.Envelope) && bytes.Equal(a.Action, b.Action)
+		return ok && bytes.Equal(a.Envelope, b.Envelope) && a.Form == b.Form &&
+			bytes.Equal(a.Action, b.Action) && bytes.Equal(a.ActionSalt, b.ActionSalt)
+	case *RevealRecord:
+		b, ok := b.(*RevealRecord)
+		return ok && bytes.Equal(a.SignedReceipt, b.SignedReceipt) && bytes.Equal(a.ActionSalt, b.ActionSalt)
 	case *AuthorizationRecord:
 		b, ok := b.(*AuthorizationRecord)
 		return ok && bytes.Equal(a.SignedAuthorization, b.SignedAuthorization)

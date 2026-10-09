@@ -176,7 +176,7 @@ func TestK2DAMismatch(t *testing.T) {
 	b, err := archive.Encode(&bad)
 	require.NoError(t, err)
 	plant(t, dir, fx.Cases["authorization_minimal_lmt_da"].Key, b)
-	h := hashOf(t, "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d")
+	h := hashOf(t, "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe")
 	_, err = s.Authorization(bg, h)
 	require.ErrorIs(t, err, archive.ErrCorrupt)
 	_, err = s.State(bg, h)

@@ -188,7 +188,13 @@ func (s *Store) Put(ctx context.Context, r archive.Record) (archive.Outcome, err
 		if err := s.require(need); err != nil {
 			return 0, err
 		}
-	case *archive.AuthorizationRecord, *archive.RejectionRecord:
+	case *archive.DecisionRecord:
+		// A private decision needs the encrypted action record first, which
+		// this store does not hold yet.
+		if r.Form == archive.FormPrivate {
+			return 0, fmt.Errorf("%w: private action record of a private decision", archive.ErrNotFound)
+		}
+	case *archive.AuthorizationRecord, *archive.RejectionRecord, *archive.RevealRecord:
 		return s.putDependent(ctx, r, rel, b)
 	case *archive.PolicyAllowRecord, *archive.PolicyDenyRecord, *archive.PolicySuccessorRecord:
 		if err := s.checkPolicyDeps(r); err != nil {
@@ -209,6 +215,12 @@ func (s *Store) putDependent(ctx context.Context, r archive.Record, rel string, 
 			return 0, fmt.Errorf("fsarchive: %w", err)
 		}
 		copy(h[:], sa.Authorization.CommitmentHash)
+	case *archive.RevealRecord:
+		sr, _, err := commitment.DecodeSignedReceipt(r.SignedReceipt)
+		if err != nil {
+			return 0, fmt.Errorf("fsarchive: %w", err)
+		}
+		copy(h[:], sr.Receipt.CommitmentHash)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -530,6 +542,19 @@ func (s *Store) Decision(_ context.Context, h commitment.Hash) (*archive.Decisio
 		return nil, corruptType(rel)
 	}
 	return d, nil
+}
+
+func (s *Store) Reveal(_ context.Context, h commitment.Hash) (*archive.RevealRecord, error) {
+	rel := archive.HashPath(archive.KindReveal, h)
+	rec, err := s.read(rel)
+	if err != nil {
+		return nil, err
+	}
+	r, ok := rec.(*archive.RevealRecord)
+	if !ok {
+		return nil, corruptType(rel)
+	}
+	return r, nil
 }
 
 func (s *Store) Authorization(_ context.Context, h commitment.Hash) (*archive.AuthorizationRecord, error) {

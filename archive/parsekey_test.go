@@ -27,7 +27,7 @@ func TestParseKeyAcceptsEveryVectorKey(t *testing.T) {
 }
 
 func TestParseKeyRefusesEverythingElse(t *testing.T) {
-	const h = "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d"
+	const h = "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe"
 	upper := strings.ToUpper(h)
 	tests := []struct {
 		name string
@@ -82,7 +82,7 @@ func TestParseKeyRefusesEverythingElse(t *testing.T) {
 }
 
 func TestParseKeyKnowsAllThirteenVerdicts(t *testing.T) {
-	const h = "e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d"
+	const h = "2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe"
 	verdicts := []string{
 		"ErrActionMismatch", "ErrAnchorNotFound", "ErrAnchorTooOld", "ErrArchiveRecomputeUnsupported",
 		"ErrDACommitmentMismatch", "ErrExpired", "ErrIssuedBeforeAnchor", "ErrNonceUsed", "ErrNotYetValid",

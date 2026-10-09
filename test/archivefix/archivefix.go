@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -339,7 +340,7 @@ func numOf(t testing.TB, m map[string]any, key string) uint64 {
 // Build makes a record from a vector input object.
 func Build(t testing.TB, in map[string]any) archive.Record {
 	t.Helper()
-	switch in["kind"] {
+	switch fmt.Sprint(in["kind"]) {
 	case "payload":
 		return &archive.PayloadRecord{
 			DA:           commitment.DA(numOf(t, in, "da")),
@@ -366,11 +367,15 @@ func Build(t testing.TB, in map[string]any) archive.Record {
 			PromiseHeight:   numOf(t, in, "promise_height"),
 			PromiseHeader:   bytesOf(t, in, "promise_header"),
 			HistoricalInfo:  bytesOf(t, in, "historical_info"),
-			PromiseValset:   bytesOf(t, in, "promise_valset"),
 		}
-	case "decision":
-		return &archive.DecisionRecord{Envelope: bytesOf(t, in, "envelope"), Action: bytesOf(t, in, "action")}
-	case "authorization":
+	case "decision", "17":
+		return &archive.DecisionRecord{
+			Envelope: bytesOf(t, in, "envelope"), Form: numOf(t, in, "form"),
+			Action: bytesOf(t, in, "action"), ActionSalt: bytesOf(t, in, "action_salt"),
+		}
+	case "execution_reveal", "18":
+		return &archive.RevealRecord{SignedReceipt: bytesOf(t, in, "signed_receipt"), ActionSalt: bytesOf(t, in, "action_salt")}
+	case "authorization", "4":
 		r := &archive.AuthorizationRecord{
 			SignedAuthorization: bytesOf(t, in, "signed_authorization"),
 			AuthorizedAt:        numOf(t, in, "authorized_at"),
@@ -385,10 +390,11 @@ func Build(t testing.TB, in map[string]any) archive.Record {
 				RetentionAtHeightS: numOf(t, k, "retention_at_height_s"),
 				RetentionSource:    archive.RetentionSource(numOf(t, k, "retention_source")),
 				PromiseCreated:     numOf(t, k, "promise_created"),
+				FastWindow:         numOf(t, k, "fast_window"),
 			}
 		}
 		return r
-	case "rejection":
+	case "rejection", "5":
 		r := &archive.RejectionRecord{
 			Error:      in["error"].(string),
 			GateID:     in["gate_id"].(string),

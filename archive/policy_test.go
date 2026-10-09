@@ -101,7 +101,7 @@ func TestPolicyArchiveReject(t *testing.T) {
 
 func TestPolicyMarkerNamesAndKeys(t *testing.T) {
 	d := loadPolicyArchive(t)
-	assert.Len(t, archive.Verdicts(), 28)
+	assert.Len(t, archive.Verdicts(), 33)
 	for _, n := range d.Markers {
 		assert.True(t, archive.IsVerdict(n), n)
 		assert.True(t, archive.IsPolicyDeny(n), n)

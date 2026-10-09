@@ -34,6 +34,7 @@ var (
 const (
 	maxEvidence        = 1 << 25
 	maxDecision        = 69632
+	maxReveal          = 640
 	maxAuthorization   = 512
 	maxRejection       = 256
 	maxPolicyRecord    = 16384 + 64
@@ -127,6 +128,8 @@ func capOf(k archive.Kind) int64 {
 		return maxEvidence
 	case archive.KindDecision:
 		return maxDecision
+	case archive.KindReveal:
+		return maxReveal
 	case archive.KindAuthorization:
 		return maxAuthorization
 	case archive.KindMandate, archive.KindPolicyAllow, archive.KindPolicyDeny, archive.KindPolicyBucket:

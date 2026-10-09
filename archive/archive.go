@@ -23,19 +23,27 @@ const MaxRecordSize = 1<<27 + 4096
 
 type Kind uint64
 
+// Kind numbers are scoped by the record format: kinds 3 and 6 are not
+// assigned in format 1, and 16 is reserved.
 const (
-	KindPayload       Kind = 1
-	KindEvidence      Kind = 2
-	KindDecision      Kind = 3
-	KindAuthorization Kind = 4
-	KindRejection     Kind = 5
-	// Kind 6 is never assigned.
+	KindPayload         Kind = 1
+	KindEvidence        Kind = 2
+	KindAuthorization   Kind = 4
+	KindRejection       Kind = 5
 	KindMandate         Kind = 7
 	KindPolicyAllow     Kind = 8
 	KindPolicyDeny      Kind = 9
 	KindPolicyBucket    Kind = 10
 	KindPolicyClosed    Kind = 11
 	KindPolicySuccessor Kind = 12
+	KindDecision        Kind = 17
+	KindReveal          Kind = 18
+)
+
+// Form of a decision record.
+const (
+	FormPublic  = 1
+	FormPrivate = 2
 )
 
 func (k Kind) String() string {
@@ -62,12 +70,23 @@ func (k Kind) String() string {
 		return "policy_closed"
 	case KindPolicySuccessor:
 		return "policy_successor"
+	case KindReveal:
+		return "reveal"
 	}
 	return "unknown"
 }
 
-// valid reports whether k is an assigned kind.
-func (k Kind) valid() bool { return k >= KindPayload && k <= KindPolicySuccessor && k != 6 }
+// valid reports whether k is a kind this codec reads. Kinds 13 to 15
+// (anchor intent, absence proof, private blob) are assigned but not read
+// yet, so a record that claims one is refused rather than misread.
+func (k Kind) valid() bool {
+	switch k {
+	case KindPayload, KindEvidence, KindAuthorization, KindRejection, KindMandate, KindPolicyAllow,
+		KindPolicyDeny, KindPolicyBucket, KindPolicyClosed, KindPolicySuccessor, KindDecision, KindReveal:
+		return true
+	}
+	return false
+}
 
 // Record is one of the pointer record types below.
 type Record interface {
@@ -104,12 +123,23 @@ type EvidenceRecord struct {
 	PromiseHeight   uint64
 	PromiseHeader   []byte
 	HistoricalInfo  []byte
-	PromiseValset   []byte
 }
 
+// DecisionRecord is the decision as presented to the gate. In the public
+// form it holds the action bytes and the salt in clear; in the private form
+// neither, they are in a private blob record.
 type DecisionRecord struct {
-	Envelope []byte
-	Action   []byte
+	Envelope   []byte
+	Form       uint64
+	Action     []byte
+	ActionSalt []byte
+}
+
+// RevealRecord publishes the action salt of an executed decision whose
+// profile executes on a public rail.
+type RevealRecord struct {
+	SignedReceipt []byte
+	ActionSalt    []byte
 }
 
 // AuthorizationRecord has a nil K2 when it was repaired from the registry.
@@ -138,6 +168,9 @@ type K2Inputs struct {
 	RetentionAtHeightS uint64
 	RetentionSource    RetentionSource
 	PromiseCreated     uint64
+	// FastWindow is anchor_deadline - h0, present iff the Authorization has
+	// mode 2.
+	FastWindow uint64
 }
 
 // RejectionRecord is the marker of one refused attempt. Error is a verdict
@@ -180,6 +213,7 @@ type PolicySuccessorRecord struct {
 func (*PayloadRecord) Kind() Kind         { return KindPayload }
 func (*EvidenceRecord) Kind() Kind        { return KindEvidence }
 func (*DecisionRecord) Kind() Kind        { return KindDecision }
+func (*RevealRecord) Kind() Kind          { return KindReveal }
 func (*AuthorizationRecord) Kind() Kind   { return KindAuthorization }
 func (*RejectionRecord) Kind() Kind       { return KindRejection }
 func (*MandateRecord) Kind() Kind         { return KindMandate }
@@ -245,6 +279,13 @@ type Store interface {
 	Authorization(ctx context.Context, h commitment.Hash) (*AuthorizationRecord, error)
 	Rejection(ctx context.Context, h commitment.Hash, name string) (*RejectionRecord, error)
 	State(ctx context.Context, h commitment.Hash) (DecisionState, error)
+}
+
+// RevealReader is the optional read side of the execution reveal record. It
+// returns ErrNotFound for an absent key and an ErrCorrupt error for a stored
+// record that does not decode or does not carry its key.
+type RevealReader interface {
+	Reveal(ctx context.Context, commitmentHash commitment.Hash) (*RevealRecord, error)
 }
 
 // PolicyReader is the optional read side of the policy records. A reader

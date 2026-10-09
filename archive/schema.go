@@ -28,6 +28,8 @@ const (
 	// required with it.
 	pTxIndex
 	pTxProof
+	// pForm1 is required for form 1 and not defined for form 2.
+	pForm1
 )
 
 type fdef struct {
@@ -45,6 +47,8 @@ const (
 
 	maxEvidenceSize      = 1 << 25
 	maxDecisionSize      = 69632
+	maxRevealSize        = 640
+	maxFastWindow        = 1000
 	maxAuthorizationSize = 512
 	maxRejectionSize     = 256
 
@@ -66,6 +70,7 @@ var k2Schema = []fdef{
 	{6, "retention_at_height_s", tUint, pReq1, 0, 0, nil},
 	{7, "retention_source", tUint, pReq1, 0, 0, nil},
 	{8, "promise_created", tUint, pOpt1, 0, 0, nil},
+	{9, "fast_window", tUint, pOpt, 0, 0, nil},
 }
 
 var commonSchema = []fdef{
@@ -102,12 +107,18 @@ func schemaOf(k Kind) []fdef {
 			{15, "promise_height", tUint, pReq1, 0, 0, nil},
 			{16, "promise_header", tBstr, pReq1, 1, maxOpaque, nil},
 			{17, "historical_info", tBstr, pReq1, 1, maxOpaque, nil},
-			{18, "promise_valset", tBstr, pReq1, 1, maxOpaque, nil},
 		}
 	case KindDecision:
 		rest = []fdef{
 			{3, "envelope", tBstr, pReq, 1, 2176, nil},
-			{4, "action", tBstr, pReq, 1, 1 << 16, nil},
+			{4, "form", tUint, pReq, 0, 0, nil},
+			{5, "action", tBstr, pForm1, 1, 1 << 16, nil},
+			{6, "action_salt", tBstr, pForm1, 32, 32, nil},
+		}
+	case KindReveal:
+		rest = []fdef{
+			{3, "signed_receipt", tBstr, pReq, 1, 512, nil},
+			{4, "action_salt", tBstr, pReq, 32, 32, nil},
 		}
 	case KindAuthorization:
 		rest = []fdef{
@@ -147,6 +158,8 @@ func maxSizeOf(k Kind) int {
 		return maxEvidenceSize
 	case KindDecision:
 		return maxDecisionSize
+	case KindReveal:
+		return maxRevealSize
 	case KindAuthorization:
 		return maxAuthorizationSize
 	case KindRejection:
@@ -161,16 +174,22 @@ func maxSizeOf(k Kind) int {
 	return MaxRecordSize
 }
 
-// verdicts are the only error names a rejection marker may carry.
+// verdicts are the only error names a rejection marker may carry. A
+// mandate_ref naming another mandate (ErrMandateMismatch) is not one: that
+// refusal writes no decision record.
 var verdicts = map[string]bool{
 	"ErrActionMismatch":              true,
+	"ErrAnchorIntentInvalid":         true,
 	"ErrAnchorNotFound":              true,
 	"ErrAnchorTooOld":                true,
+	"ErrAnchorWindowClosed":          true,
 	"ErrArchiveRecomputeUnsupported": true,
+	"ErrCertInvalid":                 true,
 	"ErrDACommitmentMismatch":        true,
+	"ErrDenied":                      true,
 	"ErrExpired":                     true,
+	"ErrH0TooOld":                    true,
 	"ErrIssuedBeforeAnchor":          true,
-	"ErrMandateMismatch":             true,
 	"ErrMandateRefMissing":           true,
 	"ErrNonceUsed":                   true,
 	"ErrNotYetValid":                 true,
@@ -183,8 +202,8 @@ var verdicts = map[string]bool{
 // policyDenies are the deny names of the policy rules. They are rejection
 // markers and the reason part of a policy_deny key.
 var policyDenies = []string{
-	"ErrAgentNotCovered", "ErrAmountAboveMax", "ErrAssetNotAllowed", "ErrCountLimit", "ErrDecisionAge",
-	"ErrFactsInvalid", "ErrHistoryFull", "ErrKindNotAllowed", "ErrMinSpacing", "ErrNoExtractor",
+	"ErrAgentNotCovered", "ErrAmountAboveMax", "ErrAssetNotAllowed", "ErrCountLimit", "ErrDecisionAge", "ErrDenied",
+	"ErrFactsInvalid", "ErrFastModeNotAllowed", "ErrHistoryFull", "ErrKindNotAllowed", "ErrMinSpacing", "ErrNoExtractor",
 	"ErrOutsideMandate", "ErrPeriodLimit", "ErrRecipientNotAllowed",
 }
 

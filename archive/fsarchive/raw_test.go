@@ -90,7 +90,7 @@ func TestRawAbsentAndImpossibleKeysAreNotFound(t *testing.T) {
 		"decision/../outside",
 		"outside",
 		".hidden",
-		"/decision/e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d",
+		"/decision/2024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe",
 		"decision/E2EA62234C504E4DF72E172C8E0DA5F02A1EEB784CCD39AC9E20F6DD4C7C8F1D",
 	} {
 		rc, err := s.Raw(bg, key)

@@ -34,12 +34,15 @@ func ParseKey(path string) (Kind, error) {
 			return KindPayload, nil
 		}
 		return KindEvidence, nil
-	case "decision", "authorization":
+	case "decision", "authorization", "reveal":
 		if len(parts) != 2 || !isLowerHex32(parts[1]) {
 			return 0, errBadKey
 		}
-		if parts[0] == "decision" {
+		switch parts[0] {
+		case "decision":
 			return KindDecision, nil
+		case "reveal":
+			return KindReveal, nil
 		}
 		return KindAuthorization, nil
 	case "rejection":

@@ -199,7 +199,7 @@ func readPayloadHead(r io.Reader, ref commitment.PayloadRef) (uint64, error) {
 	if ref.DA == commitment.DACelestiaBlob {
 		pairs = 8
 	}
-	if err := expect(0xa0|pairs, 1, 0, 2, byte(KindPayload), 3, byte(ref.DA)); err != nil {
+	if err := expect(0xa0|pairs, 1, format, 2, byte(KindPayload), 3, byte(ref.DA)); err != nil {
 		return 0, err
 	}
 	c, err := bstr(4, 32)
