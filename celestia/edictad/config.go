@@ -142,6 +142,8 @@ type GateConfig struct {
 	AllowlistFile  string   `toml:"allowlist_file"`
 	ExecutorKeys   []string `toml:"executor_keys"` // hex Ed25519 public keys
 	AnchorVerifier string   `toml:"anchor_verifier"`
+	// Fast is stage K-fast; off by default.
+	Fast FastConfig `toml:"fast"`
 }
 
 // HTTPConfig configures the API listener.
@@ -243,6 +245,7 @@ func validID(s string, max int) bool {
 func (c Config) WithDefaults() Config {
 	c.Archive = c.Archive.withDefaults()
 	c.Policy = c.Policy.WithDefaults()
+	c.Gate.Fast = c.Gate.Fast.WithDefaults()
 	if c.Network.DA == DAConfigFibre {
 		c.Fibre = c.Fibre.withDefaults()
 		if c.Recorder.Enabled {
@@ -363,6 +366,9 @@ func (c Config) ValidateBasic() error {
 	if c.Policy.Enabled() && c.Archive.Dir == "" {
 		return cfgErr("policy.mandate_file needs the archive: archive.dir is required")
 	}
+	if err := c.validateFastNeeds(); err != nil {
+		return err
+	}
 	if err := c.validateArchive(); err != nil {
 		return err
 	}
@@ -398,6 +404,9 @@ func (c Config) ValidateBasic() error {
 	// self-check; independent header verification lives on the SDK side.
 	if g.AnchorVerifier != "self" {
 		return cfgErr("gate.anchor_verifier must be self")
+	}
+	if err := c.validateFast(); err != nil {
+		return err
 	}
 
 	if err := c.Recorder.validate(); err != nil {

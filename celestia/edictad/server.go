@@ -392,6 +392,7 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 	if fibre {
 		gcfg.FibreMaxDataBytes = cfg.Fibre.MaxDataBytes
 	}
+	cfg.Gate.Fast.applyTo(&gcfg)
 	if err := gate.Preflight(ctx, gcfg, gate.Deps{Params: gatechain.NewParams(d.Consensus)}); err != nil {
 		return nil, fmt.Errorf("edictad: gate preflight: %w", err)
 	}
@@ -404,6 +405,11 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 	if store == nil {
 		if store, err = fsarchive.Open(cfg.Archive.Dir, committers); err != nil {
 			return nil, fmt.Errorf("edictad: archive: %w", err)
+		}
+	}
+	if cfg.Gate.Fast.Enabled {
+		if _, err := intentReader(store); err != nil {
+			return nil, err
 		}
 	}
 	aio := newArchiveIO(store)
@@ -476,6 +482,14 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 		gdeps.Headers = gatechain.NewHeaders(d.Reader)
 		gdeps.Anchors = gatechain.NewAnchors(d.Reader)
 		gdeps.DA = gatechain.NewBlobSource(d.Reader)
+	}
+	if cfg.Gate.Fast.Enabled {
+		if err := fastDeps(cfg, d, store, head.ChainID, &gdeps); err != nil {
+			return fail(err)
+		}
+		f := cfg.Gate.Fast
+		log.Info("edictad: fast mode on", "fast_window_blocks", f.FastWindowBlocks, "max_h0_age_blocks", f.MaxH0AgeBlocks,
+			"min_fast_slack_blocks", f.MinFastSlackBlocks, "pending_namespaces", len(f.PendingNamespaces))
 	}
 	g, err := gate.New(ctx, gcfg, gdeps)
 	if err != nil {
