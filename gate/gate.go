@@ -600,11 +600,13 @@ func (g *Gate) refuseMandateRef(ctx context.Context, res Result, key registry.Ke
 		return res, refusal
 	}
 	if g.d.Archiver != nil {
+		// Nothing is signed yet, so an archive fault is answered like any
+		// failed decision write: retryable unchanged, and the retry meets the
+		// same refusal once the record can be written.
 		if err := g.archiveDecision(ctx, res.CommitmentHash, envelope, action, salt); err != nil {
-			g.log.Warn("decision record not archived after a refusal", "err", err)
-		} else {
-			res.DecisionArchived = true
+			return res, err
 		}
+		res.DecisionArchived = true
 	}
 	return res, refusal
 }
