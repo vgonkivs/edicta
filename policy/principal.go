@@ -37,9 +37,9 @@ func ParsePrincipal(s string) (PrincipalID, error) {
 		}
 		return PrincipalID{SigType: uint8(SigTypeADR036), Principal: []byte(canon)}, nil
 	case "eth":
-		b, err := hex.DecodeString(strings.TrimPrefix(strings.ToLower(val), "0x"))
+		b, err := principalsig.ParseEthAddress(val)
 		if err != nil {
-			return PrincipalID{}, fmt.Errorf("%w: eth address: %v", ErrPrincipalPin, err)
+			return PrincipalID{}, fmt.Errorf("%w: %w", ErrPrincipalPin, err)
 		}
 		id := PrincipalID{SigType: uint8(SigTypeEIP712), Principal: b}
 		return id, id.Validate()
