@@ -4,6 +4,8 @@ github.com/celestiaorg/go-square/v4 v4.0.1 h1:A8QsdpTg2nP9wIxUzfuSXdl8tOgfPqj0yd
 github.com/celestiaorg/go-square/v4 v4.0.1/go.mod h1:0LR/CELY5qMv6kq+GyhUq0j2rW5wfAAxkljl4O43ceg=
 github.com/celestiaorg/nmt v0.24.5 h1:B98yOeR5OZc/aNXYcSBZHurI1/7UX3pL/L5eBev+fTw=
 github.com/celestiaorg/nmt v0.24.5/go.mod h1:z1xKcFCOPcBW5gi80fyXuILU1q1mtCOWZ8vnJ5QJsEw=
+github.com/decred/dcrd/crypto/blake256 v1.1.0 h1:zPMNGQCm0g4QTY27fOCorQW7EryeQ/U0x++OzVrdms8=
+github.com/decred/dcrd/crypto/blake256 v1.1.0/go.mod h1:2OfgNZ5wDpcsFmHmCK5gZTPcCXqlm2ArzUIkw9czNJo=
 github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 h1:5RVFMOWjMyRy8cARdy79nAmgYw3hK/4HUq48LQ6Wwqo=
 github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1/go.mod h1:ZXNYxsqcloTdSy/rNShjYzMhyjf0LaoftYK0p+A3h40=
 github.com/fxamacker/cbor/v2 v2.9.4 h1:xwjVlxEMR3S605oUlgBjKLTTeGFciYPGYCtF/35LKGo=

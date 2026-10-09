@@ -7,6 +7,7 @@ toolchain go1.26.6
 require (
 	filippo.io/edwards25519 v1.1.0
 	github.com/celestiaorg/go-square/v4 v4.0.1
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
 	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/stretchr/testify v1.12.1
 	go.etcd.io/bbolt v1.5.0
@@ -15,7 +16,6 @@ require (
 
 require (
 	github.com/celestiaorg/nmt v0.24.5 // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
