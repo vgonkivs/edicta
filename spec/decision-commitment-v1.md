@@ -41,7 +41,7 @@ versions even if a byte layout were identical.
 |---|---|---|---|
 | `v1-draft.1` to `v1-draft.4` | 2026-10-09 | Drafts of task 031, written as additions to the `v0` drafts. The history is in git and in the task folder. | |
 | `v1-draft.5` | 2026-10-09 | One self-contained v1 document (human decisions of 2026-10-09, Rounds 4 to 6: `v0` dropped before the v1 freeze). (1) Every core rule the `v0` drafts held is restated here for version 1; the version dispatch, `AcceptV0`, `ErrVersionNotAccepted`, the `/v0/` routes and alias, the Authorization of version 0, the unsalted action hash and the payload schema chosen by the commitment version are gone. (2) Receipt, record request, publish request and the payload AEAD and HPKE tags move to `edicta/v1/*`; receipt `version = 1`; payload blob `version = 1`; payload plaintext `version = 1` with the action salt (sections 9, 14, 17). (3) Archive records `format = 1`: kinds 17 (decision) and 18 (reveal) keep their numbers, kind 3 is unassigned, the evidence record drops `promise_valset` (key 18) and the legacy anchor-proof form 0 (section 19). (4) Verifier: the Authorization rules are A1 (mode) and A2 (deadline range); the reason `replay_unconfirmed` is gone with form 0; new reason `gate_signed_inconsistent_private_part` and the matching policy rule (policy 13); O8 runs before the payload-versus-archive salt comparison (section 20.11). (5) HTTP paths `/v1/*` only; the authorize request requires its key 3. | Core vectors under `spec/vectors/v1/` carry the coverage of the `v0` sets as v1 cases (`v1-draft.5`); the `v0` sets moved unchanged to `spec/vectors/historical/v0/` and are not checked. Archive, policy, absence, reasons, API and profile files regenerated (section 22). |
-| `v1-draft.6` | 2026-10-09 | Pre-freeze re-audit fixes (task 031, `audit-2.md`). (1) AB4: a `PFF_NS` unit that does not decode as a PFF tx makes the height not proven, at any app version, and at an app version other than the pinned one units without a candidate prove nothing (section 20.8); NA5 states that the gate may skip such a unit (MJ1). (2) Stage 4m runs at every gate: new rule M0, a gate without a mandate refuses a commitment with `mandate_ref` (`ErrMandateMismatch`); the verifier requires the `policy` check whenever the envelope has `mandate_ref` (sections 8.7, 8.8, 20.5) (MJ2). (3) After an M0 or M2 refusal the gate writes no decision record, no kind 15 record and no marker; `ErrMandateMismatch` is no longer a marker name (sections 8.7, 8.8, 19.2) (MJ3). | `da/absence.json` (new synthetic cases `fibre_unit_undecodable`, `fibre_no_candidate_other_app_version`); new `v1/stage4m.json`; `v1/archive.json` (record `rejection_ErrMandateMismatch` replaced by `rejection_ErrMandateRefMissing`, new reject `rejection_mandate_mismatch_not_a_marker`, `marker_names`); `archive/records.json` (`verdicts`); `api/errors.json` (example `authorize_mandate_ref_without_mandate`, rules `M0, M2`); `policy/verify.json` (`mandate_ref_without_verdict`). |
+| `v1-draft.6` | 2026-10-09 | Pre-freeze re-audit fixes (task 031, `audit-2.md`). (1) AB4: a `PFF_NS` unit that does not decode as a PFF tx makes the height not proven, at any app version, and at an app version other than the pinned one units without a candidate prove nothing (section 20.8); NA5 states that the gate may skip such a unit (MJ1). (2) Stage 4m runs at every gate: new rule M0, a gate without a mandate refuses a commitment with `mandate_ref` (`ErrMandateMismatch`); the verifier requires the `policy` check whenever the envelope has `mandate_ref` (sections 8.7, 8.8, 20.5) (MJ2). (3) After an M0 or M2 refusal the gate writes no decision record, no kind 15 record and no marker; `ErrMandateMismatch` is no longer a marker name (sections 8.7, 8.8, 19.2) (MJ3). (4) `RevealOnExecution` admits only types whose compiled profile has `public_execution = true` (cause `reveal_not_public_execution`) (section 8.9). (5) With `FastMode` on, a mandate whose `fast_mode_max_delay < MinFastSlackBlocks + 1` is refused at start and at adoption (cause `fast_delay_below_slack`) (section 8.9). (6) Rule ids: the at-height rules of section 10.9 are HR1 to HR5 (were AH1 to AH5, which collided with the action-hash rules of 5.1), the verifier Authorization rules of 20.5 are AM1 and AM2 (were A1 and A2, which collided with stage A). (7) Editorial: the salt in the inputs of 8.6 and 8.7; section 22 explains the `edicta-vectors/v0` file labels. | `da/absence.json` (new synthetic cases `fibre_unit_undecodable`, `fibre_no_candidate_other_app_version`); new `v1/stage4m.json`; `v1/archive.json` (record `rejection_ErrMandateMismatch` replaced by `rejection_ErrMandateRefMissing`, new reject `rejection_mandate_mismatch_not_a_marker`, `marker_names`); `archive/records.json` (`verdicts`); `api/errors.json` (example `authorize_mandate_ref_without_mandate`, rules `M0, M2`); `policy/verify.json` (`mandate_ref_without_verdict`); `v1/gate.json` (`profile_registry`; `reveal_type_allowlisted` now uses the bank-send type; new `reveal_type_offchain_profile`, `reveal_type_without_profile`, `fast_delay_below_slack`, `fast_delay_at_slack_plus_1`, `fast_delay_low_fast_mode_off`); `v1/verify.json` (`rule` values `AM1`, `AM2`). |
 
 ## 1. Threat model in one table
 
@@ -76,7 +76,7 @@ Policy section 1 adds the mandate layer.
 | Reserved values refused (section 4.6) | A v1.0 reader silently accepting a future batch-leaf or attestation reference under a meaning it does not implement | Readers implement the refusal; defining a value later needs the human's approval |
 | Archive fallback (section 12.3) | Fibre pruning before the commitment expires | Archive is honest for availability only; integrity comes from the hash (P2) and the recomputed DA commitment (P3) |
 | DA commitment recompute, rule P3 (section 8.5) | "Anchor X, sign H(Y)": an agent or Recorder anchors blob X, archives blob Y and signs `ciphertext_hash = H(Y)`, so a hash-only check accepts bytes that were never public | SHA-256 collision resistance; the recompute is the upstream code at the pin (`fibre.NewBlob` for `da = 1`, go-square for `da = 2`), checked by vectors generated from that code alone |
-| Reference time `T_ref` and rules K1, K2 (section 12.2) | A commitment signed before its payload was public; a commitment whose validity outlives the DA retention window being executed as if the DA layer still served the payload | The gate reads true header time from a node it trusts (the operator's own node is recommended; a public endpoint is allowed). Every read at a past height, on every module and on both `da` paths, is used only if the response echoes the requested height and, where the content allows, is bound to the header at that height (AH1 to AH5, section 10.9). At-height retention comes from such a read on an endpoint that passed the canary, or from the gate's own persisted observations (observations-only mode when the endpoint ignores heights); a non-monotone pair of changes between two observations (for example a change and its revert) is missed (RS1 to RS6, section 12.2) |
+| Reference time `T_ref` and rules K1, K2 (section 12.2) | A commitment signed before its payload was public; a commitment whose validity outlives the DA retention window being executed as if the DA layer still served the payload | The gate reads true header time from a node it trusts (the operator's own node is recommended; a public endpoint is allowed). Every read at a past height, on every module and on both `da` paths, is used only if the response echoes the requested height and, where the content allows, is bound to the header at that height (HR1 to HR5, section 10.9). At-height retention comes from such a read on an endpoint that passed the canary, or from the gate's own persisted observations (observations-only mode when the endpoint ignores heights); a non-monotone pair of changes between two observations (for example a change and its revert) is missed (RS1 to RS6, section 12.2) |
 | PFF certificate check, one rule for gate, Recorder and verifiers (section 10.6.1) | A forged or under-signed availability certificate presented after the chain pruned the state that could re-check it | More than 2/3 of voting power honest at `PaymentPromise.height`; the archived validator set is the one the chain used, tied by `next_validators_hash` to the header at `PaymentPromise.height` and that header to the chain by the hash chain of section 10.6.2; Ed25519 |
 | Fibre anchor proof from namespace data, rules NA1 to NA7 (section 10.4) | A bridge or an archive presenting a PFF that was not in block `height`, hiding one that was (a false `ErrAnchorNotFound`, or an earlier promise that would move K2's `start`), or a cut or padded tx | The header at `height` is the chain's: the gate's trusted node or the W5 verifier (section 10.9), and for verifiers the header trust of section 10.6.2; SHA-256; NMT completeness as in nmt `v0.24.3` or later; more than 2/3 of voting power honest, so the square follows the protocol. Result code 0 stays `node-attested` |
 | Startup compatibility check (section 10.8) | Silent divergence after an upstream change: another Fibre encoding, another sign-bytes layout, another chain or a node that answers in another format | The pinned versions and the known-answer vectors describe the network; the check runs before the gate serves |
@@ -844,8 +844,8 @@ reporting it as absent would let a damaged archive look like a pruned one.
 ### 8.6 Normative pipeline (stateless part)
 
 `VerifyForGate(envelope, now, gate, params)` = `params.Validate()`, then
-D, S, G, T, C. Then the gate calls `CheckAction(c, action_bytes)` for the
-bytes it was given and `CheckPayload` for the fetched blob. `Params.Validate` requires
+D, S, G, T, C. Then the gate calls `CheckAction(c, action_bytes,
+action_salt)` for the bytes and the salt it was given and `CheckPayload` for the fetched blob. `Params.Validate` requires
 `fibre_retention_s` and `blob_retention_s` in `1..2^63-1` and `skew_s` in
 `0..300`; otherwise `ErrInvalidParams` (Go unit tests only).
 
@@ -856,8 +856,8 @@ always computed locally.
 ### 8.7 Gate authorization order (stateful stages)
 
 The gate verifies and authorizes; it never executes and holds no rail
-credentials. Its input is the envelope bytes and the action bytes; it never
-accepts a decoded struct from its caller. Its output is a signed
+credentials. Its input is the envelope bytes, the action bytes and the
+action salt; it never accepts a decoded struct from its caller. Its output is a signed
 Authorization (section 15). The gate issues an Authorization only if every
 stage below passes, in this order. An implementation MUST NOT report a later
 stage's sentinel when an earlier stage fails. Stages 4p and 10p exist only
@@ -1083,15 +1083,36 @@ is.
 | `MinPromiseSlackSeconds` | `1..600`, default 15. Least time left before the Fibre promise expires at authorization (section 13.1 F5). |
 | `PendingNamespaces` | list of 29-byte namespaces, each passing S8. |
 | `RebroadcastIntent` | bool, default true; applies to `da = 1` only (F6). For `da = 2` the broadcast check B5 always runs. |
-| `RevealOnExecution` | list of action types whose profile has `public_execution = true` (section 19.7); each MUST be in the action-type allowlist (C2). Default empty. |
+| `RevealOnExecution` | list of action types (section 19.7). Default empty. Each MUST be in the action-type allowlist (C2; cause `reveal_on_execution`) and MUST be registered in the gate's compiled profile registry with `public_execution = true` (cause `reveal_not_public_execution`; a type no compiled profile registers is refused the same way). The registry is code shipped with the gate, like the extractor registry (policy section 5), not configuration: a profile document states `public_execution` (dca-agent 3.4: false; bank-send 3.5: true). |
 
 Cross-field rule: `MaxH0AgeBlocks + MinFastSlackBlocks <= FastWindowBlocks`,
 so that a fresh `h0` can always pass (`ErrInvalidConfig`, cause
 `age_plus_slack`). Defaults are applied before validation by a separate step
 (project convention); validation (`ValidateBasic`) holds every stateless
-check above, in table order, then the cross-field rule; the mandate check
-needs the dependency and runs in the constructor. Vectors:
-`spec/vectors/v1/gate.json`.
+check above, in table order, then the cross-field rule; the mandate checks
+need the dependency and run in the constructor, in this order: FastMode
+without a mandate (`fast_mode_without_mandate`); then, with `FastMode` on and
+the mandate's `fast_mode_max_delay` present, `fast_mode_max_delay >=
+MinFastSlackBlocks + 1`, else cause `fast_delay_below_slack`. The same check
+runs when a later mandate version is adopted at runtime: the adoption is
+refused with that cause and the version in force stays. Vectors:
+`spec/vectors/v1/gate.json` (top-level `profile_registry`; optional per-case
+`allowlist` and `mandate_fast_mode_max_delay`).
+
+Threat note (`RevealOnExecution`). A reveal publishes the action salt. For a
+type executed on a public rail that hides nothing new (the transaction is
+public and the receipt links it). For an off-chain type (the IBKR order)
+the salt would make the low-entropy order bytes testable against the public
+`action_hash`, which is exactly the dictionary search the salt exists to
+stop. Taking the flag from compiled profiles, not from an operator list,
+keeps a misconfiguration from doing that.
+
+Threat note (`fast_delay_below_slack`). The window is at most
+`fast_mode_max_delay` (section 13.3) and the slack needs `anchor_deadline >=
+head + MinFastSlackBlocks`, so a bound below `MinFastSlackBlocks + 1`
+refuses every pending reference whose head is past `h0` with
+`ErrAnchorWindowClosed`, after the K-fast work. That is a liveness failure,
+never a safety one, but a silent one; refusing at start makes it visible.
 
 ## 9. Payload blob and its hashes
 
@@ -1645,12 +1666,12 @@ data. `PFF_NS` is go-square `PayForFibreNamespace`, `0x00 || 0^27 || 0x05`
 
 | Rule | Requirement | On failure |
 |---|---|---|
-| NA1 Header | The header at `height` is read from the consensus endpoint under AH1 (section 10.9): its height equals `height`. `data_hash` and `T_H` (K1, K2) come from this one header. A header returned by a bridge never stands in for it. | `ErrChainUnavailable` (AH3 and AH5 as for any header read) |
-| NA2 DAH | The DAH (row roots and column roots) comes from a bridge (`header.GetByHeight(height)`, field `dah`; the returned header's height MUST equal `height`, AH1) or from any other source. It is accepted iff upstream `DataAvailabilityHeader.ValidateBasic` passes (as many row roots as column roots, each count from 2 to 1024) and `Hash()`, the RFC 6962 root over `row_roots \|\| column_roots`, equals `data_hash` of NA1. | `ErrChainUnavailable` |
+| NA1 Header | The header at `height` is read from the consensus endpoint under HR1 (section 10.9): its height equals `height`. `data_hash` and `T_H` (K1, K2) come from this one header. A header returned by a bridge never stands in for it. | `ErrChainUnavailable` (HR3 and HR5 as for any header read) |
+| NA2 DAH | The DAH (row roots and column roots) comes from a bridge (`header.GetByHeight(height)`, field `dah`; the returned header's height MUST equal `height`, HR1) or from any other source. It is accepted iff upstream `DataAvailabilityHeader.ValidateBasic` passes (as many row roots as column roots, each count from 2 to 1024) and `Hash()`, the RFC 6962 root over `row_roots \|\| column_roots`, equals `data_hash` of NA1. | `ErrChainUnavailable` |
 | NA3 Namespace data | `share.GetNamespaceData(height, PFF_NS)` from a bridge. Accepted iff upstream `NamespaceData.Verify(dah, PFF_NS)` passes (celestia-node at the pin, nmt `v0.24.5`): with `R` the rows, ascending, whose row root's namespace range `[min, max]` contains `PFF_NS` (`RowsWithNamespace`; parity rows never qualify), the answer has exactly `len(R)` entries, and entry `j` is a complete NMT namespace proof against `row_roots[R[j]]`: an inclusion proof with the row's shares of the namespace, or an absence proof without shares. `VerifyNamespace` checks the leaf namespaces, the range and completeness (no leaf of the namespace left or right of the range). `R` empty with no entries is a valid proof that the block holds no PFF. The gate bounds the bytes it reads per answer (`fibre_anchor_read_max_bytes`, configuration, default 16 MiB); a larger answer fails. | `ErrChainUnavailable` |
 | NA4 Reassembly | `S` = the shares of all entries, in order. If `S` is empty, `T` is empty. Otherwise `T = ParseTxs(S)` (go-square compact-share parsing), and splitting `T` again with `NewCompactShareSplitter(PFF_NS, 0)` MUST give exactly `S` (same count, every share byte-equal). | `ErrChainUnavailable` |
 | NA5 Candidates | A tx of `T` is a candidate iff upstream `fibretypes.TryParseFibreTx` (`APP/x/fibre/types/classified_tx.go`) classifies it as a Fibre tx and its single `MsgPayForFibre` carries a `PaymentPromise` with `namespace == payload_ref.namespace`, `commitment == payload_ref.commitment`, `blob_version == 0`, `chain_id` equal to the gate's configured chain id, and `PaymentPromise.height <= height` (equality allowed). Any other tx of `T` is not a candidate, including one whose message or promise does not decode: at the gate that can only end in `ErrAnchorNotFound` (a refusal, the safe direction). An absence proof treats such a unit as "not proven" instead (section 20.8 AB4). | - |
-| NA6 Code | The result code of a candidate `x` comes from the consensus endpoint's gRPC `cosmos.tx.v1beta1.Service/GetTx` with the hash `SHA-256(x)` (upper-case hex). It is used only if `tx_response.height == height` and `tx_response.txhash` is that hash (AH1). Settlement level `node-attested` (section 10.6.1). | Error, not found, or another height: `ErrChainUnavailable` |
+| NA6 Code | The result code of a candidate `x` comes from the consensus endpoint's gRPC `cosmos.tx.v1beta1.Service/GetTx` with the hash `SHA-256(x)` (upper-case hex). It is used only if `tx_response.height == height` and `tx_response.txhash` is that hash (HR1). Settlement level `node-attested` (section 10.6.1). | Error, not found, or another height: `ErrChainUnavailable` |
 | NA7 Selection | Candidates are taken in order of `creation_timestamp`, then of position in `T`. The anchor is the first whose code (NA6) is 0. A candidate whose code cannot be read stops the lookup if no candidate before it had code 0: it may be the anchor. | No candidate, or every candidate has a non-zero code: `ErrAnchorNotFound` |
 
 `ErrAnchorNotFound` is answered only after NA1 to NA4 held, so "no anchor" is
@@ -2230,30 +2251,30 @@ Recorder or verifier is therefore suspect until checked. Two classes:
   proof, `share.GetNamespaceData(h, namespace)`. This covers the
   `celestia_blob` path (K0 and `T_H` for `da = 2`) as much as `da = 1`.
 - Not a read at a height: gRPC `GetTx(hash)` (NA6, section 10.4). It asks by
-  hash; the answer names a height, which AH1 compares with the expected one.
+  hash; the answer names a height, which HR1 compares with the expected one.
   A mismatch fails that read only and does not mark the endpoint
-  height-ignoring under AH3: the request carried no height, and the tx index
+  height-ignoring under HR3: the request carried no height, and the tx index
   keeps one result per hash, so if the same tx bytes were included twice an
   honest node reports the later inclusion (`UNVERIFIED` for the pin: that a
   tx that failed before its sequence was consumed can be included again).
 
 | Rule | Requirement |
 |---|---|
-| AH1 Echo | A response is used only if it carries the requested height and that height equals `h`: for a state read the response header `x-cosmos-block-height`; for a block read the height inside the returned object (`header.height`, `block.header.height`, the results' height, `HistoricalInfo.header.height`). A response without a height (for example `blob.Get`) is used only through AH2. Missing or different: the response is discarded as a failure of that endpoint. |
-| AH2 Binding | Where the content can be tied to the header at `h`, it MUST be, and the header itself MUST pass AH1: txs to its `data_hash`; a DAH to its `data_hash` (NA2); namespace data to the row roots of that DAH (NA3); a blob or its share commitment to its data root through the inclusion proof; a validator set to `validators_hash` or `next_validators_hash`. Result codes (NA6) have no binding in v1 (`node-attested`). A block read that passes AH1 and AH2 does not depend on whether the endpoint honours heights. |
-| AH3 Canary per endpoint | The RS2 canary (section 12.2) is a property of the endpoint, not of a module: a canary that does not pass marks the consensus endpoint height-ignoring for every state read, whatever the module. Block reads are checked by AH1 and AH2 on every response. A block or header read on a consensus endpoint whose returned height is missing or differs from the requested one also marks that endpoint height-ignoring for state reads (retention goes to observations-only mode, AH4) until a later canary on it passes (Honoured). Bridge (celestia-node) endpoints do no state reads, so they have their own canary: read the header at `head - canary_offset` (RS2) and compare its height with the requested one: equal is Honoured, a header at another height is Ignoring, anything else (error, not found, timeout) is Inconclusive. The bridge result is logged (warning level unless Honoured, again on every change) and MUST NOT drive the retention mode; a bridge AH1 mismatch discards that response only. |
-| AH4 On failure, retention | The x/fibre retention at `height` comes only from the gate's own observations (RS4 to RS6): observations-only mode, logged at startup and on every change (SC5). A height the observations do not cover gives `ErrRetentionUnavailable`. |
-| AH5 On failure, other reads | Any other read at a height that fails AH1 or AH2 on every configured source gives nothing: the check that needed it is not evaluated from latest state or from another height. The gate answers `ErrChainUnavailable` (503, nonce untouched), never `ErrAnchorNotFound`, never a K1 or K2 verdict from the wrong block. It MAY instead use a source that does not depend on the endpoint honouring heights: a header verified by the W5 light verifier (section 9.5), or a block read from another endpoint that passes AH1 and AH2. A state read other than x/fibre `Params` from a height-ignoring endpoint MUST NOT be used; v1 defines no other. A header or block read that answers "not found" for a height the chain must have (at or below a head the gate has observed on any configured source) is a failed at-height read under this rule, on both `da` paths (K0 and `T_H`): `ErrChainUnavailable`, never `ErrAnchorNotFound`. A pruned or trailing backend answers "not found" for blocks that exist, so the answer says nothing about the chain. A height above every observed head gives `ErrChainUnavailable` too (retryable, nonce untouched; `valid_until` bounds the retries). `ErrAnchorNotFound` is given only after the block at `height` was read and passed AH1 and AH2 and holds no anchor (for `da = 1`: after NA1 to NA4 held and NA7 found no anchor, section 10.4). |
+| HR1 Echo | A response is used only if it carries the requested height and that height equals `h`: for a state read the response header `x-cosmos-block-height`; for a block read the height inside the returned object (`header.height`, `block.header.height`, the results' height, `HistoricalInfo.header.height`). A response without a height (for example `blob.Get`) is used only through HR2. Missing or different: the response is discarded as a failure of that endpoint. |
+| HR2 Binding | Where the content can be tied to the header at `h`, it MUST be, and the header itself MUST pass HR1: txs to its `data_hash`; a DAH to its `data_hash` (NA2); namespace data to the row roots of that DAH (NA3); a blob or its share commitment to its data root through the inclusion proof; a validator set to `validators_hash` or `next_validators_hash`. Result codes (NA6) have no binding in v1 (`node-attested`). A block read that passes HR1 and HR2 does not depend on whether the endpoint honours heights. |
+| HR3 Canary per endpoint | The RS2 canary (section 12.2) is a property of the endpoint, not of a module: a canary that does not pass marks the consensus endpoint height-ignoring for every state read, whatever the module. Block reads are checked by HR1 and HR2 on every response. A block or header read on a consensus endpoint whose returned height is missing or differs from the requested one also marks that endpoint height-ignoring for state reads (retention goes to observations-only mode, HR4) until a later canary on it passes (Honoured). Bridge (celestia-node) endpoints do no state reads, so they have their own canary: read the header at `head - canary_offset` (RS2) and compare its height with the requested one: equal is Honoured, a header at another height is Ignoring, anything else (error, not found, timeout) is Inconclusive. The bridge result is logged (warning level unless Honoured, again on every change) and MUST NOT drive the retention mode; a bridge HR1 mismatch discards that response only. |
+| HR4 On failure, retention | The x/fibre retention at `height` comes only from the gate's own observations (RS4 to RS6): observations-only mode, logged at startup and on every change (SC5). A height the observations do not cover gives `ErrRetentionUnavailable`. |
+| HR5 On failure, other reads | Any other read at a height that fails HR1 or HR2 on every configured source gives nothing: the check that needed it is not evaluated from latest state or from another height. The gate answers `ErrChainUnavailable` (503, nonce untouched), never `ErrAnchorNotFound`, never a K1 or K2 verdict from the wrong block. It MAY instead use a source that does not depend on the endpoint honouring heights: a header verified by the W5 light verifier (section 9.5), or a block read from another endpoint that passes HR1 and HR2. A state read other than x/fibre `Params` from a height-ignoring endpoint MUST NOT be used; v1 defines no other. A header or block read that answers "not found" for a height the chain must have (at or below a head the gate has observed on any configured source) is a failed at-height read under this rule, on both `da` paths (K0 and `T_H`): `ErrChainUnavailable`, never `ErrAnchorNotFound`. A pruned or trailing backend answers "not found" for blocks that exist, so the answer says nothing about the chain. A height above every observed head gives `ErrChainUnavailable` too (retryable, nonce untouched; `valid_until` bounds the retries). `ErrAnchorNotFound` is given only after the block at `height` was read and passed HR1 and HR2 and holds no anchor (for `da = 1`: after NA1 to NA4 held and NA7 found no anchor, section 10.4). |
 
-The Recorder applies AH1, AH2 and AH5 to its read-back (an AH failure is
+The Recorder applies HR1, HR2 and HR5 to its read-back (an HR failure is
 `recorder.ErrNodeUnavailable`); the verifier applies them to HT6
 (section 10.6.2).
 
 Threat note (AH). A height-ignoring endpoint answers "latest" for "at `h`".
 For retention that silently replaces the at-height half of `r` (RS1); for a
 block read it would make a gate find no anchor, or the wrong block time.
-AH1 detects it whenever the object names its height, AH2 makes the content
-self-checking against the header, and AH5 turns any remaining doubt into a
+HR1 detects it whenever the object names its height, HR2 makes the content
+self-checking against the header, and HR5 turns any remaining doubt into a
 retryable refusal instead of a verdict. What AH does not cover: an endpoint
 that echoes the requested height and serves a consistent but false header.
 The header is trusted from the node (own node recommended), or from the W5
@@ -2400,7 +2421,7 @@ from a normal answer which kind of endpoint it talks to, so the gate uses:
 |---|---|
 | RS1 | The latest value is never used as the value at `height`, unless one of the sources below establishes it for `height`. |
 | RS2 Canary | At start and at least every `canary_interval` (default 600 s, at most 3600 s), the gate runs the canary on each consensus endpoint it uses for state reads. Canary heights are configuration, per chain id, and logged at startup: (a) the recent height `h_r = head - canary_offset`, where `head` is the latest height the same endpoint reports just before, and `canary_offset` (default 10) MUST be at least 1 and greater than `lag` (RS4) and MUST stay inside the state the node retains; (b) `h_pre`, the last height before x/fibre was activated, optional. Defaults are keyed by chain id, read from the same endpoint: `mocha-5` has `h_pre = 1,082,619`; every other chain has no `h_pre` unless configured (absent on a chain that has x/fibre from genesis). A configured `h_pre` MUST NOT be applied to another chain id. The `h_r` query is a state query whose module is present at every height of every chain (bank `Params`), pinned to `h_r`; if `h_pre` is configured, the gate also queries x/fibre `Params` pinned to `h_pre`, and runs that query even when the `h_r` query fails (Ignoring takes precedence, so its result still matters). If `h_pre` is configured but not below `h_r`, the `h_pre` query is not run and the outcome is Inconclusive, not Honoured. Outcomes, decided only from success or failure and the response header `x-cosmos-block-height`, never from error codes or messages: **Ignoring** if the `h_r` query succeeds without the header or with a value other than `h_r`, or if the `h_pre` query succeeds (any response message, empty included, whatever its header). **Honoured** if the `h_r` query succeeds with the header equal to `h_r` and the `h_pre` query, if configured, fails (any error). **Inconclusive** in every other case (the `h_r` query fails and the `h_pre` query, if run, fails too; the head cannot be read; `h_pre` not below `h_r`; timeout, cancellation). Ignoring takes precedence over Inconclusive. Only Honoured passes; Inconclusive counts as not passed. |
-| RS3 Direct read | A read of x/fibre `Params` pinned to `height` establishes the value only if: the canary passed at start; the response carries the response header `x-cosmos-block-height` equal to `height`; and a canary on the same connection right after the read passes. Otherwise the direct source gives nothing for this check (it is not a rejection by itself). While the canary fails, the gate is in observations-only mode (section 10.9, AH4). |
+| RS3 Direct read | A read of x/fibre `Params` pinned to `height` establishes the value only if: the canary passed at start; the response carries the response header `x-cosmos-block-height` equal to `height`; and a canary on the same connection right after the read passes. Otherwise the direct source gives nothing for this check (it is not a rejection by itself). While the canary fails, the gate is in observations-only mode (section 10.9, HR4). |
 | RS4 Samples | The gate samples the latest `shard_retention` at start, periodically (default every 30 s), on every `da = 1` check, and on demand when `height` is above the newest sample. A sample reads the chain head `a`, then the latest params, then the head `b`, and records that the value was in force at some height in `[a - lag, b + lag]` (both ends saturating), where `lag` is configured (0 for an own node, more for a load-balanced endpoint whose backends may trail each other). Both ends are widened because behind a load balancer the three reads may hit different backends: the params backend may trail the one that answered `a` or be ahead of the one that answered `b`. Without the upper widening a retention increase could be recorded below the height where it took effect, and the gate could take a too high value at `height` (K2, invariant 4). Threat assumption: any two backends behind the endpoint differ by at most `lag` blocks; a larger spread breaks this rule silently, so `lag` MUST be set from the provider's stated or observed spread. Samples are persisted durably in the gate's registry, bound to the chain id, before they are used, and never rewritten. |
 | RS5 Segments | Consecutive samples with the same value form a run; consecutive runs form a segment. A new segment starts when the next sample is more than `max_gap_blocks` (default 100) above the last one or more than `max_gap_s` (default 300) later on the gate clock, or when heights or the clock go backwards. A restart that keeps within both gaps continues the segment; otherwise only heights strictly inside the downtime are uncovered. Runs MAY be pruned once older than 8 days (above the 168 h governance maximum). |
 | RS6 Value at `height` | From samples: `height` is covered iff some segment has `first.FirstTo <= height <= last.LastFrom`; a run `r` of that segment may be in force at `height` iff `prev(r).LastFrom <= height <= next(r).FirstTo` (a missing neighbour uses `r.FirstTo`, `r.LastFrom` instead); the value is the minimum over those runs. The value at `height` is the minimum over RS3 and RS6 when both give one, either one when only one does, and `ErrRetentionUnavailable` when neither does. |
@@ -2544,7 +2565,7 @@ and fast mode requires an archive.
 
 Replaces stage 6 (K) for a pending reference. Inputs: the verified
 commitment, the archive, the chain, the mandate (if any). First failure wins.
-Every read at a height follows the at-height rules of section 10.9 (AH1 to AH5).
+Every read at a height follows the at-height rules of section 10.9 (HR1 to HR5).
 
 ### 13.1 Fibre (`da = 1`)
 
@@ -2598,7 +2619,7 @@ A mandate is always configured in K-fast (C5a, section 8.9). `window >= 1` is
 required; a `window` of 0 (only possible when the chain's
 `payment_promise_height_window` read at `h` is 0) is `ErrAnchorWindowClosed`
 (F5, B4 for symmetry). Otherwise the gate would sign `anchor_deadline = h0`,
-which the verifier fails under A2 (section 20.5) and which K2 input key 9
+which the verifier fails under AM2 (section 20.5) and which K2 input key 9
 (`1..1000`) cannot encode.
 
 The slack is checked after the deadline is computed and lowered. It implies
@@ -3541,7 +3562,7 @@ before it returns `payload_ref` (section 10.7).
 
 Encodings of the opaque fields. A reader decodes them with upstream code at
 the pins of section 10.1 and checks each against the header it hangs from
-(section 10.6.2, HT5; AH2), so a wrong encoding fails verification, never
+(section 10.6.2, HT5; HR2), so a wrong encoding fails verification, never
 passes it.
 
 | Field | Encoding | Status |
@@ -3851,7 +3872,8 @@ never written by the Recorder.
 
 Reveal on execution (kind 18). The gate writes it in `Record` (section 14.3),
 after step 8 attached the receipt, iff the decision's record is kind 17 with
-`form = 2` and `action.type` is in `RevealOnExecution` (section 8.9); it takes
+`form = 2` and `action.type` is in `RevealOnExecution` (section 8.9, which
+admits only types with a compiled `public_execution = true` profile); it takes
 the salt from the nonce entry (RQ5 already requires that entry, so the salt is
 there whenever a receipt can be issued) and the receipt it stored. The gate's
 repair rewrites it from the entry like the other records. A failed write does
@@ -3907,7 +3929,7 @@ are normative, so that two verifiers print the same checklist.
 | `decision` | The decision record is present, is kind 17, decodes (section 19.1) and carries its key (20.11). |
 | `envelope` | Stages D, S and G of the signed envelope (sections 6 to 8.1). |
 | `action` | The action bytes and salt, from the decision record, a private blob or a reveal, hash to `action.hash` (section 5.1, 20.11). |
-| `authorization` | The record state, the Authorization check of section 19.5 (AR8), and A1, A2 (20.5). |
+| `authorization` | The record state, the Authorization check of section 19.5 (AR8), and AM1, AM2 (20.5). |
 | `payload` | P1 to P3 on the archived blob (sections 8.5, 10.7). |
 | `anchor` | The inclusion evidence of the archived anchor, checked against the header at `payload_ref.height` (sections 10.4, 10.5, 10.6.1); for a pending reference against the header at the anchor height inside the window, or the absence proof (20.6). |
 | `anchor_time` | K1 against `T_ref` (section 12.2): `T_H` of that header, or the header time at `h0` for a pending reference. |
@@ -3995,7 +4017,7 @@ Archive cases (they follow the general rule):
   Without one, `anchor_time` is `unchecked` (`blocked`), whatever the
   untrusted header says.
 - `authorization`: an Authorization whose gate signature verifies and that
-  contradicts the decision (AR8, section 15.3), including A1 and A2 (20.5).
+  contradicts the decision (AR8, section 15.3), including AM1 and AM2 (20.5).
 - `payload`: a payload whose bytes pass P1 to P3 and that a recipient opens
   (9.4) with an O-rule failure, for example O8 (the payload's action or
   action salt does not give the committed `action.hash`).
@@ -4242,7 +4264,7 @@ The report names the mode (`file`, `explicit`, `agreed`).
 | Rule | Requirement |
 |---|---|
 | OH1 Source | An online header source is a CometBFT RPC base URL. Reads: `/status` (latest height, `node_info.id`, network), `/header?height=h`, and optionally `/blockchain?minHeight=a&maxHeight=b` (at most 20 headers per call). The verifier builds the protobuf `Header` from the JSON and recomputes its hash (HT2). It never uses a hash the source reports. |
-| OH2 At-height | Each header read is a block read (section 10.9): `header.height` MUST equal the requested height (AH1). The chain id of every header MUST equal that of the trusted header, and the configured chain id if one is configured. A header that fails this is a fault of that source. |
+| OH2 At-height | Each header read is a block read (section 10.9): `header.height` MUST equal the requested height (HR1). The chain id of every header MUST equal that of the trusted header, and the configured chain id if one is configured. A header that fails this is a fault of that source. |
 | OH3 Distinct sources | Checkpoint sources count once per normalized host (scheme and port ignored, lower case, one trailing dot dropped) and once per `/status` `node_info.id`: two host names that report the same node id count as one source. A source the verifier knows to be the gate's or the Recorder's own endpoint MUST NOT be counted. |
 | OH4 Checkpoint height | `T` = the minimum of the latest heights reported by the sources that answered `/status`. If `T` is below the highest needed height, the verifier MAY wait for the chain and retry within its timeout (not waiting is fail-safe). If it does not wait, or if time runs out, the check that needs the height is `unchecked`. For `payload_ref.height` or `promise.height` that check is `header_trust`. For the execution `height` it is `execution` (EX5 (a)), and `header_trust` is not affected. |
 | OH5 Agreement | The verifier reads the header at `T` from every source and recomputes each hash. If two answering sources give different hashes, `header_trust` is `unchecked` with the reason "header disagreement with trusted chain: possible bad trusted header, hostile source, or fork". A disagreement between sources is a source problem, not a finding about the decision (20.1). If fewer than `quorum` distinct sources (OH3) answer with the agreed hash, `header_trust` is `unchecked`, never `pass`. `quorum` is configuration, at least 1. The default is 1: one RPC operator is enough for the green line, and the report names it. |
@@ -4285,8 +4307,8 @@ signed bytes and the verified envelope:
 
 | Rule | Check | On failure |
 |---|---|---|
-| A1 | `mode = 1` iff the reference is included, `mode = 2` iff pending | `authorization` fail |
-| A2 | `mode = 2`: `h0 < anchor_deadline <= h0 + 1000` (no gate configuration allows more) | `authorization` fail |
+| AM1 | `mode = 1` iff the reference is included, `mode = 2` iff pending | `authorization` fail |
+| AM2 | `mode = 2`: `h0 < anchor_deadline <= h0 + 1000` (no gate configuration allows more) | `authorization` fail |
 
 These are gate-signed contradictions with the agent-signed decision, so
 they are `fail` under the general rule of 20.1.
@@ -4311,8 +4333,8 @@ mandate is caught even when the auditor did not set `RequirePolicy`. Vector:
 Authorization. Without an `authorized` record the window is undefined and
 `anchor` is `unchecked` (`blocked`, naming `authorization`); the verdict is
 `not_authorized` or `unchecked` by 20.1 anyway. The same holds when the
-`authorization` check fails A1 or A2: there may be no deadline (A1) or one
-out of range (A2), and a deadline the verifier has just rejected is not
+`authorization` check fails AM1 or AM2: there may be no deadline (AM1) or one
+out of range (AM2), and a deadline the verifier has just rejected is not
 verified data. The verdict is already `invalid` by that
 fail, so nothing is hidden.
 
@@ -4616,12 +4638,12 @@ noted; statuses in section 18.3):
 | `ErrH0TooOld` | 6 (F5, B4) | `head - h0 > MaxH0AgeBlocks` | `v1/anchor.json` `h0_too_old` |
 | `ErrAnchorWindowClosed` | 6 (F5, F6, B4, B5) | `window = 0`; `anchor_deadline < head + MinFastSlackBlocks`, or the Fibre promise expires within `MinPromiseSlackSeconds`, and the tx is not already included with code 0 in `[h0, anchor_deadline]`; or the intent is already included outside the window or with a nonzero code | `v1/anchor.json` `window_*` |
 | `ErrAnchorIntentRejected` | 6 (F6, B5) | the gate's node refused the (re)broadcast (operational) | none (stateful) |
-| `ErrInvalidConfig` | gate start | a configuration fails `ValidateBasic` (section 8.9), with its cause: among others `fast_mode_without_mandate`, `age_plus_slack`, the range checks, a `RevealOnExecution` type outside the allowlist | `v1/gate.json` |
+| `ErrInvalidConfig` | gate start | a configuration fails `ValidateBasic` (section 8.9), with its cause: among others `fast_mode_without_mandate`, `age_plus_slack`, `fast_delay_below_slack` (also refuses a runtime mandate adoption), the range checks, a `RevealOnExecution` type outside the allowlist (`reveal_on_execution`) or without a compiled `public_execution = true` profile (`reveal_not_public_execution`) | `v1/gate.json` |
 | `policy.ErrFastModeNotAllowed` | 4p (P15) | policy section 8.2 | `policy/verify.json` |
 | `ErrFastModeRefused` (profile packages) | executor | an executor whose profile refuses fast mode got `mode = 2` | profile documents |
 
 Verifier fail rules are not gate sentinels: `anchor_absent` (`anchor`),
-`mandate_ref_mismatch` and `fast_mode_delay` (`policy`), A1 and A2
+`mandate_ref_mismatch` and `fast_mode_delay` (`policy`), AM1 and AM2
 (`authorization`), section 20.1.
 
 Gate sentinel `ErrDANotAllowed` (package `gate`, stage C, rule C3; no
@@ -4703,7 +4725,12 @@ No live checker imports a module of the superseded drafts, and
 `check_vectors.py` refuses any live vector file or checker module that holds
 one of their protocol tags (`edicta/v0/` followed by a tag name of section
 2). Test derivation labels that only share the prefix (the validator key
-seeds of `da/fibre_cert.json`) are not tags and stay as they are.
+seeds of `da/fibre_cert.json`, the `v1/payload_blob.json` derivation below)
+are not tags and stay as they are. Likewise the files produced by the Go
+tools and `verifier/execution_outcomes.json` keep the file label `format:
+edicta-vectors/v0` (`da/fibre_commit.json`, `da/fibre_cert.json`,
+`da/fibre_anchor.json`, `da/blob_commit.json`): a label of the vector file
+layout, which did not change, not a dependency on the `v0` drafts.
 
 ```
 python3 -m venv .venv && .venv/bin/pip install -r spec/vectors/check/requirements.txt
@@ -4738,9 +4765,9 @@ an action carries `action_salt_hex`.
 | `v1/receipt.json` | Section 14. `cases`: `input`, `commitment_ref`, `signer`, `receipt_cbor_hex`, `receipt_hash_hex`, `signed_message_hex`, `signature_hex`, `signed_receipt_hex`. `reject`: stage D, S and G cases, `receipt_version_0` among them. |
 | `v1/limits.json` | Maximal and over-limit envelopes and Authorizations under the caps. |
 | `v1/anchor.json` | Section 12.2 and 13.3: `k1` and `k2` on `T_ref` for both reference forms and both `da`; `k2_included` (the retention cases: margins, saturation, governance minimum, retention lowered and raised, unreadable at height); `epoch`; `window` (inputs and `expect`: `anchor_deadline`, `ErrH0TooOld`, `ErrAnchorWindowClosed` or `ErrChainUnavailable`). |
-| `v1/gate.json` | Section 8.9 configuration: `defaults` and cases with `config`, `mandate` and `expect` (`ok`, or `ErrInvalidConfig` with its cause). |
+| `v1/gate.json` | Section 8.9 configuration: `defaults`, `allowlist`, `profile_registry` (action type to `public_execution`, the compiled registry restated) and cases with `config`, `mandate`, optional `allowlist` (overrides the top-level one) and `mandate_fast_mode_max_delay`, and `expect` (`ok`, or `ErrInvalidConfig` with its cause). |
 | `v1/archive.json` | Section 19: kinds 13, 14 (synthetic proof parts; the record layer does not verify them), 15 (the bytes of `policy/private.json`), 17 (both forms), 18, Authorization records with K2 input key 9, rejection markers. `reject` (per-kind presence, sizes, `kind_3_unassigned`, `kind_6_reserved`, `kind_16_reserved`, `kind_19_undefined`, `format_0_decision`), `reject_large`, `reads` (key mismatches). |
-| `v1/verify.json` | Section 20.5 to 20.11 on synthetic records: `cases` (fast-mode anchor, absence, A1 and A2, replay with `fast_window`) and `action_cases` (both forms, private blob, reveal, salt comparison, `payload_o8_fails_before_salt_compare`, `decision_record_corrupt`). Evidence and absence are given as verification results per height; their bytes are in `da/absence.json` and the `da/` evidence vectors. |
+| `v1/verify.json` | Section 20.5 to 20.11 on synthetic records: `cases` (fast-mode anchor, absence, AM1 and AM2, replay with `fast_window`) and `action_cases` (both forms, private blob, reveal, salt comparison, `payload_o8_fails_before_salt_compare`, `decision_record_corrupt`). Evidence and absence are given as verification results per height; their bytes are in `da/absence.json` and the `da/` evidence vectors. |
 | `v1/stage4m.json` | Section 8.8: per gate mandate (none, public, private; the one the agent named or another) and per commitment (with or without `mandate_ref`), the stage 4m rule, the result, and the archive writes after it in order (kind 15 action, kind 17 form, kind 5 marker). M0 and M2 write nothing. |
 | `archive/records.json`, `archive/state.json` | Section 19: kinds 1, 2, 4, 5, 17 in format 1, rejects (among them `rec_format_0`, `rec_format_2`, `rec_kind_3`, `rec_kind_6`, `rec_kind_19`, and the evidence record with the unassigned key 18), the write scenarios of 19.4 and the record state of 19.5. Opaque Celestia fields are stand-ins (`placeholder`), except the live `da = 1` records. |
 | `api/publish_request.json` | Section 17: `tag`, `server`, `cases`, `reject` (stages D, S, G, PR), `response`. |

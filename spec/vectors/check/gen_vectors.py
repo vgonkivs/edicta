@@ -47,7 +47,7 @@ KEYS_OUT = Path(__file__).resolve().parent.parent / "keys.json"
 FORMAT = "edicta-vectors/v1"
 REVISION = "v1-draft.5"
 # A file carries the revision of its last content change.
-REVISIONS = {"limits.json": "v1-draft.4", "gate.json": "v1-draft.4"}
+REVISIONS = {"limits.json": "v1-draft.4", "gate.json": "v1-draft.6"}
 MANDATE_FILE = Path(__file__).resolve().parent.parent / "policy" / "mandate.json"
 
 KEYS = {
@@ -2050,16 +2050,21 @@ def gate_vectors() -> dict:
     base_cfg = {"fast_mode": True, "pending_namespaces": [NAMESPACE]}
     out = []
 
-    def case(cid, desc, cfg, mandate=True, allowlist=None):
+    def case(cid, desc, cfg, mandate=True, allowlist=None, delay=None):
         allow = allowlist if allowlist is not None else GATE["action_types"]
         j = {k: ([x.hex() for x in v] if k == "pending_namespaces" else (v if isinstance(v, (bool, list)) else str(v)))
              for k, v in cfg.items()}
         try:
-            E.validate_gate_config(cfg, mandate, allow)
+            E.validate_gate_config(cfg, mandate, allow, E.PROFILE_REGISTRY, delay)
             e = {"result": "ok"}
         except Reject as err:
             e = {"error": err.sentinel, "cause": err.detail}
-        out.append({"id": cid, "description": desc, "config": j, "mandate": mandate, "expect": e})
+        c = {"id": cid, "description": desc, "config": j, "mandate": mandate}
+        if allowlist is not None:
+            c["allowlist"] = allowlist
+        if delay is not None:
+            c["mandate_fast_mode_max_delay"] = str(delay)
+        out.append(dict(c, expect=e))
 
     case("defaults_fast_mode", "FastMode with a namespace, a mandate and every default.", base_cfg)
     case("fast_mode_without_mandate", "FastMode at a gate without a mandate: no mandate, no fast mode.", base_cfg,
@@ -2077,11 +2082,26 @@ def gate_vectors() -> dict:
     case("min_promise_slack_0", "MinPromiseSlackSeconds 0.", dict(base_cfg, min_promise_slack_seconds=0))
     case("min_promise_slack_601", "MinPromiseSlackSeconds 601.", dict(base_cfg, min_promise_slack_seconds=601))
     case("fast_window_1001", "FastWindowBlocks 1001.", dict(base_cfg, fast_window_blocks=1001))
-    case("reveal_type_allowlisted", "RevealOnExecution names an allowlisted type: accepted.",
-         dict(base_cfg, reveal_on_execution=[TYPE_JSON]))
+    bank_send = "application/vnd.edicta.cosmos.bank-send.v0+cbor"
+    case("reveal_type_allowlisted", "RevealOnExecution names an allowlisted type whose profile (bank-send) has "
+         "public_execution = true: accepted.", dict(base_cfg, reveal_on_execution=[bank_send]),
+         allowlist=GATE["action_types"] + [bank_send])
     case("reveal_type_not_allowlisted", "RevealOnExecution names a type outside the allowlist.",
          dict(base_cfg, reveal_on_execution=["application/vnd.edicta.other.v0+cbor"]))
+    case("reveal_type_offchain_profile", "RevealOnExecution names the IBKR order type: its profile (dca-agent) has "
+         "public_execution = false, so a reveal would make the low-entropy order testable against action_hash.",
+         dict(base_cfg, reveal_on_execution=[IBKR]))
+    case("reveal_type_without_profile", "RevealOnExecution names an allowlisted type that no compiled profile "
+         "registers (application/json): refused like an off-chain type.", dict(base_cfg, reveal_on_execution=[TYPE_JSON]))
+    case("fast_delay_below_slack", "The mandate's fast_mode_max_delay 3 is below MinFastSlackBlocks 3 + 1: no "
+         "reference one block past h0 could ever pass the slack, so fast mode would be silently unusable.",
+         base_cfg, delay=3)
+    case("fast_delay_at_slack_plus_1", "fast_mode_max_delay 4 = MinFastSlackBlocks 3 + 1: accepted.", base_cfg,
+         delay=4)
+    case("fast_delay_low_fast_mode_off", "fast_mode_max_delay 1 with FastMode off: no fast-mode window is ever "
+         "computed, accepted.", {"fast_mode": False}, delay=1)
     return {"format": FORMAT, "revision": REVISIONS["gate.json"], "allowlist": GATE["action_types"],
+            "profile_registry": dict(E.PROFILE_REGISTRY),
             "defaults": {k: (v if isinstance(v, bool) else str(v)) for k, v in E.GATE_CONFIG_DEFAULTS.items()},
             "cases": out}
 

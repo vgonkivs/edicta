@@ -50,7 +50,7 @@ VECTORS = HERE.parent
 DIR = VECTORS / "v1"
 FORMAT = "edicta-vectors/v1"
 REVISION = "v1-draft.5"
-REVISIONS = {"limits.json": "v1-draft.4", "gate.json": "v1-draft.4"}
+REVISIONS = {"limits.json": "v1-draft.4", "gate.json": "v1-draft.6"}
 
 LIT = {
     "commitment": b"\x1dedicta/v1/decision-commitment",
@@ -119,7 +119,8 @@ REQUIRED = {
                     "epoch_at_limit"],
     "action.json": ["action_v1_minimal", "action_v1_max", "action_v1_wrong_salt", "action_v1_salt_missing",
                     "action_v1_salt_31", "action_v1_salt_33", "action_unsalted", "action_v1_salt_after_bytes"],
-    "gate.json": ["fast_mode_without_mandate", "age_plus_slack_over_window", "max_h0_age_equals_window"],
+    "gate.json": ["fast_mode_without_mandate", "age_plus_slack_over_window", "max_h0_age_equals_window",
+                  "reveal_type_offchain_profile", "reveal_type_without_profile", "fast_delay_below_slack"],
 }
 FILES = ["valid.json", "reject.json", "authorization.json", "receipt.json", "record_request.json", "payload.json",
          "limits.json", "anchor.json", "action.json", "gate.json"]
@@ -738,8 +739,9 @@ def check_gate(f: dict) -> int:
                 cfg[k] = int(v)
             else:
                 cfg[k] = v
+        delay = int(c["mandate_fast_mode_max_delay"]) if "mandate_fast_mode_max_delay" in c else None
         try:
-            E.validate_gate_config(cfg, c["mandate"], f["allowlist"])
+            E.validate_gate_config(cfg, c["mandate"], c.get("allowlist", f["allowlist"]), f["profile_registry"], delay)
             got = {"result": "ok"}
         except Reject as e:
             got = {"error": e.sentinel, "cause": e.detail}
@@ -748,6 +750,13 @@ def check_gate(f: dict) -> int:
         if got == {"result": "ok"}:
             expect(full["max_h0_age_blocks"] + full["min_fast_slack_blocks"] <= full["fast_window_blocks"]
                    and (c["mandate"] or not cfg.get("fast_mode")), f"{c['id']}: accepted against the config rules")
+            expect(all(f["profile_registry"].get(t) is True for t in cfg.get("reveal_on_execution", [])),
+                   f"{c['id']}: reveals a type without public execution")
+            expect(delay is None or not cfg.get("fast_mode") or delay >= full["min_fast_slack_blocks"] + 1,
+                   f"{c['id']}: fast_mode_max_delay below the slack")
+    # The registry restates the profile documents (dca-agent 3.4, bank-send 3.5).
+    expect(f["profile_registry"] == {"application/vnd.edicta.ibkr.order.v0+cbor": False,
+                                     "application/vnd.edicta.cosmos.bank-send.v0+cbor": True}, "gate.json: registry")
     expect("accept_v0" not in f["defaults"], "gate.json: no v0 acceptance switch")
     return len(f["cases"])
 

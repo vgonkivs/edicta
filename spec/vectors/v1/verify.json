@@ -540,7 +540,7 @@
     },
     {
       "id": "auth_mode_mismatch",
-      "description": "Pending reference, Authorization in mode 1 (A1).",
+      "description": "Pending reference, Authorization in mode 1 (AM1).",
       "decision": "decision_pending_fibre",
       "authorization": "authorization_fast_fibre_mode_1",
       "trusted_head": "4200127",
@@ -548,7 +548,7 @@
       "expect": {
         "authorization": {
           "status": "fail",
-          "rule": "A1"
+          "rule": "AM1"
         },
         "anchor": {
           "status": "unchecked",
@@ -566,7 +566,7 @@
     },
     {
       "id": "auth_deadline_over_1000",
-      "description": "anchor_deadline = h0 + 1001 (A2).",
+      "description": "anchor_deadline = h0 + 1001 (AM2).",
       "decision": "decision_pending_fibre",
       "authorization": "authorization_fast_fibre_deadline_1001",
       "trusted_head": "4200127",
@@ -574,7 +574,7 @@
       "expect": {
         "authorization": {
           "status": "fail",
-          "rule": "A2"
+          "rule": "AM2"
         },
         "anchor": {
           "status": "unchecked",

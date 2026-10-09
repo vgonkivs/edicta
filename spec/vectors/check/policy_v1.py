@@ -1229,8 +1229,10 @@ def decode_record(b: bytes) -> dict:
             v = sv["verdict"]
             if v["outcome"] != (1 if kind == 8 else 2):
                 raise PolicyError(s, "ErrInvalidEnum")
-            # Key segment of kind 9: the bare reason in public form, "private" in private form (no public reason).
-            out.update(key=v["commitment_hash"], reason="private" if "private_hash" in v else v.get("reason"),
+            # Key segment of kind 9: the bare reason in public form; in private form (no public reason)
+            # "private-" and the private_hash, so that every private deny of one decision keeps its own record.
+            out.update(key=v["commitment_hash"],
+                       reason=("private-" + v["private_hash"].hex()) if "private_hash" in v else v.get("reason"),
                        body=m[3][1])
         elif kind == 10:
             out.update(key=thash("bucket", m[3][1]), body=m[3][1], bucket=decode_bucket(m[3][1]))
@@ -1481,16 +1483,26 @@ def verify_policy(case: dict) -> dict:
             # The verdict itself is the evidence. The policy is still judged on what the verifier derives on
             # its own: its extractor's facts stand in for missing ones, and a deny on them is a fail.
             res["pp_violation"] = [V]
+            xid = case["extractors"].get(d["action_type"])
             if "facts" not in VL:
-                xid = case["extractors"].get(d["action_type"])
                 if xid is None:
                     return ("unchecked", "policy_no_extractor"), m
                 try:
                     VL = dict(VL, facts=EXTRACTORS[xid](d["action"]), extractor=xid)
                 except PolicyError:
                     return ("unchecked", "blocked"), m
-            if any(k not in VL for k in ("extractor", "anchor_time", "eval_time", "prev_state")):
-                return ("unchecked", "blocked"), m
+            if "extractor" not in VL:
+                if xid is None:
+                    return ("unchecked", "policy_no_extractor"), m
+                VL = dict(VL, extractor=xid)
+            # A missing anchor_time is the verified T_ref; without it nothing after step 3 has an input.
+            if "anchor_time" not in VL:
+                if case["t_h"] is None:
+                    return ("unchecked", "blocked"), m
+                VL = dict(VL, anchor_time=case["t_h"])
+            if "prev_state" in VL and "eval_time" not in VL:
+                ps = VL["prev_state"]
+                VL = dict(VL, eval_time=VL["anchor_time"] if ps["seq"] == 0 else max(VL["anchor_time"], ps["last_t"]))
             st = "ok"
         if st != "ok":
             return ("unchecked", src[st]), m
@@ -1511,6 +1523,9 @@ def verify_policy(case: dict) -> dict:
                 return ("fail", "ErrOutsideMandate"), m
         else:
             res["blocked_th"] = True
+        if "prev_state" not in VL:
+            # Steps 5 and 6 need the state the gate read; a PrivatePart without it blocks them.
+            return ("unchecked", "blocked"), m
         ps = VL["prev_state"]
         st, led = ledger_for(VL, ps, m, True)
         if st == "inconsistent":

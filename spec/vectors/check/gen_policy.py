@@ -1366,6 +1366,29 @@ def draft5_cases(case, dec, cheat, sims):
          "and matches the verified T_ref.", FT, x, exp=("pass", None, "not_checked", "0"))
 
 
+def second_private_deny(PV, pd, dpp) -> dict:
+    """A second private deny of the same decision under another reason, kept apart from the first by its
+    private_hash segment. Synthetic verdict, not added to any archive pool: an honest gate reaches it, for example,
+    with ErrMinSpacing and later ErrPeriodLimit on two attempts against different counter states."""
+    now = pd["th"] + 600
+    v = PV.base_verdict(pd, now)
+    v.update(outcome=2, reason="ErrDecisionAge", extractor=dpp["extractor"], facts=dpp["facts"],
+             anchor_time=pd["th"], gate_clock=1)
+    pub, pp = P.split_verdict(v, sha("edicta/policy/v1 test private part salt|" + pd["commitment_hash"].hex() + "|2"))
+    ppb = encode(P.to_cbor(pp, P.S_PRIVATE_PART))
+    rec15 = private_record(4, ppb, pub["private_hash"], PV.m["auditors"])[0]
+    sv, vh = sign_unchecked(SEEDS["gate1"], pub)
+    rec9 = P.record(9, body=sv)
+    return {"id": "private_deny_second_reason", "description": "A later attempt of the same decision denied for "
+            "another reason (ErrDecisionAge, gate clock 600 s after T_ref; synthetic verdict). Kind 9 of a private "
+            "deny is keyed (commitment_hash, private_hash), path policy-deny/<commitment_hash>/private-<private_hash>, "
+            "so it does not conflict with the first deny, and the kind 15 PrivatePart it names stays reachable.",
+            "reason": "ErrDecisionAge", "signed_verdict_hex": sv.hex(), "verdict_hash_hex": vh.hex(),
+            "private_part_cbor_hex": ppb.hex(), "private_part_record_cbor_hex": rec15.hex(),
+            "private_part_path": f"private/4/{pub['private_hash'].hex()}",
+            "kind9_path": P.decode_record(rec9)["path"], "kind9_record_cbor_hex": rec9.hex()}
+
+
 def private_mandate(label, **kw):
     return base_mandate(label, **{"auditors": AUDITORS, "state_salt": state_salt(label), **kw})
 
@@ -1449,6 +1472,22 @@ def private_cases(case, dec, sims):
           "extraction of the action bytes stands in and allows: policy pass, gate_integrity violated "
           "(gate_signed_inconsistent_private_part), exit 5.", ("pass", None, "violated", "5"),
           mutate_pp=drop_facts, auditors=k)
+    def drop_prev_state(pp):
+        del pp["prev_state"]
+    cheat("private_part_allow_missing_prev_state", "An allow whose PrivatePart lacks key 13 (prev_state): the facts "
+          "and the per-action rules still run and pass, but the state read and the evaluation (steps 5 and 6) have "
+          "no input: policy unchecked (blocked, naming gate_integrity), gate_integrity violated "
+          "(gate_signed_inconsistent_private_part), exit 5.", ("unchecked", "blocked", "violated", "5"),
+          mutate_pp=drop_prev_state, auditors=k)
+
+    def drop_times(pp):
+        del pp["anchor_time"]
+        del pp["eval_time"]
+    cheat("private_part_allow_missing_times", "An allow whose PrivatePart lacks keys 11 and 12 (anchor_time, "
+          "eval_time): the verifier uses the verified T_ref and derives eval_time = max(T_ref, prev_state.last_t); "
+          "evaluation on the signed state allows: policy pass, gate_integrity violated "
+          "(gate_signed_inconsistent_private_part), exit 5.", ("pass", None, "violated", "5"),
+          mutate_pp=drop_times, auditors=k)
     cheat("private_part_missing_facts_denies", "The gate allowed amount 6000 (above the per-action maximum) and left "
           "the facts out of the PrivatePart: the verifier's own extraction denies, so the gate contradicts itself in "
           "a way that changes the outcome: policy fail (ErrAmountAboveMax), decision invalid, gate_integrity "
@@ -1559,7 +1598,7 @@ def gen_private(priv: dict, sims: dict) -> dict:
                "private_part_cbor_hex": ppb.hex(), "private_part": js(pp),
                "prev_state_cbor_hex": P.state_cbor(pp["prev_state"]).hex(),
                "merged_verdict": js(P.merge_verdict(v, pp))}
-    deny_path = f"policy-deny/{pd['commitment_hash'].hex()}/private"
+    deny_path = next(p for p in sorted(PV.recs) if p.startswith(f"policy-deny/{pd['commitment_hash'].hex()}/private-"))
     dsv = P.decode_record(PV.recs[deny_path])["body"]
     dv, dvh, dppb, dpp = opened(dsv)
     marker = encode({1: 0, 2: 5, 3: pd["commitment_hash"], 4: "ErrDenied", 5: GATE_ID, 6: pd["th"] + 30})
@@ -1571,7 +1610,8 @@ def gen_private(priv: dict, sims: dict) -> dict:
             "kind9_path": deny_path, "kind9_record_cbor_hex": PV.recs[deny_path].hex(),
             "marker_record_cbor_hex": marker.hex(), "marker_path": f"rejection/{pd['commitment_hash'].hex()}/ErrDenied",
             "with_key": {"id": "private_deny_with_key", "auditor": "auditor-2", "private_part_cbor_hex": dppb.hex(),
-                         "private_part": js(dpp), "reason": dpp["reason"]}}
+                         "private_part": js(dpp), "reason": dpp["reason"]},
+            "second_deny": second_private_deny(PV, pd, dpp)}
     assert sorted(deny["public_keys"], key=int) == ["1", "2", "3", "4", "5", "6", "7", "19"]
     base = envs[3]
     pt, h = bytes.fromhex(base["plaintext_cbor_hex"]), bytes.fromhex(base["hash_hex"])
@@ -1724,7 +1764,7 @@ def gen_archive(pool, ppool):
     rec5 = private_record(5, asalt + act, ah, AUDITORS)[0]
     cases.append({"id": "private_blob_action", "kind": "15", "path": f"private/5/{ah.hex()}", "key_hex": ah.hex(),
                   "plaintext_kind": "5", "record_cbor_hex": rec5.hex()})
-    pdeny = next(p for p in sorted(ppool) if p.startswith("policy-deny/") and p.endswith("/private"))
+    pdeny = next(p for p in sorted(ppool) if p.startswith("policy-deny/") and "/private-" in p)
     r = P.decode_record(ppool[pdeny])
     cases.append({"id": "policy_deny_private", "kind": "9", "path": r["path"], "key_hex": r["key"].hex(),
                   "record_cbor_hex": ppool[pdeny].hex()})
@@ -1787,7 +1827,7 @@ def gen_archive(pool, ppool):
          "path": f"policy-deny/{pv_rec['key'].hex()}/ErrAmountAboveMax", "record_cbor_hex": ppool[pdeny].hex(),
          "expect_error": "archive.ErrCorrupt"},
         {"id": "deny_public_under_private_path", "description": "A public-form deny stored under the segment private.",
-         "path": f"policy-deny/{pd_rec['key'].hex()}/private", "record_cbor_hex": pool[pub_deny].hex(),
+         "path": f"policy-deny/{pd_rec['key'].hex()}/{pdeny.rsplit('/', 1)[1]}", "record_cbor_hex": pool[pub_deny].hex(),
          "expect_error": "archive.ErrCorrupt"},
         {"id": "deny_private_own_path", "description": "Control: the private deny under its own path.",
          "path": pv_rec["path"], "record_cbor_hex": ppool[pdeny].hex(), "expect_error": None},
@@ -1853,7 +1893,7 @@ def gen_api(sims):
          "verdict.", "response_cbor_hex": err("ErrPolicyStateConflict", 503, "gate: policy state changed concurrently", 1).hex()},
     ]
     PV = sims["PV"]
-    pdp = next(p for p in sorted(PV.recs) if p.startswith("policy-deny/") and p.endswith("/private"))
+    pdp = next(p for p in sorted(PV.recs) if p.startswith("policy-deny/") and "/private-" in p)
     ex.append({"id": "authorize_deny_private", "status": "403", "description": "Stage 4p deny at a private-mode gate: "
                "the caller still gets the sentinel in the error body, and key 5 holds the private-form verdict (keys 1 "
                "to 7 and 19), never the PrivatePart. HTTP answers are not archive data; protecting them is the "
@@ -1954,8 +1994,8 @@ def build() -> dict:
         "policy/state.json": header(gen_state()),
         "policy/engine.json": header(gen_engine()),
         "policy/verify.json": header(ver, REVISION_9),
-        "policy/private.json": header(gen_private(priv, sims), REVISION_8),
-        "policy/archive.json": header(gen_archive(pool, ppool), REVISION_8),
+        "policy/private.json": header(gen_private(priv, sims), REVISION_9),
+        "policy/archive.json": header(gen_archive(pool, ppool), REVISION_9),
         "policy/api.json": header(gen_api(sims), REVISION_8),
         "profiles/bank-send/tia_transfer_facts.json": gen_tia(),
     }

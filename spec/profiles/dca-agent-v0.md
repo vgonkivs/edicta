@@ -4,7 +4,7 @@ Edicta profile for the dogfood agent in `examples/dca-agent`.
 
 Status: revision `dca-agent-v0-draft.4` (2026-10-09). Working draft, subject
 to change. Built on the core spec `spec/decision-commitment-v1.md`, revision
-`v1-draft.5`; section numbers prefixed "core" refer to it. At the freeze tag
+`v1-draft.6`; section numbers prefixed "core" refer to it. At the freeze tag
 this line cites the frozen revision. The `v0` in this profile's name and
 media types is the profile's own version, not the core's.
 
@@ -201,8 +201,9 @@ goes through a binary float MUST NOT be used for them.
 ### 3.4 Public execution (core 20.11)
 
 `public_execution = false`. An IBKR order is executed off chain: its bytes
-never become public, so this profile defines no `ActionFromTx`, a gate does
-not list its action type in `RevealOnExecution` (core 8.9), and the action
+never become public, so this profile defines no `ActionFromTx`, a gate
+refuses to start with its action type in `RevealOnExecution` (core 8.9,
+cause `reveal_not_public_execution`), and the action
 salt of a private-mode decision is never revealed. A verifier without an
 auditor key reports the action and execution checks of such a decision as
 `unchecked` (`policy_private`).

@@ -552,7 +552,8 @@ def read_record(b):
         if kind in (8, 9):
             v, _ = verdict_verify(body, None)
             need(v[7] == (1 if kind == 8 else 2), s)
-            p = f"{PATH[kind]}/{v[4].hex()}" + ((f"/{v[8]}" if 19 not in v else "/private") if kind == 9 else "")
+            p = f"{PATH[kind]}/{v[4].hex()}" + ((f"/{v[8]}" if 19 not in v else f"/private-{v[19].hex()}")
+                                                if kind == 9 else "")
             return {"kind": kind, "key": v[4], "path": p, "body": body}
         if kind == 10:
             x = dec_struct(body, 16384, v_bucket)
@@ -1219,7 +1220,7 @@ def classify(c, records, gate_pub):
     def state(v):
         """(status, State) of the state a verdict read."""
         s, mg = logical(v)
-        return (s, mg[13]) if mg is not None else (s, None)
+        return (s, mg.get(13)) if mg is not None else (s, None)
 
     def psh(v):
         return v[20] if 20 in v else H(T_STATE, encode(v[13]))
@@ -1330,16 +1331,25 @@ def classify(c, records, gate_pub):
             return None
         if s == "pp":
             pp_viol.append(vh(V))
+            # Policy 13.2 step 2: what the verifier derives on its own stands in for missing keys.
+            VL = dict(VL)
             if 10 not in VL:
                 if xreg.get(atype) != TEST_X:
                     return "u", "policy_no_extractor"
                 try:
-                    VL = dict(VL)
                     VL[10], VL[9] = facts_dec(action), TEST_X
                 except Bad:
                     return "u", "blocked"
-            if not all(k in VL for k in (9, 11, 12, 13)):
-                return "u", "blocked"
+            if 9 not in VL:
+                if xreg.get(atype) != TEST_X:
+                    return "u", "policy_no_extractor"
+                VL[9] = TEST_X
+            if 11 not in VL:
+                if th is None:
+                    return "u", "blocked"
+                VL[11] = th
+            if 13 in VL and 12 not in VL:
+                VL[12] = VL[11] if VL[13][2] == 0 else max(VL[11], VL[13][3])
             s = "ok"
         if s != "ok":
             return "u", hist[s]
@@ -1371,6 +1381,8 @@ def classify(c, records, gate_pub):
             return "f", "anchor_time_mismatch"
         elif th < m[5]:
             return "f", "ErrOutsideMandate"
+        if 13 not in VL:
+            return "u", "blocked"
         st = VL[13]
         s, led = closed_for(VL, st, m, True)
         if s == "inconsistent":
@@ -1658,7 +1670,20 @@ def check_private(f, verify):
     dv, _ = verdict_verify(hx(pd["signed_verdict_hex"]), gate_pub)
     expect(set(dv) == {1, 2, 3, 4, 5, 6, 7, 19} and dv[7] == 2, "private deny public shape")
     r9 = read_record(hx(pd["kind9_record_cbor_hex"]))
-    expect(r9["path"] == pd["kind9_path"] and pd["kind9_path"].endswith("/private"), "kind 9 private path")
+    expect(r9["path"] == pd["kind9_path"] == f"policy-deny/{dv[4].hex()}/private-{dv[19].hex()}", "kind 9 private path")
+    # A second private deny of the same decision keeps its own record (key (commitment_hash, private_hash)).
+    sd = pd["second_deny"]
+    dv2, _ = verdict_verify(hx(sd["signed_verdict_hex"]), gate_pub)
+    expect(set(dv2) == {1, 2, 3, 4, 5, 6, 7, 19} and dv2[4] == dv[4] and dv2[19] != dv[19], "second deny shape")
+    r9b = read_record(hx(sd["kind9_record_cbor_hex"]))
+    expect(r9b["path"] == sd["kind9_path"] == f"policy-deny/{dv2[4].hex()}/private-{dv2[19].hex()}"
+           and r9b["path"] != r9["path"] and r9b["key"] == r9["key"], "second deny path")
+    r15b = read_record(hx(sd["private_part_record_cbor_hex"]))
+    expect(r15b["kind"] == 15 and r15b["pk"] == 4 and r15b["key"] == dv2[19], "second deny PrivatePart record")
+    pp2 = lenient(hx(sd["private_part_cbor_hex"]), "x", 16384)
+    v_private_part(pp2)
+    expect(H(T_PRIV_PART, hx(sd["private_part_cbor_hex"])) == dv2[19] and pp2[8] == sd["reason"]
+           and sd["reason"] != pd["with_key"]["reason"], "second deny PrivatePart")
     mk = lenient(hx(pd["marker_record_cbor_hex"]), "x", 512, 1)
     expect(mk[2] == 5 and mk[4] == "ErrDenied" and pd["marker_path"] == f"rejection/{mk[3].hex()}/ErrDenied", "marker")
     dpp = lenient(hx(pd["with_key"]["private_part_cbor_hex"]), "x", 16384)
@@ -1703,7 +1728,8 @@ def check_private(f, verify):
                     "private_with_key_anchor_time_mismatch", "private_wrong_key", "private_part_hash_differs",
                     "private_state_not_key_20", "private_fork_without_key", "private_walk_without_key",
                     "verdict_form_mismatch", "private_part_row_mismatch", "private_part_allow_missing_facts",
-                    "private_part_missing_facts_denies",
+                    "private_part_missing_facts_denies", "private_part_allow_missing_prev_state",
+                    "private_part_allow_missing_times",
                     "state_salt_wrong", "chain_continuity_without_salt"):
         expect(need_id in ids, need_id)
     return (f"{len(f['envelopes'])} envelopes, {len(f['reject'])} reject, {len(pv['reject'])} verdict reject, "
@@ -1718,10 +1744,10 @@ def check_archive(f, verify, private):
             expect(c["record_cbor_hex"] == next(e["record_cbor_hex"] for e in private["envelopes"]
                                                 if e["plaintext_kind"] == "5"), c["id"])
             continue
-        src = private if (r["kind"] == 15 or c["path"].endswith("/private")) else verify
+        src = private if (r["kind"] == 15 or "/private-" in c["path"]) else verify
         expect(src["records"][c["path"]] == c["record_cbor_hex"], c["id"])
     expect({c["plaintext_kind"] for c in f["cases"] if c["kind"] == "15"} == {"1", "2", "3", "4", "5"}, "kind 15 cases")
-    expect(any(c["path"].endswith("/private") for c in f["cases"] if c["kind"] == "9"), "kind 9 private case")
+    expect(any("/private-" in c["path"] for c in f["cases"] if c["kind"] == "9"), "kind 9 private case")
     for x in f["reads"]:
         ok = read_record(hx(x["record_cbor_hex"]))["path"] == x["path"]
         expect(ok == (x["expect_error"] is None), x["id"])
@@ -1799,8 +1825,8 @@ def check_tia(f):
 
 # The revision that last changed each file's bytes; files not listed keep draft.1.
 LAST_CHANGED = {"policy/mandate.json": "policy-v1-draft.7", "policy/render.json": "policy-v1-draft.7",
-                "policy/verify.json": "policy-v1-draft.9", "policy/archive.json": "policy-v1-draft.8",
-                "policy/api.json": "policy-v1-draft.8", "policy/private.json": "policy-v1-draft.8"}
+                "policy/verify.json": "policy-v1-draft.9", "policy/archive.json": "policy-v1-draft.9",
+                "policy/api.json": "policy-v1-draft.8", "policy/private.json": "policy-v1-draft.9"}
 
 
 def main() -> int:

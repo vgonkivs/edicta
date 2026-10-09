@@ -418,9 +418,9 @@ def verify_vectors(by_name: dict) -> dict:
     case("fast_evidence_not_verifying", "Evidence that does not verify is a source problem; the rows for no usable "
          "evidence decide: absence proven, fail.", df, af, evidence={"height": h0 + 1, "verifies": False},
          absence=proven)
-    case("auth_mode_mismatch", "Pending reference, Authorization in mode 1 (A1).", df,
+    case("auth_mode_mismatch", "Pending reference, Authorization in mode 1 (AM1).", df,
          "authorization_fast_fibre_mode_1")
-    case("auth_deadline_over_1000", "anchor_deadline = h0 + 1001 (A2).", df, "authorization_fast_fibre_deadline_1001")
+    case("auth_deadline_over_1000", "anchor_deadline = h0 + 1001 (AM2).", df, "authorization_fast_fibre_deadline_1001")
     case("auth_strict_included", "Control: included reference, Authorization mode 1; the anchor check is the "
          "included one.",
          "decision_included_fibre", "authorization_strict_fibre")

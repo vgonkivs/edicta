@@ -5,7 +5,7 @@ Edicta profile for a bank transfer on a Cosmos SDK chain, used by the demo in
 
 Status: revision `bank-send-v0-draft.11` (2026-10-09). Working draft, subject
 to change. Built on the core spec `spec/decision-commitment-v1.md`, revision
-`v1-draft.5` (at the freeze tag this line cites the frozen revision). Section
+`v1-draft.6` (at the freeze tag this line cites the frozen revision). Section
 2.4 needs `spec/policy-v1.md` (`policy-v1-draft.1` or later). Section numbers
 prefixed "core" refer to the core spec. The `v0` in this profile's name and
 media types is the profile's own version, not the core's.

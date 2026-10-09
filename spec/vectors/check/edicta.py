@@ -665,9 +665,16 @@ GATE_CONFIG_DEFAULTS = {"fast_mode": False, "fast_window_blocks": 100, "max_h0_a
                         "min_fast_slack_blocks": 3, "min_promise_slack_seconds": 15, "rebroadcast_intent": True}
 
 
-def validate_gate_config(cfg: dict, mandate: bool, allowlist: list):
-    """ValidateBasic in table order, then the cross-field rule, then the constructor's mandate check.
+# Compiled profile registry: action type -> public_execution (the profile documents, section "Public execution").
+PROFILE_REGISTRY = {"application/vnd.edicta.ibkr.order.v0+cbor": False,
+                    "application/vnd.edicta.cosmos.bank-send.v0+cbor": True}
+
+
+def validate_gate_config(cfg: dict, mandate: bool, allowlist: list, registry: dict | None = None,
+                         mandate_fast_mode_max_delay: int | None = None):
+    """ValidateBasic in table order, then the cross-field rule, then the constructor's mandate checks.
     Raises Reject("ErrInvalidConfig", cause)."""
+    registry = PROFILE_REGISTRY if registry is None else registry
     c = dict(GATE_CONFIG_DEFAULTS, **cfg)
     bad = lambda cause: Reject("ErrInvalidConfig", cause)
     if c["fast_mode"] and not c.get("pending_namespaces"):
@@ -688,10 +695,17 @@ def validate_gate_config(cfg: dict, mandate: bool, allowlist: list):
     for t in c.get("reveal_on_execution", []):
         if t not in allowlist:
             raise bad("reveal_on_execution")
+        # Revealing the salt of an action whose bytes are not public makes it testable against action_hash.
+        if registry.get(t) is not True:
+            raise bad("reveal_not_public_execution")
     if c["max_h0_age_blocks"] + c["min_fast_slack_blocks"] > c["fast_window_blocks"]:
         raise bad("age_plus_slack")
     if c["fast_mode"] and not mandate:
         raise bad("fast_mode_without_mandate")
+    # A deadline at most fast_mode_max_delay above h0 must leave the slack above a head one block past h0.
+    if (c["fast_mode"] and mandate_fast_mode_max_delay is not None
+            and mandate_fast_mode_max_delay < c["min_fast_slack_blocks"] + 1):
+        raise bad("fast_delay_below_slack")
 
 
 def fast_window(da: int, h0: int, head: int, fast_window_blocks: int, max_h0_age: int,

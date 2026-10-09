@@ -633,14 +633,14 @@ def k2_holds(env: dict, k2: dict) -> bool:
 # Verifier rules on decoded inputs.
 
 def authorization_rules(c: dict, a: dict) -> str | None:
-    """A1, A2 on the decision's commitment and the archived Authorization. Returns the failing rule or None."""
+    """AM1, AM2 on the decision's commitment and the archived Authorization. Returns the failing rule or None."""
     pending = E.is_pending(c)
     if a["mode"] != (E.MODE_FAST if pending else E.MODE_STRICT):
-        return "A1"
+        return "AM1"
     if pending:
         h0 = c["payload_ref"]["height"]
         if not h0 < a["anchor_deadline"] <= h0 + E.MAX_FAST_WINDOW:
-            return "A2"
+            return "AM2"
     return None
 
 

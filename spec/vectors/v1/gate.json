@@ -1,12 +1,16 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.4",
+  "revision": "v1-draft.6",
   "allowlist": [
     "application/vnd.edicta.ibkr.order.v0+cbor",
     "application/json",
     "application/octet-stream",
     "application/vnd.edicta.test.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+cbor"
   ],
+  "profile_registry": {
+    "application/vnd.edicta.ibkr.order.v0+cbor": false,
+    "application/vnd.edicta.cosmos.bank-send.v0+cbor": true
+  },
   "defaults": {
     "fast_mode": false,
     "fast_window_blocks": "100",
@@ -200,17 +204,24 @@
     },
     {
       "id": "reveal_type_allowlisted",
-      "description": "RevealOnExecution names an allowlisted type: accepted.",
+      "description": "RevealOnExecution names an allowlisted type whose profile (bank-send) has public_execution = true: accepted.",
       "config": {
         "fast_mode": true,
         "pending_namespaces": [
           "000000000000000000000000000000000000006564696374612f643031"
         ],
         "reveal_on_execution": [
-          "application/json"
+          "application/vnd.edicta.cosmos.bank-send.v0+cbor"
         ]
       },
       "mandate": true,
+      "allowlist": [
+        "application/vnd.edicta.ibkr.order.v0+cbor",
+        "application/json",
+        "application/octet-stream",
+        "application/vnd.edicta.test.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+cbor",
+        "application/vnd.edicta.cosmos.bank-send.v0+cbor"
+      ],
       "expect": {
         "result": "ok"
       }
@@ -231,6 +242,85 @@
       "expect": {
         "error": "ErrInvalidConfig",
         "cause": "reveal_on_execution"
+      }
+    },
+    {
+      "id": "reveal_type_offchain_profile",
+      "description": "RevealOnExecution names the IBKR order type: its profile (dca-agent) has public_execution = false, so a reveal would make the low-entropy order testable against action_hash.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ],
+        "reveal_on_execution": [
+          "application/vnd.edicta.ibkr.order.v0+cbor"
+        ]
+      },
+      "mandate": true,
+      "expect": {
+        "error": "ErrInvalidConfig",
+        "cause": "reveal_not_public_execution"
+      }
+    },
+    {
+      "id": "reveal_type_without_profile",
+      "description": "RevealOnExecution names an allowlisted type that no compiled profile registers (application/json): refused like an off-chain type.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ],
+        "reveal_on_execution": [
+          "application/json"
+        ]
+      },
+      "mandate": true,
+      "expect": {
+        "error": "ErrInvalidConfig",
+        "cause": "reveal_not_public_execution"
+      }
+    },
+    {
+      "id": "fast_delay_below_slack",
+      "description": "The mandate's fast_mode_max_delay 3 is below MinFastSlackBlocks 3 + 1: no reference one block past h0 could ever pass the slack, so fast mode would be silently unusable.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ]
+      },
+      "mandate": true,
+      "mandate_fast_mode_max_delay": "3",
+      "expect": {
+        "error": "ErrInvalidConfig",
+        "cause": "fast_delay_below_slack"
+      }
+    },
+    {
+      "id": "fast_delay_at_slack_plus_1",
+      "description": "fast_mode_max_delay 4 = MinFastSlackBlocks 3 + 1: accepted.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ]
+      },
+      "mandate": true,
+      "mandate_fast_mode_max_delay": "4",
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "fast_delay_low_fast_mode_off",
+      "description": "fast_mode_max_delay 1 with FastMode off: no fast-mode window is ever computed, accepted.",
+      "config": {
+        "fast_mode": false
+      },
+      "mandate": true,
+      "mandate_fast_mode_max_delay": "1",
+      "expect": {
+        "result": "ok"
       }
     }
   ]

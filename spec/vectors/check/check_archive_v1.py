@@ -238,9 +238,9 @@ def outcome(c: dict, records: dict, window: int) -> dict:
     out = {}
     expect(a[1] == cm["version"] == 1, "version 1 decision and Authorization")
     if a.get(7) != (2 if pending else 1):
-        rule = "A1"
+        rule = "AM1"
     elif pending and not (h0 < a[8] <= h0 + 1000):
-        rule = "A2"
+        rule = "AM2"
     else:
         rule = None
     out["authorization"] = {"status": "fail", "rule": rule} if rule else {"status": "pass"}
