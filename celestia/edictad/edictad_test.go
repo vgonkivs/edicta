@@ -331,7 +331,7 @@ func TestWiringAuthorizeAndRecord(t *testing.T) {
 	e := newEnv(t)
 	e.start()
 	c := e.client("")
-	out, err := c.Authorize(bg, []byte("env-1"), []byte("act-1"))
+	out, err := c.Authorize(bg, []byte("env-1"), []byte("act-1"), testSalt)
 	require.NoError(t, err)
 	require.Equal(t, []byte("auth-bytes"), out)
 	require.Equal(t, "env-1", e.spy.env)
@@ -360,8 +360,8 @@ func TestRealGateIsBehindAuthorizeAndRecord(t *testing.T) {
 		path string
 		body []byte
 	}{
-		{"/v0/authorize", authorizeBody("garbage", "act")},
-		{"/v0/record", recordBody("garbage", "ref", e.execPub, make([]byte, 64))},
+		{"/v1/authorize", authorizeBody("garbage", "act")},
+		{"/v1/record", recordBody("garbage", "ref", e.execPub, make([]byte, 64))},
 	} {
 		resp := post(t, e.srv, tc.path, "", tc.body)
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode, tc.path)
@@ -427,7 +427,7 @@ func TestDABlobRejectsDA1OverHTTP(t *testing.T) {
 	c.IssuedAt, c.ValidUntil = uint64(t0.Unix())-5, uint64(t0.Unix())+600
 	require.EqualValues(t, 1, c.PayloadRef.DA)
 	env, _ := gatefix.SignWith(t, e.agentPrv, c)
-	_, err := e.client("").Authorize(bg, env, action)
+	_, err := e.client("").Authorize(bg, env, action, testSalt)
 	require.ErrorIs(t, err, gate.ErrDANotAllowed)
 }
 
@@ -458,7 +458,7 @@ func TestBearerTokens(t *testing.T) {
 	sig := make([]byte, 64)
 
 	for _, tok := range []string{"", "wrong", canaryAuthTok[:len(canaryAuthTok)-1], canaryAuthTok + "x", canaryRecTok} {
-		_, err := e.client(tok).Authorize(bg, []byte("e"), []byte("a"))
+		_, err := e.client(tok).Authorize(bg, []byte("e"), []byte("a"), testSalt)
 		require.ErrorIs(t, err, edictaapi.ErrTokenInvalid, "authorize token %q", tok)
 	}
 	for _, tok := range []string{"", "wrong", canaryAuthTok} {
@@ -468,17 +468,17 @@ func TestBearerTokens(t *testing.T) {
 	a, r := e.spy.calls()
 	require.Zero(t, a+r, "the gate must not be reached without a valid token")
 
-	_, err := e.client(canaryAuthTok).Authorize(bg, []byte("e"), []byte("a"))
+	_, err := e.client(canaryAuthTok).Authorize(bg, []byte("e"), []byte("a"), testSalt)
 	require.NoError(t, err)
 	_, err = e.client(canaryRecTok).Record(bg, []byte("e"), "r", e.execPub, sig)
 	require.NoError(t, err)
 
 	// Wrong scheme or malformed header: 401.
 	for _, h := range []string{"", "Basic " + canaryAuthTok, canaryAuthTok, "Bearer", "Bearer  " + canaryAuthTok, "bearer-" + canaryAuthTok} {
-		resp := post(t, e.srv, "/v0/authorize", h, authorizeBody("e", "a"))
+		resp := post(t, e.srv, "/v1/authorize", h, authorizeBody("e", "a"))
 		require.Equal(t, http.StatusUnauthorized, resp.StatusCode, "header %q", h)
 	}
-	resp := post(t, e.srv, "/v0/authorize", "Bearer "+canaryAuthTok, authorizeBody("e", "a"))
+	resp := post(t, e.srv, "/v1/authorize", "Bearer "+canaryAuthTok, authorizeBody("e", "a"))
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Health is open.
@@ -489,7 +489,7 @@ func TestBearerTokens(t *testing.T) {
 func TestNoTokenConfiguredMeansOpen(t *testing.T) {
 	e := newEnv(t)
 	e.start()
-	_, err := e.client("").Authorize(bg, []byte("e"), []byte("a"))
+	_, err := e.client("").Authorize(bg, []byte("e"), []byte("a"), testSalt)
 	require.NoError(t, err)
 }
 
@@ -515,13 +515,13 @@ func TestNoSecretInLogs(t *testing.T) {
 		rep(`authorize_token_file = ""`, `authorize_token_file = "`+e.path("auth.token")+`"`),
 		rep(`record_token_file = ""`, `record_token_file = "`+e.path("rec.token")+`"`))
 	sig := make([]byte, 64)
-	_, _ = e.client(canaryAuthTok).Authorize(bg, []byte("e"), []byte("a"))
-	_, _ = e.client("wrong-"+canaryAuthTok).Authorize(bg, []byte("e"), []byte("a"))
+	_, _ = e.client(canaryAuthTok).Authorize(bg, []byte("e"), []byte("a"), testSalt)
+	_, _ = e.client("wrong-"+canaryAuthTok).Authorize(bg, []byte("e"), []byte("a"), testSalt)
 	_, _ = e.client(canaryRecTok).Record(bg, []byte("e"), "r", e.execPub, sig)
 	_, _ = e.client("").Record(bg, []byte("e"), "r", e.execPub, sig)
 	_, _ = e.client("").Publish(bg, []byte("blob"))
 	_, _ = e.client("").Health(bg)
-	post(t, e.srv, "/v0/authorize", "Bearer "+canaryAuthTok+"junk", []byte{0xff})
+	post(t, e.srv, "/v1/authorize", "Bearer "+canaryAuthTok+"junk", []byte{0xff})
 	require.NoError(t, e.srv.Shutdown(bg))
 
 	logs := e.logs.String()
@@ -626,7 +626,7 @@ func TestGracefulShutdownFinishesInFlightAndClosesRegistry(t *testing.T) {
 	}
 	got := make(chan res, 1)
 	go func() {
-		out, err := e.client("").Authorize(bg, []byte("e"), []byte("a"))
+		out, err := e.client("").Authorize(bg, []byte("e"), []byte("a"), testSalt)
 		got <- res{out, err}
 	}()
 	<-entered
@@ -659,7 +659,7 @@ func TestShutdownHonoursContextDeadline(t *testing.T) {
 	release := make(chan struct{})
 	e.spy.authFn = func() ([]byte, error) { close(entered); <-release; return []byte("a"), nil }
 	srv := e.start()
-	go func() { _, _ = e.client("").Authorize(bg, []byte("e"), []byte("a")) }()
+	go func() { _, _ = e.client("").Authorize(bg, []byte("e"), []byte("a"), testSalt) }()
 	<-entered
 	ctx, cancel := context.WithCancel(bg)
 	cancel()
@@ -676,7 +676,7 @@ func TestRegistryReopensAfterRealGateRun(t *testing.T) {
 	e := newEnv(t)
 	e.deps.WrapGate = nil
 	srv := e.start()
-	_ = post(t, srv, "/v0/authorize", "", authorizeBody("garbage", "act"))
+	_ = post(t, srv, "/v1/authorize", "", authorizeBody("garbage", "act"))
 	require.NoError(t, srv.Shutdown(bg))
 	reg, err := boltreg.Open(e.path("registry.db"), 1)
 	require.NoError(t, err)

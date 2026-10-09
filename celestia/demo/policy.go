@@ -78,7 +78,7 @@ func (r *Runner) writeMandate(gateID string) (string, error) {
 
 // authorizer is the part of the API client the over-limit attempt uses.
 type authorizer interface {
-	AuthorizeWithVerdict(ctx context.Context, envelope, action []byte) (auth, verdict []byte, err error)
+	AuthorizeWithVerdict(ctx context.Context, envelope, action, salt []byte) (auth, verdict []byte, err error)
 }
 
 // attemptOverLimit commits an amount above the per-action maximum. The agent
@@ -101,7 +101,7 @@ func (r *Runner) judgeOverLimit(ctx context.Context, az authorizer, d *decision)
 		Expected: "gate policy.ErrAmountAboveMax, no Authorization, signed deny verdict archived",
 		Why: fmt.Sprintf("The agent committed %d utia; the mandate allows %d per action. The commitment is valid, so only the policy refuses it. The signed deny verdict goes to the archive, no transfer is broadcast (only the decision's own PayForBlobs).",
 			d.amount, perActionFactor*r.cfg.AmountUTIA)}
-	auth, verdict, err := az.AuthorizeWithVerdict(ctx, d.res.Envelope, d.res.Action)
+	auth, verdict, err := az.AuthorizeWithVerdict(ctx, d.res.Envelope, d.res.Action, d.res.ActionSalt)
 	var apiErr *edictaapi.Error
 	if errors.As(err, &apiErr) && verdict == nil {
 		verdict = apiErr.PolicyVerdict

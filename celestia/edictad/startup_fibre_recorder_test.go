@@ -231,7 +231,7 @@ func TestFibreShutdownOrder(t *testing.T) {
 	srv := e.start(fibreRecEdits()...)
 
 	got := make(chan error, 1)
-	go func() { _, err := e.client("").Authorize(bg, []byte("e"), []byte("a")); got <- err }()
+	go func() { _, err := e.client("").Authorize(bg, []byte("e"), []byte("a"), testSalt); got <- err }()
 	<-entered
 	down := make(chan error, 1)
 	go func() { down <- srv.Shutdown(bg) }()
@@ -327,7 +327,7 @@ func TestFibreShutdownCutShortStillClosesEverything(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	e.spy.authFn = func() ([]byte, error) { close(entered); <-release; return []byte("a"), nil }
 	srv := e.start(fibreRecEdits()...)
-	go func() { _, _ = e.client("").Authorize(bg, []byte("e"), []byte("a")) }()
+	go func() { _, _ = e.client("").Authorize(bg, []byte("e"), []byte("a"), testSalt) }()
 	<-entered
 
 	ctx, cancel := context.WithTimeout(bg, 50*time.Millisecond)

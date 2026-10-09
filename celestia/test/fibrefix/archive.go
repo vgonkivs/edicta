@@ -57,7 +57,7 @@ func (l *Live) WriteDecision(t testing.TB, ev *archive.EvidenceRecord) Decision 
 	env, h := gatefix.Sign(t, "agent1", c)
 
 	authAt := blockTime + 20
-	a := commitment.Authorization{CommitmentHash: h[:], ActionHash: c.Action.Hash, GateID: gatefix.GateID, Expires: authAt + 300, Path: commitment.PathDA}
+	a := commitment.Authorization{Version: commitment.Version, CommitmentHash: h[:], ActionHash: c.Action.Hash, GateID: gatefix.GateID, Expires: authAt + 300, Path: commitment.PathDA, Mode: commitment.ModeStrict}
 	canon, err := commitment.EncodeAuthorization(&a)
 	require.NoError(t, err)
 	gateKey := gatefix.Key(t, "gate1")
@@ -73,7 +73,7 @@ func (l *Live) WriteDecision(t testing.TB, ev *archive.EvidenceRecord) Decision 
 	for _, r := range []archive.Record{
 		&archive.PayloadRecord{DA: commitment.DAFibre, Commitment: l.Ref.Commitment, Blob: l.Payload, IntentHeight: 1},
 		ev,
-		&archive.DecisionRecord{Envelope: env, Action: gatefix.Action(t)},
+		&archive.DecisionRecord{Envelope: env, Form: archive.FormPublic, Action: gatefix.Action(t), ActionSalt: gatefix.Salt(t)},
 		&archive.AuthorizationRecord{SignedAuthorization: sa, AuthorizedAt: authAt, K2: &archive.K2Inputs{
 			DA: commitment.DAFibre, CheckedAt: authAt, BlockTime: blockTime,
 			RetentionLatestS: 14400, RetentionAtHeightS: 14400, RetentionSource: archive.RetentionBoth,

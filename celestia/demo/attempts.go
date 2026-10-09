@@ -103,8 +103,8 @@ func (r *Runner) attemptDifferentAmount(ctx context.Context, d *decision) Attemp
 		a.Got = err.Error()
 		return a
 	}
-	_, gerr := r.authClient.Authorize(ctx, d.res.Envelope, tampered)
-	_, eerr := r.exec.Execute(ctx, d.authBytes, tampered)
+	_, gerr := r.authClient.Authorize(ctx, d.res.Envelope, tampered, d.res.ActionSalt)
+	_, eerr := r.exec.Execute(ctx, d.authBytes, tampered, d.res.ActionSalt)
 	gok, eok := errors.Is(gerr, commitment.ErrActionMismatch), errors.Is(eerr, commitment.ErrActionMismatch)
 	a.AsExpected = gok && eok
 	a.Got = fmt.Sprintf("gate %s; executor %s", errName(gerr, "ErrActionMismatch"), errName(eerr, "ErrActionMismatch"))
@@ -115,13 +115,13 @@ func (r *Runner) attemptDifferentAmount(ctx context.Context, d *decision) Attemp
 func (r *Runner) attemptReuse(ctx context.Context, d *decision) AttemptResult {
 	a := AttemptResult{Layer: 1, Name: "reuse-decision",
 		Expected: "gate ErrNonceUsed, no new Authorization; executor ErrSeen; new commitment with the same nonce ErrNonceUsed"}
-	_, gerr := r.authClient.Authorize(ctx, d.res.Envelope, d.res.Action)
+	_, gerr := r.authClient.Authorize(ctx, d.res.Envelope, d.res.Action, d.res.ActionSalt)
 	var stored []byte
 	if apiErr := asAPIError(gerr); apiErr != nil {
 		stored = apiErr.Stored
 	}
 	gateOK := errors.Is(gerr, gate.ErrNonceUsed) && string(stored) == string(d.authBytes)
-	_, eerr := r.exec.Execute(ctx, d.authBytes, d.res.Action)
+	_, eerr := r.exec.Execute(ctx, d.authBytes, d.res.Action, d.res.ActionSalt)
 	execOK := errors.Is(eerr, transfer.ErrSeen)
 	newOK, nerr := r.reuseNonceWithNewCommitment(ctx, d)
 	a.AsExpected = gateOK && execOK && newOK
@@ -140,7 +140,7 @@ func (r *Runner) reuseNonceWithNewCommitment(ctx context.Context, d *decision) (
 	if err != nil {
 		return false, err
 	}
-	sig, err := r.signer.SignCommitmentV1(ctx, h)
+	sig, err := r.signer.SignCommitment(ctx, h)
 	if err != nil {
 		return false, err
 	}
@@ -148,7 +148,7 @@ func (r *Runner) reuseNonceWithNewCommitment(ctx context.Context, d *decision) (
 	if err != nil {
 		return false, err
 	}
-	_, aerr := r.authClient.Authorize(ctx, env, d.res.Action)
+	_, aerr := r.authClient.Authorize(ctx, env, d.res.Action, d.res.ActionSalt)
 	return errors.Is(aerr, gate.ErrNonceUsed), aerr
 }
 

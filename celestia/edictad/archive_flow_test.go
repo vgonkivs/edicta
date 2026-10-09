@@ -76,7 +76,7 @@ func TestUnsignedOrUnlistedInputNeverReachesTheArchive(t *testing.T) {
 	swapped.action = []byte("other action bytes")
 
 	unlistedType := e.decision(base, 3, func(c *commitment.Commitment) {
-		h, err := commitment.ActionHash("application/vnd.other.v0+cbor", []byte{0xa1, 3, 1, 2})
+		h, err := commitment.ActionHash("application/vnd.other.v0+cbor", testSalt, []byte{0xa1, 3, 1, 2})
 		require.NoError(t, err)
 		c.Action.Type, c.Action.Hash = "application/vnd.other.v0+cbor", h[:]
 	})
@@ -139,7 +139,7 @@ func TestStoredDecisionConflictRule(t *testing.T) {
 	t.Run("the same record again is idempotent", func(t *testing.T) {
 		e, _, real, base := archiveEnv(t)
 		d := e.decision(base, 1)
-		_, err := real.Put(bg, &archive.DecisionRecord{Envelope: d.env, Action: d.action})
+		_, err := real.Put(bg, &archive.DecisionRecord{Envelope: d.env, Form: archive.FormPublic, Action: d.action, ActionSalt: testSalt})
 		require.NoError(t, err)
 		e.start()
 		st, _, _ := e.authorizeRaw(d)
@@ -148,7 +148,7 @@ func TestStoredDecisionConflictRule(t *testing.T) {
 	t.Run("a stored record with other action bytes is refused", func(t *testing.T) {
 		e, _, real, base := archiveEnv(t)
 		d := e.decision(base, 1)
-		_, err := real.Put(bg, &archive.DecisionRecord{Envelope: d.env, Action: []byte("not the committed bytes")})
+		_, err := real.Put(bg, &archive.DecisionRecord{Envelope: d.env, Form: archive.FormPublic, Action: []byte("not the committed bytes"), ActionSalt: testSalt})
 		require.NoError(t, err)
 		e.start()
 		st, ra, body := e.authorizeRaw(d)
@@ -161,7 +161,7 @@ func TestStoredDecisionConflictRule(t *testing.T) {
 		d := e.decision(base, 1)
 		bad := bytes.Clone(d.env)
 		bad[len(bad)-1] ^= 1
-		_, err := real.Put(bg, &archive.DecisionRecord{Envelope: bad, Action: d.action})
+		_, err := real.Put(bg, &archive.DecisionRecord{Envelope: bad, Form: archive.FormPublic, Action: d.action, ActionSalt: testSalt})
 		require.NoError(t, err, "the archive keys by the commitment hash, so the damaged envelope takes the key")
 		e.start()
 		st, _, body := e.authorizeRaw(d)

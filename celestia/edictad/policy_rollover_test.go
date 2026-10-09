@@ -84,7 +84,7 @@ func (r *rollEnv) bankDecision(tag byte, amount uint64, mod func(*commitment.Com
 	require.NoError(r.t, err)
 	now := uint64(r.clk.Now().Unix())
 	return r.decisionAct(r.base, tag, action, func(c *commitment.Commitment) {
-		h, err := commitment.ActionHash(bankaction.ActionType, action)
+		h, err := commitment.ActionHash(bankaction.ActionType, testSalt, action)
 		require.NoError(r.t, err)
 		c.Action.Type, c.Action.Hash = bankaction.ActionType, h[:]
 		c.IssuedAt, c.ValidUntil = now-5, now+600

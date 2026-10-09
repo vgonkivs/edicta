@@ -89,7 +89,9 @@ var _ gate.Archiver = (*archiver)(nil)
 // the same commitment hash and was stored with the same action bytes. That
 // admits a re-signed retry and refuses a record that squats the key.
 func (a *archiver) Put(ctx context.Context, rec gate.DecisionRecord) error {
-	_, err := a.io.put(ctx, &archive.DecisionRecord{Envelope: rec.Envelope, Action: rec.Action})
+	_, err := a.io.put(ctx, &archive.DecisionRecord{
+		Envelope: rec.Envelope, Form: archive.FormPublic, Action: rec.Action, ActionSalt: rec.ActionSalt,
+	})
 	switch {
 	case err == nil:
 		return nil
@@ -115,8 +117,8 @@ func (a *archiver) checkStored(ctx context.Context, rec gate.DecisionRecord) err
 	if h != rec.CommitmentHash {
 		return archiveFault("stored decision has another commitment hash")
 	}
-	if !bytes.Equal(d.Action, rec.Action) {
-		return archiveFault("stored decision has other action bytes")
+	if d.Form != archive.FormPublic || !bytes.Equal(d.Action, rec.Action) || !bytes.Equal(d.ActionSalt, rec.ActionSalt) {
+		return archiveFault("stored decision has another form, other action bytes or another salt")
 	}
 	return nil
 }
@@ -427,7 +429,6 @@ var verdicts = []struct {
 	{"ErrDACommitmentMismatch", gate.ErrDACommitmentMismatch},
 	{"ErrExpired", commitment.ErrExpired},
 	{"ErrIssuedBeforeAnchor", commitment.ErrIssuedBeforeAnchor},
-	{"ErrMandateMismatch", gate.ErrMandateMismatch},
 	{"ErrMandateRefMissing", gate.ErrMandateRefMissing},
 	{"ErrNonceUsed", gate.ErrNonceUsed},
 	{"ErrNotYetValid", commitment.ErrNotYetValid},

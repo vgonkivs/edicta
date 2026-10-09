@@ -27,6 +27,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/nodefake"
 	"github.com/vgonkivs/edicta/celestia/recorder"
+	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/dacommit/sharev1"
 	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/gate"
@@ -111,7 +112,7 @@ type spyGate struct {
 	authResp, recResp []byte
 }
 
-func (g *spyGate) Authorize(_ context.Context, env, action []byte) (gate.Result, error) {
+func (g *spyGate) Authorize(_ context.Context, env, action, _ []byte) (gate.Result, error) {
 	g.mu.Lock()
 	g.auth++
 	g.env, g.action = string(env), string(action)
@@ -330,11 +331,16 @@ func cbHead(major byte, n int) []byte {
 func cbBytes(b []byte) []byte { return append(cbHead(2, len(b)), b...) }
 func cbText(s string) []byte  { return append(cbHead(3, len(s)), s...) }
 
+// testSalt is the action salt every test decision is committed with.
+var testSalt = bytes.Repeat([]byte{0x5a}, commitment.ActionSaltSize)
+
 func authorizeBody(env, action string) []byte {
-	b := []byte{0xa2, 0x01}
+	b := []byte{0xa3, 0x01}
 	b = append(b, cbBytes([]byte(env))...)
 	b = append(b, 0x02)
-	return append(b, cbBytes([]byte(action))...)
+	b = append(b, cbBytes([]byte(action))...)
+	b = append(b, 0x03)
+	return append(b, cbBytes(testSalt)...)
 }
 
 func recordBody(env, ref string, pub, sig []byte) []byte {

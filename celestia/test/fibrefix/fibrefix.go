@@ -187,7 +187,6 @@ func (l *Live) Evidence(t testing.TB) *archive.EvidenceRecord {
 		PromiseHeight:   l.PromiseHeight,
 		PromiseHeader:   l.promiseSigned(t),
 		HistoricalInfo:  bytes.Clone(l.Hist),
-		PromiseValset:   bytes.Clone(l.PromiseValset),
 	}
 }
 

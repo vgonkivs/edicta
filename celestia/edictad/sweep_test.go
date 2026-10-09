@@ -77,7 +77,7 @@ func TestSweepFailureNeverBlocksStartup(t *testing.T) {
 	fs.failKind(archive.KindAuthorization, errArchiveDown)
 
 	e.start()
-	resp, err := http.Get("http://" + e.srv.Addr() + "/v0/health")
+	resp, err := http.Get("http://" + e.srv.Addr() + "/v1/health")
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.Equal(t, 200, resp.StatusCode)

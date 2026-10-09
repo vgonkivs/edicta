@@ -34,7 +34,7 @@ func TestFibreAuthorizationArchivesItsRetentionInputs(t *testing.T) {
 
 	st, err := fsarchive.Open(t.TempDir(), nil)
 	require.NoError(t, err)
-	_, err = st.Put(context.Background(), &archive.DecisionRecord{Envelope: b, Action: gatefix.Action(t)})
+	_, err = st.Put(context.Background(), &archive.DecisionRecord{Envelope: b, Form: archive.FormPublic, Action: gatefix.Action(t), ActionSalt: gatefix.Salt(t)})
 	require.NoError(t, err)
 	_, err = st.Put(context.Background(), &archive.AuthorizationRecord{
 		SignedAuthorization: res.Authorization, AuthorizedAt: res.AuthorizedAt, K2: k2Record(res.K2),

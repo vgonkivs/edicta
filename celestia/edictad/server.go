@@ -804,7 +804,7 @@ type archivingGate struct {
 	pol    *polInfo // nil without a mandate
 }
 
-func (a *archivingGate) Authorize(ctx context.Context, envelope, action []byte) (gate.Result, error) {
+func (a *archivingGate) Authorize(ctx context.Context, envelope, action, salt []byte) (gate.Result, error) {
 	// The hold starts before the gate can mark the registry and ends once the
 	// record is written or queued, so a scan never sees the entry in between.
 	finished := false
@@ -823,7 +823,7 @@ func (a *archivingGate) Authorize(ctx context.Context, envelope, action []byte) 
 	}
 	// One scope per request: the anchor stage and the payload stage read the
 	// block once between them.
-	res, err := a.g.Authorize(gatechain.WithAnchorScope(ctx), envelope, action)
+	res, err := a.g.Authorize(gatechain.WithAnchorScope(ctx), envelope, action, salt)
 	a.after(ctx, res, err)
 	finished = true
 	return res, err
@@ -934,7 +934,7 @@ func loadSecrets(cfg Config) (*secrets, error) {
 	return s, nil
 }
 
-// health serves GET /v0/health from a copy refreshed at most once a minute, so
+// health serves GET /v1/health from a copy refreshed at most once a minute, so
 // the open endpoint cannot be used to hammer the node.
 type health struct {
 	rd        node.Reader
@@ -990,16 +990,16 @@ func (h *health) Health(ctx context.Context) (edictaapi.HealthInfo, error) {
 	}, nil
 }
 
-// guardTokens enforces the optional bearer tokens on /v0/authorize and
-// /v0/record. Requests the API would refuse earlier (wrong method or media
+// guardTokens enforces the optional bearer tokens on /v1/authorize and
+// /v1/record. Requests the API would refuse earlier (wrong method or media
 // type) pass through so those answers keep their place in the check order.
 func guardTokens(next http.Handler, authorize, record secret.Secret) http.Handler {
 	want := map[string]secret.Secret{}
 	if authorize.IsSet() {
-		want["/v0/authorize"] = authorize
+		want["/v1/authorize"] = authorize
 	}
 	if record.IsSet() {
-		want["/v0/record"] = record
+		want["/v1/record"] = record
 	}
 	if len(want) == 0 {
 		return next

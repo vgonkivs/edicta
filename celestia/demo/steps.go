@@ -79,8 +79,7 @@ func (r *Runner) buildAgent(ctx context.Context) error {
 		return coded(ExitUsage, err)
 	}
 	scfg := sdk.DefaultConfig()
-	// The gate runs a mandate, so it admits only v1 commitments naming it.
-	scfg.Version = commitment.VersionV1
+	// The gate runs a mandate, so it admits only commitments naming it.
 	scfg.MandateHash = r.mandateHash
 	scfg.AgentID = agentID
 	scfg.Scope = commitment.Scope{GateID: r.gateID}
@@ -214,7 +213,7 @@ func (r *Runner) publish(ctx context.Context, d *decision) error {
 
 // authorize asks the gate and checks the Authorization it returns.
 func (r *Runner) authorize(ctx context.Context, d *decision) error {
-	raw, err := r.authClient.Authorize(ctx, d.res.Envelope, d.res.Action)
+	raw, err := r.authClient.Authorize(ctx, d.res.Envelope, d.res.Action, d.res.ActionSalt)
 	if err != nil {
 		return coded(ExitInconclusive, fmt.Errorf("demo: gate authorize: %w", err))
 	}
@@ -234,7 +233,7 @@ func (r *Runner) authorizeAndExecute(ctx context.Context, d *decision) error {
 	if err := r.authorize(ctx, d); err != nil {
 		return err
 	}
-	res, err := r.exec.Execute(ctx, d.authBytes, d.res.Action)
+	res, err := r.exec.Execute(ctx, d.authBytes, d.res.Action, d.res.ActionSalt)
 	if err != nil {
 		return coded(ExitInconclusive, fmt.Errorf("demo: executing: %w", err))
 	}

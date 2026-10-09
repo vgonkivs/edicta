@@ -195,7 +195,6 @@ func TestFibrePublishLiveVector(t *testing.T) {
 	assert.Equal(t, want.PromiseHeight, ev.PromiseHeight)
 	assert.EqualValues(t, 1, ev.AnchorTxIndex, "the index the node reports")
 	assert.Zero(t, ev.TxCode)
-	assert.Equal(t, l.PromiseValsetNext(t), ev.PromiseValset, "the set that the promise header's next validators hash commits to")
 
 	var sh cmtproto.SignedHeader
 	require.NoError(t, sh.Unmarshal(ev.Header))

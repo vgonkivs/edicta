@@ -213,7 +213,7 @@ func newScenario(t *testing.T, o scenarioOpts) *scenario {
 	for _, r := range []archive.Record{
 		&archive.PayloadRecord{DA: commitment.DACelestiaBlob, Commitment: c.PayloadRef.Commitment, Namespace: c.PayloadRef.Namespace, Signer: c.PayloadRef.Signer, Blob: blob, IntentHeight: 1},
 		&archive.EvidenceRecord{DA: commitment.DACelestiaBlob, Commitment: c.PayloadRef.Commitment, Namespace: c.PayloadRef.Namespace, Height: anchorHeight, Header: header, BlobProof: []byte("proof")},
-		&archive.DecisionRecord{Envelope: env, Action: action},
+		&archive.DecisionRecord{Envelope: env, Form: archive.FormPublic, Action: action, ActionSalt: gatefix.Salt(t)},
 	} {
 		_, err := s.Put(ctx, r)
 		require.NoError(t, err)
@@ -223,7 +223,7 @@ func newScenario(t *testing.T, o scenarioOpts) *scenario {
 		if o.outlivingAuth {
 			expires = c.ValidUntil + 1
 		}
-		a := commitment.Authorization{CommitmentHash: h[:], ActionHash: c.Action.Hash, GateID: gatefix.GateID, Expires: expires, Path: commitment.PathDA}
+		a := commitment.Authorization{Version: commitment.Version, CommitmentHash: h[:], ActionHash: c.Action.Hash, GateID: gatefix.GateID, Expires: expires, Path: commitment.PathDA, Mode: commitment.ModeStrict}
 		canon, err := commitment.EncodeAuthorization(&a)
 		require.NoError(t, err)
 		ah := commitment.HashAuthorization(canon)

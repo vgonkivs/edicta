@@ -122,13 +122,13 @@ func (a *actor) act(ctx context.Context, d agent.Decision) (*Evidence, error) {
 	ev := a.baseEvidence(res)
 	a.log("published: blob at height %d, commitment_hash %s, inclusion verified", ev.BlobHeight, ev.CommitmentHash)
 
-	authBytes, err := a.api.Authorize(ctx, res.Envelope, res.Action)
+	authBytes, err := a.api.Authorize(ctx, res.Envelope, res.Action, res.ActionSalt)
 	if err != nil {
 		return nil, fmt.Errorf("gate authorize: %w", err)
 	}
 	sa, ah, err := commitment.VerifyAuthorization(authBytes, commitment.AuthorizationCheck{
 		GatePubKey: a.gateKey, GateID: a.gateID, ActionType: bankaction.ActionType,
-		Action: res.Action, Now: uint64(time.Now().Unix()), SkewS: a.cfg.SkewS,
+		Action: res.Action, ActionSalt: res.ActionSalt, Now: uint64(time.Now().Unix()), SkewS: a.cfg.SkewS,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("Authorization does not verify: %w", err)
@@ -156,7 +156,7 @@ func (a *actor) act(ctx context.Context, d agent.Decision) (*Evidence, error) {
 		ev.Transfer.TxHash = hex.EncodeToString(hash[:])
 	} else {
 		a.log("executing the transfer (rebroadcasting the same signed bytes until included or timed out)")
-		r, err := a.exec.Execute(ctx, authBytes, res.Action)
+		r, err := a.exec.Execute(ctx, authBytes, res.Action, res.ActionSalt)
 		ev.Transfer.TxHash = hex.EncodeToString(r.TxHash[:])
 		if err != nil {
 			return ev, fmt.Errorf("transfer: %w", err)

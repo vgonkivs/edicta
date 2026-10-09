@@ -65,7 +65,7 @@ type fakeAuthorizer struct {
 	err           error
 }
 
-func (f fakeAuthorizer) AuthorizeWithVerdict(context.Context, []byte, []byte) ([]byte, []byte, error) {
+func (f fakeAuthorizer) AuthorizeWithVerdict(context.Context, []byte, []byte, []byte) ([]byte, []byte, error) {
 	return f.auth, f.verdict, f.err
 }
 

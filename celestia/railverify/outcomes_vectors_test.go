@@ -86,7 +86,7 @@ func loadOutcomes(t testing.TB) outcomeDoc {
 	require.NoError(t, err)
 	var d outcomeDoc
 	require.NoError(t, json.Unmarshal(raw, &d))
-	require.Equal(t, "v0-draft.28", d.Revision)
+	require.Equal(t, "v1-draft.5", d.Revision)
 	require.NotEmpty(t, d.Cases)
 	return d
 }
@@ -433,7 +433,10 @@ func TestOutcomeVectorsCoverEveryReason(t *testing.T) {
 	}
 	for _, r := range verifier.Reasons() {
 		for _, chk := range r.Checks {
-			if chk == "execution" && r.Reason != verifier.ReasonTimeout && r.Reason != verifier.ReasonNoChecker && r.Reason != verifier.ReasonBlocked {
+			// policy_private comes from a private decision record, not from a
+			// source.
+			if chk == "execution" && r.Reason != verifier.ReasonTimeout && r.Reason != verifier.ReasonNoChecker &&
+				r.Reason != verifier.ReasonBlocked && r.Reason != verifier.ReasonPolicyPrivate {
 				assert.Truef(t, seen[string(r.Reason)], "reason %s has no outcome case", r.Reason)
 			}
 		}

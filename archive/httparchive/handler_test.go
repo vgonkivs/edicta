@@ -150,7 +150,7 @@ func TestHandlerServesOnlyCanonicalKeys(t *testing.T) {
 func TestHandlerNeverLetsAnAbsentRecordBeCached(t *testing.T) {
 	src, fx := sourceOfVectors(t)
 	h := httparchive.NewHandler(src)
-	absent := strings.Replace(fx.Cases["decision_minimal_lmt"].Key, "e2ea", "e2eb", 1)
+	absent := strings.Replace(fx.Cases["decision_minimal_lmt"].Key, "2024a4", "2024a5", 1)
 	for _, m := range []string{http.MethodGet, http.MethodHead} {
 		rec := do(h, m, "/"+absent)
 		require.Equal(t, http.StatusNotFound, rec.Code)

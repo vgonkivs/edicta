@@ -150,7 +150,7 @@ func (e *env) decision(base *commitment.Commitment, tag byte, mods ...func(*comm
 func (e *env) decisionAct(base *commitment.Commitment, tag byte, action []byte, mods ...func(*commitment.Commitment)) decision {
 	e.t.Helper()
 	c := gatefix.Fresh(base, tag)
-	sum, err := commitment.ActionHash(testActionType, action)
+	sum, err := commitment.ActionHash(testActionType, testSalt, action)
 	require.NoError(e.t, err)
 	c.AgentID, c.AgentPubKey = "agent-1", bytes.Clone(e.agentPub)
 	c.Scope.GateID = "gate-test-1"
@@ -167,7 +167,7 @@ func (d decision) sum() [32]byte { return sha256.Sum256(d.env) }
 
 func (e *env) authorizeRaw(d decision) (int, string, []byte) {
 	e.t.Helper()
-	resp := post(e.t, e.srv, "/v0/authorize", "", authorizeBody(string(d.env), string(d.action)))
+	resp := post(e.t, e.srv, "/v1/authorize", "", authorizeBody(string(d.env), string(d.action)))
 	var b bytes.Buffer
 	_, err := b.ReadFrom(resp.Body)
 	require.NoError(e.t, err)
@@ -176,7 +176,7 @@ func (e *env) authorizeRaw(d decision) (int, string, []byte) {
 
 // authorizeStatus is authorizeRaw for goroutines: it never fails the test.
 func (e *env) authorizeStatus(d decision) (int, error) {
-	req, err := http.NewRequest(http.MethodPost, "http://"+e.srv.Addr()+"/v0/authorize",
+	req, err := http.NewRequest(http.MethodPost, "http://"+e.srv.Addr()+"/v1/authorize",
 		bytes.NewReader(authorizeBody(string(d.env), string(d.action))))
 	if err != nil {
 		return 0, err

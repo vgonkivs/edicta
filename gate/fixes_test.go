@@ -20,8 +20,8 @@ import (
 func signedToken(t *testing.T, commitmentHash, actionHash []byte, expires uint64) []byte {
 	t.Helper()
 	a := commitment.Authorization{
-		CommitmentHash: commitmentHash, ActionHash: actionHash, GateID: gatefix.GateID,
-		Expires: expires, Path: commitment.PathDA,
+		Version: commitment.Version, CommitmentHash: commitmentHash, ActionHash: actionHash, GateID: gatefix.GateID,
+		Expires: expires, Path: commitment.PathDA, Mode: commitment.ModeStrict,
 	}
 	canon, err := commitment.EncodeAuthorization(&a)
 	require.NoError(t, err)

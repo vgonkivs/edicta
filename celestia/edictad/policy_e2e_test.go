@@ -62,7 +62,7 @@ func (p *policyEnv) sign(prv ed25519.PrivateKey, m *policy.Mandate) string {
 	// Later decisions name the mandate last signed: a gate with a mandate
 	// admits only v1 commitments that name the one in force.
 	base := *p.base
-	base.Version, base.MandateRef = commitment.VersionV1, bytes.Clone(mh[:])
+	base.MandateRef = bytes.Clone(mh[:])
 	p.base = &base
 	path := p.path("mandate.cbor")
 	writeFile(p.t, path, b, 0o600)
@@ -93,7 +93,7 @@ func (p *policyEnv) send(tag byte, amount uint64) decision {
 	action, err := bankaction.Encode(bankaction.Action{ChainID: policyChainID, Msg: msg})
 	require.NoError(p.t, err)
 	return p.decisionAct(p.base, tag, action, func(c *commitment.Commitment) {
-		h, err := commitment.ActionHash(bankaction.ActionType, action)
+		h, err := commitment.ActionHash(bankaction.ActionType, testSalt, action)
 		require.NoError(p.t, err)
 		c.Action.Type, c.Action.Hash = bankaction.ActionType, h[:]
 	})

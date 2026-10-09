@@ -578,7 +578,7 @@ func isLoopback(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// publishDeadline bounds one /v0/publish. With the da = fibre Recorder it
+// publishDeadline bounds one /v1/publish. With the da = fibre Recorder it
 // covers the whole submit and the visibility wait, which the common request
 // deadline would cut short.
 func (c Config) publishDeadline() time.Duration {

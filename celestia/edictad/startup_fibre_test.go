@@ -312,7 +312,7 @@ func TestListenerBindsBeforeTheBridgeProbeFinishes(t *testing.T) {
 	require.NotEmpty(t, srv.Addr())
 	require.Equal(t, 1, e.listens, "the listener is bound while the probe is still running")
 	<-entered
-	resp, err := http.Get("http://" + srv.Addr() + "/v0/health")
+	resp, err := http.Get("http://" + srv.Addr() + "/v1/health")
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.Equal(t, 200, resp.StatusCode)

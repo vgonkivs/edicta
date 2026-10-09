@@ -123,7 +123,7 @@ func (r *FibreRecorder) buildEvidence(ctx context.Context, ref commitment.Payloa
 		DA: commitment.DAFibre, Commitment: bytes.Clone(ref.Commitment), Namespace: bytes.Clone(r.cfg.Namespace), Height: h,
 		Header: rawH, AnchorTx: anchorTx, AnchorTxIndex: uint64(pl.Index), TxCode: 0,
 		SystemBlob: sysBlob, SystemBlobProof: bytes.Clone(fa.Proof),
-		PromiseHeight: ph, PromiseHeader: rawP, HistoricalInfo: hist, PromiseValset: vset,
+		PromiseHeight: ph, PromiseHeader: rawP, HistoricalInfo: hist,
 	}
 	facts, err := anchorverify.Fibre().VerifyAnchor(ref, ev)
 	if err != nil {
