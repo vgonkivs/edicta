@@ -427,9 +427,20 @@ func SignMandateWith(s principalsig.Signer, m *Mandate) ([]byte, commitment.Hash
 	if !bytes.Equal(s.Principal(), m.Principal) {
 		return nil, commitment.Hash{}, fmt.Errorf("%w: private key is not the principal", ErrMandateSignature)
 	}
+	// The ADR-036 sign doc names the signer address under the signer's
+	// prefix, so another prefix than the mandate's never verifies.
+	if hs, ok := s.(principalsig.HRPSigner); ok && scheme == principalsig.CosmosADR036 && hs.HRP() != m.PrincipalHRP {
+		return nil, commitment.Hash{}, fmt.Errorf("%w: signer prefix %q, mandate prefix %q", ErrMandateSignature, hs.HRP(), m.PrincipalHRP)
+	}
 	h := HashMandate(canon)
-	sig, err := s.Sign(SignedFields(m, h), SignedText(m, h))
+	f, text := SignedFields(m, h), SignedText(m, h)
+	sig, err := s.Sign(f, text)
 	if err != nil {
+		return nil, commitment.Hash{}, fmt.Errorf("%w: %w", ErrMandateSignature, err)
+	}
+	// A signer this package does not know (a remote one) is checked by its
+	// result: a signature that does not verify is never returned.
+	if err := principalsig.Verify(scheme, m.Principal, m.PrincipalHRP, f, text, sig); err != nil {
 		return nil, commitment.Hash{}, fmt.Errorf("%w: %w", ErrMandateSignature, err)
 	}
 	sm := SignedMandate{Mandate: *m, Signature: sig}

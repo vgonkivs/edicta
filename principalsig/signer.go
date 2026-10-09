@@ -17,6 +17,13 @@ type Signer interface {
 	Sign(m EIP712Message, rendered []byte) ([]byte, error)
 }
 
+// HRPSigner is a CosmosADR036 signer that names the bech32 prefix of the
+// signer address in its sign doc.
+type HRPSigner interface {
+	Signer
+	HRP() string
+}
+
 type ed25519Signer struct{ sk ed25519.PrivateKey }
 
 // NewEd25519Signer returns a signer of M with sk.
@@ -62,6 +69,9 @@ func NewSecp256k1Signer(s Scheme, sk []byte, hrp string) (Signer, error) {
 }
 
 func (s *secpSigner) Scheme() Scheme { return s.scheme }
+
+// HRP is the bech32 prefix of a CosmosADR036 signer, empty for EIP712.
+func (s *secpSigner) HRP() string { return s.hrp }
 
 func (s *secpSigner) Principal() []byte {
 	pub := s.sk.PubKey()
