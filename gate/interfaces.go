@@ -138,4 +138,9 @@ type Deps struct {
 	Extractors *policy.Extractors
 	// Profiles is the compiled profile registry; nil registers nothing.
 	Profiles ProfileRegistry
+	// Intents, IntentVerifiers (one per allowed da) and Broadcaster run
+	// stage K-fast; required with Config.FastMode.
+	Intents         IntentSource
+	IntentVerifiers map[commitment.DA]IntentVerifier
+	Broadcaster     IntentBroadcaster
 }

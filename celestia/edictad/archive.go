@@ -436,12 +436,17 @@ var verdicts = []struct {
 	{"ErrPayloadSizeMismatch", commitment.ErrPayloadSizeMismatch},
 	{"ErrPayloadUnavailable", gate.ErrPayloadUnavailable},
 	{"ErrRetentionUnavailable", gate.ErrRetentionUnavailable},
+	{"ErrAnchorIntentInvalid", gate.ErrAnchorIntentInvalid},
+	{"ErrCertInvalid", gate.ErrCertInvalid},
+	{"ErrH0TooOld", gate.ErrH0TooOld},
+	{"ErrAnchorWindowClosed", gate.ErrAnchorWindowClosed},
 }
 
 // operational errors say nothing about the decision, so they leave no marker.
 var operational = []error{
 	gate.ErrChainUnavailable, gate.ErrArchiveUnavailable, gate.ErrRegistryUnavailable,
 	gate.ErrAllowlistUnavailable, gate.ErrClockRegression, gate.ErrClosed,
+	gate.ErrAnchorIntentUnavailable, gate.ErrAnchorIntentRejected,
 	context.Canceled, context.DeadlineExceeded,
 }
 
@@ -473,5 +478,6 @@ func k2Record(k gate.K2Inputs) *archive.K2Inputs {
 		RetentionAtHeightS: k.RetentionAtHeightS,
 		RetentionSource:    archive.RetentionSource(k.RetentionSource),
 		PromiseCreated:     k.RetentionStart,
+		FastWindow:         k.FastWindow,
 	}
 }

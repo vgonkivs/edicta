@@ -380,6 +380,11 @@ type Env struct {
 	Reg     registry.Registry
 	Faulty  *gatetest.FaultyRegistry
 	Signer  gate.Signer
+	// Intents, Verifier and Broadcaster serve stage K-fast; Verifier
+	// answers for both da values.
+	Intents     *gatetest.Intents
+	Verifier    *gatetest.IntentVerifier
+	Broadcaster *gatetest.Broadcaster
 
 	allow     map[string][]byte
 	useFaulty bool
@@ -434,6 +439,10 @@ func TryNew(t testing.TB, opts ...Option) (*Env, error) {
 		Metrics: gatetest.NewMetrics(),
 		Logs:    gatetest.NewLogCapture(),
 		Reg:     MemReg(t, Epoch),
+
+		Intents:     gatetest.NewIntents(),
+		Verifier:    gatetest.NewIntentVerifier(),
+		Broadcaster: gatetest.NewBroadcaster(),
 		allow: map[string][]byte{
 			"dca-agent-1": Pub(t, "agent1"),
 			"dca-agent-2": Pub(t, "agent2"),
@@ -475,6 +484,12 @@ func TryNew(t testing.TB, opts ...Option) (*Env, error) {
 		Signer:   e.Signer,
 		Metrics:  e.Metrics,
 		Logger:   slog.New(e.Logs),
+
+		Intents: e.Intents,
+		IntentVerifiers: map[commitment.DA]gate.IntentVerifier{
+			commitment.DAFibre: e.Verifier, commitment.DACelestiaBlob: e.Verifier,
+		},
+		Broadcaster: e.Broadcaster,
 	}
 	for _, f := range e.depsMods {
 		f(&e.Deps)
@@ -654,6 +669,8 @@ func KnownSentinels() []error {
 		gate.ErrChainUnavailable, gate.ErrRegistryUnavailable, gate.ErrAllowlistUnavailable, gate.ErrClosed, gate.ErrRegistryInUse, gate.ErrClockRegression,
 		gate.ErrNotAuthorized, gate.ErrReceiptExists, gate.ErrExecutorNotAllowed, commitment.ErrKeyRole,
 		gate.ErrAnchorPending, gate.ErrMandateRefMissing, gate.ErrMandateMismatch,
+		gate.ErrNamespaceNotAllowed, gate.ErrAnchorIntentUnavailable, gate.ErrAnchorIntentInvalid, gate.ErrCertInvalid,
+		gate.ErrH0TooOld, gate.ErrAnchorWindowClosed, gate.ErrAnchorIntentRejected,
 		context.Canceled, context.DeadlineExceeded,
 	}
 }

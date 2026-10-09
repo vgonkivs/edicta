@@ -47,7 +47,7 @@ type rowSpec struct{ extractor, facts, anchor, eval, prev bool }
 
 func rowOf(v *Verdict) (rowSpec, error) {
 	switch v.Reason {
-	case "ErrAgentNotCovered", "ErrNoExtractor":
+	case "ErrAgentNotCovered", "ErrFastModeNotAllowed", "ErrNoExtractor":
 		return rowSpec{}, nil
 	case "ErrFactsInvalid":
 		return rowSpec{extractor: true}, nil

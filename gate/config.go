@@ -74,9 +74,9 @@ type Config struct {
 	// Mandate is the canonical SignedMandate; empty means no policy.
 	Mandate []byte
 
-	// FastMode admits pending payload references. It needs a mandate,
-	// PendingNamespaces and an archive. This gate does not run stage K-fast
-	// yet, so it still refuses every pending reference.
+	// FastMode admits pending payload references through stage K-fast. It
+	// needs a mandate, PendingNamespaces, an archive and the intent
+	// dependencies.
 	FastMode bool
 	// FastWindowBlocks bounds anchor_deadline - h0; 1..1000.
 	FastWindowBlocks uint64

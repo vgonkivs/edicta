@@ -70,6 +70,8 @@ type K2Inputs struct {
 	RetentionStart     uint64
 	RetentionLatestS   uint64
 	RetentionAtHeightS uint64
+	// FastWindow is anchor_deadline - h0 of a fast-mode Authorization.
+	FastWindow uint64
 }
 
 // checkScope validates the gate id and the action type allowlist.
@@ -130,6 +132,9 @@ func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
 		}
 		if d.Archiver == nil {
 			return nil, bad("fast mode needs an archive")
+		}
+		if err := checkFastDeps(cfg, d); err != nil {
+			return nil, err
 		}
 	}
 	committers := make(map[commitment.DA]DACommitter, len(d.Committers))
@@ -228,6 +233,9 @@ func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
 	if len(cfg.Mandate) > 0 {
 		if err := g.setupPolicy(ctx); err != nil {
 			return nil, err
+		}
+		if cfg.FastMode && g.pol.mandate.FastModeMaxDelay == 0 {
+			g.log.Warn("fast mode is on but the mandate does not allow it: every pending reference will be denied")
 		}
 	}
 	started = true
@@ -333,13 +341,8 @@ func (g *Gate) authorize(ctx context.Context, envelope, action, salt []byte, ev 
 		c.PayloadSize > g.cfg.FibreMaxDataBytes {
 		return res, fmt.Errorf("%w: payload_size %d, limit %d", ErrPayloadAboveCap, c.PayloadSize, g.cfg.FibreMaxDataBytes)
 	}
-	// Stage K-fast is not implemented, so even a gate with FastMode on
-	// authorizes only after the anchor is proven at the reference height.
-	if c.PayloadRef.Pending() {
-		if g.cfg.FastMode {
-			return res, fmt.Errorf("%w: fast-mode authorization not implemented", ErrAnchorPending)
-		}
-		return res, ErrAnchorPending
+	if err := g.checkPending(c.PayloadRef); err != nil {
+		return res, err
 	}
 
 	// Registry epoch.
@@ -450,17 +453,20 @@ func (g *Gate) authorize(ctx context.Context, envelope, action, salt []byte, ev 
 		return res, fmt.Errorf("%w: now %d, watermark %d", ErrClockRegression, now, g.watermark.Load())
 	}
 
-	// Anchor, anchor time, retention window.
-	anchor, err := g.findAnchor(ctx, c.PayloadRef)
-	if err != nil {
-		return res, g.anchorErr(ctx, "anchor", err)
-	}
-	if anchor.Height != c.PayloadRef.Height {
-		return res, fmt.Errorf("%w: anchor at height %d, reference at %d", ErrAnchorNotFound, anchor.Height, c.PayloadRef.Height)
-	}
-	blockTime, err := g.blockTime(ctx, c.PayloadRef.Height)
-	if err != nil {
-		return res, g.anchorErr(ctx, "header", err)
+	// Anchor (or stage K-fast for a pending reference), reference time,
+	// retention window.
+	var (
+		fast      fastOutcome
+		anchor    Anchor
+		blockTime uint64
+	)
+	if c.PayloadRef.Pending() {
+		if fast, err = g.kFast(ctx, c); err != nil {
+			return res, err
+		}
+		anchor, blockTime = Anchor{Height: c.PayloadRef.Height, RetentionStart: fast.createdAt}, fast.refTime
+	} else if anchor, blockTime, err = g.includedAnchor(ctx, c.PayloadRef); err != nil {
+		return res, err
 	}
 	if err := commitment.CheckAnchorTime(c, blockTime, p); err != nil {
 		return res, err
@@ -476,6 +482,9 @@ func (g *Gate) authorize(ctx context.Context, envelope, action, salt []byte, ev 
 		res.K2.RetentionSource = src
 	case commitment.DACelestiaBlob:
 		res.K2.BlobRetentionS = g.cfg.BlobRetentionS
+	}
+	if fast.deadline != 0 {
+		res.K2.FastWindow = fast.deadline - c.PayloadRef.Height
 	}
 
 	// Payload.
@@ -516,7 +525,7 @@ func (g *Gate) authorize(ctx context.Context, envelope, action, salt []byte, ev 
 		return res, fmt.Errorf("gate: %w", err)
 	}
 	expires := min(c.ValidUntil, satAdd(now2, g.cfg.MaxAuthorizationTTL))
-	signed, err := g.signAuthorization(ctx, h, res.ActionHash, c, action, salt, path, expires, now2)
+	signed, err := g.signAuthorization(ctx, h, res.ActionHash, c, action, salt, path, expires, now2, fast.deadline)
 	if err != nil {
 		return res, err
 	}
@@ -666,9 +675,9 @@ func (g *Gate) replay(h, actionHash commitment.Hash, old registry.Entry) (Result
 	return res, ErrNonceUsed
 }
 
-// signAuthorization builds, signs and self-verifies the Authorization.
-func (g *Gate) signAuthorization(ctx context.Context, h, actionHash commitment.Hash, c *commitment.Commitment, action, salt []byte, path registry.Path, expires, now uint64) ([]byte, error) {
-	// The mode is strict: the anchor was proven above.
+// signAuthorization builds, signs and self-verifies the Authorization. A
+// nonzero deadline is fast mode: the anchor is expected by that height.
+func (g *Gate) signAuthorization(ctx context.Context, h, actionHash commitment.Hash, c *commitment.Commitment, action, salt []byte, path registry.Path, expires, now, deadline uint64) ([]byte, error) {
 	a := commitment.Authorization{
 		Version:        commitment.Version,
 		CommitmentHash: h[:],
@@ -677,6 +686,9 @@ func (g *Gate) signAuthorization(ctx context.Context, h, actionHash commitment.H
 		Expires:        expires,
 		Path:           commitment.PayloadPath(path),
 		Mode:           commitment.ModeStrict,
+	}
+	if deadline != 0 {
+		a.Mode, a.AnchorDeadline = commitment.ModeFast, deadline
 	}
 	canon, err := commitment.EncodeAuthorization(&a)
 	if err != nil {

@@ -57,6 +57,9 @@ func Sentinel(name string) (error, bool) {
 		"ErrDACommitmentMismatch":        gate.ErrDACommitmentMismatch,
 		"ErrArchiveRecomputeUnsupported": gate.ErrArchiveRecomputeUnsupported,
 		"ErrPayloadUnavailable":          gate.ErrPayloadUnavailable,
+		"ErrChainUnavailable":            gate.ErrChainUnavailable,
+		"ErrH0TooOld":                    gate.ErrH0TooOld,
+		"ErrAnchorWindowClosed":          gate.ErrAnchorWindowClosed,
 	}
 	e, ok := m[name]
 	return e, ok

@@ -66,9 +66,9 @@ var (
 	ErrMandateMismatch = errors.New("gate: commitment names another mandate")
 )
 
-// Fast-mode refusals. This gate refuses every pending reference with
-// ErrAnchorPending, so it never returns these; they exist so that every
-// party maps the same codes.
+// Fast-mode refusals: the namespace rule for a pending reference and stage
+// K-fast. ErrAnchorIntentUnavailable and ErrAnchorIntentRejected are
+// operational and retryable.
 var (
 	ErrNamespaceNotAllowed     = errors.New("gate: namespace not allowed for a pending reference")
 	ErrAnchorIntentUnavailable = errors.New("gate: anchor intent unavailable")
