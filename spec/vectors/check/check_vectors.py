@@ -23,6 +23,7 @@ sys.dont_write_bytecode = True
 
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -829,11 +830,35 @@ OTHER_CHECKERS = [
 ]
 
 
+SUPERSEDED_TAG = re.compile(rb"edicta/v" rb"0/(decision-commitment|sig|action|authorization|authorization-sig|receipt|"
+                            rb"receipt-sig|record-request|publish-request|payload|payload-dek|auditor-kid|batch-leaf)"
+                            rb"(?![a-z-])")
+
+
+def check_no_superseded_tags() -> int:
+    """No live vector file or checker module may carry a protocol tag of the superseded drafts: a
+    stale import or a file regenerated under the old tags would otherwise pass unnoticed. Test
+    derivation labels that merely start with the old prefix are not tags."""
+    bad = []
+    for p in sorted(VECTORS.rglob("*")):
+        rel = p.relative_to(VECTORS).as_posix()
+        if not p.is_file() or rel.startswith(("historical/", "tools/")) or p.suffix not in (".json", ".py"):
+            continue
+        if SUPERSEDED_TAG.search(p.read_bytes()):
+            bad.append(rel)
+    if bad:
+        print(f"FAIL (superseded tags): {', '.join(bad)}", file=sys.stderr)
+        return 1
+    print("OK (superseded tags): no live vector file or checker module holds a protocol tag of the superseded drafts")
+    return 0
+
+
 def main() -> int:
     if sys.version_info < (3, 11):
         print("Python 3.11 or later is required", file=sys.stderr)
         return 2
-    rc = check_core()
+    rc = check_no_superseded_tags()
+    rc |= check_core()
     if "--core-only" in sys.argv:
         return rc
     for name in OTHER_CHECKERS:

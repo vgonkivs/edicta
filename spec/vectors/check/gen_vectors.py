@@ -824,7 +824,7 @@ def reject_cases_v1() -> list:
         return m
 
     raw_case("da_3_reserved", "S", "S3", "da = 3 is reserved for a batch leaf.", mutate_pr(b, {1: 3}), "ErrInvalidEnum")
-    raw_case("da_3_with_anchor_2", "S", "S3", "da = 3 with anchor = 2 and a signer: S3 runs before the anchor rule.",
+    raw_case("da_3_with_anchor_2", "S", "S3", "da = 3 with anchor = 2 and a signer: S3 runs before V1-3.",
              mutate_pr(b, {1: 3, 6: 2}), "ErrInvalidEnum")
     raw_case("payload_ref_key_7_reserved", "D", "D15", "payload_ref key 7 (reserved leaf_hash, 32 bytes).",
              mutate_pr(b, {7: h("v1 leaf hash")}), "ErrUnknownKey")
@@ -837,14 +837,14 @@ def reject_cases_v1() -> list:
     for val, cid, desc in ((1, "anchor_1", "anchor = 1: included has one encoding, the absent key."),
                            (3, "anchor_3", "anchor = 3."),
                            (0, "anchor_0", "anchor = 0.")):
-        raw_case(cid, "S", "S4", desc, mutate_pr(b, {6: val}), "ErrInvalidEnum")
-    raw_case("anchor_2pow63", "S", "S2", "anchor = 2^63: S2 precedes the anchor rule.", mutate_pr(b, {6: 1 << 63}),
+        raw_case(cid, "S", "V1-3", desc, mutate_pr(b, {6: val}), "ErrInvalidEnum")
+    raw_case("anchor_2pow63", "S", "S2", "anchor = 2^63: S2 precedes V1-3.", mutate_pr(b, {6: 1 << 63}),
              "ErrIntRange")
     raw_case("anchor_tstr", "D", "D16", "anchor as the text \"2\".", mutate_pr(b, {6: "2"}), "ErrWrongType")
     for n, cid in ((31, "mandate_ref_31_bytes"), (33, "mandate_ref_33_bytes")):
         m = ikeyed(b)
         m[14] = (h("v1 mandate ref short") * 2)[:n]
-        raw_case(cid, "D", "D18", f"mandate_ref of {n} bytes.", m, "ErrFieldSize")
+        raw_case(cid, "D", "V1-2", f"mandate_ref of {n} bytes.", m, "ErrFieldSize")
     m = ikeyed(b)
     m[14] = mandate_ref().hex()
     raw_case("mandate_ref_tstr", "D", "D16", "mandate_ref as lower-case hex text.", m, "ErrWrongType")

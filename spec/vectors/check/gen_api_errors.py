@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Generates spec/vectors/api/errors.json: the HTTP error mapping of core section 18
-(v0-draft.17) with the additive codes of core v1 section 13 (v1-draft.4), and example
-request and response bytes per endpoint. Deterministic.
+"""Generates spec/vectors/api/errors.json: the HTTP error mapping of spec/decision-commitment-v1.md
+section 18 (v1-draft.5) and example request and response bytes per endpoint, from the v1 core
+vectors. Deterministic.
 
 Usage: python3 spec/vectors/check/gen_api_errors.py [--core DIR] [--out DIR]
-Defaults: --core spec/vectors/v0; --out spec/vectors/api.
+Defaults: --core spec/vectors/v1; --out spec/vectors/api.
 """
 
 from __future__ import annotations
@@ -29,14 +29,12 @@ def arg(name: str, default: Path) -> Path:
     return default
 
 
-CORE = arg("--core", VECTORS / "historical" / "v0")
+CORE = arg("--core", VECTORS / "v1")
 OUT = arg("--out", VECTORS / "api")
-V1 = arg("--v1", VECTORS / "v1")
-FORMAT = "edicta-vectors/v0"
-REVISION = "v1-draft.4"
+FORMAT = "edicta-vectors/v1"
+REVISION = "v1-draft.5"
 
-P, A, R, H = "/v0/publish", "/v0/authorize", "/v0/record", "/v0/health"
-A1 = "/v1/authorize"
+P, A, R, H = "/v1/publish", "/v1/authorize", "/v1/record", "/v1/health"
 POSTS = [P, A, R]
 ALL = [P, A, R, H]
 
@@ -52,6 +50,8 @@ ERRORS = [
     ("ErrAnchorTooOld", 410, "none", [A], "8.5, K2"),
     ("ErrExpired", 410, "none", [A], "T2"),
     ("edictaapi.ErrPublishStale", 410, "none", [P], "PR5"),
+    ("ErrH0TooOld", 410, "none", [A], "F5, B4"),
+    ("ErrAnchorWindowClosed", 410, "none", [A], "F5, F6, B4, B5"),
     *[(c, 400, "none", POSTS, "stage D, wrapper decoding") for c in STAGE_D],
     ("ErrUnsupportedVersion", 400, "none", [A], "S1"),
     ("ErrIntRange", 400, "none", [P, A], "S2, PR2"),
@@ -73,6 +73,10 @@ ERRORS = [
     ("ErrAgentKeyMismatch", 403, "none", [A], "L2"),
     ("ErrExecutorNotAllowed", 403, "none", [R], "RQ3"),
     ("ErrKeyRole", 403, "none", [R], "RQ4"),
+    ("ErrAnchorPending", 403, "none", [A], "C5a"),
+    ("ErrNamespaceNotAllowed", 403, "none", [A], "C5b"),
+    ("ErrMandateRefMissing", 403, "none", [A], "M1"),
+    ("ErrMandateMismatch", 403, "none", [A], "M2"),
     ("edictaapi.ErrRouteNotFound", 404, "none", ALL, "18.1"),
     ("edictaapi.ErrPublishDisabled", 404, "none", [P], "18.2"),
     ("edictaapi.ErrMethodNotAllowed", 405, "none", ALL, "18.1"),
@@ -83,7 +87,7 @@ ERRORS = [
     ("recorder.ErrTooLarge", 413, "none", [P], "Recorder limit"),
     ("ErrPayloadAboveCap", 413, "none", [A], "C4, Fibre payload limit"),
     ("edictaapi.ErrMediaType", 415, "none", POSTS, "18.1"),
-    ("ErrActionMismatch", 422, "none", [A], "A1, retry rule 8.7"),
+    ("ErrActionMismatch", 422, "none", [A], "A1 (bytes or salt), retry rule 8.7"),
     ("ErrPayloadSizeMismatch", 422, "none", [A], "P1"),
     ("ErrPayloadHashMismatch", 422, "none", [A], "P2"),
     ("ErrDACommitmentMismatch", 422, "none", [A], "P3"),
@@ -91,6 +95,8 @@ ERRORS = [
     ("ErrIssuedBeforeAnchor", 422, "none", [A], "K1"),
     ("ErrTTLTooLong", 422, "none", [A], "S14"),
     ("ErrNotAuthorized", 422, "none", [R], "RQ5"),
+    ("ErrAnchorIntentInvalid", 422, "none", [A], "F2, B2"),
+    ("ErrCertInvalid", 422, "none", [A], "F4"),
     ("ErrNotYetValid", 425, "none", [A], "T1"),
     ("ErrAnchorNotFound", 425, "none", [A], "K0"),
     ("edictaapi.ErrQuotaExceeded", 429, "none", [P], "PR7"),
@@ -110,47 +116,29 @@ ERRORS = [
     ("ErrArchiveUnavailable", 503, "none", [A], "AR3, archive before authorize"),
     ("recorder.ErrArchiveUnavailable", 503, "none", [P], "Recorder archive write"),
     ("recorder.ErrEscrowInsufficient", 503, "none", [P], "Recorder Fibre escrow preflight"),
+    ("ErrAnchorIntentUnavailable", 503, "none", [A], "F1, B1"),
+    ("ErrAnchorIntentRejected", 503, "none", [A], "F6, B5"),
     ("edictaapi.ErrDeadline", 504, "none", ALL, "18.3"),
     ("edictaapi.ErrInternal", 500, "none", ALL, "18.3"),
 ]
 
-# Core v1 section 13: these wrap no core sentinel and match after every existing code of their status, in
-# this order. policy.ErrFastModeNotAllowed is matched with the policy codes (spec/vectors/policy/api.json).
-V1_ERRORS = [
-    ("ErrVersionNotAccepted", 403, "none", [A, A1], "core v1 V0"),
-    ("ErrAnchorPending", 403, "none", [A, A1], "core v1 C5a"),
-    ("ErrNamespaceNotAllowed", 403, "none", [A, A1], "core v1 C5b"),
-    ("ErrMandateRefMissing", 403, "none", [A, A1], "core v1 M1"),
-    ("ErrMandateMismatch", 403, "none", [A, A1], "core v1 M2"),
-    ("ErrH0TooOld", 410, "none", [A, A1], "core v1 F5, B4"),
-    ("ErrAnchorWindowClosed", 410, "none", [A, A1], "core v1 F5, F6, B4, B5"),
-    ("ErrAnchorIntentInvalid", 422, "none", [A, A1], "core v1 F2, B2"),
-    ("ErrCertInvalid", 422, "none", [A, A1], "core v1 F4"),
-    ("ErrAnchorIntentUnavailable", 503, "none", [A, A1], "core v1 F1, B1"),
-    ("ErrAnchorIntentRejected", 503, "none", [A, A1], "core v1 F6, B5"),
-]
-for _e in V1_ERRORS:
-    _at = max(i for i, x in enumerate(ERRORS) if x[1] == _e[1])
-    _run = [i for i in range(_at + 1, len(ERRORS)) if ERRORS[i][1] == _e[1]]
-    ERRORS.insert((_run[-1] if _run else _at) + 1, _e)
-
-REMOVED = "removed in draft.9; never reported"
+REMOVED = "a name of the superseded drafts, never reused; never reported"
 CLIENT = "client side (SDK producer checks or payload opening); never crosses the API"
 PROFILE = "dca-agent profile, executor side; never crosses the API"
 NOT_API = {
     "ErrInvalidParams": "the gate's own parameters; reported as edictaapi.ErrInternal",
-    "ErrFastModeRefused": "profile executors (core v1 6.3); never crosses the API",
-    "ErrInvalidConfig": "gate start configuration (core v1 7.4); a misconfigured gate does not serve requests",
+    "ErrFastModeRefused": "profile executors (section 16.2); never crosses the API",
+    "ErrInvalidConfig": "gate start configuration (section 8.9); a misconfigured gate does not serve requests",
     **{n: REMOVED for n in ["ErrUnsupportedActionKind", "ErrUnsupportedRail", "ErrUnsupportedOrderType", "ErrLimitPrice",
                             "ErrAccountMismatch", "ErrChainIDRule", "ErrDeadlineRange", "ErrPriceBound",
-                            "ErrNotionalExceeded"]},
+                            "ErrNotionalExceeded", "ErrVersionNotAccepted"]},
     **{n: CLIENT for n in ["blob.ErrTooLarge", "blob.ErrMalformed", "blob.ErrVersion", "blob.ErrRecipients",
                            "blob.ErrDuplicateKID", "blob.ErrNoRecipient", "blob.ErrUnwrap", "blob.ErrDecrypt",
                            "payload.ErrMalformed", "payload.ErrVersion", "payload.ErrTooLarge",
                            "sdk.ErrPlaintextHashMismatch", "sdk.ErrPayloadMismatch", "sdk.ErrDACommitmentMismatch",
                            "sdk.ErrDACheckUnavailable", "sdk.ErrInclusionUnverified", "sdk.ErrBlockTimeMismatch",
                            "sdk.ErrUnexpectedRef", "sdk.ErrPublishTimeout"]},
-    **{n: PROFILE for n in ["dca.ErrMalformed", "ibkrorder.ErrMalformed", "ibkrorder.ErrInvalid",
+    **{n: PROFILE for n in ["ibkrorder.ErrMalformed", "ibkrorder.ErrInvalid",
                             "ibkr.ErrAccountMismatch", "ibkr.ErrRiskLimit"]},
 }
 
@@ -163,7 +151,6 @@ MESSAGES = {
     "edictaapi.ErrMediaType": "edictaapi: content type must be application/cbor",
     "ErrChainUnavailable": "gate: chain data unavailable",
     "ErrAnchorPending": "gate: pending payload reference and fast mode is off",
-    "ErrVersionNotAccepted": "gate: commitment version not accepted",
     "ErrMissingField": "commitment: missing field",
     "ErrUnknownKey": "commitment: unknown key",
     "ErrFieldSize": "commitment: field size",
@@ -186,11 +173,11 @@ def main():
     valid = by_id(json.loads((CORE / "valid.json").read_text()), "cases")
     auth = by_id(json.loads((CORE / "authorization.json").read_text()), "cases")
     rcp = by_id(json.loads((CORE / "receipt.json").read_text()), "cases")
-    keys = json.loads((CORE / "keys.json").read_text())["keys"]
+    keys = json.loads((VECTORS / "keys.json").read_text())["keys"]
     pub = json.loads((OUT / "publish_request.json").read_text())
 
     v = valid["minimal_lmt"]
-    env, action = bytes.fromhex(v["envelope_hex"]), bytes.fromhex(v["action_hex"])
+    env, action, salt = (bytes.fromhex(v[k]) for k in ("envelope_hex", "action_hex", "action_salt_hex"))
     sa = bytes.fromhex(auth["auth_minimal_lmt_da"]["signed_authorization_hex"])
     other = valid["ttl_exactly_max"]
     r = rcp["receipt_minimal_lmt"]
@@ -199,10 +186,16 @@ def main():
     pub_resp = next(c for c in pub["response"] if c["id"] == "response_minimal_lmt")
     assert hashlib.sha256(bytes.fromhex(pub_case["blob_hex"])).hexdigest() == v["input"]["ciphertext_hash"]
 
-    authorize_req = encode({1: env, 2: action})
+    def authorize(case: dict) -> bytes:
+        return encode({1: bytes.fromhex(case["envelope_hex"]), 2: bytes.fromhex(case["action_hex"]),
+                       3: bytes.fromhex(case["action_salt_hex"])})
+
+    authorize_req = authorize(v)
+    record_req = encode({1: env, 2: ri["rail_ref"], 3: bytes.fromhex(ri["executor_pubkey"]),
+                         4: bytes.fromhex(ri["executor_signature"])})
     examples = [
-        {"id": "authorize_ok", "endpoint": A, "method": "POST", "description": "minimal_lmt with its action; the answer is "
-         "the SignedAuthorization of core vector auth_minimal_lmt_da.", "commitment_ref": "minimal_lmt",
+        {"id": "authorize_ok", "endpoint": A, "method": "POST", "description": "minimal_lmt with its action and salt; "
+         "the answer is the SignedAuthorization of core vector auth_minimal_lmt_da.", "commitment_ref": "minimal_lmt",
          "authorization_ref": "auth_minimal_lmt_da", "request_cbor_hex": authorize_req.hex(), "status": "200",
          "response_cbor_hex": encode({1: sa}).hex()},
         {"id": "authorize_retry_same_commitment", "endpoint": A, "method": "POST", "description": "The same request again "
@@ -211,30 +204,47 @@ def main():
          "request_cbor_hex": authorize_req.hex(), "status": "409", "response_cbor_hex": error_body("ErrNonceUsed", sa).hex()},
         {"id": "authorize_nonce_used_other_commitment", "endpoint": A, "method": "POST", "description": "A "
          "commitment whose (agent_pubkey, nonce) registry entry holds another commitment_hash (state assumed): 409 "
-         "without stored bytes.",
-         "commitment_ref": other["id"], "request_cbor_hex": encode({1: bytes.fromhex(other["envelope_hex"]),
-                                                                       2: bytes.fromhex(other["action_hex"])}).hex(),
+         "without stored bytes.", "commitment_ref": other["id"], "request_cbor_hex": authorize(other).hex(),
          "status": "409", "response_cbor_hex": error_body("ErrNonceUsed").hex()},
         {"id": "authorize_action_mismatch", "endpoint": A, "method": "POST", "description": "minimal_lmt with one action "
          "byte flipped: stage A, 422, whether or not the nonce is used.", "commitment_ref": "minimal_lmt",
-         "request_cbor_hex": encode({1: env, 2: action[:-1] + bytes([action[-1] ^ 1])}).hex(), "status": "422",
+         "request_cbor_hex": encode({1: env, 2: action[:-1] + bytes([action[-1] ^ 1]), 3: salt}).hex(),
+         "status": "422",
          "response_cbor_hex": error_body("ErrActionMismatch").hex()},
+        {"id": "authorize_wrong_salt", "endpoint": A, "method": "POST", "description": "minimal_lmt with the salt's first "
+         "bit flipped: A1, 422.", "commitment_ref": "minimal_lmt",
+         "request_cbor_hex": encode({1: env, 2: action, 3: bytes([salt[0] ^ 0x80]) + salt[1:]}).hex(), "status": "422",
+         "response_cbor_hex": error_body("ErrActionMismatch").hex()},
+        {"id": "authorize_salt_missing", "endpoint": A, "method": "POST", "description": "minimal_lmt without key 3 "
+         "(action_salt): wrapper decoding, 400.", "commitment_ref": "minimal_lmt",
+         "request_cbor_hex": encode({1: env, 2: action}).hex(), "status": "400",
+         "response_cbor_hex": error_body("ErrMissingField").hex()},
+        {"id": "authorize_salt_31", "endpoint": A, "method": "POST", "description": "minimal_lmt with a 31-byte key 3: "
+         "wrapper decoding, 400.", "commitment_ref": "minimal_lmt",
+         "request_cbor_hex": encode({1: env, 2: action, 3: salt[:31]}).hex(), "status": "400",
+         "response_cbor_hex": error_body("ErrFieldSize").hex()},
         {"id": "authorize_trailing_byte", "endpoint": A, "method": "POST", "description": "Wrapper followed by one zero "
          "byte: 400.", "request_cbor_hex": (authorize_req + b"\x00").hex(), "status": "400",
          "response_cbor_hex": error_body("ErrTrailingData").hex()},
         {"id": "authorize_chain_down", "endpoint": A, "method": "POST", "description": "The node is unreachable: 503, "
          "retryable, nothing consumed.", "commitment_ref": "minimal_lmt", "request_cbor_hex": authorize_req.hex(),
          "status": "503", "response_cbor_hex": error_body("ErrChainUnavailable").hex()},
+        {"id": "authorize_pending_fast_mode_off", "endpoint": A, "method": "POST", "description":
+         "v1_pending_blob at a gate whose FastMode is off: 403, nothing written.", "commitment_ref": "v1_pending_blob",
+         "request_cbor_hex": authorize(valid["v1_pending_blob"]).hex(), "status": "403",
+         "response_cbor_hex": error_body("ErrAnchorPending").hex()},
+        {"id": "authorize_pending_without_mandate", "endpoint": A, "method": "POST", "description":
+         "v1_pending_blob_mandate_ref at a library gate with FastMode on and no mandate (a server gate refuses to "
+         "start so configured): C5a refuses, 403, nothing written.", "commitment_ref": "v1_pending_blob_mandate_ref",
+         "request_cbor_hex": authorize(valid["v1_pending_blob_mandate_ref"]).hex(), "status": "403",
+         "response_cbor_hex": error_body("ErrAnchorPending").hex()},
         {"id": "record_ok", "endpoint": R, "method": "POST", "description": "The record request of core receipt vector "
          "receipt_minimal_lmt; the answer is that SignedReceipt.", "commitment_ref": "minimal_lmt",
-         "receipt_ref": "receipt_minimal_lmt",
-         "request_cbor_hex": encode({1: env, 2: ri["rail_ref"], 3: bytes.fromhex(ri["executor_pubkey"]),
-                                     4: bytes.fromhex(ri["executor_signature"])}).hex(),
+         "receipt_ref": "receipt_minimal_lmt", "request_cbor_hex": record_req.hex(),
          "status": "200", "response_cbor_hex": encode({1: bytes.fromhex(r["signed_receipt_hex"])}).hex()},
         {"id": "record_exists", "endpoint": R, "method": "POST", "description": "The same record request again: 409 with "
          "the stored receipt.", "commitment_ref": "minimal_lmt", "receipt_ref": "receipt_minimal_lmt",
-         "request_cbor_hex": encode({1: env, 2: ri["rail_ref"], 3: bytes.fromhex(ri["executor_pubkey"]),
-                                     4: bytes.fromhex(ri["executor_signature"])}).hex(),
+         "request_cbor_hex": record_req.hex(),
          "status": "409", "response_cbor_hex": error_body("ErrReceiptExists", bytes.fromhex(r["signed_receipt_hex"])).hex()},
         {"id": "publish_ok", "endpoint": P, "method": "POST", "description": "publish_request.json publish_small_blob (the "
          "minimal_lmt blob); the answer is response_minimal_lmt.", "publish_ref": "publish_small_blob",
@@ -261,64 +271,9 @@ def main():
                      "Recorder disabled (keys 7 and 8 absent), both DA types allowed.", "status": "200",
                      "response_cbor_hex": encode(health_off).hex()})
 
-    v1valid = by_id(json.loads((V1 / "valid.json").read_text()), "cases")
-    v1auth = by_id(json.loads((V1 / "authorization.json").read_text()), "cases")
-    vb = v1valid["v1_minimal_included_blob"]
-    vb_env, vb_act, vb_salt = (bytes.fromhex(vb[k]) for k in ("envelope_hex", "action_hex", "action_salt_hex"))
-    v1_req = encode({1: vb_env, 2: vb_act, 3: vb_salt})
-    v1_resp = encode({1: bytes.fromhex(v1auth["auth_v1_strict_da"]["signed_authorization_hex"])})
-    vp = v1valid["v1_pending_blob"]
-    for path, ident, desc in ((A, "authorize_v1_on_v0_path", "A v1 envelope on /v0/authorize: the version comes "
-                               "from the signed bytes, so the answer is the Authorization v1 of auth_v1_strict_da."),
-                              (A1, "authorize_v1_alias", "The same request on the alias /v1/authorize: same handler, "
-                               "same answer.")):
-        examples.append({"id": ident, "endpoint": path, "method": "POST", "description": desc, "vectors": "v1",
-                         "commitment_ref": "v1_minimal_included_blob", "authorization_ref": "auth_v1_strict_da",
-                         "request_cbor_hex": v1_req.hex(), "status": "200", "response_cbor_hex": v1_resp.hex()})
-    examples.append({"id": "authorize_v0_alias_version_not_accepted", "endpoint": A1, "method": "POST",
-                     "description": "minimal_lmt (v0) on /v1/authorize at a gate with AcceptV0 false: 403.",
-                     "commitment_ref": "minimal_lmt", "request_cbor_hex": authorize_req.hex(), "status": "403",
-                     "response_cbor_hex": error_body("ErrVersionNotAccepted").hex()})
-    examples.append({"id": "authorize_pending_fast_mode_off", "endpoint": A, "method": "POST", "description":
-                     "v1_pending_blob at a gate whose FastMode is off: 403, nothing written.", "vectors": "v1",
-                     "commitment_ref": "v1_pending_blob",
-                     "request_cbor_hex": encode({1: bytes.fromhex(vp["envelope_hex"]),
-                                                 2: bytes.fromhex(vp["action_hex"]),
-                                                 3: bytes.fromhex(vp["action_salt_hex"])}).hex(),
-                     "status": "403", "response_cbor_hex": error_body("ErrAnchorPending").hex()})
-    vpm = v1valid["v1_pending_blob_mandate_ref"]
-    examples.append({"id": "authorize_pending_without_mandate", "endpoint": A, "method": "POST", "description":
-                     "v1_pending_blob_mandate_ref at a library gate with FastMode on and no mandate (a server gate "
-                     "refuses to start so configured): C5a refuses, 403, nothing written.", "vectors": "v1",
-                     "commitment_ref": "v1_pending_blob_mandate_ref",
-                     "request_cbor_hex": encode({1: bytes.fromhex(vpm["envelope_hex"]), 2: bytes.fromhex(vpm["action_hex"]),
-                                                 3: bytes.fromhex(vpm["action_salt_hex"])}).hex(),
-                     "status": "403", "response_cbor_hex": error_body("ErrAnchorPending").hex()})
-    examples.append({"id": "authorize_v1_salt_missing", "endpoint": A, "method": "POST", "description":
-                     "v1_minimal_included_blob without key 3 (action_salt): A0s, 400.", "vectors": "v1",
-                     "commitment_ref": "v1_minimal_included_blob",
-                     "request_cbor_hex": encode({1: vb_env, 2: vb_act}).hex(), "status": "400",
-                     "response_cbor_hex": error_body("ErrMissingField").hex()})
-    examples.append({"id": "authorize_v0_with_salt", "endpoint": A, "method": "POST", "description":
-                     "minimal_lmt (v0) with a 32-byte key 3: a v0 commitment has no salt, A0s, 400.",
-                     "commitment_ref": "minimal_lmt", "request_cbor_hex": encode({1: env, 2: action, 3: vb_salt}).hex(),
-                     "status": "400", "response_cbor_hex": error_body("ErrUnknownKey").hex()})
-    examples.append({"id": "authorize_salt_31", "endpoint": A, "method": "POST", "description":
-                     "v1_minimal_included_blob with a 31-byte key 3: wrapper decoding, 400.", "vectors": "v1",
-                     "commitment_ref": "v1_minimal_included_blob",
-                     "request_cbor_hex": encode({1: vb_env, 2: vb_act, 3: vb_salt[:31]}).hex(), "status": "400",
-                     "response_cbor_hex": error_body("ErrFieldSize").hex()})
-    examples.append({"id": "authorize_v1_wrong_salt", "endpoint": A, "method": "POST", "description":
-                     "v1_minimal_included_blob with the salt's first bit flipped: A1, 422.", "vectors": "v1",
-                     "commitment_ref": "v1_minimal_included_blob",
-                     "request_cbor_hex": encode({1: vb_env, 2: vb_act, 3: bytes([vb_salt[0] ^ 0x80]) + vb_salt[1:]}).hex(),
-                     "status": "422", "response_cbor_hex": error_body("ErrActionMismatch").hex()})
-
     out = {"format": FORMAT, "revision": REVISION, "content_type": "application/cbor",
            "endpoints": {"publish": {"method": "POST", "path": P, "request_limit": "max_blob_bytes + 256"},
                          "authorize": {"method": "POST", "path": A, "request_limit": "67771"},
-                         "authorize_v1_alias": {"method": "POST", "path": A1, "request_limit": "67771",
-                                                "alias_of": A},
                          "record": {"method": "POST", "path": R, "request_limit": "2560"},
                          "health": {"method": "GET", "path": H}},
            "statuses": {str(k): {"retryable": str(x)} for k, x in STATUSES.items()},

@@ -1,32 +1,26 @@
 {
-  "format": "edicta-vectors/v0",
-  "revision": "v1-draft.4",
+  "format": "edicta-vectors/v1",
+  "revision": "v1-draft.5",
   "content_type": "application/cbor",
   "endpoints": {
     "publish": {
       "method": "POST",
-      "path": "/v0/publish",
+      "path": "/v1/publish",
       "request_limit": "max_blob_bytes + 256"
     },
     "authorize": {
       "method": "POST",
-      "path": "/v0/authorize",
-      "request_limit": "67771"
-    },
-    "authorize_v1_alias": {
-      "method": "POST",
       "path": "/v1/authorize",
-      "request_limit": "67771",
-      "alias_of": "/v0/authorize"
+      "request_limit": "67771"
     },
     "record": {
       "method": "POST",
-      "path": "/v0/record",
+      "path": "/v1/record",
       "request_limit": "2560"
     },
     "health": {
       "method": "GET",
-      "path": "/v0/health"
+      "path": "/v1/health"
     }
   },
   "statuses": {
@@ -86,7 +80,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "8.5, K2"
     },
@@ -96,7 +90,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "T2"
     },
@@ -106,7 +100,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish"
+        "/v1/publish"
       ],
       "rules": "PR5"
     },
@@ -116,10 +110,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
         "/v1/authorize"
       ],
-      "rules": "core v1 F5, B4"
+      "rules": "F5, B4"
     },
     {
       "code": "ErrAnchorWindowClosed",
@@ -127,10 +120,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
         "/v1/authorize"
       ],
-      "rules": "core v1 F5, F6, B4, B5"
+      "rules": "F5, F6, B4, B5"
     },
     {
       "code": "ErrMalformed",
@@ -138,9 +130,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -150,9 +142,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -162,9 +154,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -174,9 +166,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -186,9 +178,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -198,9 +190,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -210,9 +202,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -222,9 +214,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -234,9 +226,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -246,9 +238,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -258,9 +250,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -270,9 +262,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -282,9 +274,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -294,9 +286,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -306,9 +298,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -318,9 +310,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -330,9 +322,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "stage D, wrapper decoding"
     },
@@ -342,7 +334,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "S1"
     },
@@ -352,8 +344,8 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize"
+        "/v1/publish",
+        "/v1/authorize"
       ],
       "rules": "S2, PR2"
     },
@@ -363,7 +355,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "S3"
     },
@@ -373,8 +365,8 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize"
+        "/v1/publish",
+        "/v1/authorize"
       ],
       "rules": "S6, PR2"
     },
@@ -384,7 +376,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "S7"
     },
@@ -394,7 +386,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "S8"
     },
@@ -404,7 +396,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "S12"
     },
@@ -414,7 +406,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "A0"
     },
@@ -424,10 +416,10 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record",
-        "/v0/health"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record",
+        "/v1/health"
       ],
       "rules": "18.1"
     },
@@ -437,7 +429,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish"
+        "/v1/publish"
       ],
       "rules": "PR3"
     },
@@ -447,8 +439,8 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "G0, RQ2"
     },
@@ -458,8 +450,8 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "G1, G2, RQ2"
     },
@@ -469,7 +461,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "C1"
     },
@@ -479,7 +471,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "C2"
     },
@@ -489,7 +481,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "C3"
     },
@@ -499,8 +491,8 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
-        "/v0/publish"
+        "/v1/authorize",
+        "/v1/publish"
       ],
       "rules": "L0, PR4"
     },
@@ -510,7 +502,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "L1"
     },
@@ -520,7 +512,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "L2"
     },
@@ -530,7 +522,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/record"
+        "/v1/record"
       ],
       "rules": "RQ3"
     },
@@ -540,20 +532,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/record"
+        "/v1/record"
       ],
       "rules": "RQ4"
-    },
-    {
-      "code": "ErrVersionNotAccepted",
-      "status": "403",
-      "retryable": "0",
-      "stored": "none",
-      "endpoints": [
-        "/v0/authorize",
-        "/v1/authorize"
-      ],
-      "rules": "core v1 V0"
     },
     {
       "code": "ErrAnchorPending",
@@ -561,10 +542,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
         "/v1/authorize"
       ],
-      "rules": "core v1 C5a"
+      "rules": "C5a"
     },
     {
       "code": "ErrNamespaceNotAllowed",
@@ -572,10 +552,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
         "/v1/authorize"
       ],
-      "rules": "core v1 C5b"
+      "rules": "C5b"
     },
     {
       "code": "ErrMandateRefMissing",
@@ -583,10 +562,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
         "/v1/authorize"
       ],
-      "rules": "core v1 M1"
+      "rules": "M1"
     },
     {
       "code": "ErrMandateMismatch",
@@ -594,10 +572,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
         "/v1/authorize"
       ],
-      "rules": "core v1 M2"
+      "rules": "M2"
     },
     {
       "code": "edictaapi.ErrRouteNotFound",
@@ -605,10 +582,10 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record",
-        "/v0/health"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record",
+        "/v1/health"
       ],
       "rules": "18.1"
     },
@@ -618,7 +595,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish"
+        "/v1/publish"
       ],
       "rules": "18.2"
     },
@@ -628,10 +605,10 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record",
-        "/v0/health"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record",
+        "/v1/health"
       ],
       "rules": "18.1"
     },
@@ -641,7 +618,7 @@
       "retryable": "0",
       "stored": "authorization",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "N1, retry rule 8.7"
     },
@@ -651,7 +628,7 @@
       "retryable": "0",
       "stored": "receipt",
       "endpoints": [
-        "/v0/record"
+        "/v1/record"
       ],
       "rules": "RQ6"
     },
@@ -661,7 +638,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "E1"
     },
@@ -671,9 +648,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "18.1, D0, PR1"
     },
@@ -683,7 +660,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish"
+        "/v1/publish"
       ],
       "rules": "Recorder limit"
     },
@@ -693,7 +670,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "C4, Fibre payload limit"
     },
@@ -703,9 +680,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "18.1"
     },
@@ -715,9 +692,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
-      "rules": "A1, retry rule 8.7"
+      "rules": "A1 (bytes or salt), retry rule 8.7"
     },
     {
       "code": "ErrPayloadSizeMismatch",
@@ -725,7 +702,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "P1"
     },
@@ -735,7 +712,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "P2"
     },
@@ -745,7 +722,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "P3"
     },
@@ -755,7 +732,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "P3, K2 routing"
     },
@@ -765,7 +742,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "K1"
     },
@@ -775,7 +752,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "S14"
     },
@@ -785,7 +762,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/record"
+        "/v1/record"
       ],
       "rules": "RQ5"
     },
@@ -795,10 +772,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
         "/v1/authorize"
       ],
-      "rules": "core v1 F2, B2"
+      "rules": "F2, B2"
     },
     {
       "code": "ErrCertInvalid",
@@ -806,10 +782,9 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
         "/v1/authorize"
       ],
-      "rules": "core v1 F4"
+      "rules": "F4"
     },
     {
       "code": "ErrNotYetValid",
@@ -817,7 +792,7 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "T1"
     },
@@ -827,7 +802,7 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "K0"
     },
@@ -837,7 +812,7 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/publish"
+        "/v1/publish"
       ],
       "rules": "PR7"
     },
@@ -847,7 +822,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish"
+        "/v1/publish"
       ],
       "rules": "Recorder read-back"
     },
@@ -857,7 +832,7 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish"
+        "/v1/publish"
       ],
       "rules": "Recorder Fibre submit result"
     },
@@ -867,7 +842,7 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "8.5"
     },
@@ -877,7 +852,7 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "K2"
     },
@@ -887,8 +862,8 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize"
+        "/v1/publish",
+        "/v1/authorize"
       ],
       "rules": "operational"
     },
@@ -898,8 +873,8 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize"
+        "/v1/publish",
+        "/v1/authorize"
       ],
       "rules": "operational"
     },
@@ -909,8 +884,8 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "operational"
     },
@@ -920,8 +895,8 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
-        "/v0/record"
+        "/v1/authorize",
+        "/v1/record"
       ],
       "rules": "operational"
     },
@@ -931,10 +906,10 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record",
-        "/v0/health"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record",
+        "/v1/health"
       ],
       "rules": "operational"
     },
@@ -944,7 +919,7 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/publish"
+        "/v1/publish"
       ],
       "rules": "PR6"
     },
@@ -954,7 +929,7 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/publish"
+        "/v1/publish"
       ],
       "rules": "Recorder node read"
     },
@@ -964,7 +939,7 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/publish"
+        "/v1/publish"
       ],
       "rules": "PR6, unresolved submissions"
     },
@@ -974,7 +949,7 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/publish"
+        "/v1/publish"
       ],
       "rules": "Recorder read-back"
     },
@@ -984,7 +959,7 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize"
+        "/v1/authorize"
       ],
       "rules": "AR3, archive before authorize"
     },
@@ -994,7 +969,7 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/publish"
+        "/v1/publish"
       ],
       "rules": "Recorder archive write"
     },
@@ -1004,7 +979,7 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/publish"
+        "/v1/publish"
       ],
       "rules": "Recorder Fibre escrow preflight"
     },
@@ -1014,10 +989,9 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
         "/v1/authorize"
       ],
-      "rules": "core v1 F1, B1"
+      "rules": "F1, B1"
     },
     {
       "code": "ErrAnchorIntentRejected",
@@ -1025,10 +999,9 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/authorize",
         "/v1/authorize"
       ],
-      "rules": "core v1 F6, B5"
+      "rules": "F6, B5"
     },
     {
       "code": "edictaapi.ErrDeadline",
@@ -1036,10 +1009,10 @@
       "retryable": "1",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record",
-        "/v0/health"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record",
+        "/v1/health"
       ],
       "rules": "18.3"
     },
@@ -1049,10 +1022,10 @@
       "retryable": "0",
       "stored": "none",
       "endpoints": [
-        "/v0/publish",
-        "/v0/authorize",
-        "/v0/record",
-        "/v0/health"
+        "/v1/publish",
+        "/v1/authorize",
+        "/v1/record",
+        "/v1/health"
       ],
       "rules": "18.3"
     }
@@ -1064,47 +1037,51 @@
     },
     {
       "name": "ErrFastModeRefused",
-      "reason": "profile executors (core v1 6.3); never crosses the API"
+      "reason": "profile executors (section 16.2); never crosses the API"
     },
     {
       "name": "ErrInvalidConfig",
-      "reason": "gate start configuration (core v1 7.4); a misconfigured gate does not serve requests"
+      "reason": "gate start configuration (section 8.9); a misconfigured gate does not serve requests"
     },
     {
       "name": "ErrUnsupportedActionKind",
-      "reason": "removed in draft.9; never reported"
+      "reason": "a name of the superseded drafts, never reused; never reported"
     },
     {
       "name": "ErrUnsupportedRail",
-      "reason": "removed in draft.9; never reported"
+      "reason": "a name of the superseded drafts, never reused; never reported"
     },
     {
       "name": "ErrUnsupportedOrderType",
-      "reason": "removed in draft.9; never reported"
+      "reason": "a name of the superseded drafts, never reused; never reported"
     },
     {
       "name": "ErrLimitPrice",
-      "reason": "removed in draft.9; never reported"
+      "reason": "a name of the superseded drafts, never reused; never reported"
     },
     {
       "name": "ErrAccountMismatch",
-      "reason": "removed in draft.9; never reported"
+      "reason": "a name of the superseded drafts, never reused; never reported"
     },
     {
       "name": "ErrChainIDRule",
-      "reason": "removed in draft.9; never reported"
+      "reason": "a name of the superseded drafts, never reused; never reported"
     },
     {
       "name": "ErrDeadlineRange",
-      "reason": "removed in draft.9; never reported"
+      "reason": "a name of the superseded drafts, never reused; never reported"
     },
     {
       "name": "ErrPriceBound",
-      "reason": "removed in draft.9; never reported"
+      "reason": "a name of the superseded drafts, never reused; never reported"
     },
     {
       "name": "ErrNotionalExceeded",
-      "reason": "removed in draft.9; never reported"
+      "reason": "a name of the superseded drafts, never reused; never reported"
+    },
+    {
+      "name": "ErrVersionNotAccepted",
+      "reason": "a name of the superseded drafts, never reused; never reported"
     },
     {
       "name": "blob.ErrTooLarge",
@@ -1183,10 +1160,6 @@
       "reason": "client side (SDK producer checks or payload opening); never crosses the API"
     },
     {
-      "name": "dca.ErrMalformed",
-      "reason": "dca-agent profile, executor side; never crosses the API"
-    },
-    {
       "name": "ibkrorder.ErrMalformed",
       "reason": "dca-agent profile, executor side; never crosses the API"
     },
@@ -1206,90 +1179,140 @@
   "examples": [
     {
       "id": "authorize_ok",
-      "endpoint": "/v0/authorize",
+      "endpoint": "/v1/authorize",
       "method": "POST",
-      "description": "minimal_lmt with its action; the answer is the SignedAuthorization of core vector auth_minimal_lmt_da.",
+      "description": "minimal_lmt with its action and salt; the answer is the SignedAuthorization of core vector auth_minimal_lmt_da.",
       "commitment_ref": "minimal_lmt",
       "authorization_ref": "auth_minimal_lmt_da",
-      "request_cbor_hex": "a2015901a4a201ac0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584037a1f97bfc37eb4988a05b6ac66582939032f2d83c722eaab0d17bfe7e1f0c99ed8bc1677d820ca8eafac46c488646ce5945f972745790c340c40ffcac1ce30702582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "request_cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820aa697e02c466b796bcf0d5b680a59fab232a6345cc4493ec49a29ead42b34126",
       "status": "200",
-      "response_cbor_hex": "a10158a4a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00"
+      "response_cbor_hex": "a10158a6a201a701010258202024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe035820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f046c676174652d70617065722d31051a6ac07f28060107010258407dcb3bbc984852600abedb931d5d2ac58f0e64bbf16615d702a5ba381d8175a023b4316a3e539630a9b61486dc9b5a57205f00da03916cffcc3498efad19b501"
     },
     {
       "id": "authorize_retry_same_commitment",
-      "endpoint": "/v0/authorize",
+      "endpoint": "/v1/authorize",
       "method": "POST",
       "description": "The same request again after the nonce was consumed: the retry rule holds, so 409 carries the stored Authorization.",
       "commitment_ref": "minimal_lmt",
       "authorization_ref": "auth_minimal_lmt_da",
-      "request_cbor_hex": "a2015901a4a201ac0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584037a1f97bfc37eb4988a05b6ac66582939032f2d83c722eaab0d17bfe7e1f0c99ed8bc1677d820ca8eafac46c488646ce5945f972745790c340c40ffcac1ce30702582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "request_cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820aa697e02c466b796bcf0d5b680a59fab232a6345cc4493ec49a29ead42b34126",
       "status": "409",
-      "response_cbor_hex": "a4016c4572724e6f6e636555736564027818676174653a206e6f6e636520616c7265616479207573656403000458a4a201a60100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d035820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb046c676174652d70617065722d31051a6ac07f280601025840c23160f31ce528b2b1883b3be5835eec64ecbe87642a05c5d889fdb1b40b54b0825852491e8f46d54d0c1137f8966352e20bf33d88a27999c92ecd1e7cc87f00"
+      "response_cbor_hex": "a4016c4572724e6f6e636555736564027818676174653a206e6f6e636520616c7265616479207573656403000458a6a201a701010258202024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe035820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f046c676174652d70617065722d31051a6ac07f28060107010258407dcb3bbc984852600abedb931d5d2ac58f0e64bbf16615d702a5ba381d8175a023b4316a3e539630a9b61486dc9b5a57205f00da03916cffcc3498efad19b501"
     },
     {
       "id": "authorize_nonce_used_other_commitment",
-      "endpoint": "/v0/authorize",
+      "endpoint": "/v1/authorize",
       "method": "POST",
       "description": "A commitment whose (agent_pubkey, nonce) registry entry holds another commitment_hash (state assumed): 409 without stored bytes.",
       "commitment_ref": "ttl_exactly_max",
-      "request_cbor_hex": "a2015901a4a201ac0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac08bd007a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d025840c6a3e507f184330fddccb9860b7423420ce0b89c5385e2f16134dd38fcecf9c17b6d0b18b2acc0e4fd319ccdc367bbb5b60811f788ebbb5e217d6d8d28704d0102582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "request_cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac08bd007a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f61dcda62c30ef3856f6f7c0f721af97bc420ce3a816ec4dea4e074d175bb7470aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d0258402615831072d3429d27fad7a14e795eb1c74d2d83fa4a8ee6b95b30eccc95a0d762b6e2f6dd3f382a477fda8e83bc92f76364a4b7c051f54b2bcc61993a70df0302582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee80086355534409010358203744145adcfa4d93e7a5422d7d0c604fe6b5a05c827e0224d935cfa20c5a87e0",
       "status": "409",
       "response_cbor_hex": "a3016c4572724e6f6e636555736564027818676174653a206e6f6e636520616c726561647920757365640300"
     },
     {
       "id": "authorize_action_mismatch",
-      "endpoint": "/v0/authorize",
+      "endpoint": "/v1/authorize",
       "method": "POST",
       "description": "minimal_lmt with one action byte flipped: stage A, 422, whether or not the nonce is used.",
       "commitment_ref": "minimal_lmt",
-      "request_cbor_hex": "a2015901a4a201ac0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584037a1f97bfc37eb4988a05b6ac66582939032f2d83c722eaab0d17bfe7e1f0c99ed8bc1677d820ca8eafac46c488646ce5945f972745790c340c40ffcac1ce30702582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440900",
+      "request_cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440900035820aa697e02c466b796bcf0d5b680a59fab232a6345cc4493ec49a29ead42b34126",
       "status": "422",
       "response_cbor_hex": "a30171457272416374696f6e4d69736d61746368027831636f6d6d69746d656e743a20616374696f6e20627974657320646f206e6f74206d6174636820616374696f6e2e686173680300"
     },
     {
+      "id": "authorize_wrong_salt",
+      "endpoint": "/v1/authorize",
+      "method": "POST",
+      "description": "minimal_lmt with the salt's first bit flipped: A1, 422.",
+      "commitment_ref": "minimal_lmt",
+      "request_cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee80086355534409010358202a697e02c466b796bcf0d5b680a59fab232a6345cc4493ec49a29ead42b34126",
+      "status": "422",
+      "response_cbor_hex": "a30171457272416374696f6e4d69736d61746368027831636f6d6d69746d656e743a20616374696f6e20627974657320646f206e6f74206d6174636820616374696f6e2e686173680300"
+    },
+    {
+      "id": "authorize_salt_missing",
+      "endpoint": "/v1/authorize",
+      "method": "POST",
+      "description": "minimal_lmt without key 3 (action_salt): wrapper decoding, 400.",
+      "commitment_ref": "minimal_lmt",
+      "request_cbor_hex": "a2015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "status": "400",
+      "response_cbor_hex": "a3016f4572724d697373696e674669656c64027819636f6d6d69746d656e743a206d697373696e67206669656c640300"
+    },
+    {
+      "id": "authorize_salt_31",
+      "endpoint": "/v1/authorize",
+      "method": "POST",
+      "description": "minimal_lmt with a 31-byte key 3: wrapper decoding, 400.",
+      "commitment_ref": "minimal_lmt",
+      "request_cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090103581faa697e02c466b796bcf0d5b680a59fab232a6345cc4493ec49a29ead42b341",
+      "status": "400",
+      "response_cbor_hex": "a3016c4572724669656c6453697a650276636f6d6d69746d656e743a206669656c642073697a650300"
+    },
+    {
       "id": "authorize_trailing_byte",
-      "endpoint": "/v0/authorize",
+      "endpoint": "/v1/authorize",
       "method": "POST",
       "description": "Wrapper followed by one zero byte: 400.",
-      "request_cbor_hex": "a2015901a4a201ac0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584037a1f97bfc37eb4988a05b6ac66582939032f2d83c722eaab0d17bfe7e1f0c99ed8bc1677d820ca8eafac46c488646ce5945f972745790c340c40ffcac1ce30702582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090100",
+      "request_cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820aa697e02c466b796bcf0d5b680a59fab232a6345cc4493ec49a29ead42b3412600",
       "status": "400",
       "response_cbor_hex": "a3016f457272547261696c696e6744617461027819636f6d6d69746d656e743a20747261696c696e6720646174610300"
     },
     {
       "id": "authorize_chain_down",
-      "endpoint": "/v0/authorize",
+      "endpoint": "/v1/authorize",
       "method": "POST",
       "description": "The node is unreachable: 503, retryable, nothing consumed.",
       "commitment_ref": "minimal_lmt",
-      "request_cbor_hex": "a2015901a4a201ac0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584037a1f97bfc37eb4988a05b6ac66582939032f2d83c722eaab0d17bfe7e1f0c99ed8bc1677d820ca8eafac46c488646ce5945f972745790c340c40ffcac1ce30702582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
+      "request_cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820aa697e02c466b796bcf0d5b680a59fab232a6345cc4493ec49a29ead42b34126",
       "status": "503",
       "response_cbor_hex": "a30173457272436861696e556e617661696c61626c6502781c676174653a20636861696e206461746120756e617661696c61626c650301"
     },
     {
+      "id": "authorize_pending_fast_mode_off",
+      "endpoint": "/v1/authorize",
+      "method": "POST",
+      "description": "v1_pending_blob at a gate whose FastMode is off: 403, nothing written.",
+      "commitment_ref": "v1_pending_blob",
+      "request_cbor_hex": "a3015901a6a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04505a1501af2f0c508319e9eb6feaa854ca051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f720458203213b8dc4855f6ae99e68c739561a26f1bd08228b87bd687c0c8fa38ec3c3ff80aa6010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e6006020b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584022e513d609238189b3023edbc12090a82ce9ab27aa69b36c8a1cc49ee716b7a4460720f79fc2c90c8adf76d45ea4123ddb2100bdb4d812e6b50fdd8c27b0a90502582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820df761c684afe79743352b44d71e17c50e98b5c30d1c0c916bdb53c7ffcf4478b",
+      "status": "403",
+      "response_cbor_hex": "a30170457272416e63686f7250656e64696e67027834676174653a2070656e64696e67207061796c6f6164207265666572656e636520616e642066617374206d6f6465206973206f66660300"
+    },
+    {
+      "id": "authorize_pending_without_mandate",
+      "endpoint": "/v1/authorize",
+      "method": "POST",
+      "description": "v1_pending_blob_mandate_ref at a library gate with FastMode on and no mandate (a server gate refuses to start so configured): C5a refuses, 403, nothing written.",
+      "commitment_ref": "v1_pending_blob_mandate_ref",
+      "request_cbor_hex": "a3015901c9a201ad0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a045077447d1951ae835beea3a84fedb11edc051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f720458209e1748c04917eed060e2389c2d840257ac9dcb9fc4c3605a2ac093fe20c61df10aa6010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e6006020b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d0e58208984925e5ea465e4768790c1bce43e813d4feae75335ef1690570bc1a8b681d302584055c888255ea9aaafebc9a2465ce004ae0f1048030f71b20f1664f75b3329040c093522b2adbebbd9bf3ef69ece0dd1c7c976d8b275d4cb2864b02b83796d7b0502582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820aa5a34db94029473f7d0640b83e933e7ae57e34d56c93e972c83b07fb1b61765",
+      "status": "403",
+      "response_cbor_hex": "a30170457272416e63686f7250656e64696e67027834676174653a2070656e64696e67207061796c6f6164207265666572656e636520616e642066617374206d6f6465206973206f66660300"
+    },
+    {
       "id": "record_ok",
-      "endpoint": "/v0/record",
+      "endpoint": "/v1/record",
       "method": "POST",
       "description": "The record request of core receipt vector receipt_minimal_lmt; the answer is that SignedReceipt.",
       "commitment_ref": "minimal_lmt",
       "receipt_ref": "receipt_minimal_lmt",
-      "request_cbor_hex": "a4015901a4a201ac0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584037a1f97bfc37eb4988a05b6ac66582939032f2d83c722eaab0d17bfe7e1f0c99ed8bc1677d820ca8eafac46c488646ce5945f972745790c340c40ffcac1ce307026a31333730303933323339035820ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf045840c209bec78ec15ce9783f54b680fa3cdd83f2886761292e1dc3383f316ff20e3960b89295a2d3e0941b2f204f5f4028d3028b0e4b700ba073b594da463bed2003",
+      "request_cbor_hex": "a4015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f026a31333730303933323339035820ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf045840e038249bf04ce3b65c59773a2e4ec1eff087a862e4f092da2001ea312b904d2db76e1abb09f8e0499170a33c7a4680cda85e7c804eac26315126aa68e2e3e500",
       "status": "200",
-      "response_cbor_hex": "a101590114a201a80100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d036c676174652d70617065722d31045820fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025066a31333730303933323339081a6ac07dfe095820ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf0a5840c209bec78ec15ce9783f54b680fa3cdd83f2886761292e1dc3383f316ff20e3960b89295a2d3e0941b2f204f5f4028d3028b0e4b700ba073b594da463bed20030258400cc6a1f5e7e858c163ebc74a5271e49712550a2c3e3f054fdc399bc2c73b2355b34d915fd4e4ee07745a1ac8d05a1278988de523ab3d6a1c3c3c3bd40ea07600"
+      "response_cbor_hex": "a101590114a201a801010258202024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe036c676174652d70617065722d31045820fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025066a31333730303933323339081a6ac07dfe095820ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf0a5840e038249bf04ce3b65c59773a2e4ec1eff087a862e4f092da2001ea312b904d2db76e1abb09f8e0499170a33c7a4680cda85e7c804eac26315126aa68e2e3e50002584047257367eaaaee96c2c8de7a72188b1ef989e8b38723af5dff35394cd2598636995277bf6ac367c169a509b8e2dd266456cb0173026c201330058d7e90806b07"
     },
     {
       "id": "record_exists",
-      "endpoint": "/v0/record",
+      "endpoint": "/v1/record",
       "method": "POST",
       "description": "The same record request again: 409 with the stored receipt.",
       "commitment_ref": "minimal_lmt",
       "receipt_ref": "receipt_minimal_lmt",
-      "request_cbor_hex": "a4015901a4a201ac0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584037a1f97bfc37eb4988a05b6ac66582939032f2d83c722eaab0d17bfe7e1f0c99ed8bc1677d820ca8eafac46c488646ce5945f972745790c340c40ffcac1ce307026a31333730303933323339035820ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf045840c209bec78ec15ce9783f54b680fa3cdd83f2886761292e1dc3383f316ff20e3960b89295a2d3e0941b2f204f5f4028d3028b0e4b700ba073b594da463bed2003",
+      "request_cbor_hex": "a4015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f026a31333730303933323339035820ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf045840e038249bf04ce3b65c59773a2e4ec1eff087a862e4f092da2001ea312b904d2db76e1abb09f8e0499170a33c7a4680cda85e7c804eac26315126aa68e2e3e500",
       "status": "409",
-      "response_cbor_hex": "a401704572725265636569707445786973747302781e676174653a207265636569707420616c7265616479207265636f72646564030004590114a201a80100025820e2ea62234c504e4df72e172c8e0da5f02a1eeb784ccd39ac9e20f6dd4c7c8f1d036c676174652d70617065722d31045820fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025066a31333730303933323339081a6ac07dfe095820ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf0a5840c209bec78ec15ce9783f54b680fa3cdd83f2886761292e1dc3383f316ff20e3960b89295a2d3e0941b2f204f5f4028d3028b0e4b700ba073b594da463bed20030258400cc6a1f5e7e858c163ebc74a5271e49712550a2c3e3f054fdc399bc2c73b2355b34d915fd4e4ee07745a1ac8d05a1278988de523ab3d6a1c3c3c3bd40ea07600"
+      "response_cbor_hex": "a401704572725265636569707445786973747302781e676174653a207265636569707420616c7265616479207265636f72646564030004590114a201a801010258202024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe036c676174652d70617065722d31045820fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025066a31333730303933323339081a6ac07dfe095820ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf0a5840e038249bf04ce3b65c59773a2e4ec1eff087a862e4f092da2001ea312b904d2db76e1abb09f8e0499170a33c7a4680cda85e7c804eac26315126aa68e2e3e50002584047257367eaaaee96c2c8de7a72188b1ef989e8b38723af5dff35394cd2598636995277bf6ac367c169a509b8e2dd266456cb0173026c201330058d7e90806b07"
     },
     {
       "id": "publish_ok",
-      "endpoint": "/v0/publish",
+      "endpoint": "/v1/publish",
       "method": "POST",
       "description": "publish_request.json publish_small_blob (the minimal_lmt blob); the answer is response_minimal_lmt.",
       "publish_ref": "publish_small_blob",
@@ -1300,7 +1323,7 @@
     },
     {
       "id": "publish_quota",
-      "endpoint": "/v0/publish",
+      "endpoint": "/v1/publish",
       "method": "POST",
       "description": "Quota exhausted: 429, retryable, with a Retry-After header.",
       "publish_ref": "publish_small_blob",
@@ -1310,7 +1333,7 @@
     },
     {
       "id": "publish_wrong_media_type",
-      "endpoint": "/v0/publish",
+      "endpoint": "/v1/publish",
       "method": "POST",
       "description": "Content-Type application/json: 415 before the body is read.",
       "content_type": "application/json",
@@ -1320,7 +1343,7 @@
     },
     {
       "id": "health_ok",
-      "endpoint": "/v0/health",
+      "endpoint": "/v1/health",
       "method": "GET",
       "description": "Recorder enabled, da = 2 only.",
       "status": "200",
@@ -1328,110 +1351,11 @@
     },
     {
       "id": "health_degraded_no_recorder",
-      "endpoint": "/v0/health",
+      "endpoint": "/v1/health",
       "method": "GET",
       "description": "Degraded, Recorder disabled (keys 7 and 8 absent), both DA types allowed.",
       "status": "200",
       "response_cbor_hex": "a7010202676d6f6368612d34031a0063d79c041a6ac07e00056c676174652d70617065722d31065820fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802509820102"
-    },
-    {
-      "id": "authorize_v1_on_v0_path",
-      "endpoint": "/v0/authorize",
-      "method": "POST",
-      "description": "A v1 envelope on /v0/authorize: the version comes from the signed bytes, so the answer is the Authorization v1 of auth_v1_strict_da.",
-      "vectors": "v1",
-      "commitment_ref": "v1_minimal_included_blob",
-      "authorization_ref": "auth_v1_strict_da",
-      "request_cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a045049a9f25e96ec2916fab1ae99eefa4f39051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820e4b29bb211947f20b8b5435b425486e2168a147ea61b6f784f95cf9bf2c757880aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d025840e5a9d4843a5a09b00c8839d8e4a89c3e5a46a94c1ee8eec244d2eaeab06b680fda8f33b8f86d6f4a0f9a4ffa5d13451fb40a8527d5772c86f79da593608f1b0602582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820f28e62ab5b35eef9f894f5dce003672be3fd8be02bdaff9d282aa008a1a99687",
-      "status": "200",
-      "response_cbor_hex": "a10158a6a201a7010102582047537d042ac0374ed83df47f299b134449d98afa1a1b44b10d92594b6aa71357035820e4b29bb211947f20b8b5435b425486e2168a147ea61b6f784f95cf9bf2c75788046c676174652d70617065722d31051a6ac07f2806010701025840729235795c0c0c282233e3f740b40bad3e6e6cad76edf2475bef9c7b61ec9c822d979da3956bd932b6f2ffd10b2fece25132210de5f2fd42b57ba622826a8101"
-    },
-    {
-      "id": "authorize_v1_alias",
-      "endpoint": "/v1/authorize",
-      "method": "POST",
-      "description": "The same request on the alias /v1/authorize: same handler, same answer.",
-      "vectors": "v1",
-      "commitment_ref": "v1_minimal_included_blob",
-      "authorization_ref": "auth_v1_strict_da",
-      "request_cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a045049a9f25e96ec2916fab1ae99eefa4f39051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820e4b29bb211947f20b8b5435b425486e2168a147ea61b6f784f95cf9bf2c757880aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d025840e5a9d4843a5a09b00c8839d8e4a89c3e5a46a94c1ee8eec244d2eaeab06b680fda8f33b8f86d6f4a0f9a4ffa5d13451fb40a8527d5772c86f79da593608f1b0602582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820f28e62ab5b35eef9f894f5dce003672be3fd8be02bdaff9d282aa008a1a99687",
-      "status": "200",
-      "response_cbor_hex": "a10158a6a201a7010102582047537d042ac0374ed83df47f299b134449d98afa1a1b44b10d92594b6aa71357035820e4b29bb211947f20b8b5435b425486e2168a147ea61b6f784f95cf9bf2c75788046c676174652d70617065722d31051a6ac07f2806010701025840729235795c0c0c282233e3f740b40bad3e6e6cad76edf2475bef9c7b61ec9c822d979da3956bd932b6f2ffd10b2fece25132210de5f2fd42b57ba622826a8101"
-    },
-    {
-      "id": "authorize_v0_alias_version_not_accepted",
-      "endpoint": "/v1/authorize",
-      "method": "POST",
-      "description": "minimal_lmt (v0) on /v1/authorize at a gate with AcceptV0 false: 403.",
-      "commitment_ref": "minimal_lmt",
-      "request_cbor_hex": "a2015901a4a201ac0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584037a1f97bfc37eb4988a05b6ac66582939032f2d83c722eaab0d17bfe7e1f0c99ed8bc1677d820ca8eafac46c488646ce5945f972745790c340c40ffcac1ce30702582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
-      "status": "403",
-      "response_cbor_hex": "a3017545727256657273696f6e4e6f744163636570746564027825676174653a20636f6d6d69746d656e742076657273696f6e206e6f742061636365707465640300"
-    },
-    {
-      "id": "authorize_pending_fast_mode_off",
-      "endpoint": "/v0/authorize",
-      "method": "POST",
-      "description": "v1_pending_blob at a gate whose FastMode is off: 403, nothing written.",
-      "vectors": "v1",
-      "commitment_ref": "v1_pending_blob",
-      "request_cbor_hex": "a3015901a6a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04505a1501af2f0c508319e9eb6feaa854ca051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f720458203213b8dc4855f6ae99e68c739561a26f1bd08228b87bd687c0c8fa38ec3c3ff80aa6010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e6006020b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584022e513d609238189b3023edbc12090a82ce9ab27aa69b36c8a1cc49ee716b7a4460720f79fc2c90c8adf76d45ea4123ddb2100bdb4d812e6b50fdd8c27b0a90502582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820df761c684afe79743352b44d71e17c50e98b5c30d1c0c916bdb53c7ffcf4478b",
-      "status": "403",
-      "response_cbor_hex": "a30170457272416e63686f7250656e64696e67027834676174653a2070656e64696e67207061796c6f6164207265666572656e636520616e642066617374206d6f6465206973206f66660300"
-    },
-    {
-      "id": "authorize_pending_without_mandate",
-      "endpoint": "/v0/authorize",
-      "method": "POST",
-      "description": "v1_pending_blob_mandate_ref at a library gate with FastMode on and no mandate (a server gate refuses to start so configured): C5a refuses, 403, nothing written.",
-      "vectors": "v1",
-      "commitment_ref": "v1_pending_blob_mandate_ref",
-      "request_cbor_hex": "a3015901c9a201ad0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a045077447d1951ae835beea3a84fedb11edc051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f720458209e1748c04917eed060e2389c2d840257ac9dcb9fc4c3605a2ac093fe20c61df10aa6010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e6006020b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d0e58208984925e5ea465e4768790c1bce43e813d4feae75335ef1690570bc1a8b681d302584055c888255ea9aaafebc9a2465ce004ae0f1048030f71b20f1664f75b3329040c093522b2adbebbd9bf3ef69ece0dd1c7c976d8b275d4cb2864b02b83796d7b0502582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820aa5a34db94029473f7d0640b83e933e7ae57e34d56c93e972c83b07fb1b61765",
-      "status": "403",
-      "response_cbor_hex": "a30170457272416e63686f7250656e64696e67027834676174653a2070656e64696e67207061796c6f6164207265666572656e636520616e642066617374206d6f6465206973206f66660300"
-    },
-    {
-      "id": "authorize_v1_salt_missing",
-      "endpoint": "/v0/authorize",
-      "method": "POST",
-      "description": "v1_minimal_included_blob without key 3 (action_salt): A0s, 400.",
-      "vectors": "v1",
-      "commitment_ref": "v1_minimal_included_blob",
-      "request_cbor_hex": "a2015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a045049a9f25e96ec2916fab1ae99eefa4f39051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820e4b29bb211947f20b8b5435b425486e2168a147ea61b6f784f95cf9bf2c757880aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d025840e5a9d4843a5a09b00c8839d8e4a89c3e5a46a94c1ee8eec244d2eaeab06b680fda8f33b8f86d6f4a0f9a4ffa5d13451fb40a8527d5772c86f79da593608f1b0602582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901",
-      "status": "400",
-      "response_cbor_hex": "a3016f4572724d697373696e674669656c64027819636f6d6d69746d656e743a206d697373696e67206669656c640300"
-    },
-    {
-      "id": "authorize_v0_with_salt",
-      "endpoint": "/v0/authorize",
-      "method": "POST",
-      "description": "minimal_lmt (v0) with a 32-byte key 3: a v0 commitment has no salt, A0s, 400.",
-      "commitment_ref": "minimal_lmt",
-      "request_cbor_hex": "a3015901a4a201ac0100026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820f6629c23488afdd088b035154e2e546c1ecced95d976443b1c8b9b9ad43361fb0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584037a1f97bfc37eb4988a05b6ac66582939032f2d83c722eaab0d17bfe7e1f0c99ed8bc1677d820ca8eafac46c488646ce5945f972745790c340c40ffcac1ce30702582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820f28e62ab5b35eef9f894f5dce003672be3fd8be02bdaff9d282aa008a1a99687",
-      "status": "400",
-      "response_cbor_hex": "a3016d457272556e6b6e6f776e4b65790277636f6d6d69746d656e743a20756e6b6e6f776e206b65790300"
-    },
-    {
-      "id": "authorize_salt_31",
-      "endpoint": "/v0/authorize",
-      "method": "POST",
-      "description": "v1_minimal_included_blob with a 31-byte key 3: wrapper decoding, 400.",
-      "vectors": "v1",
-      "commitment_ref": "v1_minimal_included_blob",
-      "request_cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a045049a9f25e96ec2916fab1ae99eefa4f39051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820e4b29bb211947f20b8b5435b425486e2168a147ea61b6f784f95cf9bf2c757880aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d025840e5a9d4843a5a09b00c8839d8e4a89c3e5a46a94c1ee8eec244d2eaeab06b680fda8f33b8f86d6f4a0f9a4ffa5d13451fb40a8527d5772c86f79da593608f1b0602582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090103581ff28e62ab5b35eef9f894f5dce003672be3fd8be02bdaff9d282aa008a1a996",
-      "status": "400",
-      "response_cbor_hex": "a3016c4572724669656c6453697a650276636f6d6d69746d656e743a206669656c642073697a650300"
-    },
-    {
-      "id": "authorize_v1_wrong_salt",
-      "endpoint": "/v0/authorize",
-      "method": "POST",
-      "description": "v1_minimal_included_blob with the salt's first bit flipped: A1, 422.",
-      "vectors": "v1",
-      "commitment_ref": "v1_minimal_included_blob",
-      "request_cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a045049a9f25e96ec2916fab1ae99eefa4f39051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820e4b29bb211947f20b8b5435b425486e2168a147ea61b6f784f95cf9bf2c757880aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d025840e5a9d4843a5a09b00c8839d8e4a89c3e5a46a94c1ee8eec244d2eaeab06b680fda8f33b8f86d6f4a0f9a4ffa5d13451fb40a8527d5772c86f79da593608f1b0602582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820728e62ab5b35eef9f894f5dce003672be3fd8be02bdaff9d282aa008a1a99687",
-      "status": "422",
-      "response_cbor_hex": "a30171457272416374696f6e4d69736d61746368027831636f6d6d69746d656e743a20616374696f6e20627974657320646f206e6f74206d6174636820616374696f6e2e686173680300"
     }
   ]
 }

@@ -1,5 +1,9 @@
 # DecisionCommitment v0
 
+> Superseded and unsupported. Historical draft, frozen at tag
+> `v0-format-freeze-2`; its vectors and checkers are at that tag. Edicta
+> supports `spec/decision-commitment-v1.md` only.
+
 Edicta — verifiable decision layer for autonomous agents.
 
 Status: revision `v0-draft.30` (2026-10-08). Working draft, subject to change.
