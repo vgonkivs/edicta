@@ -271,7 +271,7 @@ func sign(o opts, out, errOut io.Writer) error {
 		_, err = fmt.Fprintf(out, "%s\n", hex.EncodeToString(signed))
 		return err
 	}
-	if err := os.WriteFile(o.out, signed, 0o644); err != nil {
+	if err := writeMandate(o.out, signed, m); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(out, "signed mandate %s written to %s\n", hex.EncodeToString(h[:]), o.out)
@@ -411,7 +411,30 @@ func makePrivate(o opts, out io.Writer) error {
 		_, err = fmt.Fprintf(out, "%s\n", hex.EncodeToString(b))
 		return err
 	}
-	return os.WriteFile(o.out, b, 0o644)
+	return writeMandate(o.out, b, m)
+}
+
+// writeMandate keeps a private mandate readable by its owner only: its
+// state_salt blinds the private counter's state hashes. The mode is narrowed
+// before the write, so a file that already existed with a wider mode never
+// holds the salt readable.
+func writeMandate(path string, b []byte, m *policy.Mandate) error {
+	if m.StateSalt == nil {
+		return os.WriteFile(path, b, 0o644)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // readBook loads the auditor address book; a missing file is an empty book.
