@@ -49,7 +49,7 @@ func loadReasons(t testing.TB) reasonsDoc {
 	require.NoError(t, err)
 	var d reasonsDoc
 	require.NoError(t, json.Unmarshal(raw, &d))
-	require.Equal(t, "v1-draft.5", d.Revision)
+	require.Equal(t, "v1.0", d.Revision)
 	return d
 }
 
@@ -86,14 +86,15 @@ var coveredElsewhere = map[string]string{
 	"fibre_anchor_proof_fails": "verifycli TestDA1TamperedEvidenceIsInconclusive", "receipt_signature_altered": "TestReceipt",
 	"online_header_not_linking": "verifycli TestOnlineHeaderThatDoesNotLinkIsTheSourcesFault", "header_sources_down": "verifycli TestOnlineCheckpointSources",
 	"checkpoint_below_anchor": "verifycli TestVerifyHeaderTrustFailures", "checkpoint_quorum_short": "headertrust TestAgreedCheckpointReasons",
-	"checkpoint_sources_disagree": "headertrust TestAgreedCheckpointReasons", "replay_form0_earlier": "TestReplayPromiseCreationRules",
-	"replay_path_inconsistent": "TestReplayReproducesThePath", "run_timeout": "TestExecutionCheckerErrorsAreClassified",
+	"checkpoint_sources_disagree": "headertrust TestAgreedCheckpointReasons",
+	"replay_path_inconsistent":    "TestReplayReproducesThePath", "run_timeout": "TestExecutionCheckerErrorsAreClassified",
 	// The policy cases are the cases of spec/vectors/policy/verify.json.
 	"policy_policy_verdict_unavailable": "TestPolicyVerifyVectors", "policy_policy_mandate_unavailable": "TestPolicyVerifyVectors",
 	"policy_policy_principal_untrusted": "TestPolicyVerifyVectors", "policy_policy_no_extractor": "TestPolicyVerifyVectors",
 	"policy_state_history_unavailable": "TestPolicyVerifyVectors", "policy_walk_history_missing": "TestPolicyVerifyVectors",
 	"policy_bucket_corrupt": "TestPolicyVerifyVectors", "policy_t_h_blocked": "TestPolicyVerifyVectors",
 	"policy_gate_equivocation": "TestPolicyVerifyVectors", "policy_walk_truncated": "TestPolicyVerifyVectors",
+	"policy_principal_scheme_unsupported": "TestPolicyVerifyVectors/principal_scheme_unsupported",
 }
 
 func TestReasonVectors(t *testing.T) {

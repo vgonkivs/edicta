@@ -137,7 +137,7 @@ func TestGateAttack2ActionOutsideCommitment(t *testing.T) {
 	t.Run("hash rewritten after signing", func(t *testing.T) {
 		e, c, _ := armedJSON(t)
 		other := []byte(`{"to":"0xBAD","asset":"TIA","amount":"100"}`)
-		oh, err := commitment.ActionHash(jsonType, other)
+		oh, err := commitment.ActionHash(jsonType, gatefix.Salt(t), other)
 		require.NoError(t, err)
 		s, _, _ := commitment.Sign(gatefix.Key(t, "agent1"), c)
 		s.Commitment.Action.Hash = oh[:]
@@ -527,7 +527,7 @@ func TestGateAttack9AuthorizationAbuse(t *testing.T) {
 	chk := func(mod func(*commitment.AuthorizationCheck)) error {
 		k := commitment.AuthorizationCheck{
 			GatePubKey: gatefix.Pub(t, "gate1"), GateID: gatefix.GateID, ActionType: c.Action.Type,
-			Action: gatefix.Action(t), Now: gatefix.Now, SkewS: 30,
+			Action: gatefix.Action(t), ActionSalt: gatefix.Salt(t), Now: gatefix.Now, SkewS: 30,
 		}
 		mod(&k)
 		_, _, err := commitment.VerifyAuthorization(res.Authorization, k)
@@ -555,7 +555,7 @@ func TestGateAttack9AuthorizationAbuse(t *testing.T) {
 			bad[i] ^= 1
 			_, _, err := commitment.VerifyAuthorization(bad, commitment.AuthorizationCheck{
 				GatePubKey: gatefix.Pub(t, "gate1"), GateID: gatefix.GateID, ActionType: c.Action.Type,
-				Action: gatefix.Action(t), Now: gatefix.Now, SkewS: 30,
+				Action: gatefix.Action(t), ActionSalt: gatefix.Salt(t), Now: gatefix.Now, SkewS: 30,
 			})
 			require.Errorf(t, err, "byte %d", i)
 		}
@@ -565,7 +565,7 @@ func TestGateAttack9AuthorizationAbuse(t *testing.T) {
 		require.NoError(t, err)
 		_, _, err = commitment.VerifyAuthorization(r, commitment.AuthorizationCheck{
 			GatePubKey: gatefix.Pub(t, "gate1"), GateID: gatefix.GateID, ActionType: c.Action.Type,
-			Action: gatefix.Action(t), Now: gatefix.Now, SkewS: 30,
+			Action: gatefix.Action(t), ActionSalt: gatefix.Salt(t), Now: gatefix.Now, SkewS: 30,
 		})
 		require.Error(t, err)
 	})

@@ -53,7 +53,7 @@ func sdkArmed(t *testing.T, key string, stage bool, opts ...gatefix.Option) *sdk
 
 // admit presents the envelope with the exact action bytes the SDK returned.
 func (r *sdkRun) admit(envelope []byte) (gate.Result, error) {
-	return r.env.AuthorizeWith(envelope, r.res.Action)
+	return r.env.AuthorizeWithSalt(envelope, r.res.Action, r.res.ActionSalt)
 }
 
 func TestSDKAttack0Control(t *testing.T) {
@@ -62,7 +62,7 @@ func TestSDKAttack0Control(t *testing.T) {
 	require.NoError(t, err)
 	_, _, err = commitment.VerifyAuthorization(res.Authorization, commitment.AuthorizationCheck{
 		GatePubKey: gatefix.Pub(t, "gate1"), GateID: gatefix.GateID, ActionType: r.res.Commitment.Action.Type,
-		Action: r.res.Action, Now: gatefix.Now, SkewS: 30,
+		Action: r.res.Action, ActionSalt: r.res.ActionSalt, Now: gatefix.Now, SkewS: 30,
 	})
 	require.NoError(t, err, "the Authorization covers the bytes the agent committed to")
 }
@@ -98,13 +98,13 @@ func TestSDKAttack2ActionOutsideCommitment(t *testing.T) {
 		for i := range r.res.Action {
 			bad := append([]byte(nil), r.res.Action...)
 			bad[i] ^= 1
-			_, err := r.env.AuthorizeWith(r.res.Envelope, bad)
+			_, err := r.env.AuthorizeWithSalt(r.res.Envelope, bad, r.res.ActionSalt)
 			r.env.RequireRejected(&r.res.Commitment, err, commitment.ErrActionMismatch)
 		}
 	})
 	t.Run("the template order instead of the committed one", func(t *testing.T) {
 		r := sdkArmed(t, "agent1", true)
-		_, err := r.env.AuthorizeWith(r.res.Envelope, gatefix.Action(t))
+		_, err := r.env.AuthorizeWithSalt(r.res.Envelope, gatefix.Action(t), r.res.ActionSalt)
 		r.env.RequireRejected(&r.res.Commitment, err, commitment.ErrActionMismatch)
 	})
 	t.Run("the payload carries the committed bytes", func(t *testing.T) {
@@ -112,7 +112,8 @@ func TestSDKAttack2ActionOutsideCommitment(t *testing.T) {
 		o, err := sdk.OpenPayload(r.res.Envelope, r.res.Blob, r.vec.Key(t, "gate-paper-1").OpenKey(true))
 		require.NoError(t, err)
 		require.Equal(t, r.res.Action, o.Payload.Action.Data)
-		require.NoError(t, commitment.CheckAction(&o.Commitment, o.Payload.Action.Data))
+		require.NoError(t, commitment.CheckAction(&o.Commitment, o.Payload.Action.Data, o.Payload.Action.Salt))
+		require.Equal(t, r.res.ActionSalt, o.Payload.Action.Salt)
 	})
 }
 

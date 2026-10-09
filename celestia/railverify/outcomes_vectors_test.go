@@ -86,7 +86,7 @@ func loadOutcomes(t testing.TB) outcomeDoc {
 	require.NoError(t, err)
 	var d outcomeDoc
 	require.NoError(t, json.Unmarshal(raw, &d))
-	require.Equal(t, "v1-draft.5", d.Revision)
+	require.Equal(t, "v1.0", d.Revision)
 	require.NotEmpty(t, d.Cases)
 	return d
 }

@@ -40,6 +40,8 @@ type vecCase struct {
 		Principals    []string          `json:"principal_keys"`
 		Extractors    map[string]string `json:"extractors"`
 		Evidence      []string          `json:"evidence"`
+		// PrincipalSchemes models a verifier build with only these schemes.
+		PrincipalSchemes []string `json:"principal_schemes"`
 	} `json:"config"`
 	Archive []string          `json:"archive"`
 	Corrupt map[string]string `json:"corrupt"`
@@ -265,9 +267,14 @@ func exitFor(rep Report) string {
 
 func TestPolicyVerifyVectors(t *testing.T) {
 	d := loadVec(t)
-	require.Len(t, d.Cases, 47)
+	// Not fatal: a count change must not hide the outcome of every case.
+	assert.Len(t, d.Cases, 60)
 	for _, c := range d.Cases {
 		t.Run(c.ID, func(t *testing.T) {
+			if len(c.Config.PrincipalSchemes) > 0 {
+				require.FailNow(t, "verifier.Config cannot restrict the principal schemes of the build",
+					"case needs schemes %v; reason principal_scheme_unsupported is unreachable", c.Config.PrincipalSchemes)
+			}
 			v, _ := c.verifier(t, d)
 			out, err := v.checkPolicy(t.Context(), c.input(t, d))
 			require.NoError(t, err)

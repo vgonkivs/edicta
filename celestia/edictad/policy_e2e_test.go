@@ -144,7 +144,15 @@ func TestPolicyDenyWritesTheVerdictThenTheMarker(t *testing.T) {
 	assert.Equal(t, uint64(policy.OutcomeDeny), sv.Verdict.Outcome)
 	_, err = p.real.Rejection(bg, d.hash, "ErrAmountAboveMax")
 	require.NoError(t, err)
+	_, err = p.real.Rejection(bg, d.hash, "ErrDenied")
+	require.ErrorIs(t, err, archive.ErrNotFound, "a public-mode gate never writes the private ErrDenied marker")
 	_, err = p.real.Authorization(bg, d.hash)
+	require.ErrorIs(t, err, archive.ErrNotFound)
+
+	// A retry refused for the same reason still writes no ErrDenied marker.
+	st, _, _ = p.authorizeRaw(d)
+	require.GreaterOrEqual(t, st, 400)
+	_, err = p.real.Rejection(bg, d.hash, "ErrDenied")
 	require.ErrorIs(t, err, archive.ErrNotFound)
 }
 

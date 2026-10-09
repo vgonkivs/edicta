@@ -16,13 +16,17 @@ import (
 )
 
 const (
-	dir = "../../spec/vectors/v0/"
+	dir = "../../spec/vectors/"
 	now = uint64(1791000060)
 )
 
 func readJSON(t testing.TB, name string, v any) {
 	t.Helper()
-	b, err := os.ReadFile(dir + name)
+	path := dir + "v1/" + name
+	if name == "keys.json" {
+		path = dir + name
+	}
+	b, err := os.ReadFile(path)
 	require.NoError(t, err)
 	err = json.Unmarshal(b, v)
 	require.NoError(t, err)
@@ -43,6 +47,7 @@ func key(t testing.TB, name string) ed25519.PrivateKey {
 type env struct {
 	c      *commitment.Commitment
 	action []byte
+	salt   []byte
 	gate   commitment.GateScope
 	params commitment.Params
 }
@@ -58,6 +63,7 @@ func setup(t testing.TB) env {
 			ID        string `json:"id"`
 			Hex       string `json:"commitment_cbor_hex"`
 			ActionHex string `json:"action_hex"`
+			SaltHex   string `json:"action_salt_hex"`
 		} `json:"cases"`
 	}
 	readJSON(t, "valid.json", &vf)
@@ -74,6 +80,7 @@ func setup(t testing.TB) env {
 			require.NoError(t, err)
 			e.c = cm
 			e.action, _ = hex.DecodeString(c.ActionHex)
+			e.salt, _ = hex.DecodeString(c.SaltHex)
 		}
 	}
 	require.NotNil(t, e.c, "vector minimal_lmt missing")
@@ -103,13 +110,17 @@ func mustReject(t *testing.T, err error, want error) {
 }
 
 // gateAdmit is the stateless part of the gate: verify, then match the
-// presented action bytes against the committed hash.
+// presented action bytes and the vector salt against the committed hash.
 func gateAdmit(e env, b []byte, at uint64, action []byte) error {
+	return gateAdmitSalt(e, b, at, action, e.salt)
+}
+
+func gateAdmitSalt(e env, b []byte, at uint64, action, salt []byte) error {
 	s, _, err := commitment.VerifyForGate(b, at, e.gate, e.params)
 	if err != nil {
 		return err
 	}
-	return commitment.CheckAction(&s.Commitment, action)
+	return commitment.CheckAction(&s.Commitment, action, salt)
 }
 
 func TestAttack1ActionWithoutCommitment(t *testing.T) {
@@ -151,7 +162,7 @@ func TestAttack2ActionOutsideCommitment(t *testing.T) {
 	const typ = "application/json"
 	e.gate.ActionTypes = []string{typ}
 	committed := []byte(`{"to":"0xA1","asset":"TIA","amount":"100"}`)
-	h, err := commitment.ActionHash(typ, committed)
+	h, err := commitment.ActionHash(typ, e.salt, committed)
 	require.NoError(t, err)
 	c := clone(e.c)
 	c.Action = commitment.Action{Type: typ, Hash: h[:]}
@@ -200,7 +211,7 @@ func TestAttack2ActionOutsideCommitment(t *testing.T) {
 	})
 	t.Run("rewriting the committed hash after signing", func(t *testing.T) {
 		other := []byte(`{"to":"0xBAD","asset":"TIA","amount":"100"}`)
-		oh, err := commitment.ActionHash(typ, other)
+		oh, err := commitment.ActionHash(typ, e.salt, other)
 		require.NoError(t, err)
 		s, _, err := commitment.Sign(key(t, "agent1"), c)
 		require.NoError(t, err)
@@ -273,7 +284,7 @@ func TestAttack4ConcurrentSameEnvelopeSameKey(t *testing.T) {
 	}
 	t.Run("same nonce in two commitments gives different hashes", func(t *testing.T) {
 		other := append(append([]byte(nil), e.action...), 0)
-		ah, err := commitment.ActionHash(e.c.Action.Type, other)
+		ah, err := commitment.ActionHash(e.c.Action.Type, e.salt, other)
 		require.NoError(t, err)
 		c2 := clone(e.c)
 		c2.Action.Hash = ah[:]
