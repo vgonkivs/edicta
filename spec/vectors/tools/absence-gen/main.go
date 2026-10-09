@@ -1,6 +1,7 @@
 // Command absence-gen captures the live Mocha cases of the absence-proof
 // vectors (spec/vectors/da/absence.json, keys live, live_source and
-// live_tail_rule) and checks them again offline with upstream code.
+// live_tail_rule) and checks them again offline with upstream code, together
+// with the per-height outcomes of the synthetic cases.
 //
 // Expected values come from upstream code only: celestia-core for the signed
 // header, its hash and the block results root; celestia-app for the DAH, the
@@ -11,7 +12,8 @@
 // Usage (from this directory):
 //
 //	go run . -fetch -live-out FILE   read Mocha (read-only), write the live sections as JSON to FILE
-//	go run . -check                  rebuild the live sections from the records in ../../da/absence.json, exit 1 on any difference
+//	go run . -check                  rebuild the live sections from the records in ../../da/absence.json and
+//	                                 classify every synthetic case again, exit 1 on any difference
 //
 // The Python generator (spec/vectors/check/gen_absence.py --live FILE)
 // embeds FILE; afterwards it carries the sections over unchanged. Only
@@ -83,7 +85,11 @@ func run() error {
 		if !bytes.Equal(want, got) {
 			return fmt.Errorf("%s: live sections differ from a rebuild with upstream code", *file)
 		}
-		fmt.Printf("OK (%s): %d live cases, %d tail-rule blocks rebuilt with upstream code\n", *file, len(f.Live), len(f.TailRule.Blocks))
+		ns, err := checkSynthetic(b)
+		if err != nil {
+			return fmt.Errorf("%s: synthetic: %w", *file, err)
+		}
+		fmt.Printf("OK (%s): %d live cases, %d tail-rule blocks rebuilt, %d synthetic cases classified with upstream code\n", *file, len(f.Live), len(f.TailRule.Blocks), ns)
 		return nil
 	default:
 		return fmt.Errorf("give -fetch or -check")

@@ -536,31 +536,37 @@ func classify(p parts, q queryDoc, qns, qcom, qsigner []byte, h uint64, trusted 
 		return heightDoc{}, err
 	}
 	n, pc := len(codes), len(units)
+	if n < pc || pc < 1 {
+		return heightDoc{}, unproven{"AB5", "n >= p >= 1 does not hold"}
+	}
 	uniform := true
 	for _, c := range codes {
 		if c != codes[0] {
 			uniform = false
 		}
 	}
-	tail := sh.Version.App == pinnedAppVersion
+	out.Rule = "AB5"
+	// A block of another app version may follow other square rules, so its
+	// results never bind an index: only every code 0 counts, and only as
+	// presence, which holds whatever the index.
+	if sh.Version.App != pinnedAppVersion {
+		if !uniform || codes[0] != 0 {
+			return heightDoc{}, unproven{"AB5", "another app version without every code 0: not proven"}
+		}
+		for _, j := range cands {
+			out.Candidates = append(out.Candidates, candDoc{Position: strconv.Itoa(j), Code: "0"})
+		}
+		out.Result, out.Why = "present", "another app version, every result code 0"
+		return out, nil
+	}
 	present := false
 	var why []string
 	for _, j := range cands {
-		switch {
-		case tail && n >= pc:
-			i := n - pc + j
-			out.Candidates = append(out.Candidates, candDoc{Position: strconv.Itoa(j), ResultIndex: strconv.Itoa(i), Code: strconv.Itoa(int(codes[i]))})
-			why = append(why, fmt.Sprintf("position %d: result index n - p + j = %d - %d + %d = %d, code %d", j, n, pc, j, i, codes[i]))
-			present = present || codes[i] == 0
-		case uniform:
-			out.Candidates = append(out.Candidates, candDoc{Position: strconv.Itoa(j), Code: strconv.Itoa(int(codes[0]))})
-			why = append(why, fmt.Sprintf("position %d: every result has code %d", j, codes[0]))
-			present = present || codes[0] == 0
-		default:
-			return heightDoc{}, unproven{"AB5", "the candidate's result index is not bound"}
-		}
+		i := n - pc + j
+		out.Candidates = append(out.Candidates, candDoc{Position: strconv.Itoa(j), ResultIndex: strconv.Itoa(i), Code: strconv.Itoa(int(codes[i]))})
+		why = append(why, fmt.Sprintf("position %d: result index n - p + j = %d - %d + %d = %d, code %d", j, n, pc, j, i, codes[i]))
+		present = present || codes[i] == 0
 	}
-	out.Rule = "AB5"
 	if present {
 		out.Result = "present"
 	} else {
