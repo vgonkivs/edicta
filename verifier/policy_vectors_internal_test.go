@@ -16,6 +16,7 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/principalsig"
 )
 
 type vecCase struct {
@@ -265,17 +266,32 @@ func exitFor(rep Report) string {
 	return "0"
 }
 
+func principalSchemes(t *testing.T, names []string) []principalsig.Scheme {
+	t.Helper()
+	var out []principalsig.Scheme
+	for _, n := range names {
+		switch n {
+		case "ed25519":
+			out = append(out, principalsig.Ed25519)
+		case "cosmos":
+			out = append(out, principalsig.CosmosADR036)
+		case "eth":
+			out = append(out, principalsig.EIP712)
+		default:
+			require.Failf(t, "unknown principal scheme", "%q", n)
+		}
+	}
+	return out
+}
+
 func TestPolicyVerifyVectors(t *testing.T) {
 	d := loadVec(t)
 	// Not fatal: a count change must not hide the outcome of every case.
 	assert.Len(t, d.Cases, 60)
 	for _, c := range d.Cases {
 		t.Run(c.ID, func(t *testing.T) {
-			if len(c.Config.PrincipalSchemes) > 0 {
-				require.FailNow(t, "verifier.Config cannot restrict the principal schemes of the build",
-					"case needs schemes %v; reason principal_scheme_unsupported is unreachable", c.Config.PrincipalSchemes)
-			}
 			v, _ := c.verifier(t, d)
+			v.cfg.PrincipalSchemes = principalSchemes(t, c.Config.PrincipalSchemes)
 			out, err := v.checkPolicy(t.Context(), c.input(t, d))
 			require.NoError(t, err)
 			require.True(t, out.Ran)
