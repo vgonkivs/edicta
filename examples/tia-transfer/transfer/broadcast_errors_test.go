@@ -35,7 +35,7 @@ func TestFinalRejectionStopsSendingButKeepsWatchingUntilTheBounds(t *testing.T) 
 			ctx := r.cancelOnStatus(5000)
 			action := actionBytes(t, chainID, validMsg())
 			h := chash(1)
-			res, err := r.exec.Execute(ctx, goodAuth(t, h, action), action)
+			res, err := r.exec.Execute(ctx, goodAuth(t, h, action), action, testSalt)
 			require.NoError(t, ctx.Err(), "the loop ended on its own")
 			require.ErrorIs(t, err, transfer.ErrHandedOff)
 			require.ErrorIs(t, err, transfer.ErrRejected)
@@ -60,7 +60,7 @@ func TestRejectedTxThatLandsLaterIsFinished(t *testing.T) {
 	r.rail.broadcastErrs = []error{fmt.Errorf("%w: code 13: insufficient fee", transfer.ErrRejected)}
 	r.rail.commitAtClock, r.rail.commitHeight = nowUnix+120, headH
 	action := actionBytes(t, chainID, validMsg())
-	res, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+	res, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 	require.NoError(t, err, "the first send was in a mempool and got included")
 	assert.Equal(t, headH, res.Height)
 	assert.Equal(t, 1, r.rail.broadcastCalls())
@@ -72,7 +72,7 @@ func TestRejectedTxIsHandedOffOnTheTimeoutBound(t *testing.T) {
 	r := newRig(t)
 	r.rail.broadcastErrs = []error{fmt.Errorf("%w: code 13: insufficient fee", transfer.ErrRejected)}
 	action := actionBytes(t, chainID, validMsg())
-	_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+	_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 	require.ErrorIs(t, err, transfer.ErrHandedOff)
 	require.ErrorIs(t, err, transfer.ErrRejected)
 	assert.Equal(t, 1, r.rail.broadcastCalls())
@@ -84,7 +84,7 @@ func TestTransientBroadcastErrorsKeepRetrying(t *testing.T) {
 	r.rail.includeAt = headH + 5
 	r.rail.broadcastErrs = []error{errors.New("unavailable"), errors.New("timeout"), errors.New("unavailable")}
 	action := actionBytes(t, chainID, validMsg())
-	res, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+	res, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, r.rail.broadcastCalls(), 3, "all three transient errors were retried past")
 	assert.Equal(t, sha256.Sum256(r.rail.signed[0]), res.TxHash)
@@ -110,7 +110,7 @@ func TestTransientErrorsUntilGraceAreSurfacedWithTheHash(t *testing.T) {
 			ctx := r.cancelOnStatus(5000)
 			action := actionBytes(t, chainID, validMsg())
 			h := chash(1)
-			res, err := r.exec.Execute(ctx, goodAuth(t, h, action), action)
+			res, err := r.exec.Execute(ctx, goodAuth(t, h, action), action, testSalt)
 			require.NoError(t, ctx.Err(), "the grace bound ends the loop")
 			require.ErrorIs(t, err, transfer.ErrHandedOff)
 			assert.Contains(t, err.Error(), "node unreachable: dial refused", "the last broadcast error is not swallowed")
@@ -148,7 +148,7 @@ func TestRejectionOnALaterTurnAlsoStops(t *testing.T) {
 	r.rail.frozen = true
 	r.rail.broadcastErrs = []error{errors.New("blip"), fmt.Errorf("%w: code 13: insufficient fee", transfer.ErrRejected)}
 	action := actionBytes(t, chainID, validMsg())
-	res, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+	res, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 	require.ErrorIs(t, err, transfer.ErrRejected)
 	require.ErrorIs(t, err, transfer.ErrHandedOff)
 	assert.Equal(t, 2, r.rail.broadcastCalls())

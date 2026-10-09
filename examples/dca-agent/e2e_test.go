@@ -109,11 +109,11 @@ func TestEndToEnd(t *testing.T) {
 	res := w.publish(p)
 	assert.Equal(t, p.Action.Data, res.Action)
 
-	gres, err := w.env.Gate.Authorize(bg, res.Envelope, res.Action)
+	gres, err := w.env.Gate.Authorize(bg, res.Envelope, res.Action, res.ActionSalt)
 	require.NoError(t, err)
 	require.NotEmpty(t, gres.Authorization)
 
-	railRef, err := w.exec.Execute(bg, gres.Authorization, res.Action)
+	railRef, err := w.exec.Execute(bg, gres.Authorization, res.Action, res.ActionSalt)
 	require.NoError(t, err)
 	require.NotEmpty(t, railRef)
 	require.Equal(t, 1, w.broker.PlaceCalls())
@@ -138,7 +138,7 @@ func TestEndToEnd(t *testing.T) {
 	t.Run("a verifier checks the authorization and replays the decision", func(t *testing.T) {
 		sa, _, err := commitment.VerifyAuthorization(gres.Authorization, commitment.AuthorizationCheck{
 			GatePubKey: gatefix.Pub(t, "gate1"), GateID: gatefix.GateID, ActionType: ibkrorder.ActionType,
-			Action: res.Action, Now: uint64(w.env.Clock.Now().Unix()), SkewS: 30,
+			Action: res.Action, ActionSalt: res.ActionSalt, Now: uint64(w.env.Clock.Now().Unix()), SkewS: 30,
 		})
 		require.NoError(t, err)
 		assert.Equal(t, res.CommitmentHash[:], sa.Authorization.CommitmentHash)
@@ -163,16 +163,16 @@ func TestReplayOfTheEnvelopePlacesOnce(t *testing.T) {
 	p := w.decide(nil)
 	res := w.publish(p)
 
-	gres, err := w.env.Gate.Authorize(bg, res.Envelope, res.Action)
+	gres, err := w.env.Gate.Authorize(bg, res.Envelope, res.Action, res.ActionSalt)
 	require.NoError(t, err)
-	first, err := w.exec.Execute(bg, gres.Authorization, res.Action)
+	first, err := w.exec.Execute(bg, gres.Authorization, res.Action, res.ActionSalt)
 	require.NoError(t, err)
 
-	again, err := w.env.Gate.Authorize(bg, res.Envelope, res.Action)
+	again, err := w.env.Gate.Authorize(bg, res.Envelope, res.Action, res.ActionSalt)
 	require.ErrorIs(t, err, gate.ErrNonceUsed)
 	assert.Equal(t, gres.Authorization, again.Authorization, "the retry returns the stored authorization")
 
-	second, err := w.exec.Execute(bg, again.Authorization, res.Action)
+	second, err := w.exec.Execute(bg, again.Authorization, res.Action, res.ActionSalt)
 	require.ErrorIs(t, err, ibkr.ErrSeen)
 	assert.Equal(t, first, second)
 	assert.Equal(t, 1, w.broker.PlaceCalls())
@@ -185,15 +185,15 @@ func TestTamperedActionGetsNoAuthorization(t *testing.T) {
 
 	forged := append([]byte(nil), res.Action...)
 	forged[len(forged)-1] ^= 1
-	gres, err := w.env.Gate.Authorize(bg, res.Envelope, forged)
+	gres, err := w.env.Gate.Authorize(bg, res.Envelope, forged, res.ActionSalt)
 	require.ErrorIs(t, err, commitment.ErrActionMismatch)
 	assert.Empty(t, gres.Authorization)
 	assert.Zero(t, w.broker.PlaceCalls())
 
 	t.Run("the executor refuses the tampered bytes under a genuine authorization", func(t *testing.T) {
-		good, err := w.env.Gate.Authorize(bg, res.Envelope, res.Action)
+		good, err := w.env.Gate.Authorize(bg, res.Envelope, res.Action, res.ActionSalt)
 		require.NoError(t, err)
-		_, err = w.exec.Execute(bg, good.Authorization, forged)
+		_, err = w.exec.Execute(bg, good.Authorization, forged, res.ActionSalt)
 		require.ErrorIs(t, err, commitment.ErrActionMismatch)
 		assert.Zero(t, w.broker.PlaceCalls())
 	})
@@ -213,10 +213,10 @@ func TestAuthorizationFromAnotherGateIsRefused(t *testing.T) {
 	ow := gatefix.New(t, gatefix.WithSigner(other))
 	ow.StageChain(&res.Commitment, res.Published.BlockTime, res.Published.BlockTime)
 	ow.DA.Put(res.Published.Ref, res.Blob)
-	gres, err := ow.Gate.Authorize(bg, res.Envelope, res.Action)
+	gres, err := ow.Gate.Authorize(bg, res.Envelope, res.Action, res.ActionSalt)
 	require.NoError(t, err)
 
-	_, err = w.exec.Execute(bg, gres.Authorization, res.Action)
+	_, err = w.exec.Execute(bg, gres.Authorization, res.Action, res.ActionSalt)
 	require.ErrorIs(t, err, commitment.ErrSignatureInvalid)
 	assert.Zero(t, w.broker.PlaceCalls())
 }
@@ -225,10 +225,10 @@ func TestOrderForAnotherAccountIsAuthorizedButNotExecuted(t *testing.T) {
 	w := newWorld(t)
 	p := w.decide(func(o *ibkrorder.Order) { o.Account = "DU7654321" })
 	res := w.publish(p)
-	gres, err := w.env.Gate.Authorize(bg, res.Envelope, res.Action)
+	gres, err := w.env.Gate.Authorize(bg, res.Envelope, res.Action, res.ActionSalt)
 	require.NoError(t, err, "the gate does not know accounts")
 
-	_, err = w.exec.Execute(bg, gres.Authorization, res.Action)
+	_, err = w.exec.Execute(bg, gres.Authorization, res.Action, res.ActionSalt)
 	require.ErrorIs(t, err, ibkr.ErrAccountMismatch)
 	assert.Zero(t, w.broker.PlaceCalls())
 }
@@ -244,9 +244,9 @@ func TestInconsistentReasoningIsVisibleToTheVerifierOnly(t *testing.T) {
 	require.NoError(t, err)
 	res := w.publish(p)
 
-	gres, err := w.env.Gate.Authorize(bg, res.Envelope, res.Action)
+	gres, err := w.env.Gate.Authorize(bg, res.Envelope, res.Action, res.ActionSalt)
 	require.NoError(t, err, "the gate never evaluates the agent")
-	_, err = w.exec.Execute(bg, gres.Authorization, res.Action)
+	_, err = w.exec.Execute(bg, gres.Authorization, res.Action, res.ActionSalt)
 	require.NoError(t, err)
 
 	opened, err := sdk.OpenPayload(res.Envelope, res.Blob, w.vec.Key(t, "auditor-1").OpenKey(true))

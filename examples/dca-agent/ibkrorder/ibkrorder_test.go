@@ -21,6 +21,7 @@ type vecCase struct {
 	Input        map[string]string `json:"input"`
 	CBORHex      string            `json:"cbor_hex"`
 	ActionHash   string            `json:"action_hash_hex"`
+	ActionSalt   string            `json:"action_salt_hex"`
 	QtyDecimal   string            `json:"qty_decimal"`
 	PriceDecimal string            `json:"limit_price_decimal"`
 	Expect       string            `json:"expect_error"`
@@ -108,9 +109,10 @@ func TestVectorActionHash(t *testing.T) {
 	for _, c := range v.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			pre := []byte{0x10}
-			pre = append(pre, "edicta/v0/action"...)
+			pre = append(pre, "edicta/v1/action"...)
 			pre = append(pre, byte(len(v.ActionType)))
 			pre = append(pre, v.ActionType...)
+			pre = append(pre, unhex(t, c.ActionSalt)...)
 			pre = append(pre, unhex(t, c.CBORHex)...)
 			sum := sha256.Sum256(pre)
 			assert.Equal(t, c.ActionHash, hex.EncodeToString(sum[:]))

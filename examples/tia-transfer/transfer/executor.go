@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"slices"
 	"time"
 
 	"github.com/vgonkivs/edicta/commitment"
@@ -111,9 +110,6 @@ type Config struct {
 	GateID     string
 	// SkewS is the clock tolerance, 0..300.
 	SkewS uint64
-	// AcceptVersions lists the Authorization versions accepted, a subset of
-	// {0, 1}; empty means both.
-	AcceptVersions []uint64
 	// RefuseFastMode refuses an Authorization v1 in fast mode, issued before
 	// the payload's anchor landed on L1.
 	RefuseFastMode bool
@@ -171,8 +167,6 @@ func NewExecutor(cfg Config, d Domain, r Rail, s Store, c Clock) (*Executor, err
 		return nil, bad("empty gate id")
 	case cfg.SkewS > maxSkewS:
 		return nil, bad("skew %d above %d", cfg.SkewS, maxSkewS)
-	case slices.ContainsFunc(cfg.AcceptVersions, func(v uint64) bool { return v != commitment.VersionV0 && v != commitment.VersionV1 }):
-		return nil, bad("authorization version outside {0, 1}")
 	case cfg.MaxTimeoutBlocks > bankaction.MaxTimeoutBlocks:
 		return nil, bad("max timeout blocks above %d", bankaction.MaxTimeoutBlocks)
 	case cfg.HandOffGrace < 0:
@@ -192,7 +186,6 @@ func NewExecutor(cfg Config, d Domain, r Rail, s Store, c Clock) (*Executor, err
 	}
 	cfg.GatePubKey = bytes.Clone(cfg.GatePubKey)
 	cfg.SignKey = bytes.Clone(cfg.SignKey)
-	cfg.AcceptVersions = slices.Clone(cfg.AcceptVersions)
 	cfg.Destinations = append([]string(nil), cfg.Destinations...)
 	if cfg.MaxTimeoutBlocks == 0 {
 		cfg.MaxTimeoutBlocks = defaultMaxTimeoutBlocks
@@ -237,14 +230,14 @@ func (e *Executor) valid(expires uint64) bool {
 // included. A decision that already has a record returns ErrSeen together with
 // the stored outcome; the same bytes are sent again if the record is still
 // being worked on.
-func (e *Executor) Execute(ctx context.Context, authorization, action []byte) (Result, error) {
+func (e *Executor) Execute(ctx context.Context, authorization, action, salt []byte) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
 	action = bytes.Clone(action)
 	sa, _, err := commitment.VerifyAuthorization(authorization, commitment.AuthorizationCheck{
 		GatePubKey: e.cfg.GatePubKey, GateID: e.cfg.GateID, ActionType: ActionType,
-		Action: action, Now: e.now(), SkewS: e.cfg.SkewS, AcceptVersions: e.cfg.AcceptVersions,
+		Action: action, ActionSalt: salt, Now: e.now(), SkewS: e.cfg.SkewS,
 	})
 	if err != nil {
 		return Result{}, err

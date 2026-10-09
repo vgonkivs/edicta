@@ -72,7 +72,7 @@ func TestKeepsCheckingStatusAfterExpiresAndHandsOffOnlyPastTimeoutHeight(t *test
 	action := actionBytes(t, chainID, validMsg())
 	h := chash(5)
 	stalledPastExpiry(t, r, action, h)
-	_, err := r.exec.Execute(r.guard, goodAuth(t, h, action), action)
+	_, err := r.exec.Execute(r.guard, goodAuth(t, h, action), action, testSalt)
 	require.ErrorIs(t, err, transfer.ErrHandedOff)
 	require.NoError(t, r.guard.Err(), "the loop ended on its own")
 	th := timeoutOf(t, r, action, h)
@@ -108,7 +108,7 @@ func TestTxLandingBetweenExpiresAndTimeoutHeightIsFinished(t *testing.T) {
 	stalledPastExpiry(t, r, action, h)
 	r.rail.commitAtClock = expiresAt + 30 // head still at headH <= timeout_height
 	r.rail.commitHeight = headH
-	res, err := r.exec.Execute(r.guard, goodAuth(t, h, action), action)
+	res, err := r.exec.Execute(r.guard, goodAuth(t, h, action), action, testSalt)
 	require.NoError(t, err, "included before timeout_height: success, not a hand-off")
 	assert.Equal(t, headH, res.Height)
 	assert.Equal(t, sha256.Sum256(r.rail.signed[0]), res.TxHash)
@@ -123,7 +123,7 @@ func TestTxLandingBetweenExpiresAndTimeoutHeightIsFinished(t *testing.T) {
 func handOff(t *testing.T, r *rig, h commitment.Hash) []byte {
 	t.Helper()
 	action := actionBytes(t, chainID, validMsg())
-	_, err := r.exec.Execute(bg, goodAuth(t, h, action), action)
+	_, err := r.exec.Execute(bg, goodAuth(t, h, action), action, testSalt)
 	require.ErrorIs(t, err, transfer.ErrHandedOff)
 	return action
 }
@@ -160,7 +160,7 @@ func TestExecuteOfAHandedOffDecisionAlsoReconciles(t *testing.T) {
 	h := chash(9)
 	action := handOff(t, r, h)
 	r.rail.includeAt = 1
-	res, err := r.exec.Execute(bg, goodAuth(t, h, action), action)
+	res, err := r.exec.Execute(bg, goodAuth(t, h, action), action, testSalt)
 	require.ErrorIs(t, err, transfer.ErrSeen)
 	require.NotErrorIs(t, err, transfer.ErrHandedOff)
 	assert.Equal(t, uint64(1), res.Height)
@@ -172,7 +172,7 @@ func TestFinalRejectionOfATxAlreadyCommittedIsSuccess(t *testing.T) {
 	r.rail.includeAt = headH // committed as soon as something was broadcast
 	r.rail.broadcastErrs = []error{fmt.Errorf("%w: sdk code 5: insufficient funds", transfer.ErrRejected)}
 	action := actionBytes(t, chainID, validMsg())
-	res, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+	res, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 	require.NoError(t, err, "the tx is on chain: not a hand-off")
 	assert.Equal(t, headH, res.Height)
 	assert.Equal(t, sha256.Sum256(r.rail.signed[0]), res.TxHash)
@@ -189,14 +189,14 @@ func TestMempoolFullKeepsRetryingButOtherFinalCodesStayFinal(t *testing.T) {
 	full := errors.New("codespace sdk code 20: mempool is full")
 	r.rail.broadcastErrs = []error{full, full, full}
 	action := actionBytes(t, chainID, validMsg())
-	_, err := r.exec.Execute(bg, goodAuth(t, chash(3), action), action)
+	_, err := r.exec.Execute(bg, goodAuth(t, chash(3), action), action, testSalt)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, r.rail.broadcastCalls(), 3)
 	assert.Equal(t, 1, r.rail.signCalls())
 
 	r2 := newRig(t)
 	r2.rail.broadcastErrs = []error{fmt.Errorf("%w: codespace \"sdk\" code 5: insufficient funds", transfer.ErrRejected)}
-	_, err = r2.exec.Execute(bg, goodAuth(t, chash(4), action), action)
+	_, err = r2.exec.Execute(bg, goodAuth(t, chash(4), action), action, testSalt)
 	require.ErrorIs(t, err, transfer.ErrHandedOff)
 	assert.Equal(t, 1, r2.rail.broadcastCalls())
 	msg := strings.ToLower(err.Error())
@@ -232,7 +232,7 @@ func TestNoSendOncePastTimeoutHeight(t *testing.T) {
 	}
 	r.rail.nodeHeightFn = func(uint64) uint64 { return headH }
 	ctx := r.cancelOnStatus(5000)
-	_, err = r.exec.Execute(ctx, goodAuth(t, h, action), action)
+	_, err = r.exec.Execute(ctx, goodAuth(t, h, action), action, testSalt)
 	require.NoError(t, ctx.Err())
 	require.ErrorIs(t, err, transfer.ErrHandedOff)
 	assert.Equal(t, 1, r.rail.broadcastCalls(), "the loop height is past timeout_height: no further send")

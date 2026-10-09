@@ -78,7 +78,7 @@ func TestNoBroadcastOnceExpiresPassedEvenWhenTheTurnWasSlow(t *testing.T) {
 			c.hook(r)
 			ctx, cancel := context.WithTimeout(bg, 10*time.Second)
 			defer cancel()
-			_, err := r.exec.Execute(ctx, goodAuth(t, h, action), action)
+			_, err := r.exec.Execute(ctx, goodAuth(t, h, action), action, testSalt)
 			require.ErrorIs(t, err, transfer.ErrHandedOff)
 			assert.Zero(t, r.rail.broadcastCalls(), "now + skew >= expires before the send")
 			assert.Equal(t, 1, r.rail.signCalls())
@@ -100,7 +100,7 @@ func TestFailedHeightReadAfterExpiryDoesNotEndTheWatch(t *testing.T) {
 			return nil
 		}
 		ctx := r.cancelOnStatus(5000)
-		_, err := r.exec.Execute(ctx, goodAuth(t, h, action), action)
+		_, err := r.exec.Execute(ctx, goodAuth(t, h, action), action, testSalt)
 		require.NoError(t, ctx.Err())
 		require.ErrorIs(t, err, transfer.ErrHandedOff)
 		rec, gerr := r.store.Get(bg, h)
@@ -125,7 +125,7 @@ func TestFailedHeightReadAfterExpiryDoesNotEndTheWatch(t *testing.T) {
 		}
 		ctx := r.cancelOnStatus(5000)
 		action := actionBytes(t, chainID, validMsg())
-		_, err := r.exec.Execute(ctx, goodAuth(t, chash(13), action), action)
+		_, err := r.exec.Execute(ctx, goodAuth(t, chash(13), action), action, testSalt)
 		require.NoError(t, ctx.Err())
 		require.ErrorIs(t, err, transfer.ErrHandedOff)
 		assert.GreaterOrEqual(t, r.clock.unix(), expiresAt+graceS)
@@ -155,7 +155,7 @@ func TestEveryCallHasABoundedDeadline(t *testing.T) {
 	h := chash(14)
 	auth := goodAuth(t, h, action, func(a *commitment.Authorization) { a.Expires = expires })
 	// No parent deadline: a hung call may be cut only by its own.
-	_, err := r.exec.Execute(bg, auth, action)
+	_, err := r.exec.Execute(bg, auth, action, testSalt)
 	require.ErrorIs(t, err, transfer.ErrHandedOff)
 	stop := time.Unix(int64(expires-skew), 0)
 	for _, kind := range []string{"height", "status", "broadcast"} {
@@ -182,7 +182,7 @@ func TestDeadlineAfterExpiryIsTheRebroadcastInterval(t *testing.T) {
 	r := newRig(t, func(c *transfer.Config) { c.RebroadcastEvery = every })
 	r.rail.frozen = true
 	action := actionBytes(t, chainID, validMsg())
-	_, err := r.exec.Execute(bg, goodAuth(t, chash(15), action), action)
+	_, err := r.exec.Execute(bg, goodAuth(t, chash(15), action), action, testSalt)
 	require.ErrorIs(t, err, transfer.ErrHandedOff)
 	stop := time.Unix(int64(expiresAt-skew), 0)
 	var live, expired int
@@ -205,7 +205,7 @@ func TestAfterExpiryHeightAndStatusDeadlinesAreNeverInThePast(t *testing.T) {
 	r := newRig(t)
 	r.rail.frozen = true
 	action := actionBytes(t, chainID, validMsg())
-	_, err := r.exec.Execute(bg, goodAuth(t, chash(17), action), action)
+	_, err := r.exec.Execute(bg, goodAuth(t, chash(17), action), action, testSalt)
 	require.ErrorIs(t, err, transfer.ErrHandedOff)
 	var checked int
 	for _, kind := range []string{"height", "status"} {
@@ -241,7 +241,7 @@ func TestTimeoutBoundNeedsTheStatusNodeHeightPastTheLagMargin(t *testing.T) {
 			h := chash(16)
 			chainAt(r, action, h, c.delta)
 			ctx := r.cancelOnStatus(5000)
-			_, err := r.exec.Execute(ctx, goodAuth(t, h, action), action)
+			_, err := r.exec.Execute(ctx, goodAuth(t, h, action), action, testSalt)
 			require.NoError(t, ctx.Err())
 			require.ErrorIs(t, err, transfer.ErrHandedOff)
 			if c.early {
@@ -267,7 +267,7 @@ func TestHeadFarPastTimeoutDoesNotCountWhenTheStatusNodeLags(t *testing.T) {
 	r.rail.nodeHeightFn = func(uint64) uint64 { return headH }
 	ctx := r.cancelOnStatus(5000)
 	action := actionBytes(t, chainID, validMsg())
-	_, err := r.exec.Execute(ctx, goodAuth(t, chash(17), action), action)
+	_, err := r.exec.Execute(ctx, goodAuth(t, chash(17), action), action, testSalt)
 	require.NoError(t, ctx.Err())
 	require.ErrorIs(t, err, transfer.ErrHandedOff)
 	assert.GreaterOrEqual(t, r.clock.unix(), expiresAt+graceS, "the bridge head alone is not enough")
@@ -287,7 +287,7 @@ func TestTxVisibleOnTheSecondCheckFinishes(t *testing.T) {
 		return transfer.TxStatus{}, false
 	}
 	ctx := r.cancelOnStatus(5000)
-	res, err := r.exec.Execute(ctx, goodAuth(t, h, action), action)
+	res, err := r.exec.Execute(ctx, goodAuth(t, h, action), action, testSalt)
 	require.NoError(t, ctx.Err())
 	require.NoError(t, err, "indexed late: finished, not handed off")
 	assert.Equal(t, headH+2, res.Height)

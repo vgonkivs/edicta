@@ -39,7 +39,7 @@ func TestExpiryAfterBeginNeverPlaces(t *testing.T) {
 	r.restart()
 	auth, action, h := r.valid()
 
-	ref, err := r.exec.Execute(context.Background(), auth, action)
+	ref, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.ErrorIs(t, err, commitment.ErrExpired)
 	assert.Empty(t, ref)
 	assert.Zero(t, r.broker.PlaceCalls())
@@ -54,7 +54,7 @@ func TestReconcileNeedsNoAuthorization(t *testing.T) {
 	r := newRig(t, withSettle)
 	auth, action, h := r.valid()
 	r.broker.FailAfterPlace(errors.New("timeout"))
-	_, err := r.exec.Execute(context.Background(), auth, action)
+	_, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.ErrorIs(t, err, ibkr.ErrOutcomeUnknown)
 
 	r.clock.set(nowUnix + 10_000) // far past the authorization
@@ -76,7 +76,7 @@ func TestReconcileNotFoundBecomesFinalOnlyAfterSettle(t *testing.T) {
 	r := newRig(t, withSettle)
 	auth, action, h := r.valid()
 	r.broker.FailBeforePlace(errors.New("connection refused"))
-	_, err := r.exec.Execute(context.Background(), auth, action)
+	_, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.Error(t, err)
 	require.Equal(t, 1, r.broker.PlaceCalls())
 
@@ -92,7 +92,7 @@ func TestReconcileNotFoundBecomesFinalOnlyAfterSettle(t *testing.T) {
 		r.clock.set(nowUnix)
 		fresh := authorize(t, gateKey(7), h, ibkrorder.ActionType, action,
 			func(a *commitment.Authorization) { a.Expires = nowUnix + 3000 })
-		_, err := r.exec.Execute(context.Background(), fresh, action)
+		_, err := r.exec.Execute(context.Background(), fresh, action, testSalt)
 		require.Error(t, err)
 		assert.Equal(t, 1, r.broker.PlaceCalls())
 		_, err = r.exec.Reconcile(context.Background(), h)
@@ -105,7 +105,7 @@ func TestExpiredAuthorizationNeverPlaces(t *testing.T) {
 	auth, action, h := r.valid()
 	r.clock.set(nowUnix + 300)
 
-	_, err := r.exec.Execute(context.Background(), auth, action)
+	_, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.ErrorIs(t, err, commitment.ErrExpired)
 	assert.Zero(t, r.broker.PlaceCalls())
 	_, err = r.exec.Reconcile(context.Background(), h)
@@ -116,7 +116,7 @@ func TestExpiredAuthorizationNeverPlaces(t *testing.T) {
 		auth, action, h := r.valid()
 		require.NoError(t, r.store.Begin(context.Background(), h, nowUnix+300))
 		r.clock.set(nowUnix + 300)
-		_, err := r.exec.Execute(context.Background(), auth, action)
+		_, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 		require.Error(t, err)
 		assert.Zero(t, r.broker.PlaceCalls())
 	})
@@ -125,7 +125,7 @@ func TestExpiredAuthorizationNeverPlaces(t *testing.T) {
 func TestReconcileOfAFinishedRecord(t *testing.T) {
 	r := newRig(t, withSettle)
 	auth, action, h := r.valid()
-	placed, err := r.exec.Execute(context.Background(), auth, action)
+	placed, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.NoError(t, err)
 	got, err := r.exec.Reconcile(context.Background(), h)
 	require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestReconcileLookupErrorChangesNothing(t *testing.T) {
 	r := newRig(t, withSettle)
 	auth, action, h := r.valid()
 	r.broker.FailAfterPlace(errors.New("timeout"))
-	_, _ = r.exec.Execute(context.Background(), auth, action)
+	_, _ = r.exec.Execute(context.Background(), auth, action, testSalt)
 	r.broker.FailLookup(errors.New("session lost"))
 	r.clock.set(nowUnix + 10_000)
 	_, err := r.exec.Reconcile(context.Background(), h)
@@ -181,7 +181,7 @@ func TestPlacedOrderIsTheVerifiedBytes(t *testing.T) {
 	e, err := ibkr.NewExecutor(r.cfg, r.broker, r.store, mc)
 	require.NoError(t, err)
 
-	_, err = e.Execute(context.Background(), auth, action)
+	_, err = e.Execute(context.Background(), auth, action, testSalt)
 	require.NoError(t, err, "the executor works on its own copy")
 	require.NotEqual(t, orig, action, "the test must have changed the caller's buffer")
 	want, err := ibkrorder.Decode(orig)
@@ -195,7 +195,7 @@ func TestReconcileNeverClosesBeforeTheSettleTime(t *testing.T) {
 		r := newRig(t, func(c *ibkr.ExecutorConfig) { c.SettleS = st })
 		auth, action, h := r.valid()
 		r.broker.FailBeforePlace(errors.New("refused"))
-		_, err := r.exec.Execute(context.Background(), auth, action)
+		_, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 		require.Error(t, err)
 		final := nowUnix + 300 + skew + st
 		for _, at := range []uint64{nowUnix, nowUnix + 300, final - 1} {
@@ -242,9 +242,9 @@ func TestTwoTokensForOneCommitmentPlaceOnce(t *testing.T) {
 		func(a *commitment.Authorization) { a.Expires += 5 })
 	require.NotEqual(t, tok1, tok2)
 
-	first, err := r.exec.Execute(context.Background(), tok1, action)
+	first, err := r.exec.Execute(context.Background(), tok1, action, testSalt)
 	require.NoError(t, err)
-	second, err := r.exec.Execute(context.Background(), tok2, action)
+	second, err := r.exec.Execute(context.Background(), tok2, action, testSalt)
 	require.ErrorIs(t, err, ibkr.ErrSeen)
 	assert.Equal(t, first, second)
 	assert.Equal(t, 1, r.broker.PlaceCalls())

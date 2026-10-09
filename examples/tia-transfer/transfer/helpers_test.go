@@ -1,6 +1,7 @@
 package transfer_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -481,20 +482,23 @@ func validMsg() bankmsg.MsgSend {
 
 type authOpt func(*commitment.Authorization)
 
+// testSalt is the action salt every test authorization is committed with.
+var testSalt = bytes.Repeat([]byte{0x5a}, commitment.ActionSaltSize)
+
 func authorize(t *testing.T, key ed25519.PrivateKey, ch commitment.Hash, actionType string, action []byte, opts ...authOpt) []byte {
 	t.Helper()
-	ah, err := commitment.ActionHash(actionType, action)
+	ah, err := commitment.ActionHash(actionType, testSalt, action)
 	require.NoError(t, err)
 	a := commitment.Authorization{
-		CommitmentHash: ch[:], ActionHash: ah[:], GateID: gateID,
-		Expires: nowUnix + 600, Path: commitment.PathDA,
+		Version: commitment.Version, CommitmentHash: ch[:], ActionHash: ah[:], GateID: gateID,
+		Expires: nowUnix + 600, Path: commitment.PathDA, Mode: commitment.ModeStrict,
 	}
 	for _, o := range opts {
 		o(&a)
 	}
 	canon, err := commitment.EncodeAuthorization(&a)
 	require.NoError(t, err)
-	sig := ed25519.Sign(key, commitment.AuthorizationSigningMessageFor(a.Version, commitment.HashAuthorizationFor(a.Version, canon)))
+	sig := ed25519.Sign(key, commitment.AuthorizationSigningMessage(commitment.HashAuthorization(canon)))
 	out, err := commitment.EncodeSignedAuthorization(&commitment.SignedAuthorization{Authorization: a, Signature: sig})
 	require.NoError(t, err)
 	return out

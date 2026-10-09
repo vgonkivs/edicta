@@ -24,7 +24,8 @@ func TestEndToEndOffline(t *testing.T) {
 	require.Equal(t, bankaction.ActionType, e.Commitment.Input.Action.Type)
 	require.Contains(t, e.Gate.ActionTypes, bankaction.ActionType)
 
-	ah, err := commitment.ActionHash(bankaction.ActionType, action)
+	salt := bankvec.Hex(t, e.SaltHex)
+	ah, err := commitment.ActionHash(bankaction.ActionType, salt, action)
 	require.NoError(t, err)
 	assert.Equal(t, e.Commitment.Input.Action.Hash, hex.EncodeToString(ah[:]))
 
@@ -33,6 +34,7 @@ func TestEndToEndOffline(t *testing.T) {
 		GateID:     e.Gate.GateID,
 		ActionType: bankaction.ActionType,
 		Action:     action,
+		ActionSalt: salt,
 		Now:        bankvec.U64(t, ex.Now),
 		SkewS:      bankvec.U64(t, ex.SkewS),
 	})

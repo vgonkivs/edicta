@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
-	"slices"
 	"time"
 
 	"github.com/vgonkivs/edicta/commitment"
@@ -49,9 +48,6 @@ type ExecutorConfig struct {
 	// SignKey is the executor's own key for record requests. Optional: without
 	// it RecordRequest fails. It must be on the gate's executor allowlist.
 	SignKey ed25519.PrivateKey
-	// AcceptVersions lists the Authorization versions accepted, a subset of
-	// {0, 1}; empty means both.
-	AcceptVersions []uint64
 	// RefuseFastMode refuses an Authorization v1 in fast mode, issued before
 	// the payload's anchor landed on L1.
 	RefuseFastMode bool
@@ -89,13 +85,7 @@ func NewExecutor(cfg ExecutorConfig, b Broker, s Store, c Clock) (*Executor, err
 	case b == nil || s == nil || c == nil:
 		return nil, bad("nil broker, store or clock")
 	}
-	for _, v := range cfg.AcceptVersions {
-		if v != commitment.VersionV0 && v != commitment.VersionV1 {
-			return nil, bad("authorization version %d", v)
-		}
-	}
 	cfg.SignKey = bytes.Clone(cfg.SignKey)
-	cfg.AcceptVersions = slices.Clone(cfg.AcceptVersions)
 	if cfg.ExecTimeout == 0 {
 		cfg.ExecTimeout = defaultExecTimeout
 	}
@@ -110,18 +100,18 @@ func (e *Executor) now() uint64 {
 	return uint64(t)
 }
 
-// Execute verifies the authorization for exactly these action bytes, parses
-// them as they are, applies the executor's checks, and places the order once.
-// It returns the broker's order id. ErrSeen comes with the stored id of an
-// order already placed.
-func (e *Executor) Execute(ctx context.Context, authorization, action []byte) (string, error) {
+// Execute verifies the authorization for exactly these action bytes and the
+// salt presented with them, parses the bytes as they are, applies the
+// executor's checks, and places the order once. It returns the broker's
+// order id. ErrSeen comes with the stored id of an order already placed.
+func (e *Executor) Execute(ctx context.Context, authorization, action, salt []byte) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	action = bytes.Clone(action)
 	sa, _, err := commitment.VerifyAuthorization(authorization, commitment.AuthorizationCheck{
 		GatePubKey: e.cfg.GatePubKey, GateID: e.cfg.GateID, ActionType: ibkrorder.ActionType,
-		Action: action, Now: e.now(), SkewS: e.cfg.SkewS, AcceptVersions: e.cfg.AcceptVersions,
+		Action: action, ActionSalt: salt, Now: e.now(), SkewS: e.cfg.SkewS,
 	})
 	if err != nil {
 		return "", err

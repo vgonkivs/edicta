@@ -1,6 +1,7 @@
 package ibkr_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"errors"
@@ -69,21 +70,24 @@ func chash(b byte) commitment.Hash {
 	return h
 }
 
+// testSalt is the action salt every test authorization is committed with.
+var testSalt = bytes.Repeat([]byte{0x5a}, commitment.ActionSaltSize)
+
 // authorize builds a SignedAuthorization over action under actionType.
 func authorize(t *testing.T, key ed25519.PrivateKey, ch commitment.Hash, actionType string, action []byte, opts ...authOpt) []byte {
 	t.Helper()
-	ah, err := commitment.ActionHash(actionType, action)
+	ah, err := commitment.ActionHash(actionType, testSalt, action)
 	require.NoError(t, err)
 	a := commitment.Authorization{
-		Version: 0, CommitmentHash: ch[:], ActionHash: ah[:], GateID: gateID,
-		Expires: nowUnix + 300, Path: commitment.PathDA,
+		Version: commitment.Version, CommitmentHash: ch[:], ActionHash: ah[:], GateID: gateID,
+		Expires: nowUnix + 300, Path: commitment.PathDA, Mode: commitment.ModeStrict,
 	}
 	for _, o := range opts {
 		o(&a)
 	}
 	canon, err := commitment.EncodeAuthorization(&a)
 	require.NoError(t, err)
-	sig := ed25519.Sign(key, commitment.AuthorizationSigningMessageFor(a.Version, commitment.HashAuthorizationFor(a.Version, canon)))
+	sig := ed25519.Sign(key, commitment.AuthorizationSigningMessage(commitment.HashAuthorization(canon)))
 	out, err := commitment.EncodeSignedAuthorization(&commitment.SignedAuthorization{Authorization: a, Signature: sig})
 	require.NoError(t, err)
 	return out
@@ -135,7 +139,7 @@ func TestExecuteHappyPath(t *testing.T) {
 	r := newRig(t)
 	auth, action, h := r.valid()
 
-	ref, err := r.exec.Execute(context.Background(), auth, action)
+	ref, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.NoError(t, err)
 	assert.NotEmpty(t, ref)
 
@@ -240,7 +244,7 @@ func TestExecuteRefusals(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			r := newRig(t)
 			auth, action := c.mod(r)
-			ref, err := r.exec.Execute(context.Background(), auth, action)
+			ref, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 			require.Error(t, err)
 			if c.want != nil {
 				assert.ErrorIs(t, err, c.want)
@@ -265,7 +269,7 @@ func TestRiskLimitDisabledAndExact(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			r := newRig(t, func(cfg *ibkr.ExecutorConfig) { cfg.Check.MaxNotional = c.limit })
 			auth, action, _ := r.valid()
-			_, err := r.exec.Execute(context.Background(), auth, action)
+			_, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 			if c.ok {
 				require.NoError(t, err)
 				return
@@ -279,16 +283,16 @@ func TestRiskLimitDisabledAndExact(t *testing.T) {
 func TestExecuteTwiceIsDeduped(t *testing.T) {
 	r := newRig(t)
 	auth, action, _ := r.valid()
-	first, err := r.exec.Execute(context.Background(), auth, action)
+	first, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.NoError(t, err)
 
-	second, err := r.exec.Execute(context.Background(), auth, action)
+	second, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.ErrorIs(t, err, ibkr.ErrSeen)
 	assert.Equal(t, first, second, "the repeat reports the order that exists")
 	assert.Equal(t, 1, r.broker.PlaceCalls())
 
 	t.Run("a restarted executor on the same store", func(t *testing.T) {
-		again, err := r.restart().Execute(context.Background(), auth, action)
+		again, err := r.restart().Execute(context.Background(), auth, action, testSalt)
 		require.ErrorIs(t, err, ibkr.ErrSeen)
 		assert.Equal(t, first, again)
 		assert.Equal(t, 1, r.broker.PlaceCalls())
@@ -296,7 +300,7 @@ func TestExecuteTwiceIsDeduped(t *testing.T) {
 	t.Run("another authorization of the same commitment", func(t *testing.T) {
 		other := authorize(t, gateKey(7), chash(0x11), ibkrorder.ActionType, action,
 			func(a *commitment.Authorization) { a.Expires++ })
-		_, err := r.exec.Execute(context.Background(), other, action)
+		_, err := r.exec.Execute(context.Background(), other, action, testSalt)
 		require.ErrorIs(t, err, ibkr.ErrSeen)
 		assert.Equal(t, 1, r.broker.PlaceCalls())
 	})
@@ -312,7 +316,7 @@ func TestConcurrentExecutePlacesOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ref, err := r.exec.Execute(context.Background(), auth, action)
+			ref, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 			if err == nil || errors.Is(err, ibkr.ErrSeen) {
 				mu.Lock()
 				refs[ref]++
@@ -330,7 +334,7 @@ func TestDistinctCommitmentsAreIndependent(t *testing.T) {
 	action := encode(t, validOrder())
 	for _, b := range []byte{1, 2, 3} {
 		auth := authorize(t, gateKey(7), chash(b), ibkrorder.ActionType, action)
-		_, err := r.exec.Execute(context.Background(), auth, action)
+		_, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 		require.NoError(t, err)
 	}
 	assert.Equal(t, 3, r.broker.PlaceCalls())
@@ -341,19 +345,19 @@ func TestAmbiguousResultIsResolvedByLookup(t *testing.T) {
 	auth, action, h := r.valid()
 	r.broker.FailAfterPlace(errors.New("connection reset"))
 
-	ref, err := r.exec.Execute(context.Background(), auth, action)
+	ref, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.ErrorIs(t, err, ibkr.ErrOutcomeUnknown)
 	assert.Empty(t, ref)
 	require.Equal(t, 1, r.broker.PlaceCalls())
 
-	resolved, err := r.exec.Execute(context.Background(), auth, action)
+	resolved, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.NoError(t, err, "the retry finds the order by its client id")
 	assert.NotEmpty(t, resolved)
 	assert.Equal(t, 1, r.broker.PlaceCalls(), "never placed twice")
 	assert.GreaterOrEqual(t, r.broker.Lookups(), 1)
 	assert.Equal(t, ibkr.ClientOrderID(h), r.broker.Placed()[0].ClientOrderID)
 
-	again, err := r.exec.Execute(context.Background(), auth, action)
+	again, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.ErrorIs(t, err, ibkr.ErrSeen)
 	assert.Equal(t, resolved, again)
 	assert.Equal(t, 1, r.broker.PlaceCalls())
@@ -363,11 +367,11 @@ func TestAmbiguousResultWithFailingLookupStaysUnresolved(t *testing.T) {
 	r := newRig(t)
 	auth, action, _ := r.valid()
 	r.broker.FailAfterPlace(errors.New("timeout"))
-	_, err := r.exec.Execute(context.Background(), auth, action)
+	_, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.ErrorIs(t, err, ibkr.ErrOutcomeUnknown)
 
 	r.broker.FailLookup(errors.New("session lost"))
-	_, err = r.exec.Execute(context.Background(), auth, action)
+	_, err = r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.Error(t, err)
 	assert.Equal(t, 1, r.broker.PlaceCalls(), "a failed lookup never turns into a second order")
 }
@@ -378,7 +382,7 @@ func TestCrashBeforePlaceDoesNotResend(t *testing.T) {
 	// The previous process recorded the commitment as in flight and died.
 	require.NoError(t, r.store.Begin(context.Background(), h, nowUnix+300))
 
-	_, err := r.restart().Execute(context.Background(), auth, action)
+	_, err := r.restart().Execute(context.Background(), auth, action, testSalt)
 	require.ErrorIs(t, err, ibkr.ErrOutcomeUnknown)
 	assert.Zero(t, r.broker.PlaceCalls(), "an in-flight record is never resolved by sending")
 	assert.GreaterOrEqual(t, r.broker.Lookups(), 1)
@@ -407,12 +411,12 @@ func TestCrashAfterPlaceBeforeFinish(t *testing.T) {
 	r.restart()
 	auth, action, _ := r.valid()
 
-	_, err := r.exec.Execute(context.Background(), auth, action)
+	_, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.Error(t, err)
 	require.True(t, fs.hit)
 	require.Equal(t, 1, r.broker.PlaceCalls())
 
-	ref, err := r.restart().Execute(context.Background(), auth, action)
+	ref, err := r.restart().Execute(context.Background(), auth, action, testSalt)
 	require.NoError(t, err)
 	assert.NotEmpty(t, ref)
 	assert.Equal(t, 1, r.broker.PlaceCalls(), "resolved by lookup, one order")
@@ -423,7 +427,7 @@ func TestExecuteHonoursCancelledContext(t *testing.T) {
 	auth, action, _ := r.valid()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := r.exec.Execute(ctx, auth, action)
+	_, err := r.exec.Execute(ctx, auth, action, testSalt)
 	require.Error(t, err)
 	assert.Zero(t, r.broker.PlaceCalls())
 }
@@ -466,7 +470,7 @@ func FuzzExecuteNeverPlacesUnauthorized(f *testing.F) {
 	f.Add([]byte{0xa2, 0x01, 0xa0, 0x02, 0x40}, []byte{0xa0})
 	f.Fuzz(func(t *testing.T, auth, action []byte) {
 		r := newRig(t)
-		_, err := r.exec.Execute(context.Background(), auth, action)
+		_, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 		require.Error(t, err)
 		require.Zero(t, r.broker.PlaceCalls())
 	})

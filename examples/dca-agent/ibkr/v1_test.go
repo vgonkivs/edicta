@@ -1,6 +1,7 @@
 package ibkr_test
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -23,7 +24,7 @@ func TestExecuteAuthorizationV1(t *testing.T) {
 			r := newRig(t)
 			action := encode(t, validOrder())
 			auth := authorize(t, gateKey(7), chash(0x21), ibkrorder.ActionType, action, opt)
-			_, err := r.exec.Execute(context.Background(), auth, action)
+			_, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 			require.NoError(t, err)
 			assert.Equal(t, 1, r.broker.PlaceCalls())
 		})
@@ -34,21 +35,35 @@ func TestExecuteRefusesFastModeWhenConfigured(t *testing.T) {
 	r := newRig(t, func(c *ibkr.ExecutorConfig) { c.RefuseFastMode = true })
 	action := encode(t, validOrder())
 	auth := authorize(t, gateKey(7), chash(0x22), ibkrorder.ActionType, action, fastV1)
-	_, err := r.exec.Execute(context.Background(), auth, action)
+	_, err := r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.ErrorIs(t, err, ibkr.ErrFastModeRefused)
 	assert.Zero(t, r.broker.PlaceCalls())
 
 	auth = authorize(t, gateKey(7), chash(0x23), ibkrorder.ActionType, action, strictV1)
-	_, err = r.exec.Execute(context.Background(), auth, action)
+	_, err = r.exec.Execute(context.Background(), auth, action, testSalt)
 	require.NoError(t, err)
 }
 
-func TestExecuteAcceptVersions(t *testing.T) {
+// The executor hashes the bytes with the salt presented beside them: a
+// missing salt is an integration fault, a wrong one is another order.
+func TestExecuteActionSalt(t *testing.T) {
 	action := encode(t, validOrder())
-	r := newRig(t, func(c *ibkr.ExecutorConfig) { c.AcceptVersions = []uint64{0} })
-	_, err := r.exec.Execute(context.Background(), authorize(t, gateKey(7), chash(0x24), ibkrorder.ActionType, action, strictV1), action)
-	require.ErrorIs(t, err, commitment.ErrUnsupportedVersion)
-
-	_, err = ibkr.NewExecutor(ibkr.ExecutorConfig{AcceptVersions: []uint64{2}}, nil, nil, nil)
-	require.ErrorIs(t, err, ibkr.ErrInvalidConfig)
+	wrong := bytes.Clone(testSalt)
+	wrong[0] ^= 1
+	for _, tc := range []struct {
+		name string
+		salt []byte
+		want error
+	}{
+		{"missing", nil, commitment.ErrMissingField},
+		{"33 bytes", append(bytes.Clone(testSalt), 0), commitment.ErrFieldSize},
+		{"wrong", wrong, commitment.ErrActionMismatch},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t)
+			_, err := r.exec.Execute(context.Background(), authorize(t, gateKey(7), chash(0x24), ibkrorder.ActionType, action), action, tc.salt)
+			require.ErrorIs(t, err, tc.want)
+			assert.Zero(t, r.broker.PlaceCalls())
+		})
+	}
 }

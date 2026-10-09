@@ -202,10 +202,10 @@ func (w *world) Act(ctx context.Context, d agent.Decision) error {
 	w.env.DA.Put(res.Published.Ref, res.Blob)
 	w.res = res
 
-	if w.gres, err = w.env.Gate.Authorize(ctx, res.Envelope, res.Action); err != nil {
+	if w.gres, err = w.env.Gate.Authorize(ctx, res.Envelope, res.Action, res.ActionSalt); err != nil {
 		return err
 	}
-	if w.exRes, err = w.exec.Execute(ctx, w.gres.Authorization, res.Action); err != nil {
+	if w.exRes, err = w.exec.Execute(ctx, w.gres.Authorization, res.Action, res.ActionSalt); err != nil {
 		return err
 	}
 	ref := hex.EncodeToString(w.exRes.TxHash[:])
@@ -277,12 +277,12 @@ func TestReplaysBroadcastOnce(t *testing.T) {
 	require.True(t, w.poll(99_00000000))
 	res := w.res
 
-	again, err := w.env.Gate.Authorize(bg, res.Envelope, res.Action)
+	again, err := w.env.Gate.Authorize(bg, res.Envelope, res.Action, res.ActionSalt)
 	require.ErrorIs(t, err, gate.ErrNonceUsed)
 	assert.Equal(t, w.gres.Authorization, again.Authorization, "the retry returns the stored authorization")
 
 	for range 3 {
-		got, err := w.exec.Execute(bg, again.Authorization, res.Action)
+		got, err := w.exec.Execute(bg, again.Authorization, res.Action, res.ActionSalt)
 		require.ErrorIs(t, err, transfer.ErrSeen)
 		assert.Equal(t, w.exRes, got)
 	}
@@ -332,7 +332,7 @@ func TestTamperedActionIsNeverBroadcast(t *testing.T) {
 	// authorization.
 	other, err := bankaction.Encode(bankaction.Action{ChainID: chainID, Msg: mustMsg(t, downDst, 2000)})
 	require.NoError(t, err)
-	_, err = w.exec.Execute(bg, w.gres.Authorization, other)
+	_, err = w.exec.Execute(bg, w.gres.Authorization, other, w.res.ActionSalt)
 	require.ErrorIs(t, err, commitment.ErrActionMismatch)
 	_, sends := w.chain.counts()
 	assert.Equal(t, 1, sends)

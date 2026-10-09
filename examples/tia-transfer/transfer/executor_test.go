@@ -40,7 +40,7 @@ func TestExecuteHappyPath(t *testing.T) {
 	r.rail.includeAt = headH + 2
 	h := chash(1)
 	action := actionBytes(t, chainID, validMsg())
-	res, err := r.exec.Execute(bg, goodAuth(t, h, action), action)
+	res, err := r.exec.Execute(bg, goodAuth(t, h, action), action, testSalt)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, r.rail.signCalls())
@@ -67,7 +67,7 @@ func TestPersistsBeforeBroadcast(t *testing.T) {
 	r := newRig(t)
 	r.rail.includeAt = headH + 1
 	action := actionBytes(t, chainID, validMsg())
-	_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+	_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 	require.NoError(t, err)
 	assert.Zero(t, r.store.broadcastsAtPrepare, "Prepare is durable before the first Broadcast")
 }
@@ -76,7 +76,7 @@ func TestPrepareFailureMeansNoBroadcast(t *testing.T) {
 	r := newRig(t)
 	r.store.failPrep = errCrash
 	action := actionBytes(t, chainID, validMsg())
-	_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+	_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 	require.ErrorIs(t, err, errCrash)
 	assert.Zero(t, r.rail.broadcastCalls())
 }
@@ -120,7 +120,7 @@ func TestTimeoutHeightFromExpiry(t *testing.T) {
 			h := chash(2)
 			action := actionBytes(t, chainID, validMsg())
 			auth := goodAuth(t, h, action, func(a *commitment.Authorization) { a.Expires = tc.expires })
-			_, err := r.exec.Execute(bg, auth, action)
+			_, err := r.exec.Execute(bg, auth, action, testSalt)
 			require.NoError(t, err)
 			a, err := bankaction.Decode(action)
 			require.NoError(t, err)
@@ -149,7 +149,7 @@ func TestTooCloseToExpiryAbandonsWithoutSigning(t *testing.T) {
 				exp = nowUnix + skew + 1 // still valid, but under one block of budget
 			}
 			auth := goodAuth(t, chash(3), action, func(a *commitment.Authorization) { a.Expires = exp })
-			_, err := r.exec.Execute(bg, auth, action)
+			_, err := r.exec.Execute(bg, auth, action, testSalt)
 			require.ErrorIs(t, err, transfer.ErrExpired)
 			assert.Zero(t, r.rail.signCalls())
 			assert.Zero(t, r.rail.broadcastCalls())
@@ -211,7 +211,7 @@ func TestRejectionsMakeNoBroadcast(t *testing.T) {
 			if auth == nil {
 				auth = func(t *testing.T) []byte { return goodAuth(t, chash(1), tc.action) }
 			}
-			_, err := r.exec.Execute(bg, auth(t), tc.action)
+			_, err := r.exec.Execute(bg, auth(t), tc.action, testSalt)
 			require.Error(t, err)
 			if tc.want != nil {
 				require.ErrorIs(t, err, tc.want)
@@ -244,7 +244,7 @@ func TestSpecVectorsOfTheExecutor(t *testing.T) {
 			e, err := transfer.NewExecutor(r.cfg, dom, r.rail, r.store, r.clock)
 			require.NoError(t, err)
 			action := bankvec.Hex(t, c.ActionHex)
-			_, err = e.Execute(bg, goodAuth(t, chash(9), action), action)
+			_, err = e.Execute(bg, goodAuth(t, chash(9), action), action, testSalt)
 			if c.ExpectErr == "" {
 				require.NoError(t, err)
 				assert.Equal(t, 1, r.rail.signCalls())
@@ -263,7 +263,7 @@ func TestSignFailuresMakeNoBroadcast(t *testing.T) {
 		r := newRig(t)
 		r.rail.signErr = errCrash
 		action := actionBytes(t, chainID, validMsg())
-		_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+		_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 		require.ErrorIs(t, err, errCrash)
 		assert.Zero(t, r.rail.broadcastCalls())
 		assert.True(t, r.store.has("abandon"))
@@ -273,7 +273,7 @@ func TestSignFailuresMakeNoBroadcast(t *testing.T) {
 		r := newRig(t)
 		r.rail.badBody = true
 		action := actionBytes(t, chainID, validMsg())
-		_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+		_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 		require.Error(t, err)
 		assert.Zero(t, r.rail.broadcastCalls())
 		assert.False(t, r.store.has("prepare"))
@@ -282,7 +282,7 @@ func TestSignFailuresMakeNoBroadcast(t *testing.T) {
 		r := newRig(t)
 		r.rail.headErr = errCrash
 		action := actionBytes(t, chainID, validMsg())
-		_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+		_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 		require.ErrorIs(t, err, errCrash)
 		assert.Zero(t, r.rail.signCalls())
 		assert.Zero(t, r.rail.broadcastCalls())
@@ -291,7 +291,7 @@ func TestSignFailuresMakeNoBroadcast(t *testing.T) {
 		r := newRig(t)
 		r.store.failBegin = errCrash
 		action := actionBytes(t, chainID, validMsg())
-		_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+		_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 		require.ErrorIs(t, err, errCrash)
 		assert.Zero(t, r.rail.signCalls())
 		assert.Zero(t, r.rail.broadcastCalls())
@@ -303,7 +303,7 @@ func TestRebroadcastsTheSameBytesUntilIncluded(t *testing.T) {
 	r.rail.includeAt = headH + 5
 	r.rail.broadcastErrs = []error{errCrash}
 	action := actionBytes(t, chainID, validMsg())
-	res, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+	res, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 	require.NoError(t, err)
 	assert.Equal(t, 1, r.rail.signCalls(), "one signature for the decision")
 	assert.Greater(t, r.rail.broadcastCalls(), 1)
@@ -320,7 +320,7 @@ func TestRebroadcastIntervalIsConfigurable(t *testing.T) {
 	r := newRig(t, func(c *transfer.Config) { c.RebroadcastEvery = 3 * time.Second })
 	r.rail.includeAt = headH + 3
 	action := actionBytes(t, chainID, validMsg())
-	_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+	_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 	require.NoError(t, err)
 	require.NotEmpty(t, r.clock.waited())
 	for _, w := range r.clock.waited() {
@@ -332,7 +332,7 @@ func TestHandsOffAfterTimeoutHeight(t *testing.T) {
 	r := newRig(t)
 	action := actionBytes(t, chainID, validMsg())
 	h := chash(4)
-	_, err := r.exec.Execute(bg, goodAuth(t, h, action), action)
+	_, err := r.exec.Execute(bg, goodAuth(t, h, action), action, testSalt)
 	require.ErrorIs(t, err, transfer.ErrHandedOff)
 
 	a, err := bankaction.Decode(action)
@@ -361,7 +361,7 @@ func TestFailedOnChainIsTerminal(t *testing.T) {
 	r.rail.includeAt = headH + 1
 	r.rail.code = 5
 	action := actionBytes(t, chainID, validMsg())
-	res, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+	res, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 	require.ErrorIs(t, err, transfer.ErrFailedOnChain)
 	assert.Equal(t, uint32(5), res.Code)
 	assert.Equal(t, 1, r.rail.signCalls())
@@ -373,11 +373,11 @@ func TestDuplicateAuthorizationExecutesOnce(t *testing.T) {
 	r.rail.includeAt = headH + 1
 	action := actionBytes(t, chainID, validMsg())
 	auth := goodAuth(t, chash(1), action)
-	first, err := r.exec.Execute(bg, auth, action)
+	first, err := r.exec.Execute(bg, auth, action, testSalt)
 	require.NoError(t, err)
 	n := r.rail.broadcastCalls()
 
-	again, err := r.exec.Execute(bg, auth, action)
+	again, err := r.exec.Execute(bg, auth, action, testSalt)
 	require.ErrorIs(t, err, transfer.ErrSeen)
 	assert.Equal(t, first, again, "the stored outcome comes back")
 	assert.Equal(t, 1, r.rail.signCalls())
@@ -385,7 +385,7 @@ func TestDuplicateAuthorizationExecutesOnce(t *testing.T) {
 
 	t.Run("a second authorization for the same commitment hash", func(t *testing.T) {
 		auth2 := goodAuth(t, chash(1), action, func(a *commitment.Authorization) { a.Expires = nowUnix + 500 })
-		_, err := r.exec.Execute(bg, auth2, action)
+		_, err := r.exec.Execute(bg, auth2, action, testSalt)
 		require.ErrorIs(t, err, transfer.ErrSeen)
 		assert.Equal(t, 1, r.rail.signCalls())
 	})
@@ -401,7 +401,7 @@ func TestConcurrentDuplicatesSignOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := r.exec.Execute(bg, auth, action)
+			_, err := r.exec.Execute(bg, auth, action, testSalt)
 			if err != nil {
 				assert.ErrorIs(t, err, transfer.ErrSeen)
 			}
@@ -435,7 +435,7 @@ func TestResumeAfterCrash(t *testing.T) {
 		r.rail.includeAt = headH + 3
 		ctx, cancel := crashAtFirstBroadcast(r)
 		defer cancel()
-		_, err := r.exec.Execute(ctx, goodAuth(t, h, action), action)
+		_, err := r.exec.Execute(ctx, goodAuth(t, h, action), action, testSalt)
 		require.Error(t, err)
 		first := r.rail.signed[0]
 
@@ -454,7 +454,7 @@ func TestResumeAfterCrash(t *testing.T) {
 		r := newRig(t)
 		r.rail.includeAt = headH + 1
 		r.store.failFinish = errCrash
-		_, err := r.exec.Execute(bg, goodAuth(t, h, action), action)
+		_, err := r.exec.Execute(bg, goodAuth(t, h, action), action, testSalt)
 		require.Error(t, err)
 		sent := r.rail.broadcastCalls()
 
@@ -470,7 +470,7 @@ func TestResumeAfterCrash(t *testing.T) {
 	t.Run("begun but never prepared is abandoned, not signed", func(t *testing.T) {
 		r := newRig(t)
 		r.store.failPrep = errCrash
-		_, err := r.exec.Execute(bg, goodAuth(t, h, action), action)
+		_, err := r.exec.Execute(bg, goodAuth(t, h, action), action, testSalt)
 		require.Error(t, err)
 		r.store.failPrep = nil
 		signs := r.rail.signCalls()
@@ -487,7 +487,7 @@ func TestResumeAfterCrash(t *testing.T) {
 		r := newRig(t)
 		ctx, cancel := crashAtFirstBroadcast(r)
 		defer cancel()
-		_, err := r.exec.Execute(ctx, goodAuth(t, h, action), action)
+		_, err := r.exec.Execute(ctx, goodAuth(t, h, action), action, testSalt)
 		require.Error(t, err)
 		r.rail.onBroadcast = nil
 		sent := r.rail.broadcastCalls()
@@ -506,7 +506,7 @@ func TestResumeAfterCrash(t *testing.T) {
 		r.rail.frozen = false
 		ctx, cancel := crashAtFirstBroadcast(r)
 		defer cancel()
-		_, err := r.exec.Execute(ctx, goodAuth(t, h, action), action)
+		_, err := r.exec.Execute(ctx, goodAuth(t, h, action), action, testSalt)
 		require.Error(t, err)
 		r.rail.onBroadcast = nil
 		r.clock.set(nowUnix + 900)
@@ -520,7 +520,7 @@ func TestResumeAfterCrash(t *testing.T) {
 	t.Run("finished record returns the stored outcome", func(t *testing.T) {
 		r := newRig(t)
 		r.rail.includeAt = headH + 1
-		res, err := r.exec.Execute(bg, goodAuth(t, h, action), action)
+		res, err := r.exec.Execute(bg, goodAuth(t, h, action), action, testSalt)
 		require.NoError(t, err)
 		n := r.rail.broadcastCalls()
 		again, err := r.restart().Resume(bg, h)
@@ -607,7 +607,7 @@ func TestMaxFeeIsHandedToTheSigner(t *testing.T) {
 	r := newRig(t, func(c *transfer.Config) { c.MaxFee = 7777 })
 	r.rail.includeAt = headH + 1
 	action := actionBytes(t, chainID, validMsg())
-	_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action)
+	_, err := r.exec.Execute(bg, goodAuth(t, chash(1), action), action, testSalt)
 	require.NoError(t, err)
 	assert.Equal(t, []uint64{7777}, r.rail.maxFees, "Rail.Sign(ctx, body, chainID, maxFee) enforces the cap")
 }

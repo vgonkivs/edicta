@@ -148,7 +148,7 @@ func TestVectorClientOrderID(t *testing.T) {
 		} `json:"cases"`
 	}
 	require.NoError(t, json.Unmarshal(raw, &f))
-	require.Len(t, f.Cases, 14)
+	require.Len(t, f.Cases, 22)
 
 	lower64 := regexp.MustCompile(`^[0-9a-f]{64}$`)
 	seen := map[string]string{}

@@ -38,7 +38,7 @@ func TestBroadcastDeadlineIsAbsoluteAndNeverRounded(t *testing.T) {
 					r.clock.setTime(now)
 				}
 			}
-			_, err := r.exec.Execute(bg, goodAuth(t, h, action), action)
+			_, err := r.exec.Execute(bg, goodAuth(t, h, action), action, testSalt)
 			require.ErrorIs(t, err, transfer.ErrHandedOff)
 
 			calls := r.rail.calls("broadcast")

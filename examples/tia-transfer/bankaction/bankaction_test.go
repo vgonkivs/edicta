@@ -59,7 +59,7 @@ func TestEncodeActionVectors(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, bankvec.Hex(t, c.CBORHex), got)
 
-			h, err := commitment.ActionHash(bankaction.ActionType, got)
+			h, err := commitment.ActionHash(bankaction.ActionType, bankvec.Hex(t, c.SaltHex), got)
 			require.NoError(t, err)
 			assert.Equal(t, bankvec.Hex(t, c.HashHex), h[:])
 

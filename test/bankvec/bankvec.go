@@ -107,6 +107,7 @@ type ActionCase struct {
 	Input   ActionInput `json:"input"`
 	CBORHex string      `json:"cbor_hex"`
 	HashHex string      `json:"action_hash_hex"`
+	SaltHex string      `json:"action_salt_hex"`
 }
 
 type CBORReject struct {
@@ -300,6 +301,7 @@ type E2E struct {
 	ID        string `json:"id"`
 	NowGate   string `json:"now_gate"`
 	ActionHex string `json:"action_hex"`
+	SaltHex   string `json:"action_salt_hex"`
 	Gate      struct {
 		GateID      string   `json:"gate_id"`
 		ActionTypes []string `json:"action_types"`
