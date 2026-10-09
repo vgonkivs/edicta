@@ -1,8 +1,8 @@
-"""Archive record format 0, v1 additions (spec/decision-commitment-v1.md section 11, v1-draft.2).
+"""Archive record format 0, v1 additions (spec/decision-commitment-v1.md section 11, v1-draft.4).
 
-Kinds 13 (anchor intent), 14 (absence proof) and 15 (private blob), version
-dispatch for the envelope of kind 3 and the Authorization of kind 4, and K2
-input key 9. Reuses the generic decoder of archive_v0; the v0 kinds keep
+Kinds 13 (anchor intent), 14 (absence proof), 15 (private blob), 17
+(decision v1) and 18 (execution reveal), version dispatch for the
+Authorization of kind 4, and K2 input key 9. Kind 3 holds v0 envelopes only. Reuses the generic decoder of archive_v0; the v0 kinds keep
 their rules there.
 """
 
@@ -17,14 +17,22 @@ from cbor_strict import CBORError, encode
 KIND_INTENT = 13
 KIND_ABSENCE = 14
 KIND_PRIVATE = 15
+KIND_DECISION_V1 = 17
+KIND_REVEAL = 18
 RESERVED_KINDS = (6, 16)
+FORM_PUBLIC = 1
+FORM_PRIVATE = 2
+PLAINTEXT_ACTION = 5
+MAX_PRIVATE_ENVELOPE = 1 << 16
+MAX_ACTION_ENVELOPE = 69632
 MAX_TX = 1 << 16
 MAX_PROOF_PART = 1 << 22
 MAX_NAMESPACE_DATA = 1 << 24
 
 KIND_NAMES = {**a0.KIND_NAMES, KIND_INTENT: "anchor_intent", KIND_ABSENCE: "absence_proof",
-              KIND_PRIVATE: "private_blob"}
-MAX_KIND_SIZE = {**a0.MAX_KIND_SIZE, KIND_INTENT: 65600, KIND_ABSENCE: 1 << 24, KIND_PRIVATE: 65600}
+              KIND_PRIVATE: "private_blob", KIND_DECISION_V1: "decision_v1", KIND_REVEAL: "execution_reveal"}
+MAX_KIND_SIZE = {**a0.MAX_KIND_SIZE, KIND_INTENT: 65600, KIND_ABSENCE: 1 << 24, KIND_PRIVATE: 69760,
+                 KIND_DECISION_V1: 69632, KIND_REVEAL: 640}
 
 # Present iff results (key 10) is present.
 NEXT = "NEXT"
@@ -56,12 +64,22 @@ SCHEMAS = {
     KIND_PRIVATE: {
         3: ("plaintext_kind", "uint", R, None),
         4: ("hash", "bstr", R, (32, 32)),
-        5: ("envelope", "bstr", R, (1, 65536)),
+        5: ("envelope", "bstr", R, (1, MAX_ACTION_ENVELOPE)),
+    },
+    KIND_DECISION_V1: {
+        3: ("envelope", "bstr", R, (1, v0.MAX_SIGNED_SIZE)),
+        4: ("form", "uint", R, None),
+        5: ("action", "bstr", O, (1, v0.MAX_ACTION_SIZE)),
+        6: ("action_salt", "bstr", O, (v1.ACTION_SALT_SIZE, v1.ACTION_SALT_SIZE)),
+    },
+    KIND_REVEAL: {
+        3: ("signed_receipt", "bstr", R, (1, v0.MAX_RECEIPT_SIZE)),
+        4: ("action_salt", "bstr", R, (v1.ACTION_SALT_SIZE, v1.ACTION_SALT_SIZE)),
     },
 }
 
 VERDICTS_V1 = a0.VERDICTS + ("ErrMandateRefMissing", "ErrMandateMismatch", "ErrAnchorIntentInvalid", "ErrCertInvalid",
-                             "ErrH0TooOld", "ErrAnchorWindowClosed", "ErrFastModeNotAllowed")
+                             "ErrH0TooOld", "ErrAnchorWindowClosed", "ErrFastModeNotAllowed", "ErrDenied")
 NONZERO = a0.NONZERO | {"ref_height", "created_at", "fast_window"}
 
 
@@ -87,12 +105,20 @@ def decode_authorization(sa: bytes) -> dict:
 
 
 def decode_envelope(env: bytes) -> tuple:
-    """Kind 3 field 3 by its own version. Returns (commitment, commitment_hash)."""
+    """An archived envelope by its own version. Returns (commitment, commitment_hash)."""
     if v1.envelope_version(env) == 1:
         signed, canon = v1.decode_signed_v1(env)
         return signed["commitment"], v1.commitment_hash_v1(canon)
     signed, canon = v0.decode_signed(env)
     return signed["commitment"], v0.commitment_hash(canon)
+
+
+def decode_decision_envelope(kind: int, env: bytes) -> tuple:
+    """Kind 3 holds a v0 envelope only, kind 17 a v1 envelope only (11.1)."""
+    want = 1 if kind == KIND_DECISION_V1 else 0
+    if v1.envelope_version(env) != want:
+        raise Reject("ErrUnsupportedVersion", f"{KIND_NAMES[kind]} with a v{1 - want} envelope")
+    return decode_envelope(env)
 
 
 def _values(rec: dict, kind: int):
@@ -109,8 +135,19 @@ def _values(rec: dict, kind: int):
     if "retention_source" in k2 and k2["retention_source"] not in (a0.SOURCE_DIRECT, a0.SOURCE_OBSERVED,
                                                                    a0.SOURCE_BOTH):
         raise Reject("ErrInvalidEnum", f"retention_source = {k2['retention_source']}")
-    if kind == KIND_PRIVATE and rec["plaintext_kind"] not in (1, 2, 3, 4):
+    if kind == KIND_PRIVATE and rec["plaintext_kind"] not in (1, 2, 3, 4, PLAINTEXT_ACTION):
         raise Reject("ErrInvalidEnum", f"plaintext_kind = {rec['plaintext_kind']}")
+    if kind == KIND_PRIVATE and rec["plaintext_kind"] != PLAINTEXT_ACTION and len(rec["envelope"]) > MAX_PRIVATE_ENVELOPE:
+        raise Reject("ErrFieldSize", f"private_blob.envelope: {len(rec['envelope'])} bytes for plaintext kind "
+                                     f"{rec['plaintext_kind']}")
+    if kind == KIND_DECISION_V1:
+        if rec["form"] not in (FORM_PUBLIC, FORM_PRIVATE):
+            raise Reject("ErrInvalidEnum", f"form = {rec['form']}")
+        for name in ("action", "action_salt"):
+            if rec["form"] == FORM_PRIVATE and name in rec:
+                raise Reject("ErrUnknownKey", f"decision_v1.{name}: not defined for form 2")
+            if rec["form"] == FORM_PUBLIC and name not in rec:
+                raise Reject("ErrMissingField", f"decision_v1.{name}")
     if kind == a0.KIND_REJECTION and rec["error"] not in VERDICTS_V1:
         raise Reject("ErrInvalidEnum", f"error {rec['error']} is not a verdict sentinel")
     for name, val in uints:
@@ -120,8 +157,11 @@ def _values(rec: dict, kind: int):
         raise Reject("ErrIntRange", f"fast_window = {k2['fast_window']}")
     if "namespace" in rec and not a0.namespace_ok(rec["namespace"]):
         raise Reject("ErrInvalidNamespace", rec["namespace"].hex())
-    if kind == a0.KIND_DECISION:
-        decode_envelope(rec["envelope"])
+    if kind in (a0.KIND_DECISION, KIND_DECISION_V1):
+        decode_decision_envelope(kind, rec["envelope"])
+    if kind == KIND_REVEAL:
+        signed, _ = v0.decode_signed_receipt(rec["signed_receipt"])
+        v0.validate_receipt_static(signed["receipt"])
     if kind == a0.KIND_AUTHORIZATION:
         a = decode_authorization(rec["signed_authorization"])
         fast = a["version"] == 1 and a["mode"] == v1.MODE_FAST
@@ -167,8 +207,10 @@ def decode_record(data: bytes) -> dict:
 
 def record_key(rec: dict) -> tuple:
     kind = rec["kind"]
-    if kind == a0.KIND_DECISION:
+    if kind in (a0.KIND_DECISION, KIND_DECISION_V1):
         return (kind, decode_envelope(rec["envelope"])[1])
+    if kind == KIND_REVEAL:
+        return (kind, v0.decode_signed_receipt(rec["signed_receipt"])[0]["receipt"]["commitment_hash"])
     if kind == a0.KIND_AUTHORIZATION:
         return (kind, decode_authorization(rec["signed_authorization"])["commitment_hash"])
     if kind == KIND_INTENT:
@@ -188,6 +230,10 @@ def key_path(key: tuple) -> str:
         return f"absence/{key[1]}/{key[2].hex()}/{key[3]}"
     if kind == KIND_PRIVATE:
         return f"private/{key[1]}/{key[2].hex()}"
+    if kind == KIND_DECISION_V1:
+        return f"decision/{key[1].hex()}"
+    if kind == KIND_REVEAL:
+        return f"reveal/{key[1].hex()}"
     return a0.key_path(key)
 
 
@@ -195,7 +241,7 @@ def key_path(key: tuple) -> str:
 def same_identity(old: dict, new: dict) -> bool:
     if new["kind"] in (KIND_ABSENCE, KIND_PRIVATE):
         return True
-    if new["kind"] == KIND_INTENT:
+    if new["kind"] in (KIND_INTENT, KIND_DECISION_V1, KIND_REVEAL):
         return old == new
     return a0.identity(old) == a0.identity(new)
 
@@ -256,3 +302,42 @@ def replay_rules(c: dict, a: dict, k2: dict | None) -> dict:
     if not a0.k2_holds({"commitment": c}, k2) and a["path"] == v0.PATH_DA:
         return {"status": "unchecked", "reason": "replay_inconsistent"}
     return {"status": "pass"}
+
+
+def action_rules(c: dict, decision: dict | None, opened_plaintext: bytes | None, private_absent: bool,
+                 reveal: dict | None, payload_salt: bytes | None = None) -> dict:
+    """The action check of a v1 decision (10.7), on decoded inputs.
+
+    decision: the kind 17 record; opened_plaintext: kind 15 (5, ...) opened with a key (salt || bytes), or None;
+    private_absent: that record is absent in every copy; reveal: None or {"salt", "action"} where action is A' from
+    the profile's ActionFromTx (None when the reveal path does not apply); payload_salt: the salt of a payload that
+    passed O8 v1. Returns status, reason, action_source and the salt used."""
+    t, want = c["action"]["type"], c["action"]["hash"]
+    salt = None
+    if decision["form"] == FORM_PUBLIC:
+        if not v1.action_matches(1, t, decision["action_salt"], decision["action"], want):
+            return {"status": "unchecked", "reason": "source_corrupt"}
+        out, salt = {"status": "pass", "action_source": "decision_record"}, decision["action_salt"]
+    elif opened_plaintext is not None:
+        if len(opened_plaintext) < 33 or not v1.action_matches(1, t, opened_plaintext[:32], opened_plaintext[32:], want):
+            return {"status": "unchecked", "reason": "source_corrupt"}
+        out, salt = {"status": "pass", "action_source": "private_blob"}, opened_plaintext[:32]
+    elif private_absent:
+        return {"status": "unchecked", "reason": "decision_unavailable"}
+    elif reveal is not None and reveal.get("action") is not None:
+        if not v1.action_matches(1, t, reveal["salt"], reveal["action"], want):
+            return {"status": "unchecked", "reason": "source_corrupt", "record": "reveal"}
+        out, salt = {"status": "pass", "action_source": "reveal"}, reveal["salt"]
+    else:
+        return {"status": "unchecked", "reason": "policy_private"}
+    if payload_salt is not None and payload_salt != salt:
+        return {"status": "unchecked", "reason": "source_corrupt", "record": out["action_source"]}
+    return out
+
+
+def placeholder(label: str, size: int) -> bytes:
+    """archive_v0.placeholder, byte for byte, in linear time (large reject records)."""
+    import hashlib
+    n = (size + 31) // 32
+    return b"".join(hashlib.sha256(f"edicta/v0 test archive placeholder|{label}|{i}".encode()).digest()
+                    for i in range(n))[:size]

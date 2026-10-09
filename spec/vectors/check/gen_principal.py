@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/principal/{ed25519,adr036,eip712}.json (policy-v1-draft.6, section 6.2). Deterministic:
+"""Writes spec/vectors/principal/{ed25519,adr036,eip712}.json (policy-v1-draft.7, section 6.2). Deterministic:
 Ed25519 per RFC 8032, ECDSA with RFC 6979 nonces.
 
 The mandates are mandate.json cases m_full (Ed25519), m_adr036 and m_eip712.
@@ -25,7 +25,7 @@ from cbor_strict import Raw, encode
 
 OUT = Path(__file__).resolve().parent.parent / "principal"
 FORMAT = "edicta-policy-vectors/v1"
-REVISION = "policy-v1-draft.6"
+REVISION = "policy-v1-draft.7"
 
 
 def mandate(cid: str) -> dict:
@@ -55,8 +55,8 @@ def reject(rows: list) -> list:
     return out
 
 
-def head() -> dict:
-    return {"format": FORMAT, "revision": REVISION, "generator": "spec/vectors/check/gen_principal.py"}
+def head(revision: str = REVISION) -> dict:
+    return {"format": FORMAT, "revision": revision, "generator": "spec/vectors/check/gen_principal.py"}
 
 
 def ed25519_file() -> dict:
@@ -73,7 +73,8 @@ def ed25519_file() -> dict:
         ("low_order_principal", "Principal is the identity point (G0, a value rule).",
          raw(dict(m, principal=bytes([1]) + bytes(31)), sig), "ErrMandateInvalid", {}),
     ]
-    return {**head(), "scheme": "ed25519 (sig_type absent)", "mandate_ref": "m_full",
+    # ed25519.json last changed at draft.6.
+    return {**head("policy-v1-draft.6"), "scheme": "ed25519 (sig_type absent)", "mandate_ref": "m_full",
             "keys": {"p1": {"seed_hex": G.SEEDS["p1"].hex(), "public_key_hex": G.PUB["p1"].hex()}},
             "case": {"principal_hex": m["principal"].hex(), "mandate_cbor_hex": P.mandate_cbor(m).hex(),
                      "mandate_hash_hex": h.hex(), "signed_message_hex": msg.hex(), "signature_hex": sig.hex(),
@@ -127,6 +128,17 @@ def adr036_file() -> dict:
                  raw(dict(m, principal=G.not_on_curve_x()), sig), "ErrMandateInvalid", {}))
     s4 = PC.sign_cosmos(G.SECP["p2"], doc)
     rows.append(("other_key", "The exact sign document signed by secp256k1 p2.", raw(m, s4), "ErrMandateSignature", {}))
+    rows += range_rows(m, sig, 64)
+    pm = dict(m, mandate_id=G.mid("m_adr036_private"), auditors=G.AUDITORS, state_salt=G.state_salt("m_adr036_private"))
+    psm, ph_, psig = P.sign_mandate(G.SECP["p1"], pm)
+    pdata = P.adr036_data(pm, ph_)
+    pdoc = P.adr036_signdoc(pdata, signer)
+    private_case = {"description": "m_adr036 with two auditors and a state_salt (private mode): the wallet-signed D "
+                    "carries one line per auditor with the unverified label and the full key fingerprint, and the "
+                    "label note.", "mandate_cbor_hex": P.mandate_cbor(pm).hex(), "mandate_hash_hex": ph_.hex(),
+                    "rendered_text": pdata, "signdoc": pdoc.decode(), "digest_hex": hashlib.sha256(pdoc).hexdigest(),
+                    "signature_hex": psig.hex(), "signed_mandate_hex": psm.hex()}
+    assert "(label not verified) - key fingerprint:" in pdata and outcome(psm) == "accept"
     return {**head(), "scheme": "cosmos adr-036 (sig_type 2)", "mandate_ref": "m_adr036",
             "keys": {"p1_secp": {"seed_hex": G.SECP["p1"].hex(), "public_key_compressed_hex": G.SECP_PUB["p1"].hex()},
                      "p2_secp": {"seed_hex": G.SECP["p2"].hex(), "public_key_compressed_hex": G.SECP_PUB["p2"].hex()}},
@@ -135,7 +147,16 @@ def adr036_file() -> dict:
                      "rendered_text": data, "signdoc": doc.decode(), "digest_hex": hashlib.sha256(doc).hexdigest(),
                      "signature_hex": sig.hex(), "signed_mandate_hex": sm.hex(),
                      "counter_key_hex": P.counter_key_of(m).hex()},
-            "reject": reject(rows)}
+            "case_private": private_case, "reject": reject(rows)}
+
+
+def range_rows(m: dict, sig: bytes, n: int) -> list:
+    """r and s outside [1, n-1] are refused before any verification or recovery (policy 6.2, sig_type 2 and 3)."""
+    tail = sig[64:]
+    nb = PC.N.to_bytes(32, "big")
+    return [("r_0", "r = 0.", raw(m, bytes(32) + sig[32:64] + tail), "ErrMandateSignature", {}),
+            ("s_0", "s = 0.", raw(m, sig[:32] + bytes(32) + tail), "ErrMandateSignature", {}),
+            ("r_ge_n", "r = n, the group order (r >= n).", raw(m, nb + sig[32:64] + tail), "ErrMandateSignature", {})]
 
 
 def eip712_digest_with(m: dict, h: bytes, name: bytes, chain_id: int | None) -> bytes:
@@ -169,7 +190,7 @@ def eip712_file() -> dict:
         ("chain_id_present", "Signed over the digest of a domain that adds chainId = 1.",
          raw(m, PC.sign_eth(G.SECP["p1"], eip712_digest_with(m, h, P.EIP712_NAME, 1))), "ErrMandateSignature",
          {"signed_digest_hex": eip712_digest_with(m, h, P.EIP712_NAME, 1).hex()}),
-    ]
+    ] + range_rows(m, sig, 65)
     return {**head(), "scheme": "eip-712 (sig_type 3)", "mandate_ref": "m_eip712",
             "keys": {"p1_secp": {"seed_hex": G.SECP["p1"].hex(), "eth_address_hex": G.ETH_ADDR["p1"].hex()},
                      "p2_secp": {"seed_hex": G.SECP["p2"].hex(), "eth_address_hex": G.ETH_ADDR["p2"].hex()}},

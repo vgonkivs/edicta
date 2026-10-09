@@ -1,10 +1,10 @@
 # Edicta policy v1 (mandate, facts, rule engine, verdicts)
 
-Status: revision `policy-v1-draft.6` (2026-10-09). Final draft, proposed for
+Status: revision `policy-v1-draft.7` (2026-10-09). Final draft, proposed for
 the policy v1 freeze together with format v1; subject to the human's
 approval. Built on the core spec `spec/decision-commitment-v0.md`, revision
 `v0-draft.30`, and on `spec/decision-commitment-v1.md`, revision
-`v1-draft.2`. Section numbers prefixed "core" refer to the v0 core spec,
+`v1-draft.4`. Section numbers prefixed "core" refer to the v0 core spec,
 "core v1" to the v1 document.
 
 Keywords MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Items marked
@@ -42,7 +42,7 @@ their `mandate_ref` to name the mandate in force (core v1 section 7.3).
 | Any change to an encoding, a hash or signature preimage, a limit, the engine, or the outcome of a check, while in draft | Bump `policy-v1-draft.N`, regenerate the vectors under `spec/vectors/policy/`, record the change below. |
 | Any such change after freeze | New family version: tags `edicta/policy/v2/*`, `format = 2` in every structure. A v1 reader rejects `format != 1`. |
 
-The freeze turns `policy-v1-draft.6` into `policy-v1`, `format = 1`, tags
+The freeze turns `policy-v1-draft.7` into `policy-v1`, `format = 1`, tags
 `edicta/policy/v1/*`, at the same tag as format v1 of the core.
 
 | Revision | Change | Vectors |
@@ -53,6 +53,7 @@ The freeze turns `policy-v1-draft.6` into `policy-v1`, `format = 1`, tags
 | `policy-v1-draft.4` | Walk truncation (human decision of 2026-10-08, which supersedes the explicit-depth exception of draft.3). `gate_integrity` after a walk is `ok` only when the walk reached genesis, the start of the counter's history; `violated` on a signed contradiction; `unchecked` otherwise. A walk cut short by the step cap is `unchecked` with reason `policy_walk_truncated` whether the cap is the default or set explicitly, and the retention horizon no longer ends the walk (13.3). The bound is renamed `MaxWalkSteps`, CLI `--max-walk-steps N`, default 10000 (was `PolicyDepth`, `--policy-depth`). The report gains `gate_integrity.walk`: the step cap, the steps taken, the walked seq range, the chain length and why the walk ended (13.4, 13.5). The reason is registered in the core enum (`v0-draft.30`). Outcome changes, only in `gate_integrity`: a walk cut by an explicit bound is `unchecked` (was `ok`), and a walk that stopped at the horizon before genesis now goes on, so it ends `ok` at genesis, `unchecked` or `violated` by what it finds (was `ok`); the `policy` check, the decision verdict and the exit code do not change. No encoding, hash or signature preimage changed. | `verify.json` carries `policy-v1-draft.4`: `config.policy_depth` is renamed `max_walk_steps`, every case whose walk ran gains `expect.gate_integrity.walk`, `pass_depth_1` now expects `gate_integrity` `unchecked` (`policy_walk_truncated`) with verdict `valid`, exit 0, and two cases are new: `walk_cap_reaches_genesis` (`ok`) and `walk_truncated_cap_2` (`unchecked`). Every record and every other file is byte-identical. |
 | `policy-v1-draft.5` | Freeze revision with format v1 (task 031; human decisions of 2026-10-09). (1) Mandate keys 14 `sig_type` (absent = Ed25519; 2 Cosmos ADR-036; 3 EIP-712), 15 `principal_hrp`, 16 `fast_mode_max_delay` (blocks, `1..1000` when present; absent = fast mode off; a present 0 is refused, so "off" has one encoding), 17 `auditors` (private mode); `principal` and the signature size per `sig_type` (6.1). (2) Principal signature dispatch; ADR-036 signs the rendered text ending in the mandate hash (6.2). (3) Typed counter key for types 2 and 3; Ed25519 unchanged (6.2). (4) `T_H` becomes `T_ref` throughout (8, 10, 11, 13); `anchor_time` holds `T_ref`. (5) New stage 4p rule P15 and deny `ErrFastModeNotAllowed` (8.2, 10.2, 11.3, 12.3, 14). (6) PolicyVerdict keys 19 `private_hash` and 20 `prev_state_hash`, PrivatePart, the private envelope and archive kind 15 (9.5, 10, 12). (7) Rendered text: `principal:` line by scheme, moved after `gate:`; new `fast mode:` and `auditors:` lines; the first note names the reference time; one new note (7). (8) Verifier: `mandate_ref_mismatch`, the fast-mode consent and delay checks, private-mode outcomes (`policy_private`), `principal_scheme_unsupported`, L4 compares `sig_type` (13). Existing Ed25519 mandates without keys 14 to 17 keep their bytes, hashes, signatures and counter keys. | New: `private.json`; `spec/vectors/principal/adr036.json`, `eip712.json`. Regenerated: `render.json` (every text changes), `verify.json` (new outcomes), `mandate.json` (cases per scheme, keys 14 to 17, rejects), `archive.json` (kind 15, marker name), `api.json` (new code). `facts.json`, `state.json`, `engine.json` byte-identical; every existing case of the regenerated files keeps its bytes except `render.json` texts. |
 | `policy-v1-draft.6` | Vectors of task 031 phase P2. No encoding, hash, preimage or limit changes. 6.1: the scheme rule is checked before the principal rule (the principal's size depends on the scheme; only multi-defect inputs see a difference), the signature size is a decoding check reported first, and the parenthesized labels are the vectors' `rule` field. Section 15: the vector field `t_h` carries `T_ref`; the ADR-036 rejects gain `d_without_empty_line` and `d_trailing_lf` (the exact `D` of 6.2: one empty line before the hash line, no LF after the hex); `spec/vectors/principal/ed25519.json` is listed. Vector conventions for the verifier files (section 15): a draft.5 case's `decision` is a v1 decision (`version`, `mandate_ref_hex`, `mode`, `h0`, `anchor_deadline`), and only such cases carry the report fields `policy.mode`, `policy.mandate_ref` and `policy.auditor_kid` in `expect`, so every draft.4 case keeps its bytes; `config.principal_keys` entries use the CLI forms of 13.1 (bare hex is Ed25519); optional `config.principal_schemes` and `config.auditor_keys`. | The files produced in P2 (`mandate.json`, `render.json`, `verify.json`, `archive.json`, `api.json`, `private.json`, `spec/vectors/principal/*`) carry `policy-v1-draft.6`; `facts.json`, `state.json`, `engine.json` stay byte-identical at `policy-v1-draft.1`. |
+| `policy-v1-draft.7` | Post-audit change list of task 031 (human decisions of 2026-10-09). (1) Auditor kid derived from the key (`edicta/v1/auditor-kid`), Auditor key 3 `label` with its charset and value rules, auditor value-rule order with `auditor_kid` (`ErrAuditorKidMismatch`) and `auditor_label_duplicate` (6.1). (2) Mandate key 18 `state_salt`, present iff auditors; adoption refuses a changed salt (`state_salt_changed`), so a counter keeps one mode (6.3). (3) Render: auditor lines with the unverified label and the full 128-bit fingerprint, the label note, the general label rule and tool rule (7). (4) Private form of the PolicyVerdict: public part = hashes, links, outcome bit (denies: keys 1 to 7, 19 only); PrivatePart = the moved keys plus a per-verdict salt; merge; key 17 absent in private form (10.1, 10.2). (5) Blinded state hashes `state_hash_p` and blinded kind 15 keys for buckets and ClosedSets (9.1, 9.5). (6) Kind 9 private path segment, marker `ErrDenied` in private mode, a kind 15 PrivatePart for every private verdict, kind 15 plaintext kind 5 and cap 69,760 (12). (7) Verifier: without a key only step 1 and the hash checks run (facts and `anchor_time` no longer); with a key the merged verdict and blinded recomputations; `mode = 2` requires the policy check (13). (8) Residual leakage list 9.6; threat rows for private mode, fingerprints and wallet display (1); producer rule for a CSPRNG `mandate_id` and `state_salt` (6.1); EIP-712 range checks named (6.2). Outcome changes: private-mode outcomes without a key (facts and anchor-time mismatches are `policy_private`); every private-form encoding; kind 15 plaintext kind 5 accepted; a fast-mode decision without an allow record is `unchecked`. | Regenerated: `mandate.json` (m_private, draft.5 auditor rejects, new rejects, adoption case), `render.json` (`render_m_private`, new two-auditor case), `verify.json` (draft.5 v1 decisions salted, new case), `private.json` (rewritten), `archive.json` (kind 15 cases and rejects, private deny, reads, `ErrDenied`), `api.json` (alias example, private deny), `spec/vectors/principal/adr036.json`, `eip712.json` (new case and rejects). Changed existing rejects: `private_kind_5` replaced by `private_kind_6`, `private_over_cap` resized (archive.json). Every draft.4 case and record keeps its bytes; `facts.json`, `state.json`, `engine.json`, `principal/ed25519.json` byte-identical. |
 
 ## 1. Threat model
 
@@ -61,7 +62,9 @@ The freeze turns `policy-v1-draft.6` into `policy-v1`, `format = 1`, tags
 | Principal signature over the mandate under the scheme its `sig_type` names (section 6) | An operator or gate inventing or loosening the rules; a mandate of one gate configured at another (`gate_id` inside the signed bytes); one signature read under two schemes | The principal's key is secret; the verifier pins the principal identities it trusts, typed by scheme (`PrincipalKeys`). `sig_type` is inside `mandate_hash`, so a key is read under exactly one scheme. Key roles never overlap, compared as `(sig_type, bytes)` (core invariant 7) |
 | ADR-036 signs the rendered text ending in the mandate hash (sections 6.2, 7) | A wallet user signing rules they were never shown | The renderer is part of the trust base for `sig_type = 2`: two renderers MUST produce the same bytes (vectored); a verifier whose re-render differs rejects (fail closed). The hash line binds the text to the CBOR. Keplr display limits are `UNVERIFIED` |
 | Fast-mode consent `fast_mode_max_delay` (sections 6.1, 8.2) | An operator enabling fast mode for a principal who never accepted the weaker publication guarantee, or with a longer anchoring delay than the principal accepted | The gate clamps the deadline to the bound (core v1 8.3); the verifier checks consent and the bound from the gate-signed Authorization and the principal-signed mandate (13.2) |
-| Private mode: auditors in the mandate, encrypted state, public hash links (sections 9.5, 10, 13) | Everyone reading the principal's limits and spend from a shared archive | HPKE and ChaCha20-Poly1305 as core 9.1; the auditor's private key is secret. Integrity comes from hashes the gate signs or the record keys, never from the AEAD (non-committing). Without the key, hash links and forks stay checkable, the rules do not |
+| Private mode: auditors in the mandate, encrypted mandate, state and decision content, public hash links (sections 9.5, 9.6, 10, 13; core v1 10.7) | Everyone reading, from a shared archive, the mandate's rules (limits, allowlists, auditor list) and the decision content: facts, deny reasons, amounts, state, the `seq` value, times, and on off-chain rails the action bytes | The action bytes are not public (core v1 kind 17 form 2; the payload is encrypted to the auditors); the public `action_hash` is salted (core v1 4.7); state hashes and kind 15 keys are blinded with the counter's `state_salt` (9.1); HPKE and ChaCha20-Poly1305 as core 9.1; the auditor's private key is secret. Integrity comes from hashes the gate signs or the record keys, never from the AEAD (non-committing). Without the key, hash links and forks stay checkable, the rules and the facts do not. What stays visible is listed in 9.6 |
+| Auditor key fingerprints in the rendered text (sections 6.1, 7) | An operator's tool swapping auditor keys under the principal's labels | The kid is derived from the key; the principal checks each full 128-bit fingerprint out of band (labels are untrusted); the principal CLI keeps an address book of auditor keys and warns loudly when a known label maps to another key (tooling rule, SHOULD) |
+| Wallet display for `sig_type` absent or 3 (section 6.2) | Nothing beyond the hash: the wallet shows only the hash (EIP-712: `mandateHash`, `mandateId`, `version`, `gateId`) | Consent rests on the CLI render being exactly what was hashed (trusted tooling); for ADR-036 the wallet shows the rendered text itself |
 | `mandate_id` and monotonic `version` (section 6.3) | Rolling a mandate back to a looser version; resetting the counters by re-signing the same rules | The gate's registry keeps the counter cell (never pruned); the verifier's walk checks versions along the chain. A new `mandate_id` is a fresh counter by the principal's explicit choice |
 | Bounded scale map (section 6.3) | A counter whose cell no longer decodes, which would refuse every authorization until a new `mandate_id` | Adoption refuses a union above 1024 assets before it writes, so the gate never stores a cell its own decoder refuses. Only principal-signed versions grow the map, so reaching the bound is the principal's doing; it costs new assets on that counter, never safety |
 | Immutable asset scale per counter (section 6.3, L4) | Fresh headroom from a rescaled asset: sums are kept per `(asset, scale)`, so a version that lists an asset at a new scale would count it from zero; an honest gate falsely reported as equivocating when a version rescales an asset the retained state does not hold | The gate refuses at adoption, from the scale map in the counter cell, not from the retained ledger (which forgets aged-out or never-used assets). The verifier applies the same rule to the mandates the walk reaches; a version adopted but never used is invisible to it, which only makes the gate stricter than what the verifier can see, never the reverse |
@@ -115,6 +118,11 @@ canonical encoding of section 3.
 | `TagPrivatePart` | `edicta/policy/v1/private-part` (29, `0x1d`) | `private_hash = H(tag \|\| canon(PrivatePart))` (section 10.1) |
 | `TagPrivateAEAD` | `edicta/policy/v1/private` (24, `0x18`) | AEAD `aad` of a private envelope (section 9.5); never hashed or signed |
 | `TagPrivateDEK` | `edicta/policy/v1/private-dek` (28, `0x1c`) | HPKE `info` of the DEK wrap of a private envelope (section 9.5) |
+| `TagStateBlind` | `edicta/policy/v1/state-blind` (28, `0x1c`) | `state_hash_p(S) = H(tag \|\| state_salt \|\| canon(S))` in private mode (section 9.1); hash only |
+| `TagBlindKey` | `edicta/policy/v1/blind-key` (26, `0x1a`) | kind 15 key of a bucket or ClosedSet in private mode (section 9.5); hash only |
+
+The auditor kid tag `edicta/v1/auditor-kid` (21, `0x15`) is registered in core
+v1 section 2 (`TagAuditorKid`): `kid = H(tag || pubkey)[0..16]` (6.1).
 
 Threat note (tags). Length prefixes equal to v0 tags (23, 24) are harmless:
 the ASCII differs from the first byte after the prefix on (`edicta/p` versus
@@ -126,7 +134,9 @@ and a principal signature is over a different tag and a different hash.
 `TagPrivatePart` has the length of the commitment tags (29) and
 `TagPrivateAEAD`, `TagPrivateDEK` the lengths of `TagMandate`, `TagMandateSig`;
 harmless for the same reason, and the two AEAD tags are never hashed or
-signed.
+signed. `TagStateBlind` has the length of `TagPrivateDEK` and `TagMandateSig`
+(28), `TagBlindKey` that of `TagSuccessor` (26); the ASCII differs and neither
+is part of a signed message.
 
 ## 3. Encoding profile and strict decoding
 
@@ -154,7 +164,7 @@ Size caps, checked before parsing:
 | `SignedPolicyVerdict` | 16,384 |
 | `Bucket`, `State`, `PrivatePart` | 16,384 |
 | `ClosedSet` | 36,864 (767 refs of at most 46 bytes plus the header: 35,289) |
-| private envelope (section 9.5) | 65,536 |
+| private envelope (section 9.5) | 65,536 for plaintext kinds 1 to 4; 69,632 for plaintext kind 5 (action) |
 
 Strict decoding, in this order; the first failure decides: (1) size cap;
 (2) generic well-formedness as core section 6.2 with the limits above;
@@ -162,8 +172,8 @@ Strict decoding, in this order; the first failure decides: (1) size cap;
 major type, length, charset; then missing required keys; (4) value rules of
 the structure's section; (5) re-encoding gives the input bytes. Every failure
 is the structure's sentinel (section 14): `ErrFactsInvalid`,
-`ErrMandateInvalid`, `ErrVerdictInvalid` or `ErrStateInvalid` (Bucket,
-ClosedSet, State, PrivatePart and ledgers). Vectors also give the first failing rule as an
+`ErrMandateInvalid`, `ErrVerdictInvalid` (verdicts and PrivateParts) or
+`ErrStateInvalid` (Bucket, ClosedSet, State and ledgers). Vectors also give the first failing rule as an
 informational `cause` (a core section 12 name or a value-rule label).
 Implementations SHOULD report it; the sentinel is normative.
 
@@ -238,7 +248,8 @@ Mandate = {
   ? 14: sig_type      uint,               ; 2 adr036, 3 eip712; absent: Ed25519
   ? 15: principal_hrp tstr,               ; 1..16, [a-z0-9]; present iff sig_type = 2
   ? 16: fast_mode_max_delay uint,         ; 1..1000 blocks; absent: fast mode not allowed
-  ? 17: auditors      [+ Auditor]         ; 1..16, strictly ascending by kid; present: private mode
+  ? 17: auditors      [+ Auditor],        ; 1..16, strictly ascending by kid; present: private mode
+  ? 18: state_salt    bstr .size 32       ; present iff auditors; per counter, never rendered
 }
 AssetRule = { 1: asset tstr,              ; as Facts.asset
               2: scale uint,              ; 0..255
@@ -250,8 +261,9 @@ PeriodLimit = { 1: hours uint,            ; 1..744
                 2: max bstr }             ; amount rule, value >= 1
 CountLimit  = { 1: hours uint,            ; 1..744
                 2: max_count uint }       ; 1..2^32
-Auditor     = { 1: kid bstr,              ; 1..32 bytes
-                2: pubkey bstr .size 32 } ; X25519 public key, RFC 7748 encoding
+Auditor     = { 1: kid bstr .size 16,     ; SHA-256(tag("edicta/v1/auditor-kid") || pubkey)[0..16]
+                2: pubkey bstr .size 32,  ; X25519 public key, RFC 7748 encoding
+                3: label tstr }           ; 1..64 bytes of 0x20..0x7e without '"' (0x22) and '\' (0x5c)
 SignedMandate = { 1: mandate Mandate, 2: signature bstr }   ; 64 bytes (sig_type absent or 2), 65 bytes (3)
 ```
 
@@ -267,8 +279,15 @@ the decoding-style cause of earlier drafts, for example `ErrIntRange`):
 | Signature size (`signature`) | 64 bytes for `sig_type` absent or 2, 65 bytes for 3. Checked at decoding, before the signature is verified. |
 | Agents (`agents`) | Every agent key passes core G0; `principal` is not in `agents` (key roles, core invariant 7; a 20- or 33-byte principal cannot be). |
 | Fast mode (`fast_mode_max_delay`) | `1..1000` when present. A present `0` is refused, so "fast mode not allowed" has one encoding, the absent key (two encodings of one meaning would give two `mandate_hash` values for the same consent). |
-| Auditors (`auditors`) | 1..16 entries, strictly ascending by `kid` bytewise (so kids are distinct); each `pubkey` is not a low-order X25519 point: `X25519(s, pubkey)` is not the all-zero string, with `s` the 32 bytes `0x01` (clamped, a multiple of 8, so exactly the low-order points give zero; the all-zero shared secret rule of core 9.1). |
+| Auditors (`auditors`, `auditor_label`, `auditor_kid`, `auditor_label_duplicate`) | 1..16 entries (decoding); `kid` exactly 16 bytes and `label` 1..64 bytes of its charset (decoding). Then, in order: for each entry in mandate order, the label has no leading or trailing space (`auditor_label`) and `kid == SHA-256(tag("edicta/v1/auditor-kid") \|\| pubkey)[0..16]` (`auditor_kid`; Go sentinel `policy.ErrAuditorKidMismatch`, wrapping `ErrMandateInvalid`); the entries are strictly ascending by `kid` bytewise (`auditors`); the labels are pairwise distinct (`auditor_label_duplicate`); each `pubkey` is not a low-order X25519 point (`auditors`): `X25519(s, pubkey)` is not the all-zero string, with `s` the 32 bytes `0x01` (clamped, a multiple of 8, so exactly the low-order points give zero; the all-zero shared secret rule of core 9.1). Gate start: `gate.ErrInvalidConfig` wrapping the failure; verifier: `source_corrupt`, as any mandate decode failure. |
+| State salt (`state_salt`) | Present iff `auditors` is present (missing: `ErrMissingField`; on a public mandate: `ErrUnknownKey`); exactly 32 bytes (decoding). |
 | Validity (`not_after`) | `not_after <= 253402300799` (9999-12-31T23:59:59Z, so the rendered text is RFC 3339). |
+
+Producer rules (no byte change): `mandate_id` and `state_salt` MUST come from a
+CSPRNG when `auditors` is present. Threat note: `mandate_hash` is public in
+every private verdict; with a low-entropy `mandate_id` a dictionary search
+over plausible limits could test candidate mandates against it. The 256-bit
+`state_salt` inside `mandate_hash` closes that too.
 
 `kinds` (P5) lists the kinds the agents may perform; together with the asset
 (P6) and recipient (P7) allowlists it is the allowlist part of the catalog.
@@ -292,7 +311,7 @@ mandate_hash = H(tag("edicta/policy/v1/mandate") || canon(Mandate))
 M            = tag("edicta/policy/v1/mandate-sig") || mandate_hash        ; 61 bytes
 ```
 
-`mandate_hash` covers keys 14 to 17. A mandate without them has exactly the
+`mandate_hash` covers keys 14 to 18. A mandate without them has exactly the
 bytes and hash it had in earlier drafts. `mandate_hash` is never a field of
 the mandate.
 
@@ -304,7 +323,7 @@ reproduced here as the normative text):
 |---|---|---|
 | absent (Ed25519) | `signature = Ed25519(principal_priv, M)` | core G2 (`S < L`), cofactorless G1, on the G0-checked `principal` |
 | 2 (Cosmos ADR-036) | `signature = r \|\| s` = ECDSA-secp256k1 over `SHA-256(signdoc)`, low-s | `r, s` in `[1, n-1]`; `s <= n/2`; the verifier rebuilds `D` and `signdoc` from the mandate (never from the request) and verifies with `principal` |
-| 3 (EIP-712) | `signature = r \|\| s \|\| v` over `digest`, `v` in `{27, 28}`, low-s | `s <= n/2`; recover the public key from `(digest, r, s, v - 27)`; `keccak256(uncompressed key without 0x04)[12..32] == principal`, compared in constant time |
+| 3 (EIP-712) | `signature = r \|\| s \|\| v` over `digest`, `v` in `{27, 28}`, low-s | `r, s` in `[1, n-1]`, `s <= n/2`, `v` in `{27, 28}`, all checked before recovery; recover the public key from `(digest, r, s, v - 27)`; `keccak256(uncompressed key without 0x04)[12..32] == principal`, compared in constant time |
 
 ADR-036 sign document:
 
@@ -431,13 +450,18 @@ Threat notes:
   | version above the configured one | refuse to start |
   | same version, different `mandate_hash` | refuse to start |
   | same version, same hash | use it |
-  | version below the configured one | check every AssetRule against `scales`: an asset in the map with another scale refuses to start (cause `scale`); then a union of more than 1024 entries refuses to start (cause `scales_full`); otherwise switch the cell to this mandate and set `scales` to the union, in one compare-and-swap, keeping head and state |
+  | version below the configured one | the configured mandate's `state_salt` (absent for a public mandate) differs from the one the cell keeps: refuse to start (cause `state_salt_changed`); check every AssetRule against `scales`: an asset in the map with another scale refuses to start (cause `scale`); then a union of more than 1024 entries refuses to start (cause `scales_full`); otherwise switch the cell to this mandate and set `scales` to the union, in one compare-and-swap, keeping head, state and `state_salt` |
 
   Any refusal is a configuration error (`gate.ErrInvalidConfig`), decided
   before anything is written, so a refusal leaves the cell unchanged and the
   gate does not run (fail-closed). The causes are distinct so that an
   operator can tell them apart: `version` (the stored version is above the
-  configured one), `same_version_other_hash`, `scale` and `scales_full`.
+  configured one), `same_version_other_hash`, `state_salt_changed`, `scale`
+  and `scales_full`. The cell keeps the `state_salt` of genesis: a counter's
+  public chain links cross versions (`prev_state_hash(n) =
+  new_state_hash(n-1)`), so every version must blind with one salt. A counter
+  therefore cannot switch between public and private mode; a principal who
+  wants that starts a new `mandate_id`.
   Genesis cannot reach the bound (at most 16 assets). Every later
   state update (stage 12) compares the stored mandate hash too, so a lower
   version can never be adopted by a concurrent writer.
@@ -445,7 +469,7 @@ Threat notes:
 Vectors: `spec/vectors/policy/mandate.json` (encodings, hashes, signatures,
 counter keys, rejects, and `adoption`: sequences of signed mandates applied to
 one cell, absent or given as a `start` cell, with each step's action, refusal
-cause, version and `scales` after it).
+cause, version, `scales` and, for a private counter, `state_salt` after it).
 
 ## 7. Rendered text (normative)
 
@@ -471,7 +495,7 @@ version: <n>
 gate: <gate_id>
 principal: ed25519 <hex32>                                | principal: cosmos <bech32 address> (adr-036)   | principal: ethereum 0x<hex20> (eip-712)
 fast mode: not allowed                                    | fast mode: allowed, anchor at most <n> blocks after the reference height
-auditors: none (public mandate)                           | auditors: <k> (private mandate)   then "  - <kid hex>" per auditor
+auditors: none (public mandate)                           | auditors: <k> (private mandate)   then one auditor line per auditor (below)
 valid: reference time from <not_before> ; decision valid_until up to <not_after>
 max decision age: <n>s                                    | max decision age: default (MaxTTL of the payload's DA)
 min spacing: <n>s                                         | min spacing: none
@@ -489,7 +513,18 @@ notes:
   - Limits count authorizations, not executions.
   - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.
   - In fast mode the gate may authorize before the payload is anchored on L1; the anchor must land within the stated number of blocks or the decision is invalid.
+  - Labels are not verified; check each key fingerprint or address out of band.     (only when a label is rendered)
 ```
+
+Auditor line, exactly:
+
+```
+  - Auditor "<label>" (label not verified) - key fingerprint: <g1> <g2> <g3> <g4> <g5> <g6> <g7> <g8>
+```
+
+`<g1>..<g8>` are the 16 kid bytes as 32 lower-case hex digits in 8 groups of
+4, single spaces: the full 128-bit kid, always. One line per auditor, mandate
+order.
 
 The text columns after `|` are the alternative of the same line. The
 `principal:` line follows `sig_type`: the Ed25519 key in hex; for ADR-036 the
@@ -497,10 +532,25 @@ bech32 address `SIGNER` of 6.2 (the identity the wallet shows); for EIP-712
 the 20-byte address, `0x` and lower-case hex (no EIP-55 checksum). The
 `fast mode:` line is `not allowed` when key 16 is absent, and `<n>` is its
 value otherwise. The `auditors:` line counts the auditors, followed by one
-line per kid in mandate order. Without an asset rule's key 5 the text MUST
-say `recipients: any`, and without the mandate's key 13 `kinds: any`. The
-notes are fixed text; the fifth note is always present. Vectors: `spec/vectors/policy/render.json` (cases show the
-three principal lines, both fast-mode lines and both auditor lines).
+auditor line each. Without an asset rule's key 5 the text MUST say
+`recipients: any`, and without the mandate's key 13 `kinds: any`. The notes
+are fixed text; the fifth note is always present, the sixth exactly when at
+least one label is rendered (today: when `auditors` is present). The
+`state_salt` (key 18) is a secret and is never rendered; `mandate_hash`
+covers it.
+
+Label rule (human decision of 2026-10-09, not tied to private mode): every
+label rendered next to a key or an address carries `(label not verified)`
+and, on the same line, the full identifier (key hex, address) or the full
+fingerprint. It covers auditors now and any future labelled agent, recipient
+or principal, in every mode. Tool rule (normative for Edicta tools): the
+verifier report (text and JSON), the principal CLI and gate logs that print a
+label print the marker and the full fingerprint beside it. Threat note:
+labels are untrusted text chosen by whoever built the mandate; the
+out-of-band fingerprint check is the trust step. Vectors: `spec/vectors/policy/render.json` (cases show the
+three principal lines, both fast-mode lines, both auditor lines with the
+fingerprint lines and the label note, and two labels that differ in one
+character).
 
 ## 8. Rule engine
 
@@ -648,6 +698,27 @@ state_hash  = H(tag("edicta/policy/v1/state")  || canon(State))
 `state_hash` covers every closed bucket through `closed_root` and the open
 bucket inline: changing any sum, count or index anywhere changes it.
 
+Blinded state hash (private mode only, `state_salt` = key 18 of the mandate):
+
+```
+state_hash_p(S) = state_hash(Genesis)                                                if S = Genesis
+                = H( tag("edicta/policy/v1/state-blind") || state_salt || canon(S) )  otherwise
+```
+
+Where it applies, in private mode: verdict keys 14 and 20 (private form), the
+registry cell head, the `successor_key` input (the value of key 20), the
+chain rules of 10.3, and the verifier's recomputations with a key (13.2 step
+6, walk L5) with the salt of the opened mandate. Walk L2 and the hash-form
+fork rule compare bytes and need no salt. `bucket_hash` and `closed_root`
+inside a State are unchanged. Public mode uses `state_hash` everywhere, as
+before. Genesis keeps the public constant: its hash says only "first allow of
+the counter", which the absence of keys 15 and 16 already says, and it keeps
+the presence rule of 10.2 and the walk's genesis stop decidable without a
+key. Threat note: unblinded, a public state hash would be a dictionary oracle
+for amounts and limits (a state holds low-entropy sums and times); a gate that
+blinded with another salt than its mandate's is caught by the verifier with a
+key (`state_hash_p(prev_state) != key 20`, `gate_equivocation`).
+
 ### 9.2 Ledger validity (`ErrStateInvalid`)
 
 A ledger is a State, the ClosedSet that hashes to its `closed_root`, and the
@@ -677,11 +748,12 @@ needs no archive read.
 ### 9.5 Private envelope (private mode)
 
 A mandate with `auditors` (key 17) puts its counter in private mode: the
-SignedMandate, every closed Bucket, every ClosedSet and the `prev_state` of
-every verdict are archived only encrypted to the auditors (kind 15, section
-12.1). The verdict's facts, chain links, times, outcome and reason stay in
-clear. The envelope is the core 9.1 blob layout, byte for byte, with the
-policy tags:
+SignedMandate, every closed Bucket, every ClosedSet, the PrivatePart of every
+verdict (10.1) and, through core v1, the action bytes and salt of every
+decision (core v1 kind 17 form 2) are archived only encrypted to the
+auditors (kind 15, section 12.1). Public stay the verdict's hashes, chain
+links and outcome bit (10.2). The envelope is the core 9.1 blob layout, byte
+for byte, with the policy tags:
 
 ```
 DEK, aead_nonce, salt from a CSPRNG (one DEK per envelope, never reused)
@@ -692,17 +764,31 @@ for each auditor i, in mandate order:
 envelope      = canon { 1: 0, 2: [ {1: kid_i, 2: enc_i, 3: wrapped_dek_i} ... ], 3: aead_nonce, 4: ciphertext }
 ```
 
-HPKE suite, `enc` and wrap sizes as core 9.1. `plaintext` is the canonical
-SignedMandate, Bucket, ClosedSet or PrivatePart (10.1). The salt keeps the
+HPKE suite, `enc` and wrap sizes as core 9.1. `kid_i` is the derived kid of
+the auditor (6.1), 16 bytes, so the HPKE `aad` is `0x10 || kid`. `plaintext`
+is the canonical SignedMandate (plaintext kind 1), Bucket (2), ClosedSet (3),
+PrivatePart (4, 10.1), or `action_salt || action_bytes` (5, core v1 11.1). The salt keeps the
 layout of core 9.1 identical, so one sealing function serves both with a tag
 parameter; it is discarded after opening.
 
-Reader rules: decode with core 9.2 (B0 to B7, with the cap 65,536 in place of
-`2^27`); unwrap as core 9.4 (O4: try every entry when no kid is given; an
-all-zero X25519 output is an unwrap failure); strip the 32-byte salt; then
-compute the plaintext's hash under its own tag (`mandate_hash`,
-`bucket_hash`, `closed_root`, `private_hash`) and compare it with the key
-the record was fetched under before using the bytes. A mismatch, a decoding
+Reader rules: decode with core 9.2 (B0 to B7, with the section 3 cap of the
+plaintext kind in place of `2^27`); unwrap as core 9.4, trying first the entry whose kid
+equals the reader's own derived kid, then every entry (O4); an all-zero X25519
+output is an unwrap failure; strip the 32-byte salt; then compute the
+plaintext's hash under its own tag (`mandate_hash`, `bucket_hash`,
+`closed_root`, `private_hash`; for plaintext kind 5 the core v1 action hash
+with the type of the decision record) and compare it with the hash the
+reader expects before using the bytes: the record key, except for buckets
+and ClosedSets in private mode, whose record key is blinded:
+
+```
+kind 15 key (plaintext kinds 2, 3, private mode) = H( tag("edicta/policy/v1/blind-key") || state_salt || bucket_hash )   ; resp. closed_root
+```
+
+A reader with a key decrypts, computes `bucket_hash` (or `closed_root`),
+blinds it with the mandate's `state_salt` and compares it with the record
+key; a lookup blinds the ref first. Reason: an unblinded `bucket_hash` as a
+public archive path would be a dictionary oracle on hourly counts and sums. A mismatch, a decoding
 failure or an AEAD failure with a key that the envelope lists is
 `source_corrupt`; no entry that opens with the verifier's keys is
 `policy_private`.
@@ -711,12 +797,54 @@ Threat notes:
 - ChaCha20-Poly1305 is not key-committing; the hash compare is the defence
   (as core O7): a gate cannot give two auditors different plaintexts under
   one record, because the key is a hash it signed or the record key itself.
-- Kids are public, as in core 9.1; non-identifying kids are the principal's
-  choice.
+- Kids are public and derived from the key, so a kid identifies an auditor
+  key across mandates (linkability, 9.6); labels never leave the mandate,
+  which in private mode is itself encrypted.
 - Auditors are encryption keys only (invariant 7 as amended); they never
   sign anything.
 - Auditor key loss makes the records unreadable for everyone; a new mandate
   version with new auditors re-encrypts from then on.
+
+Together, every public kind 15 key and every public hash in a private
+verdict has a secret salt in its preimage:
+the action hash (core v1 4.7), the state hashes (9.1), the bucket and
+ClosedSet keys (above), and `private_hash` (the PrivatePart salt, 10.1).
+
+### 9.6 Residual leakage in private mode (normative)
+
+Private mode does not hide activity that is public by nature (human decision
+of 2026-10-09). A reader without an auditor key can learn:
+
+1. Executed transactions on public rails (amounts, recipients, times, hence
+   the aggregate spend of allows); a notarized receipt links each to its
+   `commitment_hash`, and a reveal on execution (core v1 kind 18) publishes
+   the salt of that executed action.
+2. Existence and timing of published decisions (anchor heights, `T_ref`,
+   record times), hence frequency.
+3. The envelope of every decision: agent key, `gate_id`, nonce, `issued_at`,
+   `valid_until`, `action.type` (the action's format), `payload_ref`,
+   `mandate_ref`, payload size. `action_hash` is public but salted, so not
+   testable.
+4. The allow/deny bit of every verdict and the number of verdicts: allows per
+   counter by walking the public links to genesis (so `seq` is derivable
+   although not published); denies per mandate version and agent from kind 9
+   records and markers (not chained, but countable).
+5. Linkage of mandate versions of one counter (`counter_key` in
+   `policy_successor` records).
+6. Auditor kids (public in envelopes, linkable across mandates).
+7. Lengths of envelopes and PrivateParts (may hint the deny row), and the
+   timing of bucket and ClosedSet records (a rollover shows an allow in a new
+   hour).
+8. The first allow of a counter (the genesis hash, 9.1).
+9. A removed auditor keeps the counter's `state_salt` and can test guesses
+   against later state hashes (and read every record up to its removal); a
+   fresh counter (new `mandate_id`) is the remedy.
+
+Off-chain rails (the IBKR profile): the action bytes are never public, so
+private mode hides everything except items 2 to 9. The public `action_hash` of
+a private verdict is safe only because it is salted (core v1 4.7). Not
+addressed in v1 (BACKLOG, post-v1): timing and frequency hiding by batching
+or padding; PrivatePart and envelope length padding.
 
 ## 10. PolicyVerdict
 
@@ -740,21 +868,46 @@ PolicyVerdict = {
   ? 14: new_state_hash bstr .size 32,
   ? 15: prev_commitment_hash bstr .size 32,   ; the chain head read
   ? 16: prev_verdict_hash bstr .size 32,
-  17: decided_at uint,               ; gate clock, > 0, informational
+  ? 17: decided_at uint,             ; gate clock, > 0, informational; required in public form, absent in private form
   ? 18: gate_clock uint,             ; 1: the deny rests on the gate clock (P9)
-  ? 19: private_hash bstr .size 32,  ; private mode: H(tag("edicta/policy/v1/private-part") || canon(PrivatePart))
-  ? 20: prev_state_hash bstr .size 32  ; private mode: state_hash(prev_state)
+  ? 19: private_hash bstr .size 32,  ; private form: H(tag("edicta/policy/v1/private-part") || canon(PrivatePart))
+  ? 20: prev_state_hash bstr .size 32  ; private form, allows: state_hash_p(prev_state) (9.1)
 }
-PrivatePart = { 1: format uint,      ; 1
-                2: prev_state State }
+PrivatePart = { 1: format uint,                ; 1
+                2: salt bstr .size 32,         ; fresh from a CSPRNG per verdict
+                ? 8: reason tstr, ? 9: extractor tstr, ? 10: facts Facts,
+                ? 11: anchor_time uint, ? 12: eval_time uint,
+                ? 13: prev_state State,        ; column S of 10.2
+                17: decided_at uint,           ; > 0
+                ? 18: gate_clock uint }        ; 1, P9 only
+private_hash    = H(tag("edicta/policy/v1/private-part") || canon(PrivatePart))
 SignedPolicyVerdict = { 1: verdict PolicyVerdict, 2: signature bstr .size 64 }
 verdict_hash    = H(tag("edicta/policy/v1/verdict") || canon(PolicyVerdict))
 signed_message  = tag("edicta/policy/v1/verdict-sig") || verdict_hash   ; 61 bytes, gate key
-prev_state_hash = state_hash(prev_state)       ; public mode: derived from key 13, never a field
-                                                ; private mode: key 20
+prev_state_hash = state_hash(prev_state)       ; public form: derived from key 13, never a field
+                                                ; private form: key 20 (blinded, 9.1)
 ```
 
+Two forms. A verdict is in private form iff key 19 is present; a gate whose
+mandate has `auditors` emits only private form, every other gate only public
+form. The PrivatePart carries exactly the verdict keys removed from the
+public part, under the same key numbers, with the presence of the
+public-form row of 10.2 for its outcome and reason, plus the salt. The salt
+exists because `private_hash` is public (key 19, and the kind 15 path) and the
+PrivatePart is low-entropy (a reason from a list of fifteen, facts, times near
+public anchor times): unsalted, it would be an oracle for deny reasons and
+amounts (limit probing).
+
+Logical verdict. With an auditor key the verifier opens the kind 15 `(4,
+private_hash)` record (9.5) and merges: the public part without keys 19 and
+20, plus the PrivatePart without keys 1 and 2, gives a public-form verdict on
+which every public-mode step runs (13.2), with `state_hash_p` in place of
+`state_hash`. `verdict_hash` and the signature are always over the
+private-form bytes as signed. Cap of the PrivatePart: 16,384.
+
 ### 10.2 Presence (decoding rule, `ErrVerdictInvalid`)
+
+Public form:
 
 | Verdict | 8 | 9 | 10 | 11 | 12 | S | 14 | 15, 16 | 18 |
 |---|---|---|---|---|---|---|---|---|---|
@@ -766,15 +919,32 @@ prev_state_hash = state_hash(prev_state)       ; public mode: derived from key 1
 | Deny P10 | R | R | R | R | - | R | - | - | - |
 | Deny P11 to P14 | R | R | R | R | R | R | - | - | - |
 
-`-` is absent. Column S is the state read, in one of two forms: public form,
-key 13 `prev_state` present and keys 19, 20 absent; private form, keys 19
-`private_hash` and 20 `prev_state_hash` present and key 13 absent. Where S is
-`-`, keys 13, 19 and 20 are all absent. A verdict that mixes the forms is
-`ErrVerdictInvalid`. "The state read is not genesis" is `prev_state.seq >= 1`
-in public form and `prev_state_hash != state_hash(Genesis)` in private form;
-the two agree because strict decoding admits no state with `seq = 0` other
-than Genesis (9.2, 9.4), so a decoder without the auditor key can apply the
-rule.
+`-` is absent. Column S is key 13 `prev_state`. Key 17 is required, keys 19
+and 20 are absent. "The state read is not genesis" is `prev_state.seq >= 1`.
+
+Private form (key 19 present), the public part:
+
+| Verdict | Keys present |
+|---|---|
+| Allow | 1 to 7 (`outcome = 1`), 14 `new_state_hash` (blinded), 15 and 16 iff key 20 != `state_hash(Genesis)`, 19 `private_hash`, 20 `prev_state_hash` (blinded) |
+| Deny (every row, P1 to P15 alike) | 1 to 7 (`outcome = 2`), 19 `private_hash` |
+
+Keys 8 to 13, 17 and 18 are never present in private form, and a deny carries
+no key 14, 15, 16 or 20: all private denies have the same public shape (no
+reason, no stage, no amount, no state). A deny's state read (rows P10 to P14)
+is in its PrivatePart. Any other key set is `ErrVerdictInvalid`; this decoding
+rule needs no auditor key. "The state read is not genesis" is
+`prev_state_hash != state_hash(Genesis)`; it agrees with `seq >= 1` because
+strict decoding admits no state with `seq = 0` other than Genesis (9.2, 9.4)
+and Genesis keeps the public hash under blinding (9.1).
+
+PrivatePart presence, checked after opening against the public `outcome`: an
+allow needs keys 9 to 13 and 17 and no 8 or 18; a deny needs 8 and then the
+public-form row of its `reason`. Equivalently, the merged verdict passes the
+public-form table. A failure is `ErrVerdictInvalid` (verifier:
+`source_corrupt`). For an allow, `state_hash_p(prev_state) != key 20` is a
+gate-signed contradiction (`gate_integrity` violated), checked before the
+presence rule.
 
 Which form a verdict must use follows the mandate of `mandate_hash`: private
 form iff the mandate has `auditors`. The decoder cannot know that; the
@@ -788,17 +958,20 @@ the verdict: `authorized_at` of core stage 10 for stage 10p verdicts, `now`
 of core stage 1 for stage 4p. No verifier rule reads it. The verdict contains
 no tx hash and no rail reference (core invariant 6).
 
-Private form size: keys 19 and 20 take 70 bytes and replace a `prev_state` of
-up to about 1 KB, so the `SignedPolicyVerdict` cap stands.
+Private form size: the public part is at most the public form's size, so the
+`SignedPolicyVerdict` cap stands.
 
 ### 10.3 Chain rules (normative)
 
 For consecutive allows `n - 1` and `n` of one counter:
 - `prev_commitment_hash(n) = commitment_hash(n-1)`, `prev_verdict_hash(n) = verdict_hash(n-1)`;
-- `prev_state_hash(n) = new_state_hash(n-1)` (key 20 in private form);
-- `new_state_hash(n) = state_hash(Apply(ledger(n), delta(n)))`, where
-  `delta(n) = (facts.asset, facts.scale, facts.amount, anchor_time)`;
-- `prev_state(n).seq = prev_state(n-1).seq + 1`.
+- `prev_state_hash(n) = new_state_hash(n-1)` (key 20 against key 14 in
+  private form, bytewise, both blinded with the counter's one `state_salt`);
+- `new_state_hash(n) = state_hash(Apply(ledger(n), delta(n)))` (`state_hash_p`
+  in private mode), where `delta(n) = (facts.asset, facts.scale,
+  facts.amount, anchor_time)`;
+- `prev_state(n).seq = prev_state(n-1).seq + 1` (in private form `prev_state`
+  is read from the PrivatePart).
 
 **Fork.** Two allow verdicts signed by one gate, with the same `gate_id`, whose
 mandates have the same `counter_key`, the same `prev_state.seq` and different
@@ -833,13 +1006,15 @@ checks `mandate_ref` before 4p (core v1 7.3).
 | 4a | AR | unchanged; also runs after a 4p deny | core |
 | 5 to 10 | N0, K or K-fast, K1, K2, P, T' | core v1; K-fast reads the mandate's `fast_mode_max_delay` for the deadline | core, core v1 |
 | 10p | Evaluation | P9 (8.3). Then take the policy lock, read the counter cell, `Evaluate` (8.4). A deny signs a deny verdict (with `prev_state` from the cell), releases the lock, writes nothing to the registry | 8.3, 8.4 |
-| 11 | Z | the Authorization (v1), and the allow verdict with the state read (`prev_state`, or `private_hash` and `prev_state_hash` in private mode, keeping the PrivatePart bytes with the entry), `new_state_hash` and the chain links, both signed with the gate key under their own tags | core |
+| 11 | Z | the Authorization (v1), and the allow verdict with the state read, `new_state_hash` and the chain links, both signed with the gate key under their own tags; in private mode the verdict is in private form (10.1: keys 8 to 13 and 17 move into the PrivatePart, keys 14 and 20 are blinded), and the PrivatePart bytes are kept with the entry | core |
 | 12 | N | `ConsumeState`: the nonce entry (with the signed verdict, in private mode the PrivatePart bytes, and, when the allow closed an hour, the closed Bucket and the new ClosedSet bytes) and the cell compare-and-swap in one atomic, durable transaction; then release the lock | `ErrNonceUsed`, `ErrPolicyStateConflict` |
 | 13 | R | the Authorization and the verdict; the archive writes of 12.2 (in private mode, kind 15 envelopes encrypted at this stage) | |
 
 - Every deny wraps `policy.ErrDenied`. A deny's verdict is returned with it
   and archived with the rejection marker (12.3). Stage 1 to 4 failures beat
-  the policy and sign nothing.
+  the policy and sign nothing. In private mode stage 4p and 10p denies sign
+  the private form (public keys 1 to 7 and 19 only) and keep the PrivatePart
+  bytes for the deny's archive write.
 - Operational failures sign nothing and are not marked: registry, signer,
   a cancelled lock, `ErrPolicyStateConflict` (the cell changed under the
   compare-and-swap; 503, retryable, nothing written).
@@ -905,7 +1080,10 @@ deadline at or below the mandate's bound.
   present iff the gate has a mandate.
 - Error body: new optional key `5: policy_verdict bstr` (1..16384). Present
   on every policy deny, and on a 409 `ErrNonceUsed` that carries `stored`
-  when the stored entry holds a verdict. No other code carries it.
+  when the stored entry holds a verdict. No other code carries it. At a
+  private-mode gate key 5 holds the private-form verdict, never the
+  PrivatePart, and the caller still gets the sentinel in the error body. HTTP
+  answers are not archive data; protecting them is the caller's job.
 - Mapping. Policy codes are prefixed with the package (`policy.`), as core
   18.3 prescribes for packages other than `commitment` and `gate`. They wrap
   no core sentinel and are matched after every core code of their status:
@@ -928,13 +1106,15 @@ The cell under `counter_key` holds the mandate ID, version and hash, the
 `scales` map (6.3, at most 1024 entries; the cell's encoder refuses a larger
 map, as its decoder does), the chain head (`commitment_hash`, `verdict_hash` of the
 last allow) and the ledger (state and retained closed buckets, at most 768
-buckets). Cells are never pruned.
+buckets) and, for a private counter, the `state_salt` of genesis (6.3).
+Cells are never pruned.
 
 The nonce entry of an allow holds, next to the SignedPolicyVerdict, the
 canonical bytes of the Bucket closed by that allow and of the ClosedSet it
-produced (both absent when the allow did not roll an hour over) and, in
-private mode, the canonical PrivatePart bytes, in clear (the registry is
-gate-local; the archive copies are encrypted at stage 13). They are
+produced (both absent when the allow did not roll an hour over), the
+`action_salt` of a v1 decision (for the reveal on execution, core v1 11.4)
+and, in private mode, the canonical PrivatePart bytes, in clear (the registry
+is gate-local; the archive copies are encrypted at stage 13). They are
 written in the same transaction as the cell, so they are exactly as durable
 as the spend they describe: whatever the archive loses, the registry can
 rewrite (12.2). Cost: at most 16,384 + 36,864 bytes, only on the
@@ -961,14 +1141,16 @@ Signatures are not checked at decoding; readers check them (section 13).
 |---|---|---|---|---|---|---|---|
 | 7 | `mandate` | 3: `signed_mandate` bstr 1..16384 | `mandate_hash` | `mandate/<hex>` | 16,448 | whole record | none |
 | 8 | `policy_allow` | 3: `signed_verdict` bstr 1..16384, `outcome = 1` | `commitment_hash` (verdict key 4) | `policy-allow/<hex>` | 16,448 | whole record | the decision record and the mandate record of its `mandate_hash` (kind 7, or in private mode kind 15 `(1, mandate_hash)`) |
-| 9 | `policy_deny` | 3: `signed_verdict` bstr 1..16384, `outcome = 2` | `(commitment_hash, reason)` | `policy-deny/<hex>/<reason>` | 16,448 | the key (first write stays) | the decision record |
+| 9 | `policy_deny` | 3: `signed_verdict` bstr 1..16384, `outcome = 2` | `(commitment_hash, reason)`; in private form `(commitment_hash, "private")` | `policy-deny/<hex>/<reason>`, `policy-deny/<hex>/private` | 16,448 | the key (first write stays) | the decision record |
 | 10 | `policy_bucket` | 3: `bucket` bstr (canonical Bucket) | `bucket_hash` | `policy-bucket/<hex>` | 16,448 | whole record | none |
 | 11 | `policy_closed` | 3: `closed_set` bstr (canonical ClosedSet) | `closed_root` | `policy-closed/<hex>` | 36,928 | whole record | none |
 | 12 | `policy_successor` | 3: `gate_id` tstr (ID, 1..64), 4: `counter_key` bstr 32, 5: `state_hash` bstr 32, 6: `commitment_hash` bstr 32 | `successor_key` (2.2) | `policy-successor/<hex>` | 256 | whole record | the `policy_allow` record of `commitment_hash`, whose verdict has this `gate_id` and `prev_state_hash = state_hash`, and whose mandate has this `counter_key` (otherwise `archive.ErrNotFound` when absent, `archive.ErrCorrupt` when it differs); with a private mandate the store cannot open it and skips the `counter_key` part, which readers with an auditor key check |
 
 A reader recomputes the key from the record (hash of the nested bytes, or
 the verdict's fields, or `successor_key` from fields 3 to 5) and reports a
-mismatch as corrupt (core 19.3). A `policy_allow` record holding a deny, or the
+mismatch as corrupt (core 19.3). For kind 9 the reason segment is `private`
+iff the verdict has key 19, else the bare sentinel name; a public segment
+always starts with `Err`, so the two never collide. A `policy_allow` record holding a deny, or the
 reverse, is corrupt (`ErrInvalidEnum`). A second `policy_successor` write with
 another `commitment_hash` is `archive.ErrConflict`: an honest gate never
 causes one, so the writer MUST log it at error level as a possible fork.
@@ -978,15 +1160,17 @@ genesis state, so a key without the counter would collide across mandates
 and gates sharing one archive.
 
 Kind 15 `private_blob` (private mode) is defined in core v1 section 11.1:
-`{3: plaintext_kind (1 mandate, 2 bucket, 3 closed_set, 4 private_part), 4:
-hash, 5: envelope}`, key `(plaintext_kind, hash)`, path
-`private/<plaintext_kind>/<hex>`, cap 65,600, identity the key. In private
-mode the gate writes kind 15 in place of kinds 7, 10 and 11, and a kind 15
-`(4, private_hash)` for every verdict in private form that carries the state
-read; kinds 8, 9 and 12 are written as in public mode. A writer refuses a
+`{3: plaintext_kind (1 mandate, 2 bucket, 3 closed_set, 4 private_part, 5
+action), 4: hash, 5: envelope}`, key `(plaintext_kind, hash)`, path
+`private/<plaintext_kind>/<hex>`, cap 69,760, identity the key. In private
+mode the gate writes kind 15 in place of kinds 7, 10 and 11 (for kinds 2 and
+3 under the blinded key of 9.5), a kind 15 `(4, private_hash)` for **every**
+verdict (allow and deny), written before kind 8 or 9, and, through core v1,
+a kind 15 `(5, action_hash)` before the kind 17 decision record. Kinds 8, 9
+(private segment) and 12 are written as in public mode. A writer refuses a
 clear kind 7, 10 or 11 for a private mandate (a bug, logged): privacy would
 be lost for that record, verification would not. The `successor_key` uses
-`prev_state_hash` (key 20) in private form.
+`prev_state_hash` (key 20, blinded) in private form.
 
 ### 12.2 Writers
 
@@ -998,7 +1182,7 @@ be lost for that record, verification would not. The `successor_key` uses
   crash leaves no Authorization record without its verdict. A failed write
   does not change the answer; the gate repairs it (below).
 - After a policy deny: `policy_deny` and the rejection marker (12.3); in
-  private form, the kind 15 PrivatePart first.
+  private form, the kind 15 PrivatePart first (every private deny has one).
 - Private mode (core v1 11.1): every clear record above is replaced by its
   kind 15 envelope (mandate and genesis ClosedSet at start; closed bucket and
   ClosedSet at a rollover), and the kind 15 PrivatePart of the verdict is
@@ -1036,8 +1220,10 @@ The marker verdict list of core 19.2 gains the fourteen policy deny names, bare:
 `ErrAgentNotCovered`, `ErrFastModeNotAllowed`, `ErrNoExtractor`, `ErrFactsInvalid`,
 `ErrOutsideMandate`, `ErrKindNotAllowed`, `ErrAssetNotAllowed`, `ErrRecipientNotAllowed`,
 `ErrAmountAboveMax`, `ErrDecisionAge`, `ErrMinSpacing`, `ErrPeriodLimit`,
-`ErrCountLimit`, `ErrHistoryFull`. `ErrPolicyStateConflict` is operational and
-never a marker.
+`ErrCountLimit`, `ErrHistoryFull`, and, in private mode only, `ErrDenied`: a
+private-mode gate writes `ErrDenied` as the marker name of every policy deny
+(the public marker must not reveal the reason), and a public-mode gate never
+writes it. `ErrPolicyStateConflict` is operational and never a marker.
 
 Vectors: `spec/vectors/policy/archive.json`.
 
@@ -1046,8 +1232,10 @@ Vectors: `spec/vectors/policy/archive.json`.
 ### 13.1 When the check runs
 
 The named check `policy` (core 20.1) runs for a decision in record state
-`authorized` when `RequirePolicy` is set or a `policy_allow` record exists for
-it; it is then required for `valid`. `RequirePolicy` is the auditor's
+`authorized` when `RequirePolicy` is set, a `policy_allow` record exists for
+it, or its verified Authorization v1 has `mode = 2` (fast mode needs the
+principal's consent, core v1 10.1); it is then required for `valid`. Without
+an allow record it is then `unchecked` (`policy_verdict_unavailable`). `RequirePolicy` is the auditor's
 statement that the gate had a mandate: without it, an archive that withholds
 the allow record silently skips the check. Every report also carries
 `gate_integrity` (13.4). Inputs: the gate key on record for `gate_id` (the
@@ -1086,6 +1274,13 @@ and only the first violation found is reported.
    mandate_hash)` opened with an auditor key (9.5). Neither present:
    unchecked (`policy_mandate_unavailable`). Only kind 15 and no key opens
    it: unchecked (`policy_private`), and the private-mode rule below applies.
+   In private form, after the form check below, the PrivatePart of `V` is
+   opened (kind 15 `(4, V.private_hash)`), hash-checked, checked against key
+   20 and for presence (10.2), and merged (10.1): steps 3 to 6 run on the
+   merged verdict. Absent: unchecked (`state_history_unavailable`); bytes or
+   presence that fail: unchecked (`source_corrupt`); a state that does not
+   hash to key 20 under the mandate's `state_salt`: `gate_integrity`
+   violated, evidence `[V]`.
    Undecodable, key mismatch or envelope failure: unchecked (`source_corrupt`).
    Scheme of `sig_type` not in this verifier build: unchecked
    (`principal_scheme_unsupported`). Bad principal signature: unchecked
@@ -1108,12 +1303,9 @@ and only the first violation found is reported.
    (`anchor_time_mismatch`), then P10 on `T_ref`. If `T_ref` is not verified,
    these two are unchecked (`blocked`, naming `header_trust`) and the steps go
    on.
-5. **State read and closed buckets.** In private form, first the kind 15
-   `(4, V.private_hash)` PrivatePart, opened and hash-checked (9.5); its
-   `prev_state` stands for `V.prev_state` below, and `state_hash(prev_state)
-   != V.prev_state_hash` (key 20) is a gate-signed contradiction:
-   `gate_integrity` violated, evidence `[V]`. Then the ClosedSet of
-   `V.prev_state.closed_root` (genesis: no read), then every bucket with `index >= k(V.eval_time) - W`, where `W`
+5. **State read and closed buckets.** The ClosedSet of
+   `V.prev_state.closed_root` (genesis: no read; in private mode looked up
+   under its blinded key, 9.5), then every bucket with `index >= k(V.eval_time) - W`, where `W`
    is the largest `hours` among the asset's periods and the count limits (0
    if none). Absent: unchecked (`state_history_unavailable`). Bytes that do not
    hash to their key or fail decoding: unchecked (`source_corrupt`). A ledger
@@ -1123,7 +1315,8 @@ and only the first violation found is reported.
    prev_state.last_t)` is **fail** (`eval_time_mismatch`). `Evaluate(mandate,
    ledger, V.facts, V.anchor_time)` must allow; a deny is **fail** with its
    sentinel name: the gate's own signed state contradicts its allow. Then
-   `state_hash(Apply(ledger, delta(V)))` must equal `V.new_state_hash`; if not,
+   `state_hash(Apply(ledger, delta(V)))` (`state_hash_p` with the mandate's
+   salt in private mode) must equal `V.new_state_hash`; if not,
    the transition is self-inconsistent: `gate_integrity` violated, evidence
    `[V]`.
 
@@ -1131,17 +1324,20 @@ A kind 15 record that is absent is `state_history_unavailable` (or
 `policy_mandate_unavailable` for the mandate), as for its clear kind; one
 that no configured key opens is `policy_private`.
 
-**Private mode without an auditor key.** When step 2 ends `unchecked`
-(`policy_private`), the steps go on where they need no private data: step 3
-(facts) runs and can **fail** (`facts_mismatch`); in step 4 only the
-`anchor_time` comparison with verified `T_ref` runs and can **fail**
-(`anchor_time_mismatch`); P1, P15 and the bound, P4 to P8, P10 and steps 5
-and 6 are `unchecked` (`policy_private`). The `mandate_ref` equality of step 1
-runs as always (the hash is public). The full check runs as 13.3 says for
-this case. The result is `policy` `unchecked` (`policy_private`) unless a
-fail was found. With a key, every step runs on the opened structures and the
+**Private mode without an auditor key.** Step 1 runs in full: the allow
+record, the gate signature, `gate_id`, `action_hash` and `agent_pubkey`
+against the verified decision, and the `mandate_ref` equality (all public).
+Steps 2 to 6 are `unchecked` (`policy_private`): the facts, `anchor_time`,
+the rules, the fast-mode consent (P15 and the bound need the mandate) and the
+state are private. The hash checks that still run: the public presence of the
+private form (10.2), keys 15 and 16 iff key 20 is not the genesis hash, walk
+L1 and L2, the hash-form fork rule, and genesis by key 20 (13.3). The core
+`action` check of a private-form decision record is `unchecked`
+(`policy_private`) as well (core v1 10.7), unless a reveal applies. The
+result is `policy` `unchecked` (`policy_private`) unless step 1 failed. With a
+key, every step runs on the merged verdict and the opened structures, and the
 outcomes are exactly the public-mode ones; the report notes the mode and the
-auditor kid.
+auditor kid as a fingerprint (13.5).
 
 ### 13.3 Full check (`PolicyFull`, CLI `--policy-full`)
 
@@ -1198,15 +1394,17 @@ read the `policy_allow` record of `n.prev_commitment_hash` as `p` (absent:
 | L5 | `state_hash(Apply(ledger(p), delta(p))) = p.new_state_hash`, with the ClosedSet of `p.prev_state.closed_root` (absent or corrupt as in step 5) | violated `[p]` (self-inconsistent) |
 
 **Private form without an auditor key.** L1 and L2 run on public fields
-(`prev_state_hash` is key 20); L3 (`seq` is private), L4 and L5 are not
-findings but are reported `unchecked` (`policy_private`), and the walk goes on.
+(`prev_state_hash` is key 20, compared bytewise with key 14 of `p`, no salt
+needed); L3 (`seq` is private), L4 and L5 are not findings but are reported
+`unchecked` (`policy_private`), and the walk goes on.
 A hop whose verdicts change `mandate_hash` is reported, not judged (a version
 bump cannot be told from a mandate change without the key). Genesis is
 recognized by `prev_state_hash = state_hash(Genesis)`. A walk that reaches
 genesis without a violation reports `gate_integrity` `unchecked`
 (`policy_private`), never `ok`; the `walk` fields `from_seq`, `to_seq` and
 `total` are absent and `steps` counts hops. With a key the walk is the
-public-mode walk on the opened structures.
+public-mode walk on the opened structures: each hop opens and merges the
+PrivatePart of `p` and of `n`, L5 uses `state_hash_p`.
 
 **Forks** (both modes). The held allow verdicts are: `V`; in the full mode
 every walked verdict and every verdict a `policy_successor` record leads to
@@ -1233,9 +1431,10 @@ inconsistent (L5). Either way a signed contradiction comes out.
 | Fork; unlinked consecutive verdicts; a self-inconsistent transition or ledger; a seq gap; a version decrease, a scale change or a `mandate_id`, principal or `gate_id` change inside one chain; a verdict that contradicts the verified decision | unchecked (`blocked`, naming `gate_integrity`) unless already fail or unchecked | `violated`, reason `gate_equivocation`, evidence: the signed verdicts (one for a self-inconsistent one) |
 | Walk ended at the step cap (default or explicit), without findings | per the fast check | `unchecked`, reason `policy_walk_truncated` |
 | Walk reached genesis without findings | per the fast check | `ok` |
-| Private records and no auditor key opens them | unchecked (`policy_private`) unless a fail was found | `unchecked` (`policy_private`) after a walk; `violated` on L1, L2 or a fork |
+| Private records and no auditor key opens them | unchecked (`policy_private`) unless step 1 failed | `unchecked` (`policy_private`) after a walk; `violated` on L1, L2 or a fork |
+| A PrivatePart whose presence does not fit the public outcome, or that does not hash to `private_hash` | unchecked (`source_corrupt`) | unchanged |
 | The verifier lacks the mandate's principal scheme | unchecked (`principal_scheme_unsupported`) | unchanged |
-| A verdict in the wrong form for its mandate; a decrypted state that does not hash to key 20 | unchecked (`blocked`, naming `gate_integrity`) unless already fail or unchecked | `violated`, reason `gate_equivocation`, evidence `[V]` |
+| A verdict in the wrong form for its mandate; a decrypted state that does not hash to key 20 under the mandate's `state_salt` | unchecked (`blocked`, naming `gate_integrity`) unless already fail or unchecked | `violated`, reason `gate_equivocation`, evidence `[V]` |
 | No walk and no violation | per the fast check | `not_checked` |
 
 `gate_integrity` is `{status: ok | violated | not_checked | unchecked, reason,
@@ -1284,11 +1483,14 @@ After a walk the text output prints one line with the `walk` fields:
 
 The report's `policy` block: `mandate_hash`, `mandate_id`, `version`,
 `principal` (with its scheme), `mode` (`public` or `private`, with
-`auditor_kid` when opened), `mandate_ref` (`match` or `absent`), `seq` (of
-`prev_state`; absent in private mode without a key), `anchor_time`, `eval_time`, `facts`,
-`extractor`, `prev_state_hash`, `new_state_hash`, and `denials` (policy deny
-records of this decision, informational; `ErrDecisionAge` flagged
-gate-attested). A verifier MAY skip reading deny records.
+`auditor_kid` when opened, printed as the grouped 128-bit fingerprint of 7),
+`mandate_ref` (`match` or `absent`), `seq` (of `prev_state`; absent in private
+mode without a key), `anchor_time`, `eval_time`, `facts`, `extractor`,
+`prev_state_hash`, `new_state_hash`, and `denials` (policy deny records of
+this decision, informational; `ErrDecisionAge` flagged gate-attested;
+reasons only for opened private denies, otherwise `private`). A verifier MAY
+skip reading deny records. A label printed next to an auditor follows the
+label rule of 7.
 
 ### 13.6 What it proves
 
@@ -1303,9 +1505,9 @@ gate-attested). A verifier MAY skip reading deny records.
 - With `mandate_ref`: that the agent itself committed to exactly the mandate
   the gate applied; with a fast-mode Authorization, that the principal
   consented and the deadline is within its bound.
-- In private mode without an auditor key: only the allow, the facts, the
-  `anchor_time`, the `mandate_ref` equality and the hash links and forks; not
-  that the rules were respected.
+- In private mode without an auditor key: only the allow, the `mandate_ref`
+  equality, the hash links and forks; not the facts, not the reference time,
+  not the fast-mode consent, not that the rules were respected.
 
 Not proven: allows the gate kept outside every chain and every piece of
 evidence (an Authorization of that kind is itself evidence when it surfaces);
@@ -1333,10 +1535,12 @@ Package `policy` unless noted. Deny sentinels wrap `ErrDenied`.
 | `ErrCountLimit` | P13 | rolling count |
 | `ErrHistoryFull` | P14 | capacity |
 | `ErrMandateInvalid` | 6 | mandate decoding or value rule (configuration, verifier `source_corrupt`) |
+| `ErrAuditorKidMismatch` | 6.1 | an auditor's kid is not derived from its key; wraps `ErrMandateInvalid` |
 | `ErrMandateSignature` | 6.2 | principal signature under the mandate's scheme (including high-s, `v` outside `{27, 28}`, a recovered address that differs, an ADR-036 signature over another text) |
-| `ErrVerdictInvalid` | 10 | verdict decoding or presence rule |
+| `ErrVerdictInvalid` | 10 | verdict or PrivatePart decoding, or presence rule |
 | `ErrVerdictSignature` | 10.1 | gate signature on a verdict |
 | `ErrStateInvalid` | 9 | Bucket, ClosedSet, State or ledger |
+| `ErrDenied` (as a marker name) | 12.3 | private mode only: the marker of every policy deny |
 | `ErrPolicyStateConflict` (package `gate`) | 11.4 | cell changed concurrently (operational) |
 | `ErrPolicyViolation` (package `verifier`) | 13 | wraps every `policy` fail |
 
@@ -1344,11 +1548,19 @@ Package `policy` unless noted. Deny sentinels wrap `ErrDenied`.
 
 Location `spec/vectors/policy/`. Every file has `"format":
 "edicta-policy-vectors/v1"` and `"revision"` set to the revision that last
-changed its bytes: after phase P2 of task 031, `policy-v1-draft.6` for
-`mandate.json`, `render.json`, `verify.json`, `archive.json`, `api.json` and
-the new `private.json`; `policy-v1-draft.1` for `facts.json`, `state.json`,
-`engine.json`. The principal vectors are in `spec/vectors/principal/`
-(`"format": "edicta-policy-vectors/v1"`, `"revision": "policy-v1-draft.6"`).
+changed its bytes: `policy-v1-draft.7` for `mandate.json`, `render.json`,
+`verify.json`, `archive.json`, `api.json` and `private.json`;
+`policy-v1-draft.1` for `facts.json`, `state.json`, `engine.json`. The
+principal vectors are in `spec/vectors/principal/` (`"format":
+"edicta-policy-vectors/v1"`; `"revision"` `policy-v1-draft.7` for
+`adr036.json` and `eip712.json`, `policy-v1-draft.6` for `ed25519.json`).
+A v1 decision of the verify files carries `action_salt_hex` and its
+`action_hash_hex` is the salted core v1 hash (since draft.7). Auditor test
+keys: `DeriveKeyPair(SHA-256("edicta/policy/v1 test auditor|" + name))`,
+kid derived (6.1), labels `Alice` and `Bob`; test `state_salt` =
+`SHA-256("edicta/policy/v1 test state salt|" + mandate label)`; PrivatePart
+salt = `SHA-256("edicta/policy/v1 test private part salt|" + commitment_hash
+hex)`.
 The vector field `t_h` (in `engine.json` and `verify.json`) carries `T_ref`
 (equal to `T_H` for an included reference); the name is kept so that one
 concept has one name across the files. JSON as core
@@ -1369,17 +1581,17 @@ labels as in the core payload vectors (core 13, `payload_blob.json`
 | File | Contents |
 |---|---|
 | `facts.json` | `test_extractor`; `cases`: `input`, `cbor_hex`. `reject`: `cbor_hex`, `expect_error` = `ErrFactsInvalid`, `cause`. |
-| `mandate.json` | `tags`, `keys`; `cases` (including a full mandate with `kinds`, `not_before` and every optional field, and a version 2 with the same counter key): `signer`, `input`, `mandate_cbor_hex`, `mandate_hash_hex`, `signed_message_hex`, `signature_hex`, `signed_mandate_hex`, `counter_key_hex`. `reject`: `signed_mandate_hex`, `expect_error` (`ErrMandateInvalid` or `ErrMandateSignature`), `cause`. `adoption` (6.3): optional `start` (the cell before the first step: `version`, `mandate_hash_hex`, `scales`; absent: no cell), `steps` of `signed_mandate_hex`, `mandate_hash_hex`, `expect` (`genesis`, `use`, `switch` or `refuse` with `error` = `gate.ErrInvalidConfig` and `cause` = `version`, `same_version_other_hash`, `scale` or `scales_full`), `version_after`, `scales_after` (the cell after the step; a refusal leaves it unchanged). Cases: a scale change of an unused asset; a scale change after an intermediate version dropped the asset; scales kept with an added asset, then a restart; a lower version; the same version with another hash; `adopt_scales_full` (a start cell of 1012 assets standing for earlier versions; a switch to exactly 1024; one more asset refused; a version with only known assets switched). Draft.5 adds: one full case per scheme (`sig_type` absent, 2, 3) with `counter_key_hex` by the typed formula; a mandate with `fast_mode_max_delay` and one with `auditors`; rejects `sig_type_1_present`, `sig_type_4`, `hrp_without_adr036`, `adr036_without_hrp`, `principal_32_for_adr036`, `principal_not_on_curve`, `principal_21_for_eip712`, `signature_64_for_eip712`, `fast_mode_max_delay_0`, `fast_mode_max_delay_1001`, `auditors_unsorted`, `auditors_duplicate_kid`, `auditor_low_order`, `auditors_17` (`ErrMandateInvalid`), and per scheme a bad signature (`ErrMandateSignature`). Every earlier case keeps its bytes. |
-| `render.json` | `cases`: `mandate_ref` or `input`, `text`, and for `sig_type = 2` also `adr036_data` (the exact `D` of 6.2). Regenerated in draft.5 (every text changes). Cases cover the three `principal:` lines, both `fast mode:` lines and both `auditors:` lines, an ASCII escape case for the amino JSON (`<`, `>`, `&` in an asset or recipient). |
+| `mandate.json` | `tags`, `keys`; `cases` (including a full mandate with `kinds`, `not_before` and every optional field, and a version 2 with the same counter key): `signer`, `input`, `mandate_cbor_hex`, `mandate_hash_hex`, `signed_message_hex`, `signature_hex`, `signed_mandate_hex`, `counter_key_hex`. `reject`: `signed_mandate_hex`, `expect_error` (`ErrMandateInvalid` or `ErrMandateSignature`), `cause`. `adoption` (6.3): optional `start` (the cell before the first step: `version`, `mandate_hash_hex`, `scales`; absent: no cell), `steps` of `signed_mandate_hex`, `mandate_hash_hex`, `expect` (`genesis`, `use`, `switch` or `refuse` with `error` = `gate.ErrInvalidConfig` and `cause` = `version`, `same_version_other_hash`, `scale` or `scales_full`), `version_after`, `scales_after` (the cell after the step; a refusal leaves it unchanged). Cases: a scale change of an unused asset; a scale change after an intermediate version dropped the asset; scales kept with an added asset, then a restart; a lower version; the same version with another hash; `adopt_scales_full` (a start cell of 1012 assets standing for earlier versions; a switch to exactly 1024; one more asset refused; a version with only known assets switched). Draft.5 adds: one full case per scheme (`sig_type` absent, 2, 3) with `counter_key_hex` by the typed formula; a mandate with `fast_mode_max_delay` and one with `auditors`; rejects `sig_type_1_present`, `sig_type_4`, `hrp_without_adr036`, `adr036_without_hrp`, `principal_32_for_adr036`, `principal_not_on_curve`, `principal_21_for_eip712`, `signature_64_for_eip712`, `fast_mode_max_delay_0`, `fast_mode_max_delay_1001`, `auditors_unsorted`, `auditors_duplicate_kid`, `auditor_low_order`, `auditors_17` (`ErrMandateInvalid`), and per scheme a bad signature (`ErrMandateSignature`). Draft.7: `m_private` with derived kids, labels and `state_salt`; rejects `auditors_empty_array`, `auditor_kid_mismatch` (rule `auditor_kid`), `kid_15_bytes`, `kid_17_bytes`, `auditor_pubkey_31`, `auditor_label_empty`, `auditor_label_65`, `auditor_label_quote`, `auditor_label_backslash`, `auditor_label_non_ascii`, `auditor_label_leading_space`, `auditor_label_trailing_space` (rule `auditor_label`), `auditors_duplicate_label` (rule `auditor_label_duplicate`), `state_salt_missing_with_auditors`, `state_salt_without_auditors`, `state_salt_31`, `sig_type_0`, `principal_hrp_17`, `hrp_with_eip712`; the draft.5 auditor rejects regenerated for the new Auditor schema; adoption case `state_salt_changed_on_successor` (steps of a private counter carry `state_salt_after_hex`). Every draft.4 case keeps its bytes. |
+| `render.json` | `cases`: `mandate_ref` or `input`, `text`, and for `sig_type = 2` also `adr036_data` (the exact `D` of 6.2). Regenerated in draft.5 (every text changes). Cases cover the three `principal:` lines, both `fast mode:` lines and both `auditors:` lines, an ASCII escape case for the amino JSON (`<`, `>`, `&` in an asset or recipient). Draft.7: `render_m_private` with the auditor lines (unverified label and full fingerprint) and the label note; `render_m_private_two_auditors` (labels `Auditor 1` and `Auditor l`). |
 | `state.json` | `genesis` (bytes, hash, empty ClosedSet bytes and root); `buckets`, `closed_sets`, `states` (input, bytes, hash); `coverage` (two states differing in one open sum, with different hashes); `reject` per structure. |
 | `engine.json` | `scenarios`: `mandate`, optional `start` ledger (state, closed set and bucket bytes), `steps` (admitted `facts` and `t_h`, or a `repeat` form; `expect`: `allow` with `eval_time`, `new_state_hash_hex`, `new_state_cbor_hex`, `rolled_over`, `closed` count and, after a rollover, the closed bucket hash and ClosedSet bytes; or `deny` with the sentinel and, for `ErrHistoryFull`, `cause` = `sum`, `count`, `pairs` or `seq`), `final`. Scenarios: limit edges, bucket rounding, counts, min spacing, clamp, rollover, `not_before`, two assets, retention 767 over 800 hours, every `ErrHistoryFull` cause. |
-| `verify.json` | `gate`, `extractors`; `records` (archive record bytes by canonical path); `cases`: `decision` (the fields the core checks verified), `t_h` (absent: header trust did not pass), `config` (`require_policy`, `policy_full`, `max_walk_steps` (null: the default), `principal_keys`, `extractors`, `evidence`), `archive` (paths present), optional `corrupt` (path to replacement bytes), `expect` (`policy` with `status` and `rule` or `reason`; `gate_integrity` with `status`, `reason`, `evidence` verdict hashes, and `walk` (13.4) when the walk ran; `verdict`; `exit`). One case per outcome row of 13.4: passes (genesis, closed bucket, hour rollover, chain continuity); a cap that reaches genesis exactly (`ok`) and caps of 1 and 2 steps on a chain of 4 (`unchecked`, `policy_walk_truncated`, verdict `valid`, exit 0); every unchecked reason; every per-action fail including kind and `not_before`; fails on the signed state; fork by evidence and by successor record; unlinked verdicts; self-inconsistent transition; understated open bucket (fast passes, walk exit 5); version decrease; scale change across a version boundary, consecutive and after an intermediate version dropped the asset (evidence the two verdicts whose mandates disagree); a walk across a version boundary that keeps every scale (no equivocation); seq gap; missing and corrupt history; fail with equivocation (exit 1). Draft.5 adds: `mandate_ref_match`, `mandate_ref_mismatch` (fail), `mandate_ref_absent` (pass, reported), `fast_mode_not_allowed` (fail), `fast_mode_delay_exceeded` (fail), `fast_mode_within_bound`, `principal_scheme_unsupported`, `principal_cosmos_pinned`, `principal_eth_pinned`, `principal_eth_not_cosmos` (the comparison is per scheme), `anchor_time_t_ref_pending`. |
-| `archive.json` | `kinds`, `reserved_kinds`, `marker_names`; `cases`: `kind`, `path`, `key_hex`, `record_cbor_hex` (each also in `verify.json`). `reject`: `record_cbor_hex`, `expect_error` = `archive.ErrCorrupt`, `cause`. Draft.5 adds kind 15 cases (one per `plaintext_kind`, `plaintext_kind` field, records in `private.json`), kind 15 rejects, and the marker name `ErrFastModeNotAllowed` (after `ErrAgentNotCovered`, 12.3 order). |
-| `api.json` | the 11.3 mapping and example bodies (deny with key 5, authorize response with key 5, 409 with keys 4 and 5).; draft.5 adds `policy.ErrFastModeNotAllowed` and an authorize response on the alias path `/v1/authorize` (example field `endpoint`, an Authorization v1). |
-| `private.json` | Section 9.5 and the private-mode verifier rules. `tags`, `cap`; `private_verdict` also has `reject` (presence rule of 10.2 in private form: mixed forms, key 19 or 20 alone, chain keys against the genesis test by key 20; `ErrVerdictInvalid`); the envelope rejects also have `wrong_tag_dek_info` (`policy_private`: no entry unwraps under the policy HPKE info); `auditor_keys` (kid, ikm, sk, pk), `derivation`; `envelopes`: `plaintext_kind`, `plaintext_cbor_hex`, `hash_hex`, salt, DEK, nonce, per-auditor `ikme`, `enc`, `wrapped_dek`, `envelope_hex`, `record_cbor_hex`; a verdict in private form (keys 19, 20) with its PrivatePart; `reject`: `envelope_cap_exceeded`, `tampered_ciphertext`, `wrong_tag_aad` (`source_corrupt`). Verifier cases (records as `verify.json`): `private_with_key_pass`, `private_without_key` (`policy_private`, exit 2), `private_without_key_facts_mismatch` (fail), `private_without_key_anchor_time_mismatch` (fail), `private_wrong_key` (`policy_private`), `private_part_hash_differs` (`source_corrupt`), `private_state_not_key_20` (`gate_equivocation`), `private_fork_without_key` (violated by the hash-form fork), `private_walk_without_key` (`unchecked`, `policy_private`), `verdict_form_mismatch` (`gate_equivocation`). |
-| `spec/vectors/principal/adr036.json` | Section 6.2. Keys, `principal_hex`, `hrp`, `address`, `mandate_hash_hex`, `rendered_text` (`D`), `signdoc`, `digest_hex`, `signature_hex`. Rejects: `high_s`, `wrong_hrp`, `principal_32_bytes`, `not_on_curve`, `other_mandate_hash`, `text_differs_one_byte`, `last_line_not_hash`, `d_without_empty_line` (`D` = `Render` without its final LF, then `"\n" || "mandate hash: " || hex`), `d_trailing_lf` (`D` followed by one LF). Each reject carries the signature a wallet would produce over its own signdoc, so only the verifier's rebuild of `D` refuses it. |
+| `verify.json` | `gate`, `extractors`; `records` (archive record bytes by canonical path); `cases`: `decision` (the fields the core checks verified), `t_h` (absent: header trust did not pass), `config` (`require_policy`, `policy_full`, `max_walk_steps` (null: the default), `principal_keys`, `extractors`, `evidence`), `archive` (paths present), optional `corrupt` (path to replacement bytes), `expect` (`policy` with `status` and `rule` or `reason`; `gate_integrity` with `status`, `reason`, `evidence` verdict hashes, and `walk` (13.4) when the walk ran; `verdict`; `exit`). One case per outcome row of 13.4: passes (genesis, closed bucket, hour rollover, chain continuity); a cap that reaches genesis exactly (`ok`) and caps of 1 and 2 steps on a chain of 4 (`unchecked`, `policy_walk_truncated`, verdict `valid`, exit 0); every unchecked reason; every per-action fail including kind and `not_before`; fails on the signed state; fork by evidence and by successor record; unlinked verdicts; self-inconsistent transition; understated open bucket (fast passes, walk exit 5); version decrease; scale change across a version boundary, consecutive and after an intermediate version dropped the asset (evidence the two verdicts whose mandates disagree); a walk across a version boundary that keeps every scale (no equivocation); seq gap; missing and corrupt history; fail with equivocation (exit 1). Draft.5 adds: `mandate_ref_match`, `mandate_ref_mismatch` (fail), `mandate_ref_absent` (pass, reported), `fast_mode_not_allowed` (fail), `fast_mode_delay_exceeded` (fail), `fast_mode_within_bound`, `principal_scheme_unsupported`, `principal_cosmos_pinned`, `principal_eth_pinned`, `principal_eth_not_cosmos` (the comparison is per scheme), `anchor_time_t_ref_pending`. Draft.7: the draft.5 cases regenerated for the salted action hash; `fast_mode_no_policy_record` (mode 2, no allow record, `require_policy` off: unchecked, `policy_verdict_unavailable`, exit 2). |
+| `archive.json` | `kinds`, `reserved_kinds`, `marker_names`; `cases`: `kind`, `path`, `key_hex`, `record_cbor_hex` (each also in `verify.json`). `reject`: `record_cbor_hex`, `expect_error` = `archive.ErrCorrupt`, `cause`. Draft.5 adds kind 15 cases (one per `plaintext_kind`, `plaintext_kind` field, records in `private.json`), kind 15 rejects, and the marker name `ErrFastModeNotAllowed` (after `ErrAgentNotCovered`, 12.3 order). Draft.7: kind 15 cases regenerated (derived kids, blinded keys for kinds 2 and 3) plus `private_blob_action` (plaintext kind 5); `policy_deny_private` (path segment `private`); `marker_names` ends with `ErrDenied`, listed in `marker_names_private_only`; kind 15 rejects `private_kind_6` (replaces `private_kind_5`, now a defined kind), `private_envelope_65537` (plaintext kind 4), `private_over_cap` at 69,761 bytes (was 65,601, below the new cap); `reads`: `deny_private_under_reason_path`, `deny_public_under_private_path` (`archive.ErrCorrupt`) and a control. |
+| `api.json` | the 11.3 mapping and example bodies (deny with key 5, authorize response with key 5, 409 with keys 4 and 5).; draft.5 adds `policy.ErrFastModeNotAllowed` and an authorize response on the alias path `/v1/authorize` (example field `endpoint`, an Authorization v1); draft.7 adds `authorize_deny_private` (a private-form deny verdict in key 5: keys 1 to 7 and 19, the sentinel only in the body) and regenerates the alias example for the salted action hash. |
+| `private.json` | Sections 9.1, 9.5, 9.6, 10 and the private-mode verifier rules (rewritten in draft.7). `tags` (with `state-blind`, `blind-key`, `auditor-kid`), `cap`, `action_cap`; `auditor_keys` (`ikm`, `sk`, `pk`, `kid_preimage_hex`, `kid_hex`, `fingerprint`, `label`), `derivation`; `envelopes` for plaintext kinds 1 to 5 (kinds 2 and 3 under blinded keys, with `plaintext_hash_hex` and `state_salt_hex`; kind 5 for core v1 `v1_pending_fibre_mandate_ref`, with `action_type`, `action_salt_hex`, `action_hex`); `private_verdict`: an allow in private form, its `public_keys`, PrivatePart and `merged_verdict`, and `reject` (`ErrVerdictInvalid`): `verdict_mixed_forms`, `verdict_private_hash_only`, `verdict_state_hash_only`, `verdict_genesis_with_chain_keys`, `verdict_later_without_chain_keys`, `private_form_with_reason`, `private_form_with_facts`, `private_form_with_anchor_time`, `private_form_with_decided_at`, `private_form_with_gate_clock`, `private_deny_with_key_20`, `private_allow_without_14`, `public_form_without_decided_at`; `private_deny`: `private_deny_no_public_reason` (public keys exactly 1 to 7 and 19, kind 9 path `policy-deny/<hex>/private`, marker `ErrDenied`) with `private_deny_with_key` (the reason from the opened PrivatePart); `blinding`: `state_hash_blind_vs_public`, `state_hash_blind_genesis`, `blind_key_bucket`, `blind_key_closed`, `private_part_salt`; envelope `reject`: `envelope_cap_exceeded`, `action_envelope_69633`, `tampered_ciphertext`, `wrong_tag_aad` (`source_corrupt`), `wrong_tag_dek_info` (`policy_private`). Verifier cases (records as `verify.json`): `private_with_key_pass`, `private_without_key` (`policy_private`, exit 2), `private_wrong_key`, `private_part_hash_differs` (`source_corrupt`), `private_walk_without_key` (`unchecked`, `policy_private`), `private_without_key_facts_mismatch` and `private_without_key_anchor_time_mismatch` (both `unchecked`, `policy_private`, exit 2 since draft.7), `private_with_key_facts_mismatch`, `private_with_key_anchor_time_mismatch` (fail), `private_state_not_key_20`, `state_salt_wrong`, `verdict_form_mismatch` (`gate_equivocation`), `private_part_row_mismatch`, `private_part_allow_missing_facts` (`source_corrupt`), `private_fork_without_key`, `chain_continuity_without_salt`, `chain_continuity_tampered_without_salt` (violated without any key). |
+| `spec/vectors/principal/adr036.json` | Section 6.2. Keys, `principal_hex`, `hrp`, `address`, `mandate_hash_hex`, `rendered_text` (`D`), `signdoc`, `digest_hex`, `signature_hex`. Rejects: `high_s`, `wrong_hrp`, `principal_32_bytes`, `not_on_curve`, `other_mandate_hash`, `text_differs_one_byte`, `last_line_not_hash`, `d_without_empty_line` (`D` = `Render` without its final LF, then `"\n" || "mandate hash: " || hex`), `d_trailing_lf` (`D` followed by one LF). Each reject carries the signature a wallet would produce over its own signdoc, so only the verifier's rebuild of `D` refuses it. Draft.7: `case_private` (the mandate with auditors and `state_salt`: the wallet-signed `D` carries the fingerprint lines and the label note), rejects `r_0`, `s_0`, `r_ge_n`. |
 | `spec/vectors/principal/ed25519.json` | Section 6.2, `sig_type` absent: principal seed and key, `mandate_hash_hex`, `signed_message_hex` (`M`), `signature_hex`, `counter_key_hex` (untyped formula). Rejects: `s_not_reduced` (G2), `other_mandate_hash`, `low_order_principal` (G0, `ErrMandateInvalid`). |
-| `spec/vectors/principal/eip712.json` | Section 6.2. Keys, `address`, `typed_data` (the `eth_signTypedData_v4` JSON), `domain_separator_hex`, `type_hash_hex`, `hash_struct_hex`, `digest_hex`, `signature_hex`. Rejects: `v_0`, `v_1`, `high_s`, `recovered_address_differs`, `wrong_domain_name`, `chain_id_present`. |
+| `spec/vectors/principal/eip712.json` | Section 6.2. Keys, `address`, `typed_data` (the `eth_signTypedData_v4` JSON), `domain_separator_hex`, `type_hash_hex`, `hash_struct_hex`, `digest_hex`, `signature_hex`. Rejects: `v_0`, `v_1`, `high_s`, `recovered_address_differs`, `wrong_domain_name`, `chain_id_present`, and since draft.7 `r_0`, `s_0`, `r_ge_n`. |
 
 Profile vectors: `spec/vectors/profiles/bank-send/tia_transfer_facts.json`
 (bank-send profile section 2.4).

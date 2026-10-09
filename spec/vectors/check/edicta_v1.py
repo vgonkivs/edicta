@@ -1,4 +1,4 @@
-"""DecisionCommitment v1 and Authorization v1 rules (v1-draft.3).
+"""DecisionCommitment v1 and Authorization v1 rules (v1-draft.4).
 
 Python side of the cross-language check for format v1. Everything v1 does not
 change is taken from edicta_v0 (the frozen v0 rules), including the whole v0
@@ -21,6 +21,9 @@ TAG_SIG_V1 = b"edicta/v1/sig"
 TAG_AUTHORIZATION_V1 = b"edicta/v1/authorization"
 TAG_AUTHORIZATION_SIG_V1 = b"edicta/v1/authorization-sig"
 TAG_BATCH_LEAF = b"edicta/v1/batch-leaf"
+TAG_ACTION_V1 = b"edicta/v1/action"
+TAG_AUDITOR_KID = b"edicta/v1/auditor-kid"
+ACTION_SALT_SIZE = 32
 
 ANCHOR_PENDING = 2
 MODE_STRICT = 1
@@ -271,7 +274,8 @@ def authorization_message_v1(h: bytes) -> bytes:
 
 @dataclass(frozen=True)
 class CheckV1:
-    """The executor's own knowledge, as core AuthorizationCheck, plus the versions it accepts."""
+    """The executor's own knowledge, as core AuthorizationCheck, plus the versions it accepts and the salt
+    presented with the action bytes (None: absent)."""
     gate_pubkey: bytes
     gate_id: str
     action_type: str
@@ -279,6 +283,7 @@ class CheckV1:
     now: int
     skew_s: int
     accept_versions: frozenset = field(default=frozenset({0, 1}))
+    action_salt: bytes | None = None
 
 
 def validate_authorization_v1(a: dict, accept: frozenset):
@@ -297,12 +302,47 @@ def validate_authorization_v1(a: dict, accept: frozenset):
         raise Reject("ErrZeroValue", "anchor_deadline")
 
 
-def _executor_checks(a: dict, chk):
+def action_hash_v1(action_type: str, salt: bytes, action: bytes) -> bytes:
+    """Section 4.7: the salted action hash of a v1 commitment."""
+    if len(salt) != ACTION_SALT_SIZE:
+        raise ValueError("action salt must be 32 bytes")
+    t = action_type.encode("ascii")
+    return hashlib.sha256(tagged(TAG_ACTION_V1) + bytes([len(t)]) + t + salt + action).digest()
+
+
+def check_salt_presence(version: int, salt: bytes | None):
+    """Gate A0s / executor X2s: v1 needs a 32-byte salt, v0 refuses any salt."""
+    if version == 1:
+        if salt is None:
+            raise Reject("ErrMissingField", "action_salt")
+        if len(salt) != ACTION_SALT_SIZE:
+            raise Reject("ErrFieldSize", f"action_salt {len(salt)} bytes")
+    elif salt is not None:
+        raise Reject("ErrUnknownKey", "action_salt with a v0 commitment")
+
+
+def action_matches(version: int, action_type: str, salt: bytes | None, action: bytes, committed: bytes) -> bool:
+    got = action_hash_v1(action_type, salt, action) if version == 1 else v0.action_hash(action_type, action)
+    return hmac.compare_digest(got, committed)
+
+
+def gate_stage_a(version: int, c: dict, action: bytes, salt: bytes | None):
+    """Section 7.1 stage A: A0, A0s, A1."""
+    if not 1 <= len(action) <= v0.MAX_ACTION_SIZE:
+        raise Reject("ErrActionSize", f"{len(action)} bytes")
+    check_salt_presence(version, salt)
+    if not action_matches(version, c["action"]["type"], salt, action, c["action"]["hash"]):
+        raise Reject("ErrActionMismatch")
+
+
+def _executor_checks(a: dict, chk, version: int):
+    """X1, X2, X2s, X3, X4."""
     if a["gate_id"] != chk.gate_id:
         raise Reject("ErrScopeMismatch", "gate_id")
     if not 1 <= len(chk.action) <= v0.MAX_ACTION_SIZE:
         raise Reject("ErrActionSize", f"{len(chk.action)} bytes")
-    if not hmac.compare_digest(v0.action_hash(chk.action_type, chk.action), a["action_hash"]):
+    check_salt_presence(version, chk.action_salt)
+    if not action_matches(version, chk.action_type, chk.action_salt, chk.action, a["action_hash"]):
         raise Reject("ErrActionMismatch")
     if chk.now + chk.skew_s >= a["expires"]:
         raise Reject("ErrExpired")
@@ -319,7 +359,7 @@ def verify_authorization_any(data: bytes, chk: CheckV1):
         v0.validate_authorization_static(a)
         h = v0.authorization_hash(canon)
         v0._verify_tagged_hash(chk.gate_pubkey, h, signed["signature"], v0.TAG_AUTHORIZATION_SIG)
-        _executor_checks(a, chk)
+        _executor_checks(a, chk, 0)
         return 0, signed, h
     signed, canon = _decode_signed(data, v0.MAX_AUTHORIZATION_SIZE, SIGNED_AUTHORIZATION_V1, it,
                                    "signed_authorization")
@@ -327,34 +367,76 @@ def verify_authorization_any(data: bytes, chk: CheckV1):
     validate_authorization_v1(a, chk.accept_versions)
     h = authorization_hash_v1(canon)
     v0._verify_tagged_hash(chk.gate_pubkey, h, signed["signature"], TAG_AUTHORIZATION_SIG_V1)
-    _executor_checks(a, chk)
+    _executor_checks(a, chk, 1)
     return 1, signed, h
 
 
-# Gate stage K-fast window (8.3) and the reference-time rules (9).
+# Gate configuration (7.4), stage K-fast window and slack (8), and the reference-time rules (9).
+
+GATE_CONFIG_DEFAULTS = {"fast_mode": False, "fast_window_blocks": 100, "max_h0_age_blocks": 10,
+                        "min_fast_slack_blocks": 3, "min_promise_slack_seconds": 15, "rebroadcast_intent": True}
+
+
+def validate_gate_config(cfg: dict, mandate: bool, allowlist: list):
+    """ValidateBasic in table order, then the cross-field rule, then the constructor's mandate check.
+    Raises Reject("ErrInvalidConfig", cause)."""
+    c = dict(GATE_CONFIG_DEFAULTS, **cfg)
+    bad = lambda cause: Reject("ErrInvalidConfig", cause)
+    if c["fast_mode"] and not c.get("pending_namespaces"):
+        raise bad("pending_namespaces")
+    if c["fast_mode"] and not c.get("archive", True):
+        raise bad("archive")
+    if not 1 <= c["fast_window_blocks"] <= MAX_FAST_WINDOW:
+        raise bad("fast_window_blocks")
+    if not 1 <= c["max_h0_age_blocks"] <= c["fast_window_blocks"] - 1:
+        raise bad("max_h0_age_blocks")
+    if not 1 <= c["min_fast_slack_blocks"] <= 100:
+        raise bad("min_fast_slack_blocks")
+    if not 1 <= c["min_promise_slack_seconds"] <= 600:
+        raise bad("min_promise_slack_seconds")
+    for ns in c.get("pending_namespaces", []):
+        if len(ns) != 29 or not v0.namespace_ok(ns):
+            raise bad("pending_namespaces")
+    for t in c.get("reveal_on_execution", []):
+        if t not in allowlist:
+            raise bad("reveal_on_execution")
+    if c["max_h0_age_blocks"] + c["min_fast_slack_blocks"] > c["fast_window_blocks"]:
+        raise bad("age_plus_slack")
+    if c["fast_mode"] and not mandate:
+        raise bad("fast_mode_without_mandate")
+
 
 def fast_window(da: int, h0: int, head: int, fast_window_blocks: int, max_h0_age: int,
-                fast_mode_max_delay: int | None = None, chain_window: int | None = None,
-                timeout_height: int = 0) -> int:
-    """F3/B3 head bound, then F5/B4 in order. Returns anchor_deadline."""
+                fast_mode_max_delay: int, chain_window: int | None = None, timeout_height: int = 0,
+                min_fast_slack: int = 3, included: tuple | None = None, promise: dict | None = None) -> int:
+    """F3/B3 head bound, then F5/B4 in order, then the F6/B5 lookup that may waive a provisional failure.
+    included = (H, code) when the lookup finds the tx; promise = {t_head, creation, timeout, min_slack}
+    for da = 1. Returns anchor_deadline."""
     if head < h0:
         raise Reject("ErrChainUnavailable", "head below h0")
     if head - h0 > max_h0_age:
         raise Reject("ErrH0TooOld")
-    window = fast_window_blocks
-    if fast_mode_max_delay is not None:
-        window = min(window, fast_mode_max_delay)
+    window = min(fast_window_blocks, fast_mode_max_delay)
     if da == v0.DA_FIBRE:
         if chain_window is None:
             raise ValueError("da = 1 needs the chain window")
         window = min(window, chain_window)
     if window < 1:
         raise Reject("ErrAnchorWindowClosed", "window 0")
-    if head - h0 > window:
-        raise Reject("ErrAnchorWindowClosed")
     deadline = h0 + window
     if da == v0.DA_CELESTIA_BLOB and 0 < timeout_height < deadline:
         deadline = timeout_height
+    provisional = deadline < head + min_fast_slack
+    if da == v0.DA_FIBRE and promise is not None:
+        if promise["t_head"] + promise["min_slack"] >= promise["creation"] + promise["timeout"]:
+            provisional = True
+    if included is not None:
+        H, code = included
+        if code == 0 and h0 <= H <= deadline:
+            return deadline
+        raise Reject("ErrAnchorWindowClosed", "included outside the window or with a nonzero code")
+    if provisional:
+        raise Reject("ErrAnchorWindowClosed", "slack")
     return deadline
 
 
@@ -364,3 +446,49 @@ def retention_start(da: int, pending: bool, t_ref: int, creation_ts: int = 0, cr
     if da == v0.DA_CELESTIA_BLOB:
         return t_ref
     return min(t_ref, created_at if pending else creation_ts)
+
+
+# Payload plaintext v1 (4.8).
+
+def _payload_schemas():
+    import edicta_payload_v0 as pv0
+    action_v1 = dict(pv0.PAYLOAD_ACTION)
+    action_v1[5] = ("action_salt", "bstr", True, (ACTION_SALT_SIZE, ACTION_SALT_SIZE))
+    payload_v1 = dict(pv0.PAYLOAD)
+    payload_v1[5] = ("action", action_v1, True, None)
+    return pv0, payload_v1
+
+
+def payload_encode_v1(p: dict) -> bytes:
+    _, schema = _payload_schemas()
+    return encode(v0.to_cbor(p, schema))
+
+
+def payload_decode_v1(b: bytes) -> dict:
+    """PV2, PV3: strict decoding of a payload v1. Structural failures are payload.ErrMalformed."""
+    pv0, schema = _payload_schemas()
+    try:
+        p = v0._schema_decode(decode_strict(b), schema, "payload")
+    except (CBORError, Reject) as e:
+        raise Reject("payload.ErrMalformed", str(e))
+    for k in ("context", "metadata"):
+        if k in p and not pv0.media_type_ok(p[k]["media_type"]):
+            raise Reject("payload.ErrMalformed", f"{k}.media_type")
+    if payload_encode_v1(p) != b:
+        raise Reject("payload.ErrMalformed", "re-encoding differs")
+    if p["version"] != 1:
+        raise Reject("payload.ErrVersion", f"version {p['version']}")
+    return p
+
+
+def o8(commitment_version: int, aead_plaintext: bytes, action_type: str, committed_hash: bytes) -> dict:
+    """PV1 then O8 (v0: core O8; v1: O8 v1), on the AEAD plaintext that passed O7."""
+    import edicta_payload_v0 as pv0
+    body = aead_plaintext[pv0.SALT_SIZE:]
+    p = payload_decode_v1(body) if commitment_version == 1 else pv0.payload_decode(body)
+    a = p["action"]
+    if a["type"] != action_type:
+        raise Reject("sdk.ErrPayloadMismatch", "action type")
+    if not action_matches(commitment_version, a["type"], a.get("action_salt"), a["data"], committed_hash):
+        raise Reject("sdk.ErrPayloadMismatch", "action hash")
+    return p

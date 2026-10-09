@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/verifier/reasons.json (v0-draft.30, with the additions of core v1 section 14, v1-draft.2).
+"""Writes spec/vectors/verifier/reasons.json (v0-draft.30, with the additions of core v1 section 14, v1-draft.4).
 
 The machine-readable reason enum of core section 20.1.1 and one case per
 reason: the check it is reported on, the scenario as overrides of a valid,
@@ -28,8 +28,9 @@ OUT = VECTORS / "verifier" / "reasons.json"
 
 # name, group, checks, meaning, advice
 REASONS = [
-    ("decision_unavailable", "archive", ["decision"],
-     "No decision record for the reference in any checked archive copy.", "another archive copy"),
+    ("decision_unavailable", "archive", ["decision", "action"],
+     "No decision record for the reference in any checked archive copy. Since core v1-draft.4 also on action: a "
+     "private-form v1 decision record whose kind 15 action record is absent.", "another archive copy"),
     ("payload_unavailable", "archive", ["payload"],
      "The payload record is missing in every checked copy. It signals a retention failure of the operator and "
      "can feed an external accountability policy. It is not a verdict on the decision.", "another archive copy"),
@@ -129,8 +130,9 @@ REASONS = [
     ("absence_unproven", "archive", ["anchor"],
      "Pending reference, no evidence inside the window, and the absence proofs for [h0, anchor_deadline] are "
      "missing, incomplete or fail. Names the first height not proven.", "another archive copy or --absence-source"),
-    ("policy_private", "configuration", ["policy", "gate_integrity"],
-     "The record needed is a private blob (kind 15) and no configured auditor key opens it. Names the first record.",
+    ("policy_private", "configuration", ["policy", "gate_integrity", "action", "execution"],
+     "The record needed is a private blob (kind 15) and no configured auditor key opens it. Names the first record. "
+     "On action and execution: a private-form v1 decision record without a reveal that applies.",
      "an auditor key of the mandate"),
     ("principal_scheme_unsupported", "configuration", ["policy"],
      "The verifier build lacks the principal signature scheme the mandate names.",
@@ -309,6 +311,12 @@ def build() -> dict:
         case("policy_private_walk", "Private mandate, full walk without an auditor key: L1 and L2 pass down to the "
              "genesis hash, gate_integrity stays unchecked.", {}, ["policy/private.json#private_walk_without_key"],
              unchecked("gate_integrity", "policy_private"), request="verify --policy-full"),
+        case("policy_private_action", "Private-form v1 decision record, no auditor key, no reveal: the action check "
+             "is unchecked.", {}, ["v1/verify.json#decision_v1_private_without_key"],
+             unchecked("action", "policy_private")),
+        case("decision_unavailable_private_action", "Private-form v1 decision record whose kind 15 action record is "
+             "absent in every copy.", {}, ["v1/verify.json#decision_v1_private_blob_missing"],
+             unchecked("action", "decision_unavailable")),
         case("policy_principal_scheme_unsupported", "The mandate's principal scheme is not in this verifier build.",
              {}, ["policy/verify.json#principal_scheme_unsupported"], unchecked("policy", "principal_scheme_unsupported")),
     ]
@@ -349,7 +357,7 @@ def build() -> dict:
     ]
     return {
         "format": "edicta-vectors/v0",
-        "revision": "v1-draft.2",
+        "revision": "v1-draft.4",
         "generator": "spec/vectors/check/gen_verifier_reasons.py",
         "description": (
             "Reason enum of core 20.1.1 and one case per reason. Each case starts from a valid, authorized "

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Verifies spec/vectors/api/errors.json against the spec texts (core v0-draft.17 section 18, core v1
-v1-draft.2 sections 12 and 13) and the core v0 and v1 vectors.
+v1-draft.4 sections 12 and 13) and the core v0 and v1 vectors.
 
 - Every sentinel named in section 12 of the spec is either mapped (errors) or
   listed in not_api_visible, never both; codes are unique.
@@ -49,7 +49,8 @@ V1DIR = arg("--v1", VECTORS / "v1")
 PLACEHOLDERS = {"commitment.ErrX", "pkg.ErrName"}
 RETRYABLE = {425, 429, 503, 504}
 
-AUTHORIZE_REQ = {1: ("envelope", "bstr", True, (1, 2176)), 2: ("action", "bstr", True, (1, 65536))}
+AUTHORIZE_REQ = {1: ("envelope", "bstr", True, (1, 2176)), 2: ("action", "bstr", True, (1, 65536)),
+                 3: ("action_salt", "bstr", False, (32, 32))}
 AUTHORIZE_RESP = {1: ("signed_authorization", "bstr", True, (1, 256))}
 RECORD_REQ = {1: ("envelope", "bstr", True, (1, 2176)), 2: ("rail_ref", "tstr", True, (1, 128, ID_CHARS)),
               3: ("executor_pubkey", "bstr", True, (32, 32)), 4: ("executor_signature", "bstr", True, (64, 64))}
@@ -160,8 +161,19 @@ def check_examples(f: dict, by_code: dict):
         if x["endpoint"] in ("/v0/authorize", "/v1/authorize") and st != 400:
             r = decode(req, AUTHORIZE_REQ, w)
             if "commitment_ref" in x:
-                expect(r["envelope"].hex() == (valid1 if is_v1 else valid)[x["commitment_ref"]]["envelope_hex"],
-                       f"{w}: envelope")
+                vc = (valid1 if is_v1 else valid)[x["commitment_ref"]]
+                expect(r["envelope"].hex() == vc["envelope_hex"], f"{w}: envelope")
+                # A v1 envelope travels with its 32-byte salt, a v0 envelope without one (core v1 13).
+                expect(("action_salt" in r) == is_v1, f"{w}: salt presence follows the version")
+        if x["endpoint"] in ("/v0/authorize", "/v1/authorize") and st == 400 and "commitment_ref" in x:
+            try:
+                r = decode(req, AUTHORIZE_REQ, w)
+                vc = (valid1 if is_v1 else valid)[x["commitment_ref"]]
+                got = ("ErrMissingField" if is_v1 and "action_salt" not in r else
+                       "ErrUnknownKey" if not is_v1 and "action_salt" in r else None)
+            except Reject as e:
+                got = e.sentinel
+            expect(got == decode(resp, ERROR, w)["code"], f"{w}: salt wrapper or A0s outcome")
         if x["endpoint"] == "/v0/record":
             r = decode(req, RECORD_REQ, w)
             decode_signed(r["envelope"])
@@ -178,9 +190,11 @@ def check_examples(f: dict, by_code: dict):
                 c = a["check"]
                 ab = bytes.fromhex(c["action_hex"])
                 expect(ab == r["action"], f"{w}: action")
+                salt = bytes.fromhex(c["action_salt_hex"]) if "action_salt_hex" in c else None
+                expect(salt == r.get("action_salt"), f"{w}: salt")
                 ver, _, _ = v1.verify_authorization_any(sa, v1.CheckV1(bytes.fromhex(c["gate_pubkey_hex"]), c["gate_id"],
                                                                        c["action_type"], ab, int(c["now"]),
-                                                                       int(c["skew_s"])))
+                                                                       int(c["skew_s"]), action_salt=salt))
                 expect(ver == v1.envelope_version(r["envelope"]), f"{w}: Authorization version is not the envelope's")
             elif x["endpoint"] == "/v0/record":
                 sr = decode(resp, RECORD_RESP, w)["signed_receipt"]
@@ -223,7 +237,7 @@ def check_health(b: bytes, w: str):
 def main() -> int:
     try:
         f = json.loads((DIR / "errors.json").read_text())
-        expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v1-draft.2", "header")
+        expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v1-draft.4", "header")
         expect(f["content_type"] == "application/cbor", "content type")
         spec = SPEC.read_text()
         by_code = check_mapping(f, spec, SPEC_V1.read_text())
@@ -234,7 +248,7 @@ def main() -> int:
     except (Failure, Reject, CBORError) as e:
         print(f"FAIL (api errors): {e}", file=sys.stderr)
         return 1
-    print(f"OK (api errors, v1-draft.2): {len(f['errors'])} codes, {len(f['not_api_visible'])} not API-visible, "
+    print(f"OK (api errors, v1-draft.4): {len(f['errors'])} codes, {len(f['not_api_visible'])} not API-visible, "
           f"{len(f['examples'])} examples; core and core v1 section 12 covered, 18.3 plus v1 section 13 match")
     return 0
 

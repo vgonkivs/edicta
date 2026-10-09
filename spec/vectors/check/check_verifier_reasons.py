@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/verifier/reasons.json (v0-draft.30 plus core v1 section 14, v1-draft.2).
+"""Verifies spec/vectors/verifier/reasons.json (v0-draft.30 plus core v1 section 14, v1-draft.4).
 
 - the reason enum: unique lower-case names, known groups and checks;
 - every reason has at least one case, and every case's reason is in the enum
@@ -70,7 +70,7 @@ def check(path: Path) -> str:
     f = json.loads(raw)
     if path == FILE:
         expect(raw == json.dumps(gen.build(), indent=2, ensure_ascii=True) + "\n", "generator output differs")
-    expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v1-draft.2", "format or revision")
+    expect(f["format"] == "edicta-vectors/v0" and f["revision"] == "v1-draft.4", "format or revision")
     expect(set(f) == {"format", "revision", "generator", "description", "reasons", "cases", "boundary"}, "keys")
     enum = {}
     for r in f["reasons"]:
@@ -146,7 +146,9 @@ def main() -> int:
     pby = {}
     for rel in ("policy/verify.json", "policy/private.json"):
         pby |= {f"{rel}#{c['id']}": c for c in json.loads((VECTORS / rel).read_text())["cases"]}
-    vby = {f"v1/verify.json#{c['id']}": c for c in json.loads((VECTORS / "v1" / "verify.json").read_text())["cases"]}
+    v1f = json.loads((VECTORS / "v1" / "verify.json").read_text())
+    vby = {f"v1/verify.json#{c['id']}": c for c in v1f["cases"]}
+    aby = {f"v1/verify.json#{c['id']}": c for c in v1f["action_cases"]}
     f = json.loads(path.read_text())
     try:
         expect("anchor" in next(r for r in f["reasons"] if r["name"] == "blocked")["checks"], "blocked on anchor")
@@ -157,6 +159,10 @@ def main() -> int:
                     expect(ve["exit"] == e["exit"] and ve["verdict"] == e["verdict"], f"{c['id']}: verdict differs")
                     vc = ve[e["check"]]
                     expect(vc["status"] == e["status"] and vc.get("reason") == e["reason"], f"{c['id']}: check differs")
+                if ref in aby:
+                    ae, e = aby[ref]["expect"]["action"], c["expect"]
+                    expect(e["check"] == "action" and ae["status"] == e["status"] and ae.get("reason") == e["reason"],
+                           f"{c['id']}: action check differs")
                 if ref in pby:
                     pe = pby[ref]["expect"]
                     e = c["expect"]
@@ -169,7 +175,7 @@ def main() -> int:
     except (Failure, KeyError) as ex:
         print(f"FAIL (reasons.json): {ex}", file=sys.stderr)
         return 1
-    print(f"OK (reasons.json, v1-draft.2): {summary}")
+    print(f"OK (reasons.json, v1-draft.4): {summary}")
     return 0
 
 

@@ -1,4 +1,4 @@
-"""Edicta policy v1 rules (spec/policy-v1.md, policy-v1-draft.6).
+"""Edicta policy v1 rules (spec/policy-v1.md, policy-v1-draft.7).
 
 The generator's rules module: facts, mandate, render, engine, state, verdict,
 archive records and the verifier outcome rules. check_policy.py re-implements
@@ -19,7 +19,8 @@ from ed25519_point import public_key_problem
 FAMILY = b"edicta/policy/v1/"
 TAG = {n: FAMILY + n.encode() for n in
        ("mandate", "mandate-sig", "verdict", "verdict-sig", "bucket", "closed", "state", "counter", "successor",
-        "private-part", "private", "private-dek")}
+        "private-part", "private", "private-dek", "state-blind", "blind-key")}
+TAG_AUDITOR_KID = b"edicta/v1/auditor-kid"
 
 MAX_INT = (1 << 63) - 1
 MAX_AMOUNT = (1 << 256) - 1
@@ -178,7 +179,10 @@ S_ASSET = {1: ("asset", "tstr", True, (1, 128, ASSET_CHARS)), 2: ("scale", "uint
            5: ("recipients", ("arr", ("tstr", (1, 128, ASSET_CHARS)), 1, 256), False, None)}
 HRP_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789")
 SIG_ED25519, SIG_ADR036, SIG_EIP712 = None, 2, 3
-S_AUDITOR = {1: ("kid", "bstr", True, (1, 32)), 2: ("pubkey", "bstr", True, (32, 32))}
+# Label charset: printable ASCII without '"' and '\\', so a label can break neither the quoting nor the line.
+LABEL_CHARS = frozenset(chr(c) for c in range(0x20, 0x7F)) - {'"', "\\"}
+S_AUDITOR = {1: ("kid", "bstr", True, (16, 16)), 2: ("pubkey", "bstr", True, (32, 32)),
+             3: ("label", "tstr", True, (1, 64, LABEL_CHARS))}
 S_MANDATE = {1: ("format", "uint", True, None), 2: ("principal", "bstr", True, (20, 33)),
              3: ("gate_id", "tstr", True, (1, 64, ID_CHARS)),
              4: ("agents", ("arr", ("bstr", (32, 32)), 1, 64), True, None),
@@ -190,7 +194,8 @@ S_MANDATE = {1: ("format", "uint", True, None), 2: ("principal", "bstr", True, (
              13: ("kinds", ("arr", ("tstr", (1, 32, ASSET_CHARS)), 1, 8), False, None),
              14: ("sig_type", "uint", False, None), 15: ("principal_hrp", "tstr", False, (1, 16, HRP_CHARS)),
              16: ("fast_mode_max_delay", "uint", False, None),
-             17: ("auditors", ("arr", ("map", S_AUDITOR), 1, 16), False, None)}
+             17: ("auditors", ("arr", ("map", S_AUDITOR), 1, 16), False, None),
+             18: ("state_salt", "bstr", False, (32, 32))}
 S_SIGNED_MANDATE = {1: ("mandate", ("map", S_MANDATE), True, None), 2: ("signature", "bstr", True, (64, 65))}
 S_SUM = {1: ("asset", "tstr", True, (1, 128, ASSET_CHARS)), 2: ("scale", "uint", True, None),
          3: ("sum", "bstr", True, (1, 32))}
@@ -209,9 +214,15 @@ S_VERDICT = {1: ("format", "uint", True, None), 2: ("gate_id", "tstr", True, (1,
              11: ("anchor_time", "uint", False, None), 12: ("eval_time", "uint", False, None),
              13: ("prev_state", ("map", S_STATE), False, None), 14: ("new_state_hash", "bstr", False, (32, 32)),
              15: ("prev_commitment_hash", "bstr", False, (32, 32)), 16: ("prev_verdict_hash", "bstr", False, (32, 32)),
-             17: ("decided_at", "uint", True, None), 18: ("gate_clock", "uint", False, None),
+             17: ("decided_at", "uint", False, None), 18: ("gate_clock", "uint", False, None),
              19: ("private_hash", "bstr", False, (32, 32)), 20: ("prev_state_hash", "bstr", False, (32, 32))}
-S_PRIVATE_PART = {1: ("format", "uint", True, None), 2: ("prev_state", ("map", S_STATE), True, None)}
+# The verdict keys moved out of a private-form verdict, under the same numbers, plus a per-verdict salt.
+S_PRIVATE_PART = {1: ("format", "uint", True, None), 2: ("salt", "bstr", True, (32, 32)),
+                  8: ("reason", "tstr", False, (4, 64, ID_CHARS)), 9: ("extractor", "tstr", False, (1, 64, ID_CHARS)),
+                  10: ("facts", ("map", S_FACTS()), False, None), 11: ("anchor_time", "uint", False, None),
+                  12: ("eval_time", "uint", False, None), 13: ("prev_state", ("map", S_STATE), False, None),
+                  17: ("decided_at", "uint", True, None), 18: ("gate_clock", "uint", False, None)}
+PRIVATE_MOVED = ("reason", "extractor", "facts", "anchor_time", "eval_time", "prev_state", "decided_at", "gate_clock")
 S_SIGNED_VERDICT = {1: ("verdict", ("map", S_VERDICT), True, None), 2: ("signature", "bstr", True, (64, 64))}
 
 
@@ -384,9 +395,27 @@ def check_mandate(m: dict):
     if "fast_mode_max_delay" in m:
         _value(1 <= m["fast_mode_max_delay"] <= 1000, s, "ErrIntRange", "fast_mode_max_delay")
     if "auditors" in m:
+        for a in m["auditors"]:
+            _value(a["label"] == a["label"].strip(" "), s, "ErrInvalidString", "auditor_label")
+            _value(a["kid"] == auditor_kid(a["pubkey"]), s, "ErrAuditorKidMismatch", "auditor_kid")
         _value(_ascending(m["auditors"], lambda a: a["kid"]), s, "ErrOrder", "auditors")
+        labels = [a["label"] for a in m["auditors"]]
+        _value(len(set(labels)) == len(labels), s, "ErrDuplicate", "auditor_label_duplicate")
         for a in m["auditors"]:
             _value(not x25519_low_order(a["pubkey"]), s, "ErrInvalidPublicKey", "auditor")
+    _value(("state_salt" in m) == ("auditors" in m), s,
+           "ErrMissingField" if "auditors" in m else "ErrUnknownKey", "state_salt")
+
+
+def auditor_kid(pubkey: bytes) -> bytes:
+    """kid = SHA-256(tag("edicta/v1/auditor-kid") || X25519 pubkey)[0..16] (policy 6.1)."""
+    return hashlib.sha256(bytes([len(TAG_AUDITOR_KID)]) + TAG_AUDITOR_KID + pubkey).digest()[:16]
+
+
+def fingerprint(kid: bytes) -> str:
+    """The full 128-bit kid as 8 groups of 4 lower-case hex digits."""
+    h = kid.hex()
+    return " ".join(h[i:i + 4] for i in range(0, 32, 4))
 
 
 def mandate_cbor(m: dict) -> bytes:
@@ -526,17 +555,20 @@ def asset_rule(m: dict, asset: str):
 def adopt(cell, m: dict, mh: bytes) -> tuple[str, dict]:
     """Adoption of a verified mandate against the counter cell (section 6.3).
 
-    cell is None or {"version", "mandate_hash", "scales": {asset: scale}}.
+    cell is None or {"version", "mandate_hash", "scales": {asset: scale}, optional "state_salt"}.
     Returns (action, next cell); a refusal raises ErrInvalidConfig."""
+    salt = {"state_salt": m["state_salt"]} if "state_salt" in m else {}
     if cell is None:
         return "genesis", {"version": m["version"], "mandate_hash": mh,
-                           "scales": {r["asset"]: r["scale"] for r in m["assets"]}}
+                           "scales": {r["asset"]: r["scale"] for r in m["assets"]}, **salt}
     if cell["version"] > m["version"]:
         raise PolicyError("ErrInvalidConfig", "version")
     if cell["version"] == m["version"]:
         if cell["mandate_hash"] != mh:
             raise PolicyError("ErrInvalidConfig", "same_version_other_hash")
         return "use", cell
+    if cell.get("state_salt") != m.get("state_salt"):
+        raise PolicyError("ErrInvalidConfig", "state_salt_changed")
     scales = dict(cell["scales"])
     for r in m["assets"]:
         if scales.get(r["asset"], r["scale"]) != r["scale"]:
@@ -544,7 +576,7 @@ def adopt(cell, m: dict, mh: bytes) -> tuple[str, dict]:
         scales[r["asset"]] = r["scale"]
     if len(scales) > MAX_SCALES:
         raise PolicyError("ErrInvalidConfig", "scales_full")
-    return "switch", {"version": m["version"], "mandate_hash": mh, "scales": scales}
+    return "switch", {"version": m["version"], "mandate_hash": mh, "scales": scales, **salt}
 
 
 # Render (section 7).
@@ -571,6 +603,7 @@ NOTES = [
     "In fast mode the gate may authorize before the payload is anchored on L1; the anchor must land within the "
     "stated number of blocks or the decision is invalid.",
 ]
+LABEL_NOTE = "Labels are not verified; check each key fingerprint or address out of band."
 
 
 def principal_line(m: dict) -> str:
@@ -590,7 +623,8 @@ def render(m: dict) -> str:
            if "fast_mode_max_delay" in m else "fast mode: not allowed"]
     if "auditors" in m:
         out.append(f"auditors: {len(m['auditors'])} (private mandate)")
-        out += [f"  - {a['kid'].hex()}" for a in m["auditors"]]
+        out += [f"  - Auditor \"{a['label']}\" (label not verified) - key fingerprint: {fingerprint(a['kid'])}"
+                for a in m["auditors"]]
     else:
         out.append("auditors: none (public mandate)")
     out += [f"valid: reference time from {rfc3339(m['not_before'])} ; decision valid_until up to "
@@ -623,6 +657,8 @@ def render(m: dict) -> str:
         out.append("count: no limit")
     out.append("notes:")
     out += [f"  - {n}" for n in NOTES]
+    if "auditors" in m:
+        out.append(f"  - {LABEL_NOTE}")
     return "\n".join(out) + "\n"
 
 
@@ -853,51 +889,38 @@ def needed_buckets(m: dict, asset: str, eval_time: int, refs: list) -> list:
 
 # Verdict (section 10).
 
-def verdict_form(v: dict) -> str | None:
-    """'public', 'private' or None (no state read). Mixed forms raise ErrVerdictInvalid."""
-    pub, priv = "prev_state" in v, ("private_hash" in v, "prev_state_hash" in v)
-    if pub and not any(priv):
-        return "public"
-    if not pub and all(priv):
-        return "private"
-    _value(not pub and not any(priv), "ErrVerdictInvalid", "ErrUnknownKey", "mixed state forms")
-    return None
+def verdict_form(v: dict) -> str:
+    """'private' iff key 19 is present, else 'public'."""
+    return "private" if "private_hash" in v else "public"
 
 
 def prev_state_hash_of(v: dict) -> bytes:
+    """Key 20 in private form; state_hash(prev_state) in public form (public mode never blinds)."""
     return v["prev_state_hash"] if "prev_state_hash" in v else state_hash(v["prev_state"])
 
 
 def reads_genesis(v: dict) -> bool:
-    return prev_state_hash_of(v) == GENESIS_HASH if "prev_state_hash" in v else v["prev_state"]["seq"] == 0
+    return v["prev_state_hash"] == GENESIS_HASH if "private_hash" in v else v["prev_state"]["seq"] == 0
 
 
-def check_verdict(v: dict):
-    s = "ErrVerdictInvalid"
-    _value(v["format"] == 1, s, "ErrUnsupportedVersion")
-    _value(v["outcome"] in (1, 2), s, "ErrInvalidEnum", "outcome")
-    _value(v["decided_at"] >= 1, s, "ErrZeroValue", "decided_at")
-    if "extractor" in v:
-        _value(EXTRACTOR_RE.match(v["extractor"]) is not None, s, "ErrInvalidString", "extractor")
-    if "facts" in v:
-        check_facts(v["facts"], s)
-    if "prev_state" in v:
-        check_state(v["prev_state"], s)
-    form = verdict_form(v)
-    state_keys = {"public": {"prev_state"}, "private": {"private_hash", "prev_state_hash"}}.get(form, {"prev_state"})
+def _deny_row(v: dict) -> int:
+    p = DENY_P[v["reason"]]
+    if v["reason"] == "ErrOutsideMandate" and "anchor_time" in v:
+        p = 10
+    return 1 if p == 15 else p
+
+
+def _public_presence(v: dict, s: str):
+    """The presence table of 10.2 for a public-form (or merged) verdict."""
     has = set(v) - {"format", "gate_id", "mandate_hash", "commitment_hash", "action_hash", "agent_pubkey",
                     "outcome", "decided_at"}
     if v["outcome"] == 1:
-        want = {"extractor", "facts", "anchor_time", "eval_time", "new_state_hash"} | state_keys
-        if form is not None and not reads_genesis(v):
+        want = {"extractor", "facts", "anchor_time", "eval_time", "new_state_hash", "prev_state"}
+        if "prev_state" in v and v["prev_state"]["seq"] >= 1:
             want |= {"prev_commitment_hash", "prev_verdict_hash"}
     else:
         _value("reason" in v and v["reason"] in DENY_P, s, "ErrInvalidEnum", "reason")
-        p = DENY_P[v["reason"]]
-        if v["reason"] == "ErrOutsideMandate" and "anchor_time" in v:
-            p = 10
-        if p == 15:
-            p = 1
+        p = _deny_row(v)
         want = {"reason"}
         if p >= 3:
             want.add("extractor")
@@ -908,11 +931,41 @@ def check_verdict(v: dict):
         if p == 9:
             want.add("gate_clock")
         if p >= 10:
-            want |= state_keys
+            want.add("prev_state")
         if p >= 11:
             want.add("eval_time")
     _value(has <= want, s, "ErrUnknownKey", f"present but not allowed: {sorted(has - want)}")
     _value(want <= has, s, "ErrMissingField", f"missing: {sorted(want - has)}")
+    _value("decided_at" in v, s, "ErrMissingField", "decided_at")
+
+
+def check_verdict(v: dict):
+    s = "ErrVerdictInvalid"
+    _value(v["format"] == 1, s, "ErrUnsupportedVersion")
+    _value(v["outcome"] in (1, 2), s, "ErrInvalidEnum", "outcome")
+    if "decided_at" in v:
+        _value(v["decided_at"] >= 1, s, "ErrZeroValue", "decided_at")
+    if "extractor" in v:
+        _value(EXTRACTOR_RE.match(v["extractor"]) is not None, s, "ErrInvalidString", "extractor")
+    if "facts" in v:
+        check_facts(v["facts"], s)
+    if "prev_state" in v:
+        check_state(v["prev_state"], s)
+    if verdict_form(v) == "public":
+        _value("prev_state_hash" not in v, s, "ErrUnknownKey", "key 20 in public form")
+        _public_presence(v, s)
+    else:
+        moved = [k for k in PRIVATE_MOVED if k in v]
+        _value(not moved, s, "ErrUnknownKey", f"private form with {moved}")
+        has = set(v) - {"format", "gate_id", "mandate_hash", "commitment_hash", "action_hash", "agent_pubkey",
+                        "outcome", "private_hash"}
+        want = set()
+        if v["outcome"] == 1:
+            want = {"new_state_hash", "prev_state_hash"}
+            if "prev_state_hash" in v and v["prev_state_hash"] != GENESIS_HASH:
+                want |= {"prev_commitment_hash", "prev_verdict_hash"}
+        _value(has <= want, s, "ErrUnknownKey", f"present but not allowed: {sorted(has - want)}")
+        _value(want <= has, s, "ErrMissingField", f"missing: {sorted(want - has)}")
     if "gate_clock" in v:
         _value(v["gate_clock"] == 1, s, "ErrInvalidEnum", "gate_clock")
 
@@ -961,15 +1014,39 @@ def successor_key(gate_id: str, ck: bytes, sh: bytes) -> bytes:
     return thash("successor", bytes([len(g)]) + g + ck + sh)
 
 
-# Private mode (sections 9.5 and 10.1).
+# Private mode (sections 9.1, 9.5, 10.1).
 
 PRIVATE_CAP = 65536
-PLAINTEXT_KINDS = {1: "mandate", 2: "bucket", 3: "closed_set", 4: "private_part"}
+PRIVATE_ACTION_CAP = 69632
+PLAINTEXT_KINDS = {1: "mandate", 2: "bucket", 3: "closed_set", 4: "private_part", 5: "action"}
 
 
-def check_private_part(pp: dict, s: str = "ErrStateInvalid"):
+def state_hash_p(st: dict, salt: bytes | None) -> bytes:
+    """The state hash of a counter: blinded with the mandate's state_salt in private mode (salt given), the
+    public state_hash otherwise; Genesis keeps the public constant in both modes."""
+    if salt is None or st == GENESIS:
+        return state_hash(st)
+    return hashlib.sha256(tagged("state-blind") + salt + state_cbor(st)).digest()
+
+
+def blind_key(salt: bytes | None, h: bytes) -> bytes:
+    """The kind 15 key of a bucket or ClosedSet in private mode."""
+    if salt is None:
+        return h
+    return hashlib.sha256(tagged("blind-key") + salt + h).digest()
+
+
+def check_private_part(pp: dict, s: str = "ErrVerdictInvalid"):
     _value(pp["format"] == 1, s, "ErrUnsupportedVersion", "private part")
-    check_state(pp["prev_state"], s)
+    _value(pp["decided_at"] >= 1, s, "ErrZeroValue", "decided_at")
+    if "extractor" in pp:
+        _value(EXTRACTOR_RE.match(pp["extractor"]) is not None, s, "ErrInvalidString", "extractor")
+    if "facts" in pp:
+        check_facts(pp["facts"], s)
+    if "prev_state" in pp:
+        check_state(pp["prev_state"], s)
+    if "gate_clock" in pp:
+        _value(pp["gate_clock"] == 1, s, "ErrInvalidEnum", "gate_clock")
 
 
 def private_part_cbor(pp: dict) -> bytes:
@@ -985,7 +1062,31 @@ def decode_private_part(b: bytes) -> dict:
     return _decode_struct(b, S_PRIVATE_PART, CAP["state"], check_private_part)
 
 
-def plaintext_hash(pk: int, b: bytes) -> bytes:
+def split_verdict(v: dict, salt: bytes) -> tuple:
+    """A public-form verdict of a private-mode gate split into (private-form public part, PrivatePart).
+    new_state_hash must already be blinded; key 20 is state_hash_p of prev_state, given by the caller in
+    v["_prev_state_hash"] for allows."""
+    pp = {"format": 1, "salt": salt, **{k: v[k] for k in PRIVATE_MOVED if k in v}}
+    pub = {k: x for k, x in v.items() if k not in PRIVATE_MOVED and not k.startswith("_")}
+    if v["outcome"] == 1:
+        pub["prev_state_hash"] = v["_prev_state_hash"]
+    pub["private_hash"] = private_hash(pp)
+    return pub, pp
+
+
+def merge_verdict(pub: dict, pp: dict) -> dict:
+    """The logical (public-form) verdict: public part without keys 19, 20, plus the PrivatePart without 1, 2."""
+    out = {k: x for k, x in pub.items() if k not in ("private_hash", "prev_state_hash")}
+    out.update({k: x for k, x in pp.items() if k not in ("format", "salt")})
+    return out
+
+
+def check_merged(pub: dict, pp: dict):
+    """PrivatePart presence against the public outcome (10.2 public row). ErrVerdictInvalid."""
+    _public_presence(merge_verdict(pub, pp), "ErrVerdictInvalid")
+
+
+def plaintext_hash(pk: int, b: bytes, action_type: str | None = None) -> bytes:
     """The plaintext's hash under its own tag; raises PolicyError when the bytes do not decode."""
     if pk == 1:
         return decode_signed_mandate(b)[1]
@@ -995,6 +1096,11 @@ def plaintext_hash(pk: int, b: bytes) -> bytes:
     if pk == 3:
         decode_closed(b)
         return thash("closed", b)
+    if pk == 5:
+        if action_type is None or len(b) < 33:
+            raise PolicyError("ErrVerdictInvalid", "action plaintext")
+        t = action_type.encode()
+        return hashlib.sha256(bytes([16]) + b"edicta/v1/action" + bytes([len(t)]) + t + b).digest()
     decode_private_part(b)
     return thash("private-part", b)
 
@@ -1008,21 +1114,22 @@ def private_seal(plaintext: bytes, auditors: list, salt: bytes, dek: bytes, aead
                    aead_aad=tagged("private") if aead_aad is None else aead_aad, check=False)
 
 
-def private_open(env: bytes, keys: list, pk: int, want: bytes) -> tuple:
+def private_open(env: bytes, keys: list, pk: int, want: bytes, action_type: str | None = None) -> tuple:
     """Reader rules of section 9.5. keys: X25519 private keys. Returns ('ok', plaintext, kid),
-    ('corrupt', cause, None) or ('private', None, None)."""
+    ('corrupt', cause, None) or ('private', None, None). A reader tries the entry of its own derived kid first."""
     import hpke_base as hpke
     import edicta_payload_v0 as pl
     from cryptography.exceptions import InvalidTag
     from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
-    if len(env) > PRIVATE_CAP:
+    if len(env) > (PRIVATE_ACTION_CAP if pk == 5 else PRIVATE_CAP):
         return "corrupt", "ErrTooLarge", None
     try:
         b = pl.blob_decode(env)
     except Reject as e:
         return "corrupt", e.sentinel, None
     for sk in keys:
-        for e in b.recipients:
+        own = auditor_kid(hpke._pk_bytes(sk))
+        for e in sorted(b.recipients, key=lambda e: e.kid != own):
             try:
                 dek = hpke.setup_base_r(e.enc, sk, tagged("private-dek")).open(bytes([len(e.kid)]) + e.kid,
                                                                               e.wrapped_dek)
@@ -1036,7 +1143,7 @@ def private_open(env: bytes, keys: list, pk: int, want: bytes) -> tuple:
                 return "corrupt", "aead", None
             pt = pt[32:]
             try:
-                h = plaintext_hash(pk, pt)
+                h = plaintext_hash(pk, pt, action_type)
             except PolicyError as x:
                 return "corrupt", x.sentinel, None
             if h != want:
@@ -1051,7 +1158,7 @@ KIND_NAMES = {7: "mandate", 8: "policy_allow", 9: "policy_deny", 10: "policy_buc
               12: "policy_successor", 15: "private_blob"}
 PATHS = {7: "mandate", 8: "policy-allow", 9: "policy-deny", 10: "policy-bucket", 11: "policy-closed",
          12: "policy-successor", 15: "private"}
-REC_CAP = {7: 16448, 8: 16448, 9: 16448, 10: 16448, 11: 36928, 12: 256, 15: 65600}
+REC_CAP = {7: 16448, 8: 16448, 9: 16448, 10: 16448, 11: 36928, 12: 256, 15: 69760}
 
 
 def record(kind: int, **f) -> bytes:
@@ -1069,7 +1176,7 @@ def decode_record(b: bytes) -> dict:
     """Policy kinds only. Raises PolicyError('archive.ErrCorrupt', cause). Returns
     {kind, key, path, body} where key is the logical key bytes."""
     s = "archive.ErrCorrupt"
-    if len(b) > 65600:
+    if len(b) > REC_CAP[15]:
         raise PolicyError(s, "ErrTooLarge")
     d = _D(b, s)
     it = d.item(0)
@@ -1092,7 +1199,7 @@ def decode_record(b: bytes) -> dict:
         raise PolicyError(s, "ErrTooLarge")
     fields = {3: (2, 1, 36864 if kind == 11 else 16384)} if kind not in (12, 15) else \
         {3: (3, 1, 64), 4: (2, 32, 32), 5: (2, 32, 32), 6: (2, 32, 32)} if kind == 12 else \
-        {3: (0, None, None), 4: (2, 32, 32), 5: (2, 1, PRIVATE_CAP)}
+        {3: (0, None, None), 4: (2, 32, 32), 5: (2, 1, PRIVATE_ACTION_CAP)}
     for key, (major, val) in it[1]:
         if key in (1, 2):
             continue
@@ -1122,12 +1229,16 @@ def decode_record(b: bytes) -> dict:
             v = sv["verdict"]
             if v["outcome"] != (1 if kind == 8 else 2):
                 raise PolicyError(s, "ErrInvalidEnum")
-            out.update(key=v["commitment_hash"], reason=v.get("reason"), body=m[3][1])
+            # Key segment of kind 9: the bare reason in public form, "private" in private form (no public reason).
+            out.update(key=v["commitment_hash"], reason="private" if "private_hash" in v else v.get("reason"),
+                       body=m[3][1])
         elif kind == 10:
             out.update(key=thash("bucket", m[3][1]), body=m[3][1], bucket=decode_bucket(m[3][1]))
         elif kind == 11:
             out.update(key=thash("closed", m[3][1]), body=m[3][1], closed=decode_closed(m[3][1]))
         elif kind == 15:
+            if m[3][1] != 5 and len(m[5][1]) > PRIVATE_CAP:
+                raise PolicyError(s, "ErrFieldSize")
             out.update(key=m[4][1], plaintext_kind=m[3][1], envelope=m[5][1])
         else:
             out.update(key=successor_key(m[3][1], m[4][1], m[5][1]), gate_id=m[3][1], counter_key=m[4][1],
@@ -1218,12 +1329,12 @@ def verify_policy(case: dict) -> dict:
             return "corrupt", None
         return "ok", v
 
-    def read_private(pk, h):
+    def read_private(pk, key, want):
         """('ok', plaintext bytes, kid) or (status, None, None); status absent, corrupt, private."""
-        st, r = A.get_private(pk, h)
+        st, r = A.get_private(pk, key)
         if st != "ok":
             return st, None, None
-        return private_open(r["envelope"], keys, pk, h)
+        return private_open(r["envelope"], keys, pk, want)
 
     mandates = {}
 
@@ -1236,7 +1347,7 @@ def verify_policy(case: dict) -> dict:
         if st == "ok":
             body = r["body"]
         elif st == "absent":
-            st, body, kid = read_private(1, h)
+            st, body, kid = read_private(1, h, h)
         if st != "ok":
             mandates[h] = (st, None, None)
             return mandates[h]
@@ -1247,31 +1358,46 @@ def verify_policy(case: dict) -> dict:
             mandates[h] = ("unsupported" if e.sentinel == "principal_scheme_unsupported" else "corrupt", None, None)
         return mandates[h]
 
-    states = {}
+    def salt_of(m):
+        return m.get("state_salt") if m is not None else None
 
-    def state_of(v):
-        """The state a verdict read: ('ok', State), or absent, corrupt, private, inconsistent (decrypted state
-        that does not hash to key 20)."""
-        if "prev_state" in v:
-            return "ok", v["prev_state"]
+    logicals = {}
+
+    def logical(v, m):
+        """The public-form verdict: v itself in public form; in private form the merge with its PrivatePart.
+        Returns (status, verdict): ok, absent, corrupt, private, or inconsistent (a decrypted state that does not
+        hash to key 20 under the mandate's salt)."""
+        if verdict_form(v) == "public":
+            return "ok", v
         h = v["private_hash"]
-        if h not in states:
-            st, pt, _ = read_private(4, h)
+        if h not in logicals:
+            st, pt, _ = read_private(4, h, h)
             if st != "ok":
-                states[h] = (st, None)
+                logicals[h] = (st, None)
             else:
-                ps = decode_private_part(pt)["prev_state"]
-                states[h] = ("ok", ps) if state_hash(ps) == v["prev_state_hash"] else ("inconsistent", ps)
-        return states[h]
+                pp = decode_private_part(pt)
+                merged = merge_verdict(v, pp)
+                if v["outcome"] == 1 and "prev_state" in pp and \
+                        state_hash_p(pp["prev_state"], salt_of(m)) != v["prev_state_hash"]:
+                    logicals[h] = ("inconsistent", merged)
+                else:
+                    try:
+                        check_merged(v, pp)
+                        logicals[h] = ("ok", merged)
+                    except PolicyError:
+                        logicals[h] = ("corrupt", None)
+        return logicals[h]
 
-    def read_struct(kind, pk, h, dec):
-        st, r = A.get(kind, h)
-        if st == "ok":
-            return "ok", r["closed" if kind == 11 else "bucket"]
-        if st == "absent":
-            st, pt, _ = read_private(pk, h)
+    def read_struct(kind, pk, h, dec, m):
+        if salt_of(m) is None:
+            st, r = A.get(kind, h)
             if st == "ok":
-                return "ok", dec(pt)
+                return "ok", r["closed" if kind == 11 else "bucket"]
+            if st != "absent":
+                return st, None
+        st, pt, _ = read_private(pk, blind_key(salt_of(m), h), h)
+        if st == "ok":
+            return "ok", dec(pt)
         return st, None
 
     def ledger_for(v, ps, m, need_contents):
@@ -1279,13 +1405,13 @@ def verify_policy(case: dict) -> dict:
         if root == EMPTY_ROOT:
             cs = EMPTY_CLOSED
         else:
-            st, cs = read_struct(11, 3, root, decode_closed)
+            st, cs = read_struct(11, 3, root, decode_closed, m)
             if st != "ok":
                 return st, None
         buckets = {}
         if need_contents:
             for ref in needed_buckets(m, v["facts"]["asset"], v["eval_time"], cs["buckets"]):
-                st, b = read_struct(10, 2, ref["hash"], decode_bucket)
+                st, b = read_struct(10, 2, ref["hash"], decode_bucket, m)
                 if st != "ok":
                     return st, None
                 buckets[ref["index"]] = b
@@ -1313,16 +1439,16 @@ def verify_policy(case: dict) -> dict:
             (mm is None and verdict_form(V) == "private")
         res["report"]["mode"] = "private" if private_mode else "public"
 
-    def facts_check():
+    def facts_check(VL):
         xid = case["extractors"].get(d["action_type"])
-        if xid is None or xid != V["extractor"]:
+        if xid is None or xid != VL["extractor"]:
             return "unchecked", "policy_no_extractor"
         try:
             f = EXTRACTORS[xid](d["action"])
             check_facts(f)
         except PolicyError:
             return "fail", "facts_mismatch"
-        if f != V["facts"]:
+        if f != VL["facts"]:
             return "fail", "facts_mismatch"
         return None
 
@@ -1333,18 +1459,12 @@ def verify_policy(case: dict) -> dict:
             res["report"]["mandate_ref"] = "absent" if d["mandate_ref"] is None else "match"
         st, m, kid = read_mandate(V["mandate_hash"])
         if st == "private":
-            # Without the auditor key only the public parts run: facts and anchor_time.
-            res["fast_unchecked"] = "policy_private"
-            out = facts_check()
-            if out and out[0] == "fail":
-                return out, None
-            if out is None and case["t_h"] is not None and V["anchor_time"] != case["t_h"]:
-                return ("fail", "anchor_time_mismatch"), None
-            return None, None
+            # Without an auditor key only step 1 runs; the facts, times, rules and state are private.
+            return ("unchecked", "policy_private"), None
         if st != "ok":
             return ("unchecked", "policy_mandate_unavailable" if st == "absent" else src[st]), None
         if kid is not None and v1:
-            res["report"]["auditor_kid"] = kid.hex()
+            res["report"]["auditor_kid"] = fingerprint(kid)
         if not principal_trusted(m, case["principals"]):
             return ("unchecked", "policy_principal_untrusted"), None
         if m["gate_id"] != V["gate_id"]:
@@ -1352,7 +1472,13 @@ def verify_policy(case: dict) -> dict:
         if (verdict_form(V) == "private") != ("auditors" in m):
             violated(V)
             return None, m
-        out = facts_check()
+        st, VL = logical(V, m)
+        if st == "inconsistent":
+            violated(V)
+            return None, m
+        if st != "ok":
+            return ("unchecked", src[st]), m
+        out = facts_check(VL)
         if out:
             return out, m
         reason, _, _ = admit(m, case["extractors"], d | {"pending": d.get("mode") == 2})
@@ -1363,31 +1489,26 @@ def verify_policy(case: dict) -> dict:
         if reason is not None:
             return ("fail", reason), m
         if case["t_h"] is not None:
-            if V["anchor_time"] != case["t_h"]:
+            if VL["anchor_time"] != case["t_h"]:
                 return ("fail", "anchor_time_mismatch"), m
             if case["t_h"] < m["not_before"]:
                 return ("fail", "ErrOutsideMandate"), m
         else:
             res["blocked_th"] = True
-        st, ps = state_of(V)
-        if st == "inconsistent":
-            violated(V)
-            st = "ok"
-        if st != "ok":
-            return ("unchecked", src[st]), m
-        st, led = ledger_for(V, ps, m, True)
+        ps = VL["prev_state"]
+        st, led = ledger_for(VL, ps, m, True)
         if st == "inconsistent":
             violated(V)
             return None, m
         if st != "ok":
             return ("unchecked", src[st]), m
-        want = V["anchor_time"] if ps["seq"] == 0 else max(V["anchor_time"], ps["last_t"])
-        if V["eval_time"] != want:
+        want = VL["anchor_time"] if ps["seq"] == 0 else max(VL["anchor_time"], ps["last_t"])
+        if VL["eval_time"] != want:
             return ("fail", "eval_time_mismatch"), m
-        r = evaluate(m, led, V["facts"], V["anchor_time"])
+        r = evaluate(m, led, VL["facts"], VL["anchor_time"])
         if "deny" in r:
             return ("fail", r["deny"]), m
-        if r["new_hash"] != V["new_state_hash"]:
+        if state_hash_p(r["next"]["state"], salt_of(m)) != V["new_state_hash"]:
             violated(V)
         return None, m
 
@@ -1400,11 +1521,12 @@ def verify_policy(case: dict) -> dict:
 
     cap = case["max_walk_steps"] or MAX_WALK_STEPS
 
-    def genesis(v):
-        if no_key or "prev_state" in v:
-            return reads_genesis(v)
-        st, ps = state_of(v)
-        return st == "ok" and ps["seq"] == 0
+    def merged_of(v):
+        ms, m, _ = read_mandate(v["mandate_hash"])
+        if ms != "ok":
+            return ms, None, None
+        st, vl = logical(v, m)
+        return st, vl, m
 
     def hop(p, n, known):
         """L1 to L5 for one hop; returns None, or an unchecked reason, after recording any violation."""
@@ -1413,21 +1535,17 @@ def verify_policy(case: dict) -> dict:
             return None
         if no_key:
             return None
-        sp_, psp = state_of(p)
-        sn_, psn = state_of(n)
+        sp_, lp, mp = merged_of(p)
+        sn_, ln, mn = merged_of(n)
         for s_, x in ((sn_, n), (sp_, p)):
             if s_ == "inconsistent":
                 violated(x)
                 return None
         if sp_ != "ok" or sn_ != "ok":
             return src[sp_ if sp_ != "ok" else sn_]
-        if psp["seq"] + 1 != psn["seq"]:
+        if lp["prev_state"]["seq"] + 1 != ln["prev_state"]["seq"]:
             violated(p, n)
             return None
-        sp, mp, _ = read_mandate(p["mandate_hash"])
-        sn, mn, _ = read_mandate(n["mandate_hash"])
-        if sp != "ok" or sn != "ok":
-            return src[sp if sp != "ok" else sn]
         same = all(mp.get(x) == mn.get(x) for x in ("sig_type", "principal", "mandate_id", "gate_id"))
         if not same or mp["version"] > mn["version"]:
             violated(p, n)
@@ -1439,20 +1557,20 @@ def verify_policy(case: dict) -> dict:
         if clash is not None:
             violated(p, clash)
             return None
-        st, led = ledger_for(p, psp, mp, False)
+        st, led = ledger_for(lp, lp["prev_state"], mp, False)
         if st == "inconsistent":
             violated(p)
             return None
         if st != "ok":
             return src[st]
-        if apply(led, delta_of(p))["new_hash"] != p["new_state_hash"]:
+        if state_hash_p(apply(led, delta_of(lp))["next"]["state"], salt_of(mp)) != p["new_state_hash"]:
             violated(p)
         return None
 
     def walk():
         res["walk_ran"] = True
         n, walked, known = V, [V], {}
-        while not genesis(n):
+        while not reads_genesis(n):
             if len(walked) - 1 >= cap:
                 return "policy_walk_truncated", walked
             st, p = read_allow(n["prev_commitment_hash"])
@@ -1468,13 +1586,13 @@ def verify_policy(case: dict) -> dict:
         return None, walked
 
     def seq_of(v):
-        st, ps = state_of(v)
-        return ps["seq"] if st == "ok" else None
+        st, vl, _ = merged_of(v)
+        return vl["prev_state"]["seq"] if st == "ok" else None
 
     walked = [V]
     if case["full"] and not res["violations"]:
         res["walk_unchecked"], walked = walk()
-        end = "genesis" if genesis(walked[-1]) else \
+        end = "genesis" if reads_genesis(walked[-1]) else \
             "max_steps" if res["walk_unchecked"] == "policy_walk_truncated" else "finding"
         res["walk"] = {"max_steps": str(cap), "steps": str(len(walked) - 1)}
         if not no_key and seq_of(V) is not None and seq_of(walked[-1]) is not None:

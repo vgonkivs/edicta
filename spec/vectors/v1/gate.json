@@ -1,0 +1,237 @@
+{
+  "format": "edicta-vectors/v1",
+  "revision": "v1-draft.4",
+  "allowlist": [
+    "application/vnd.edicta.ibkr.order.v0+cbor",
+    "application/json",
+    "application/octet-stream",
+    "application/vnd.edicta.test.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+cbor"
+  ],
+  "defaults": {
+    "fast_mode": false,
+    "fast_window_blocks": "100",
+    "max_h0_age_blocks": "10",
+    "min_fast_slack_blocks": "3",
+    "min_promise_slack_seconds": "15",
+    "rebroadcast_intent": true
+  },
+  "cases": [
+    {
+      "id": "defaults_fast_mode",
+      "description": "FastMode with a namespace, a mandate and every default.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ]
+      },
+      "mandate": true,
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "fast_mode_without_mandate",
+      "description": "FastMode at a gate without a mandate: no mandate, no fast mode.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ]
+      },
+      "mandate": false,
+      "expect": {
+        "error": "ErrInvalidConfig",
+        "cause": "fast_mode_without_mandate"
+      }
+    },
+    {
+      "id": "strict_without_mandate",
+      "description": "FastMode off and no mandate: accepted.",
+      "config": {
+        "fast_mode": false
+      },
+      "mandate": false,
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "fast_mode_without_namespaces",
+      "description": "FastMode with no PendingNamespaces.",
+      "config": {
+        "fast_mode": true
+      },
+      "mandate": true,
+      "expect": {
+        "error": "ErrInvalidConfig",
+        "cause": "pending_namespaces"
+      }
+    },
+    {
+      "id": "max_h0_age_equals_window",
+      "description": "MaxH0AgeBlocks = FastWindowBlocks (the range is 1..FastWindowBlocks - 1).",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ],
+        "fast_window_blocks": "20",
+        "max_h0_age_blocks": "20"
+      },
+      "mandate": true,
+      "expect": {
+        "error": "ErrInvalidConfig",
+        "cause": "max_h0_age_blocks"
+      }
+    },
+    {
+      "id": "age_plus_slack_over_window",
+      "description": "MaxH0AgeBlocks 18 + MinFastSlackBlocks 3 > FastWindowBlocks 20.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ],
+        "fast_window_blocks": "20",
+        "max_h0_age_blocks": "18"
+      },
+      "mandate": true,
+      "expect": {
+        "error": "ErrInvalidConfig",
+        "cause": "age_plus_slack"
+      }
+    },
+    {
+      "id": "age_plus_slack_at_window",
+      "description": "MaxH0AgeBlocks 17 + MinFastSlackBlocks 3 = FastWindowBlocks 20: accepted.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ],
+        "fast_window_blocks": "20",
+        "max_h0_age_blocks": "17"
+      },
+      "mandate": true,
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "min_fast_slack_0",
+      "description": "MinFastSlackBlocks 0.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ],
+        "min_fast_slack_blocks": "0"
+      },
+      "mandate": true,
+      "expect": {
+        "error": "ErrInvalidConfig",
+        "cause": "min_fast_slack_blocks"
+      }
+    },
+    {
+      "id": "min_fast_slack_101",
+      "description": "MinFastSlackBlocks 101.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ],
+        "min_fast_slack_blocks": "101"
+      },
+      "mandate": true,
+      "expect": {
+        "error": "ErrInvalidConfig",
+        "cause": "min_fast_slack_blocks"
+      }
+    },
+    {
+      "id": "min_promise_slack_0",
+      "description": "MinPromiseSlackSeconds 0.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ],
+        "min_promise_slack_seconds": "0"
+      },
+      "mandate": true,
+      "expect": {
+        "error": "ErrInvalidConfig",
+        "cause": "min_promise_slack_seconds"
+      }
+    },
+    {
+      "id": "min_promise_slack_601",
+      "description": "MinPromiseSlackSeconds 601.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ],
+        "min_promise_slack_seconds": "601"
+      },
+      "mandate": true,
+      "expect": {
+        "error": "ErrInvalidConfig",
+        "cause": "min_promise_slack_seconds"
+      }
+    },
+    {
+      "id": "fast_window_1001",
+      "description": "FastWindowBlocks 1001.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ],
+        "fast_window_blocks": "1001"
+      },
+      "mandate": true,
+      "expect": {
+        "error": "ErrInvalidConfig",
+        "cause": "fast_window_blocks"
+      }
+    },
+    {
+      "id": "reveal_type_allowlisted",
+      "description": "RevealOnExecution names an allowlisted type: accepted.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ],
+        "reveal_on_execution": [
+          "application/json"
+        ]
+      },
+      "mandate": true,
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "reveal_type_not_allowlisted",
+      "description": "RevealOnExecution names a type outside the allowlist.",
+      "config": {
+        "fast_mode": true,
+        "pending_namespaces": [
+          "000000000000000000000000000000000000006564696374612f643031"
+        ],
+        "reveal_on_execution": [
+          "application/vnd.edicta.other.v0+cbor"
+        ]
+      },
+      "mandate": true,
+      "expect": {
+        "error": "ErrInvalidConfig",
+        "cause": "reveal_on_execution"
+      }
+    }
+  ]
+}

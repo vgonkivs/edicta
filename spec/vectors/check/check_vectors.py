@@ -627,6 +627,7 @@ def main() -> int:
     rc = check_set(VECTORS / "v0")
     rc |= run_script(HERE / "check_profile_dca_agent.py")
     rc |= run_script(HERE / "check_profile_bank_send.py")
+    rc |= run_script(HERE / "check_bank_send_action_from_tx.py")
     rc |= run_script(HERE / "check_api_vectors.py")
     rc |= run_script(HERE / "check_api_errors.py")
     rc |= run_script(HERE / "check_fibre_commit.py")
@@ -640,7 +641,25 @@ def main() -> int:
     rc |= run_script(HERE / "check_archive_v1.py")
     rc |= run_script(HERE / "check_principal.py")
     rc |= run_script(HERE / "check_absence.py")
+    print_revisions()
     return rc
+
+
+def print_revisions():
+    """One line per vector file outside v0: the revision of its last content change."""
+    import json as _json
+    rows = []
+    for p in sorted(VECTORS.rglob("*.json")):
+        rel = p.relative_to(VECTORS).as_posix()
+        if rel.startswith(("v0/", "check/", "tools/")):
+            continue
+        try:
+            d = _json.loads(p.read_text())
+        except ValueError:
+            continue
+        if isinstance(d, dict) and "revision" in d:
+            rows.append(f"{rel}={d['revision']}")
+    print("revisions: " + ", ".join(rows))
 
 
 if __name__ == "__main__":

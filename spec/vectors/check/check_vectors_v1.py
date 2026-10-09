@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies the format v1 vectors (v1-draft.3) under spec/vectors/v1.
+"""Verifies the format v1 vectors (v1-draft.4) under spec/vectors/v1.
 
 Checks every case against the v1 rules (edicta_v1, with the frozen v0 rules of
 edicta_v0 for the v0 path), recomputes hashes and signed messages from literal
@@ -36,19 +36,27 @@ HERE = Path(__file__).resolve().parent
 DIR = HERE.parent / "v1"
 KEYS = HERE.parent / "v0" / "keys.json"
 FORMAT = "edicta-vectors/v1"
-REVISION = "v1-draft.2"
-REVISIONS = {"reject.json": "v1-draft.3"}
+REVISION = "v1-draft.4"
+REVISIONS: dict = {}
 
 LIT = {
     "commitment": {"v1": b"\x1dedicta/v1/decision-commitment", "v0": b"\x1dedicta/v0/decision-commitment"},
     "sig": {"v1": b"\x0dedicta/v1/sig", "v0": b"\x0dedicta/v0/sig"},
     "auth": {"v1": b"\x17edicta/v1/authorization", "v0": b"\x17edicta/v0/authorization"},
     "auth_sig": {"v1": b"\x1bedicta/v1/authorization-sig", "v0": b"\x1bedicta/v0/authorization-sig"},
+    "action": {"v1": b"\x10edicta/v1/action", "v0": b"\x10edicta/v0/action"},
 }
+
+
+def ahash(version: int, action_type: str, salt: bytes | None, action: bytes) -> bytes:
+    """Action hash from the literal tags: v1 4.7 (salt between type and bytes), v0 core 5.1."""
+    t = action_type.encode()
+    mid = salt if version == 1 else b""
+    return hashlib.sha256(LIT["action"]["v1" if version == 1 else "v0"] + bytes([len(t)]) + t + mid + action).digest()
 
 REQUIRED = {
     "valid.json": ["v1_minimal_included_fibre", "v1_minimal_included_blob", "v1_pending_fibre", "v1_pending_blob",
-                   "v1_mandate_ref", "v1_pending_fibre_mandate_ref", "v1_maximal"],
+                   "v1_mandate_ref", "v1_pending_fibre_mandate_ref", "v1_pending_blob_mandate_ref", "v1_maximal"],
     "reject.json": ["da_3_reserved", "payload_ref_key_7_reserved", "payload_ref_key_8_reserved",
                     "commitment_key_15_reserved", "anchor_1", "anchor_3", "anchor_tstr", "mandate_ref_31_bytes",
                     "mandate_ref_33_bytes", "mandate_ref_tstr", "version_2", "v1_signed_under_v0_tags",
@@ -58,9 +66,19 @@ REQUIRED = {
                            "auth_v1_fast_blob_timeout_lowered", "auth_v1_max_size", "auth_v1_fast_without_deadline",
                            "auth_v1_strict_with_deadline", "auth_v1_mode_3", "auth_v1_mode_0", "auth_v1_missing_mode",
                            "auth_v1_deadline_0", "auth_v1_under_v0_tags", "auth_v0_under_v1_tags",
-                           "v0_executor_refuses_v1", "executor_accept_v0_only"],
+                           "v0_executor_refuses_v1", "executor_accept_v0_only", "exec_v1_salt_missing",
+                           "exec_v1_wrong_salt", "exec_v0_salt_present"],
     "anchor.json": ["window_gate_min", "window_mandate_min", "window_chain_min", "timeout_lowers_deadline",
-                    "timeout_zero_ignored", "h0_age_at_bound", "h0_too_old", "window_closed", "window_chain_zero"],
+                    "timeout_zero_ignored", "h0_age_at_bound", "h0_too_old", "window_closed", "window_chain_zero",
+                    "window_at_bound", "window_slack_at_bound", "window_slack_one_short", "timeout_below_head",
+                    "timeout_at_head_plus_slack", "slack_waived_included", "slack_not_waived_nonzero",
+                    "promise_slack"],
+    "action.json": ["action_v1_minimal", "action_v1_max", "action_v1_wrong_salt", "action_v1_salt_missing",
+                    "action_v1_salt_31", "action_v1_salt_33", "action_v1_v0_tag", "action_v1_unsalted",
+                    "action_v1_salt_after_bytes", "action_v0_with_salt", "action_v0_salt_prefixed_bytes"],
+    "gate.json": ["fast_mode_without_mandate", "age_plus_slack_over_window", "max_h0_age_equals_window"],
+    "payload.json": ["payload_v1_minimal", "payload_v1_salt_missing", "payload_v1_version_0", "payload_v1_wrong_salt",
+                     "payload_v0_with_salt"],
 }
 
 
@@ -126,7 +144,9 @@ def check_valid(f: dict, ks: dict) -> dict:
         expect(ver == 1 and signed["commitment"] == c and h.hex() == case["commitment_hash_hex"], f"{cid}: round trip")
         expect(case["pending"] is v1.is_pending(c), f"{cid}: pending flag")
         action = action_from_case(case)
-        expect(v0.action_hash(case["action_type"], action) == c["action"]["hash"], f"{cid}: action hash")
+        salt = bytes.fromhex(case["action_salt_hex"])
+        expect(len(salt) == 32 and ahash(1, case["action_type"], salt, action) == c["action"]["hash"]
+               and case["action_hash_hex"] == c["action"]["hash"].hex(), f"{cid}: salted action hash")
         expect(case["action_type"] == c["action"]["type"]
                and case["action_type"] in gate_from_json(case.get("gate", f["gate"]))["action_types"],
                f"{cid}: action type")
@@ -175,8 +195,9 @@ def check_authorization(f: dict, ks: dict, valid: dict) -> set:
     def chk(blk: dict) -> v1.CheckV1:
         acc = frozenset(int(x) for x in blk.get("accept_versions", ["0", "1"]))
         expect(bytes.fromhex(blk["gate_pubkey_hex"]) == gate_pub and blk["gate_id"] == gid, "check pins gate1")
+        salt = bytes.fromhex(blk["action_salt_hex"]) if "action_salt_hex" in blk else None
         return v1.CheckV1(gate_pub, gid, blk["action_type"], action_from_case(blk), int(blk["now"]),
-                          int(blk["skew_s"]), acc)
+                          int(blk["skew_s"]), acc, salt)
 
     for case in f["cases"]:
         cid = case["id"]
@@ -207,7 +228,9 @@ def check_authorization(f: dict, ks: dict, valid: dict) -> set:
             opt = lambda k: int(wi[k]) if k in wi else None
             expect(int(wi["h0"]) == h0, f"{cid}: window h0")
             d = v1.fast_window(int(wi["da"]), h0, int(wi["head"]), int(wi["fast_window_blocks"]), int(wi["max_h0_age"]),
-                               opt("fast_mode_max_delay"), opt("chain_window"), opt("timeout_height") or 0)
+                               int(wi["fast_mode_max_delay"]), opt("chain_window"), opt("timeout_height") or 0,
+                               int(wi["min_fast_slack_blocks"]))
+            expect(d >= int(wi["head"]) + int(wi["min_fast_slack_blocks"]), f"{cid}: deadline below the slack")
             expect(d == a["anchor_deadline"], f"{cid}: anchor_deadline is not the K-fast result")
         else:
             expect("anchor_deadline" not in a, f"{cid}: deadline on a strict Authorization")
@@ -286,18 +309,131 @@ def check_anchor(f: dict) -> int:
         e = c["expect"]
         expect(e["start"] == str(start) and e["margin"] == str(margin) and e["within"] is within, f"{c['id']}: K2")
     for c in f["window"]:
-        i = {k: int(v) for k, v in c["input"].items()}
-        try:
-            got = {"anchor_deadline": str(v1.fast_window(i["da"], i["h0"], i["head"], i["fast_window_blocks"],
-                                                         i["max_h0_age"], i.get("fast_mode_max_delay"),
-                                                         i.get("chain_window"), i.get("timeout_height", 0)))}
-        except Reject as e:
-            got = {"expect_error": e.sentinel}
+        i = {k: int(v) for k, v in c["input"].items() if k != "promise"}
+        pr = {k: int(v) for k, v in c["input"]["promise"].items()} if "promise" in c["input"] else None
+        got = window_independent(i, pr)
         expect(got == c["expect"], f"{c['id']}: window got {got}, want {c['expect']}")
+        inc = (i["included_at"], i["included_code"]) if "included_at" in i else None
+        try:
+            mod = {"anchor_deadline": str(v1.fast_window(i["da"], i["h0"], i["head"], i["fast_window_blocks"],
+                                                         i["max_h0_age"], i["fast_mode_max_delay"],
+                                                         i.get("chain_window"), i.get("timeout_height", 0),
+                                                         i["min_fast_slack_blocks"], inc, pr))}
+        except Reject as e:
+            mod = {"expect_error": e.sentinel}
+        expect(mod == got, f"{c['id']}: edicta_v1 disagrees with the independent window rule")
         if "anchor_deadline" in got:
             d = int(got["anchor_deadline"])
             expect(i["h0"] < d <= i["h0"] + 1000, f"{c['id']}: deadline outside (h0, h0 + 1000]")
     return len(f["k1"]) + len(f["k2"]) + len(f["window"])
+
+
+def window_independent(i: dict, pr: dict | None) -> dict:
+    """8.1 F5/F6, 8.2 B4/B5, 8.3 from the text: age, window >= 1, then slack and promise slack as provisional
+    failures that only an inclusion with code 0 inside [h0, deadline] waives."""
+    h0, head = i["h0"], i["head"]
+    if head < h0:
+        return {"expect_error": "ErrChainUnavailable"}
+    if head - h0 > i["max_h0_age"]:
+        return {"expect_error": "ErrH0TooOld"}
+    w = min(i["fast_window_blocks"], i["fast_mode_max_delay"], i["chain_window"] if i["da"] == 1 else 10**9)
+    if w < 1:
+        return {"expect_error": "ErrAnchorWindowClosed"}
+    d = h0 + w
+    t = i.get("timeout_height", 0)
+    if i["da"] == 2 and 0 < t < d:
+        d = t
+    prov = d - head < i["min_fast_slack_blocks"]
+    if i["da"] == 1 and pr and not pr["t_head"] + pr["min_slack"] < pr["creation"] + pr["timeout"]:
+        prov = True
+    if "included_at" in i:
+        ok = i["included_code"] == 0 and h0 <= i["included_at"] <= d
+        return {"anchor_deadline": str(d)} if ok else {"expect_error": "ErrAnchorWindowClosed"}
+    return {"expect_error": "ErrAnchorWindowClosed"} if prov else {"anchor_deadline": str(d)}
+
+
+def check_action(f: dict) -> int:
+    expect(bytes.fromhex(f["tag"]) == LIT["action"]["v1"], "action.json tag")
+    for c in f["cases"]:
+        salt = bytes.fromhex(c["action_salt_hex"])
+        act = action_from_case(c)
+        h = ahash(1, c["action_type"], salt, act)
+        expect(h.hex() == c["action_hash_hex"], f"{c['id']}: hash")
+        t = c["action_type"].encode()
+        pre = LIT["action"]["v1"] + bytes([len(t)]) + t + salt + act
+        expect(len(pre) == int(c["preimage_size"]), f"{c['id']}: preimage size")
+        if "preimage_hex" in c:
+            expect(c["preimage_hex"] == pre.hex(), f"{c['id']}: preimage")
+    for r in f["reject"]:
+        ver, act = int(r["version"]), bytes.fromhex(r["action_hex"])
+        salt = bytes.fromhex(r["action_salt_hex"]) if "action_salt_hex" in r else None
+        committed = bytes.fromhex(r["committed_action_hash_hex"])
+        if "committed_preimage_hex" in r:
+            expect(hashlib.sha256(bytes.fromhex(r["committed_preimage_hex"])).digest() == committed, f"{r['id']}: pre")
+        if ver == 1 and salt is None:
+            got = "ErrMissingField"
+        elif ver == 1 and len(salt) != 32:
+            got = "ErrFieldSize"
+        elif ver == 0 and salt is not None:
+            got = "ErrUnknownKey"
+        else:
+            got = None if ahash(ver, r["action_type"], salt, act) == committed else "ErrActionMismatch"
+        expect(got == r["expect_error"], f"{r['id']}: got {got}")
+        try:
+            v1.gate_stage_a(ver, {"action": {"type": r["action_type"], "hash": committed}}, act, salt)
+            mod = None
+        except Reject as e:
+            mod = e.sentinel
+        expect(mod == got, f"{r['id']}: edicta_v1 disagrees")
+    return len(f["cases"]) + len(f["reject"])
+
+
+def check_gate(f: dict) -> int:
+    for c in f["cases"]:
+        cfg = {}
+        for k, v in c["config"].items():
+            if k == "pending_namespaces":
+                cfg[k] = [bytes.fromhex(x) for x in v]
+            elif isinstance(v, str):
+                cfg[k] = int(v)
+            else:
+                cfg[k] = v
+        try:
+            v1.validate_gate_config(cfg, c["mandate"], f["allowlist"])
+            got = {"result": "ok"}
+        except Reject as e:
+            got = {"error": e.sentinel, "cause": e.detail}
+        expect(got == c["expect"], f"{c['id']}: got {got}")
+        full = dict({"fast_window_blocks": 100, "max_h0_age_blocks": 10, "min_fast_slack_blocks": 3}, **cfg)
+        if got == {"result": "ok"}:
+            expect(full["max_h0_age_blocks"] + full["min_fast_slack_blocks"] <= full["fast_window_blocks"]
+                   and (c["mandate"] or not cfg.get("fast_mode")), f"{c['id']}: accepted against 7.4")
+    return len(f["cases"])
+
+
+def check_payload(f: dict) -> int:
+    import edicta_payload_v0 as pv0
+    c = f["cases"][0]
+    blob = bytes.fromhex(c["blob_hex"])
+    expect(hashlib.sha256(blob).hexdigest() == c["ciphertext_hash_hex"] and len(blob) == int(c["payload_size"]),
+           "payload: blob hashes")
+    pv0.blob_decode(blob)
+    aead = pv0.open_blob(blob, bytes.fromhex(c["recipient"]["sk_hex"]))
+    expect(hashlib.sha256(aead).hexdigest() == c["plaintext_hash_hex"], "payload: O7")
+    expect(aead == bytes.fromhex(c["aead_salt_hex"]) + bytes.fromhex(c["plaintext_cbor_hex"]), "payload: plaintext")
+    p = v1.o8(1, aead, c["action_type"], bytes.fromhex(c["committed_action_hash_hex"]))
+    expect(p["action"]["action_salt"].hex() == c["action_salt_hex"]
+           and ahash(1, c["action_type"], p["action"]["action_salt"], p["action"]["data"]).hex()
+           == c["committed_action_hash_hex"], "payload: O8 v1 independent")
+    for r in f["reject"]:
+        try:
+            v1.o8(int(r["commitment_version"]), b"\x00" * 32 + bytes.fromhex(r["plaintext_cbor_hex"]), r["action_type"],
+                  bytes.fromhex(r["committed_action_hash_hex"]))
+            got = None
+        except Reject as e:
+            got = e.sentinel
+        expect(got == r["expect_error"], f"{r['id']}: got {got}")
+    return 1 + len(f["reject"])
 
 
 def check_regenerated(files: dict):
@@ -310,7 +446,8 @@ def check_regenerated(files: dict):
 def main() -> int:
     try:
         ks = keys()
-        files = {n: load(n) for n in ("valid.json", "reject.json", "authorization.json", "limits.json", "anchor.json")}
+        files = {n: load(n) for n in ("valid.json", "reject.json", "authorization.json", "limits.json", "anchor.json",
+                                      "action.json", "gate.json", "payload.json")}
         for name, ids in REQUIRED.items():
             f = files[name]
             have = [c["id"] for k in ("cases", "reject", "window") for c in f.get(k, [])]
@@ -323,6 +460,9 @@ def main() -> int:
         gate, params = gate_from_json(files["valid.json"]["gate"]), params_from_json(files["valid.json"]["params"])
         nl = check_limits(files["limits.json"], gate, params)
         na = check_anchor(files["anchor.json"])
+        nac = check_action(files["action.json"])
+        ng = check_gate(files["gate.json"])
+        npl = check_payload(files["payload.json"])
         check_regenerated(files)
     except (Failure, Reject) as e:
         print(f"FAIL (v1): {e}", file=sys.stderr)
@@ -330,7 +470,8 @@ def main() -> int:
     a = files["authorization.json"]
     print(f"OK (v1, {REVISION}): {len(valid)} valid, {len(files['reject.json']['cases'])} reject "
           f"({len(seen)} sentinels), {len(a['cases'])} authorization, {len(a['reject'])} authorization reject "
-          f"({len(aseen)} sentinels), {nl} limits, {na} anchor; generator output identical")
+          f"({len(aseen)} sentinels), {nl} limits, {na} anchor, {nac} action, {ng} gate config, {npl} payload; "
+          f"generator output identical")
     return 0
 
 

@@ -31,12 +31,14 @@ import principal_crypto as pc
 HERE = Path(__file__).resolve().parent
 DIR = HERE.parent / "principal"
 MANDATES = HERE.parent / "policy" / "mandate.json"
-REVISION = "policy-v1-draft.6"
+REVISION = "policy-v1-draft.7"
 REQUIRED = {
     "ed25519.json": {"s_not_reduced", "other_mandate_hash", "low_order_principal"},
     "adr036.json": {"high_s", "wrong_hrp", "principal_32_bytes", "not_on_curve", "other_mandate_hash",
-                    "text_differs_one_byte", "last_line_not_hash", "d_without_empty_line", "d_trailing_lf"},
-    "eip712.json": {"v_0", "v_1", "high_s", "recovered_address_differs", "wrong_domain_name", "chain_id_present"},
+                    "text_differs_one_byte", "last_line_not_hash", "d_without_empty_line", "d_trailing_lf",
+                    "r_0", "s_0", "r_ge_n"},
+    "eip712.json": {"v_0", "v_1", "high_s", "recovered_address_differs", "wrong_domain_name", "chain_id_present",
+                    "r_0", "s_0", "r_ge_n"},
 }
 
 
@@ -124,7 +126,21 @@ def check_adr036(f: dict, mc: dict):
             expect(r["signed_signdoc"].encode() == C.adr036_doc(m, h, r["signed_data"]), f"{r['id']}: its doc")
             got = bytes.fromhex(r["signed_mandate_hex"])[-64:]
             expect(pc.verify_cosmos(m[2], r["signed_signdoc"].encode(), got), f"{r['id']}: a wallet signature")
+    pc_ = f["case_private"]
+    pb = bytes.fromhex(pc_["signed_mandate_hex"])
+    expect(outcome(pb) == "accept", "adr036 private case refused")
+    pm, ph = C.mandate_verify(pb)
+    pd = C.render(pm) + "\n" + "mandate hash: " + ph.hex()
+    expect(17 in pm and 18 in pm and pc_["rendered_text"] == pd and pc_["mandate_hash_hex"] == ph.hex()
+           and "(label not verified) - key fingerprint: " in pd and "Labels are not verified" in pd,
+           "adr036 private case: D with fingerprints")
+    expect(pc_["signdoc"].encode() == C.adr036_doc(pm, ph) and pc.sign_cosmos(seed, C.adr036_doc(pm, ph)).hex()
+           == pc_["signature_hex"], "adr036 private case: signature")
     by = {r["id"]: r for r in f["reject"]}
+    for rid in ("r_0", "s_0", "r_ge_n"):
+        rs = bytes.fromhex(by[rid]["signed_mandate_hex"])[-64:]
+        r_, s_ = int.from_bytes(rs[:32], "big"), int.from_bytes(rs[32:], "big")
+        expect(not (1 <= r_ < pc.N and 1 <= s_ < pc.N), rid)
     expect(by["d_trailing_lf"]["signed_data"] == d + "\n", "d_trailing_lf")
     expect(by["d_without_empty_line"]["signed_data"] == d.replace("\n\nmandate hash: ", "\nmandate hash: "),
            "d_without_empty_line")
@@ -166,7 +182,8 @@ def main() -> int:
             text = (DIR / name).read_text()
             expect(text == built[name], f"{name}: generator output differs")
             f = json.loads(text)
-            expect(f["format"] == "edicta-policy-vectors/v1" and f["revision"] == REVISION, f"{name}: header")
+            want = "policy-v1-draft.6" if name == "ed25519.json" else REVISION
+            expect(f["format"] == "edicta-policy-vectors/v1" and f["revision"] == want, f"{name}: header")
             fn(f, mand[f["mandate_ref"]])
             ids = {r["id"] for r in f["reject"]}
             expect(REQUIRED[name] <= ids, f"{name}: missing rejects {sorted(REQUIRED[name] - ids)}")

@@ -51,6 +51,11 @@ T_PRIV_PART = bytes.fromhex("1d") + b"edicta/policy/v1/private-part"
 T_PRIV_AEAD = bytes.fromhex("18") + b"edicta/policy/v1/private"
 T_PRIV_DEK = bytes.fromhex("1c") + b"edicta/policy/v1/private-dek"
 T_ACTION = bytes.fromhex("10") + b"edicta/v0/action"
+T_ACTION_V1 = bytes.fromhex("10") + b"edicta/v1/action"
+T_STATE_BLIND = bytes.fromhex("1c") + b"edicta/policy/v1/state-blind"
+T_BLIND_KEY = bytes.fromhex("1a") + b"edicta/policy/v1/blind-key"
+T_AUDITOR_KID = bytes.fromhex("15") + b"edicta/v1/auditor-kid"
+LABEL = set(chr(c) for c in range(0x20, 0x7F)) - {'"', "\\"}
 for t in (T_MANDATE, T_MANDATE_SIG, T_VERDICT, T_VERDICT_SIG, T_BUCKET, T_CLOSED, T_STATE, T_COUNTER, T_SUCC):
     assert t[0] == len(t) - 1
 
@@ -209,7 +214,7 @@ def low_order_x25519(pub):
 
 def v_mandate(m):
     s = "ErrMandateInvalid"
-    keys(m, s, (1, 2, 3, 4, 5, 6, 7, 9, 10), (8, 11, 12, 13, 14, 15, 16, 17))
+    keys(m, s, (1, 2, 3, 4, 5, 6, 7, 9, 10), (8, 11, 12, 13, 14, 15, 16, 17, 18))
     need(m[1] == 1, s)
     if 14 in m:
         u(m[14], s)
@@ -231,11 +236,18 @@ def v_mandate(m):
     if 17 in m:
         need(isinstance(m[17], list) and 1 <= len(m[17]) <= 16, s)
         for a in m[17]:
-            keys(a, s, (1, 2))
-            need(isinstance(a[1], bytes) and 1 <= len(a[1]) <= 32, s)
+            keys(a, s, (1, 2, 3))
+            b32(a[1], s, 16)
             b32(a[2], s)
+            txt(a[3], s, 1, 64, LABEL)
+            need(a[3] == a[3].strip(" "), s)
+            need(a[1] == H(T_AUDITOR_KID, a[2])[:16], s)
             need(not low_order_x25519(a[2]), s)
         ascending([a[1] for a in m[17]], s)
+        need(len({a[3] for a in m[17]}) == len(m[17]), s)
+    need((18 in m) == (17 in m), s)
+    if 18 in m:
+        b32(m[18], s)
     txt(m[3], s, 1, 64, ID)
     need(isinstance(m[4], list) and 1 <= len(m[4]) <= 64, s)
     for a in m[4]:
@@ -371,6 +383,7 @@ def v_closed(c, s="ErrStateInvalid"):
 EMPTY = {1: 1, 2: []}
 EMPTY_ROOT = H(T_CLOSED, encode(EMPTY))
 GEN = {1: 1, 2: 0, 5: EMPTY_ROOT}
+GEN_HASH_CONST = H(T_STATE, encode(GEN))
 
 
 def v_state(st, s="ErrStateInvalid"):
@@ -396,13 +409,14 @@ def dec_struct(b, cap, fn):
 
 def v_verdict(v):
     s = "ErrVerdictInvalid"
-    keys(v, s, (1, 2, 3, 4, 5, 6, 7, 17), (8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20))
+    keys(v, s, (1, 2, 3, 4, 5, 6, 7), (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20))
     need(v[1] == 1, s)
     txt(v[2], s, 1, 64, ID)
     for kk in (3, 4, 5, 6):
         b32(v[kk], s)
     u(v[7], s, 1, 2)
-    u(v[17], s, 1)
+    if 17 in v:
+        u(v[17], s, 1)
     if 9 in v:
         need(isinstance(v[9], str) and XID.fullmatch(v[9]) is not None, s)
     if 10 in v:
@@ -415,14 +429,20 @@ def v_verdict(v):
     for kk in (14, 15, 16, 19, 20):
         if kk in v:
             b32(v[kk], s)
-    # The state read: key 13 in clear, or keys 19 and 20 in private form; never a mix.
-    form = {(True, False, False): {13}, (False, True, True): {19, 20}}.get((13 in v, 19 in v, 20 in v))
-    need(form is not None or not ({13, 19, 20} & set(v)), s)
-    sk = form or {13}
+    if 19 in v:
+        # Private form: only the hashes, the links and the outcome bit are public.
+        have = set(v) - {1, 2, 3, 4, 5, 6, 7, 19}
+        if v[7] == 1:
+            want = {14, 20} | ({15, 16} if v.get(20, GEN_HASH_CONST) != GEN_HASH_CONST else set())
+        else:
+            want = set()
+        need(have == want, s)
+        return
+    need(17 in v and 20 not in v, s)
     have = set(v) - {1, 2, 3, 4, 5, 6, 7, 17}
     if v[7] == 1:
-        later = (13 in v and v[13][2] >= 1) or (20 in v and v[20] != H(T_STATE, encode(GEN)))
-        want = {9, 10, 11, 12, 14} | sk | ({15, 16} if later else set())
+        later = 13 in v and v[13][2] >= 1
+        want = {9, 10, 11, 12, 14, 13} | ({15, 16} if later else set())
     else:
         need(v.get(8) in DENY, s)
         r = v[8]
@@ -435,11 +455,42 @@ def v_verdict(v):
         elif r == "ErrOutsideMandate" and 11 in v:
             stage = "nb"
         want = {8}
-        want |= {"a": set(), "x": {9}, "f": {9, 10}, "age": {9, 10, 11, 18}, "nb": {9, 10, 11} | sk,
-                 "eval": {9, 10, 11, 12} | sk}[stage]
+        want |= {"a": set(), "x": {9}, "f": {9, 10}, "age": {9, 10, 11, 18}, "nb": {9, 10, 11, 13},
+                 "eval": {9, 10, 11, 12, 13}}[stage]
     need(have == want, s)
     if 18 in v:
         need(v[18] == 1, s)
+
+
+def v_private_part(pp):
+    s = "ErrVerdictInvalid"
+    keys(pp, s, (1, 2, 17), (8, 9, 10, 11, 12, 13, 18))
+    need(pp[1] == 1, s)
+    b32(pp[2], s)
+    u(pp[17], s, 1)
+    if 8 in pp:
+        txt(pp[8], s, 4, 64, ID)
+    if 9 in pp:
+        need(isinstance(pp[9], str) and XID.fullmatch(pp[9]) is not None, s)
+    if 10 in pp:
+        v_facts(pp[10], s)
+    for kk in (11, 12):
+        if kk in pp:
+            u(pp[kk], s)
+    if 13 in pp:
+        v_state(pp[13], s)
+    if 18 in pp:
+        need(pp[18] == 1, s)
+
+
+def merge(pub, pp):
+    out = {k: x for k, x in pub.items() if k not in (19, 20)}
+    out.update({k: x for k, x in pp.items() if k not in (1, 2)})
+    return dict(sorted(out.items()))
+
+
+def blind_state(st, salt):
+    return H(T_STATE, encode(st)) if salt is None or st == GEN else H(T_STATE_BLIND, salt, encode(st))
 
 
 def verdict_verify(b, gate_pub):
@@ -468,20 +519,20 @@ def succ_key(gate_id, ck, sh):
 
 PATH = {7: "mandate", 8: "policy-allow", 9: "policy-deny", 10: "policy-bucket", 11: "policy-closed",
         12: "policy-successor", 15: "private"}
-RCAP = {7: 16448, 8: 16448, 9: 16448, 10: 16448, 11: 36928, 12: 256, 15: 65600}
+RCAP = {7: 16448, 8: 16448, 9: 16448, 10: 16448, 11: 36928, 12: 256, 15: 69760}
 
 
 def read_record(b):
     s = "archive.ErrCorrupt"
-    r = lenient(b, s, 65600, 1)
+    r = lenient(b, s, 69760, 1)
     need(isinstance(r, dict) and 1 in r and 2 in r and r[1] == 0 and r[2] in PATH and len(b) <= RCAP[r[2]], s)
     kind = r[2]
     try:
         if kind == 15:
             keys(r, s, (1, 2, 3, 4, 5))
-            u(r[3], s, 1, 4)
+            u(r[3], s, 1, 5)
             b32(r[4], s)
-            need(isinstance(r[5], bytes) and 1 <= len(r[5]) <= 65536, s)
+            need(isinstance(r[5], bytes) and 1 <= len(r[5]) <= (69632 if r[3] == 5 else 65536), s)
             return {"kind": 15, "key": r[4], "pk": r[3], "path": f"private/{r[3]}/{r[4].hex()}", "envelope": r[5]}
         if kind == 12:
             keys(r, s, (1, 2, 3, 4, 5, 6))
@@ -502,7 +553,7 @@ def read_record(b):
         if kind in (8, 9):
             v, _ = verdict_verify(body, None)
             need(v[7] == (1 if kind == 8 else 2), s)
-            p = f"{PATH[kind]}/{v[4].hex()}" + (f"/{v[8]}" if kind == 9 else "")
+            p = f"{PATH[kind]}/{v[4].hex()}" + ((f"/{v[8]}" if 19 not in v else "/private") if kind == 9 else "")
             return {"kind": kind, "key": v[4], "path": p, "body": body}
         if kind == 10:
             x = dec_struct(body, 16384, v_bucket)
@@ -531,10 +582,10 @@ def hpke_unwrap(enc, wrapped, sk, kid):
         return None
 
 
-def envelope_parts(env):
+def envelope_parts(env, cap=65536):
     s = "envelope"
-    need(len(env) <= 65536, s)
-    e = lenient(env, s, 65536, 3)
+    need(len(env) <= cap, s)
+    e = lenient(env, s, cap, 3)
     keys(e, s, (1, 2, 3, 4))
     need(e[1] == 0 and isinstance(e[2], list) and 1 <= len(e[2]) <= 16, s)
     for x in e[2]:
@@ -549,7 +600,10 @@ def envelope_parts(env):
     return e
 
 
-def plain_hash(pk, pt):
+def plain_hash(pk, pt, atype=None):
+    if pk == 5:
+        need(atype is not None and len(pt) >= 33, "action")
+        return H(T_ACTION_V1, bytes([len(atype)]), atype.encode(), pt)
     if pk == 1:
         return mandate_verify_nosig(pt)
     if pk == 2:
@@ -558,10 +612,8 @@ def plain_hash(pk, pt):
     if pk == 3:
         dec_struct(pt, 36864, v_closed)
         return H(T_CLOSED, pt)
-    pp = lenient(pt, "ErrStateInvalid", 16384)
-    keys(pp, "ErrStateInvalid", (1, 2))
-    need(pp[1] == 1, "ErrStateInvalid")
-    v_state(pp[2])
+    pp = lenient(pt, "ErrVerdictInvalid", 16384)
+    v_private_part(pp)
     return H(T_PRIV_PART, pt)
 
 
@@ -572,12 +624,12 @@ def mandate_verify_nosig(b):
     return H(T_MANDATE, encode(sm[1]))
 
 
-def open_private(env, sks, pk, want):
+def open_private(env, sks, pk, want, atype=None):
     """('ok', plaintext, kid), ('corrupt', None, None) or ('private', None, None)."""
     from cryptography.exceptions import InvalidTag
     from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
     try:
-        e = envelope_parts(env)
+        e = envelope_parts(env, 69632 if pk == 5 else 65536)
     except Bad:
         return "corrupt", None, None
     for sk in sks:
@@ -587,7 +639,7 @@ def open_private(env, sks, pk, want):
                 continue
             try:
                 pt = ChaCha20Poly1305(dek).decrypt(e[3], e[4], T_PRIV_AEAD)[32:]
-                ok = plain_hash(pk, pt) == want
+                ok = plain_hash(pk, pt, atype) == want
             except (InvalidTag, Bad, ValueError):
                 return "corrupt", None, None
             return ("ok", pt, x[1]) if ok else ("corrupt", None, None)
@@ -727,7 +779,9 @@ def mandate_in(j):
     if "principal_hrp" in j:
         m[15] = j["principal_hrp"]
     if "auditors" in j:
-        m[17] = [{1: hx(a["kid"]), 2: hx(a["pubkey"])} for a in j["auditors"]]
+        m[17] = [{1: hx(a["kid"]), 2: hx(a["pubkey"]), 3: a["label"]} for a in j["auditors"]]
+    if "state_salt" in j:
+        m[18] = hx(j["state_salt"])
     return m
 
 
@@ -766,7 +820,10 @@ def render(m):
              else "fast mode: not allowed"]
     if 17 in m:
         lines.append("auditors: %d (private mandate)" % len(m[17]))
-        lines += ["  - " + a[1].hex() for a in m[17]]
+        for a in m[17]:
+            h = a[1].hex()
+            fp = " ".join(h[i:i + 4] for i in range(0, 32, 4))
+            lines.append('  - Auditor "%s" (label not verified) - key fingerprint: %s' % (a[3], fp))
     else:
         lines.append("auditors: none (public mandate)")
     lines.append("valid: reference time from %s ; decision valid_until up to %s" % (t(m[5]), t(m[6])))
@@ -801,6 +858,8 @@ def render(m):
               "  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.",
               "  - In fast mode the gate may authorize before the payload is anchored on L1; the anchor must land "
               "within the stated number of blocks or the decision is invalid."]
+    if 17 in m:
+        lines.append("  - Labels are not verified; check each key fingerprint or address out of band.")
     return "\n".join(lines) + "\n"
 
 
@@ -831,9 +890,10 @@ def check_mandate(f):
             continue
         if n.startswith("auditor:"):
             import hpke_base
-            kid = n.split(":", 1)[1]
-            sk_, pk_ = hpke_base.derive_key_pair(H(("edicta/policy/v1 test auditor|" + kid).encode()))
-            expect(k["kid_hex"] == kid.encode().hex() and k["sk_hex"] == sk_.hex() and k["pk_hex"] == pk_.hex(), n)
+            name = n.split(":", 1)[1]
+            sk_, pk_ = hpke_base.derive_key_pair(H(("edicta/policy/v1 test auditor|" + name).encode()))
+            expect(k["kid_hex"] == H(T_AUDITOR_KID, pk_)[:16].hex() and k["sk_hex"] == sk_.hex()
+                   and k["pk_hex"] == pk_.hex(), n)
             continue
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
         from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -865,7 +925,12 @@ def check_mandate(f):
                 "hrp_without_adr036", "adr036_without_hrp", "principal_32_for_adr036", "principal_not_on_curve",
                 "principal_21_for_eip712", "signature_64_for_eip712", "fast_mode_max_delay_0",
                 "fast_mode_max_delay_1001", "auditors_unsorted", "auditors_duplicate_kid", "auditor_low_order",
-                "auditors_17", "sig_flipped", "sig_bad_adr036", "sig_bad_eip712"}
+                "auditors_17", "sig_flipped", "sig_bad_adr036", "sig_bad_eip712", "auditor_kid_mismatch",
+                "kid_15_bytes", "kid_17_bytes", "auditor_pubkey_31", "auditor_label_empty", "auditor_label_65",
+                "auditor_label_quote", "auditor_label_backslash", "auditor_label_leading_space",
+                "auditor_label_non_ascii", "auditors_duplicate_label", "auditors_empty_array", "sig_type_0",
+                "principal_hrp_17", "hrp_with_eip712", "state_salt_missing_with_auditors",
+                "state_salt_without_auditors", "state_salt_31"}
     have = {c["id"] for c in f["cases"]} | {r["id"] for r in f["reject"]}
     expect(need_ids <= have, f"mandate.json: missing {sorted(need_ids - have)}")
     for r in f["reject"]:
@@ -885,16 +950,18 @@ def check_adoption(cases):
         cell = None
         if "start" in c:
             s0 = c["start"]
-            cell = (int(s0["version"]), hx(s0["mandate_hash_hex"]), {a: int(v) for a, v in s0["scales"].items()})
+            cell = (int(s0["version"]), hx(s0["mandate_hash_hex"]), {a: int(v) for a, v in s0["scales"].items()}, None)
         for st in c["steps"]:
             m, h = mandate_verify(hx(st["signed_mandate_hex"]))
             expect(h.hex() == st["mandate_hash_hex"], c["id"])
             if cell is None:
-                got, nxt = "genesis", (m[10], h, {r[1]: r[2] for r in m[7]})
+                got, nxt = "genesis", (m[10], h, {r[1]: r[2] for r in m[7]}, m.get(18))
             elif cell[0] > m[10]:
                 got, nxt = "refuse:version", cell
             elif cell[0] == m[10]:
                 got, nxt = ("use", cell) if cell[1] == h else ("refuse:same_version_other_hash", cell)
+            elif cell[3] != m.get(18):
+                got, nxt = "refuse:state_salt_changed", cell
             else:
                 bad = [r[1] for r in m[7] if r[1] in cell[2] and cell[2][r[1]] != r[2]]
                 union = {**cell[2], **{r[1]: r[2] for r in m[7]}}
@@ -903,7 +970,7 @@ def check_adoption(cases):
                 elif len(union) > 1024:
                     got, nxt = "refuse:scales_full", cell
                 else:
-                    got, nxt = "switch", (m[10], h, union)
+                    got, nxt = "switch", (m[10], h, union, m.get(18))
             want = st["expect"] + (":" + st["cause"] if "cause" in st else "")
             expect(got == want, f"{c['id']}: {got} != {want}")
             if st["expect"] == "refuse":
@@ -912,8 +979,10 @@ def check_adoption(cases):
             cell = nxt
             expect({a: int(v) for a, v in st["scales_after"].items()} == cell[2], f"{c['id']}: scales")
             expect(st["version_after"] == str(cell[0]), c["id"])
+            expect(st.get("state_salt_after_hex") == (cell[3].hex() if cell[3] else None), f"{c['id']}: salt")
             steps += 1
-    expect({"version", "same_version_other_hash", "scale", "scales_full"} <= causes, "adoption causes")
+    expect({"version", "same_version_other_hash", "scale", "scales_full", "state_salt_changed"} <= causes,
+           "adoption causes")
     expect(any(len(st["scales_after"]) == 1024 for c in cases for st in c["steps"]), "bound reached")
     return steps
 
@@ -938,7 +1007,8 @@ def check_render(f, mand):
         expect("(may count up to" in c["text"] or all(4 not in r for r in m[7]) and 8 not in m, c["id"])
     text = "".join(c["text"] for c in f["cases"])
     for line in ("principal: ed25519 ", "principal: cosmos ", "principal: ethereum 0x", "fast mode: not allowed",
-                 "fast mode: allowed, anchor at most ", "auditors: none (public mandate)", "(private mandate)"):
+                 "fast mode: allowed, anchor at most ", "auditors: none (public mandate)", "(private mandate)",
+                 "(label not verified) - key fingerprint: ", "Labels are not verified"):
         expect(line in text, f"render.json: no case shows {line!r}")
     expect(any("<" in c["text"] and "&" in c["text"] and ">" in c["text"] for c in f["cases"]), "render escape case")
     return f"{len(f['cases'])} texts"
@@ -1053,7 +1123,11 @@ def classify(c, records, gate_pub):
     sks = [hx(x) for x in cfg.get("auditor_keys", [])]
     xreg = cfg["extractors"]
     cap = int(cfg["max_walk_steps"]) if cfg["max_walk_steps"] is not None else 10000
-    expect(H(T_ACTION, bytes([len(atype)]), atype.encode(), action).hex() == d["action_hash_hex"], "action hash")
+    if v1:
+        expect(H(T_ACTION_V1, bytes([len(atype)]), atype.encode(), hx(d["action_salt_hex"]), action).hex()
+               == d["action_hash_hex"], "salted action hash of a v1 decision")
+    else:
+        expect(H(T_ACTION, bytes([len(atype)]), atype.encode(), action).hex() == d["action_hash_hex"], "action hash")
     GEN_HASH = H(T_STATE, encode(GEN))
 
     def get(kind, key):
@@ -1066,7 +1140,7 @@ def classify(c, records, gate_pub):
             return "corrupt", None
         return ("ok", r) if r["kind"] == kind and r["key"] == key else ("corrupt", None)
 
-    def get_private(pk, key):
+    def get_private(pk, key, want=None):
         p = f"private/{pk}/{key.hex()}"
         if p not in arch:
             return "absent", None, None
@@ -1076,7 +1150,7 @@ def classify(c, records, gate_pub):
             return "corrupt", None, None
         if r["kind"] != 15 or r["pk"] != pk or r["key"] != key:
             return "corrupt", None, None
-        return open_private(r["envelope"], sks, pk, key)
+        return open_private(r["envelope"], sks, pk, key if want is None else want)
 
     def allow_of(key):
         s, r = get(8, key)
@@ -1120,18 +1194,35 @@ def classify(c, records, gate_pub):
 
     pcache = {}
 
-    def state(v):
-        """(status, State) of the state a verdict read; 'bad' when the opened state does not hash to key 20."""
-        if 13 in v:
-            return "ok", v[13]
+    def logical(v):
+        """(status, merged verdict): the verdict itself in public form; in private form merged with its opened
+        PrivatePart. 'bad': the opened state does not hash to key 20 under the mandate's salt; 'corrupt': the
+        PrivatePart presence does not fit the public outcome."""
+        if 19 not in v:
+            return "ok", v
         if v[19] not in pcache:
             s, pt, _ = get_private(4, v[19])
             if s != "ok":
                 pcache[v[19]] = (s, None)
             else:
-                st = lenient(pt, "ErrStateInvalid", 16384)[2]
-                pcache[v[19]] = ("ok" if H(T_STATE, encode(st)) == v[20] else "bad", st)
+                pp = lenient(pt, "ErrVerdictInvalid", 16384)
+                mg = merge(v, pp)
+                sm, mm, _ = mandate_of(v[3])
+                salt = mm.get(18) if sm == "ok" else None
+                if v[7] == 1 and 13 in pp and blind_state(pp[13], salt) != v[20]:
+                    pcache[v[19]] = ("bad", mg)
+                else:
+                    try:
+                        v_verdict(mg)
+                        pcache[v[19]] = ("ok", mg)
+                    except Bad:
+                        pcache[v[19]] = ("corrupt", None)
         return pcache[v[19]]
+
+    def state(v):
+        """(status, State) of the state a verdict read."""
+        s, mg = logical(v)
+        return (s, mg[13]) if mg is not None else (s, None)
 
     def psh(v):
         return v[20] if 20 in v else H(T_STATE, encode(v[13]))
@@ -1139,22 +1230,28 @@ def classify(c, records, gate_pub):
     def vh(v):
         return H(T_VERDICT, encode(v))
 
-    def struct(kind, pk, h):
-        s, r = get(kind, h)
-        if s == "ok":
-            return "ok", r["closed" if kind == 11 else "bucket"]
-        if s == "absent":
-            s, pt, _ = get_private(pk, h)
+    def struct(kind, pk, h, salt):
+        if salt is None:
+            s, r = get(kind, h)
             if s == "ok":
-                return "ok", lenient(pt, "ErrStateInvalid", 36864)
+                return "ok", r["closed" if kind == 11 else "bucket"]
+            if s != "absent":
+                return s, None
+            key = h
+        else:
+            key = H(T_BLIND_KEY, salt, h)
+        s, pt, _ = get_private(pk, key, h)
+        if s == "ok":
+            return "ok", lenient(pt, "ErrStateInvalid", 36864)
         return s, None
 
     def closed_for(v, st, m, contents):
         root = st[5]
+        salt = m.get(18)
         if root == EMPTY_ROOT:
             cs = EMPTY
         else:
-            s, cs = struct(11, 3, root)
+            s, cs = struct(11, 3, root, salt)
             if s != "ok":
                 return s, None
         bks = []
@@ -1163,7 +1260,7 @@ def classify(c, records, gate_pub):
             w = max([p[1] for p in r0.get(4, [])] + [x[1] for x in m.get(8, [])] + [0])
             for ref in cs[2]:
                 if ref[1] >= v[12] // 3600 - w:
-                    s, b = struct(10, 2, ref[2])
+                    s, b = struct(10, 2, ref[2], salt)
                     if s != "ok":
                         return s, None
                     bks.append(b)
@@ -1200,14 +1297,14 @@ def classify(c, records, gate_pub):
         priv = keyless or (sV == "ok" and 17 in mV0) or (sV != "ok" and 19 in V)
         report["mode"] = "private" if priv else "public"
 
-    def facts():
-        if xreg.get(atype) != V[9] or V[9] != TEST_X:
+    def facts(VL):
+        if xreg.get(atype) != VL[9] or VL[9] != TEST_X:
             return "u", "policy_no_extractor"
         try:
             fx = facts_dec(action)
         except Bad:
             return "f", "facts_mismatch"
-        return ("f", "facts_mismatch") if fx != V[10] else None
+        return ("f", "facts_mismatch") if fx != VL[10] else None
 
     def fast():
         nonlocal blocked, fast_u
@@ -1217,17 +1314,11 @@ def classify(c, records, gate_pub):
             report["mandate_ref"] = "match" if "mandate_ref_hex" in d else "absent"
         s, m, kid = mandate_of(V[3])
         if s == "private":
-            fast_u = "policy_private"
-            r = facts()
-            if r and r[0] == "f":
-                return r
-            if r is None and th is not None and V[11] != th:
-                return "f", "anchor_time_mismatch"
-            return None
+            return "u", "policy_private"
         if s != "ok":
             return "u", "policy_mandate_unavailable" if s == "absent" else hist[s]
         if kid is not None and v1:
-            report["auditor_kid"] = kid.hex()
+            report["auditor_kid"] = " ".join(kid.hex()[i:i + 4] for i in range(0, 32, 4))
         if not principal_ok(m):
             return "u", "policy_principal_untrusted"
         if m[3] != V[2]:
@@ -1235,10 +1326,16 @@ def classify(c, records, gate_pub):
         if (19 in V) != (17 in m):
             viol.append(vh(V))
             return None
-        r = facts()
+        s, VL = logical(V)
+        if s == "bad":
+            viol.append(vh(V))
+            return None
+        if s != "ok":
+            return "u", hist[s]
+        r = facts(VL)
         if r:
             return r
-        fx = V[10]
+        fx = VL[10]
         if hx(d["agent_pubkey_hex"]) not in m[4]:
             return "f", "ErrAgentNotCovered"
         if mode == 2:
@@ -1259,27 +1356,23 @@ def classify(c, records, gate_pub):
             return "f", "ErrAmountAboveMax"
         if th is None:
             blocked = True
-        elif V[11] != th:
+        elif VL[11] != th:
             return "f", "anchor_time_mismatch"
         elif th < m[5]:
             return "f", "ErrOutsideMandate"
-        s, st = state(V)
-        if s == "bad":
-            viol.append(vh(V))
-        elif s != "ok":
-            return "u", hist[s]
-        s, led = closed_for(V, st, m, True)
+        st = VL[13]
+        s, led = closed_for(VL, st, m, True)
         if s == "inconsistent":
             viol.append(vh(V))
             return None
         if s != "ok":
             return "u", hist[s]
-        if V[12] != (V[11] if st[2] == 0 else max(V[11], st[3])):
+        if VL[12] != (VL[11] if st[2] == 0 else max(VL[11], st[3])):
             return "f", "eval_time_mismatch"
-        r2 = engine(m, led, V[10], V[11])
+        r2 = engine(m, led, VL[10], VL[11])
         if "deny" in r2:
             return "f", r2["deny"]
-        if r2["hash"] != V[14] and not viol:
+        if blind_state(r2["st"], m.get(18)) != V[14] and not viol:
             viol.append(vh(V))
         return None
 
@@ -1294,7 +1387,7 @@ def classify(c, records, gate_pub):
         return st[2] if s in ("ok", "bad") else None
 
     def at_genesis(v):
-        if keyless:
+        if keyless or 19 in v:
             return psh(v) == GEN_HASH
         return seq(v) == 0
 
@@ -1346,14 +1439,16 @@ def classify(c, records, gate_pub):
                 if other:
                     viol = [vh(p), vh(other[0])]
                     break
-                s, led = closed_for(p, stp, mp, False)
+                lp = logical(p)[1]
+                s, led = closed_for(lp, stp, mp, False)
                 if s == "inconsistent":
                     viol = [vh(p)]
                     break
                 if s != "ok":
                     walk_u = hist[s]
                     break
-                if transition(led, p[10][2], p[10][4], ival(p[10][3]), p[11])["hash"] != p[14]:
+                nst = transition(led, lp[10][2], lp[10][4], ival(lp[10][3]), lp[11])["st"]
+                if blind_state(nst, mp.get(18)) != p[14]:
                     viol = [vh(p)]
                     break
             chain.append(p)
@@ -1461,37 +1556,46 @@ def check_verify(f):
                     "fail_not_before", "fail_kind", "mandate_ref_match", "mandate_ref_mismatch", "mandate_ref_absent",
                     "fast_mode_not_allowed", "fast_mode_delay_exceeded", "fast_mode_within_bound",
                     "principal_scheme_unsupported", "principal_cosmos_pinned", "principal_eth_pinned",
-                    "anchor_time_t_ref_pending"):
+                    "anchor_time_t_ref_pending", "fast_mode_no_policy_record"):
         expect(need_id in ids, need_id)
     expect({"mandate_ref_mismatch", "ErrFastModeNotAllowed", "fast_mode_delay"} <= rules, "draft.5 rules")
     expect("principal_scheme_unsupported" in reasons, "draft.5 reasons")
     for c in f["cases"]:
         # The draft.5 report fields appear for v1 decisions only, so draft.4 cases keep their bytes.
         v1 = c["decision"].get("version") == "1"
-        expect(("mode" in c["expect"]["policy"]) == v1, c["id"])
+        no_record = c["expect"]["policy"].get("reason") == "policy_verdict_unavailable"
+        expect(("mode" in c["expect"]["policy"]) == (v1 and not no_record), c["id"])
+        if v1 and c["decision"]["mode"] == "2" and no_record:
+            expect(not c["config"]["require_policy"] and c["expect"]["verdict"] == "unchecked", c["id"])
     return f"{len(f['records'])} records, {len(f['cases'])} cases"
 
 
 def check_private(f, verify):
     gate_pub = hx(verify["gate"]["gate_pubkey_hex"])
     expect(f["tags"] == {"private-part": T_PRIV_PART[1:].decode(), "private": T_PRIV_AEAD[1:].decode(),
-                         "private-dek": T_PRIV_DEK[1:].decode()} and f["cap"] == "65536", "tags and cap")
-    sks = {}
+                         "private-dek": T_PRIV_DEK[1:].decode(), "state-blind": T_STATE_BLIND[1:].decode(),
+                         "blind-key": T_BLIND_KEY[1:].decode(), "auditor-kid": T_AUDITOR_KID[1:].decode()}
+           and f["cap"] == "65536" and f["action_cap"] == "69632", "tags and caps")
+    sks, kids = {}, {}
     for n, k in f["auditor_keys"].items():
         from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
         from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
         pk = X25519PrivateKey.from_private_bytes(hx(k["sk_hex"])).public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-        expect(pk.hex() == k["pk_hex"] and hx(k["kid_hex"]) == n.encode(), n)
+        expect(pk.hex() == k["pk_hex"] and hx(k["kid_preimage_hex"]) == T_AUDITOR_KID + pk
+               and H(T_AUDITOR_KID, pk)[:16].hex() == k["kid_hex"], n)
+        expect(k["fingerprint"] == " ".join(k["kid_hex"][i:i + 4] for i in range(0, 32, 4)), n)
         expect(H(b"edicta/policy/v1 test auditor|" + n.encode()).hex() == k["ikm_hex"], n)
         sks[n] = hx(k["sk_hex"])
+        kids[n] = hx(k["kid_hex"])
     kinds = set()
     for e in f["envelopes"]:
         env, pk, h = hx(e["envelope_hex"]), int(e["plaintext_kind"]), hx(e["hash_hex"])
         r = read_record(hx(e["record_cbor_hex"]))
         expect(r["kind"] == 15 and r["pk"] == pk and r["key"] == h and r["envelope"] == env and r["path"] == e["path"],
                e["id"])
-        expect(f["records"][e["path"]] == e["record_cbor_hex"], e["id"])
-        parts = envelope_parts(env)
+        if pk != 5:
+            expect(f["records"][e["path"]] == e["record_cbor_hex"], e["id"])
+        parts = envelope_parts(env, 69632 if pk == 5 else 65536)
         expect(parts[3].hex() == e["aead_nonce_hex"] and [x[1].hex() for x in parts[2]] ==
                [x["kid_hex"] for x in e["recipients"]], e["id"])
         for i, x in enumerate(e["recipients"]):
@@ -1499,22 +1603,44 @@ def check_private(f, verify):
         label = f"{pk}/{e['hash_hex']}"
         expect(H(f"edicta/policy/v1 test private salt|{label}".encode()).hex() == e["salt_hex"] and
                H(f"edicta/policy/v1 test private dek|{label}".encode()).hex() == e["dek_hex"], e["id"])
+        want = h
+        if pk in (2, 3):
+            want = hx(e["plaintext_hash_hex"])
+            expect(H(T_BLIND_KEY, hx(e["state_salt_hex"]), want) == h, f"{e['id']}: blinded key")
         for n in ("auditor-1", "auditor-2"):
-            st, pt, kid = open_private(env, [sks[n]], pk, h)
-            expect(st == "ok" and pt.hex() == e["plaintext_cbor_hex"] and kid == n.encode(), f"{e['id']} {n}")
-        expect(open_private(env, [sks["auditor-3"]], pk, h)[0] == "private", e["id"])
+            st, pt, kid = open_private(env, [sks[n]], pk, want, e.get("action_type"))
+            expect(st == "ok" and pt.hex() == e["plaintext_cbor_hex"] and kid == kids[n], f"{e['id']} {n}")
+        expect(open_private(env, [sks["auditor-3"]], pk, want, e.get("action_type"))[0] == "private", e["id"])
+        if pk == 5:
+            expect(hx(e["plaintext_cbor_hex"]) == hx(e["action_salt_hex"]) + hx(e["action_hex"]), e["id"])
         from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
         ct = ChaCha20Poly1305(hx(e["dek_hex"])).encrypt(parts[3], hx(e["salt_hex"]) + hx(e["plaintext_cbor_hex"]),
                                                            T_PRIV_AEAD)
         expect(ct == parts[4], f"{e['id']}: ciphertext from salt, DEK and nonce")
         kinds.add(pk)
-    expect(kinds == {1, 2, 3, 4}, "one envelope per plaintext_kind")
+    expect(kinds == {1, 2, 3, 4, 5}, "one envelope per plaintext_kind")
     pv = f["private_verdict"]
     v, h = verdict_verify(hx(pv["signed_verdict_hex"]), gate_pub)
-    pp = hx(pv["private_part_cbor_hex"])
-    expect(h.hex() == pv["verdict_hash_hex"] and 13 not in v and v[19] == H(T_PRIV_PART, pp) and
-           v[20] == H(T_STATE, encode(lenient(pp, "x", 16384)[2])) and v[20].hex() == pv["prev_state_hash_hex"],
-           "private verdict")
+    ppb = hx(pv["private_part_cbor_hex"])
+    pp = lenient(ppb, "x", 16384)
+    v_private_part(pp)
+    salt = hx(f["blinding"][0]["state_salt_hex"])
+    expect(h.hex() == pv["verdict_hash_hex"] and 13 not in v and 17 not in v and v[19] == H(T_PRIV_PART, ppb) and
+           v[20] == blind_state(pp[13], salt) and v[20].hex() == pv["prev_state_hash_hex"], "private verdict")
+    expect(set(v) == {1, 2, 3, 4, 5, 6, 7, 14, 15, 16, 19, 20}, "private allow public keys")
+    v_verdict(merge(v, pp))
+    pd = f["private_deny"]
+    dv, _ = verdict_verify(hx(pd["signed_verdict_hex"]), gate_pub)
+    expect(set(dv) == {1, 2, 3, 4, 5, 6, 7, 19} and dv[7] == 2, "private deny public shape")
+    r9 = read_record(hx(pd["kind9_record_cbor_hex"]))
+    expect(r9["path"] == pd["kind9_path"] and pd["kind9_path"].endswith("/private"), "kind 9 private path")
+    mk = lenient(hx(pd["marker_record_cbor_hex"]), "x", 512, 1)
+    expect(mk[2] == 5 and mk[4] == "ErrDenied" and pd["marker_path"] == f"rejection/{mk[3].hex()}/ErrDenied", "marker")
+    dpp = lenient(hx(pd["with_key"]["private_part_cbor_hex"]), "x", 16384)
+    v_private_part(dpp)
+    expect(dv[19] == H(T_PRIV_PART, hx(pd["with_key"]["private_part_cbor_hex"])) and dpp[8] == pd["with_key"]["reason"],
+           "deny reason with key")
+    v_verdict(merge(dv, dpp))
     for r in pv["reject"]:
         try:
             verdict_verify(hx(r["signed_verdict_hex"]), None)
@@ -1523,37 +1649,64 @@ def check_private(f, verify):
             expect(e.sentinel == r["expect_error"] == "ErrVerdictInvalid", r["id"])
     for r in f["reject"]:
         st, _, _ = open_private(hx(r["envelope_hex"]), [sks[n] for n in r["auditor_keys"]], int(r["plaintext_kind"]),
-                                hx(r["hash_hex"]))
+                                hx(r["hash_hex"]), "application/vnd.edicta.ibkr.order.v0+cbor")
         expect({"corrupt": "source_corrupt", "private": "policy_private"}[st] == r["expect"], r["id"])
-    expect({"envelope_cap_exceeded", "tampered_ciphertext", "wrong_tag_aad"} <= {r["id"] for r in f["reject"]},
-           "private rejects")
-    for p, b in f["records"].items():
-        expect(read_record(hx(b))["path"] == p, p)
+        expect(len(hx(r["envelope_hex"])) == int(r["envelope_size"]), r["id"])
+    expect({"envelope_cap_exceeded", "action_envelope_69633", "tampered_ciphertext", "wrong_tag_aad"}
+           <= {r["id"] for r in f["reject"]}, "private rejects")
+    b = {x["id"]: x for x in f["blinding"]}
+    x = b["state_hash_blind_vs_public"]
+    st = hx(x["state_cbor_hex"])
+    expect(H(T_STATE, st).hex() == x["state_hash_hex"] and H(T_STATE_BLIND, salt, st).hex() == x["state_hash_p_hex"]
+           and x["state_hash_p_preimage_hex"] == (T_STATE_BLIND + salt + st).hex(), "blind state hash")
+    x = b["state_hash_blind_genesis"]
+    expect(x["state_hash_p_hex"] == x["genesis_hash_hex"] == GEN_HASH_CONST.hex(), "genesis blinding")
+    for n, field in (("blind_key_bucket", "bucket_hash_hex"), ("blind_key_closed", "closed_root_hex")):
+        expect(H(T_BLIND_KEY, salt, hx(b[n][field])).hex() == b[n]["key_hex"], n)
+    x = b["private_part_salt"]
+    expect(H(T_PRIV_PART, hx(x["private_part_a_cbor_hex"])).hex() == x["private_hash_a_hex"] and
+           H(T_PRIV_PART, hx(x["private_part_b_cbor_hex"])).hex() == x["private_hash_b_hex"] and
+           x["private_hash_a_hex"] != x["private_hash_b_hex"], "private part salt")
+    for p, bb in f["records"].items():
+        expect(read_record(hx(bb))["path"] == p, p)
     for c in f["cases"]:
         got = classify(c, f["records"], gate_pub)
         expect(got == c["expect"], f"{c['id']}: {got} != {c['expect']}")
     ids = {c["id"] for c in f["cases"]}
     for need_id in ("private_with_key_pass", "private_without_key", "private_without_key_facts_mismatch",
-                    "private_without_key_anchor_time_mismatch", "private_wrong_key", "private_part_hash_differs",
+                    "private_without_key_anchor_time_mismatch", "private_with_key_facts_mismatch",
+                    "private_with_key_anchor_time_mismatch", "private_wrong_key", "private_part_hash_differs",
                     "private_state_not_key_20", "private_fork_without_key", "private_walk_without_key",
-                    "verdict_form_mismatch"):
+                    "verdict_form_mismatch", "private_part_row_mismatch", "private_part_allow_missing_facts",
+                    "state_salt_wrong", "chain_continuity_without_salt"):
         expect(need_id in ids, need_id)
-    return f"{len(f['envelopes'])} envelopes, {len(f['reject'])} reject, {len(f['cases'])} private cases"
+    return (f"{len(f['envelopes'])} envelopes, {len(f['reject'])} reject, {len(pv['reject'])} verdict reject, "
+            f"{len(f['blinding'])} blinding, {len(f['cases'])} private cases")
 
 
 def check_archive(f, verify, private):
     for c in f["cases"]:
         r = read_record(hx(c["record_cbor_hex"]))
         expect(str(r["kind"]) == c["kind"] and r["key"].hex() == c["key_hex"] and r["path"] == c["path"], c["id"])
-        expect((private if r["kind"] == 15 else verify)["records"][c["path"]] == c["record_cbor_hex"], c["id"])
-    expect({c["plaintext_kind"] for c in f["cases"] if c["kind"] == "15"} == {"1", "2", "3", "4"}, "kind 15 cases")
+        if r["kind"] == 15 and r["pk"] == 5:
+            expect(c["record_cbor_hex"] == next(e["record_cbor_hex"] for e in private["envelopes"]
+                                                if e["plaintext_kind"] == "5"), c["id"])
+            continue
+        src = private if (r["kind"] == 15 or c["path"].endswith("/private")) else verify
+        expect(src["records"][c["path"]] == c["record_cbor_hex"], c["id"])
+    expect({c["plaintext_kind"] for c in f["cases"] if c["kind"] == "15"} == {"1", "2", "3", "4", "5"}, "kind 15 cases")
+    expect(any(c["path"].endswith("/private") for c in f["cases"] if c["kind"] == "9"), "kind 9 private case")
+    for x in f["reads"]:
+        ok = read_record(hx(x["record_cbor_hex"]))["path"] == x["path"]
+        expect(ok == (x["expect_error"] is None), x["id"])
     for r in f["reject"]:
         try:
             read_record(hx(r["record_cbor_hex"]))
             raise Failure(f"{r['id']} accepted")
         except Bad as e:
             expect(e.sentinel == r["expect_error"] == "archive.ErrCorrupt", r["id"])
-    expect(f["reserved_kinds"] == ["6"] and f["marker_names"] == DENY, "kinds and markers")
+    expect(f["reserved_kinds"] == ["6"] and f["marker_names"] == DENY + ["ErrDenied"]
+           and f["marker_names_private_only"] == ["ErrDenied"], "kinds and markers")
     return f"{len(f['cases'])} records, {len(f['reject'])} reject"
 
 
@@ -1583,7 +1736,10 @@ def check_api(f, verify):
             expect(st["status"] == x["status"] and int(st["retryable"]) == body[3], x["id"])
         if 5 in body:
             v, _ = verdict_verify(body[5], gate_pub)
-            if body[1].startswith("policy."):
+            if body[1].startswith("policy.") and 19 in v:
+                # Private form: the sentinel is in the body, the verdict carries no reason.
+                expect(v[7] == 2 and set(v) == {1, 2, 3, 4, 5, 6, 7, 19}, x["id"])
+            elif body[1].startswith("policy."):
                 expect(v[7] == 2 and "policy." + v[8] == body[1], x["id"])
             else:
                 expect(4 in body and v[7] == 1, x["id"])
@@ -1618,9 +1774,9 @@ def check_tia(f):
 
 
 # The revision that last changed each file's bytes; files not listed keep draft.1.
-LAST_CHANGED = {"policy/mandate.json": "policy-v1-draft.6", "policy/render.json": "policy-v1-draft.6",
-                "policy/verify.json": "policy-v1-draft.6", "policy/archive.json": "policy-v1-draft.6",
-                "policy/api.json": "policy-v1-draft.6", "policy/private.json": "policy-v1-draft.6"}
+LAST_CHANGED = {"policy/mandate.json": "policy-v1-draft.7", "policy/render.json": "policy-v1-draft.7",
+                "policy/verify.json": "policy-v1-draft.7", "policy/archive.json": "policy-v1-draft.7",
+                "policy/api.json": "policy-v1-draft.7", "policy/private.json": "policy-v1-draft.7"}
 
 
 def main() -> int:
@@ -1644,7 +1800,7 @@ def main() -> int:
     except (Failure, Bad, KeyError, ValueError) as e:
         print(f"FAIL (policy v1): {type(e).__name__}: {e}", file=sys.stderr)
         return 1
-    print("OK (policy v1, policy-v1-draft.6): " + "; ".join(out) + "; generator output identical")
+    print("OK (policy v1, policy-v1-draft.7): " + "; ".join(out) + "; generator output identical")
     return 0
 
 

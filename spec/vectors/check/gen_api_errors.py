@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generates spec/vectors/api/errors.json: the HTTP error mapping of core section 18
-(v0-draft.17) with the additive codes of core v1 section 13 (v1-draft.2), and example
+(v0-draft.17) with the additive codes of core v1 section 13 (v1-draft.4), and example
 request and response bytes per endpoint. Deterministic.
 
 Usage: python3 spec/vectors/check/gen_api_errors.py [--core DIR] [--out DIR]
@@ -33,7 +33,7 @@ CORE = arg("--core", VECTORS / "v0")
 OUT = arg("--out", VECTORS / "api")
 V1 = arg("--v1", VECTORS / "v1")
 FORMAT = "edicta-vectors/v0"
-REVISION = "v1-draft.2"
+REVISION = "v1-draft.4"
 
 P, A, R, H = "/v0/publish", "/v0/authorize", "/v0/record", "/v0/health"
 A1 = "/v1/authorize"
@@ -140,6 +140,7 @@ PROFILE = "dca-agent profile, executor side; never crosses the API"
 NOT_API = {
     "ErrInvalidParams": "the gate's own parameters; reported as edictaapi.ErrInternal",
     "ErrFastModeRefused": "profile executors (core v1 6.3); never crosses the API",
+    "ErrInvalidConfig": "gate start configuration (core v1 7.4); a misconfigured gate does not serve requests",
     **{n: REMOVED for n in ["ErrUnsupportedActionKind", "ErrUnsupportedRail", "ErrUnsupportedOrderType", "ErrLimitPrice",
                             "ErrAccountMismatch", "ErrChainIDRule", "ErrDeadlineRange", "ErrPriceBound",
                             "ErrNotionalExceeded"]},
@@ -163,6 +164,9 @@ MESSAGES = {
     "ErrChainUnavailable": "gate: chain data unavailable",
     "ErrAnchorPending": "gate: pending payload reference and fast mode is off",
     "ErrVersionNotAccepted": "gate: commitment version not accepted",
+    "ErrMissingField": "commitment: missing field",
+    "ErrUnknownKey": "commitment: unknown key",
+    "ErrFieldSize": "commitment: field size",
 }
 
 
@@ -260,7 +264,8 @@ def main():
     v1valid = by_id(json.loads((V1 / "valid.json").read_text()), "cases")
     v1auth = by_id(json.loads((V1 / "authorization.json").read_text()), "cases")
     vb = v1valid["v1_minimal_included_blob"]
-    v1_req = encode({1: bytes.fromhex(vb["envelope_hex"]), 2: bytes.fromhex(vb["action_hex"])})
+    vb_env, vb_act, vb_salt = (bytes.fromhex(vb[k]) for k in ("envelope_hex", "action_hex", "action_salt_hex"))
+    v1_req = encode({1: vb_env, 2: vb_act, 3: vb_salt})
     v1_resp = encode({1: bytes.fromhex(v1auth["auth_v1_strict_da"]["signed_authorization_hex"])})
     vp = v1valid["v1_pending_blob"]
     for path, ident, desc in ((A, "authorize_v1_on_v0_path", "A v1 envelope on /v0/authorize: the version comes "
@@ -278,13 +283,41 @@ def main():
                      "v1_pending_blob at a gate whose FastMode is off: 403, nothing written.", "vectors": "v1",
                      "commitment_ref": "v1_pending_blob",
                      "request_cbor_hex": encode({1: bytes.fromhex(vp["envelope_hex"]),
-                                                 2: bytes.fromhex(vp["action_hex"])}).hex(),
+                                                 2: bytes.fromhex(vp["action_hex"]),
+                                                 3: bytes.fromhex(vp["action_salt_hex"])}).hex(),
                      "status": "403", "response_cbor_hex": error_body("ErrAnchorPending").hex()})
+    vpm = v1valid["v1_pending_blob_mandate_ref"]
+    examples.append({"id": "authorize_pending_without_mandate", "endpoint": A, "method": "POST", "description":
+                     "v1_pending_blob_mandate_ref at a library gate with FastMode on and no mandate (a server gate "
+                     "refuses to start so configured): C5a refuses, 403, nothing written.", "vectors": "v1",
+                     "commitment_ref": "v1_pending_blob_mandate_ref",
+                     "request_cbor_hex": encode({1: bytes.fromhex(vpm["envelope_hex"]), 2: bytes.fromhex(vpm["action_hex"]),
+                                                 3: bytes.fromhex(vpm["action_salt_hex"])}).hex(),
+                     "status": "403", "response_cbor_hex": error_body("ErrAnchorPending").hex()})
+    examples.append({"id": "authorize_v1_salt_missing", "endpoint": A, "method": "POST", "description":
+                     "v1_minimal_included_blob without key 3 (action_salt): A0s, 400.", "vectors": "v1",
+                     "commitment_ref": "v1_minimal_included_blob",
+                     "request_cbor_hex": encode({1: vb_env, 2: vb_act}).hex(), "status": "400",
+                     "response_cbor_hex": error_body("ErrMissingField").hex()})
+    examples.append({"id": "authorize_v0_with_salt", "endpoint": A, "method": "POST", "description":
+                     "minimal_lmt (v0) with a 32-byte key 3: a v0 commitment has no salt, A0s, 400.",
+                     "commitment_ref": "minimal_lmt", "request_cbor_hex": encode({1: env, 2: action, 3: vb_salt}).hex(),
+                     "status": "400", "response_cbor_hex": error_body("ErrUnknownKey").hex()})
+    examples.append({"id": "authorize_salt_31", "endpoint": A, "method": "POST", "description":
+                     "v1_minimal_included_blob with a 31-byte key 3: wrapper decoding, 400.", "vectors": "v1",
+                     "commitment_ref": "v1_minimal_included_blob",
+                     "request_cbor_hex": encode({1: vb_env, 2: vb_act, 3: vb_salt[:31]}).hex(), "status": "400",
+                     "response_cbor_hex": error_body("ErrFieldSize").hex()})
+    examples.append({"id": "authorize_v1_wrong_salt", "endpoint": A, "method": "POST", "description":
+                     "v1_minimal_included_blob with the salt's first bit flipped: A1, 422.", "vectors": "v1",
+                     "commitment_ref": "v1_minimal_included_blob",
+                     "request_cbor_hex": encode({1: vb_env, 2: vb_act, 3: bytes([vb_salt[0] ^ 0x80]) + vb_salt[1:]}).hex(),
+                     "status": "422", "response_cbor_hex": error_body("ErrActionMismatch").hex()})
 
     out = {"format": FORMAT, "revision": REVISION, "content_type": "application/cbor",
            "endpoints": {"publish": {"method": "POST", "path": P, "request_limit": "max_blob_bytes + 256"},
-                         "authorize": {"method": "POST", "path": A, "request_limit": "67736"},
-                         "authorize_v1_alias": {"method": "POST", "path": A1, "request_limit": "67736",
+                         "authorize": {"method": "POST", "path": A, "request_limit": "67771"},
+                         "authorize_v1_alias": {"method": "POST", "path": A1, "request_limit": "67771",
                                                 "alias_of": A},
                          "record": {"method": "POST", "path": R, "request_limit": "2560"},
                          "health": {"method": "GET", "path": H}},

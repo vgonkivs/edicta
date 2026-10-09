@@ -1,6 +1,6 @@
 {
   "format": "edicta-policy-vectors/v1",
-  "revision": "policy-v1-draft.6",
+  "revision": "policy-v1-draft.7",
   "generator": "spec/vectors/check/gen_policy.py",
   "cases": [
     {
@@ -47,7 +47,7 @@
     {
       "id": "render_m_private",
       "mandate_ref": "m_private",
-      "text": "Edicta mandate v1\nmandate_id: 9b2e1ffd1b2adf2336f5d441fe6a8b17\nversion: 1\ngate: gate-paper-1\nprincipal: ed25519 fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e\nfast mode: not allowed\nauditors: 2 (private mandate)\n  - 61756469746f722d31\n  - 61756469746f722d32\nvalid: reference time from 2026-10-02T04:00:00Z ; decision valid_until up to 2026-11-02T04:00:00Z\nmax decision age: 1800s\nmin spacing: 10s\nagents (2, shared counter):\n  - 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c\n  - d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\nkinds: transfer\nasset test:eth (scale 18):\n  per action: no limit\n  period: max 1.000000000000000000 per rolling 744h (may count up to 745h)\n  recipients: any\nasset test:usd (scale 2):\n  per action: max 50.00\n  period: max 20.00 per rolling 1h (may count up to 2h)\n  period: max 100.00 per rolling 24h (may count up to 25h)\n  recipients:\n    - test:alice\n    - test:bob\ncount: max 5 actions per rolling 1h (may count up to 2h)\ncount: max 20 actions per rolling 24h (may count up to 25h)\nnotes:\n  - Limits are measured on the reference time of each decision (block time at its payload reference height), not on execution time.\n  - Limits use hourly buckets; a bucket partly inside a window counts fully, so a limit may cover up to one extra hour (a \"per 1h\" limit may span up to 2h): the gate may deny early, never allow extra.\n  - Limits count authorizations, not executions.\n  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.\n  - In fast mode the gate may authorize before the payload is anchored on L1; the anchor must land within the stated number of blocks or the decision is invalid.\n"
+      "text": "Edicta mandate v1\nmandate_id: 9b2e1ffd1b2adf2336f5d441fe6a8b17\nversion: 1\ngate: gate-paper-1\nprincipal: ed25519 fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e\nfast mode: not allowed\nauditors: 2 (private mandate)\n  - Auditor \"Bob\" (label not verified) - key fingerprint: 81ce d74a 8ac8 137c 0596 5487 f15d a3b4\n  - Auditor \"Alice\" (label not verified) - key fingerprint: db38 afa7 d0b5 28f1 415f 408d 1f4b 7e12\nvalid: reference time from 2026-10-02T04:00:00Z ; decision valid_until up to 2026-11-02T04:00:00Z\nmax decision age: 1800s\nmin spacing: 10s\nagents (2, shared counter):\n  - 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c\n  - d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\nkinds: transfer\nasset test:eth (scale 18):\n  per action: no limit\n  period: max 1.000000000000000000 per rolling 744h (may count up to 745h)\n  recipients: any\nasset test:usd (scale 2):\n  per action: max 50.00\n  period: max 20.00 per rolling 1h (may count up to 2h)\n  period: max 100.00 per rolling 24h (may count up to 25h)\n  recipients:\n    - test:alice\n    - test:bob\ncount: max 5 actions per rolling 1h (may count up to 2h)\ncount: max 20 actions per rolling 24h (may count up to 25h)\nnotes:\n  - Limits are measured on the reference time of each decision (block time at its payload reference height), not on execution time.\n  - Limits use hourly buckets; a bucket partly inside a window counts fully, so a limit may cover up to one extra hour (a \"per 1h\" limit may span up to 2h): the gate may deny early, never allow extra.\n  - Limits count authorizations, not executions.\n  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.\n  - In fast mode the gate may authorize before the payload is anchored on L1; the anchor must land within the stated number of blocks or the decision is invalid.\n  - Labels are not verified; check each key fingerprint or address out of band.\n"
     },
     {
       "id": "render_recipients_any_scale0",
@@ -77,6 +77,69 @@
         "version": "1"
       },
       "text": "Edicta mandate v1\nmandate_id: df5cab8929ca571ad220a46162be267b\nversion: 1\ngate: gate-paper-1\nprincipal: ed25519 fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e\nfast mode: not allowed\nauditors: none (public mandate)\nvalid: reference time from 2026-10-02T04:00:00Z ; decision valid_until up to 2026-11-02T04:00:00Z\nmax decision age: default (MaxTTL of the payload's DA)\nmin spacing: none\nagents (2, shared counter):\n  - 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c\n  - d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\nkinds: any\nasset test:usd (scale 0):\n  per action: no limit\n  period: max 9 per rolling 1h (may count up to 2h)\n  recipients: any\ncount: no limit\nnotes:\n  - Limits are measured on the reference time of each decision (block time at its payload reference height), not on execution time.\n  - Limits use hourly buckets; a bucket partly inside a window counts fully, so a limit may cover up to one extra hour (a \"per 1h\" limit may span up to 2h): the gate may deny early, never allow extra.\n  - Limits count authorizations, not executions.\n  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.\n  - In fast mode the gate may authorize before the payload is anchored on L1; the anchor must land within the stated number of blocks or the decision is invalid.\n"
+    },
+    {
+      "id": "render_m_private_two_auditors",
+      "description": "Two auditor labels that differ in one character (1 and l): each line carries the full 128-bit fingerprint beside the unverified label.",
+      "input": {
+        "format": "1",
+        "principal": "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e",
+        "gate_id": "gate-paper-1",
+        "agents": [
+          "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+          "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+        ],
+        "not_before": "1790913600",
+        "not_after": "1793592000",
+        "assets": [
+          {
+            "asset": "test:usd",
+            "scale": "2",
+            "per_action_max": "1388",
+            "periods": [
+              {
+                "hours": "1",
+                "max": "07d0"
+              },
+              {
+                "hours": "24",
+                "max": "2710"
+              }
+            ],
+            "recipients": [
+              "test:alice",
+              "test:bob"
+            ]
+          }
+        ],
+        "count_limits": [
+          {
+            "hours": "1",
+            "max_count": "5"
+          }
+        ],
+        "mandate_id": "798e259207818b6c608fccf163185ddd",
+        "version": "1",
+        "max_decision_age": "1800",
+        "min_spacing": "10",
+        "kinds": [
+          "transfer"
+        ],
+        "auditors": [
+          {
+            "kid": "81ced74a8ac8137c05965487f15da3b4",
+            "pubkey": "d40e12095dc69b95d1b4ca613dda1fd36e7be39c66ba322d0bbbc0e78fc2bd6e",
+            "label": "Auditor l"
+          },
+          {
+            "kid": "db38afa7d0b528f1415f408d1f4b7e12",
+            "pubkey": "273e55261d28d9c106186a099f184f49f71952bb7e0f9e2c345564680302106c",
+            "label": "Auditor 1"
+          }
+        ],
+        "state_salt": "cbb1f85ba32391f86838c2a9fcdfe66e50e7b210eb8f08d97592f8fc4e225b60"
+      },
+      "text": "Edicta mandate v1\nmandate_id: 798e259207818b6c608fccf163185ddd\nversion: 1\ngate: gate-paper-1\nprincipal: ed25519 fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e\nfast mode: not allowed\nauditors: 2 (private mandate)\n  - Auditor \"Auditor l\" (label not verified) - key fingerprint: 81ce d74a 8ac8 137c 0596 5487 f15d a3b4\n  - Auditor \"Auditor 1\" (label not verified) - key fingerprint: db38 afa7 d0b5 28f1 415f 408d 1f4b 7e12\nvalid: reference time from 2026-10-02T04:00:00Z ; decision valid_until up to 2026-11-02T04:00:00Z\nmax decision age: 1800s\nmin spacing: 10s\nagents (2, shared counter):\n  - 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c\n  - d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\nkinds: transfer\nasset test:usd (scale 2):\n  per action: max 50.00\n  period: max 20.00 per rolling 1h (may count up to 2h)\n  period: max 100.00 per rolling 24h (may count up to 25h)\n  recipients:\n    - test:alice\n    - test:bob\ncount: max 5 actions per rolling 1h (may count up to 2h)\nnotes:\n  - Limits are measured on the reference time of each decision (block time at its payload reference height), not on execution time.\n  - Limits use hourly buckets; a bucket partly inside a window counts fully, so a limit may cover up to one extra hour (a \"per 1h\" limit may span up to 2h): the gate may deny early, never allow extra.\n  - Limits count authorizations, not executions.\n  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.\n  - In fast mode the gate may authorize before the payload is anchored on L1; the anchor must land within the stated number of blocks or the decision is invalid.\n  - Labels are not verified; check each key fingerprint or address out of band.\n"
     },
     {
       "id": "render_escape_adr036",

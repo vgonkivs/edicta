@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/da/absence.json (v1-draft.3, core v1 section 10.4). Deterministic.
+"""Writes spec/vectors/da/absence.json (v1-draft.4, core v1 section 10.4). Deterministic.
 
 Synthetic absence proofs over one synthetic chain: blocks whose squares are
 built here (compact shares, NMT rows and their namespace proofs, the DAH,
@@ -14,9 +14,12 @@ carries one placeholder signature (header trust is a case input, the trusted
 hash per height); PFF signatures and keys are placeholders; the system blobs
 that go-square adds for every PFF are left out of the square.
 
-The live Mocha cases (P3) are not here: "live" stays empty.
+The live Mocha cases (live, live_source, live_tail_rule) are captured by
+spec/vectors/tools/absence-gen (read-only network, upstream code) and only
+carried over here: from --live FILE when given, else unchanged from the
+existing absence.json.
 
-Usage: python3 spec/vectors/check/gen_absence.py [--out DIR]
+Usage: python3 spec/vectors/check/gen_absence.py [--out DIR] [--live FILE]
 """
 
 from __future__ import annotations
@@ -36,7 +39,17 @@ VECTORS = Path(__file__).resolve().parent.parent
 OUT = VECTORS / "da"
 if "--out" in sys.argv:
     OUT = Path(sys.argv[sys.argv.index("--out") + 1]).resolve()
-FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.3"
+LIVE_FILE = None
+if "--live" in sys.argv:
+    LIVE_FILE = Path(sys.argv[sys.argv.index("--live") + 1]).resolve()
+FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.4"
+LIVE_KEYS = ("live", "live_source", "live_tail_rule")
+
+
+def live_sections() -> dict:
+    src = LIVE_FILE or (VECTORS / "da" / "absence.json")
+    d = json.loads(src.read_text())
+    return {k: d[k] for k in LIVE_KEYS}
 APP_VERSION = 10
 
 CHAIN_ID = "edicta-synth-1"
@@ -325,7 +338,7 @@ def results_leaf(code: int, gas_used: int) -> bytes:
 
 # ---- the chain ----
 
-def build_chain(query: dict, app_at: dict | None = None) -> dict:
+def build_chain(query: dict, app_at: dict | None = None, codes_at: dict | None = None) -> dict:
     ns, cm = query["namespace"], query["commitment"]
     h0 = BASE + 1
     other_cm = sha(b"another commitment")
@@ -373,6 +386,8 @@ def build_chain(query: dict, app_at: dict | None = None) -> dict:
     block(BASE + 6, tx1 + [user, tail_share(), tail_share()], 1, [], [0],
           "row 0: tx, user blob; row 1: tail padding (header for the results of the block before)", "F")
 
+    for h, codes in (codes_at or {}).items():
+        blocks[h]["codes"] = codes
     prev = stream(f"block/{BASE}", 32)
     prev_results = rfc6962([])
     for h in sorted(blocks):
@@ -434,6 +449,10 @@ def build() -> dict:
     blocks = build_chain(query)
     trusted = {str(h): blocks[h]["hash"].hex() for h in sorted(blocks)}
     other_app = build_chain(query, {BASE + 3: 11})
+    other_nonzero = build_chain(query, {BASE + 3: 11}, {BASE + 3: [5, 5, 5, 11]})
+    other_zero = build_chain(query, {BASE + 3: 11}, {BASE + 3: [0, 0, 0, 0]})
+    short = build_chain(query, None, {BASE + 3: [11]})
+    th = lambda ch: {str(h): ch[h]["hash"].hex() for h in sorted(ch)}  # noqa: E731
 
     def q(h0, d):
         return {"da": "1", "namespace": query["namespace"].hex(), "commitment": query["commitment"].hex(),
@@ -532,12 +551,32 @@ def build() -> dict:
              [bad(BASE + 3, "AB5", "a candidate whose code is not proven")]),
         case("candidate_other_app_version",
              "The chain with version.app = 11 in the header of h (block D, otherwise the same txs, results and "
-             "codes; the later headers relinked). The tail rule binds only under the pinned app version 10, and the "
-             "codes are not uniform (0, 0, 0, 11): the candidate's result index is not bound (AB5).",
+             "codes; the later headers relinked). The tail rule binds only under the pinned app version 10; at another "
+             "version only every code 0 proves anything, and the codes are 0, 0, 0, 11: not proven (AB5).",
              BASE + 3, BASE + 3, [(BASE + 3, record(query, other_app, BASE + 3))],
-             [bad(BASE + 3, "AB5", "header(h) has version.app 11, not the pinned 10, and the codes are not uniform")],
+             [bad(BASE + 3, "AB5", "another app version without every code 0: not proven")],
              extra={"app_versions": {str(BASE + 3): "11"}},
              trusted_headers={str(h): other_app[h]["hash"].hex() for h in sorted(other_app)}),
+        case("candidate_other_app_version_all_nonzero",
+             "version.app = 11 at h and every result code nonzero (5, 5, 5, 11): at another app version only every "
+             "code 0 proves anything, and nothing proves absence (fail-closed against a false anchor_absent).",
+             BASE + 3, BASE + 3, [(BASE + 3, record(query, other_nonzero, BASE + 3))],
+             [bad(BASE + 3, "AB5", "another app version without every code 0: not proven")],
+             extra={"app_versions": {str(BASE + 3): "11"}}, trusted_headers=th(other_nonzero)),
+        case("candidate_other_app_version_all_zero",
+             "version.app = 11 at h and every result code 0: the candidate's code is 0 whatever its index, so the "
+             "anchor is present at h (the safe direction).",
+             BASE + 3, BASE + 3, [(BASE + 3, record(query, other_zero, BASE + 3))],
+             [{"height": str(BASE + 3), "result": "present", "rule": "AB5",
+               "why": "another app version, every result code 0", "rows": ["0", "1"], "pff_txs": "2",
+               "candidates": [{"position": "1", "code": "0"}]}],
+             extra={"app_versions": {str(BASE + 3): "11"}}, trusted_headers=th(other_zero)),
+        case("tail_n_less_than_p",
+             "Pinned app version, but the block's results hold one result while two units of PFF_NS were "
+             "reassembled: n >= p fails, so the height is not proven (no uniform-code path at the pinned version).",
+             BASE + 3, BASE + 3, [(BASE + 3, record(query, short, BASE + 3))],
+             [bad(BASE + 3, "AB5", "n >= p >= 1 does not hold")], trusted_headers=th(short),
+             extra={"results_counts": {str(BASE + 3): "1"}}),
     ]
     blocks_out = [{"height": str(h), "layout": blocks[h]["layout"], "header_hash": blocks[h]["hash"].hex(),
                    "data_hash": blocks[h]["square"]["data_hash"].hex(), "txs": str(len(blocks[h]["codes"])),
@@ -553,19 +592,18 @@ def build() -> dict:
             "height absent, present or unproven with the deciding rule, and the window result as 10.2 reads it. "
             "results is the JSON result object of CometBFT /block_results (RP1 reads its txs_results). A "
             "candidate's result index is n - p + j: n results, p units of PFF_NS, j the candidate's position among "
-            "them (Fibre txs are the tail of the block's txs), only when header(h) has version.app 10 (the pinned app "
-            "version); otherwise only uniform codes bind it. A case with app_versions uses a chain whose headers "
+            "them (Fibre txs are the tail of the block's txs), when header(h) has version.app 10 (the pinned app "
+            "version), and n >= p >= 1 must hold; at any other app version only every result code 0 proves "
+            "presence, and nothing proves absence. A case with app_versions uses a chain whose headers "
             "carry those app versions; its trusted_headers are that chain's. Synthetic: parity quadrants are pseudo-random, not "
             "Reed-Solomon; commit and PFF signatures are placeholders; system blobs are left out; no AB rule reads "
-            "any of them."),
+            "any of them. live: Mocha heights captured by spec/vectors/tools/absence-gen, with their own chain_id "
+            "(live_source); live_tail_rule shows the tail rule of AB5 on live blocks."),
         "chain_id": CHAIN_ID,
         "pff_namespace": PFF_NS.hex(),
         "blocks": blocks_out,
         "synthetic": synthetic,
-        "live": [],
-        "live_pending": (
-            "P3 (task 031, needs the human's go-ahead for network access): live Mocha heights for fibre_no_pff_row, "
-            "fibre_other_pffs_only, blob_empty_namespace, blob_other_blobs, blob_present."),
+        **live_sections(),
     }}
 
 

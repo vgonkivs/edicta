@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.2",
+  "revision": "v1-draft.4",
   "margin_cap": "600",
   "k1": [
     {
@@ -133,6 +133,7 @@
         "head": "4200126",
         "max_h0_age": "10",
         "fast_mode_max_delay": "500",
+        "min_fast_slack_blocks": "3",
         "chain_window": "1000"
       },
       "expect": {
@@ -149,6 +150,7 @@
         "head": "4200126",
         "max_h0_age": "10",
         "fast_mode_max_delay": "40",
+        "min_fast_slack_blocks": "3",
         "chain_window": "1000"
       },
       "expect": {
@@ -165,6 +167,7 @@
         "head": "4200126",
         "max_h0_age": "10",
         "fast_mode_max_delay": "500",
+        "min_fast_slack_blocks": "3",
         "chain_window": "30"
       },
       "expect": {
@@ -172,14 +175,16 @@
       }
     },
     {
-      "id": "window_no_mandate_blob",
-      "description": "da = 2 at a gate without a mandate: window = FastWindowBlocks.",
+      "id": "window_blob_gate_min",
+      "description": "da = 2: window = FastWindowBlocks below the mandate bound (replaces window_no_mandate_blob of v1-draft.3: fast mode needs a mandate since v1-draft.4).",
       "input": {
         "da": "2",
         "fast_window_blocks": "100",
         "h0": "4200000",
         "head": "4200000",
         "max_h0_age": "10",
+        "fast_mode_max_delay": "500",
+        "min_fast_slack_blocks": "3",
         "timeout_height": "0"
       },
       "expect": {
@@ -195,6 +200,8 @@
         "h0": "4200000",
         "head": "4200001",
         "max_h0_age": "10",
+        "fast_mode_max_delay": "500",
+        "min_fast_slack_blocks": "3",
         "timeout_height": "4200025"
       },
       "expect": {
@@ -210,6 +217,8 @@
         "h0": "4200000",
         "head": "4200001",
         "max_h0_age": "10",
+        "fast_mode_max_delay": "500",
+        "min_fast_slack_blocks": "3",
         "timeout_height": "4200500"
       },
       "expect": {
@@ -225,6 +234,8 @@
         "h0": "4200000",
         "head": "4200001",
         "max_h0_age": "10",
+        "fast_mode_max_delay": "500",
+        "min_fast_slack_blocks": "3",
         "timeout_height": "0"
       },
       "expect": {
@@ -233,7 +244,7 @@
     },
     {
       "id": "h0_age_at_bound",
-      "description": "head - h0 == MaxH0AgeBlocks: accepted.",
+      "description": "head - h0 == MaxH0AgeBlocks: accepted (deadline h0 + 100 >= head + 3).",
       "input": {
         "da": "1",
         "fast_window_blocks": "100",
@@ -241,6 +252,7 @@
         "head": "4200133",
         "max_h0_age": "10",
         "fast_mode_max_delay": "500",
+        "min_fast_slack_blocks": "3",
         "chain_window": "1000"
       },
       "expect": {
@@ -257,6 +269,7 @@
         "head": "4200134",
         "max_h0_age": "10",
         "fast_mode_max_delay": "500",
+        "min_fast_slack_blocks": "3",
         "chain_window": "1000"
       },
       "expect": {
@@ -265,7 +278,7 @@
     },
     {
       "id": "window_closed",
-      "description": "head - h0 = 6 within the age bound 10 but above the window 5 (mandate bound).",
+      "description": "head - h0 = 6 within the age bound 10, window 5 (mandate bound): deadline h0 + 5 is below head + 3.",
       "input": {
         "da": "1",
         "fast_window_blocks": "100",
@@ -273,6 +286,7 @@
         "head": "4200129",
         "max_h0_age": "10",
         "fast_mode_max_delay": "5",
+        "min_fast_slack_blocks": "3",
         "chain_window": "1000"
       },
       "expect": {
@@ -281,7 +295,7 @@
     },
     {
       "id": "window_at_bound",
-      "description": "head - h0 == window: accepted, deadline = h0 + window.",
+      "description": "head - h0 == window: the deadline equals the head, below head + MinFastSlackBlocks (accepted in v1-draft.3, refused since v1-draft.4).",
       "input": {
         "da": "1",
         "fast_window_blocks": "100",
@@ -289,10 +303,163 @@
         "head": "4200128",
         "max_h0_age": "10",
         "fast_mode_max_delay": "5",
+        "min_fast_slack_blocks": "3",
         "chain_window": "1000"
       },
       "expect": {
+        "expect_error": "ErrAnchorWindowClosed"
+      }
+    },
+    {
+      "id": "window_slack_at_bound",
+      "description": "deadline == head + MinFastSlackBlocks (window 8, head h0 + 5): accepted.",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200128",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "8",
+        "min_fast_slack_blocks": "3",
+        "chain_window": "1000"
+      },
+      "expect": {
+        "anchor_deadline": "4200131"
+      }
+    },
+    {
+      "id": "window_slack_one_short",
+      "description": "deadline == head + 2 (window 7, head h0 + 5): refused.",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200128",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "7",
+        "min_fast_slack_blocks": "3",
+        "chain_window": "1000"
+      },
+      "expect": {
+        "expect_error": "ErrAnchorWindowClosed"
+      }
+    },
+    {
+      "id": "timeout_below_head",
+      "description": "da = 2, h0 100, timeout_height 101, head 105: the lowered deadline is below the head.",
+      "input": {
+        "da": "2",
+        "fast_window_blocks": "100",
+        "h0": "100",
+        "head": "105",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "500",
+        "min_fast_slack_blocks": "3",
+        "timeout_height": "101"
+      },
+      "expect": {
+        "expect_error": "ErrAnchorWindowClosed"
+      }
+    },
+    {
+      "id": "timeout_at_head_plus_slack",
+      "description": "da = 2, timeout_height = head + 3: accepted, deadline = timeout_height.",
+      "input": {
+        "da": "2",
+        "fast_window_blocks": "100",
+        "h0": "100",
+        "head": "105",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "500",
+        "min_fast_slack_blocks": "3",
+        "timeout_height": "108"
+      },
+      "expect": {
+        "anchor_deadline": "108"
+      }
+    },
+    {
+      "id": "slack_waived_included",
+      "description": "Slack fails (deadline = head), but the lookup finds the tx included with code 0 at h0 + 4 <= deadline: the failure is waived.",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200128",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "5",
+        "min_fast_slack_blocks": "3",
+        "chain_window": "1000",
+        "included_at": "4200127",
+        "included_code": "0"
+      },
+      "expect": {
         "anchor_deadline": "4200128"
+      }
+    },
+    {
+      "id": "slack_not_waived_nonzero",
+      "description": "Slack fails and the tx is included with code 4: refused.",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200128",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "5",
+        "min_fast_slack_blocks": "3",
+        "chain_window": "1000",
+        "included_at": "4200127",
+        "included_code": "4"
+      },
+      "expect": {
+        "expect_error": "ErrAnchorWindowClosed"
+      }
+    },
+    {
+      "id": "promise_slack",
+      "description": "da = 1: T(h) + MinPromiseSlackSeconds == creation_timestamp + payment_promise_timeout (15 s left is not enough), tx not found.",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200126",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "500",
+        "min_fast_slack_blocks": "3",
+        "chain_window": "1000",
+        "promise": {
+          "t_head": "1790997000",
+          "creation": "1790993415",
+          "timeout": "3600",
+          "min_slack": "15"
+        }
+      },
+      "expect": {
+        "expect_error": "ErrAnchorWindowClosed"
+      }
+    },
+    {
+      "id": "promise_slack_ok",
+      "description": "da = 1: 16 s left before the promise expires: accepted.",
+      "input": {
+        "da": "1",
+        "fast_window_blocks": "100",
+        "h0": "4200123",
+        "head": "4200126",
+        "max_h0_age": "10",
+        "fast_mode_max_delay": "500",
+        "min_fast_slack_blocks": "3",
+        "chain_window": "1000",
+        "promise": {
+          "t_head": "1790997000",
+          "creation": "1790993416",
+          "timeout": "3600",
+          "min_slack": "15"
+        }
+      },
+      "expect": {
+        "anchor_deadline": "4200223"
       }
     },
     {
@@ -305,6 +472,7 @@
         "head": "4200123",
         "max_h0_age": "10",
         "fast_mode_max_delay": "500",
+        "min_fast_slack_blocks": "3",
         "chain_window": "0"
       },
       "expect": {
@@ -321,6 +489,7 @@
         "head": "4200122",
         "max_h0_age": "10",
         "fast_mode_max_delay": "500",
+        "min_fast_slack_blocks": "3",
         "chain_window": "1000"
       },
       "expect": {
