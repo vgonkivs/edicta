@@ -221,6 +221,7 @@ func (g *Gate) denyVerdict(ctx context.Context, in policyInput, reason error, pr
 func (g *Gate) admitPolicy(c *commitment.Commitment, action []byte, in *policyInput) (denied bool, err error) {
 	adm, derr := policy.Admit(g.pol.mandate, g.pol.extractors, policy.Decision{
 		AgentPubKey: c.AgentPubKey, ActionType: c.Action.Type, Action: action, ValidUntil: c.ValidUntil,
+		Pending: c.PayloadRef.Pending(),
 	})
 	in.adm = adm
 	switch {

@@ -887,6 +887,9 @@ func (r *run) policy() error {
 		MandateRef:    r.c.MandateRef,
 		RequirePolicy: r.policyRequired(),
 	}
+	if r.sa != nil && r.sa.Authorization.Mode == commitment.ModeFast {
+		in.FastMode, in.H0, in.AnchorDeadline = true, r.c.PayloadRef.Height, r.sa.Authorization.AnchorDeadline
+	}
 	if r.authKey != nil {
 		in.GateKeys = []ed25519.PublicKey{r.authKey}
 	} else {

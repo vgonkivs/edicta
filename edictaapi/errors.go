@@ -102,6 +102,7 @@ var table = []ErrorRule{
 	rule(403, "ErrExecutorNotAllowed", gate.ErrExecutorNotAllowed),
 	rule(403, "ErrKeyRole", commitment.ErrKeyRole),
 	rule(403, "policy.ErrAgentNotCovered", policy.ErrAgentNotCovered),
+	rule(403, "policy.ErrFastModeNotAllowed", policy.ErrFastModeNotAllowed),
 	rule(403, "policy.ErrNoExtractor", policy.ErrNoExtractor),
 	rule(403, "policy.ErrOutsideMandate", policy.ErrOutsideMandate),
 	rule(403, "policy.ErrKindNotAllowed", policy.ErrKindNotAllowed),

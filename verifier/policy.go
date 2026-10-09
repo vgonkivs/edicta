@@ -62,6 +62,11 @@ type policyInput struct {
 	// configuration: a fast-mode Authorization is valid only with the
 	// mandate's consent, which only the allow record shows.
 	RequirePolicy bool
+	// FastMode is an Authorization with mode 2; H0 is the reference height
+	// and AnchorDeadline the deadline it states.
+	FastMode       bool
+	H0             uint64
+	AnchorDeadline uint64
 }
 
 type policyOutcome struct {
@@ -385,6 +390,7 @@ func (p *policyRun) fast(allow *allowRec) (*policy.Mandate, error) {
 	// Per-action rules on verified data.
 	_, aerr := policy.Admit(m, x, policy.Decision{
 		AgentPubKey: p.in.AgentPub, ActionType: p.in.ActionType, Action: p.in.Action, ValidUntil: p.in.ValidUntil,
+		Pending: p.in.FastMode,
 	})
 	if aerr != nil {
 		rule := policy.ReasonOf(aerr)
@@ -392,6 +398,13 @@ func (p *policyRun) fast(allow *allowRec) (*policy.Mandate, error) {
 			rule = "facts_mismatch"
 		}
 		p.setFail(rule, aerr)
+		return m, nil
+	}
+	// The gate clamps the window to the principal's bound; a longer one
+	// means it signed a deadline the principal never accepted.
+	if p.in.FastMode && (p.in.AnchorDeadline < p.in.H0 || p.in.AnchorDeadline-p.in.H0 > m.FastModeMaxDelay) {
+		p.setFail("fast_mode_delay", fmt.Errorf("anchor deadline %d is more than %d blocks after h0 %d",
+			p.in.AnchorDeadline, m.FastModeMaxDelay, p.in.H0))
 		return m, nil
 	}
 	if p.in.THVerified {

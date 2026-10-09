@@ -18,6 +18,7 @@ func deny(msg string) error { return &denyError{msg: msg} }
 // Deny sentinels, one per rule that can refuse an action.
 var (
 	ErrAgentNotCovered     = deny("policy: agent not covered by the mandate")
+	ErrFastModeNotAllowed  = deny("policy: the mandate does not allow fast mode")
 	ErrNoExtractor         = deny("policy: no extractor for the action type")
 	ErrFactsInvalid        = deny("policy: facts could not be extracted or are invalid")
 	ErrOutsideMandate      = deny("policy: outside the mandate validity")
@@ -49,13 +50,13 @@ var (
 
 // DenyReasons lists the bare names of the deny sentinels in the order the checks run.
 var DenyReasons = []string{
-	"ErrAgentNotCovered", "ErrNoExtractor", "ErrFactsInvalid", "ErrOutsideMandate", "ErrKindNotAllowed",
+	"ErrAgentNotCovered", "ErrFastModeNotAllowed", "ErrNoExtractor", "ErrFactsInvalid", "ErrOutsideMandate", "ErrKindNotAllowed",
 	"ErrAssetNotAllowed", "ErrRecipientNotAllowed", "ErrAmountAboveMax", "ErrDecisionAge", "ErrMinSpacing",
 	"ErrPeriodLimit", "ErrCountLimit", "ErrHistoryFull",
 }
 
 var denyByName = map[string]error{
-	"ErrAgentNotCovered": ErrAgentNotCovered, "ErrNoExtractor": ErrNoExtractor, "ErrFactsInvalid": ErrFactsInvalid,
+	"ErrAgentNotCovered": ErrAgentNotCovered, "ErrFastModeNotAllowed": ErrFastModeNotAllowed, "ErrNoExtractor": ErrNoExtractor, "ErrFactsInvalid": ErrFactsInvalid,
 	"ErrOutsideMandate": ErrOutsideMandate, "ErrKindNotAllowed": ErrKindNotAllowed, "ErrAssetNotAllowed": ErrAssetNotAllowed,
 	"ErrRecipientNotAllowed": ErrRecipientNotAllowed, "ErrAmountAboveMax": ErrAmountAboveMax, "ErrDecisionAge": ErrDecisionAge,
 	"ErrMinSpacing": ErrMinSpacing, "ErrPeriodLimit": ErrPeriodLimit, "ErrCountLimit": ErrCountLimit, "ErrHistoryFull": ErrHistoryFull,
@@ -68,7 +69,7 @@ func DenySentinel(name string) (error, bool) {
 }
 
 // ReasonOf returns the bare reason name of a deny error, or "" if err is not
-// one of the thirteen denies.
+// one of the deny sentinels.
 func ReasonOf(err error) string {
 	for _, n := range DenyReasons {
 		if errors.Is(err, denyByName[n]) {

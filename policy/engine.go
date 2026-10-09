@@ -15,6 +15,9 @@ type Decision struct {
 	ActionType  string
 	Action      []byte
 	ValidUntil  uint64
+	// Pending is a pending payload reference: fast mode, which needs the
+	// mandate's consent.
+	Pending bool
 }
 
 // Admission is the result of the per-action rules.
@@ -41,13 +44,16 @@ type Step struct {
 	ClosedSet    *ClosedSet // set when this step closed an hour
 }
 
-// Admit runs the per-action rules: agent, extractor, facts, validity, kind,
-// asset, recipient and amount. On a deny the Admission holds
+// Admit runs the per-action rules: agent, fast-mode consent, extractor,
+// facts, validity, kind, asset, recipient and amount. On a deny the Admission holds
 // what was learned so far (the extractor ID, the facts).
 func Admit(m *Mandate, x *Extractors, d Decision) (Admission, error) {
 	var a Admission
 	if !m.Covers(d.AgentPubKey) {
 		return a, ErrAgentNotCovered
+	}
+	if d.Pending && m.FastModeMaxDelay == 0 {
+		return a, ErrFastModeNotAllowed
 	}
 	if !x.Has(d.ActionType) {
 		return a, ErrNoExtractor
