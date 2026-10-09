@@ -16,6 +16,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/celestia/railtx"
+	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/pricefeed"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
@@ -112,7 +113,9 @@ type Runner struct {
 	signer                           *sdk.Ed25519Signer
 	store                            *transfer.MemStore
 
-	mandateText       string
+	mandateText string
+	// mandateHash is what the agent's v1 commitments name as mandate_ref.
+	mandateHash       commitment.Hash
 	principalHex      string // public key
 	presetBase        Preset
 	closeGateDeps     func()

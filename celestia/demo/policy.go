@@ -62,7 +62,7 @@ func (r *Runner) writeMandate(gateID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	signed, _, err := policy.SignMandate(r.keys.principal, m)
+	signed, mh, err := policy.SignMandate(r.keys.principal, m)
 	if err != nil {
 		return "", fmt.Errorf("demo: mandate: %w", err)
 	}
@@ -71,6 +71,7 @@ func (r *Runner) writeMandate(gateID string) (string, error) {
 		return "", fmt.Errorf("demo: mandate file: %w", err)
 	}
 	r.mandateText = policy.Render(m)
+	r.mandateHash = mh
 	r.principalHex = hex.EncodeToString(m.Principal)
 	return path, nil
 }

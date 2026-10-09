@@ -427,6 +427,8 @@ var verdicts = []struct {
 	{"ErrDACommitmentMismatch", gate.ErrDACommitmentMismatch},
 	{"ErrExpired", commitment.ErrExpired},
 	{"ErrIssuedBeforeAnchor", commitment.ErrIssuedBeforeAnchor},
+	{"ErrMandateMismatch", gate.ErrMandateMismatch},
+	{"ErrMandateRefMissing", gate.ErrMandateRefMissing},
 	{"ErrNonceUsed", gate.ErrNonceUsed},
 	{"ErrNotYetValid", commitment.ErrNotYetValid},
 	{"ErrPayloadHashMismatch", commitment.ErrPayloadHashMismatch},

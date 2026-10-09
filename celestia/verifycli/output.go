@@ -94,12 +94,25 @@ type policyView struct {
 	PrevStateHash string   `json:"prev_state_hash"`
 	NewStateHash  string   `json:"new_state_hash"`
 	Denials       []string `json:"denials,omitempty"`
+	MandateRef    string   `json:"mandate_ref,omitempty"`
+}
+
+// modeName is the v1 Authorization mode as the report prints it; empty for v0.
+func modeName(m uint64) string {
+	switch m {
+	case commitment.ModeStrict:
+		return "strict"
+	case commitment.ModeFast:
+		return "fast"
+	}
+	return ""
 }
 
 type authView struct {
 	Path         string `json:"path"`
 	Expires      uint64 `json:"expires"`
 	AuthorizedAt uint64 `json:"authorized_at"`
+	Mode         string `json:"mode,omitempty"`
 }
 
 type certView struct {
@@ -245,7 +258,7 @@ func viewOf(r verifier.Report) reportView {
 			Kind: p.Facts.Kind, Asset: p.Facts.Asset, Amount: hex.EncodeToString(p.Facts.Amount),
 			Scale: p.Facts.Scale, Recipient: p.Facts.Recipient,
 			PrevStateHash: hex.EncodeToString(p.PrevStateHash[:]), NewStateHash: hex.EncodeToString(p.NewStateHash[:]),
-			Denials: p.Denials,
+			Denials: p.Denials, MandateRef: string(p.MandateRef),
 		}
 	}
 	for _, c := range r.Checks {
@@ -255,7 +268,7 @@ func viewOf(r verifier.Report) reportView {
 		})
 	}
 	if a := r.Authorization; a != nil {
-		v.Authorization = &authView{Path: pathName(a.Path), Expires: a.Expires, AuthorizedAt: a.AuthorizedAt}
+		v.Authorization = &authView{Path: pathName(a.Path), Expires: a.Expires, AuthorizedAt: a.AuthorizedAt, Mode: modeName(a.Mode)}
 	}
 	if r.Cert != nil {
 		form, earlier := r.AnchorProofForm, r.AnchorCandidatesEarlier

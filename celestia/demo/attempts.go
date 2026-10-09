@@ -140,7 +140,7 @@ func (r *Runner) reuseNonceWithNewCommitment(ctx context.Context, d *decision) (
 	if err != nil {
 		return false, err
 	}
-	sig, err := r.signer.SignCommitment(ctx, h)
+	sig, err := r.signer.SignCommitmentV1(ctx, h)
 	if err != nil {
 		return false, err
 	}

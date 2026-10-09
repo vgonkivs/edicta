@@ -79,6 +79,9 @@ func (r *Runner) buildAgent(ctx context.Context) error {
 		return coded(ExitUsage, err)
 	}
 	scfg := sdk.DefaultConfig()
+	// The gate runs a mandate, so it admits only v1 commitments naming it.
+	scfg.Version = commitment.VersionV1
+	scfg.MandateHash = r.mandateHash
 	scfg.AgentID = agentID
 	scfg.Scope = commitment.Scope{GateID: r.gateID}
 	scfg.Recipients = []blob.Recipient{r.keys.recipient}

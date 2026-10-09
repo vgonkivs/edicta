@@ -104,7 +104,7 @@ func TestWriterDoesNotRaiseDroppedWhileTheRequestHoldsTheEntry(t *testing.T) {
 	h := commitment.Hash{7}
 	sa, err := commitment.EncodeSignedAuthorization(&commitment.SignedAuthorization{
 		Authorization: commitment.Authorization{
-			Version: 1, CommitmentHash: h[:], ActionHash: make([]byte, 32), GateID: "g", Expires: 1, Path: 1,
+			Version: 1, CommitmentHash: h[:], ActionHash: make([]byte, 32), GateID: "g", Expires: 1, Path: 1, Mode: 1,
 		},
 		Signature: make([]byte, 64),
 	})

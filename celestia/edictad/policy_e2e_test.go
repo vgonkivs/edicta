@@ -57,8 +57,13 @@ func newPolicyEnv(t *testing.T) *policyEnv {
 // sign writes the signed mandate to a file of the env and returns its path.
 func (p *policyEnv) sign(prv ed25519.PrivateKey, m *policy.Mandate) string {
 	p.t.Helper()
-	b, _, err := policy.SignMandate(prv, m)
+	b, mh, err := policy.SignMandate(prv, m)
 	require.NoError(p.t, err)
+	// Later decisions name the mandate last signed: a gate with a mandate
+	// admits only v1 commitments that name the one in force.
+	base := *p.base
+	base.Version, base.MandateRef = commitment.VersionV1, bytes.Clone(mh[:])
+	p.base = &base
 	path := p.path("mandate.cbor")
 	writeFile(p.t, path, b, 0o600)
 	return path
