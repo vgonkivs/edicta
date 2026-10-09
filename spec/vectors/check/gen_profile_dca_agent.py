@@ -274,8 +274,8 @@ def write(name: str, obj: dict):
 
 def main():
     valid = json.loads((CORE / "valid.json").read_text())
-    if valid.get("revision") != "v1-draft.5":
-        sys.exit(f"{CORE} is not a v1-draft.5 vector set")
+    if valid.get("revision") != "v1.0":
+        sys.exit(f"{CORE} is not a v1.0 vector set")
     auth = json.loads((CORE / "authorization.json").read_text())
     OUT.mkdir(parents=True, exist_ok=True)
     write("ibkr_order.json", ibkr_order_vectors(valid, auth))

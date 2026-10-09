@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/v1/archive.json, verify.json and stage4m.json (v1-draft.6).
+"""Verifies spec/vectors/v1/archive.json, verify.json and stage4m.json (v1.0).
 
 - the generator (gen_archive_v1.py) reproduces the three files byte for byte;
 - every record decodes with archive.py to its input, re-encodes to its bytes,
@@ -41,7 +41,7 @@ REQUIRED_REJECT = ("signer_on_fibre_intent", "fast_window_on_strict", "kind_16_r
                    "private_action_envelope_69633", "header_empty",
                    "rejection_mandate_mismatch_not_a_marker")
 REQUIRED_READS = ("absence_key_mismatch", "decision_key_mismatch")
-REVISION = "v1-draft.6"
+REVISION = "v1.0"
 
 
 class Failure(Exception):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/api/publish_request.json (v1-draft.5).
+"""Verifies spec/vectors/api/publish_request.json (v1.0).
 
 Rebuilds every publish message from literal tag bytes, checks the agent
 signatures, the request and response encodings, and runs the stateless
@@ -50,7 +50,7 @@ def expect(cond: bool, msg: str):
 def main() -> int:
     try:
         f = json.loads((DIR / "publish_request.json").read_text())
-        expect(f["format"] == "edicta-vectors/v1" and f["revision"] == "v1-draft.5", "header")
+        expect(f["format"] == "edicta-vectors/v1" and f["revision"] == "v1.0", "header")
         expect(f["tag"]["tagged_hex"] == TAG_HEX and f["tag"]["ascii"] == "edicta/v1/publish-request", "tag")
         expect(int(f["publish_window_s"]) == pr.PUBLISH_WINDOW_S and int(f["request_overhead"]) == pr.REQUEST_OVERHEAD,
                "constants")
@@ -101,7 +101,7 @@ def main() -> int:
     except (Failure, Reject) as e:
         print(f"FAIL (api): {e}", file=sys.stderr)
         return 1
-    print(f"OK (api, v1-draft.5): {len(f['cases'])} publish request, {len(f['reject'])} publish reject, "
+    print(f"OK (api, v1.0): {len(f['cases'])} publish request, {len(f['reject'])} publish reject, "
           f"{len(f['response'])} publish response")
     return 0
 

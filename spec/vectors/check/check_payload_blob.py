@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies payload_blob.json of the core vector set (v1-draft.5, default spec/vectors/v1).
+"""Verifies payload_blob.json of the core vector set (v1.0, default spec/vectors/v1).
 
 Runs the RFC 9180 known-answer tests of the hand-written HPKE first and
 refuses to go on if they fail. Then re-derives every valid case in the seal
@@ -202,7 +202,7 @@ def check_existing_blob(directory: Path):
 
 def check(directory: Path = DIR) -> tuple[str, list]:
     v = json.loads((directory / "payload_blob.json").read_text())
-    expect(v["format"] == "edicta-vectors/v1" and v["revision"] == "v1-draft.5", "payload_blob.json format")
+    expect(v["format"] == "edicta-vectors/v1" and v["revision"] == "v1.0", "payload_blob.json format")
     kat = hpke.run_kat([v["hpke_kat"]])
     check_suite(v)
     keys = v["recipient_keys"]

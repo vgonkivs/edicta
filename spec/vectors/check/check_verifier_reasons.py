@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/verifier/reasons.json (v1-draft.5).
+"""Verifies spec/vectors/verifier/reasons.json (v1.0).
 
 - the reason enum: unique lower-case names, known groups and checks;
 - every reason has at least one case, and every case's reason is in the enum
@@ -70,7 +70,7 @@ def check(path: Path) -> str:
     f = json.loads(raw)
     if path == FILE:
         expect(raw == json.dumps(gen.build(), indent=2, ensure_ascii=True) + "\n", "generator output differs")
-    expect(f["format"] == "edicta-vectors/v1" and f["revision"] == "v1-draft.5", "format or revision")
+    expect(f["format"] == "edicta-vectors/v1" and f["revision"] == "v1.0", "format or revision")
     expect(set(f) == {"format", "revision", "generator", "description", "reasons", "cases", "boundary"}, "keys")
     enum = {}
     for r in f["reasons"]:
@@ -176,7 +176,7 @@ def main() -> int:
     except (Failure, KeyError) as ex:
         print(f"FAIL (reasons.json): {ex}", file=sys.stderr)
         return 1
-    print(f"OK (reasons.json, v1-draft.5): {summary}")
+    print(f"OK (reasons.json, v1.0): {summary}")
     return 0
 
 

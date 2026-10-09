@@ -1,4 +1,4 @@
-"""Archive records, format 1 (spec/decision-commitment-v1.md section 19, v1-draft.6).
+"""Archive records, format 1 (spec/decision-commitment-v1.md section 19, v1.0).
 
 Encoding, strict decoding, keys, identities, the reference write rules and the verifier rules of the
 archive records. Kind numbers are scoped per archive format; in format 1 kind 3 is unassigned and the

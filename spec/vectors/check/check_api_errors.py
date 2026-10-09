@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/api/errors.json against spec/decision-commitment-v1.md (v1-draft.6,
+"""Verifies spec/vectors/api/errors.json against spec/decision-commitment-v1.md (v1.0,
 sections 18 and 21) and the v1 core vectors.
 
 - Every sentinel named in section 21 is either mapped (errors) or listed in
@@ -234,7 +234,7 @@ def check_health(b: bytes, w: str):
 def main() -> int:
     try:
         f = json.loads((DIR / "errors.json").read_text())
-        expect(f["format"] == "edicta-vectors/v1" and f["revision"] == "v1-draft.6", "header")
+        expect(f["format"] == "edicta-vectors/v1" and f["revision"] == "v1.0", "header")
         expect(f["content_type"] == "application/cbor", "content type")
         spec = SPEC.read_text()
         by_code = check_mapping(f, spec)
@@ -244,7 +244,7 @@ def main() -> int:
     except (Failure, Reject, CBORError) as e:
         print(f"FAIL (api errors): {e}", file=sys.stderr)
         return 1
-    print(f"OK (api errors, v1-draft.6): {len(f['errors'])} codes, {len(f['not_api_visible'])} not API-visible, "
+    print(f"OK (api errors, v1.0): {len(f['errors'])} codes, {len(f['not_api_visible'])} not API-visible, "
           f"{len(f['examples'])} examples; section 21 covered, section 18.3 matches")
     return 0
 

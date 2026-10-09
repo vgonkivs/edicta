@@ -1,4 +1,4 @@
-"""Edicta policy v1 rules (spec/policy-v1.md, policy-v1-draft.8).
+"""Edicta policy v1 rules (spec/policy-v1.md, policy-v1.0).
 
 The generator's rules module: facts, mandate, render, engine, state, verdict,
 archive records and the verifier outcome rules. check_policy.py re-implements

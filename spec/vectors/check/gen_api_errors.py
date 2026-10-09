@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generates spec/vectors/api/errors.json: the HTTP error mapping of spec/decision-commitment-v1.md
-section 18 (v1-draft.6) and example request and response bytes per endpoint, from the v1 core
+section 18 (v1.0) and example request and response bytes per endpoint, from the v1 core
 vectors. Deterministic.
 
 Usage: python3 spec/vectors/check/gen_api_errors.py [--core DIR] [--out DIR]
@@ -32,7 +32,7 @@ def arg(name: str, default: Path) -> Path:
 CORE = arg("--core", VECTORS / "v1")
 OUT = arg("--out", VECTORS / "api")
 FORMAT = "edicta-vectors/v1"
-REVISION = "v1-draft.6"
+REVISION = "v1.0"
 
 P, A, R, H = "/v1/publish", "/v1/authorize", "/v1/record", "/v1/health"
 POSTS = [P, A, R]

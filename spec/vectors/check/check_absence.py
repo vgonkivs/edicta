@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/da/absence.json (v1-draft.6) without Go and without the network.
+"""Verifies spec/vectors/da/absence.json (v1.0) without Go and without the network.
 
 Runs AB1 to AB5 on the bytes of every kind 14 record, with the code that
 already checks the anchor proof and result proof:
@@ -50,7 +50,7 @@ import check_fibre_cert as FC
 
 HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
-FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.6"
+FORMAT, REVISION = "edicta-vectors/v1", "v1.0"
 APP_VERSION = 10
 SYNTHETIC = ("fibre_candidate_nonzero_code", "fibre_present", "window_three_heights_proven",
              "window_one_height_missing", "tampered_row_root", "cut_namespace_entry", "candidate_other_app_version",

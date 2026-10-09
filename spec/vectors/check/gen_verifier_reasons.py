@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/verifier/reasons.json (v1-draft.5).
+"""Writes spec/vectors/verifier/reasons.json (v1.0).
 
 The machine-readable verifier reason enum and one case per
 reason: the check it is reported on, the scenario as overrides of a valid,
@@ -363,7 +363,7 @@ def build() -> dict:
     ]
     return {
         "format": "edicta-vectors/v1",
-        "revision": "v1-draft.5",
+        "revision": "v1.0",
         "generator": "spec/vectors/check/gen_verifier_reasons.py",
         "description": (
             "The verifier reason enum and one case per reason. Each case starts from a valid, authorized "

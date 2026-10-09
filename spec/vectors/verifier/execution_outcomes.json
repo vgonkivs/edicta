@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v0",
-  "revision": "v1-draft.5",
+  "revision": "v1.0",
   "profile": "bank-send",
   "profile_revision": "bank-send-v0-draft.7",
   "generator": "spec/vectors/check/gen_execution_outcomes.py",

@@ -1,4 +1,4 @@
-"""Payload blob and payload plaintext rules (spec/decision-commitment-v1.md, v1-draft.5).
+"""Payload blob and payload plaintext rules (spec/decision-commitment-v1.md, v1.0).
 
 Python side of the cross-language check for the published payload. Like
 edicta.py it must not be ported from, or to, the Go implementation.

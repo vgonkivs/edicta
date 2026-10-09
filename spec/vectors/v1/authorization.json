@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.5",
+  "revision": "v1.0",
   "max_authorization_ttl_s": "300",
   "gate": {
     "gate_id": "gate-paper-1",

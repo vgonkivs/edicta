@@ -173,7 +173,7 @@ def check_coid(f: dict, core_valid: dict):
 def main() -> int:
     try:
         core_valid = json.loads((CORE / "valid.json").read_text())
-        expect(core_valid.get("revision") == "v1-draft.5", f"{CORE} is not a v1-draft.5 set")
+        expect(core_valid.get("revision") == "v1.0", f"{CORE} is not a v1.0 set")
         core_auth = json.loads((CORE / "authorization.json").read_text())
         core_blob = json.loads((CORE / "payload_blob.json").read_text())
         orders = load(DIR, "ibkr_order.json")

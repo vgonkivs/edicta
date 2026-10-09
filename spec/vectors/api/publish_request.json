@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.5",
+  "revision": "v1.0",
   "tag": {
     "ascii": "edicta/v1/publish-request",
     "tagged_hex": "196564696374612f76312f7075626c6973682d72657175657374"

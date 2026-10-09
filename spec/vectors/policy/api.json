@@ -1,6 +1,6 @@
 {
   "format": "edicta-policy-vectors/v1",
-  "revision": "policy-v1-draft.8",
+  "revision": "policy-v1.0",
   "generator": "spec/vectors/check/gen_policy.py",
   "mapping": [
     {

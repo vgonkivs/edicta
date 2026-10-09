@@ -1,4 +1,4 @@
-"""Publish request rules (spec/decision-commitment-v1.md, v1-draft.5): the agent-signed
+"""Publish request rules (spec/decision-commitment-v1.md, v1.0): the agent-signed
 request a Recorder accepts before it spends fees on a blob.
 
 Python side of the cross-language check for the publish endpoint. Reuses the

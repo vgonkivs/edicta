@@ -3,10 +3,9 @@
 Edicta profile for a bank transfer on a Cosmos SDK chain, used by the demo in
 `examples/tia-transfer`.
 
-Status: revision `bank-send-v0-draft.11` (2026-10-09). Working draft, subject
-to change. Built on the core spec `spec/decision-commitment-v1.md`, revision
-`v1-draft.6` (at the freeze tag this line cites the frozen revision). Section
-2.4 needs `spec/policy-v1.md` (`policy-v1-draft.1` or later). Section numbers
+Status: revision `bank-send-v0-draft.11` (2026-10-09), frozen with core v1.0.
+Built on the core spec `spec/decision-commitment-v1.md`, revision `v1.0`. Section
+2.4 needs `spec/policy-v1.md` (`policy-v1.0`). Section numbers
 prefixed "core" refer to the core spec. The `v0` in this profile's name and
 media types is the profile's own version, not the core's.
 
@@ -655,7 +654,7 @@ changed it (section 0); uints are decimal strings, bytes lowercase hex.
 | `e2e.json` | `gen_profile_bank_send.py` | `bank-send-v0-draft.11`. One decision end to end: the gate and params; a commitment by `agent1` (core `keys.json`) with this action type, its envelope and hash (payload fields are placeholders, listed); the action bytes; a price-trigger context consistent with the transfer; the Authorization by `gate1`; the executor's clock, domain, headers, `tau_ms`, `timeout_height`, memo and body. 1 case. |
 
 Section 3.4 has its vectors in the core set,
-`spec/vectors/verifier/execution_outcomes.json` (core `v1-draft.5`, profile
+`spec/vectors/verifier/execution_outcomes.json` (core `v1.0`, profile
 `bank-send-v0-draft.7` rules), written by `spec/vectors/check/gen_execution_outcomes.py`
 and checked by `check_execution_outcomes.py`. The file holds:
 - `defaults`: the decision under test (`action_minimal_mocha`,

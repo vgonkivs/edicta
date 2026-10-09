@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/da/absence.json (v1-draft.6, core v1 sections 10.4 and 20.8). Deterministic.
+"""Writes spec/vectors/da/absence.json (v1.0, core v1 sections 10.4 and 20.8). Deterministic.
 
 Synthetic absence proofs over one synthetic chain: blocks whose squares are
 built here (compact shares, NMT rows and their namespace proofs, the DAH,
@@ -42,7 +42,7 @@ if "--out" in sys.argv:
 LIVE_FILE = None
 if "--live" in sys.argv:
     LIVE_FILE = Path(sys.argv[sys.argv.index("--live") + 1]).resolve()
-FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.6"
+FORMAT, REVISION = "edicta-vectors/v1", "v1.0"
 LIVE_KEYS = ("live", "live_source", "live_tail_rule")
 
 

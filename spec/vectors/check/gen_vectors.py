@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates the core vectors (v1-draft.5) under spec/vectors/v1 and spec/vectors/keys.json. Deterministic.
+"""Generates the core vectors (v1.0) under spec/vectors/v1 and spec/vectors/keys.json. Deterministic.
 
 Usage: python3 spec/vectors/check/gen_vectors.py [--out DIR]
 Writes valid.json, reject.json, authorization.json, receipt.json, record_request.json, payload.json,
@@ -45,9 +45,9 @@ if "--out" in sys.argv:
     OUT = Path(sys.argv[sys.argv.index("--out") + 1]).resolve()
 KEYS_OUT = Path(__file__).resolve().parent.parent / "keys.json"
 FORMAT = "edicta-vectors/v1"
-REVISION = "v1-draft.5"
+REVISION = "v1.0"
 # A file carries the revision of its last content change.
-REVISIONS = {"limits.json": "v1-draft.4", "gate.json": "v1-draft.6"}
+REVISIONS = {"limits.json": "v1.0", "gate.json": "v1.0"}
 MANDATE_FILE = Path(__file__).resolve().parent.parent / "policy" / "mandate.json"
 
 KEYS = {

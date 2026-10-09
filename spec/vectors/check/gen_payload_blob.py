@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates payload_blob.json (v1-draft.5; default directory spec/vectors/v1). Deterministic: rerunning yields an identical file.
+"""Generates payload_blob.json (v1.0; default directory spec/vectors/v1). Deterministic: rerunning yields an identical file.
 
 Every value that is random in production is derived from a fixed label here:
   recipient key   (sk, pk) = DeriveKeyPair(SHA-256("edicta/v0 test recipient|" + name))
@@ -43,7 +43,7 @@ OUT = Path(__file__).resolve().parent.parent / "v1"
 if "--out" in sys.argv:
     OUT = Path(sys.argv[sys.argv.index("--out") + 1]).resolve()
 FORMAT = "edicta-vectors/v1"
-REVISION = "v1-draft.5"
+REVISION = "v1.0"
 KAT_RFC_TEXT = Path(__file__).resolve().parent / "hpke_rfc9180_a2_1.json"
 
 AGENT1_SEED = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")

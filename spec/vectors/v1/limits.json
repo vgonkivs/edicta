@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.4",
+  "revision": "v1.0",
   "limits": {
     "max_signed_size": "2176",
     "max_commitment_size": "2048",

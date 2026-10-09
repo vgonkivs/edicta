@@ -46,7 +46,7 @@ PROFILE = "bank-send"
 PROFILE_REVISION = "bank-send-v0-draft.1"
 # Files whose bytes or meaning changed in draft.2 carry it; the others keep draft.1.
 PROFILE_REVISION_2 = "bank-send-v0-draft.2"
-CORE_REVISION = "v1-draft.5"
+CORE_REVISION = "v1.0"
 # action.json and e2e.json carry the salted core action hash.
 PROFILE_REVISION_11 = "bank-send-v0-draft.11"
 T0 = 1791000000

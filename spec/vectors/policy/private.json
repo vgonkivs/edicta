@@ -1,6 +1,6 @@
 {
   "format": "edicta-policy-vectors/v1",
-  "revision": "policy-v1-draft.9",
+  "revision": "policy-v1.0",
   "generator": "spec/vectors/check/gen_policy.py",
   "tags": {
     "private-part": "edicta/policy/v1/private-part",
@@ -435,7 +435,7 @@
     },
     "same_reason_retry": {
       "id": "private_deny_same_reason_retry",
-      "description": "A retry of the same decision 60 s after T_ref, refused again for the first deny's reason (ErrAmountAboveMax). The gate signs and returns this fresh deny (new salt, so a new private_hash), but it already archived a private deny with this reason for this commitment_hash (gate-local index keyed (commitment_hash, reason)), so it writes no kind 9, no kind 15 PrivatePart and no marker: archive_writes is empty.",
+      "description": "A retry of the same decision 60 s after T_ref, refused again for the first deny's reason (ErrAmountAboveMax). The gate signs and returns this fresh deny (new salt, so a new private_hash), but it already archived a private deny with this reason for this commitment_hash (gate-local index keyed (commitment_hash, reason)), so it writes no kind 9, no kind 15 PrivatePart. The ErrDenied marker write is repeated and is a no-op when the marker is present, so archive_writes (new records) is empty.",
       "reason": "ErrAmountAboveMax",
       "signed_verdict_hex": "a201a80101026c676174652d70617065722d31035820e619e7e236efdf40a9007dc21aec66ea8eb5c1773f5f5626b1f312cb64fac3310458202b75ebcb8158f3f7b1a878496d25fbed5df862724f7e283e50bfca9cbde827af055820e54e056b0cc8c4f0410b1f66bb8745fedf51368b7e16d80d569d21ddc496a532065820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a07021358204181c8ad2133db662a08cdb8769ebc8fc0c9789577fc36d104a1ca1268ac644f0258404447a2e80ff585285b0b75b7b03bdbee670b13963c33ba8e511c6a3ba7fe8474b932c44c3a35c276cbbe0012021458c66692071b0812517abe5c05c29208f10c",
       "verdict_hash_hex": "1cb26ca3c8d186bbbfda3b1170b612a8b94b194197bcc5ba3a1056f3d6436f5a",

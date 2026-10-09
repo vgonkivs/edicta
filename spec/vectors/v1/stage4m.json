@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.6",
+  "revision": "v1.0",
   "generator": "spec/vectors/check/gen_archive_v1.py",
   "description": "Gate stage 4m (core 8.8) and the archive writes after it. gate_mandate: null (no mandate) or the mandate in force (its name in mandates, auditors true for private mode). commitment_ref: a case of v1/valid.json; its key 14 is the agent's mandate_ref. stored_entry_same_commitment: the nonce entry of (agent_pubkey, nonce) holds this commitment_hash (the stored-retry check). expect.writes in order: private_blob_action (kind 15 (5, action_hash)), decision_form_1 or decision_form_2 (kind 17), marker:<name> (kind 5). No case signs a policy verdict.",
   "mandates": {

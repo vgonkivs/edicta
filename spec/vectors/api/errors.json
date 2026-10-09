@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.6",
+  "revision": "v1.0",
   "content_type": "application/cbor",
   "endpoints": {
     "publish": {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/principal/*.json (policy-v1-draft.6, section 6.2).
+"""Verifies spec/vectors/principal/*.json (policy-v1.0, section 6.2).
 
 Uses the independent policy re-implementation of check_policy.py (not
 policy_v1): strict decoding, value rules, rendering, the ADR-036 sign document
@@ -31,7 +31,7 @@ import principal_crypto as pc
 HERE = Path(__file__).resolve().parent
 DIR = HERE.parent / "principal"
 MANDATES = HERE.parent / "policy" / "mandate.json"
-REVISION = "policy-v1-draft.7"
+REVISION = "policy-v1.0"
 REQUIRED = {
     "ed25519.json": {"s_not_reduced", "other_mandate_hash", "low_order_principal"},
     "adr036.json": {"high_s", "wrong_hrp", "principal_32_bytes", "not_on_curve", "other_mandate_hash",
@@ -182,7 +182,7 @@ def main() -> int:
             text = (DIR / name).read_text()
             expect(text == built[name], f"{name}: generator output differs")
             f = json.loads(text)
-            want = "policy-v1-draft.6" if name == "ed25519.json" else REVISION
+            want = "policy-v1.0" if name == "ed25519.json" else REVISION
             expect(f["format"] == "edicta-policy-vectors/v1" and f["revision"] == want, f"{name}: header")
             fn(f, mand[f["mandate_ref"]])
             ids = {r["id"] for r in f["reject"]}

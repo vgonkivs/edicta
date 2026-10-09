@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.6",
+  "revision": "v1.0",
   "allowlist": [
     "application/vnd.edicta.ibkr.order.v0+cbor",
     "application/json",

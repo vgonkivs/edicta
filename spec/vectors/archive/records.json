@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.6",
+  "revision": "v1.0",
   "generator": "spec/vectors/check/gen_archive.py",
   "refs": {
     "core": "spec/vectors/v1",

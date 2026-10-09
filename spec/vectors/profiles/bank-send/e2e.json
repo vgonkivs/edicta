@@ -2,7 +2,7 @@
   "format": "edicta-vectors/v0",
   "profile": "bank-send",
   "revision": "bank-send-v0-draft.11",
-  "core_revision": "v1-draft.5",
+  "core_revision": "v1.0",
   "cases": [
     {
       "id": "e2e_minimal_mocha",

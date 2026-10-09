@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.6",
+  "revision": "v1.0",
   "generator": "spec/vectors/check/gen_archive_v1.py",
   "description": "Archive records of format 1, kinds 13, 14, 15, 17, 18 and the Authorization with K2 input key 9.",
   "kinds": {

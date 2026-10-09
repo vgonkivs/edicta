@@ -2,7 +2,7 @@
   "format": "edicta-vectors/v0",
   "profile": "dca-agent",
   "revision": "dca-agent-v0-draft.4",
-  "core_revision": "v1-draft.5",
+  "core_revision": "v1.0",
   "cases": [
     {
       "id": "coid_minimal_lmt",

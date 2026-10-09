@@ -1,6 +1,6 @@
 {
   "format": "edicta-policy-vectors/v1",
-  "revision": "policy-v1-draft.1",
+  "revision": "policy-v1.0",
   "generator": "spec/vectors/check/gen_policy.py",
   "note": "Steps are admitted facts (P1 to P8 passed); the engine runs P10 to P14 and Apply. The start ledger is genesis unless start is given.",
   "scenarios": [

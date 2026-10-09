@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates spec/vectors/api/publish_request.json (v1-draft.5). Deterministic.
+"""Generates spec/vectors/api/publish_request.json (v1.0). Deterministic.
 
 Usage: python3 spec/vectors/check/gen_api_vectors.py [--core DIR] [--out DIR]
 Defaults: --core spec/vectors/v1; --out spec/vectors/api.
@@ -35,7 +35,7 @@ def arg(name: str, default: Path) -> Path:
 CORE = arg("--core", VECTORS / "v1")
 OUT = arg("--out", VECTORS / "api")
 FORMAT = "edicta-vectors/v1"
-REVISION = "v1-draft.5"
+REVISION = "v1.0"
 T0 = 1791000000
 NOW = T0 + 60
 SKEW = 30

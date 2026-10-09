@@ -2,10 +2,9 @@
 
 Edicta profile for the dogfood agent in `examples/dca-agent`.
 
-Status: revision `dca-agent-v0-draft.4` (2026-10-09). Working draft, subject
-to change. Built on the core spec `spec/decision-commitment-v1.md`, revision
-`v1-draft.6`; section numbers prefixed "core" refer to it. At the freeze tag
-this line cites the frozen revision. The `v0` in this profile's name and
+Status: revision `dca-agent-v0-draft.4` (2026-10-09), frozen with core v1.0.
+Built on the core spec `spec/decision-commitment-v1.md`, revision `v1.0`;
+section numbers prefixed "core" refer to it. The `v0` in this profile's name and
 media types is the profile's own version, not the core's.
 
 Keywords MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Items marked

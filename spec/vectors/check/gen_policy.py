@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.9).
+"""Writes the policy v1 vectors (spec/policy-v1.md, policy-v1.0).
 
 spec/vectors/policy/{facts,mandate,render,state,engine,verify,archive,api}.json
 and spec/vectors/profiles/bank-send/tia_transfer_facts.json. Deterministic:
@@ -28,13 +28,13 @@ HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
 FORMAT = "edicta-policy-vectors/v1"
 # Each file carries the revision that last changed its bytes.
-REVISION = "policy-v1-draft.1"
-REVISION_3 = "policy-v1-draft.3"
-REVISION_4 = "policy-v1-draft.4"
-REVISION_6 = "policy-v1-draft.6"
-REVISION_7 = "policy-v1-draft.7"
-REVISION_8 = "policy-v1-draft.8"
-REVISION_9 = "policy-v1-draft.9"
+REVISION = "policy-v1.0"
+REVISION_3 = "policy-v1.0"
+REVISION_4 = "policy-v1.0"
+REVISION_6 = "policy-v1.0"
+REVISION_7 = "policy-v1.0"
+REVISION_8 = "policy-v1.0"
+REVISION_9 = "policy-v1.0"
 T0 = 1791000000
 GATE_ID = "gate-paper-1"
 
@@ -1402,7 +1402,8 @@ def same_reason_private_retry(PV, pd, dpp) -> dict:
             "refused again for the first deny's reason (" + dpp["reason"] + "). The gate signs and returns this fresh "
             "deny (new salt, so a new private_hash), but it already archived a private deny with this reason for "
             "this commitment_hash (gate-local index keyed (commitment_hash, reason)), so it writes no kind 9, no "
-            "kind 15 PrivatePart and no marker: archive_writes is empty.",
+            "kind 15 PrivatePart. The ErrDenied marker write is repeated and is a no-op when the marker is present, so "
+            "archive_writes (new records) is empty.",
             "reason": dpp["reason"], "signed_verdict_hex": sv.hex(), "verdict_hash_hex": vh.hex(),
             "private_hash_hex": pub["private_hash"].hex(),
             "dedup_key": {"commitment_hash": pd["commitment_hash"].hex(), "reason": dpp["reason"]},

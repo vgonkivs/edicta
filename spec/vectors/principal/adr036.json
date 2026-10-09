@@ -1,6 +1,6 @@
 {
   "format": "edicta-policy-vectors/v1",
-  "revision": "policy-v1-draft.7",
+  "revision": "policy-v1.0",
   "generator": "spec/vectors/check/gen_principal.py",
   "scheme": "cosmos adr-036 (sig_type 2)",
   "mandate_ref": "m_adr036",

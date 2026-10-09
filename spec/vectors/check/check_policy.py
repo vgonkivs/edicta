@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.9).
+"""Verifies the policy v1 vectors (spec/policy-v1.md, policy-v1.0).
 
 Two independent paths:
 - the generator (gen_policy.py over policy_v1.py) reproduces every file byte
@@ -1831,9 +1831,9 @@ def check_tia(f):
 
 
 # The revision that last changed each file's bytes; files not listed keep draft.1.
-LAST_CHANGED = {"policy/mandate.json": "policy-v1-draft.7", "policy/render.json": "policy-v1-draft.7",
-                "policy/verify.json": "policy-v1-draft.9", "policy/archive.json": "policy-v1-draft.9",
-                "policy/api.json": "policy-v1-draft.8", "policy/private.json": "policy-v1-draft.9"}
+LAST_CHANGED = {"policy/mandate.json": "policy-v1.0", "policy/render.json": "policy-v1.0",
+                "policy/verify.json": "policy-v1.0", "policy/archive.json": "policy-v1.0",
+                "policy/api.json": "policy-v1.0", "policy/private.json": "policy-v1.0"}
 
 
 def main() -> int:
@@ -1846,7 +1846,7 @@ def main() -> int:
             files[rel] = json.loads(text)
         for rel, d in files.items():
             if rel.startswith("policy/"):
-                want = LAST_CHANGED.get(rel, "policy-v1-draft.1")
+                want = LAST_CHANGED.get(rel, "policy-v1.0")
                 expect(d["format"] == "edicta-policy-vectors/v1" and d["revision"] == want, rel)
         P_ = lambda n: files[f"policy/{n}.json"]  # noqa: E731
         out = [check_facts(P_("facts")), check_mandate(P_("mandate")), check_render(P_("render"), P_("mandate")),
@@ -1857,7 +1857,7 @@ def main() -> int:
     except (Failure, Bad, KeyError, ValueError) as e:
         print(f"FAIL (policy v1): {type(e).__name__}: {e}", file=sys.stderr)
         return 1
-    print("OK (policy v1, policy-v1-draft.9): " + "; ".join(out) + "; generator output identical")
+    print("OK (policy v1, policy-v1.0): " + "; ".join(out) + "; generator output identical")
     return 0
 
 

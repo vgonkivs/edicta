@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.5",
+  "revision": "v1.0",
   "tag": "106564696374612f76312f616374696f6e",
   "salt_derivation": "action_salt = SHA-256(\"action-salt/\" || label)",
   "cases": [

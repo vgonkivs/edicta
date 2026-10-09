@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies the Edicta vectors (v1-draft.5) against an independent implementation of the rules.
+"""Verifies the Edicta vectors (v1.0) against an independent implementation of the rules.
 
 This script checks the core set under spec/vectors/v1 (valid, reject, authorization, receipt,
 record_request, payload, limits, anchor, action, gate; payload_blob.json through
@@ -49,8 +49,8 @@ HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
 DIR = VECTORS / "v1"
 FORMAT = "edicta-vectors/v1"
-REVISION = "v1-draft.5"
-REVISIONS = {"limits.json": "v1-draft.4", "gate.json": "v1-draft.6"}
+REVISION = "v1.0"
+REVISIONS = {"limits.json": "v1.0", "gate.json": "v1.0"}
 
 LIT = {
     "commitment": b"\x1dedicta/v1/decision-commitment",

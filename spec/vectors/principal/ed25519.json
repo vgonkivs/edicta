@@ -1,6 +1,6 @@
 {
   "format": "edicta-policy-vectors/v1",
-  "revision": "policy-v1-draft.6",
+  "revision": "policy-v1.0",
   "generator": "spec/vectors/check/gen_principal.py",
   "scheme": "ed25519 (sig_type absent)",
   "mandate_ref": "m_full",

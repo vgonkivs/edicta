@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.5",
+  "revision": "v1.0",
   "cases": [
     {
       "id": "ciphertext_hash_small_blob",

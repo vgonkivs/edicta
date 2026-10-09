@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/verifier/execution_outcomes.json (v1-draft.5).
+"""Verifies spec/vectors/verifier/execution_outcomes.json (v1.0).
 
 - structure: format, revision, keys of every section and case, value sets,
   unique ids, decimal uints, lower-case hex;
@@ -46,7 +46,7 @@ from profile_bank_send import _read_varint, action_decode, check_body
 HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
 FORMAT = "edicta-vectors/v0"
-REVISION = "v1-draft.5"
+REVISION = "v1.0"
 PROFILE_REVISION = "bank-send-v0-draft.7"
 
 UNCHECKED_CAUSES = {

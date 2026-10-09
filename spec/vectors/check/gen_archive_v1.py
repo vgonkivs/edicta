@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/v1/archive.json, verify.json and stage4m.json (v1-draft.6). Deterministic.
+"""Writes spec/vectors/v1/archive.json, verify.json and stage4m.json (v1.0). Deterministic.
 
 Archive format 1 records of kinds 13, 14 (small synthetic proof parts: the
 record layer never verifies them; da/absence.json carries real ones), 15
@@ -35,7 +35,7 @@ VECTORS = Path(__file__).resolve().parent.parent
 OUT = VECTORS / "v1"
 if "--out" in sys.argv:
     OUT = Path(sys.argv[sys.argv.index("--out") + 1]).resolve()
-FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.6"
+FORMAT, REVISION = "edicta-vectors/v1", "v1.0"
 T0, NOW = gv.T0, gv.NOW
 WINDOW = 3
 T_REF = T0 - 12

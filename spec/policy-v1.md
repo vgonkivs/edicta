@@ -1,9 +1,7 @@
 # Edicta policy v1 (mandate, facts, rule engine, verdicts)
 
-Status: revision `policy-v1-draft.9` (2026-10-09). Final draft, proposed for
-the policy v1 freeze together with format v1; subject to the human's
-approval. Built on the core spec `spec/decision-commitment-v1.md`, revision
-`v1-draft.6`. Section numbers prefixed "core" refer to that document.
+Status: revision `policy-v1.0` (2026-10-09). Frozen. Built on the core spec
+`spec/decision-commitment-v1.md`, revision `v1.0`. Section numbers prefixed "core" refer to that document.
 
 Keywords MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Items marked
 `UNVERIFIED` are facts about Celestia or Fibre that a Celestia protocol
@@ -41,7 +39,7 @@ section 8.8).
 | Any change to an encoding, a hash or signature preimage, a limit, the engine, or the outcome of a check, while in draft | Bump `policy-v1-draft.N`, regenerate the vectors under `spec/vectors/policy/`, record the change below. |
 | Any such change after freeze | New family version: tags `edicta/policy/v2/*`, `format = 2` in every structure. A v1 reader rejects `format != 1`. |
 
-The freeze turns `policy-v1-draft.9` into `policy-v1`, `format = 1`, tags
+The freeze turns `policy-v1-draft.9` into `policy-v1.0`, `format = 1`, tags
 `edicta/policy/v1/*`, at the same tag as format v1 of the core.
 
 | Revision | Change | Vectors |
@@ -54,7 +52,8 @@ The freeze turns `policy-v1-draft.9` into `policy-v1`, `format = 1`, tags
 | `policy-v1-draft.6` | Vectors of task 031 phase P2. No encoding, hash, preimage or limit changes. 6.1: the scheme rule is checked before the principal rule (the principal's size depends on the scheme; only multi-defect inputs see a difference), the signature size is a decoding check reported first, and the parenthesized labels are the vectors' `rule` field. Section 15: the vector field `t_h` carries `T_ref`; the ADR-036 rejects gain `d_without_empty_line` and `d_trailing_lf` (the exact `D` of 6.2: one empty line before the hash line, no LF after the hex); `spec/vectors/principal/ed25519.json` is listed. Vector conventions for the verifier files (section 15): a draft.5 case's `decision` is a v1 decision (`version`, `mandate_ref_hex`, `mode`, `h0`, `anchor_deadline`), and only such cases carry the report fields `policy.mode`, `policy.mandate_ref` and `policy.auditor_kid` in `expect`, so every draft.4 case keeps its bytes; `config.principal_keys` entries use the CLI forms of 13.1 (bare hex is Ed25519); optional `config.principal_schemes` and `config.auditor_keys`. | The files produced in P2 (`mandate.json`, `render.json`, `verify.json`, `archive.json`, `api.json`, `private.json`, `spec/vectors/principal/*`) carry `policy-v1-draft.6`; `facts.json`, `state.json`, `engine.json` stay byte-identical at `policy-v1-draft.1`. |
 | `policy-v1-draft.7` | Post-audit change list of task 031 (human decisions of 2026-10-09). (1) Auditor kid derived from the key (`edicta/v1/auditor-kid`), Auditor key 3 `label` with its charset and value rules, auditor value-rule order with `auditor_kid` (`ErrAuditorKidMismatch`) and `auditor_label_duplicate` (6.1). (2) Mandate key 18 `state_salt`, present iff auditors; adoption refuses a changed salt (`state_salt_changed`), so a counter keeps one mode (6.3). (3) Render: auditor lines with the unverified label and the full 128-bit fingerprint, the label note, the general label rule and tool rule (7). (4) Private form of the PolicyVerdict: public part = hashes, links, outcome bit (denies: keys 1 to 7, 19 only); PrivatePart = the moved keys plus a per-verdict salt; merge; key 17 absent in private form (10.1, 10.2). (5) Blinded state hashes `state_hash_p` and blinded kind 15 keys for buckets and ClosedSets (9.1, 9.5). (6) Kind 9 private path segment, marker `ErrDenied` in private mode, a kind 15 PrivatePart for every private verdict, kind 15 plaintext kind 5 and cap 69,760 (12). (7) Verifier: without a key only step 1 and the hash checks run (facts and `anchor_time` no longer); with a key the merged verdict and blinded recomputations; `mode = 2` requires the policy check (13). (8) Residual leakage list 9.6; threat rows for private mode, fingerprints and wallet display (1); producer rule for a CSPRNG `mandate_id` and `state_salt` (6.1); EIP-712 range checks named (6.2). Outcome changes: private-mode outcomes without a key (facts and anchor-time mismatches are `policy_private`); every private-form encoding; kind 15 plaintext kind 5 accepted; a fast-mode decision without an allow record is `unchecked`. | Regenerated: `mandate.json` (m_private, draft.5 auditor rejects, new rejects, adoption case), `render.json` (`render_m_private`, new two-auditor case), `verify.json` (draft.5 v1 decisions salted, new case), `private.json` (rewritten), `archive.json` (kind 15 cases and rejects, private deny, reads, `ErrDenied`), `api.json` (alias example, private deny), `spec/vectors/principal/adr036.json`, `eip712.json` (new case and rejects). Changed existing rejects: `private_kind_5` replaced by `private_kind_6`, `private_over_cap` resized (archive.json). Every draft.4 case and record keeps its bytes; `facts.json`, `state.json`, `engine.json`, `principal/ed25519.json` byte-identical. |
 | `policy-v1-draft.8` | Core-only rebase on `spec/decision-commitment-v1.md` `v1-draft.5` (human decisions of 2026-10-09, Rounds 5 and 6). (1) Section references are to the one core document; the version gate at stage 1 (`ErrVersionNotAccepted`) and the `/v0/` paths and alias are gone (11.1, 11.3). (2) Policy records are kinds of archive format 1 (12). (3) A PrivatePart that hashes to the gate-signed `private_hash` but breaks the presence rule is a gate fault, not `source_corrupt`: `gate_integrity` violated with reason `gate_signed_inconsistent_private_part`, and the policy is judged on the verifier's own derivation, so a deny there is a fail and the decision `invalid` (10.2, 13.2, 13.4, 13.5). (4) A counter keeps its mode; switching between public and private needs a new `mandate_id`, which restarts the counters; principal tools warn (6.3). Outcome changes: the two PrivatePart presence cases move from `source_corrupt` (exit 2) to `gate_integrity` violated (exit 5) or `policy` fail (exit 1); every archive record changes its format byte. | Regenerated: `verify.json`, `archive.json`, `api.json`, `private.json` (format 1 records, the alias example removed, new case `private_part_missing_facts_denies`). `mandate.json`, `render.json`, `facts.json`, `state.json`, `engine.json` and the principal files byte-identical. |
-| `policy-v1-draft.9` | Pre-freeze re-audit fixes (task 031, `audit-2.md`), on core `v1-draft.6`. Later note, fix verification (`audit-2.md` F2, F5), no new revision: a private deny is archived only once per `(commitment_hash, reason)` through a gate-local dedup index, so a retry refused for the same reason writes no kind 9, kind 15 or marker (12.1, 12.2, 11.4), and residual leakage item 4 is the number of distinct deny reasons, not of attempts (9.6) (F2; new `private.json` entry `private_deny.same_reason_retry`, other entries byte-identical); 13.2 step 2 names steps 5 and 6 as the unchecked ones for an unverified `T_ref` (F5). (1) The `policy` check also runs, and is required, when the verified envelope has `mandate_ref` (13.1); a gate without a mandate refuses such a commitment (core 8.8 M0); threat rows (1). (2) Section 1 private-mode row no longer claims to hide the `seq` position or times. (3) Freeze sentence names this revision. (4) The private envelope text shows `version = 1`, as core B2 and the vectors already had (9.5, editorial). (5) A private deny is keyed `(commitment_hash, private_hash)`, path `policy-deny/<hex>/private-<private_hash hex>` (12.1), so later denies of one decision are kept; residual leakage item 4 notes the count. (6) A PrivatePart that breaks the presence rule: missing `extractor`, `anchor_time` and `eval_time` are derived by the verifier, and a missing `prev_state` makes steps 5 and 6 `unchecked` (`blocked`) (13.2). (7) The `--policy-depth` alias is gone (13.3). Outcome changes: an authorized decision with `mandate_ref` and no allow record is `unchecked` without `RequirePolicy`; an allow whose PrivatePart lacks the times is judged on the derived values (was `unchecked` `blocked`); every private-deny path. | `verify.json` (new case `mandate_ref_without_verdict`); `private.json` (`second_deny`, new cases `private_part_allow_missing_prev_state`, `private_part_allow_missing_times`, kind 9 paths); `archive.json` (the private-deny case path and the two read cases); every other file byte-identical. |
+| `policy-v1-draft.9` | Pre-freeze re-audit fixes (task 031, `audit-2.md`), on core `v1-draft.6`. Later note, fix verification (`audit-2.md` F2, F5), no new revision: a private deny is archived only once per `(commitment_hash, reason)` through a gate-local dedup index, so a retry refused for the same reason writes no kind 9 or kind 15 (the marker write is repeated and is a no-op when present; G2 of the final check) (12.1, 12.2, 11.4), and residual leakage item 4 is the number of distinct deny reasons, not of attempts (9.6) (F2; new `private.json` entry `private_deny.same_reason_retry`, other entries byte-identical); 13.2 step 2 names steps 5 and 6 as the unchecked ones for an unverified `T_ref` (F5). (1) The `policy` check also runs, and is required, when the verified envelope has `mandate_ref` (13.1); a gate without a mandate refuses such a commitment (core 8.8 M0); threat rows (1). (2) Section 1 private-mode row no longer claims to hide the `seq` position or times. (3) Freeze sentence names this revision. (4) The private envelope text shows `version = 1`, as core B2 and the vectors already had (9.5, editorial). (5) A private deny is keyed `(commitment_hash, private_hash)`, path `policy-deny/<hex>/private-<private_hash hex>` (12.1), so later denies of one decision are kept; residual leakage item 4 notes the count. (6) A PrivatePart that breaks the presence rule: missing `extractor`, `anchor_time` and `eval_time` are derived by the verifier, and a missing `prev_state` makes steps 5 and 6 `unchecked` (`blocked`) (13.2). (7) The `--policy-depth` alias is gone (13.3). Outcome changes: an authorized decision with `mandate_ref` and no allow record is `unchecked` without `RequirePolicy`; an allow whose PrivatePart lacks the times is judged on the derived values (was `unchecked` `blocked`); every private-deny path. | `verify.json` (new case `mandate_ref_without_verdict`); `private.json` (`second_deny`, new cases `private_part_allow_missing_prev_state`, `private_part_allow_missing_times`, kind 9 paths); `archive.json` (the private-deny case path and the two read cases); every other file byte-identical. |
+| `policy-v1.0` | v1.0: frozen; identical rules to `policy-v1-draft.9` plus later notes (dedup-hit marker rule in 12.1 and 12.2; the no-record clause row in 11.2). Revision labels of the policy vector files are `policy-v1.0`. | all policy vectors |
 
 ## 1. Threat model
 
@@ -1094,6 +1093,7 @@ deadline at or below the mandate's bound.
 | verdict under the gate's policy tag, no tx hash or rail reference | 10.1 |
 | mandate signed by its principal under its `sig_type`, bound to this `gate_id`, version not lower than current | adoption (6.2, 6.3), and every compare-and-swap of stage 12 |
 | `mandate_ref` equals the hash of the mandate in force | core stage 4m (M1, M2); without a mandate a commitment with `mandate_ref` is refused (M0) |
+| a refusal for a `mandate_ref` other than the mandate in force (or present without a mandate) writes no decision record | core 8.8 (M0, M2) and core 8.7 (stage 4a row, AR5): refused at stage 4m before any record or marker |
 | fast mode only with consent, deadline at or below the bound | P15; core 13.3 clamps the window to `fast_mode_max_delay` |
 
 ### 11.3 HTTP (additive to core 18)
@@ -1191,8 +1191,9 @@ so a retry refused again for the same reason (a client retrying on
 record each time. The gate therefore keeps a local index keyed
 `(commitment_hash, reason)`, set after the kind 9 write is acknowledged; a
 private deny whose key is already in the index is signed and returned as
-usual, but the gate writes no kind 9, no kind 15 PrivatePart and no marker
-for it. Threat note: without the index a private gate would store without
+usual, but the gate writes no kind 9 and no kind 15 PrivatePart for it. It
+still writes the `ErrDenied` marker (an idempotent no-op when present), so a
+retry repairs a marker write that failed the first time. Threat note: without the index a private gate would store without
 bound per decision and reveal the number of attempts, more than public mode,
 where the same retries collapse onto one record per reason (first write
 stays); with it, both modes publish one record per distinct reason. A lost
@@ -1234,7 +1235,8 @@ be lost for that record, verification would not. The `successor_key` uses
   private form, the kind 15 PrivatePart first (every archived private deny
   has one), and only when the `(commitment_hash, reason)` dedup index of
   12.1 does not hold the deny yet; the index is set after `policy_deny` is
-  acknowledged.
+  acknowledged. The marker is written on a dedup hit too (idempotent when
+  present), so a retry repairs a failed marker write.
 - Private mode (core 19.2): every clear record above is replaced by its
   kind 15 envelope (mandate and genesis ClosedSet at start; closed bucket and
   ClosedSet at a rollover), and the kind 15 PrivatePart of the verdict is
@@ -1622,14 +1624,9 @@ Package `policy` unless noted. Deny sentinels wrap `ErrDenied`.
 ## 15. Vectors
 
 Location `spec/vectors/policy/`. Every file has `"format":
-"edicta-policy-vectors/v1"` and `"revision"` set to the revision that last
-changed its bytes: `policy-v1-draft.8` for `verify.json`, `archive.json`,
-`api.json` and `private.json`; `policy-v1-draft.7` for `mandate.json` and
-`render.json`; `policy-v1-draft.1` for `facts.json`, `state.json`,
-`engine.json`. The
-principal vectors are in `spec/vectors/principal/` (`"format":
-"edicta-policy-vectors/v1"`; `"revision"` `policy-v1-draft.7` for
-`adr036.json` and `eip712.json`, `policy-v1-draft.6` for `ed25519.json`).
+"edicta-policy-vectors/v1"` and `"revision"` `policy-v1.0`. The
+principal vectors are in `spec/vectors/principal/` (same format and
+revision; ed25519.json, adr036.json, eip712.json).
 A decision of the verify files carries `action_salt_hex` and its
 `action_hash_hex` is the salted core hash. Auditor test
 keys: `DeriveKeyPair(SHA-256("edicta/policy/v1 test auditor|" + name))`,

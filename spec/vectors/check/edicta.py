@@ -1,4 +1,4 @@
-"""DecisionCommitment v1 core rules (spec/decision-commitment-v1.md, v1-draft.5).
+"""DecisionCommitment v1 core rules (spec/decision-commitment-v1.md, v1.0).
 
 This module is the Python side of the cross-language check. It must not be
 ported from, or to, the Go implementation: agreement between two independent

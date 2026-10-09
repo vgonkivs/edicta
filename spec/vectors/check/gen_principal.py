@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/principal/{ed25519,adr036,eip712}.json (policy-v1-draft.7, section 6.2). Deterministic:
+"""Writes spec/vectors/principal/{ed25519,adr036,eip712}.json (policy-v1.0, section 6.2). Deterministic:
 Ed25519 per RFC 8032, ECDSA with RFC 6979 nonces.
 
 The mandates are mandate.json cases m_full (Ed25519), m_adr036 and m_eip712.
@@ -25,7 +25,7 @@ from cbor_strict import Raw, encode
 
 OUT = Path(__file__).resolve().parent.parent / "principal"
 FORMAT = "edicta-policy-vectors/v1"
-REVISION = "policy-v1-draft.7"
+REVISION = "policy-v1.0"
 
 
 def mandate(cid: str) -> dict:
@@ -74,7 +74,7 @@ def ed25519_file() -> dict:
          raw(dict(m, principal=bytes([1]) + bytes(31)), sig), "ErrMandateInvalid", {}),
     ]
     # ed25519.json last changed at draft.6.
-    return {**head("policy-v1-draft.6"), "scheme": "ed25519 (sig_type absent)", "mandate_ref": "m_full",
+    return {**head("policy-v1.0"), "scheme": "ed25519 (sig_type absent)", "mandate_ref": "m_full",
             "keys": {"p1": {"seed_hex": G.SEEDS["p1"].hex(), "public_key_hex": G.PUB["p1"].hex()}},
             "case": {"principal_hex": m["principal"].hex(), "mandate_cbor_hex": P.mandate_cbor(m).hex(),
                      "mandate_hash_hex": h.hex(), "signed_message_hex": msg.hex(), "signature_hex": sig.hex(),
