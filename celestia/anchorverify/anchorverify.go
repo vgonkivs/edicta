@@ -86,7 +86,7 @@ func verifyProof(raw, dataRoot, commit []byte) (err error) {
 }
 
 // decodeSignedHeader reads the header of a protobuf SignedHeader. The commit
-// is not checked: v0 trusts headers through the hash chain.
+// is not checked: headers are trusted through the hash chain.
 func decodeSignedHeader(b []byte) (core.Header, error) {
 	var sh cmtproto.SignedHeader
 	if err := sh.Unmarshal(b); err != nil {
@@ -123,8 +123,8 @@ func (fibreAnchor) VerifyAnchor(ref commitment.PayloadRef, ev *archive.EvidenceR
 		return verifier.AnchorFacts{}, fmt.Errorf("commitment is %d bytes", len(ref.Commitment))
 	case len(ev.SystemBlobProof) == 0:
 		return verifier.AnchorFacts{}, errors.New("evidence has no anchor proof")
-	case ev.SystemBlobProof[0] == '{':
-		return verifier.AnchorFacts{}, fmt.Errorf("%w: the evidence holds the form-0 anchor proof, which is not checked", verifier.ErrAnchorUnsupported)
+	case ev.SystemBlobProof[0] != 0xa3:
+		return verifier.AnchorFacts{}, fmt.Errorf("anchor proof: first byte 0x%02x, want 0xa3", ev.SystemBlobProof[0])
 	}
 	hd, err := decodeSignedHeader(ev.Header)
 	if err != nil {

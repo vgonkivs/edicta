@@ -68,7 +68,9 @@ func TestFibreLiveEvidenceVerifies(t *testing.T) {
 	assert.Equal(t, "next_validators_hash@1402813", facts.CertValsetHeader)
 }
 
-func TestFibreForm0ProofIsUnchecked(t *testing.T) {
+// A form-0 (JSON) proof fails the first-byte rule like any other non-0xa3
+// proof: a damaged copy, not an unsupported DA.
+func TestFibreForm0ProofIsRefused(t *testing.T) {
 	l := fibrefix.LoadLive(t)
 	for name, proof := range map[string][]byte{
 		"json object": []byte(`{"row_proof":{}}`),
@@ -78,8 +80,9 @@ func TestFibreForm0ProofIsUnchecked(t *testing.T) {
 			ev := l.Evidence(t)
 			ev.SystemBlobProof = proof
 			facts, err := verifyFibre(l, ev)
-			require.ErrorIs(t, err, verifier.ErrAnchorUnsupported)
-			assert.ErrorContains(t, err, "form-0")
+			require.Error(t, err)
+			require.NotErrorIs(t, err, verifier.ErrAnchorUnsupported)
+			assert.ErrorContains(t, err, "first byte 0x7b")
 			assert.Empty(t, facts.Settlement)
 			assert.Empty(t, facts.AnchorHeaderHash)
 		})
@@ -670,7 +673,7 @@ func TestFibreThroughTheVerifierWarnsAboutEarlierCandidates(t *testing.T) {
 	assert.NotEmpty(t, rep.Warnings)
 }
 
-func TestFibreForm0ThroughTheVerifierIsNeverValid(t *testing.T) {
+func TestFibreForm0ThroughTheVerifierIsSourceCorrupt(t *testing.T) {
 	l := fibrefix.LoadLive(t)
 	ev := l.Evidence(t)
 	ev.SystemBlobProof = []byte(`{"form":0}`)
@@ -682,8 +685,9 @@ func TestFibreForm0ThroughTheVerifierIsNeverValid(t *testing.T) {
 	c, ok := rep.Check(verifier.CheckAnchor)
 	require.True(t, ok)
 	assert.Equal(t, verifier.StatusUnchecked, c.Status)
-	require.ErrorIs(t, c.Err, verifier.ErrAnchorUnsupported)
-	assert.NotEmpty(t, c.Err.Error(), "the reason is given")
+	assert.Equal(t, verifier.ReasonSourceCorrupt, c.Reason)
+	require.ErrorIs(t, c.Err, verifier.ErrAnchorInvalid)
+	require.NotErrorIs(t, c.Err, verifier.ErrAnchorUnsupported)
 	assert.Empty(t, rep.Settlement)
 }
 

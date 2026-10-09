@@ -102,7 +102,7 @@ func TestDA1Form0IsUncheckedWithAReason(t *testing.T) {
 	code, out := exec(t, s.args("verify", "--trusted", trusted))
 	assert.Equal(t, exitUnchecked, code, out)
 	assert.Contains(t, out, "[unchecked] anchor")
-	assert.Contains(t, out, "form-0")
+	assert.Contains(t, out, "reason: source_corrupt")
 	assert.Contains(t, out, "verdict: unchecked")
 	assert.NotContains(t, out, "verdict: valid")
 

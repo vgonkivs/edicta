@@ -528,7 +528,7 @@ func (r *run) anchor() (bool, error) {
 		return bad(err)
 	}
 	if facts.Settlement != "" && facts.Settlement != settlementNodeAttested {
-		return bad(fmt.Errorf("settlement level %q is not one v0 reports", facts.Settlement))
+		return bad(fmt.Errorf("settlement level %q is not reported", facts.Settlement))
 	}
 	if ref.DA == commitment.DAFibre {
 		if facts.Settlement != settlementNodeAttested {
