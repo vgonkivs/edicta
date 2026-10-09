@@ -77,6 +77,9 @@ const (
 	srcOK srcStatus = iota
 	srcMissing
 	srcCorrupt
+	// srcUnsupported: the mandate decodes, but its principal scheme is not
+	// one this verifier accepts, so its signature was not checked.
+	srcUnsupported
 )
 
 type sourceProblem struct {
@@ -212,8 +215,19 @@ func (p *policyRun) loadMandate(h commitment.Hash) (*policy.Mandate, srcStatus, 
 		}
 		return nil, 0, fmt.Errorf("verifier: archive mandate: %w", err)
 	}
-	sm, mh, err := policy.VerifyMandate(rec.SignedMandate)
+	dm, mh, err := policy.DecodeSignedMandate(rec.SignedMandate)
 	if err != nil || mh != h {
+		return remember(srcCorrupt)
+	}
+	scheme, err := dm.Mandate.Scheme()
+	if err != nil {
+		return remember(srcCorrupt)
+	}
+	if !p.v.cfg.principalSchemeAccepted(scheme) {
+		return remember(srcUnsupported)
+	}
+	sm, _, err := policy.VerifyMandate(rec.SignedMandate)
+	if err != nil {
 		return remember(srcCorrupt)
 	}
 	p.mandates[h] = &sm.Mandate
@@ -261,8 +275,11 @@ func (p *policyRun) loadBucket(ref policy.ClosedRef) (policy.Bucket, srcStatus, 
 }
 
 func missingReason(st srcStatus) Reason {
-	if st == srcMissing {
+	switch st {
+	case srcMissing:
 		return ReasonStateHistoryUnavailable
+	case srcUnsupported:
+		return ReasonPrincipalSchemeUnsupported
 	}
 	return ReasonSourceCorrupt
 }
@@ -332,11 +349,14 @@ func (p *policyRun) fast(allow *allowRec) (*policy.Mandate, error) {
 		return nil, err
 	}
 	if st != srcOK {
-		reason := ReasonPolicyMandateUnavailable
-		if st == srcCorrupt {
+		reason, msg := ReasonPolicyMandateUnavailable, "the mandate record does not read"
+		switch st {
+		case srcCorrupt:
 			reason = ReasonSourceCorrupt
+		case srcUnsupported:
+			reason, msg = ReasonPrincipalSchemeUnsupported, "the mandate's principal scheme is not in this verifier build"
 		}
-		p.setFast(p.unchecked(reason, errors.New("the mandate record does not read")))
+		p.setFast(p.unchecked(reason, errors.New(msg)))
 		return nil, nil
 	}
 	p.fillInfo(allow, m)

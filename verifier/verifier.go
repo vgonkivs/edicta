@@ -13,11 +13,13 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/principalsig"
 	"github.com/vgonkivs/edicta/sdk/blob"
 )
 
@@ -144,6 +146,12 @@ type ExecutionChecker interface {
 	CheckExecution(ctx context.Context, in ExecutionInput) (ExecutionFacts, error)
 }
 
+// SupportedPrincipalSchemes are the principal signature schemes this build
+// verifies.
+func SupportedPrincipalSchemes() []principalsig.Scheme {
+	return []principalsig.Scheme{principalsig.Ed25519, principalsig.CosmosADR036, principalsig.EIP712}
+}
+
 // Config is what the verifier needs to know about the gate it audits.
 type Config struct {
 	Params   commitment.Params
@@ -151,6 +159,11 @@ type Config struct {
 	// PrincipalKeys are the mandate principals the auditor trusts, typed by
 	// scheme (policy.ParsePrincipal); a pin matches only its own scheme.
 	PrincipalKeys []policy.PrincipalID
+	// PrincipalSchemes are the mandate signature schemes this verifier
+	// accepts; empty means every scheme the build implements
+	// (SupportedPrincipalSchemes). A mandate under another scheme leaves the
+	// policy check unchecked with principal_scheme_unsupported.
+	PrincipalSchemes []principalsig.Scheme
 	// RequirePolicy states that the gate had a mandate: the policy check then
 	// runs for every authorized decision, also when the archive holds no
 	// allow record.
@@ -200,6 +213,14 @@ func (c Config) ValidateBasic() error {
 			}
 		}
 	}
+	for i, s := range c.PrincipalSchemes {
+		if !slices.Contains(SupportedPrincipalSchemes(), s) {
+			return fmt.Errorf("%w: principal scheme %d (%s) is not in this build", ErrInvalidConfig, i, s)
+		}
+		if slices.Contains(c.PrincipalSchemes[:i], s) {
+			return fmt.Errorf("%w: principal scheme %d repeats an earlier one", ErrInvalidConfig, i)
+		}
+	}
 	if c.MaxWalkSteps < 0 {
 		return fmt.Errorf("%w: negative walk step cap", ErrInvalidConfig)
 	}
@@ -209,6 +230,13 @@ func (c Config) ValidateBasic() error {
 		}
 	}
 	return nil
+}
+
+func (c Config) principalSchemeAccepted(s principalsig.Scheme) bool {
+	if len(c.PrincipalSchemes) == 0 {
+		return slices.Contains(SupportedPrincipalSchemes(), s)
+	}
+	return slices.Contains(c.PrincipalSchemes, s)
 }
 
 // AnchorFacts are what an anchor verifier established from the evidence
@@ -343,6 +371,7 @@ func New(d Deps) (*Verifier, error) {
 	for _, k := range d.Config.PrincipalKeys {
 		v.cfg.PrincipalKeys = append(v.cfg.PrincipalKeys, policy.PrincipalID{SigType: k.SigType, Principal: bytes.Clone(k.Principal)})
 	}
+	v.cfg.PrincipalSchemes = slices.Clone(d.Config.PrincipalSchemes)
 	for _, e := range d.Config.Evidence {
 		v.cfg.Evidence = append(v.cfg.Evidence, bytes.Clone(e))
 	}
