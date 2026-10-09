@@ -11,6 +11,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/verifier"
 )
 
@@ -75,6 +76,21 @@ type walkView struct {
 	ToSeq    uint64 `json:"to_seq"`
 	Total    uint64 `json:"total"`
 	End      string `json:"end"`
+	// SeqPrivate: private verdicts were walked without the key, so the
+	// sequence fields are unknown and left out.
+	SeqPrivate bool `json:"-"`
+}
+
+func (w walkView) MarshalJSON() ([]byte, error) {
+	if !w.SeqPrivate {
+		type plain walkView
+		return json.Marshal(plain(w))
+	}
+	return json.Marshal(struct {
+		MaxSteps uint64 `json:"max_steps"`
+		Steps    uint64 `json:"steps"`
+		End      string `json:"end"`
+	}{w.MaxSteps, w.Steps, w.End})
 }
 
 type policyView struct {
@@ -95,6 +111,10 @@ type policyView struct {
 	NewStateHash  string   `json:"new_state_hash"`
 	Denials       []string `json:"denials,omitempty"`
 	MandateRef    string   `json:"mandate_ref,omitempty"`
+	Mode          string   `json:"mode,omitempty"`
+	// AuditorKid is the fingerprint of the auditor key that opened a
+	// private mandate.
+	AuditorKid string `json:"auditor_kid,omitempty"`
 }
 
 // modeName is the v1 Authorization mode as the report prints it; empty for v0.
@@ -242,6 +262,7 @@ func viewOf(r verifier.Report) reportView {
 	if w := r.GateIntegrity.Walk; w != nil {
 		v.GateIntegrity.Walk = &walkView{
 			MaxSteps: w.MaxSteps, Steps: w.Steps, FromSeq: w.FromSeq, ToSeq: w.ToSeq, Total: w.Total, End: string(w.End),
+			SeqPrivate: w.SeqPrivate,
 		}
 	}
 	for _, e := range r.GateIntegrity.Evidence {
@@ -258,7 +279,10 @@ func viewOf(r verifier.Report) reportView {
 			Kind: p.Facts.Kind, Asset: p.Facts.Asset, Amount: hex.EncodeToString(p.Facts.Amount),
 			Scale: p.Facts.Scale, Recipient: p.Facts.Recipient,
 			PrevStateHash: hex.EncodeToString(p.PrevStateHash[:]), NewStateHash: hex.EncodeToString(p.NewStateHash[:]),
-			Denials: p.Denials, MandateRef: string(p.MandateRef),
+			Denials: p.Denials, MandateRef: string(p.MandateRef), Mode: string(p.Mode),
+		}
+		if len(p.AuditorKid) > 0 {
+			v.Policy.AuditorKid = policy.Fingerprint(p.AuditorKid)
 		}
 	}
 	for _, c := range r.Checks {
@@ -403,8 +427,16 @@ func writeText(out io.Writer, v reportView, colour bool) {
 		}
 	}
 	if pv := v.Policy; pv != nil {
-		p("policy: mandate %s version %d, counter position %d, %s %s (scale %d), anchor time %d, evaluated at %d",
-			pv.MandateHash, pv.Version, pv.Seq, pv.Asset, pv.Amount, pv.Scale, pv.AnchorTime, pv.EvalTime)
+		switch {
+		case pv.Mode == string(verifier.PolicyModePrivate) && pv.MandateID == "":
+			p("policy: private mandate %s, not opened: no configured auditor key opens it", pv.MandateHash)
+		default:
+			p("policy: mandate %s version %d, counter position %d, %s %s (scale %d), anchor time %d, evaluated at %d",
+				pv.MandateHash, pv.Version, pv.Seq, pv.Asset, pv.Amount, pv.Scale, pv.AnchorTime, pv.EvalTime)
+		}
+		if pv.AuditorKid != "" {
+			p("policy: private mandate opened with auditor key fingerprint %s", pv.AuditorKid)
+		}
 	}
 	switch v.GateIntegrity.Status {
 	case string(verifier.IntegrityViolated):
@@ -418,7 +450,9 @@ func writeText(out io.Writer, v reportView, colour bool) {
 		}
 		p("%s", line)
 	}
-	if w := v.GateIntegrity.Walk; w != nil {
+	if w := v.GateIntegrity.Walk; w != nil && w.SeqPrivate {
+		p("gate integrity walk: %d of at most %d steps over public links only, ended at %s", w.Steps, w.MaxSteps, w.End)
+	} else if w != nil {
 		p("gate integrity walk: last %d of %d verdicts checked (seq %d to %d, %d of at most %d steps, ended at %s)",
 			w.Steps+1, w.Total, w.FromSeq, w.ToSeq, w.Steps, w.MaxSteps, w.End)
 		if v.GateIntegrity.Reason == string(verifier.ReasonPolicyWalkTruncated) {

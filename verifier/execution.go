@@ -145,6 +145,16 @@ func (r *run) execution() {
 		r.unchecked(CheckExecution, ReasonNoChecker, fmt.Errorf("no execution checker for action type %q", r.c.Action.Type))
 		return
 	}
+	if c, ok := r.rep.Check(CheckAction); ok && c.Reason == ReasonPolicyPrivate {
+		if err := r.reveal(chk); err != nil {
+			r.unchecked(CheckExecution, ReasonTimeout, err)
+			return
+		}
+	}
+	if c, ok := r.rep.Check(CheckAction); ok && c.Reason == ReasonPolicyPrivate {
+		r.unchecked(CheckExecution, ReasonPolicyPrivate, errors.New("the action is private and no reveal applies"))
+		return
+	}
 	if c, ok := r.rep.Check(CheckAction); !ok || c.Status != StatusPass || r.action == nil {
 		blocked(string(CheckAction), "the action did not pass its check")
 		return

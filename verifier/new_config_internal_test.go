@@ -54,6 +54,7 @@ func TestNewKeepsEveryConfigField(t *testing.T) {
 		MaxWalkSteps:     7,
 		Evidence:         [][]byte{{1, 2, 3}},
 		PayloadKeys:      []blob.RecipientKey{key.OpenKey(true)},
+		AuditorKeys:      []blob.RecipientKey{key.OpenKey(false)},
 	}
 	in := reflect.ValueOf(cfg)
 	for i := range in.NumField() {

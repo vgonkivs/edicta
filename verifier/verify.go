@@ -12,6 +12,7 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/payload"
 )
@@ -178,7 +179,9 @@ func (v *Verifier) verify(ctx context.Context, h commitment.Hash, opts []Option)
 		r.finish()
 		return r, nil
 	}
-	r.checkAction(dec)
+	if err := r.checkAction(dec); err != nil {
+		return nil, err
+	}
 	if st.State != archive.StateAuthorized {
 		r.finish()
 		return r, nil
@@ -288,20 +291,20 @@ func (r *run) envelope(dec *archive.DecisionRecord) bool {
 }
 
 // checkAction reads the action from the decision record. A public record
-// holds the bytes and the salt; a private one holds neither, and without an
-// opened private action record the action stays unchecked.
-func (r *run) checkAction(dec *archive.DecisionRecord) {
+// holds the bytes and the salt; a private one holds neither: they are in the
+// private blob of the action hash, which an auditor key opens.
+func (r *run) checkAction(dec *archive.DecisionRecord) error {
 	if dec.Form != archive.FormPublic {
-		r.unchecked(CheckAction, ReasonPolicyPrivate, errors.New("private decision record: the action is encrypted to the auditors"))
-		return
+		return r.checkPrivateAction()
 	}
 	if err := commitment.CheckAction(r.c, dec.Action, dec.ActionSalt); err != nil {
 		r.corrupt(CheckAction, ErrActionInvalid, err)
-		return
+		return nil
 	}
 	r.action, r.salt = bytes.Clone(dec.Action), bytes.Clone(dec.ActionSalt)
 	r.rep.ActionSource = ActionSourceDecisionRecord
 	r.pass(CheckAction)
+	return nil
 }
 
 // authorization requires the record to decode, verify under a configured
@@ -455,9 +458,13 @@ func (r *run) compareSalt(payloadSalt []byte) {
 	if r.salt == nil || bytes.Equal(r.salt, payloadSalt) {
 		return
 	}
+	src := archive.HashPath(archive.KindDecision, r.h)
+	if r.rep.ActionSource == ActionSourcePrivateBlob {
+		src, _ = archive.PrivateBlobPath(policy.PrivateAction, commitment.Hash(r.c.Action.Hash))
+	}
 	r.replaceCheck(Check{Name: CheckAction, Status: StatusUnchecked, Reason: ReasonSourceCorrupt,
-		Sources: []string{archive.HashPath(archive.KindDecision, r.h)},
-		Err:     fmt.Errorf("%w: the decision record's action salt differs from the payload's", ErrActionInvalid)})
+		Sources: []string{src},
+		Err:     fmt.Errorf("%w: the archive copy's action salt differs from the payload's", ErrActionInvalid)})
 	r.action, r.salt = nil, nil
 	r.rep.ActionSource = ""
 }
@@ -878,7 +885,12 @@ func (r *run) anyStatus(s Status) bool {
 // the action did not verify, when the decision is not authorized, and when the archive holds no allow record and
 // the auditor did not require one.
 func (r *run) policy() error {
-	if r.c == nil || r.action == nil || r.rep.State != archive.StateAuthorized {
+	if r.c == nil || r.rep.State != archive.StateAuthorized {
+		return nil
+	}
+	// A private action without the key still lets the public part of the
+	// policy check run: the allow, the links and the forks.
+	if c, _ := r.rep.Check(CheckAction); r.action == nil && c.Reason != ReasonPolicyPrivate {
 		return nil
 	}
 	in := policyInput{

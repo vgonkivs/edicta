@@ -129,7 +129,7 @@ func CheckLink(prev, next Held, prevSet ClosedSet, later *ScaleChain) error {
 	if !bytes.Equal(prev.Hash[:], n.PrevVerdictHash) || !bytes.Equal(p.CommitmentHash, n.PrevCommitmentHash) {
 		return fmt.Errorf("%w: prev_verdict_hash", ErrUnlinked)
 	}
-	nPrev, ok := heldPrevHash(next)
+	nPrev, ok := next.PrevStateHash()
 	if !ok || !bytes.Equal(nPrev[:], p.NewStateHash) {
 		return fmt.Errorf("%w: new_state_hash differs from the next prev_state_hash", ErrUnlinked)
 	}
@@ -160,10 +160,10 @@ func CheckLink(prev, next Held, prevSet ClosedSet, later *ScaleChain) error {
 	return nil
 }
 
-// heldPrevHash is prev_state_hash of a held verdict: key 20 of a private
+// PrevStateHash is prev_state_hash of a held verdict: key 20 of a private
 // form, else the hash of prev_state under the hasher of its mandate, so that
 // a merged private verdict compares blinded hashes.
-func heldPrevHash(h Held) (commitment.Hash, bool) {
+func (h Held) PrevStateHash() (commitment.Hash, bool) {
 	if h.V.PrivateHash != nil || h.M == nil {
 		return h.V.PrevStateHash()
 	}

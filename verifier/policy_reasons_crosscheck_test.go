@@ -37,8 +37,21 @@ func TestPolicyReasonCasesMatchTheVerifyVectors(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &vd))
 	byID := map[string]int{}
 	for i, c := range vd.Cases {
-		byID[c.ID] = i
+		byID["policy/verify.json#"+c.ID] = i
 	}
+	// The private-mode cases have the same shape in private.json.
+	praw, err := os.ReadFile("../spec/vectors/policy/private.json")
+	require.NoError(t, err)
+	n := len(vd.Cases)
+	vd.Cases = nil
+	require.NoError(t, json.Unmarshal(praw, &vd))
+	for i, c := range vd.Cases {
+		byID["policy/private.json#"+c.ID] = n + i
+	}
+	pcases := append(vd.Cases[:0:0], vd.Cases...)
+	vd.Cases = nil
+	require.NoError(t, json.Unmarshal(raw, &vd))
+	vd.Cases = append(vd.Cases, pcases...)
 
 	d := loadReasons(t)
 	seen := 0
@@ -48,10 +61,11 @@ func TestPolicyReasonCasesMatchTheVerifyVectors(t *testing.T) {
 				continue
 			}
 			require.Len(t, rc.Refs, 1, rc.ID)
-			id, ok := strings.CutPrefix(rc.Refs[0], "policy/verify.json#")
-			require.True(t, ok, rc.ID)
-			i, ok := byID[id]
-			require.True(t, ok, "%s refers to a missing case %s", rc.ID, id)
+			if !strings.HasPrefix(rc.Refs[0], "policy/") {
+				continue // an action case of v1/verify.json, TestPrivateActionVectors
+			}
+			i, ok := byID[rc.Refs[0]]
+			require.True(t, ok, "%s refers to a missing case %s", rc.ID, rc.Refs[0])
 			vc := vd.Cases[i]
 			seen++
 			t.Run(rc.ID, func(t *testing.T) {

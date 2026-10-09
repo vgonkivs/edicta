@@ -181,6 +181,10 @@ type Config struct {
 	// hash and that the payload's action matches the committed one, and the
 	// payload's action salt is compared with the archive copy's.
 	PayloadKeys []blob.RecipientKey
+	// AuditorKeys are X25519 keys of auditors of private mandates. With one
+	// that opens the private records, the policy and action checks run on
+	// the opened records exactly as in public mode.
+	AuditorKeys []blob.RecipientKey
 }
 
 // ValidateBasic checks the fields that need no dependency.
@@ -220,6 +224,17 @@ func (c Config) ValidateBasic() error {
 		}
 		if slices.Contains(c.PrincipalSchemes[:i], s) {
 			return fmt.Errorf("%w: principal scheme %d repeats an earlier one", ErrInvalidConfig, i)
+		}
+	}
+	for i, k := range c.AuditorKeys {
+		pub := k.PublicKey()
+		if pub == nil {
+			return fmt.Errorf("%w: auditor key %d is not an X25519 private key", ErrInvalidConfig, i)
+		}
+		for _, o := range c.AuditorKeys[:i] {
+			if bytes.Equal(o.PublicKey().Bytes(), pub.Bytes()) {
+				return fmt.Errorf("%w: auditor key %d repeats an earlier key", ErrInvalidConfig, i)
+			}
 		}
 	}
 	if c.MaxWalkSteps < 0 {
@@ -379,6 +394,10 @@ func New(d Deps) (*Verifier, error) {
 	for _, k := range d.Config.PayloadKeys {
 		k.KID = bytes.Clone(k.KID)
 		v.cfg.PayloadKeys = append(v.cfg.PayloadKeys, k)
+	}
+	for _, k := range d.Config.AuditorKeys {
+		k.KID = bytes.Clone(k.KID)
+		v.cfg.AuditorKeys = append(v.cfg.AuditorKeys, k)
 	}
 	return v, nil
 }

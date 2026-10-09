@@ -152,6 +152,9 @@ type WalkInfo struct {
 	FromSeq, ToSeq  uint64
 	Total           uint64
 	End             WalkEnd
+	// SeqPrivate: the walk read private verdicts without the key, so the
+	// sequence numbers and FromSeq, ToSeq and Total are unknown.
+	SeqPrivate bool
 }
 
 // PolicyInfo is what the policy check learned about the allow.
@@ -171,7 +174,19 @@ type PolicyInfo struct {
 	// MandateRef compares a v1 decision's mandate_ref with the allow's
 	// mandate hash; empty for a v0 decision.
 	MandateRef MandateRefStatus
+	// Mode is public or private; AuditorKid is the kid of the auditor key
+	// that opened a private mandate, printed as its fingerprint.
+	Mode       PolicyMode
+	AuditorKid []byte
 }
+
+// PolicyMode says whether the mandate publishes its rules.
+type PolicyMode string
+
+const (
+	PolicyModePublic  PolicyMode = "public"
+	PolicyModePrivate PolicyMode = "private"
+)
 
 // ActionSource is the record the verified action bytes were read from.
 type ActionSource string

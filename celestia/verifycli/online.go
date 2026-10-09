@@ -17,6 +17,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/railverify"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
+	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/verifier"
 )
 
@@ -225,6 +226,27 @@ func (r *recordingReader) PolicySuccessor(ctx context.Context, h commitment.Hash
 		return nil, err
 	}
 	return pr.PolicySuccessor(ctx, h)
+}
+
+var (
+	_ archive.PrivateReader = (*recordingReader)(nil)
+	_ archive.RevealReader  = (*recordingReader)(nil)
+)
+
+func (r *recordingReader) PrivateBlob(ctx context.Context, kind policy.PrivateKind, h commitment.Hash) (*archive.PrivateBlobRecord, error) {
+	pr, ok := r.Reader.(archive.PrivateReader)
+	if !ok {
+		return nil, archive.ErrNotFound
+	}
+	return pr.PrivateBlob(ctx, kind, h)
+}
+
+func (r *recordingReader) Reveal(ctx context.Context, h commitment.Hash) (*archive.RevealRecord, error) {
+	rr, ok := r.Reader.(archive.RevealReader)
+	if !ok {
+		return nil, archive.ErrNotFound
+	}
+	return rr.Reveal(ctx, h)
 }
 
 // headers are the headers of the evidence the verifier read, offered first

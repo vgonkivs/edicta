@@ -85,6 +85,8 @@ const (
 	// srcUnsupported: the mandate decodes, but its principal scheme is not
 	// one this verifier accepts, so its signature was not checked.
 	srcUnsupported
+	// srcPrivate: the record is a private blob no configured key opens.
+	srcPrivate
 )
 
 type sourceProblem struct {
@@ -119,6 +121,22 @@ type policyRun struct {
 	mandRef   MandateRefStatus
 	held      []policy.Held
 	heldRaw   map[commitment.Hash][]byte
+
+	// Private mode. signed holds every held verdict as signed, for the fork
+	// search that works without the key; ppViol is the target or walked
+	// verdict whose PrivatePart breaks the presence rule.
+	logicals map[commitment.Hash]logicalVerdict
+	kids     map[commitment.Hash][]byte
+	private  bool
+	noKey    bool
+	ppViol   []byte
+	signed   []signedVerdict
+	target   *policy.Verdict
+}
+
+type signedVerdict struct {
+	v    *policy.Verdict
+	hash commitment.Hash
 }
 
 // checkPolicy runs the policy check. The error is operational only.
@@ -126,7 +144,8 @@ func (v *Verifier) checkPolicy(ctx context.Context, in policyInput) (policyOutco
 	p := &policyRun{
 		v: v, ctx: ctx, in: in,
 		mandates: map[commitment.Hash]*policy.Mandate{}, badMand: map[commitment.Hash]srcStatus{},
-		heldRaw: map[commitment.Hash][]byte{},
+		heldRaw: map[commitment.Hash][]byte{}, logicals: map[commitment.Hash]logicalVerdict{},
+		kids: map[commitment.Hash][]byte{},
 	}
 	p.rd, _ = v.archive.(archive.PolicyReader)
 	return p.run()
@@ -210,17 +229,28 @@ func (p *policyRun) loadMandate(h commitment.Hash) (*policy.Mandate, srcStatus, 
 		p.badMand[h] = st
 		return nil, st, nil
 	}
+	var body []byte
 	rec, err := p.rd.Mandate(p.ctx, h)
-	if err != nil {
-		switch {
-		case errors.Is(err, archive.ErrNotFound):
-			return remember(srcMissing)
-		case errors.Is(err, archive.ErrCorrupt):
-			return remember(srcCorrupt)
+	switch {
+	case err == nil:
+		body = rec.SignedMandate
+	case errors.Is(err, archive.ErrNotFound):
+		// A private mandate is archived only sealed to its auditors.
+		pt, kid, st, perr := p.v.readPrivate(p.ctx, policy.PrivateMandate, h, h, "")
+		if perr != nil {
+			return nil, 0, perr
 		}
+		if st != srcOK {
+			return remember(st)
+		}
+		body = pt
+		p.kids[h] = kid
+	case errors.Is(err, archive.ErrCorrupt):
+		return remember(srcCorrupt)
+	default:
 		return nil, 0, fmt.Errorf("verifier: archive mandate: %w", err)
 	}
-	dm, mh, err := policy.DecodeSignedMandate(rec.SignedMandate)
+	dm, mh, err := policy.DecodeSignedMandate(body)
 	if err != nil || mh != h {
 		return remember(srcCorrupt)
 	}
@@ -231,7 +261,7 @@ func (p *policyRun) loadMandate(h commitment.Hash) (*policy.Mandate, srcStatus, 
 	if !p.v.cfg.principalSchemeAccepted(scheme) {
 		return remember(srcUnsupported)
 	}
-	sm, _, err := policy.VerifyMandate(rec.SignedMandate)
+	sm, _, err := policy.VerifyMandate(body)
 	if err != nil {
 		return remember(srcCorrupt)
 	}
@@ -239,10 +269,21 @@ func (p *policyRun) loadMandate(h commitment.Hash) (*policy.Mandate, srcStatus, 
 	return &sm.Mandate, srcOK, nil
 }
 
-func (p *policyRun) loadSet(root []byte) (policy.ClosedSet, srcStatus, error) {
+func (p *policyRun) loadSet(root []byte, m *policy.Mandate) (policy.ClosedSet, srcStatus, error) {
 	empty := policy.EmptyClosedSet()
 	if eh, err := policy.HashClosedSet(&empty); err == nil && bytes.Equal(eh[:], root) {
 		return empty, srcOK, nil
+	}
+	if m != nil && len(m.Auditors) > 0 {
+		pt, st, err := p.privateStruct(policy.PrivateClosedSet, root, m)
+		if err != nil || st != srcOK {
+			return policy.ClosedSet{}, st, err
+		}
+		set, err := policy.DecodeClosedSet(pt)
+		if err != nil {
+			return policy.ClosedSet{}, srcCorrupt, nil
+		}
+		return *set, srcOK, nil
 	}
 	rec, err := p.rd.PolicyClosed(p.ctx, commitment.Hash(root))
 	if err != nil {
@@ -261,7 +302,18 @@ func (p *policyRun) loadSet(root []byte) (policy.ClosedSet, srcStatus, error) {
 	return *set, srcOK, nil
 }
 
-func (p *policyRun) loadBucket(ref policy.ClosedRef) (policy.Bucket, srcStatus, error) {
+func (p *policyRun) loadBucket(ref policy.ClosedRef, m *policy.Mandate) (policy.Bucket, srcStatus, error) {
+	if m != nil && len(m.Auditors) > 0 {
+		pt, st, err := p.privateStruct(policy.PrivateBucket, ref.Hash, m)
+		if err != nil || st != srcOK {
+			return policy.Bucket{}, st, err
+		}
+		b, err := policy.DecodeBucket(pt)
+		if err != nil {
+			return policy.Bucket{}, srcCorrupt, nil
+		}
+		return *b, srcOK, nil
+	}
 	rec, err := p.rd.PolicyBucket(p.ctx, commitment.Hash(ref.Hash))
 	if err != nil {
 		switch {
@@ -285,6 +337,8 @@ func missingReason(st srcStatus) Reason {
 		return ReasonStateHistoryUnavailable
 	case srcUnsupported:
 		return ReasonPrincipalSchemeUnsupported
+	case srcPrivate:
+		return ReasonPolicyPrivate
 	}
 	return ReasonSourceCorrupt
 }
@@ -314,8 +368,18 @@ func (p *policyRun) run() (policyOutcome, error) {
 	}
 	p.stepOneOK = true
 	v := &allow.sv.Verdict
+	p.target = v
 	if !bytes.Equal(v.ActionHash, p.in.ActionHash) || !bytes.Equal(v.AgentPubKey, p.in.AgentPub) || v.GateID != p.in.GateID {
 		p.violate(allow.raw)
+	}
+	m0, mst, err := p.loadMandate(commitment.Hash(v.MandateHash))
+	if err != nil {
+		return out, err
+	}
+	p.noKey = mst == srcPrivate
+	p.private = p.noKey || (m0 != nil && len(m0.Auditors) > 0) || (m0 == nil && v.Private())
+	if p.private {
+		p.info = &PolicyInfo{MandateHash: commitment.Hash(v.MandateHash), Mode: PolicyModePrivate}
 	}
 	// Both sides are signed: the agent's mandate_ref and the gate's verdict.
 	// An absent reference is the agent's omission, which the envelope alone
@@ -356,6 +420,10 @@ func (p *policyRun) fast(allow *allowRec) (*policy.Mandate, error) {
 	if st != srcOK {
 		reason, msg := ReasonPolicyMandateUnavailable, "the mandate record does not read"
 		switch st {
+		case srcPrivate:
+			// Without an auditor key only step 1 runs: the facts, the times,
+			// the rules and the state are private.
+			reason, msg = ReasonPolicyPrivate, "the mandate is private and no configured auditor key opens it"
 		case srcCorrupt:
 			reason = ReasonSourceCorrupt
 		case srcUnsupported:
@@ -364,13 +432,51 @@ func (p *policyRun) fast(allow *allowRec) (*policy.Mandate, error) {
 		p.setFast(p.unchecked(reason, errors.New(msg)))
 		return nil, nil
 	}
-	p.fillInfo(allow, m)
+	p.fillInfo(allow, v, m)
 	if !p.principalTrusted(m) {
 		p.setFast(p.unchecked(ReasonPolicyPrincipalUntrusted, errors.New("the mandate's principal is not a trusted key")))
 		return m, nil
 	}
 	if m.GateID != v.GateID {
 		p.setFail("mandate_gate_id", fmt.Errorf("mandate for gate %q, verdict of gate %q", m.GateID, v.GateID))
+		return m, nil
+	}
+	if v.Private() != (len(m.Auditors) > 0) {
+		// The form follows the mandate; a gate that signs the other one
+		// contradicts its own mandate.
+		p.violate(allow.raw)
+		return m, nil
+	}
+	if v.Private() {
+		l, err := p.logical(v, m)
+		if err != nil {
+			return m, err
+		}
+		switch l.st {
+		case logicalSource:
+			reason := missingReason(l.src)
+			p.setFast(p.unchecked(reason, errors.New("the PrivatePart of the verdict does not read")))
+			return m, nil
+		case logicalInconsistent:
+			p.violate(allow.raw)
+			return m, nil
+		case logicalSelfInconsistent:
+			// The gate signed contents it could not produce honestly. The
+			// policy is still judged on what the verifier derives itself.
+			p.ppViol = allow.raw
+			d, chk := p.derive(l.v)
+			if chk != nil {
+				p.setFast(chk)
+				return m, nil
+			}
+			v = d
+		default:
+			v = l.v
+		}
+		p.fillInfo(allow, v, m)
+	}
+	if p.in.Action == nil {
+		p.setFast(p.unchecked(ReasonPolicyPrivate, errors.New("the action bytes are private")))
 		return m, nil
 	}
 
@@ -420,8 +526,14 @@ func (p *policyRun) fast(allow *allowRec) (*policy.Mandate, error) {
 		p.setFast(p.unchecked(ReasonBlocked, errors.New("the anchor time is not verified"), string(CheckHeaderTrust)))
 	}
 
+	if v.PrevState == nil {
+		// A self-inconsistent PrivatePart without the state read: steps 5
+		// and 6 have no input.
+		p.setFast(p.unchecked(ReasonBlocked, errors.New("the PrivatePart holds no prev_state"), "gate_integrity"))
+		return m, nil
+	}
 	// Closed buckets and the evaluation on the signed state.
-	led, ok, err := p.ledger(allow, m)
+	led, ok, err := p.ledger(v, allow.raw, m)
 	if err != nil || !ok {
 		return m, err
 	}
@@ -453,9 +565,8 @@ func sameFacts(a, b policy.Facts) bool {
 
 // ledger fetches the closed set and the buckets the evaluation reads. ok is
 // false when the fast check ended.
-func (p *policyRun) ledger(allow *allowRec, m *policy.Mandate) (policy.Ledger, bool, error) {
-	v := &allow.sv.Verdict
-	set, st, err := p.loadSet(v.PrevState.ClosedRoot)
+func (p *policyRun) ledger(v *policy.Verdict, raw []byte, m *policy.Mandate) (policy.Ledger, bool, error) {
+	set, st, err := p.loadSet(v.PrevState.ClosedRoot, m)
 	if err != nil {
 		return policy.Ledger{}, false, err
 	}
@@ -469,7 +580,7 @@ func (p *policyRun) ledger(allow *allowRec, m *policy.Mandate) (policy.Ledger, b
 		if ref.Index < lo {
 			continue
 		}
-		b, st, err := p.loadBucket(ref)
+		b, st, err := p.loadBucket(ref, m)
 		if err != nil {
 			return policy.Ledger{}, false, err
 		}
@@ -481,21 +592,29 @@ func (p *policyRun) ledger(allow *allowRec, m *policy.Mandate) (policy.Ledger, b
 	}
 	led, lerr := policy.NewLedger(*v.PrevState, closed, set)
 	if lerr != nil {
-		p.violate(allow.raw)
+		p.violate(raw)
 		return policy.Ledger{}, false, nil
 	}
 	return led, true, nil
 }
 
-func (p *policyRun) fillInfo(allow *allowRec, m *policy.Mandate) {
-	v := &allow.sv.Verdict
+func (p *policyRun) fillInfo(allow *allowRec, v *policy.Verdict, m *policy.Mandate) {
 	mh := commitment.Hash(v.MandateHash)
 	info := &PolicyInfo{
-		MandateHash: mh, MandateID: bytes.Clone(m.MandateID), Version: m.Version, Seq: v.PrevState.Seq,
+		MandateHash: mh, MandateID: bytes.Clone(m.MandateID), Version: m.Version,
 		Principal: bytes.Clone(m.Principal), AnchorTime: v.AnchorTime, EvalTime: v.EvalTime,
-		Facts: *v.Facts, ExtractorID: v.Extractor,
+		ExtractorID: v.Extractor, Mode: PolicyModePublic, AuditorKid: bytes.Clone(p.kids[mh]),
 	}
-	if h, ok := v.PrevStateHash(); ok {
+	if len(m.Auditors) > 0 {
+		info.Mode = PolicyModePrivate
+	}
+	if v.PrevState != nil {
+		info.Seq = v.PrevState.Seq
+	}
+	if v.Facts != nil {
+		info.Facts = *v.Facts
+	}
+	if h, ok := (policy.Held{V: v, M: m}).PrevStateHash(); ok {
 		info.PrevStateHash = h
 	}
 	copy(info.NewStateHash[:], v.NewStateHash)
@@ -504,7 +623,9 @@ func (p *policyRun) fillInfo(allow *allowRec, m *policy.Mandate) {
 }
 
 func (p *policyRun) denials() error {
-	if p.info == nil {
+	// Private denies are keyed by their private_hash, which only an opened
+	// PrivatePart names; a verifier may skip deny records.
+	if p.info == nil || p.private {
 		return nil
 	}
 	for _, name := range policy.DenyReasons {
@@ -534,6 +655,12 @@ func (p *policyRun) finish(c *Check) (policyOutcome, error) {
 		out.Integrity = GateIntegrity{
 			Status: IntegrityViolated, Reason: ReasonGateEquivocation, Evidence: p.violation, EvidenceHashes: p.violHash,
 		}
+	case p.ppViol != nil:
+		_, h, _ := policy.DecodeSignedVerdict(p.ppViol)
+		out.Integrity = GateIntegrity{
+			Status: IntegrityViolated, Reason: ReasonGateSignedInconsistentPrivatePart,
+			Evidence: [][]byte{bytes.Clone(p.ppViol)}, EvidenceHashes: []commitment.Hash{h},
+		}
 	case p.stepOneOK && p.v.cfg.PolicyFull && p.walkUnchk != nil:
 		out.Integrity = GateIntegrity{Status: IntegrityUnchecked, Reason: p.walkUnchk.Reason}
 	case p.stepOneOK && p.v.cfg.PolicyFull && p.walkTrunc:
@@ -562,11 +689,19 @@ func (p *policyRun) finish(c *Check) (policyOutcome, error) {
 // integrity runs the walk and the fork search.
 func (p *policyRun) integrity(allow *allowRec, m *policy.Mandate) error {
 	if p.violation == nil && p.v.cfg.PolicyFull {
-		if err := p.walk(allow, m); err != nil {
+		walk := p.walk
+		if p.private {
+			walk = p.walkPrivate
+		}
+		if err := walk(allow, m); err != nil {
 			return err
 		}
 	}
-	if m != nil {
+	if len(p.signed) == 0 {
+		p.signed = append(p.signed, signedVerdict{v: &allow.sv.Verdict, hash: allow.hash})
+		p.heldRaw[allow.hash] = allow.raw
+	}
+	if m != nil && !p.private {
 		cur := policy.Held{V: &allow.sv.Verdict, Hash: allow.hash, M: m}
 		if len(p.held) == 0 {
 			p.held = append(p.held, cur)
@@ -575,13 +710,17 @@ func (p *policyRun) integrity(allow *allowRec, m *policy.Mandate) error {
 	if p.violation != nil {
 		return nil
 	}
-	if p.v.cfg.PolicyFull {
+	if p.v.cfg.PolicyFull && !p.noKey {
 		if err := p.successors(); err != nil {
 			return err
 		}
 	}
 	if err := p.addEvidence(); err != nil {
 		return err
+	}
+	if p.private {
+		p.forkPrivate()
+		return nil
 	}
 	p.findFork()
 	return nil
@@ -653,7 +792,7 @@ func (p *policyRun) walk(allow *allowRec, m *policy.Mandate) error {
 			p.walkStop(st)
 			return nil
 		}
-		set, st, err := p.loadSet(pa.sv.Verdict.PrevState.ClosedRoot)
+		set, st, err := p.loadSet(pa.sv.Verdict.PrevState.ClosedRoot, pm)
 		if err != nil {
 			return err
 		}
@@ -690,7 +829,7 @@ func (p *policyRun) walk(allow *allowRec, m *policy.Mandate) error {
 func (p *policyRun) successors() error {
 	walked := append([]policy.Held(nil), p.held...)
 	for _, n := range walked {
-		prevState, ok := n.V.PrevStateHash()
+		prevState, ok := n.PrevStateHash()
 		if !ok {
 			continue
 		}
@@ -725,15 +864,23 @@ func (p *policyRun) hold(a *allowRec) error {
 			return nil
 		}
 	}
+	for _, s := range p.signed {
+		if s.hash == a.hash {
+			return nil
+		}
+	}
 	m, st, err := p.loadMandate(commitment.Hash(a.sv.Verdict.MandateHash))
 	if err != nil {
 		return err
 	}
-	if st != srcOK {
+	if st != srcOK && st != srcPrivate {
 		return nil
 	}
 	p.heldRaw[a.hash] = a.raw
-	p.held = append(p.held, policy.Held{V: &a.sv.Verdict, Hash: a.hash, M: m})
+	p.signed = append(p.signed, signedVerdict{v: &a.sv.Verdict, hash: a.hash})
+	if st == srcOK && !p.private {
+		p.held = append(p.held, policy.Held{V: &a.sv.Verdict, Hash: a.hash, M: m})
+	}
 	return nil
 }
 

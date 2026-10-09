@@ -95,6 +95,13 @@ var coveredElsewhere = map[string]string{
 	"policy_bucket_corrupt": "TestPolicyVerifyVectors", "policy_t_h_blocked": "TestPolicyVerifyVectors",
 	"policy_gate_equivocation": "TestPolicyVerifyVectors", "policy_walk_truncated": "TestPolicyVerifyVectors",
 	"policy_principal_scheme_unsupported": "TestPolicyVerifyVectors/principal_scheme_unsupported",
+	// The private-mode cases are those of spec/vectors/policy/private.json
+	// and the action cases of spec/vectors/v1/verify.json.
+	"policy_private_part_inconsistent":    "TestPrivateVerifyVectors/private_part_row_mismatch",
+	"policy_private":                      "TestPrivateVerifyVectors/private_without_key",
+	"policy_private_walk":                 "TestPrivateVerifyVectors/private_walk_without_key",
+	"policy_private_action":               "TestPrivateActionVectors/decision_v1_private_without_key",
+	"decision_unavailable_private_action": "TestPrivateActionVectors/decision_v1_private_blob_missing",
 }
 
 func TestReasonVectors(t *testing.T) {
@@ -198,7 +205,7 @@ func TestReasonVectors(t *testing.T) {
 			assert.True(t, known[*c.Expect.Reason], "the reason is in the enum")
 			wantStatus, wantExit, wantVerdict := "unchecked", "2", "unchecked"
 			switch *c.Expect.Reason {
-			case "gate_equivocation":
+			case "gate_equivocation", "gate_signed_inconsistent_private_part":
 				wantStatus, wantExit = "violated", "5"
 			case "policy_walk_truncated":
 				// Carried by gate_integrity only: the verdict stays valid.

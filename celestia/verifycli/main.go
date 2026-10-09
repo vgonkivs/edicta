@@ -20,6 +20,7 @@ package verifycli
 
 import (
 	"context"
+	"crypto/ecdh"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
@@ -38,12 +39,14 @@ import (
 	"github.com/vgonkivs/edicta/celestia/anchorverify"
 	"github.com/vgonkivs/edicta/celestia/inclusion"
 	"github.com/vgonkivs/edicta/celestia/policyext/tiatransfer"
+	"github.com/vgonkivs/edicta/celestia/secret"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/fibre/fibrecommit"
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/gate/dacommit/blobv1"
 	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/sdk/blob"
 	"github.com/vgonkivs/edicta/verifier"
 )
 
@@ -152,13 +155,14 @@ type flags struct {
 	policyFull    bool
 	maxWalkSteps  int
 	evidencePaths []string
+	auditorKeys   []string
 }
 
 func parseFlags(args []string, out io.Writer) (flags, error) {
 	const usage = "usage: verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) " +
 		"[--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)] [--cross-check URL]... [--exclude-host HOST]... " +
 		"[--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution] " +
-		"[--principal-key HEX]... [--principal ed25519:HEX|cosmos:BECH32|eth:0xHEX]... [--require-policy] [--policy-full] [--max-walk-steps N] [--policy-evidence FILE]... [--json]"
+		"[--principal-key HEX]... [--principal ed25519:HEX|cosmos:BECH32|eth:0xHEX]... [--require-policy] [--policy-full] [--max-walk-steps N] [--policy-evidence FILE]... [--auditor-key FILE]... [--json]"
 	var f flags
 	if len(args) == 0 || (args[0] != "verify" && args[0] != "replay") {
 		return f, usagef("%s", usage)
@@ -194,6 +198,8 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	fs.Var(&typedPrincipals, "principal", "trusted mandate principal by scheme: ed25519:HEX, cosmos:BECH32 or eth:0xHEX (repeatable; commas also separate)")
 	var evidence multiFlag
 	fs.Var(&evidence, "policy-evidence", "file with a signed policy verdict held by the auditor, for fork detection (repeatable)")
+	var auditorKeys multiFlag
+	fs.Var(&auditorKeys, "auditor-key", "file with an X25519 auditor private key, hex, mode 0600, that opens private mandates (repeatable)")
 	var ckpt, cross, exclude, txRPC multiFlag
 	fs.Var(&txRPC, "tx-rpc", "CometBFT RPC that serves the transaction the receipt names; the first is the primary, more are alternates tried in order")
 	fs.Var(&ckpt, "checkpoint-rpc", "CometBFT RPC of an independent checkpoint operator (repeatable)")
@@ -247,6 +253,7 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 		}
 	}
 	f.evidencePaths = evidence
+	f.auditorKeys = auditorKeys
 	if f.quorum, err = strconv.Atoi(*quorum); err != nil || f.quorum < 1 {
 		return f, usagef("--checkpoint-quorum must be a positive number")
 	}
@@ -366,6 +373,13 @@ func execute(ctx context.Context, args []string, out io.Writer) (int, error) {
 			return codeUsage, usageError{fmt.Errorf("policy evidence: %w", err)}
 		}
 		deps.Config.Evidence = append(deps.Config.Evidence, b)
+	}
+	for _, path := range f.auditorKeys {
+		k, err := loadAuditorKey(path)
+		if err != nil {
+			return codeUsage, usageError{err}
+		}
+		deps.Config.AuditorKeys = append(deps.Config.AuditorKeys, k)
 	}
 	if deps.Extractors, err = newExtractors(); err != nil {
 		return codeUsage, usageError{err}
@@ -534,6 +548,27 @@ func openArchive(dir, url string) (verifier.Reader, error) {
 		return nil, fmt.Errorf("open archive: %w", err)
 	}
 	return store, nil
+}
+
+// loadAuditorKey reads an X25519 private key in hex from a file that only
+// its owner can read. The key bytes never appear in an error.
+func loadAuditorKey(path string) (blob.RecipientKey, error) {
+	s, err := secret.FromFile(path)
+	if err != nil {
+		return blob.RecipientKey{}, fmt.Errorf("--auditor-key: %w", err)
+	}
+	defer s.Zero()
+	text := strings.TrimSpace(s.RevealString())
+	raw, err := hex.DecodeString(text)
+	if err != nil || len(raw) != 32 {
+		return blob.RecipientKey{}, fmt.Errorf("--auditor-key %q: not 32 bytes of hex", path)
+	}
+	defer clear(raw)
+	sk, err := ecdh.X25519().NewPrivateKey(raw)
+	if err != nil {
+		return blob.RecipientKey{}, fmt.Errorf("--auditor-key %q: not an X25519 private key", path)
+	}
+	return blob.NewRecipientKey(sk)
 }
 
 func buildDeps(r verifier.Reader, keys []ed25519.PublicKey, params commitment.Params) (verifier.Deps, error) {

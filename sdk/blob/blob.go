@@ -77,6 +77,14 @@ func NewRecipientKey(pk *ecdh.PrivateKey) (RecipientKey, error) {
 	return RecipientKey{key: &keyHolder{pk: pk}}, nil
 }
 
+// PublicKey is the public half of the key, nil for a zero value.
+func (k RecipientKey) PublicKey() *ecdh.PublicKey {
+	if k.key == nil || k.key.pk == nil {
+		return nil
+	}
+	return k.key.pk.PublicKey()
+}
+
 // String shows the label only; the private key is never printed.
 func (k RecipientKey) String() string {
 	return "RecipientKey(kid=" + hex.EncodeToString(k.KID) + ", key redacted)"

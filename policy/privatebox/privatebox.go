@@ -64,6 +64,21 @@ func NewOpener(keys ...*ecdh.PrivateKey) (*Opener, error) {
 	return o, nil
 }
 
+// NewOpenerFromKeys is NewOpener for keys held as recipient keys; their
+// kids are replaced by the derived ones.
+func NewOpenerFromKeys(keys ...blob.RecipientKey) (*Opener, error) {
+	o := &Opener{}
+	for i, k := range keys {
+		pub := k.PublicKey()
+		if pub == nil {
+			return nil, fmt.Errorf("privatebox: key %d is not an X25519 private key", i)
+		}
+		k.KID = policy.AuditorKid(pub.Bytes())
+		o.keys = append(o.keys, k)
+	}
+	return o, nil
+}
+
 // Kids are the derived kids of the opener's keys, in order.
 func (o *Opener) Kids() [][]byte {
 	out := make([][]byte, len(o.keys))
