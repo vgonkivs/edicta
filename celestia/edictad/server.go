@@ -389,6 +389,7 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 	gcfg.AllowedDA = []commitment.DA{cfg.DA()}
 	gcfg.Mandate = mandateBytes
 	gcfg.ArchiveWriteTimeout = time.Duration(cfg.Archive.WriteTimeoutS) * time.Second
+	gcfg.RevealOnExecution = slices.Clone(cfg.Gate.RevealOnExecution)
 	if fibre {
 		gcfg.FibreMaxDataBytes = cfg.Fibre.MaxDataBytes
 	}
@@ -448,6 +449,7 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 		Signer:     signer,
 		Logger:     log,
 		Extractors: extractors,
+		Profiles:   compiledProfiles,
 	}
 	var reader node.FibreAnchorReader
 	if fibre {
@@ -504,15 +506,15 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 	if mandate != nil {
 		// The registry type is checked by the gate, which refused a mandate
 		// without policy state.
-		pol = &polInfo{gateID: cfg.Gate.GateID, counterKey: mandate.Mandate.CounterKey(), state: reg}
-		if err := publishMandate(ctx, aio, mandateBytes, timeout); err != nil {
+		pol = newPolInfo(cfg.Gate.GateID, &mandate.Mandate, reg)
+		if err := pol.publishMandate(ctx, aio, mandateBytes, timeout); err != nil {
 			return fail(err)
 		}
 		log.Info("edictad: mandate in force", "mandate_id", hex.EncodeToString(mandate.Mandate.MandateID),
 			"version", mandate.Mandate.Version, "text", policy.Render(&mandate.Mandate))
 	}
 	q := &retryQueue{}
-	sw := &sweeper{lister: reg, io: aio, q: q, log: log, timeout: timeout, pol: pol}
+	sw := &sweeper{lister: reg, io: aio, q: q, log: log, timeout: timeout, pol: pol, reveals: g.RevealsOnExecution}
 	// The pass before the listener has a time budget; what it does not reach
 	// is finished in the background right away.
 	sctx, scancel := context.WithTimeout(ctx, startupSweepBudget)
@@ -824,7 +826,9 @@ func (a *archivingGate) Authorize(ctx context.Context, envelope, action, salt []
 	// The hold starts before the gate can mark the registry and ends once the
 	// record is written or queued, so a scan never sees the entry in between.
 	finished := false
+	var validUntil uint64
 	if sc, derr := commitment.DecodeSigned(envelope); derr == nil {
+		validUntil = sc.Commitment.ValidUntil
 		if h, herr := commitment.HashOf(&sc.Commitment); herr == nil {
 			a.q.begin(h)
 			defer func() {
@@ -840,14 +844,17 @@ func (a *archivingGate) Authorize(ctx context.Context, envelope, action, salt []
 	// One scope per request: the anchor stage and the payload stage read the
 	// block once between them.
 	res, err := a.g.Authorize(gatechain.WithAnchorScope(ctx), envelope, action, salt)
-	a.after(ctx, res, err)
+	a.after(ctx, res, err, validUntil)
+	// The PrivatePart is archive data sealed to the auditors, never part of
+	// an answer.
+	res.PrivatePart = nil
 	finished = true
 	return res, err
 }
 
 // after archives the outcome. A failure here never changes the answer: the
 // registry is the authority and the sweep repairs the archive.
-func (a *archivingGate) after(ctx context.Context, res gate.Result, err error) {
+func (a *archivingGate) after(ctx context.Context, res gate.Result, err error, validUntil uint64) {
 	switch {
 	case err == nil:
 		auth := &archive.AuthorizationRecord{
@@ -859,7 +866,7 @@ func (a *archivingGate) after(ctx context.Context, res gate.Result, err error) {
 		}
 		// Policy records first, so that a crash leaves no Authorization
 		// record without its verdict.
-		recs, perr := a.pol.allowRecords(res.ClosedBucket, res.ClosedSet, res.PolicyVerdict, res.CommitmentHash)
+		recs, perr := a.pol.allowRecords(res.ClosedBucket, res.ClosedSet, res.PolicyVerdict, res.PrivatePart, res.CommitmentHash)
 		if perr != nil {
 			// The sweep rebuilds the records from the registry.
 			a.w.log.Error("edictad: policy records of an allow cannot be built", "err", perr)
@@ -881,6 +888,10 @@ func (a *archivingGate) after(ctx context.Context, res gate.Result, err error) {
 			CommitmentHash: res.CommitmentHash, Error: name, GateID: a.gateID, RejectedAt: uint64(a.clock.Now().Unix()),
 		}
 		if len(res.PolicyVerdict) > 0 && errors.Is(err, policy.ErrDenied) {
+			if a.pol.private() {
+				a.privateDeny(ctx, res, name, validUntil, marker)
+				return
+			}
 			a.w.write(ctx, denyChain(res.PolicyVerdict, marker))
 			return
 		}

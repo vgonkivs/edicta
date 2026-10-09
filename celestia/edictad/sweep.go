@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate/registry"
 )
 
@@ -32,6 +33,9 @@ type sweeper struct {
 	// pol is set when the gate has a mandate: the sweep then also repairs
 	// the policy records, ahead of the Authorization record.
 	pol *polInfo
+	// reveals reports whether a receipt for the action type publishes its
+	// salt; nil reveals nothing.
+	reveals func(actionType string) bool
 }
 
 // maxRecheck bounds the entries kept for another look.
@@ -159,6 +163,9 @@ func (s *sweeper) entry(ctx context.Context, e registry.Entry, st *sweepStats) b
 		s.hold(e)
 		return false
 	}
+	if !s.repairReveal(ctx, e, st) {
+		return false
+	}
 	rctx, cancel := context.WithTimeout(ctx, s.timeout)
 	_, err := s.io.authorization(rctx, e.CommitmentHash)
 	cancel()
@@ -176,13 +183,45 @@ func (s *sweeper) entry(ctx context.Context, e registry.Entry, st *sweepStats) b
 	if s.pol == nil || len(e.Verdict) == 0 {
 		return s.put(ctx, auth, st)
 	}
-	recs, err := s.pol.allowRecords(e.ClosedBucket, e.ClosedSet, e.Verdict, e.CommitmentHash)
+	recs, err := s.pol.allowRecords(e.ClosedBucket, e.ClosedSet, e.Verdict, e.PrivatePart, e.CommitmentHash)
 	if err != nil {
 		s.log.Error("edictad: the registry's policy verdict does not decode", "commitment_hash", hex.EncodeToString(e.CommitmentHash[:]), "err", err)
 		st.permanent++
 		return true
 	}
 	return s.putChain(ctx, &chain{recs: append(recs, auth)}, st) == nil
+}
+
+// repairReveal rewrites the reveal on execution of an entry with a receipt
+// whose private decision is of a revealing type. It reports false when the
+// entry has to be looked at again.
+func (s *sweeper) repairReveal(ctx context.Context, e registry.Entry, st *sweepStats) bool {
+	if s.reveals == nil || len(e.Receipt) == 0 || len(e.ActionSalt) == 0 || !s.pol.private() {
+		return true
+	}
+	rctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	switch _, err := s.io.reveal(rctx, e.CommitmentHash); {
+	case err == nil, errors.Is(err, errNoRevealReader):
+		return true
+	case !errors.Is(err, archive.ErrNotFound):
+		st.failed++
+		return false
+	}
+	d, err := s.io.decision(rctx, e.CommitmentHash)
+	if err != nil {
+		if errors.Is(err, archive.ErrNotFound) {
+			st.noDecision++
+			return true
+		}
+		st.failed++
+		return false
+	}
+	sc, err := commitment.DecodeSigned(d.Envelope)
+	if err != nil || d.Form != archive.FormPrivate || !s.reveals(sc.Commitment.Action.Type) {
+		return true
+	}
+	return s.put(ctx, &archive.RevealRecord{SignedReceipt: e.Receipt, ActionSalt: e.ActionSalt}, st)
 }
 
 // putChain writes the records in order and returns what is left to retry: the

@@ -66,6 +66,16 @@ func (a *archiveIO) decision(ctx context.Context, h commitment.Hash) (*archive.D
 	return call(ctx, a, func(ctx context.Context) (*archive.DecisionRecord, error) { return a.st.Decision(ctx, h) })
 }
 
+var errNoRevealReader = errors.New("edictad: the archive does not read reveals")
+
+func (a *archiveIO) reveal(ctx context.Context, h commitment.Hash) (*archive.RevealRecord, error) {
+	rr, ok := a.st.(archive.RevealReader)
+	if !ok {
+		return nil, errNoRevealReader
+	}
+	return call(ctx, a, func(ctx context.Context) (*archive.RevealRecord, error) { return rr.Reveal(ctx, h) })
+}
+
 func (a *archiveIO) authorization(ctx context.Context, h commitment.Hash) (*archive.AuthorizationRecord, error) {
 	return call(ctx, a, func(ctx context.Context) (*archive.AuthorizationRecord, error) { return a.st.Authorization(ctx, h) })
 }
@@ -82,16 +92,28 @@ func archiveFault(format string, a ...any) error {
 // archiver is the gate's archive stage over the store.
 type archiver struct{ io *archiveIO }
 
-var _ gate.Archiver = (*archiver)(nil)
+var (
+	_ gate.Archiver       = (*archiver)(nil)
+	_ gate.RevealArchiver = (*archiver)(nil)
+)
 
 // Put stores the decision record. A different record under the same key is
 // accepted only if it is the same decision: the stored envelope verifies, has
 // the same commitment hash and was stored with the same action bytes. That
-// admits a re-signed retry and refuses a record that squats the key.
+// admits a re-signed retry and refuses a record that squats the key. A
+// private decision writes its sealed action first and holds no action
+// bytes or salt itself.
 func (a *archiver) Put(ctx context.Context, rec gate.DecisionRecord) error {
-	_, err := a.io.put(ctx, &archive.DecisionRecord{
-		Envelope: rec.Envelope, Form: archive.FormPublic, Action: rec.Action, ActionSalt: rec.ActionSalt,
-	})
+	dec := &archive.DecisionRecord{Envelope: rec.Envelope, Form: archive.FormPublic, Action: rec.Action, ActionSalt: rec.ActionSalt}
+	if rec.Private() {
+		if _, err := a.io.put(ctx, &archive.PrivateBlobRecord{
+			PlaintextKind: policy.PrivateAction, Hash: bytes.Clone(rec.ActionHash[:]), Envelope: rec.PrivateAction,
+		}); err != nil {
+			return archiveFault("put private action: %v", err)
+		}
+		dec = &archive.DecisionRecord{Envelope: rec.Envelope, Form: archive.FormPrivate}
+	}
+	_, err := a.io.put(ctx, dec)
 	switch {
 	case err == nil:
 		return nil
@@ -117,8 +139,20 @@ func (a *archiver) checkStored(ctx context.Context, rec gate.DecisionRecord) err
 	if h != rec.CommitmentHash {
 		return archiveFault("stored decision has another commitment hash")
 	}
-	if d.Form != archive.FormPublic || !bytes.Equal(d.Action, rec.Action) || !bytes.Equal(d.ActionSalt, rec.ActionSalt) {
+	wantForm := uint64(archive.FormPublic)
+	if rec.Private() {
+		wantForm = archive.FormPrivate
+	}
+	if d.Form != wantForm || !bytes.Equal(d.Action, rec.Action) || !bytes.Equal(d.ActionSalt, rec.ActionSalt) {
 		return archiveFault("stored decision has another form, other action bytes or another salt")
+	}
+	return nil
+}
+
+// PutReveal stores the reveal on execution of a private decision.
+func (a *archiver) PutReveal(ctx context.Context, rec gate.RevealRecord) error {
+	if _, err := a.io.put(ctx, &archive.RevealRecord{SignedReceipt: rec.Receipt, ActionSalt: rec.ActionSalt}); err != nil {
+		return archiveFault("put reveal: %v", err)
 	}
 	return nil
 }
@@ -363,20 +397,22 @@ func (w *writer) queue(r archive.Record) {
 // writeChain writes the records in order and stops at the first one that has
 // to be retried, queueing it and the ones behind it as one chain. A record
 // that can never be written ends the chain too: the registry still holds the
-// Authorization, and the scan repairs the rest in order.
-func (w *writer) writeChain(ctx context.Context, c *chain) {
+// Authorization, and the scan repairs the rest in order. It returns how many
+// records were written now.
+func (w *writer) writeChain(ctx context.Context, c *chain) int {
 	for i, r := range c.recs {
 		switch w.writeOne(ctx, r) {
 		case writeRetry:
 			w.queue(&chain{recs: c.recs[i:]})
-			return
+			return i
 		case writeStop:
 			if h, ok := authorizationHash(c); ok {
 				w.q.markDroppedFor(h)
 			}
-			return
+			return i
 		}
 	}
+	return len(c.recs)
 }
 
 type writeResult int

@@ -142,6 +142,10 @@ type GateConfig struct {
 	AllowlistFile  string   `toml:"allowlist_file"`
 	ExecutorKeys   []string `toml:"executor_keys"` // hex Ed25519 public keys
 	AnchorVerifier string   `toml:"anchor_verifier"`
+	// RevealOnExecution lists the action types whose salt a receipt
+	// publishes under a private mandate. Each needs a compiled profile with
+	// public execution.
+	RevealOnExecution []string `toml:"reveal_on_execution"`
 	// Fast is stage K-fast; off by default.
 	Fast FastConfig `toml:"fast"`
 }
@@ -395,6 +399,14 @@ func (c Config) ValidateBasic() error {
 		}
 		if slices.Contains(g.ActionTypes[:i], t) {
 			return cfgErr("gate.action_types[%d] is a duplicate", i)
+		}
+	}
+	for i, t := range g.RevealOnExecution {
+		if !slices.Contains(g.ActionTypes, t) {
+			return cfgErr("gate.reveal_on_execution[%d] is not one of gate.action_types", i)
+		}
+		if !compiledProfiles.PublicExecution(t) {
+			return cfgErr("gate.reveal_on_execution[%d] has no compiled profile with public execution", i)
 		}
 	}
 	if _, err := c.executorKeys(); err != nil {

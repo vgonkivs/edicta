@@ -6,13 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/policyext/tiatransfer"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
+	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/gate/registry"
 	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/policy/privatebox"
 )
 
 // PolicyConfig is the optional [policy] table. Without a mandate the gate
@@ -33,6 +37,11 @@ func (p PolicyConfig) WithDefaults() PolicyConfig { return p }
 // ValidateBasic checks what needs no other table; the archive requirement is
 // checked by Config.
 func (p PolicyConfig) ValidateBasic() error { return nil }
+
+// compiledProfiles are the action types of the profiles this daemon is built
+// with, and whether their executed transactions are public: a bank send is a
+// public transaction.
+var compiledProfiles = gate.ProfileSet{bankaction.ActionType: true}
 
 // policyExtractors is the registry of the actions this daemon can read facts
 // from. Only bank sends on Celestia in utia are known.
@@ -57,23 +66,85 @@ func loadMandate(path, gateID string) ([]byte, *policy.SignedMandate, commitment
 }
 
 // polInfo is what the request path and the sweep need to archive policy
-// records.
+// records. Under a mandate with auditors every record that would show the
+// rules, the state or the decision content is written only sealed to them.
 type polInfo struct {
 	gateID     string
 	counterKey [32]byte
 	state      registry.StateRegistry
+	mandate    *policy.Mandate
+	sealer     policy.Sealer
+	hasher     policy.StateHasher
+	denies     *denyIndex
 }
 
-// publishMandate writes the mandate record and the genesis closed set. Both
-// are idempotent; a failure refuses the start, because a verifier cannot
-// check any verdict without them.
-func publishMandate(ctx context.Context, aio *archiveIO, signed []byte, timeout time.Duration) error {
+func newPolInfo(gateID string, m *policy.Mandate, state registry.StateRegistry) *polInfo {
+	return &polInfo{gateID: gateID, counterKey: m.CounterKey(), state: state, mandate: m,
+		sealer: privatebox.Sealer{}, hasher: policy.NewStateHasher(m), denies: newDenyIndex()}
+}
+
+// private reports whether the mandate has auditors.
+func (p *polInfo) private() bool { return p != nil && len(p.mandate.Auditors) > 0 }
+
+// sealed is the kind 15 record of a plaintext whose hash (before blinding)
+// is plainHash.
+func (p *polInfo) sealed(kind policy.PrivateKind, plaintext []byte, plainHash commitment.Hash) (archive.Record, error) {
+	env, err := p.sealer.Seal(kind, plaintext, p.mandate.Auditors)
+	if err != nil {
+		return nil, err
+	}
+	key := p.hasher.BlobKey(kind, plainHash)
+	return &archive.PrivateBlobRecord{PlaintextKind: kind, Hash: key[:], Envelope: env}, nil
+}
+
+// bucketRecord and closedRecord are a closed bucket and a closed set in the
+// form of the mandate: clear, or sealed under their blinded keys.
+func (p *polInfo) bucketRecord(b []byte) (archive.Record, error) {
+	if !p.private() {
+		return &archive.PolicyBucketRecord{Bucket: b}, nil
+	}
+	return p.sealed(policy.PrivateBucket, b, policy.HashBucketBytes(b))
+}
+
+func (p *polInfo) closedRecord(set []byte) (archive.Record, error) {
+	if !p.private() {
+		return &archive.PolicyClosedRecord{ClosedSet: set}, nil
+	}
+	return p.sealed(policy.PrivateClosedSet, set, policy.HashClosedSetBytes(set))
+}
+
+// partRecord seals the PrivatePart of a private-form verdict.
+func (p *polInfo) partRecord(part []byte) (archive.Record, error) {
+	if len(part) == 0 {
+		return nil, errors.New("a private-form verdict without its PrivatePart")
+	}
+	return p.sealed(policy.PrivatePartKind, part, policy.PrivateHash(part))
+}
+
+// publishMandate writes the mandate record and the genesis closed set, sealed
+// under a private mandate. Both are idempotent; a failure refuses the start,
+// because a verifier cannot check any verdict without them.
+func (p *polInfo) publishMandate(ctx context.Context, aio *archiveIO, signed []byte, timeout time.Duration) error {
 	genesis := policy.EmptyClosedSet()
 	set, err := policy.EncodeClosedSet(&genesis)
 	if err != nil {
 		return fmt.Errorf("edictad: genesis closed set: %w", err)
 	}
-	for _, r := range []archive.Record{&archive.MandateRecord{SignedMandate: signed}, &archive.PolicyClosedRecord{ClosedSet: set}} {
+	var mrec archive.Record = &archive.MandateRecord{SignedMandate: signed}
+	if p.private() {
+		_, h, err := policy.DecodeSignedMandate(signed)
+		if err != nil {
+			return fmt.Errorf("edictad: mandate: %w", err)
+		}
+		if mrec, err = p.sealed(policy.PrivateMandate, signed, h); err != nil {
+			return fmt.Errorf("edictad: seal the mandate: %w", err)
+		}
+	}
+	srec, err := p.closedRecord(set)
+	if err != nil {
+		return fmt.Errorf("edictad: seal the genesis closed set: %w", err)
+	}
+	for _, r := range []archive.Record{mrec, srec} {
 		pctx, cancel := context.WithTimeout(ctx, timeout)
 		_, err := aio.put(pctx, r)
 		cancel()
@@ -99,13 +170,28 @@ func (p *polInfo) successorRecord(verdict []byte, h commitment.Hash) (archive.Re
 	}, nil
 }
 
-// allowRecords are the policy records of an allow, in archive order: the
-// closed bucket and set if the allow closed an hour, the verdict, the
-// successor.
-func (p *polInfo) allowRecords(closedBucket, closedSet, verdict []byte, h commitment.Hash) ([]archive.Record, error) {
+// allowRecords are the policy records of an allow, in archive order: under a
+// private mandate the sealed PrivatePart, then the closed bucket and set if
+// the allow closed an hour, the verdict, the successor.
+func (p *polInfo) allowRecords(closedBucket, closedSet, verdict, part []byte, h commitment.Hash) ([]archive.Record, error) {
 	var recs []archive.Record
+	if p.private() {
+		r, err := p.partRecord(part)
+		if err != nil {
+			return nil, err
+		}
+		recs = append(recs, r)
+	}
 	if len(closedBucket) > 0 {
-		recs = append(recs, &archive.PolicyBucketRecord{Bucket: closedBucket}, &archive.PolicyClosedRecord{ClosedSet: closedSet})
+		b, err := p.bucketRecord(closedBucket)
+		if err != nil {
+			return nil, err
+		}
+		s, err := p.closedRecord(closedSet)
+		if err != nil {
+			return nil, err
+		}
+		recs = append(recs, b, s)
 	}
 	recs = append(recs, &archive.PolicyAllowRecord{SignedVerdict: verdict})
 	succ, err := p.successorRecord(verdict, h)
@@ -140,20 +226,29 @@ func (p *polInfo) repair(ctx context.Context, s *sweeper, st *sweepStats) {
 	var recs []archive.Record
 	for i := range c.Ledger.Closed {
 		b, err := policy.EncodeBucket(&c.Ledger.Closed[i])
+		if err == nil {
+			var r archive.Record
+			if r, err = p.bucketRecord(b); err == nil {
+				recs = append(recs, r)
+			}
+		}
 		if err != nil {
-			s.log.Error("edictad: closed bucket does not encode", "err", err)
+			s.log.Error("edictad: closed bucket cannot be archived", "err", err)
 			st.failed++
 			return
 		}
-		recs = append(recs, &archive.PolicyBucketRecord{Bucket: b})
 	}
 	set, err := policy.EncodeClosedSet(&c.Ledger.Set)
+	var srec archive.Record
+	if err == nil {
+		srec, err = p.closedRecord(set)
+	}
 	if err != nil {
-		s.log.Error("edictad: closed set does not encode", "err", err)
+		s.log.Error("edictad: closed set cannot be archived", "err", err)
 		st.failed++
 		return
 	}
-	recs = append(recs, &archive.PolicyClosedRecord{ClosedSet: set})
+	recs = append(recs, srec)
 	for _, r := range recs {
 		s.put(ctx, r, st)
 	}
@@ -162,4 +257,103 @@ func (p *polInfo) repair(ctx context.Context, s *sweeper, st *sweepStats) {
 // denyChain is the policy deny and then the rejection marker.
 func denyChain(verdict []byte, marker *archive.RejectionRecord) *chain {
 	return &chain{recs: []archive.Record{&archive.PolicyDenyRecord{SignedVerdict: verdict}, marker}}
+}
+
+// privateDenyMarker is the marker name of every policy deny under a private
+// mandate: a public marker must not reveal the reason.
+const privateDenyMarker = "ErrDenied"
+
+// denyKey identifies the private denies that publish one record: a retry
+// refused again for the same reason gets a fresh private_hash, and without
+// the index every such retry would add a record.
+type denyKey struct {
+	h      commitment.Hash
+	reason string
+}
+
+// denyIndex is the gate-local dedup index of private denies. It is not
+// evidence: losing an entry only writes one more record. An entry is
+// reserved before the deny's records are written and kept once the
+// policy_deny write is acknowledged, so concurrent retries never both
+// write; a failed write releases it.
+type denyIndex struct {
+	mu sync.Mutex
+	m  map[denyKey]denyEntry
+}
+
+type denyEntry struct {
+	until uint64 // valid_until of the decision: no later attempt reaches the policy
+	done  bool
+}
+
+// maxDenyIndex bounds the index; expired entries go first.
+const maxDenyIndex = 1 << 16
+
+func newDenyIndex() *denyIndex { return &denyIndex{m: map[denyKey]denyEntry{}} }
+
+// reserve reports whether the caller is to write the deny's records.
+func (x *denyIndex) reserve(k denyKey, validUntil, now uint64) bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if _, ok := x.m[k]; ok {
+		return false
+	}
+	if len(x.m) >= maxDenyIndex {
+		for key, e := range x.m {
+			if e.until < now {
+				delete(x.m, key)
+			}
+		}
+	}
+	if len(x.m) >= maxDenyIndex {
+		for key := range x.m {
+			delete(x.m, key)
+			break
+		}
+	}
+	x.m[k] = denyEntry{until: validUntil}
+	return true
+}
+
+func (x *denyIndex) commit(k denyKey) {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if e, ok := x.m[k]; ok {
+		e.done = true
+		x.m[k] = e
+	}
+}
+
+func (x *denyIndex) release(k denyKey) {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if e, ok := x.m[k]; ok && !e.done {
+		delete(x.m, k)
+	}
+}
+
+// privateDeny writes the records of a private deny: the sealed PrivatePart,
+// the deny under its private_hash, then the ErrDenied marker. A deny whose
+// (commitment, reason) is already archived writes only the marker, which is
+// a no-op when present and repairs one that failed before.
+func (a *archivingGate) privateDeny(ctx context.Context, res gate.Result, reason string, validUntil uint64, marker *archive.RejectionRecord) {
+	marker.Error = privateDenyMarker
+	k := denyKey{h: res.CommitmentHash, reason: reason}
+	if !a.pol.denies.reserve(k, validUntil, uint64(a.clock.Now().Unix())) {
+		a.w.write(ctx, marker)
+		return
+	}
+	part, err := a.pol.partRecord(res.PrivatePart)
+	if err != nil {
+		a.w.log.Error("edictad: the PrivatePart of a deny cannot be sealed; only the marker is written", "err", err)
+		a.pol.denies.release(k)
+		a.w.write(ctx, marker)
+		return
+	}
+	recs := []archive.Record{part, &archive.PolicyDenyRecord{SignedVerdict: res.PolicyVerdict}, marker}
+	if a.w.writeChain(ctx, &chain{recs: recs}) >= 2 {
+		a.pol.denies.commit(k)
+		return
+	}
+	a.pol.denies.release(k)
 }
