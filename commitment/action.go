@@ -51,41 +51,62 @@ func mediaName(n string) bool {
 
 func validActionType(s string) bool { return ValidMediaType(s, MaxActionTypeSize) }
 
-// ActionHash is H(tag || uint8(len(type)) || type || action). The type is
-// inside the preimage so bytes committed under one type never match under
-// another.
-func ActionHash(actionType string, action []byte) (Hash, error) {
+// ActionHash is H(tag || uint8(len(type)) || type || salt || action). The
+// type is inside the preimage so bytes committed under one type never match
+// under another; the fixed-width salt keeps the public hash from being a
+// dictionary oracle for low-entropy actions.
+func ActionHash(actionType string, salt, action []byte) (Hash, error) {
 	if len(action) < 1 || len(action) > MaxActionSize {
 		return Hash{}, fmt.Errorf("%w: %d bytes", ErrActionSize, len(action))
+	}
+	if err := CheckActionSalt(salt); err != nil {
+		return Hash{}, err
 	}
 	if !validActionType(actionType) {
 		return Hash{}, fmt.Errorf("%w: action type", ErrInvalidString)
 	}
 	typ := append([]byte{byte(len(actionType))}, actionType...)
-	return sha256.Sum256(tagged(TagAction, typ, action)), nil
+	return sha256.Sum256(tagged(TagAction, typ, salt, action)), nil
 }
 
-// ActionHashFor is the action hash of a commitment or Authorization of the
-// given version. Every caller that binds action bytes to a version goes
-// through it, so the v1 preimage can change in this one place; today both
-// versions use ActionHash.
-func ActionHashFor(version uint64, actionType string, action []byte) (Hash, error) {
-	return ActionHash(actionType, action)
+// CheckActionSalt requires a present salt of exactly ActionSaltSize bytes.
+// A missing salt is an integration fault and so a separate error from a
+// salt of the wrong length.
+func CheckActionSalt(salt []byte) error {
+	switch len(salt) {
+	case 0:
+		return fmt.Errorf("%w: action salt", ErrMissingField)
+	case ActionSaltSize:
+		return nil
+	default:
+		return fmt.Errorf("%w: action salt of %d bytes", ErrFieldSize, len(salt))
+	}
 }
 
-// CheckAction requires the supplied bytes to be exactly the committed ones.
-func CheckAction(c *Commitment, action []byte) error {
+// CheckAction requires the supplied bytes and salt to hash, under the
+// committed type, to the committed action hash.
+func CheckAction(c *Commitment, action, salt []byte) error {
 	if c == nil {
 		return fmt.Errorf("%w: nil commitment", ErrActionMismatch)
 	}
-	h, err := ActionHashFor(c.Version, c.Action.Type, action)
+	return matchActionHash(c.Action.Type, salt, action, c.Action.Hash)
+}
+
+// matchActionHash runs the size, salt and hash rules in their normative
+// order. A type the grammar refuses cannot hash to anything committed, so
+// it is a mismatch.
+func matchActionHash(actionType string, salt, action, committed []byte) error {
+	if len(action) < 1 || len(action) > MaxActionSize {
+		return fmt.Errorf("%w: %d bytes", ErrActionSize, len(action))
+	}
+	if err := CheckActionSalt(salt); err != nil {
+		return err
+	}
+	h, err := ActionHash(actionType, salt, action)
 	if err != nil {
-		if len(action) < 1 || len(action) > MaxActionSize {
-			return err
-		}
 		return fmt.Errorf("%w: %v", ErrActionMismatch, err)
 	}
-	if subtle.ConstantTimeCompare(h[:], c.Action.Hash) != 1 {
+	if subtle.ConstantTimeCompare(h[:], committed) != 1 {
 		return ErrActionMismatch
 	}
 	return nil

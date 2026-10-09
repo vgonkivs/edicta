@@ -13,19 +13,12 @@ func ValidateStatic(c *Commitment, p Params) error {
 	}
 	ref := &c.PayloadRef
 
-	switch c.Version {
-	case VersionV0:
-		// A struct built in memory can carry the v1 keys; the v0 schema has
-		// no place for them.
-		if c.MandateRef != nil || ref.Anchor != 0 || ref.anchorZero {
-			return fmt.Errorf("%w: v1 key in a v0 commitment", ErrUnknownKey)
-		}
-	case VersionV1:
-		if c.MandateRef != nil && len(c.MandateRef) != 32 {
-			return fmt.Errorf("%w: mandate_ref length %d", ErrFieldSize, len(c.MandateRef))
-		}
-	default:
+	if c.Version != Version {
 		return fmt.Errorf("%w: %d", ErrUnsupportedVersion, c.Version)
+	}
+	// A struct built in memory has not been through the decoder's size rule.
+	if c.MandateRef != nil && len(c.MandateRef) != 32 {
+		return fmt.Errorf("%w: mandate_ref length %d", ErrFieldSize, len(c.MandateRef))
 	}
 
 	for _, u := range []struct {

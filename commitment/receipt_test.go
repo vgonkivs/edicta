@@ -84,7 +84,7 @@ func TestReceiptValidVectors(t *testing.T) {
 			require.Equal(t, hex.EncodeToString(wantMsg), hex.EncodeToString(msg))
 			require.Len(t, msg, 54)
 			require.EqualValues(t, 21, msg[0])
-			require.EqualValues(t, "edicta/v0/receipt-sig", string(msg[1:22]))
+			require.EqualValues(t, "edicta/v1/receipt-sig", string(msg[1:22]))
 			sig := ed25519.Sign(gate1, msg)
 			require.Equal(t, hex.EncodeToString(wantSig), hex.EncodeToString(sig))
 			signed, err := commitment.EncodeSignedReceipt(&commitment.SignedReceipt{Receipt: *r, Signature: wantSig})

@@ -18,53 +18,23 @@ func tagged(tag string, parts ...[]byte) []byte {
 	return out
 }
 
-// HashCanonical hashes canonical v0 commitment bytes under the v0 tag.
+// HashCanonical hashes canonical commitment bytes under the commitment tag.
 func HashCanonical(canon []byte) Hash {
 	return sha256.Sum256(tagged(TagCommitment, canon))
 }
 
-// HashCanonicalFor hashes canonical commitment bytes under the tag of the
-// version they carry. Every version other than 1 uses the v0 tag, as the
-// decoder sends every such commitment down the v0 path.
-func HashCanonicalFor(version uint64, canon []byte) Hash {
-	if version == VersionV1 {
-		return sha256.Sum256(tagged(TagCommitmentV1, canon))
-	}
-	return HashCanonical(canon)
-}
-
-// CanonicalVersion is the version that canonical commitment bytes select:
-// 1 when key 1 is the uint 1, else 0. It reads only well-formed bytes and
-// reports 0 for anything else.
-func CanonicalVersion(canon []byte) uint64 {
-	root, err := scanTop(canon, 2)
-	if err != nil || root.major != majMap {
-		return VersionV0
-	}
-	return schemaVersion(root)
-}
-
-// HashOf hashes c under the tag of its version.
+// HashOf hashes the canonical encoding of c.
 func HashOf(c *Commitment) (Hash, error) {
 	canon, err := Encode(c)
 	if err != nil {
 		return Hash{}, err
 	}
-	return HashCanonicalFor(c.Version, canon), nil
+	return HashCanonical(canon), nil
 }
 
-// SigningMessage is the exact 46 bytes of a v0 signature.
+// SigningMessage is the exact 46 bytes the agent signs.
 func SigningMessage(h Hash) []byte {
 	return tagged(TagSig, h[:])
-}
-
-// SignedMessage is the exact 46 bytes the agent signs for a commitment of
-// the given version.
-func SignedMessage(version uint64, h Hash) []byte {
-	if version == VersionV1 {
-		return tagged(TagSigV1, h[:])
-	}
-	return SigningMessage(h)
 }
 
 func Sign(priv ed25519.PrivateKey, c *Commitment) (*SignedCommitment, Hash, error) {
@@ -81,7 +51,7 @@ func Sign(priv ed25519.PrivateKey, c *Commitment) (*SignedCommitment, Hash, erro
 	if err != nil {
 		return nil, Hash{}, err
 	}
-	sig := ed25519.Sign(priv, SignedMessage(c.Version, h))
+	sig := ed25519.Sign(priv, SigningMessage(h))
 	return &SignedCommitment{Commitment: cloneCommitment(c), Signature: sig}, h, nil
 }
 
@@ -124,7 +94,7 @@ func Verify(s *SignedCommitment) (Hash, error) {
 	if len(s.Signature) != ed25519.SignatureSize {
 		return Hash{}, fmt.Errorf("%w: signature size", ErrSignatureInvalid)
 	}
-	if !ed25519.Verify(pub, SignedMessage(s.Commitment.Version, h), s.Signature) {
+	if !ed25519.Verify(pub, SigningMessage(h), s.Signature) {
 		return Hash{}, ErrSignatureInvalid
 	}
 	return h, nil

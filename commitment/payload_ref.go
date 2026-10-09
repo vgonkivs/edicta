@@ -39,10 +39,8 @@ func checkPayloadRef(ref PayloadRef) error {
 		return fmt.Errorf("%w: height", ErrIntRange)
 	}
 	switch {
-	// The standalone reference is the frozen v0 form of the publish answer;
-	// a pending reference has no encoding here.
-	case ref.Anchor != 0 || ref.anchorZero:
-		return fmt.Errorf("%w: payload_ref.anchor", ErrUnknownKey)
+	case ref.anchorZero || ref.Anchor != 0 && ref.Anchor != AnchorPending:
+		return fmt.Errorf("%w: payload_ref.anchor %d", ErrInvalidEnum, ref.Anchor)
 	case ref.DA == DAFibre && ref.Signer != nil:
 		return fmt.Errorf("%w: payload_ref.signer on da 1", ErrUnknownKey)
 	case ref.DA == DACelestiaBlob && len(ref.Signer) != 20:
@@ -72,6 +70,9 @@ func DecodePayloadRef(b []byte) (PayloadRef, error) {
 	ref := PayloadRef{
 		DA: DA(m[1].u), Namespace: bytes.Clone(m[2].b), Commitment: bytes.Clone(m[3].b),
 		Height: m[4].u, Signer: optBytes(m[5]),
+	}
+	if a := m[6]; a != nil {
+		ref.Anchor, ref.anchorZero = a.u, a.u == 0
 	}
 	enc, err := EncodePayloadRef(ref)
 	if err != nil {

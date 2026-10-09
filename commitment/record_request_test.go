@@ -71,7 +71,7 @@ func TestRecordRequestValidVectors(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, c.RecordMessageHex, hex.EncodeToString(msg))
 			require.EqualValues(t, 0x18, msg[0])
-			require.Equal(t, "edicta/v0/record-request", string(msg[1:25]))
+			require.Equal(t, "edicta/v1/record-request", string(msg[1:25]))
 			require.Equal(t, 25+32+1+len(f.Gate.GateID)+1+len(c.RailRef), len(msg))
 
 			priv := executorKey(t, c.Signer)

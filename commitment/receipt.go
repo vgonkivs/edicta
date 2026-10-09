@@ -168,7 +168,7 @@ func VerifyReceipt(b []byte) (*SignedReceipt, Hash, error) {
 		return nil, Hash{}, err
 	}
 	r := &s.Receipt
-	if r.Version != 0 {
+	if r.Version != Version {
 		return nil, Hash{}, fmt.Errorf("%w: %d", ErrUnsupportedVersion, r.Version)
 	}
 	for _, u := range []struct {

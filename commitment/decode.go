@@ -5,13 +5,8 @@ import (
 	"fmt"
 )
 
-// Decode parses and strictly validates bare commitment bytes of either
-// version: key 1 selects the schema.
+// Decode parses and strictly validates bare commitment bytes.
 func Decode(b []byte) (*Commitment, error) {
-	return decode(b, true)
-}
-
-func decode(b []byte, v1 bool) (*Commitment, error) {
 	if len(b) > MaxCommitmentSize {
 		return nil, fmt.Errorf("%w: commitment of %d bytes", ErrTooLarge, len(b))
 	}
@@ -22,7 +17,7 @@ func decode(b []byte, v1 bool) (*Commitment, error) {
 	if root.major != majMap {
 		return nil, fmt.Errorf("%w: commitment is not a map", ErrWrongType)
 	}
-	c, err := buildCommitment(root, v1)
+	c, err := buildCommitment(root)
 	if err != nil {
 		return nil, err
 	}
@@ -32,13 +27,8 @@ func decode(b []byte, v1 bool) (*Commitment, error) {
 	return c, nil
 }
 
-// DecodeSigned parses and strictly validates an envelope of either version:
-// the commitment's key 1 selects the schema after the well-formedness pass.
+// DecodeSigned parses and strictly validates an envelope.
 func DecodeSigned(b []byte) (*SignedCommitment, error) {
-	return decodeSigned(b, true)
-}
-
-func decodeSigned(b []byte, v1 bool) (*SignedCommitment, error) {
 	if len(b) > MaxSignedSize {
 		return nil, fmt.Errorf("%w: envelope of %d bytes", ErrTooLarge, len(b))
 	}
@@ -63,7 +53,7 @@ func decodeSigned(b []byte, v1 bool) (*SignedCommitment, error) {
 			}
 			cn = e.val
 			var err error
-			if c, err = buildCommitment(cn, v1); err != nil {
+			if c, err = buildCommitment(cn); err != nil {
 				return nil, err
 			}
 		case 2:
@@ -87,9 +77,6 @@ func decodeSigned(b []byte, v1 bool) (*SignedCommitment, error) {
 	if err := requireCanonical(c, b[cn.start:cn.end]); err != nil {
 		return nil, err
 	}
-	if c.PayloadRef.anchorZero {
-		return s, nil
-	}
 	enc, err := EncodeSigned(s)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrNonCanonical, err)
@@ -101,13 +88,7 @@ func decodeSigned(b []byte, v1 bool) (*SignedCommitment, error) {
 }
 
 // requireCanonical rejects input that does not re-encode to the same bytes, guarding against encoder or decoder bugs.
-//
-// A present anchor of 0 cannot re-encode, so the comparison is left out for
-// it; static validation refuses such a commitment whatever else it holds.
 func requireCanonical(c *Commitment, raw []byte) error {
-	if c.PayloadRef.anchorZero {
-		return nil
-	}
 	enc, err := Encode(c)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrNonCanonical, err)
@@ -119,14 +100,9 @@ func requireCanonical(c *Commitment, raw []byte) error {
 }
 
 // buildCommitment runs the pass-2 schema check on a commitment map and
-// copies the values into the typed struct. With v1 false it is the frozen v0
-// reader, which applies the v0 schema whatever the version says.
-func buildCommitment(root *node, v1 bool) (*Commitment, error) {
-	schema := commitmentSchema
-	if v1 && schemaVersion(root) == VersionV1 {
-		schema = commitmentSchemaV1
-	}
-	if err := checkMap(root, schema, "commitment"); err != nil {
+// copies the values into the typed struct.
+func buildCommitment(root *node) (*Commitment, error) {
+	if err := checkMap(root, commitmentSchema, "commitment"); err != nil {
 		return nil, err
 	}
 	m := byKey(root)

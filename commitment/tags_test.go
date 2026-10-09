@@ -27,12 +27,12 @@ func TestTagConstants(t *testing.T) {
 	for name, v := range tags {
 		assert.GreaterOrEqualf(t, len(v), 1, "%s has %d bytes", name, len(v))
 		assert.LessOrEqualf(t, len(v), 255, "%s has %d bytes", name, len(v))
-		assert.Truef(t, strings.HasPrefix(v, "edicta/v0/"), "%s = %q", name, v)
+		assert.Truef(t, strings.HasPrefix(v, "edicta/v1/"), "%s = %q", name, v)
 		other, dup := seen[v]
 		assert.Falsef(t, dup, "%s and %s are equal", name, other)
 		seen[v] = name
 	}
-	require.Equalf(t, "edicta/v0/receipt-sig", commitment.TagReceiptSig, "TagReceiptSig = %q", commitment.TagReceiptSig)
+	require.Equalf(t, "edicta/v1/receipt-sig", commitment.TagReceiptSig, "TagReceiptSig = %q", commitment.TagReceiptSig)
 }
 
 // Signed messages of the three signing roles differ in length and in tag, so
@@ -46,7 +46,7 @@ func TestSignedMessageLengths(t *testing.T) {
 	assert.Len(t, receipt, 54)
 	assert.Len(t, auth, 60)
 	assert.EqualValues(t, 0x1b, auth[0])
-	assert.Equal(t, "edicta/v0/authorization-sig", string(auth[1:28]))
+	assert.Equal(t, "edicta/v1/authorization-sig", string(auth[1:28]))
 }
 
 func TestCheckPublicKeyExported(t *testing.T) {

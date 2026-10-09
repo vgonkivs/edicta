@@ -17,12 +17,16 @@ import (
 
 const ibkrType = "application/vnd.edicta.ibkr.order.v0+cbor"
 
+// testSalt is a fixed 32-byte action salt for tests that need any salt.
+var testSalt = bytes.Repeat([]byte{0x5a}, commitment.ActionSaltSize)
+
 // preimage rebuilds the action hash input from the layout alone.
-func preimage(actionType string, action []byte) []byte {
+func preimage(actionType string, salt, action []byte) []byte {
 	out := []byte{byte(len(commitment.TagAction))}
 	out = append(out, commitment.TagAction...)
 	out = append(out, byte(len(actionType)))
 	out = append(out, actionType...)
+	out = append(out, salt...)
 	return append(out, action...)
 }
 
@@ -40,9 +44,9 @@ func TestActionHashLayout(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := commitment.ActionHash(tt.typ, tt.action)
+			got, err := commitment.ActionHash(tt.typ, testSalt, tt.action)
 			require.NoError(t, err)
-			want := sha256.Sum256(preimage(tt.typ, tt.action))
+			want := sha256.Sum256(preimage(tt.typ, testSalt, tt.action))
 			assert.Equal(t, hex.EncodeToString(want[:]), hex.EncodeToString(got[:]))
 		})
 	}
@@ -50,45 +54,57 @@ func TestActionHashLayout(t *testing.T) {
 
 func TestActionHashSeparatesTypeAndBytes(t *testing.T) {
 	action := []byte{1, 2, 3, 4}
-	base, err := commitment.ActionHash("application/json", action)
+	base, err := commitment.ActionHash("application/json", testSalt, action)
 	require.NoError(t, err)
 
 	t.Run("other type same bytes", func(t *testing.T) {
-		h, err := commitment.ActionHash("application/octet-stream", action)
+		h, err := commitment.ActionHash("application/octet-stream", testSalt, action)
 		require.NoError(t, err)
 		assert.NotEqual(t, base, h)
 	})
 	t.Run("type suffix moved into the bytes", func(t *testing.T) {
-		h1, err := commitment.ActionHash("a/bc", []byte("d"))
+		h1, err := commitment.ActionHash("a/bc", testSalt, []byte("d"))
 		require.NoError(t, err)
-		h2, err := commitment.ActionHash("a/b", []byte("cd"))
+		h2, err := commitment.ActionHash("a/b", testSalt, []byte("cd"))
 		require.NoError(t, err)
 		assert.NotEqual(t, h1, h2, "type and bytes do not split one way only")
 	})
 	t.Run("one flipped bit", func(t *testing.T) {
 		b := bytes.Clone(action)
 		b[2] ^= 1
-		h, err := commitment.ActionHash("application/json", b)
+		h, err := commitment.ActionHash("application/json", testSalt, b)
 		require.NoError(t, err)
 		assert.NotEqual(t, base, h)
 	})
 	t.Run("trailing zero byte", func(t *testing.T) {
-		h, err := commitment.ActionHash("application/json", append(bytes.Clone(action), 0))
+		h, err := commitment.ActionHash("application/json", testSalt, append(bytes.Clone(action), 0))
 		require.NoError(t, err)
 		assert.NotEqual(t, base, h)
+	})
+	t.Run("other salt", func(t *testing.T) {
+		other := bytes.Clone(testSalt)
+		other[31] ^= 1
+		h, err := commitment.ActionHash("application/json", other, action)
+		require.NoError(t, err)
+		assert.NotEqual(t, base, h)
+	})
+	t.Run("salt bytes moved into the action", func(t *testing.T) {
+		h, err := commitment.ActionHash("application/json", testSalt[:31], append([]byte{testSalt[31]}, action...))
+		require.Error(t, err, "the salt has one width, so the split is unique")
+		assert.Equal(t, commitment.Hash{}, h)
 	})
 	t.Run("bare sha256 is not the action hash", func(t *testing.T) {
 		bare := sha256.Sum256(action)
 		assert.NotEqual(t, base, commitment.Hash(bare))
 	})
 	t.Run("deterministic", func(t *testing.T) {
-		again, err := commitment.ActionHash("application/json", action)
+		again, err := commitment.ActionHash("application/json", testSalt, action)
 		require.NoError(t, err)
 		assert.Equal(t, base, again)
 	})
 	t.Run("does not modify its input", func(t *testing.T) {
 		in := bytes.Clone(action)
-		_, err := commitment.ActionHash("application/json", in)
+		_, err := commitment.ActionHash("application/json", testSalt, in)
 		require.NoError(t, err)
 		assert.Equal(t, action, in)
 	})
@@ -112,14 +128,30 @@ func TestActionHashRejects(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h, err := commitment.ActionHash(tt.typ, tt.action)
+			h, err := commitment.ActionHash(tt.typ, testSalt, tt.action)
 			assertSentinel(t, err, tt.want)
 			assert.Equal(t, commitment.Hash{}, h, "hash returned with an error")
 		})
 	}
+	for _, tt := range []struct {
+		name string
+		salt []byte
+		want string
+	}{
+		{"nil salt", nil, "ErrMissingField"},
+		{"empty salt", []byte{}, "ErrMissingField"},
+		{"31-byte salt", make([]byte, 31), "ErrFieldSize"},
+		{"33-byte salt", make([]byte, 33), "ErrFieldSize"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h, err := commitment.ActionHash("application/json", tt.salt, []byte{1})
+			assertSentinel(t, err, tt.want)
+			assert.Equal(t, commitment.Hash{}, h)
+		})
+	}
 	t.Run("type longer than 128 bytes", func(t *testing.T) {
 		typ := "application/" + strings.Repeat("a", 129-len("application/"))
-		_, err := commitment.ActionHash(typ, []byte{1})
+		_, err := commitment.ActionHash(typ, testSalt, []byte{1})
 		require.Error(t, err)
 		assert.True(t, matchesAnySentinel(err), "no sentinel: %v", err)
 	})

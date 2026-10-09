@@ -21,7 +21,7 @@ func TestNilCommitment(t *testing.T) {
 		{"ValidateStatic", func() error { return commitment.ValidateStatic(nil, p) }, nil},
 		{"CheckTime", func() error { return commitment.CheckTime(nil, edgeNow, p) }, commitment.ErrExpired},
 		{"CheckScope", func() error { return commitment.CheckScope(nil, commitment.GateScope{}) }, commitment.ErrScopeMismatch},
-		{"CheckAction", func() error { return commitment.CheckAction(nil, []byte{1}) }, commitment.ErrActionMismatch},
+		{"CheckAction", func() error { return commitment.CheckAction(nil, []byte{1}, testSalt) }, commitment.ErrActionMismatch},
 		{"CheckPayload", func() error { return commitment.CheckPayload(nil, []byte("x")) }, commitment.ErrPayloadSizeMismatch},
 	}
 	for _, r := range rows {

@@ -26,6 +26,9 @@ func TestValidVectors(t *testing.T) {
 				params = toParams(t, *vc.Params)
 			}
 			gate := toGate(t, vf.Gate)
+			if vc.Gate != nil {
+				gate = toGate(t, *vc.Gate)
+			}
 			now := u64(t, vc.Now)
 			wantCanon := mustHex(t, vc.CommitmentCBORHex)
 			wantHash := mustHex(t, vc.CommitmentHashHex)
@@ -84,8 +87,8 @@ func TestValidVectors(t *testing.T) {
 			})
 
 			t.Run("action hash", func(t *testing.T) {
-				action := actionBytes(t, vc.actionSpec)
-				h, err := commitment.ActionHash(vc.ActionType, action)
+				action, salt := actionBytes(t, vc.actionSpec), actionSalt(t, vc.actionSpec)
+				h, err := commitment.ActionHash(vc.ActionType, salt, action)
 				require.NoError(t, err, "ActionHash")
 				require.Equal(t, vc.ActionHashHex, hex.EncodeToString(h[:]))
 				require.Equal(t, vc.ActionType, c.Action.Type)
@@ -96,6 +99,7 @@ func TestValidVectors(t *testing.T) {
 				require.Equal(t, vc.ActionType, string(prefix[len(commitment.TagAction)+2:]), "preimage prefix type")
 				sum := sha256.New()
 				sum.Write(prefix)
+				sum.Write(salt)
 				sum.Write(action)
 				require.Equal(t, vc.ActionHashHex, hex.EncodeToString(sum.Sum(nil)), "independent action hash")
 			})
@@ -105,8 +109,9 @@ func TestValidVectors(t *testing.T) {
 				require.NoError(t, err, "VerifyForGate")
 				require.Equal(t, hex.EncodeToString(wantHash), hex.EncodeToString(h[:]), "VerifyForGate result differs from vector")
 				require.Equal(t, c, &s.Commitment, "VerifyForGate result differs from vector")
-				err = commitment.CheckAction(&s.Commitment, actionBytes(t, vc.actionSpec))
+				err = commitment.CheckAction(&s.Commitment, actionBytes(t, vc.actionSpec), actionSalt(t, vc.actionSpec))
 				require.NoError(t, err, "CheckAction")
+				require.Equal(t, vc.Pending, s.Commitment.PayloadRef.Pending())
 			})
 		})
 	}
@@ -122,6 +127,8 @@ func TestValidVectorsPinRequiredCases(t *testing.T) {
 		"minimal_lmt", "ttl_exactly_max", "fibre_small_payload", "blob_large_payload",
 		"issued_at_within_skew", "int_head_widths", "max_int_values", "ttl_max_at_601s_retention",
 		"action_type_128_chars", "action_one_byte", "action_max_size", "action_json_bytes",
+		"v1_minimal_included_fibre", "v1_minimal_included_blob", "v1_pending_fibre", "v1_pending_blob",
+		"v1_mandate_ref", "v1_maximal",
 	} {
 		assert.Truef(t, have[id], "valid vector %q missing", id)
 	}

@@ -103,8 +103,9 @@ func TestCheckScope(t *testing.T) {
 func TestCheckAction(t *testing.T) {
 	c, _, _ := baseCommitment(t)
 	vf := loadValid(t)
-	action := actionBytes(t, validCaseByID(t, vf, "minimal_lmt").actionSpec)
-	require.NoError(t, commitment.CheckAction(c, action), "control")
+	vc := validCaseByID(t, vf, "minimal_lmt")
+	action, salt := actionBytes(t, vc.actionSpec), actionSalt(t, vc.actionSpec)
+	require.NoError(t, commitment.CheckAction(c, action, salt), "control")
 
 	tests := []struct {
 		name   string
@@ -125,7 +126,7 @@ func TestCheckAction(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := commitment.CheckAction(c, tt.action())
+			err := commitment.CheckAction(c, tt.action(), salt)
 			if tt.want == "" {
 				require.NoError(t, err, "unexpected error")
 				return
@@ -134,22 +135,41 @@ func TestCheckAction(t *testing.T) {
 		})
 	}
 
+	for _, st := range []struct {
+		name string
+		salt []byte
+		want string
+	}{
+		{"salt missing", nil, "ErrMissingField"},
+		{"salt empty", []byte{}, "ErrMissingField"},
+		{"salt 31 bytes", salt[:31], "ErrFieldSize"},
+		{"salt 33 bytes", append(bytes.Clone(salt), 0), "ErrFieldSize"},
+		{"salt flipped", func() []byte { b := bytes.Clone(salt); b[0] ^= 1; return b }(), "ErrActionMismatch"},
+		{"salt of another vector", actionSalt(t, validCaseByID(t, vf, "fibre_small_payload").actionSpec), "ErrActionMismatch"},
+	} {
+		t.Run(st.name, func(t *testing.T) {
+			assertSentinel(t, commitment.CheckAction(c, action, st.salt), st.want)
+		})
+	}
+	t.Run("size before salt", func(t *testing.T) {
+		assertSentinel(t, commitment.CheckAction(c, nil, nil), "ErrActionSize")
+	})
 	t.Run("committed type decides the preimage", func(t *testing.T) {
 		d := *c
 		d.Action.Type = "application/json"
-		assertSentinel(t, commitment.CheckAction(&d, action), "ErrActionMismatch")
+		assertSentinel(t, commitment.CheckAction(&d, action, salt), "ErrActionMismatch")
 	})
 	t.Run("committed hash decides the match", func(t *testing.T) {
 		d := *c
 		d.Action.Hash = bytes.Clone(c.Action.Hash)
 		d.Action.Hash[31] ^= 1
-		assertSentinel(t, commitment.CheckAction(&d, action), "ErrActionMismatch")
+		assertSentinel(t, commitment.CheckAction(&d, action, salt), "ErrActionMismatch")
 	})
 	t.Run("sha256 of the bytes alone is not the action hash", func(t *testing.T) {
 		sum := sha256.Sum256(action)
 		d := *c
 		d.Action.Hash = sum[:]
-		assertSentinel(t, commitment.CheckAction(&d, action), "ErrActionMismatch")
+		assertSentinel(t, commitment.CheckAction(&d, action, salt), "ErrActionMismatch")
 	})
 }
 

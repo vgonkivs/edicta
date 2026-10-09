@@ -1,4 +1,4 @@
-// Package commitment implements DecisionCommitment v0 and v1: the canonical
+// Package commitment implements DecisionCommitment v1: the canonical
 // wire format, strict decoder, hashing, signing and the stateless checks of
 // the gate.
 //
@@ -7,25 +7,23 @@
 package commitment
 
 const (
-	TagCommitment = "edicta/v0/decision-commitment"
-	TagSig        = "edicta/v0/sig"
-	TagReceipt    = "edicta/v0/receipt"
-	TagReceiptSig = "edicta/v0/receipt-sig"
-
-	TagAction           = "edicta/v0/action"
-	TagAuthorization    = "edicta/v0/authorization"
-	TagAuthorizationSig = "edicta/v0/authorization-sig"
-	TagRecordRequest    = "edicta/v0/record-request"
-
-	TagCommitmentV1       = "edicta/v1/decision-commitment"
-	TagSigV1              = "edicta/v1/sig"
-	TagAuthorizationV1    = "edicta/v1/authorization"
-	TagAuthorizationSigV1 = "edicta/v1/authorization-sig"
+	TagCommitment       = "edicta/v1/decision-commitment"
+	TagSig              = "edicta/v1/sig"
+	TagAction           = "edicta/v1/action"
+	TagAuthorization    = "edicta/v1/authorization"
+	TagAuthorizationSig = "edicta/v1/authorization-sig"
+	TagReceipt          = "edicta/v1/receipt"
+	TagReceiptSig       = "edicta/v1/receipt-sig"
+	TagRecordRequest    = "edicta/v1/record-request"
 	// TagBatchLeaf is reserved for a batch leaf hash and used by nothing yet.
 	TagBatchLeaf = "edicta/v1/batch-leaf"
 
-	VersionV0 = 0
-	VersionV1 = 1
+	// Version is the only wire version of the commitment, the Authorization
+	// and the receipt.
+	Version = 1
+
+	// ActionSaltSize is the length of the agent's action salt.
+	ActionSaltSize = 32
 
 	MaxSignedSize     = 2176
 	MaxCommitmentSize = 2048
@@ -66,7 +64,7 @@ type Commitment struct {
 	CiphertextHash []byte     `cbor:"11,keyasint"`
 	PlaintextHash  []byte     `cbor:"12,keyasint"`
 	PayloadSize    uint64     `cbor:"13,keyasint"`
-	// MandateRef is the mandate hash the agent acts under; v1 only.
+	// MandateRef is the mandate hash the agent acts under.
 	MandateRef []byte `cbor:"14,keyasint,omitempty"`
 }
 
@@ -87,12 +85,36 @@ type PayloadRef struct {
 	Commitment []byte `cbor:"3,keyasint"`
 	Height     uint64 `cbor:"4,keyasint"`
 	Signer     []byte `cbor:"5,keyasint,omitempty"`
-	// Anchor is 0 (key absent) or AnchorPending; v1 only.
+	// Anchor is 0 (key absent) or AnchorPending.
 	Anchor uint64 `cbor:"6,keyasint,omitempty"`
 
 	// anchorZero records a decoded anchor key holding 0, which the struct
-	// cannot otherwise tell from an absent key; static validation refuses it.
+	// cannot otherwise tell from an absent key. It re-encodes as present, so
+	// the decoder's canonical check holds, and static validation refuses it.
 	anchorZero bool
+}
+
+type payloadRefWire struct {
+	DA         DA      `cbor:"1,keyasint"`
+	Namespace  []byte  `cbor:"2,keyasint"`
+	Commitment []byte  `cbor:"3,keyasint"`
+	Height     uint64  `cbor:"4,keyasint"`
+	Signer     []byte  `cbor:"5,keyasint,omitempty"`
+	Anchor     *uint64 `cbor:"6,keyasint,omitempty"`
+}
+
+// MarshalCBOR writes the anchor key when it holds a value or was decoded as
+// a present zero.
+func (r PayloadRef) MarshalCBOR() ([]byte, error) {
+	if encModeErr != nil {
+		return nil, encModeErr
+	}
+	w := payloadRefWire{DA: r.DA, Namespace: r.Namespace, Commitment: r.Commitment, Height: r.Height, Signer: r.Signer}
+	if r.Anchor != 0 || r.anchorZero {
+		a := r.Anchor
+		w.Anchor = &a
+	}
+	return encMode.Marshal(w)
 }
 
 // Pending reports whether the reference is pending: its height is the

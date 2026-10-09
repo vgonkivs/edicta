@@ -346,7 +346,7 @@ func TestEdgeImplNotesAmbiguities(t *testing.T) {
 		require.Error(t, err, "accepted nil key")
 	})
 	t.Run("nil commitment in CheckAction", func(t *testing.T) {
-		assertSentinel(t, commitment.CheckAction(nil, []byte{1}), "ErrActionMismatch")
+		assertSentinel(t, commitment.CheckAction(nil, []byte{1}, testSalt), "ErrActionMismatch")
 	})
 	t.Run("nil envelope", func(t *testing.T) {
 		assertSentinel(t, verifyErr(nil), "ErrSignatureInvalid")

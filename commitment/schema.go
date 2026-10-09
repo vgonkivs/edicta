@@ -1,9 +1,6 @@
 package commitment
 
-import (
-	"fmt"
-	"slices"
-)
+import "fmt"
 
 type fieldKind int
 
@@ -52,6 +49,7 @@ var (
 		{key: 3, name: "commitment", kind: kBytes, min: 32, max: 32, required: true},
 		{key: 4, name: "height", kind: kUint, required: true},
 		{key: 5, name: "signer", kind: kBytes, min: 20, max: 20, onlyIf: notFibre, requiredIf: isBlob},
+		{key: 6, name: "anchor", kind: kUint},
 	}
 	commitmentSchema = []field{
 		{key: 1, name: "version", kind: kUint, required: true},
@@ -66,38 +64,9 @@ var (
 		{key: 11, name: "ciphertext_hash", kind: kBytes, min: 32, max: 32, required: true},
 		{key: 12, name: "plaintext_hash", kind: kBytes, min: 32, max: 32, required: true},
 		{key: 13, name: "payload_size", kind: kUint, required: true},
+		{key: 14, name: "mandate_ref", kind: kBytes, min: 32, max: 32},
 	}
-
-	// The v1 schemas add only keys; da = 3, payload_ref keys 7 and 8 and
-	// commitment key 15 stay reserved and are refused like any unknown key.
-	payloadRefSchemaV1 = append(slices.Clone(payloadRefSchema),
-		field{key: 6, name: "anchor", kind: kUint})
-	commitmentSchemaV1 = append(withSub(commitmentSchema, 10, payloadRefSchemaV1),
-		field{key: 14, name: "mandate_ref", kind: kBytes, min: 32, max: 32})
 )
-
-// withSub returns a copy of schema whose map field key has sub as its schema.
-func withSub(schema []field, key uint64, sub []field) []field {
-	out := slices.Clone(schema)
-	for i := range out {
-		if out[i].key == key {
-			out[i].sub = sub
-		}
-	}
-	return out
-}
-
-// schemaVersion is the version a map's key 1 selects: 1 only for the uint 1,
-// otherwise 0, so every other value takes the frozen v0 path and gets its v0
-// outcome.
-func schemaVersion(n *node) uint64 {
-	for _, e := range n.entries {
-		if e.key == 1 && e.val.major == majUint && e.val.u == VersionV1 {
-			return VersionV1
-		}
-	}
-	return VersionV0
-}
 
 // da is key 1 and is visited before key 5, so seen already holds it. Other da
 // values are rejected later by static validation.

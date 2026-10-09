@@ -17,7 +17,9 @@ import (
 	"github.com/vgonkivs/edicta/commitment"
 )
 
-const vectorDir = "../spec/vectors/v0"
+const vectorDir = "../spec/vectors/v1"
+
+const keysFilePath = "../spec/vectors/keys.json"
 
 var sentinels = map[string]error{
 	"ErrTooLarge":             commitment.ErrTooLarge,
@@ -135,6 +137,7 @@ type actionSpec struct {
 	ActionPattern   string `json:"action_pattern"`
 	ActionSize      string `json:"action_size"`
 	ActionSHA256Hex string `json:"action_sha256_hex"`
+	ActionSaltHex   string `json:"action_salt_hex"`
 }
 
 type jsonParams struct {
@@ -158,10 +161,12 @@ type jsonInput struct {
 		Commitment string `json:"commitment"`
 		Height     string `json:"height"`
 		Signer     string `json:"signer"`
+		Anchor     string `json:"anchor"`
 	} `json:"payload_ref"`
 	CiphertextHash string `json:"ciphertext_hash"`
 	PlaintextHash  string `json:"plaintext_hash"`
 	PayloadSize    string `json:"payload_size"`
+	MandateRef     string `json:"mandate_ref"`
 }
 
 type validCase struct {
@@ -175,6 +180,8 @@ type validCase struct {
 	EnvelopeHex       string      `json:"envelope_hex"`
 	Now               string      `json:"now"`
 	Params            *jsonParams `json:"params"`
+	Pending           bool        `json:"pending"`
+	Gate              *jsonGate   `json:"gate"`
 	ActionType        string      `json:"action_type"`
 	ActionHashHex     string      `json:"action_hash_hex"`
 	PrefixHex         string      `json:"action_preimage_prefix_hex"`
@@ -265,7 +272,7 @@ func actionBytes(t testing.TB, a actionSpec) []byte {
 }
 
 func toCommitment(t testing.TB, in jsonInput) *commitment.Commitment {
-	return &commitment.Commitment{
+	c := &commitment.Commitment{
 		Version:     u64(t, in.Version),
 		AgentID:     in.AgentID,
 		AgentPubKey: mustHex(t, in.AgentPubKey),
@@ -284,13 +291,25 @@ func toCommitment(t testing.TB, in jsonInput) *commitment.Commitment {
 		CiphertextHash: mustHex(t, in.CiphertextHash),
 		PlaintextHash:  mustHex(t, in.PlaintextHash),
 		PayloadSize:    u64(t, in.PayloadSize),
+		MandateRef:     optHex(t, in.MandateRef),
 	}
+	if in.PayloadRef.Anchor != "" {
+		c.PayloadRef.Anchor = u64(t, in.PayloadRef.Anchor)
+	}
+	return c
+}
+
+// actionSalt returns the salt of a vector, nil when it carries none.
+func actionSalt(t testing.TB, a actionSpec) []byte {
+	return optHex(t, a.ActionSaltHex)
 }
 
 func loadKey(t testing.TB, name string) ed25519.PrivateKey {
 	t.Helper()
 	var kf keysFile
-	loadJSON(t, "keys.json", &kf)
+	b, err := os.ReadFile(keysFilePath)
+	require.NoError(t, err, "read keys file")
+	require.NoError(t, json.Unmarshal(b, &kf), "parse keys file")
 	k, ok := kf.Keys[name]
 	require.Truef(t, ok, "no key %q", name)
 	priv := ed25519.NewKeyFromSeed(mustHex(t, k.SeedHex))

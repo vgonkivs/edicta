@@ -41,6 +41,8 @@ func TestPayloadVectors(t *testing.T) {
 				require.Equal(t, string(want), string(h[:]))
 				require.Equal(t, string(want), string(minimal.PlaintextHash), "minimal_lmt does not commit to this plaintext hash")
 			})
+		case "payload_v1_minimal":
+			// A payload plaintext: the sdk/payload tests open it.
 		default:
 			assert.Fail(t, fmt.Sprintf("unexpected payload case %q", pc.ID))
 		}

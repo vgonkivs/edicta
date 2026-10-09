@@ -19,7 +19,7 @@ func TestSignedBeforeAnchorVectors(t *testing.T) {
 		K1 []struct {
 			ID          string `json:"id"`
 			IssuedAt    string `json:"issued_at"`
-			BlockTime   string `json:"block_time"`
+			BlockTime   string `json:"t_ref"`
 			SkewS       string `json:"skew_s"`
 			ExpectError string `json:"expect_error"`
 		} `json:"k1"`
@@ -74,7 +74,7 @@ func TestRetentionWindowVectors(t *testing.T) {
 				Start  *string `json:"start"`
 				Margin *string `json:"margin"`
 			} `json:"expect"`
-		} `json:"k2"`
+		} `json:"k2_included"`
 	}
 	loadJSON(t, "anchor.json", &af)
 	checked := 0

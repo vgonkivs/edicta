@@ -19,6 +19,8 @@ type authorizationInput struct {
 	GateID         string `json:"gate_id"`
 	Expires        string `json:"expires"`
 	Path           string `json:"path"`
+	Mode           string `json:"mode"`
+	AnchorDeadline string `json:"anchor_deadline"`
 }
 
 type authorizationCheck struct {
@@ -55,7 +57,7 @@ type authorizationFile struct {
 }
 
 func toAuthorization(t testing.TB, in authorizationInput) *commitment.Authorization {
-	return &commitment.Authorization{
+	a := &commitment.Authorization{
 		Version:        u64(t, in.Version),
 		CommitmentHash: mustHex(t, in.CommitmentHash),
 		ActionHash:     mustHex(t, in.ActionHash),
@@ -63,6 +65,13 @@ func toAuthorization(t testing.TB, in authorizationInput) *commitment.Authorizat
 		Expires:        u64(t, in.Expires),
 		Path:           commitment.PayloadPath(u64(t, in.Path)),
 	}
+	if in.Mode != "" {
+		a.Mode = u64(t, in.Mode)
+	}
+	if in.AnchorDeadline != "" {
+		a.AnchorDeadline = u64(t, in.AnchorDeadline)
+	}
+	return a
 }
 
 func toAuthorizationCheck(t testing.TB, c authorizationCheck) commitment.AuthorizationCheck {
@@ -71,6 +80,7 @@ func toAuthorizationCheck(t testing.TB, c authorizationCheck) commitment.Authori
 		GateID:     c.GateID,
 		ActionType: c.ActionType,
 		Action:     actionBytes(t, c.actionSpec),
+		ActionSalt: actionSalt(t, c.actionSpec),
 		Now:        u64(t, c.Now),
 		SkewS:      u64(t, c.SkewS),
 	}
@@ -124,6 +134,9 @@ func TestAuthorizationValidVectors(t *testing.T) {
 			})
 
 			t.Run("verify", func(t *testing.T) {
+				if ac.Check.GateID == "" {
+					t.Skip("encoding and signature only")
+				}
 				sa, h, err := commitment.VerifyAuthorization(wantSigned, toAuthorizationCheck(t, ac.Check))
 				require.NoError(t, err)
 				require.Equal(t, a, &sa.Authorization)
@@ -131,6 +144,9 @@ func TestAuthorizationValidVectors(t *testing.T) {
 			})
 
 			t.Run("agrees with its commitment", func(t *testing.T) {
+				if ac.CommitmentRef == "" {
+					t.Skip("stand-in hashes")
+				}
 				vc := validCaseByID(t, vf, ac.CommitmentRef)
 				c := toCommitment(t, vc.Input)
 				assert.Equal(t, vc.CommitmentHashHex, ac.Input.CommitmentHash, "commitment_hash")
@@ -140,6 +156,11 @@ func TestAuthorizationValidVectors(t *testing.T) {
 				assert.Equal(t, want, a.Expires, "expires = min(valid_until, authorized_at + ttl)")
 				assert.LessOrEqual(t, a.Expires, c.ValidUntil, "expires never outlives the decision")
 				assert.Equal(t, vc.ActionType, ac.Check.ActionType)
+				wantMode := uint64(commitment.ModeStrict)
+				if vc.Pending {
+					wantMode = commitment.ModeFast
+				}
+				assert.Equal(t, wantMode, a.Mode, "mode follows the reference form")
 			})
 		})
 	}
@@ -152,13 +173,6 @@ func TestAuthorizationRejectVectors(t *testing.T) {
 	for _, rc := range af.Reject {
 		t.Run(rc.ID, func(t *testing.T) {
 			b := mustHex(t, rc.SignedAuthorizationHex)
-			// A v0-shaped Authorization with version 1 is a v0-reader vector:
-			// a v1 executor dispatches it to the v1 schema (v1 vector
-			// v0_shape_version_1).
-			if rc.ID == "authorization_version_1" {
-				assertSentinel(t, commitment.FrozenV0VerifyAuthorization(b), rc.ExpectError)
-				return
-			}
 			_, _, err := commitment.VerifyAuthorization(b, toAuthorizationCheck(t, rc.Check))
 			assertSentinel(t, err, rc.ExpectError)
 
@@ -260,6 +274,12 @@ func TestVerifyAuthorizationBindsEverythingTheExecutorKnows(t *testing.T) {
 		{"action extended", func(c *commitment.AuthorizationCheck) { c.Action = append(bytes.Clone(c.Action), 0) }, "ErrActionMismatch"},
 		{"action empty", func(c *commitment.AuthorizationCheck) { c.Action = nil }, "ErrActionSize"},
 		{"action too large", func(c *commitment.AuthorizationCheck) { c.Action = make([]byte, commitment.MaxActionSize+1) }, "ErrActionSize"},
+		{"salt missing", func(c *commitment.AuthorizationCheck) { c.ActionSalt = nil }, "ErrMissingField"},
+		{"salt 31 bytes", func(c *commitment.AuthorizationCheck) { c.ActionSalt = c.ActionSalt[:31] }, "ErrFieldSize"},
+		{"salt flipped", func(c *commitment.AuthorizationCheck) {
+			c.ActionSalt = bytes.Clone(c.ActionSalt)
+			c.ActionSalt[0] ^= 1
+		}, "ErrActionMismatch"},
 		{"expired", func(c *commitment.AuthorizationCheck) { c.Now += 1000 }, "ErrExpired"},
 	}
 	for _, tt := range tests {
@@ -285,6 +305,20 @@ func TestVerifyAuthorizationBindsEverythingTheExecutorKnows(t *testing.T) {
 		_, _, err := commitment.VerifyAuthorization(signed, c)
 		assertSentinel(t, err, "ErrScopeMismatch")
 	})
+	t.Run("action size before salt", func(t *testing.T) {
+		c := chk
+		c.Action = nil
+		c.ActionSalt = nil
+		_, _, err := commitment.VerifyAuthorization(signed, c)
+		assertSentinel(t, err, "ErrActionSize")
+	})
+	t.Run("salt before hash", func(t *testing.T) {
+		c := chk
+		c.Action = []byte{1}
+		c.ActionSalt = nil
+		_, _, err := commitment.VerifyAuthorization(signed, c)
+		assertSentinel(t, err, "ErrMissingField")
+	})
 	t.Run("action before expiry", func(t *testing.T) {
 		c := chk
 		c.Action = []byte{1}
@@ -304,7 +338,10 @@ func TestVerifyAuthorizationSignedGarbage(t *testing.T) {
 		mutate func(a *commitment.Authorization)
 		want   string
 	}{
+		{"version 0", func(a *commitment.Authorization) { a.Version = 0 }, "ErrUnsupportedVersion"},
 		{"version 2", func(a *commitment.Authorization) { a.Version = 2 }, "ErrUnsupportedVersion"},
+		{"mode zero", func(a *commitment.Authorization) { a.Mode = 0 }, "ErrInvalidEnum"},
+		{"mode three", func(a *commitment.Authorization) { a.Mode = 3 }, "ErrInvalidEnum"},
 		{"expires zero", func(a *commitment.Authorization) { a.Expires = 0 }, "ErrZeroValue"},
 		{"expires 2^63", func(a *commitment.Authorization) { a.Expires = 1 << 63 }, "ErrIntRange"},
 		{"path zero", func(a *commitment.Authorization) { a.Path = 0 }, "ErrInvalidEnum"},
@@ -431,6 +468,6 @@ func TestAuthorizationWireHasNoTypeAndNoRailReference(t *testing.T) {
 	require.NoError(t, err)
 	canon, err := commitment.EncodeAuthorization(&sa.Authorization)
 	require.NoError(t, err)
-	assert.Len(t, canon, 95, "version, two hashes, gate id, expires, path only")
+	assert.Len(t, canon, 97, "version, two hashes, gate id, expires, path, mode only")
 	assert.False(t, bytes.Contains(canon, []byte("application/")), "action type leaked into the Authorization")
 }
