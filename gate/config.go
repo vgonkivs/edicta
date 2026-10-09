@@ -134,9 +134,6 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
-// rebroadcastIntent is RebroadcastIntent with its default applied.
-func (c Config) rebroadcastIntent() bool { return c.RebroadcastIntent == nil || *c.RebroadcastIntent }
-
 // causeErr is ErrInvalidConfig with a stable cause.
 func causeErr(cause, format string, a ...any) error {
 	return fmt.Errorf("%w: %s: %s", ErrInvalidConfig, cause, fmt.Sprintf(format, a...))
