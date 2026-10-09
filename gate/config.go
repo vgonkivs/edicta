@@ -92,8 +92,8 @@ type Config struct {
 	// RebroadcastIntent re-sends a Fibre anchor intent; nil means true.
 	RebroadcastIntent *bool
 	// RevealOnExecution lists the action types whose salt is revealed once
-	// a receipt is recorded. Each must be allowlisted and registered with a
-	// public-execution profile.
+	// a receipt is recorded. Each must be allowlisted and registered with
+	// public execution in Deps.Profiles.
 	RevealOnExecution []string
 }
 
@@ -207,9 +207,6 @@ func (c Config) validateFast() error {
 	for _, t := range c.RevealOnExecution {
 		if !slices.Contains(c.Scope.ActionTypes, t) {
 			return causeErr(CauseRevealOnExecution, "%q is not an allowed action type", t)
-		}
-		if !PublicExecution(t) {
-			return causeErr(CauseRevealNotPublicExecution, "%q has no profile with public execution", t)
 		}
 	}
 	if c.MaxH0AgeBlocks+c.MinFastSlackBlocks > c.FastWindowBlocks {

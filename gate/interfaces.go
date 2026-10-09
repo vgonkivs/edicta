@@ -136,4 +136,6 @@ type Deps struct {
 	Logger     *slog.Logger // nil means slog.Default()
 	// Extractors serves the policy; required when Config.Mandate is set.
 	Extractors *policy.Extractors
+	// Profiles is the compiled profile registry; nil registers nothing.
+	Profiles ProfileRegistry
 }

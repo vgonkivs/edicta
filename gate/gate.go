@@ -119,6 +119,11 @@ func New(ctx context.Context, cfg Config, d Deps) (*Gate, error) {
 	if d.Archiver != nil && isNilDep(d.Archiver) {
 		return nil, bad("archiver is a typed nil; leave it nil to skip the archive stage")
 	}
+	for _, t := range cfg.RevealOnExecution {
+		if d.Profiles == nil || !d.Profiles.PublicExecution(t) {
+			return nil, causeErr(CauseRevealNotPublicExecution, "%q has no profile with public execution", t)
+		}
+	}
 	if cfg.FastMode {
 		if len(cfg.Mandate) == 0 {
 			return nil, causeErr(CauseFastModeWithoutMandate, "fast mode needs a mandate")

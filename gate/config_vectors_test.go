@@ -45,9 +45,6 @@ func TestGateConfigVectors(t *testing.T) {
 	}
 	gatefix.ReadVector(t, "gate.json", &f)
 	require.NotEmpty(t, f.Cases)
-	for typ, public := range f.ProfileRegistry {
-		assert.Equal(t, public, gate.PublicExecution(typ), typ)
-	}
 	for _, tc := range f.Cases {
 		t.Run(tc.ID, func(t *testing.T) {
 			allow := f.Allowlist
@@ -61,7 +58,9 @@ func TestGateConfigVectors(t *testing.T) {
 			x, err := policy.NewExtractors(xs...)
 			require.NoError(t, err)
 			opts := []gatefix.Option{
-				gatefix.WithDeps(func(d *gate.Deps) { d.Archiver = &recordingArchiver{}; d.Extractors = x }),
+				gatefix.WithDeps(func(d *gate.Deps) {
+					d.Archiver, d.Extractors, d.Profiles = &recordingArchiver{}, x, gate.ProfileSet(f.ProfileRegistry)
+				}),
 				gatefix.WithConfig(func(c *gate.Config) {
 					c.Scope.ActionTypes = allow
 					c.FastMode = tc.Config.FastMode
