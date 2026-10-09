@@ -267,7 +267,7 @@ func (b *Builder) Seal(ctx context.Context, p *payload.Payload) (*Sealed, error)
 		return nil, fmt.Errorf("%w: plaintext of %d bytes", payload.ErrTooLarge, len(plaintext))
 	}
 	action := bytes.Clone(p.Action.Data)
-	ah, err := commitment.ActionHash(p.Action.Type, action)
+	ah, err := commitment.ActionHashFor(b.cfg.Version, p.Action.Type, action)
 	if err != nil {
 		return nil, err
 	}

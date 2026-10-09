@@ -151,6 +151,12 @@ func TestPolicyRetryAfterAMandateChangeGetsTheStoredAuthorization(t *testing.T) 
 
 	_, b2, a2 := p.request(2, "agent1", 40)
 	res, err := p.AuthorizeWith(b2, a2)
+	require.ErrorIs(t, err, gate.ErrMandateMismatch, "a new decision that names the old mandate")
+	assert.Empty(t, res.PolicyVerdict, "no verdict under a mandate the agent did not name")
+
+	p.rebase()
+	_, b3, a3 := p.request(3, "agent1", 40)
+	res, err = p.AuthorizeWith(b3, a3)
 	require.ErrorIs(t, err, policy.ErrAmountAboveMax, "a new decision meets the new limit")
 	assert.NotEmpty(t, res.PolicyVerdict)
 }

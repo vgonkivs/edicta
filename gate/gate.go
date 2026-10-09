@@ -313,6 +313,14 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 		c.PayloadSize > g.cfg.FibreMaxDataBytes {
 		return res, fmt.Errorf("%w: payload_size %d, limit %d", ErrPayloadAboveCap, c.PayloadSize, g.cfg.FibreMaxDataBytes)
 	}
+	if c.Version == commitment.VersionV0 && (!g.cfg.AcceptV0 || g.pol != nil) {
+		return res, fmt.Errorf("%w: version %d", ErrVersionNotAccepted, c.Version)
+	}
+	// This gate has no fast mode, so it authorizes only after the anchor is
+	// proven at the reference height.
+	if c.PayloadRef.Pending() {
+		return res, ErrAnchorPending
+	}
 
 	// Registry epoch.
 	if c.IssuedAt <= satAdd(g.epoch, g.cfg.SkewS) {
@@ -355,6 +363,16 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	pin := policyInput{h: h, actionHash: res.ActionHash, agent: c.AgentPubKey, decidedAt: now}
 	key := registry.Key{PubKey: agentKey}
 	copy(key.Nonce[:], c.Nonce)
+
+	// Mandate reference: the agent must have committed to the mandate in
+	// force. No verdict is signed for a refusal here, since the gate never
+	// signs one under a mandate the agent did not name.
+	if g.pol != nil {
+		if merr := g.checkMandateRef(c); merr != nil {
+			return g.refuseBeforePolicy(ctx, res, key, envelope, action, merr)
+		}
+	}
+
 	if g.pol != nil {
 		denied, perr := g.admitPolicy(c, action, &pin)
 		if perr != nil && !denied {
@@ -524,6 +542,46 @@ func (g *Gate) authorize(ctx context.Context, envelope, action []byte, ev *Admis
 	return res, nil
 }
 
+// checkMandateRef compares the commitment's mandate_ref with the hash of the
+// mandate in force, in constant time.
+func (g *Gate) checkMandateRef(c *commitment.Commitment) error {
+	if c.MandateRef == nil {
+		return ErrMandateRefMissing
+	}
+	if subtle.ConstantTimeCompare(c.MandateRef, g.pol.mandateHash[:]) != 1 {
+		return ErrMandateMismatch
+	}
+	return nil
+}
+
+// refuseBeforePolicy answers a refusal that comes before policy admission.
+// A retry of a decision authorized earlier (before a mandate change) gets its
+// stored Authorization. Otherwise the decision record is archived, as after a
+// policy deny, and the refusal stands whether or not that write succeeds.
+func (g *Gate) refuseBeforePolicy(ctx context.Context, res Result, key registry.Key, envelope, action []byte, refusal error) (Result, error) {
+	old, gerr := g.d.Registry.Get(ctx, key)
+	switch {
+	case gerr == nil && old.CommitmentHash == res.CommitmentHash:
+		if g.d.Archiver != nil {
+			if err := g.archiveDecision(ctx, res.CommitmentHash, envelope, action); err != nil {
+				return res, err
+			}
+			res.DecisionArchived = true
+		}
+		return g.replayArchived(res, old)
+	case gerr != nil && !errors.Is(gerr, registry.ErrNotFound):
+		return res, fmt.Errorf("%w: %w", ErrRegistryUnavailable, gerr)
+	}
+	if g.d.Archiver != nil {
+		if err := g.archiveDecision(ctx, res.CommitmentHash, envelope, action); err != nil {
+			g.log.Warn("decision record not archived after a refusal", "err", err)
+		} else {
+			res.DecisionArchived = true
+		}
+	}
+	return res, refusal
+}
+
 // archiveDecision writes the decision record under its own deadline. A done
 // parent context is the caller's, not an archive fault.
 func (g *Gate) archiveDecision(ctx context.Context, h commitment.Hash, envelope, action []byte) error {
@@ -559,7 +617,7 @@ func (g *Gate) replay(h, actionHash commitment.Hash, old registry.Entry) (Result
 	res.ActionHash = actionHash
 	sa, ah, err := commitment.DecodeSignedAuthorization(old.Authorization)
 	if err != nil ||
-		!ed25519.Verify(g.signerPub, commitment.AuthorizationSigningMessage(ah), sa.Signature) ||
+		!ed25519.Verify(g.signerPub, commitment.AuthorizationSigningMessageFor(sa.Authorization.Version, ah), sa.Signature) ||
 		subtle.ConstantTimeCompare(sa.Authorization.CommitmentHash, h[:]) != 1 ||
 		subtle.ConstantTimeCompare(sa.Authorization.ActionHash, actionHash[:]) != 1 {
 		g.log.Error("stored authorization disagrees with the commitment",
@@ -579,18 +637,24 @@ func (g *Gate) replay(h, actionHash commitment.Hash, old registry.Entry) (Result
 
 // signAuthorization builds, signs and self-verifies the Authorization.
 func (g *Gate) signAuthorization(ctx context.Context, h, actionHash commitment.Hash, c *commitment.Commitment, action []byte, path registry.Path, expires, now uint64) ([]byte, error) {
+	// The Authorization has the commitment's version; a v1 one states the
+	// mode, which is strict because the anchor was proven above.
 	a := commitment.Authorization{
+		Version:        c.Version,
 		CommitmentHash: h[:],
 		ActionHash:     actionHash[:],
 		GateID:         g.cfg.Scope.GateID,
 		Expires:        expires,
 		Path:           commitment.PayloadPath(path),
 	}
+	if c.Version == commitment.VersionV1 {
+		a.Mode = commitment.ModeStrict
+	}
 	canon, err := commitment.EncodeAuthorization(&a)
 	if err != nil {
 		return nil, fmt.Errorf("gate: encode authorization: %w", err)
 	}
-	sig, err := g.sign(ctx, commitment.AuthorizationSigningMessage(commitment.HashAuthorization(canon)))
+	sig, err := g.sign(ctx, commitment.AuthorizationSigningMessageFor(a.Version, commitment.HashAuthorizationFor(a.Version, canon)))
 	if err != nil {
 		return nil, fmt.Errorf("gate: sign authorization: %w", err)
 	}

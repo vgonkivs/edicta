@@ -307,7 +307,7 @@ func VerifyAuthorization(b []byte, chk AuthorizationCheck) (*SignedAuthorization
 	if a.GateID != chk.GateID {
 		return nil, Hash{}, ErrScopeMismatch
 	}
-	ah, err := ActionHash(chk.ActionType, chk.Action)
+	ah, err := ActionHashFor(a.Version, chk.ActionType, chk.Action)
 	if err != nil {
 		if errors.Is(err, ErrActionSize) {
 			return nil, Hash{}, err

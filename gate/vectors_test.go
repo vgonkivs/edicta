@@ -80,7 +80,13 @@ func TestRejectVectorsThroughAuthorize(t *testing.T) {
 			if rc.Stage == "A" {
 				action = gatefix.ActionOf(t, rc.ActionHex, rc.Pattern, rc.ActionSize)
 			}
-			_, err := e.AuthorizeWith(gatefix.MustHex(t, rc.EnvelopeHex), action)
+			env := gatefix.MustHex(t, rc.EnvelopeHex)
+			// A v0-shaped commitment with version 1 is a v0-reader vector; the
+			// gate reads it as v1, where its v0 signature does not verify.
+			if raw, err := commitment.EnvelopeCommitment(env); err == nil && commitment.CanonicalVersion(raw) == commitment.VersionV1 {
+				want = commitment.ErrSignatureInvalid
+			}
+			_, err := e.AuthorizeWith(env, action)
 			require.ErrorIs(t, err, want)
 		})
 	}

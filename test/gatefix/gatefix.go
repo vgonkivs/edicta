@@ -329,7 +329,7 @@ func SignWith(t testing.TB, priv ed25519.PrivateKey, c *commitment.Commitment) (
 		require.NoError(t, err, "hash")
 		s = &commitment.SignedCommitment{
 			Commitment: *Clone(c),
-			Signature:  ed25519.Sign(priv, commitment.SigningMessage(h)),
+			Signature:  ed25519.Sign(priv, commitment.SignedMessage(c.Version, h)),
 		}
 	} else {
 		require.NoError(t, err, "sign")
@@ -590,7 +590,10 @@ func CheckAuthorization(t testing.TB, auth, action []byte, c *commitment.Commitm
 	require.Equal(t, string(c.Action.Hash), string(a.ActionHash))
 	require.Equal(t, GateID, a.GateID)
 	require.Equal(t, path, a.Path)
-	require.EqualValues(t, 0, a.Version)
+	require.Equal(t, c.Version, a.Version, "the Authorization has the commitment's version")
+	if c.Version == commitment.VersionV1 {
+		require.EqualValues(t, commitment.ModeStrict, a.Mode)
+	}
 	if wantExpires != 0 {
 		require.Equal(t, wantExpires, a.Expires)
 	}
@@ -623,6 +626,7 @@ func KnownSentinels() []error {
 		gate.ErrDACommitmentMismatch, gate.ErrArchiveRecomputeUnsupported, gate.ErrPayloadUnavailable,
 		gate.ErrChainUnavailable, gate.ErrRegistryUnavailable, gate.ErrAllowlistUnavailable, gate.ErrClosed, gate.ErrRegistryInUse, gate.ErrClockRegression,
 		gate.ErrNotAuthorized, gate.ErrReceiptExists, gate.ErrExecutorNotAllowed, commitment.ErrKeyRole,
+		gate.ErrVersionNotAccepted, gate.ErrAnchorPending, gate.ErrMandateRefMissing, gate.ErrMandateMismatch,
 		context.Canceled, context.DeadlineExceeded,
 	}
 }

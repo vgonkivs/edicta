@@ -72,7 +72,18 @@ func newPolicyEnv(t *testing.T, m *policy.Mandate, extra ...gatefix.Option) *pEn
 	e := gatefix.New(t, policyOpts(t, m, extra...)...)
 	c := gatefix.Template(t)
 	e.StageDA(c, gatefix.Blob(t))
-	return &pEnv{Env: e, t: t, base: c, m: m}
+	c.Version = commitment.VersionV1
+	p := &pEnv{Env: e, t: t, base: c, m: m}
+	p.rebase()
+	return p
+}
+
+// rebase points later requests at the mandate configured now: a gate with a
+// mandate admits only v1 commitments that name it.
+func (p *pEnv) rebase() {
+	_, mh, err := policy.VerifyMandate(p.Cfg.Mandate)
+	require.NoError(p.t, err)
+	p.base.MandateRef = mh[:]
 }
 
 // request signs a fresh decision whose action ends in amount.
@@ -277,6 +288,7 @@ func TestPolicyAdoption(t *testing.T) {
 	v2.Version = 2
 	v2.Assets[0].Periods[0].Max = []byte{60}
 	require.NoError(t, restart(v2))
+	p.rebase()
 	c := p.counter()
 	assert.EqualValues(t, 2, c.Version)
 	assert.EqualValues(t, 1, c.Ledger.State.Seq)

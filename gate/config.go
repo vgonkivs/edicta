@@ -48,6 +48,9 @@ type Config struct {
 	ExecutorKeys [][32]byte
 	// Mandate is the canonical SignedMandate; empty means no policy.
 	Mandate []byte
+	// AcceptV0 admits v0 commitments. It is ignored, as if false, when a
+	// Mandate is configured: a v0 commitment cannot name its mandate.
+	AcceptV0 bool
 }
 
 // DefaultConfig holds the defaults; the zero value of Config is not usable.
@@ -65,6 +68,8 @@ func DefaultConfig() Config {
 		PruneGrace:          3600,
 		MaxAuthorizationTTL: 300,
 		ArchiveWriteTimeout: defaultArchiveWriteTimeout,
+		// v0 stays accepted by default until the v1 format is frozen.
+		AcceptV0: true,
 	}
 }
 

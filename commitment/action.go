@@ -65,12 +65,20 @@ func ActionHash(actionType string, action []byte) (Hash, error) {
 	return sha256.Sum256(tagged(TagAction, typ, action)), nil
 }
 
+// ActionHashFor is the action hash of a commitment or Authorization of the
+// given version. Every caller that binds action bytes to a version goes
+// through it, so the v1 preimage can change in this one place; today both
+// versions use ActionHash.
+func ActionHashFor(version uint64, actionType string, action []byte) (Hash, error) {
+	return ActionHash(actionType, action)
+}
+
 // CheckAction requires the supplied bytes to be exactly the committed ones.
 func CheckAction(c *Commitment, action []byte) error {
 	if c == nil {
 		return fmt.Errorf("%w: nil commitment", ErrActionMismatch)
 	}
-	h, err := ActionHash(c.Action.Type, action)
+	h, err := ActionHashFor(c.Version, c.Action.Type, action)
 	if err != nil {
 		if len(action) < 1 || len(action) > MaxActionSize {
 			return err
