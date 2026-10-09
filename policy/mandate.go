@@ -408,6 +408,22 @@ func SignedText(m *Mandate, h commitment.Hash) []byte {
 	return principalsig.ADR036Data([]byte(Render(m)), h)
 }
 
+// DecodeMandate strictly decodes an unsigned canonical Mandate and returns its
+// hash.
+func DecodeMandate(b []byte) (*Mandate, commitment.Hash, error) {
+	var m Mandate
+	if err := decodeStrict(b, maxSignedSize, &m, ErrMandateInvalid); err != nil {
+		return nil, commitment.Hash{}, err
+	}
+	if err := m.ValidateBasic(); err != nil {
+		return nil, commitment.Hash{}, err
+	}
+	if err := requireCanonical(b, func() ([]byte, error) { return marshal(&m) }, ErrMandateInvalid); err != nil {
+		return nil, commitment.Hash{}, err
+	}
+	return &m, HashMandate(b), nil
+}
+
 // DecodeSignedMandate strictly decodes a SignedMandate without checking the
 // signature.
 func DecodeSignedMandate(b []byte) (*SignedMandate, commitment.Hash, error) {
