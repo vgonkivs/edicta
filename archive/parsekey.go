@@ -59,6 +59,14 @@ func ParseKey(path string) (Kind, error) {
 				return k, nil
 			}
 		}
+	case "intent", "absence":
+		if !parseHeightKey(parts) {
+			return 0, errBadKey
+		}
+		if parts[0] == "intent" {
+			return KindAnchorIntent, nil
+		}
+		return KindAbsenceProof, nil
 	case "policy-deny":
 		if len(parts) != 3 || !isLowerHex32(parts[1]) || !IsPolicyDeny(parts[2]) {
 			return 0, errBadKey

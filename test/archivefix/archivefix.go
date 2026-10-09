@@ -394,6 +394,28 @@ func Build(t testing.TB, in map[string]any) archive.Record {
 			}
 		}
 		return r
+	case "anchor_intent", "13":
+		return &archive.AnchorIntentRecord{
+			DA:         commitment.DA(numOf(t, in, "da")),
+			Commitment: bytesOf(t, in, "commitment"),
+			Namespace:  bytesOf(t, in, "namespace"),
+			RefHeight:  numOf(t, in, "ref_height"),
+			Tx:         bytesOf(t, in, "tx"),
+			Signer:     bytesOf(t, in, "signer"),
+			CreatedAt:  numOf(t, in, "created_at"),
+		}
+	case "absence_proof", "14":
+		return &archive.AbsenceProofRecord{
+			DA:            commitment.DA(numOf(t, in, "da")),
+			Commitment:    bytesOf(t, in, "commitment"),
+			Namespace:     bytesOf(t, in, "namespace"),
+			Height:        numOf(t, in, "height"),
+			Header:        bytesOf(t, in, "header"),
+			DAH:           bytesOf(t, in, "dah"),
+			NamespaceData: bytesOf(t, in, "namespace_data"),
+			Results:       bytesOf(t, in, "results"),
+			NextHeader:    bytesOf(t, in, "next_header"),
+		}
 	case "rejection", "5":
 		r := &archive.RejectionRecord{
 			Error:      in["error"].(string),

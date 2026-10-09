@@ -30,6 +30,8 @@ const (
 	pTxProof
 	// pForm1 is required for form 1 and not defined for form 2.
 	pForm1
+	// pWithResults is defined only next to key 10 and required with it.
+	pWithResults
 )
 
 type fdef struct {
@@ -141,6 +143,10 @@ func schemaOf(k Kind) []fdef {
 		rest = []fdef{{3, "bucket", tBstr, pReq, 1, maxPolicyNested, nil}}
 	case KindPolicyClosed:
 		rest = []fdef{{3, "closed_set", tBstr, pReq, 1, maxPolicyClosedNest, nil}}
+	case KindAnchorIntent:
+		rest = intentSchema()
+	case KindAbsenceProof:
+		rest = absenceSchema()
 	case KindPolicySuccessor:
 		rest = []fdef{
 			{3, "gate_id", tTstr, pReq, 1, 64, nil},
@@ -170,6 +176,10 @@ func maxSizeOf(k Kind) int {
 		return maxPolicyClosedSize
 	case KindPolicySuccessor:
 		return maxPolicySuccessSize
+	case KindAnchorIntent:
+		return maxIntentSize
+	case KindAbsenceProof:
+		return maxAbsenceSize
 	}
 	return MaxRecordSize
 }

@@ -138,6 +138,10 @@ func capOf(k archive.Kind) int64 {
 		return maxPolicyClosed
 	case archive.KindPolicySuccessor:
 		return maxPolicySuccessor
+	case archive.KindAnchorIntent:
+		return maxIntent
+	case archive.KindAbsenceProof:
+		return maxAbsence
 	}
 	return maxRejection
 }

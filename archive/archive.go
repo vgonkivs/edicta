@@ -72,17 +72,22 @@ func (k Kind) String() string {
 		return "policy_successor"
 	case KindReveal:
 		return "reveal"
+	case KindAnchorIntent:
+		return "anchor_intent"
+	case KindAbsenceProof:
+		return "absence_proof"
 	}
 	return "unknown"
 }
 
-// valid reports whether k is a kind this codec reads. Kinds 13 to 15
-// (anchor intent, absence proof, private blob) are assigned but not read
-// yet, so a record that claims one is refused rather than misread.
+// valid reports whether k is a kind this codec reads. Kind 15 (private
+// blob) is assigned but not read yet, so a record that claims it is refused
+// rather than misread.
 func (k Kind) valid() bool {
 	switch k {
 	case KindPayload, KindEvidence, KindAuthorization, KindRejection, KindMandate, KindPolicyAllow,
-		KindPolicyDeny, KindPolicyBucket, KindPolicyClosed, KindPolicySuccessor, KindDecision, KindReveal:
+		KindPolicyDeny, KindPolicyBucket, KindPolicyClosed, KindPolicySuccessor, KindDecision, KindReveal,
+		KindAnchorIntent, KindAbsenceProof:
 		return true
 	}
 	return false

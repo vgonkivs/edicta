@@ -180,6 +180,9 @@ func (pm *pmap) checkDefined(d *fdef, path string) error {
 		bad = !ok
 	case pForm1:
 		bad = pm.hasForm && pm.form == FormPrivate
+	case pWithResults:
+		_, ok := pm.items[10]
+		bad = !ok
 	}
 	if bad {
 		return fmt.Errorf("%w: %s is not defined here", commitment.ErrUnknownKey, path)
@@ -200,6 +203,9 @@ func (pm *pmap) required(d *fdef) bool {
 		return ok
 	case pForm1:
 		return pm.hasForm && pm.form == FormPublic
+	case pWithResults:
+		_, ok := pm.items[10]
+		return ok
 	}
 	return false
 }
@@ -230,7 +236,7 @@ var nonZero = map[string]bool{
 	"intent_height": true, "height": true, "promise_height": true, "authorized_at": true,
 	"rejected_at": true, "checked_at": true, "block_time": true, "blob_retention_s": true,
 	"retention_latest_s": true, "retention_at_height_s": true, "promise_created": true,
-	"fast_window": true,
+	"fast_window": true, "ref_height": true, "created_at": true,
 }
 
 func checkValues(pm *pmap, defs []fdef, kind Kind) error {
@@ -271,7 +277,7 @@ func checkValues(pm *pmap, defs []fdef, kind Kind) error {
 			return fmt.Errorf("%w: %s", commitment.ErrZeroValue, u.name)
 		}
 	}
-	if it, ok := pm.items[5]; ok && it.major == majBstr && (kind == KindPayload || kind == KindEvidence) && !namespaceOK(it.b) {
+	if it, ok := pm.items[5]; ok && it.major == majBstr && hasNamespace(kind) && !namespaceOK(it.b) {
 		return fmt.Errorf("%w: %x", commitment.ErrInvalidNamespace, it.b)
 	}
 	switch kind {
@@ -438,6 +444,8 @@ func build(pm *pmap, kind Kind, clone bool) Record {
 		return &PolicyBucketRecord{Bucket: bs(pm, 3)}
 	case KindPolicyClosed:
 		return &PolicyClosedRecord{ClosedSet: bs(pm, 3)}
+	case KindAnchorIntent, KindAbsenceProof:
+		return buildFast(pm, kind, bs, u)
 	case KindPolicySuccessor:
 		return &PolicySuccessorRecord{
 			GateID: string(pm.items[3].b), CounterKey: bs(pm, 4), StateHash: bs(pm, 5), CommitmentHash: bs(pm, 6),
@@ -632,6 +640,16 @@ func encodeRaw(r Record) ([]byte, error) {
 		w.bytes(4, r.CounterKey)
 		w.bytes(5, r.StateHash)
 		w.bytes(6, r.CommitmentHash)
+	case *AnchorIntentRecord:
+		if r == nil {
+			return nil, errNilRecord
+		}
+		encodeIntent(w, r)
+	case *AbsenceProofRecord:
+		if r == nil {
+			return nil, errNilRecord
+		}
+		encodeAbsence(w, r)
 	default:
 		return nil, errNilRecord
 	}
@@ -685,6 +703,9 @@ func KeyPath(r Record) (string, error) {
 		}
 	default:
 		if p, ok, err := policyKeyPath(r); ok {
+			return p, err
+		}
+		if p, ok, err := fastKeyPath(r); ok {
 			return p, err
 		}
 	}
@@ -802,6 +823,9 @@ func IsVerdict(name string) bool { return verdicts[name] }
 // purposes: the fields that would change a verdict, not the first-write-wins
 // ones. Records of different kinds are never the same.
 func SameIdentity(a, b Record) bool {
+	if same, ok := fastSameIdentity(a, b); ok {
+		return same
+	}
 	switch a := a.(type) {
 	case *PayloadRecord:
 		b, ok := b.(*PayloadRecord)
