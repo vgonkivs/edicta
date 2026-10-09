@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.8).
+"""Verifies the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.9).
 
 Two independent paths:
 - the generator (gen_policy.py over policy_v1.py) reproduces every file byte
@@ -1573,7 +1573,7 @@ def check_verify(f):
                     "fail_not_before", "fail_kind", "mandate_ref_match", "mandate_ref_mismatch", "mandate_ref_absent",
                     "fast_mode_not_allowed", "fast_mode_delay_exceeded", "fast_mode_within_bound",
                     "principal_scheme_unsupported", "principal_cosmos_pinned", "principal_eth_pinned",
-                    "anchor_time_t_ref_pending", "fast_mode_no_policy_record"):
+                    "anchor_time_t_ref_pending", "fast_mode_no_policy_record", "mandate_ref_without_verdict"):
         expect(need_id in ids, need_id)
     expect({"mandate_ref_mismatch", "ErrFastModeNotAllowed", "fast_mode_delay"} <= rules, "draft.5 rules")
     expect("principal_scheme_unsupported" in reasons, "draft.5 reasons")
@@ -1586,6 +1586,12 @@ def check_verify(f):
         expect(("mode" in c["expect"]["policy"]) or unreadable, c["id"])
         if v1 and c["decision"]["mode"] == "2" and no_record:
             expect(not c["config"]["require_policy"] and c["expect"]["verdict"] == "unchecked", c["id"])
+        # mandate_ref, like mode 2, makes the check required whatever require_policy says.
+        if "mandate_ref_hex" in c["decision"] and no_record:
+            expect(c["expect"]["verdict"] == "unchecked" and c["expect"]["exit"] == "2", c["id"])
+    mr = next(c for c in f["cases"] if c["id"] == "mandate_ref_without_verdict")
+    expect(mr["decision"]["mode"] == "1" and "mandate_ref_hex" in mr["decision"] and not mr["config"]["require_policy"],
+           "mandate_ref_without_verdict: strict mode, mandate_ref, require_policy off")
     return f"{len(f['records'])} records, {len(f['cases'])} cases"
 
 
@@ -1793,7 +1799,7 @@ def check_tia(f):
 
 # The revision that last changed each file's bytes; files not listed keep draft.1.
 LAST_CHANGED = {"policy/mandate.json": "policy-v1-draft.7", "policy/render.json": "policy-v1-draft.7",
-                "policy/verify.json": "policy-v1-draft.8", "policy/archive.json": "policy-v1-draft.8",
+                "policy/verify.json": "policy-v1-draft.9", "policy/archive.json": "policy-v1-draft.8",
                 "policy/api.json": "policy-v1-draft.8", "policy/private.json": "policy-v1-draft.8"}
 
 
@@ -1818,7 +1824,7 @@ def main() -> int:
     except (Failure, Bad, KeyError, ValueError) as e:
         print(f"FAIL (policy v1): {type(e).__name__}: {e}", file=sys.stderr)
         return 1
-    print("OK (policy v1, policy-v1-draft.8): " + "; ".join(out) + "; generator output identical")
+    print("OK (policy v1, policy-v1-draft.9): " + "; ".join(out) + "; generator output identical")
     return 0
 
 

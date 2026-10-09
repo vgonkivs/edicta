@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.8).
+"""Writes the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.9).
 
 spec/vectors/policy/{facts,mandate,render,state,engine,verify,archive,api}.json
 and spec/vectors/profiles/bank-send/tia_transfer_facts.json. Deterministic:
@@ -34,6 +34,7 @@ REVISION_4 = "policy-v1-draft.4"
 REVISION_6 = "policy-v1-draft.6"
 REVISION_7 = "policy-v1-draft.7"
 REVISION_8 = "policy-v1-draft.8"
+REVISION_9 = "policy-v1-draft.9"
 T0 = 1791000000
 GATE_ID = "gate-paper-1"
 
@@ -1354,6 +1355,11 @@ def draft5_cases(case, dec, cheat, sims):
     case("fast_mode_no_policy_record", "A fast-mode Authorization (mode 2) makes the policy check required (core v1 "
          "10.1) although require_policy is off; the archive holds no policy_allow record: unchecked, never valid.",
          FN, x, exp=("unchecked", "policy_verdict_unavailable", "not_checked", "2"))
+    x = dec(MR, "r4", F(100), T0 + 400, v1={})
+    case("mandate_ref_without_verdict", "A strict-mode (mode 1) decision whose envelope carries mandate_ref, "
+         "authorized by a gate that issued no verdict (for example a gate whose mandate was dropped and that skipped "
+         "M0); require_policy is off. mandate_ref makes the policy check required (core v1 20.5): no policy_allow "
+         "record, so unchecked, never valid.", MR, x, exp=("unchecked", "policy_verdict_unavailable", "not_checked", "2"))
     FT = Sim("FT", m=fm("FT"))
     x = dec(FT, "t1", F(100), T0 + 100, v1={"mode": 2, "h0": 1000, "anchor_deadline": 1005}); FT.step(x, x["th"])
     case("anchor_time_t_ref_pending", "Pending reference: the verdict's anchor_time is T_ref, the header time at h0, "
@@ -1947,7 +1953,7 @@ def build() -> dict:
         "policy/render.json": header(gen_render(mand), REVISION_7),
         "policy/state.json": header(gen_state()),
         "policy/engine.json": header(gen_engine()),
-        "policy/verify.json": header(ver, REVISION_8),
+        "policy/verify.json": header(ver, REVISION_9),
         "policy/private.json": header(gen_private(priv, sims), REVISION_8),
         "policy/archive.json": header(gen_archive(pool, ppool), REVISION_8),
         "policy/api.json": header(gen_api(sims), REVISION_8),

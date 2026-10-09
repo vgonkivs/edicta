@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/archive/records.json and state.json (v1-draft.5, archive format 1).
+"""Verifies spec/vectors/archive/records.json and state.json (v1-draft.6, archive format 1).
 
 - every case: the record rebuilt from `input` encodes to the listed bytes,
   decodes strictly back to `input`, and sits under the listed key;
@@ -44,7 +44,7 @@ from edicta import (
 HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
 FORMAT = "edicta-vectors/v1"
-REVISION = "v1-draft.5"
+REVISION = "v1-draft.6"
 
 
 class Failure(Exception):

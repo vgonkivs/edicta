@@ -2,10 +2,10 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v1-draft.5` (2026-10-09). Working draft, proposed for the
+Status: revision `v1-draft.6` (2026-10-09). Working draft, proposed for the
 v1 freeze; subject to the human's approval. Wire version: `version = 1`.
 Domain tags: `edicta/v1/...`. This document is the whole core specification;
-the policy layer is `spec/policy-v1.md` (revision `policy-v1-draft.8`,
+the policy layer is `spec/policy-v1.md` (revision `policy-v1-draft.9`,
 "policy"). The earlier `v0` drafts are superseded and unsupported; they are
 kept for history in `spec/historical/decision-commitment-v0.md`, and nothing
 here depends on them.
@@ -41,6 +41,7 @@ versions even if a byte layout were identical.
 |---|---|---|---|
 | `v1-draft.1` to `v1-draft.4` | 2026-10-09 | Drafts of task 031, written as additions to the `v0` drafts. The history is in git and in the task folder. | |
 | `v1-draft.5` | 2026-10-09 | One self-contained v1 document (human decisions of 2026-10-09, Rounds 4 to 6: `v0` dropped before the v1 freeze). (1) Every core rule the `v0` drafts held is restated here for version 1; the version dispatch, `AcceptV0`, `ErrVersionNotAccepted`, the `/v0/` routes and alias, the Authorization of version 0, the unsalted action hash and the payload schema chosen by the commitment version are gone. (2) Receipt, record request, publish request and the payload AEAD and HPKE tags move to `edicta/v1/*`; receipt `version = 1`; payload blob `version = 1`; payload plaintext `version = 1` with the action salt (sections 9, 14, 17). (3) Archive records `format = 1`: kinds 17 (decision) and 18 (reveal) keep their numbers, kind 3 is unassigned, the evidence record drops `promise_valset` (key 18) and the legacy anchor-proof form 0 (section 19). (4) Verifier: the Authorization rules are A1 (mode) and A2 (deadline range); the reason `replay_unconfirmed` is gone with form 0; new reason `gate_signed_inconsistent_private_part` and the matching policy rule (policy 13); O8 runs before the payload-versus-archive salt comparison (section 20.11). (5) HTTP paths `/v1/*` only; the authorize request requires its key 3. | Core vectors under `spec/vectors/v1/` carry the coverage of the `v0` sets as v1 cases (`v1-draft.5`); the `v0` sets moved unchanged to `spec/vectors/historical/v0/` and are not checked. Archive, policy, absence, reasons, API and profile files regenerated (section 22). |
+| `v1-draft.6` | 2026-10-09 | Pre-freeze re-audit fixes (task 031, `audit-2.md`). (1) AB4: a `PFF_NS` unit that does not decode as a PFF tx makes the height not proven, at any app version, and at an app version other than the pinned one units without a candidate prove nothing (section 20.8); NA5 states that the gate may skip such a unit (MJ1). (2) Stage 4m runs at every gate: new rule M0, a gate without a mandate refuses a commitment with `mandate_ref` (`ErrMandateMismatch`); the verifier requires the `policy` check whenever the envelope has `mandate_ref` (sections 8.7, 8.8, 20.5) (MJ2). (3) After an M0 or M2 refusal the gate writes no decision record, no kind 15 record and no marker; `ErrMandateMismatch` is no longer a marker name (sections 8.7, 8.8, 19.2) (MJ3). | `da/absence.json` (new synthetic cases `fibre_unit_undecodable`, `fibre_no_candidate_other_app_version`); new `v1/stage4m.json`; `v1/archive.json` (record `rejection_ErrMandateMismatch` replaced by `rejection_ErrMandateRefMissing`, new reject `rejection_mandate_mismatch_not_a_marker`, `marker_names`); `archive/records.json` (`verdicts`); `api/errors.json` (example `authorize_mandate_ref_without_mandate`, rules `M0, M2`); `policy/verify.json` (`mandate_ref_without_verdict`). |
 
 ## 1. Threat model in one table
 
@@ -66,7 +67,7 @@ Policy section 1 adds the mandate layer.
 | Action salt inside the payload (section 9.3) | A payload recipient unable to check that the payload's action is the committed one (O8) | The payload is the agent's, bound by `plaintext_hash` |
 | `payload_ref` + L1 anchor (section 10) | Claiming a payload was public when it was not | More than 2/3 of voting power is honest (Celestia assumption) |
 | `payload_ref.signer` with share version 1 (section 10.5) | An L1 blob with the same bytes posted by another account being taken as the Edicta anchor; an unrecomputable share commitment | Same as the row above: the blob-signer rule is enforced in CheckTx and ProcessProposal |
-| `mandate_ref` in the agent-signed commitment (sections 4.1, 8.8) | A gate authorizing under a mandate the agent did not commit to; an allow after a silent mandate change | The agent knows the hash of the mandate it acts under (the principal CLI prints it); the gate's refusal and the verifier's `mandate_ref_mismatch` both read signed data |
+| `mandate_ref` in the agent-signed commitment (sections 4.1, 8.8) | A gate authorizing under a mandate the agent did not commit to; an allow after a silent mandate change; a gate with no mandate at all (dropped from the configuration) authorizing a decision committed under one, so the principal's limits are silently off | The agent knows the hash of the mandate it acts under (the principal CLI prints it) and omits key 14 when it acts under none; the gate's refusal (M0, M2), the verifier's `mandate_ref_mismatch` and the verifier's rule that `mandate_ref` makes the `policy` check required (section 20.5) all read signed data |
 | `h0` inside the agent-signed commitment, plus `MaxH0AgeBlocks` (sections 11.2, 13) | A gate or Recorder choosing or shifting the reference height (and so `T_ref`, the policy clock and the deadline) after the agent signed; a stale `h0` used to land spend in an old window | The agent signs only after verifying the anchor intent (W5-P); the gate's head is honest within the gate's own node; the verifier checks `H >= h0` |
 | K-fast: verified anchor intent before a fast-mode Authorization (section 13) | Authorizing a payload that was never made available, in exchange for latency | Fibre: the 2/3 certificate under the network's quorum rule against the validator set at `h0` (section 10.6.1); blob: the gate's own node accepted the signed PFB for exactly this blob. Both are gate-attested at authorization; the verifier only sees the anchor or its absence later |
 | K-fast slack: `anchor_deadline >= head + MinFastSlackBlocks`, and for Fibre a promise that does not expire within `MinPromiseSlackSeconds` (section 13) | A fast-mode Authorization whose anchor can no longer land in `[h0, anchor_deadline]` | The slack covers mempool latency of the gate's own node; a tx already included in the window waives it (section 13.3) |
@@ -86,7 +87,7 @@ Policy section 1 adds the mandate layer.
 | `plaintext_hash` checked before parsing, rule O7 (section 9.4) | A malicious agent showing two recipients two different decisions from one blob: ChaCha20-Poly1305 is not key-committing, so one ciphertext can open under two DEKs wrapped for different recipients (vector `pb_key_commitment_two_deks`) | SHA-256 collision resistance; every recipient runs O7 on the full AEAD plaintext before using it. A recipient that only runs the AEAD is not protected |
 | Strict blob decoding, rules B0..B7 (section 9.2) | Two recipients or verifiers disagreeing on which entries or ciphertext a blob holds | Every reader implements B0..B7; shared vectors |
 | Local DA commitment recompute before signing, rule W4 (section 9.5) | A buggy or malicious Recorder that anchors blob X while the agent signs `ciphertext_hash = H(Y)`: the agent's key would sign a false "Y was public at H". The gate would still reject at P2 or P3, so this protects the agent's reputation and liveness, not gate safety | The producer recomputes from its own bytes, for `da = 1` with the Fibre committer (section 10.4); a producer built without it refuses unless explicitly opted out |
-| Decision record, private form (sections 19.2, 20.11) | The action bytes of a private-mode decision read from a shared archive | Private form stores the action only HPKE-encrypted to the auditors (kind 15 plaintext 5); the gate gets the bytes from the integrator, never from the archive |
+| Decision record, private form (sections 19.2, 20.11) | The action bytes of a private-mode decision read from a shared archive, including a decision refused because it names another mandate than the one in force (M0, M2: no record is written, section 8.8) | Private form stores the action only HPKE-encrypted to the auditors (kind 15 plaintext 5); the gate gets the bytes from the integrator, never from the archive |
 | Reveal on execution (sections 19.2, 19.7, 20.11) | A keyless verifier unable to tie a public on-chain execution to the salted `action_hash` | The tx is public anyway and the receipt links it to the decision; the revealed salt is self-verifying against the agent-signed `action_hash`; only actions with a receipt and a `public_execution` profile are revealed |
 | Private mode (policy 9.6) | Everyone reading the mandate's rules and the decision content from a shared archive | What private mode does not hide is listed normatively in policy 9.6 (residual leakage) |
 | Nothing (open gap) | An agent that wraps a DEK no recipient can use, or that encrypts a payload unrelated to the action, still gets authorized: the gate never decrypts | Detected after the fact: any recipient holding the envelope and blob has signed evidence (O5, O6, O7 or O8 failure). Not prevented |
@@ -859,8 +860,9 @@ credentials. Its input is the envelope bytes and the action bytes; it never
 accepts a decoded struct from its caller. Its output is a signed
 Authorization (section 15). The gate issues an Authorization only if every
 stage below passes, in this order. An implementation MUST NOT report a later
-stage's sentinel when an earlier stage fails. Stages 4m, 4p and 10p exist
-only at a gate with a mandate configured (policy section 12).
+stage's sentinel when an earlier stage fails. Stages 4p and 10p exist only
+at a gate with a mandate configured (policy section 11); stage 4m runs at
+every gate (section 8.8).
 
 | # | Stage | Rule | Check | Sentinel | Inv. |
 |---|---|---|---|---|---|
@@ -868,9 +870,9 @@ only at a gate with a mandate configured (policy section 12).
 | 2 | E | E1 | `issued_at > epoch + skew_s`, where `epoch` is the gate clock when the nonce registry was created, persisted inside the registry in its creation transaction and never rewritten | `ErrBeforeRegistryEpoch` | 5 |
 | 3 | L | L0, L1, L2 | `agent_pubkey` is not a gate key: not the gate's own key (which signs Authorizations and receipts) and not any gate key in its configuration (L0). The allowlist has `agent_id` (L1), and maps it to exactly `agent_pubkey` (L2). Checked in the order L0, L1, L2, after G, so it is never an oracle for unsigned input | `ErrAgentKeyIsGateKey`, `ErrAgentNotAllowed`, `ErrAgentKeyMismatch` | 1, 7 |
 | 4 | A | A0, A0s, A1 | `CheckAction(c, action_bytes, action_salt)` on the supplied bytes and salt (section 8.4) | `ErrActionSize`, `ErrMissingField`, `ErrFieldSize`, `ErrActionMismatch` | 3 |
-| 4m | M | M1, M2 | Mandate reference (section 8.8); only with a mandate configured | `ErrMandateRefMissing`, `ErrMandateMismatch` | 8 |
+| 4m | M | M0, M1, M2 | Mandate reference (section 8.8): M0 at a gate without a mandate, M1 and M2 at a gate with one | `ErrMandateRefMissing`, `ErrMandateMismatch` | 8 |
 | 4p | Admission | policy 8.2 | Policy admission, including P15 (fast-mode consent); only with a mandate | policy deny sentinels (signed verdict) | 8, 9 |
-| 4a | AR | AR1 to AR4 | Archive the decision before any Authorization exists (below): write the decision record (kind 17, section 19.2) under `commitment_hash`, idempotently, and wait until the write is durable. Form 2 (private) iff the mandate in force has `auditors`; then the kind 15 `(5, action_hash)` record holding the salt and the action bytes encrypted to the auditors is written first; otherwise form 1 with the action bytes and the salt in clear. Also runs after a 4m refusal or a 4p deny. Required for a gate with an archive configured (every `edictad` gate); a library gate without one skips this stage. Writes nothing to the nonce registry | `ErrArchiveUnavailable` (503, `Retry-After`) | 2, 5 |
+| 4a | AR | AR1 to AR4 | Archive the decision before any Authorization exists (below): write the decision record (kind 17, section 19.2) under `commitment_hash`, idempotently, and wait until the write is durable. Form 2 (private) iff the mandate in force has `auditors`; then the kind 15 `(5, action_hash)` record holding the salt and the action bytes encrypted to the auditors is written first; otherwise form 1 with the action bytes and the salt in clear. Also runs after an M1 refusal or a 4p deny; never after an M0 or M2 refusal (section 8.8). Required for a gate with an archive configured (every `edictad` gate); a library gate without one skips this stage. Writes nothing to the nonce registry | `ErrArchiveUnavailable` (503, `Retry-After`) | 2, 5 |
 | 5 | N0 | N1 | No registry entry exists for `(agent_pubkey, nonce)`. Advisory; stage 12 is authoritative. If one exists, the retry rule below applies | `ErrNonceUsed` | 5 |
 | 6 | K or K-fast | K0; F1 to F6, B1 to B5 | Included reference: the anchor tx exists at `payload_ref.height` (section 10.4 for `da = 1`: proven from the PayForFibre namespace data of that block, result code 0, rules NA1 to NA7; 10.5 for `da = 2`), and the header time `T_ref = T_H` is readable. Pending reference: stage K-fast (section 13) | `ErrAnchorNotFound`; K-fast sentinels (section 13) | 2, 9 |
 | 7 | K1 | K1 | Section 12.2, on `T_ref` | `ErrIssuedBeforeAnchor` | 4 |
@@ -882,9 +884,10 @@ only at a gate with a mandate configured (policy section 12).
 | 12 | N | N1 | Atomically create the registry entry for `(agent_pubkey, nonce)` holding `commitment_hash`, the canonical SignedAuthorization and, for the reveal on execution (section 19.7), the `action_salt` (gate-local, in clear, like the PrivatePart bytes of policy 11.4); fails if the key exists. With a mandate the policy counter update is committed in the same transaction. Committed durably before stage 13. Nothing fast-mode-specific is written before this stage | `ErrNonceUsed` | 5, 8 |
 | 13 | R | | Return the SignedAuthorization bytes | - | - |
 
-A gate with a mandate runs stages 4m, 4p and 10p, and its stage 12 also
-commits the policy counter (invariant 8); `spec/policy-v1.md` section 11
-defines 4p and 10p. Without a mandate those stages are skipped.
+Every gate runs stage 4m. A gate with a mandate also runs stages 4p and
+10p, and its stage 12 also commits the policy counter (invariant 8);
+`spec/policy-v1.md` section 11 defines 4p and 10p. Without a mandate, 4p and
+10p are skipped and 4m only refuses a commitment that names a mandate (M0).
 
 `MaxAuthorizationTTL` is gate configuration (default 300 s) and MUST exceed
 `skew_s`. Stage 10 enforces `authorized_at + skew_s < valid_until`, so a fresh
@@ -934,7 +937,7 @@ Archive before authorize (normative):
 | AR2 | Idempotent. The same bytes under an existing key succeed without a change. The archive never overwrites: different bytes under an existing key are a conflict. Because G and A1 run first, a conflict on the action bytes or the salt is impossible (equal `commitment_hash` fixes `action.hash`, and a different salt or different bytes would need a SHA-256 collision); envelopes can differ only by a second valid signature of the agent key over the same hash (G2 rules out malleated `S`), and the gate treats that conflict as success, keeping the stored record, which verifies equally. Any other conflict is an archive fault: `ErrArchiveUnavailable`, nothing signed. |
 | AR3 | Failure, timeout or an archive the gate cannot reach: answer `ErrArchiveUnavailable` (HTTP 503 with a `Retry-After` header, section 18.3). The nonce is not consumed and nothing is signed, so the same request can be retried unchanged. |
 | AR4 | No fallback: a gate with an archive configured MUST NOT issue an Authorization whose decision record is not durable, whatever its mode. |
-| AR5 | Rejection marker. When a request whose decision record exists (stage 4a passed) is then refused with a verdict, the gate marks that record rejected with the error name exactly as listed in section 21 (for example `ErrExpired`, `ErrIssuedBeforeAnchor`, `ErrNonceUsed`), its `gate_id` and the gate clock at refusal. Verdicts are the sentinels of stages 4m, 4p and 5 to 12 (the list is in section 19.2, kind 5). Operational failures (`ErrChainUnavailable`, `ErrArchiveUnavailable`, `ErrAnchorIntentUnavailable`, `ErrAnchorIntentRejected`, a signer error or timeout) say nothing about the decision and are not marked. The marker is archive metadata of the gate: not signed and not part of any message between parties; its archive record layout is section 19. |
+| AR5 | Rejection marker. When a request whose decision record exists (stage 4a passed) is then refused with a verdict, the gate marks that record rejected with the error name exactly as listed in section 21 (for example `ErrExpired`, `ErrIssuedBeforeAnchor`, `ErrNonceUsed`), its `gate_id` and the gate clock at refusal. Verdicts are the sentinels of stage 4m rule M1, stage 4p and stages 5 to 12 (the list is in section 19.2, kind 5); an M0 or M2 refusal writes no decision record and so no marker (section 8.8). Operational failures (`ErrChainUnavailable`, `ErrArchiveUnavailable`, `ErrAnchorIntentUnavailable`, `ErrAnchorIntentRejected`, a signer error or timeout) say nothing about the decision and are not marked. The marker is archive metadata of the gate: not signed and not part of any message between parties; its archive record layout is section 19. |
 | AR6 | States and idempotence. A record is in exactly one state: `pending` (no outcome recorded), `rejected` or `authorized`. Allowed transitions: `pending` to `rejected`, `pending` to `authorized`, `rejected` to `authorized` (a retry that passes, for example after `ErrNotYetValid` or `ErrPayloadUnavailable`). `authorized` is final. The marker write is atomic and conditional: it applies only if the record holds no Authorization, and is a no-op otherwise. Marking with a name already present is a no-op; a later refusal with another name adds that name; names are never removed or rewritten. The gate never writes a marker when its registry holds an Authorization for this `commitment_hash` (for example `ErrNonceUsed` on a same-commitment retry, retry rule above). So an authorized decision is never in state `rejected`; names marked before it was authorized stay as a history of refused attempts. |
 | AR7 | Marker write failure is fail-safe. The gate still refuses with the original verdict sentinel (the verdict never depends on the marker), signs nothing and does not consume the nonce, exactly as before. It logs the failure at error level and raises a metric, and SHOULD retry the write later. The record stays `pending`, which no verifier reports as authorized (AR8). A marker failure never turns into an Authorization or a consumed nonce. |
 | AR8 | Verifier report. `verify` and `replay` report the record state: `authorized` only with a SignedAuthorization for this `commitment_hash` that verifies (section 15.3); `rejected` with every marked error name when the record holds markers and no Authorization; `pending` otherwise. A `rejected` or `pending` record MUST NOT be reported as authorized or executed, and no receipt is accepted for it as evidence of anything (a gate issues none without an Authorization, section 14.3). |
@@ -1019,28 +1022,55 @@ to notarize a rail reference (sections 14 and 16).
 
 ### 8.8 Mandate reference (stage 4m)
 
-Only with a mandate configured. Runs after stage 4 (A) and before 4p.
+Runs at every gate, after stage 4 (A) and before 4p.
 
-| Rule | Condition | Result |
-|---|---|---|
-| M1 | commitment without key 14 | `ErrMandateRefMissing` |
-| M2 | key 14 differs from `mandate_hash` of the mandate in force (the hash the verdict will carry), compared in constant time | `ErrMandateMismatch` |
-| | equal | continue |
+| Rule | Gate | Condition | Result |
+|---|---|---|---|
+| M0 | without a mandate | commitment with key 14 | `ErrMandateMismatch` |
+| M1 | with a mandate | commitment without key 14 | `ErrMandateRefMissing` |
+| M2 | with a mandate | key 14 differs from `mandate_hash` of the mandate in force (the hash the verdict will carry), compared in constant time | `ErrMandateMismatch` |
+| | | otherwise | continue |
 
-Without a mandate, key 14 is not read by the gate.
-
-Before refusing under M1 or M2 the gate runs the stored-retry check of
+Before refusing under M0, M1 or M2 the gate runs the stored-retry check of
 policy 11.1 (read the nonce entry of `(agent_pubkey, nonce)`; if it holds
 this `commitment_hash`, answer the stored Authorization with `ErrNonceUsed`
-under the same conditions, and write nothing). Otherwise it refuses, runs
-stage 4a, and writes the rejection marker. No policy verdict is signed for
-an M1 or M2 refusal: the gate never signs a verdict under a mandate the agent
-did not commit to.
+under the same conditions, and write nothing). Otherwise it refuses. After
+an M1 refusal it runs stage 4a and writes the rejection marker. After an M0
+or M2 refusal it writes nothing: no decision record (stage 4a is skipped),
+no marker, no kind 15 record. No policy verdict is signed for any 4m
+refusal: the gate never signs a verdict under a mandate the agent did not
+commit to.
 
 Reasoning. After a mandate version bump, in-flight decisions carry the old
 hash and are refused; the agent re-signs under the new hash (same payload
 reference, new nonce). The stored-retry check keeps the crash-liveness of a
 decision that was already authorized before the bump.
+
+Threat note (M0). The agent signed `mandate_ref`, which says "I act under
+this mandate". A gate without a mandate (the mandate dropped from the
+configuration, or a library gate) would otherwise authorize the decision
+with no verdict, and every such decision would verify `valid` while the
+principal's limits were never applied. M0 refuses it at the gate; the
+verifier requires the `policy` check whenever the envelope has
+`mandate_ref` (section 20.5), so an Authorization from a gate that skipped
+M0 is never `valid` without an allow verdict. An agent that acts with no
+mandate omits key 14.
+
+Threat note (no record after M0 or M2). The decision record takes its form
+from the mandate in force (section 19.2), not from the mandate the agent
+named. Under M0 or M2 the two differ: the agent may have committed under a
+private mandate (its action bytes and salt meant to stay encrypted to that
+mandate's auditors) while the gate has none, a public one, or a private one
+with other auditors. A form 1 record would publish the action bytes and the
+salt that unblinds the public `action_hash` in the shared archive; a form 2
+record would encrypt them to auditors the principal never chose. This
+happens in practice: a switch from private to public mode needs a new
+`mandate_id` (policy 6.3), so every in-flight decision under the old mandate
+meets M2. So nothing is written. Cost: the refusal leaves no audit trail in
+the archive; the caller still receives the sentinel, and the agent re-signs
+under the mandate in force. M1 keeps its record: a commitment without key 14
+named no mandate, so the form of the mandate in force is the only one there
+is.
 
 ### 8.9 Configuration
 
@@ -1619,7 +1649,7 @@ data. `PFF_NS` is go-square `PayForFibreNamespace`, `0x00 || 0^27 || 0x05`
 | NA2 DAH | The DAH (row roots and column roots) comes from a bridge (`header.GetByHeight(height)`, field `dah`; the returned header's height MUST equal `height`, AH1) or from any other source. It is accepted iff upstream `DataAvailabilityHeader.ValidateBasic` passes (as many row roots as column roots, each count from 2 to 1024) and `Hash()`, the RFC 6962 root over `row_roots \|\| column_roots`, equals `data_hash` of NA1. | `ErrChainUnavailable` |
 | NA3 Namespace data | `share.GetNamespaceData(height, PFF_NS)` from a bridge. Accepted iff upstream `NamespaceData.Verify(dah, PFF_NS)` passes (celestia-node at the pin, nmt `v0.24.5`): with `R` the rows, ascending, whose row root's namespace range `[min, max]` contains `PFF_NS` (`RowsWithNamespace`; parity rows never qualify), the answer has exactly `len(R)` entries, and entry `j` is a complete NMT namespace proof against `row_roots[R[j]]`: an inclusion proof with the row's shares of the namespace, or an absence proof without shares. `VerifyNamespace` checks the leaf namespaces, the range and completeness (no leaf of the namespace left or right of the range). `R` empty with no entries is a valid proof that the block holds no PFF. The gate bounds the bytes it reads per answer (`fibre_anchor_read_max_bytes`, configuration, default 16 MiB); a larger answer fails. | `ErrChainUnavailable` |
 | NA4 Reassembly | `S` = the shares of all entries, in order. If `S` is empty, `T` is empty. Otherwise `T = ParseTxs(S)` (go-square compact-share parsing), and splitting `T` again with `NewCompactShareSplitter(PFF_NS, 0)` MUST give exactly `S` (same count, every share byte-equal). | `ErrChainUnavailable` |
-| NA5 Candidates | A tx of `T` is a candidate iff upstream `fibretypes.TryParseFibreTx` (`APP/x/fibre/types/classified_tx.go`) classifies it as a Fibre tx and its single `MsgPayForFibre` carries a `PaymentPromise` with `namespace == payload_ref.namespace`, `commitment == payload_ref.commitment`, `blob_version == 0`, `chain_id` equal to the gate's configured chain id, and `PaymentPromise.height <= height` (equality allowed). Any other tx of `T` is not a candidate. | - |
+| NA5 Candidates | A tx of `T` is a candidate iff upstream `fibretypes.TryParseFibreTx` (`APP/x/fibre/types/classified_tx.go`) classifies it as a Fibre tx and its single `MsgPayForFibre` carries a `PaymentPromise` with `namespace == payload_ref.namespace`, `commitment == payload_ref.commitment`, `blob_version == 0`, `chain_id` equal to the gate's configured chain id, and `PaymentPromise.height <= height` (equality allowed). Any other tx of `T` is not a candidate, including one whose message or promise does not decode: at the gate that can only end in `ErrAnchorNotFound` (a refusal, the safe direction). An absence proof treats such a unit as "not proven" instead (section 20.8 AB4). | - |
 | NA6 Code | The result code of a candidate `x` comes from the consensus endpoint's gRPC `cosmos.tx.v1beta1.Service/GetTx` with the hash `SHA-256(x)` (upper-case hex). It is used only if `tx_response.height == height` and `tx_response.txhash` is that hash (AH1). Settlement level `node-attested` (section 10.6.1). | Error, not found, or another height: `ErrChainUnavailable` |
 | NA7 Selection | Candidates are taken in order of `creation_timestamp`, then of position in `T`. The anchor is the first whose code (NA6) is 0. A candidate whose code cannot be read stops the lookup if no candidate before it had code 0: it may be the anchor. | No candidate, or every candidate has a non-zero code: `ErrAnchorNotFound` |
 
@@ -3625,8 +3655,8 @@ Verdicts (the sentinels of stages 4m and 5 to 12 in section 8.7):
 `ErrDACommitmentMismatch`, `ErrExpired`, `ErrIssuedBeforeAnchor`,
 `ErrNonceUsed`, `ErrNotYetValid`, `ErrPayloadHashMismatch`,
 `ErrPayloadSizeMismatch`, `ErrPayloadUnavailable`,
-`ErrRetentionUnavailable`, `ErrMandateRefMissing`, `ErrMandateMismatch`
-(stage 4m), `ErrAnchorIntentInvalid`, `ErrCertInvalid`, `ErrH0TooOld`,
+`ErrRetentionUnavailable`, `ErrMandateRefMissing` (stage 4m, M1),
+`ErrAnchorIntentInvalid`, `ErrCertInvalid`, `ErrH0TooOld`,
 `ErrAnchorWindowClosed` (stage 6, K-fast), and the policy deny names of
 `spec/policy-v1.md` section 12.3 (with `ErrFastModeNotAllowed` and, in
 private mode only, `ErrDenied`). For an error that matches several (for
@@ -3649,7 +3679,7 @@ Anchor intent, absence proof, private blob, decision and execution reveal
 | 13 | `anchor_intent` | 3: `da` uint {1, 2}; 4: `commitment` bstr 32; 5: `namespace` bstr 29; 6: `ref_height` uint > 0; 7: `tx` bstr 1..65536; 8: `signer` bstr 20 (R iff `da = 2`, else not defined); 9: `created_at` uint > 0 (Fibre: `floor(creation_timestamp)`; blob: the Recorder clock) | `(da, commitment, ref_height)` | `intent/<da>/<commitment hex>/<ref_height>` | 65,600 | whole record | Recorder, before broadcast |
 | 14 | `absence_proof` | 3: `da` uint {1, 2}; 4: `commitment` bstr 32; 5: `namespace` bstr 29; 6: `height` uint > 0; 7: `header` bstr `1..2^22` (SignedHeader at `height`); 8: `dah` bstr `1..2^22` (proto DAH); 9: `namespace_data` bstr `0..2^24` (shwap `NamespaceData.WriteTo` of `NS`, section 20.8; empty when no row holds `NS`); ? 10: `results` bstr `1..2^22` (block results of `height`: the JSON `result` object of CometBFT `/block_results?height=<height>`, of which only `txs_results[]` `code`, `data`, `gas_wanted`, `gas_used` are read (AB5); `da = 1` only, present iff a candidate exists); ? 11: `next_header` bstr `1..2^22` (SignedHeader at `height + 1`; present iff 10 is) | `(da, commitment, height)` | `absence/<da>/<commitment hex>/<height>` | 16,777,216 | the key (first write stays) | an auditor's tool or a gate sweep after the deadline; never required for `valid` |
 | 15 | `private_blob` | 3: `plaintext_kind` uint {1 mandate, 2 bucket, 3 closed_set, 4 private_part, 5 action}; 4: `hash` bstr 32; 5: `envelope` bstr `1..65536` for plaintext kinds 1 to 4 (`ErrFieldSize` above), `1..69632` for kind 5 (policy 9.5) | `(plaintext_kind, hash)` | `private/<plaintext_kind>/<hash hex>` | 69,760 | the key (first write stays) | gate (adoption, stage 4a, stage 13) |
-| 17 | `decision` | 3: `envelope` bstr `1..2176` (strict decoding, `version = 1`); 4: `form` uint {1 public, 2 private}; 5: `action` bstr `1..65536`, exactly as presented (R iff `form = 1`, else not defined); 6: `action_salt` bstr 32, exactly as presented (R iff `form = 1`, else not defined) | `commitment_hash` (from `envelope`) | `decision/<commitment_hash hex>` | 69,632 | whole record | gate, stage 4a (also after a 4m refusal or a 4p deny) |
+| 17 | `decision` | 3: `envelope` bstr `1..2176` (strict decoding, `version = 1`); 4: `form` uint {1 public, 2 private}; 5: `action` bstr `1..65536`, exactly as presented (R iff `form = 1`, else not defined); 6: `action_salt` bstr 32, exactly as presented (R iff `form = 1`, else not defined) | `commitment_hash` (from `envelope`) | `decision/<commitment_hash hex>` | 69,632 | whole record | gate, stage 4a (also after an M1 refusal or a 4p deny; never after an M0 or M2 refusal) |
 | 18 | `execution_reveal` | 3: `signed_receipt` bstr `1..512` (section 14.2 stages D and S); 4: `action_salt` bstr 32 | `commitment_hash` (receipt key 2) | `reveal/<commitment_hash hex>` | 640 | whole record | gate, after `Record` attached the receipt (19.7) |
 
 Heights in paths are decimal without leading zeros. Encodings of `header`,
@@ -3686,7 +3716,12 @@ as corrupt.
 
 Form (kind 17). `form = 2` iff the mandate in force at stage 4a has
 `auditors`; otherwise `form = 1`. The gate never writes `form = 1` in
-private mode. Form 1 holds the salt in clear (public
+private mode. The form follows the mandate in force only when the agent
+named that mandate or none: after an M0 or M2 refusal (the commitment names
+a mandate other than the one in force, or names one at a gate without a
+mandate) no kind 17 or kind 15 record is written (section 8.8), because
+either form could reveal or misdirect the action of a decision committed
+under another, possibly private, mandate. Form 1 holds the salt in clear (public
 mode: the salt hides nothing the bytes beside it do not show).
 
 Identity reasoning. Kind 13 is the whole record: two different intents
@@ -4262,6 +4297,14 @@ Fast mode needs consent, so an Authorization with `mode = 2` makes the
 (`policy_verdict_unavailable`) and the decision is never `valid`. This is
 the verifier side of "fast mode only with consent" (invariant 9).
 
+The same holds for a verified envelope with `mandate_ref` (key 14), in
+either mode: the agent signed that a mandate applies, so the `policy` check
+is required, and without a `policy_allow` record the decision is `unchecked`
+(`policy_verdict_unavailable`, exit 2), never `valid`. This is the verifier
+side of M0 (section 8.8): a gate that authorized such a decision without a
+mandate is caught even when the auditor did not set `RequirePolicy`. Vector:
+`policy/verify.json` `mandate_ref_without_verdict`.
+
 ### 20.6 The `anchor` check for a pending reference
 
 `h0 = payload_ref.height`; `D = anchor_deadline` of the verified
@@ -4326,7 +4369,7 @@ Verification. The first failing rule decides; a failure is a source problem
 | AB1 | `header(h)` has height `h` and its recomputed hash equals the hash header trust reached at `h` (HT3, one chain from `T >= D` serving every height of the window). |
 | AB2 | `dah(h)` passes `ValidateBasic` and its `Hash()` equals `data_hash` of `header(h)` (NA2). |
 | AB3 | `namespace_data` passes `NamespaceData.Verify(dah, NS)` (NA3, nmt `v0.24.5`, completeness included): with `R` the original rows whose root range contains `NS`, exactly `len(R)` entries, each a complete NMT namespace proof against `row_roots[R[j]]`. `R` empty with no entries is a valid proof. |
-| AB4 (`da = 1`) | `S` = all shares of the entries, in order. `S` empty: **absent at `h`**. Else NA4 reassembly (`ParseTxs`; re-split equals `S`) and NA5 candidates with `promise.height <= h` (same namespace, commitment, `blob_version = 0`, expected `chain_id`). No candidate: **absent at `h`**. Threat note: a candidate with `promise.height < h0` (another party re-anchoring the same blob inside the window under an older promise) is a candidate like any other; if it settles, `anchor_absent` is unreachable for the window. Safe direction: the blob is then published. |
+| AB4 (`da = 1`) | `S` = all shares of the entries, in order. `S` empty: **absent at `h`**. Else NA4 reassembly (`ParseTxs`; re-split equals `S`). Every unit MUST decode as CV1 reads a PFF tx (`TxRaw`, `TxBody` with exactly one message, type URL `/celestia.fibre.v1.MsgPayForFibre`, `MsgPayForFibre`, `PaymentPromise` with a 29-byte namespace and a 32-byte commitment); a unit that does not, whether or not upstream `TryParseFibreTx` classifies it as Fibre, makes the height **not proven**, at any app version. Then NA5 candidates with `promise.height <= h` (same namespace, commitment, `blob_version = 0`, expected `chain_id`). No candidate: **absent at `h`** when the trusted `header(h)` has `version.app` equal to the pinned `appconsts.Version` (10); at any other app version, not proven. Threat note (undecodable units, other app versions): at the pinned version every `PFF_NS` unit is a Fibre tx that `ClassifyTxs` accepted (section 23.1), so a unit this decoder refuses means another encoding (a chain upgrade) or a decoder stricter than upstream; reading it as "not a candidate" could hide the real anchor and give a false `anchor_absent`, the direction that is not fail-safe. For the same reason units without a candidate prove nothing at another app version. The gate's NA5 may still skip such a unit: there it can only lead to `ErrAnchorNotFound` or another refusal, the safe direction. Threat note: a candidate with `promise.height < h0` (another party re-anchoring the same blob inside the window under an older promise) is a candidate like any other; if it settles, `anchor_absent` is unreachable for the window. Safe direction: the blob is then published. |
 | AB5 (`da = 1`, candidates) | For every candidate the result code is proven: `results(h)` hash to `last_results_hash` of `header(h + 1)`, which header trust ties to the chain, and the result at the candidate's index has `code != 0`. Results proof: read `txs_results[]` of `results(h)` and only its `code` (number), `data` (base64), `gas_wanted`, `gas_used` (decimal strings, int64); the leaf of result `i` is the protobuf of `ExecTxResult` with only field 1 `code` (varint uint32), 2 `data` (bytes), 5 `gas_wanted`, 6 `gas_used` (varint int64, a negative value as 64-bit two's complement), in this order, a zero or empty field omitted (gogoproto `Marshal` of the deterministic fields of CometBFT `types.NewResults`); the root is CometBFT `merkle.HashFromByteSlices` (RFC 6962) over the leaves and MUST equal `last_results_hash` of `header(h + 1)` (the state after block `h` stores the hash of block `h`'s results, and the header of `h + 1` carries it). These are the rules RP1, RP3, RP4 of the bank-send profile, restated so that the core does not depend on a profile. With `n` results and `p` units reassembled from `PFF_NS` at `h` (AB4), `n >= p >= 1` MUST hold, else the height is not proven. When the trusted `header(h)` has `version.app` equal to the pinned `appconsts.Version` (10), the index is bound by the tail rule only: with `j` the candidate's position among the `p` units, the index is `n - p + j`; there is no uniform-code path at the pinned version. For any other app version only uniform codes apply, and only in the safe direction: every result code 0 proves the anchor **present at `h`**; any other pattern (all nonzero, or mixed) is not proven. Threat note: a block of another app version may follow other square rules, so it can never yield "absent" (fail-closed against a false `anchor_absent`); "every code 0" is safe whatever the index, because the root fixes every result. Why the tail rule binds: go-square `Construct` refuses a normal or blob tx after a Fibre tx (`validateTxOrdering`), so the Fibre txs are the last `p'` elements of `data.txs`; it appends each Fibre tx, in block order, as one unit of the `PFF_NS` compact sequence, so `p' = p` and the order is the same; the block has one result per tx (celestia-core `FinalizeBlock`, VERIFIED in the bank-send rail facts). The proof needs neither `data.txs` nor a square rebuild. Threat note: a wrong binding is not fail-safe (it could read another tx's nonzero code and give a false `anchor_absent`), so the rule is limited to the pinned app version; it is VERIFIED at the pins by code and on live Mocha blocks (section 23.1). Assumption: the block was accepted by validators running `ProcessProposal` of the pinned app (the >2/3 honest assumption of section 1), which refuses any block whose `data.txs` do not rebuild the square under these rules. Every candidate proven nonzero: **absent at `h`**. A candidate with proven code 0: the anchor **is present at `h`**. Any candidate whose code is not proven: not proven. |
 | AB6 (`da = 2`) | `S` empty: **absent at `h`**. Else `ParseBlobs(S)` (go-square sparse shares). For each blob of share version 1, `CreateCommitment(blob, RFC 6962 root, 64)`; a blob whose commitment equals `payload_ref.commitment` and whose signer equals `payload_ref.signer` **is present at `h`**; none: **absent at `h`**. Shares that do not parse: not proven. |
 
@@ -4443,7 +4486,9 @@ Threat notes:
   only inside kind 15 `(5, ...)`, encrypted to the mandate's auditors. A
   record of the other form than the mandate's is a privacy loss for that
   record, never a verification change: the verifier reads whichever form it
-  finds.
+  finds. The gate never writes a record for a decision whose `mandate_ref`
+  names another mandate than the one in force (section 8.8, M0 and M2), so
+  that case cannot arise from an honest gate.
 - On a public rail in private mode the on-chain tx gives the bytes but not
   the salt; without a reveal it cannot be tied to `action_hash`, so the
   keyless verifier stays `unchecked` (`policy_private`). Denied or never
@@ -4564,7 +4609,7 @@ noted; statuses in section 18.3):
 | `ErrAnchorPending` | 1 (C5a) | pending reference at a gate whose `FastMode` is off or that has no mandate | `api/errors.json` examples |
 | `ErrNamespaceNotAllowed` | 1 (C5b) | pending reference whose namespace is not in `PendingNamespaces` | none (gate configuration) |
 | `ErrMandateRefMissing` | 4m (M1) | mandate configured, commitment without key 14 | `v1/archive.json` markers |
-| `ErrMandateMismatch` | 4m (M2) | key 14 differs from the hash of the mandate in force | `v1/archive.json` `rejection_ErrMandateMismatch` |
+| `ErrMandateMismatch` | 4m (M0, M2) | key 14 present at a gate without a mandate (M0), or differs from the hash of the mandate in force (M2); writes no decision record and no marker | `v1/stage4m.json`; `api/errors.json` `authorize_mandate_ref_without_mandate`; `v1/archive.json` reject `rejection_mandate_mismatch_not_a_marker` |
 | `ErrAnchorIntentUnavailable` | 6 (F1, B1) | no intent record for `(da, commitment, h0)` yet, or the archive failed (operational) | none (stateful) |
 | `ErrAnchorIntentInvalid` | 6 (F2, B2) | the intent does not decode, names other values than the reference, or is not a PFF/PFB for exactly this blob | none (stateful) |
 | `ErrCertInvalid` | 6 (F4) | the Fibre certificate fails CV4 to CV7 | `da/fibre_cert.json` |
@@ -4644,7 +4689,7 @@ hand-written strict CBOR in `cbor_strict.py`), all in `spec/vectors/check/`:
 | `gen_vectors.py` | Writes the core set: `v1/valid.json`, `reject.json`, `authorization.json`, `receipt.json`, `record_request.json`, `payload.json`, `limits.json`, `anchor.json`, `action.json`, `gate.json`, and `keys.json`; `v1/payload_blob.json` through `gen_payload_blob.py`. Rules module `edicta.py` (with `edicta_payload.py`, `edicta_publish.py`). |
 | `check_vectors.py [--core-only]` | Checks the core set with its own implementation, written apart from the generator (literal tag bytes, own preimages), then runs every other checker below, then prints one line with the revision of every live vector file. Exit 0 when everything passes. |
 | `gen_archive.py` / `check_archive.py` | `archive/records.json`, `archive/state.json` (rules module `archive.py`). |
-| `gen_archive_v1.py` / `check_archive_v1.py` | `v1/archive.json`, `v1/verify.json`. |
+| `gen_archive_v1.py` / `check_archive_v1.py` | `v1/archive.json`, `v1/verify.json`, `v1/stage4m.json`. |
 | `gen_absence.py` / `check_absence.py` | `da/absence.json`. |
 | `gen_api_vectors.py` / `check_api_vectors.py` | `api/publish_request.json`. |
 | `gen_api_errors.py` / `check_api_errors.py` | `api/errors.json`; the checker also parses sections 21 and 18.3 of this document. |
@@ -4696,6 +4741,7 @@ an action carries `action_salt_hex`.
 | `v1/gate.json` | Section 8.9 configuration: `defaults` and cases with `config`, `mandate` and `expect` (`ok`, or `ErrInvalidConfig` with its cause). |
 | `v1/archive.json` | Section 19: kinds 13, 14 (synthetic proof parts; the record layer does not verify them), 15 (the bytes of `policy/private.json`), 17 (both forms), 18, Authorization records with K2 input key 9, rejection markers. `reject` (per-kind presence, sizes, `kind_3_unassigned`, `kind_6_reserved`, `kind_16_reserved`, `kind_19_undefined`, `format_0_decision`), `reject_large`, `reads` (key mismatches). |
 | `v1/verify.json` | Section 20.5 to 20.11 on synthetic records: `cases` (fast-mode anchor, absence, A1 and A2, replay with `fast_window`) and `action_cases` (both forms, private blob, reveal, salt comparison, `payload_o8_fails_before_salt_compare`, `decision_record_corrupt`). Evidence and absence are given as verification results per height; their bytes are in `da/absence.json` and the `da/` evidence vectors. |
+| `v1/stage4m.json` | Section 8.8: per gate mandate (none, public, private; the one the agent named or another) and per commitment (with or without `mandate_ref`), the stage 4m rule, the result, and the archive writes after it in order (kind 15 action, kind 17 form, kind 5 marker). M0 and M2 write nothing. |
 | `archive/records.json`, `archive/state.json` | Section 19: kinds 1, 2, 4, 5, 17 in format 1, rejects (among them `rec_format_0`, `rec_format_2`, `rec_kind_3`, `rec_kind_6`, `rec_kind_19`, and the evidence record with the unassigned key 18), the write scenarios of 19.4 and the record state of 19.5. Opaque Celestia fields are stand-ins (`placeholder`), except the live `da = 1` records. |
 | `api/publish_request.json` | Section 17: `tag`, `server`, `cases`, `reject` (stages D, S, G, PR), `response`. |
 | `api/errors.json` | Section 18: `statuses`, `errors` in match order (`code`, `status`, `retryable`, `stored`, `endpoints`, `rules`), `not_api_visible` (every other name of section 21 with its reason), `examples` with refs into the core vectors. |

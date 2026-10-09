@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.5",
+  "revision": "v1-draft.6",
   "generator": "spec/vectors/check/gen_archive.py",
   "refs": {
     "core": "spec/vectors/v1",
@@ -49,7 +49,6 @@
       "ErrFastModeNotAllowed",
       "ErrH0TooOld",
       "ErrIssuedBeforeAnchor",
-      "ErrMandateMismatch",
       "ErrMandateRefMissing",
       "ErrNonceUsed",
       "ErrNotYetValid",

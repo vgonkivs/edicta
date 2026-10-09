@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.5",
+  "revision": "v1-draft.6",
   "generator": "spec/vectors/check/gen_archive_v1.py",
   "description": "Archive records of format 1, kinds 13, 14, 15, 17, 18 and the Authorization with K2 input key 9.",
   "kinds": {
@@ -44,7 +44,6 @@
     "ErrFastModeNotAllowed",
     "ErrH0TooOld",
     "ErrIssuedBeforeAnchor",
-    "ErrMandateMismatch",
     "ErrMandateRefMissing",
     "ErrNonceUsed",
     "ErrNotYetValid",
@@ -322,18 +321,18 @@
       "record_cbor_hex": "a4010102120359014ba201a80101025820946fb7305a4946881f8e1a7693ab6f3dc9ed500ee9db61557e1897aef2c4c72b036c676174652d70617065722d31045820fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802506784061616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161081a6ac07dfe095820ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf0a5840422719bc7e91bab54ffa8206a42038a5905e03474c10bc8afcd4d845f574ccafc92a66d94ea20935bcb06dc859d0d667ff2e69c71bda94673616b80c8c72dd070258403455043333c6f5a66a3cb4b0d1a075b80a88a96797f37e703c036f442208dc64777c149b9ae0132ec5aa29f4926d15c8eb98dbe68380b5add46a47e04b3e090e0458206797376f79439dce644f685db59e0d871c6df31270143f7c62a710c53f6f3ae2"
     },
     {
-      "id": "rejection_ErrMandateMismatch",
-      "description": "Rejection marker ErrMandateMismatch.",
+      "id": "rejection_ErrMandateRefMissing",
+      "description": "Rejection marker ErrMandateRefMissing.",
       "kind": "5",
-      "path": "rejection/946fb7305a4946881f8e1a7693ab6f3dc9ed500ee9db61557e1897aef2c4c72b/ErrMandateMismatch",
+      "path": "rejection/946fb7305a4946881f8e1a7693ab6f3dc9ed500ee9db61557e1897aef2c4c72b/ErrMandateRefMissing",
       "input": {
         "kind": "5",
         "commitment_hash": "946fb7305a4946881f8e1a7693ab6f3dc9ed500ee9db61557e1897aef2c4c72b",
-        "error": "ErrMandateMismatch",
+        "error": "ErrMandateRefMissing",
         "gate_id": "gate-paper-1",
         "rejected_at": "1791000060"
       },
-      "record_cbor_hex": "a601010205035820946fb7305a4946881f8e1a7693ab6f3dc9ed500ee9db61557e1897aef2c4c72b04724572724d616e646174654d69736d61746368056c676174652d70617065722d31061a6ac07dfc"
+      "record_cbor_hex": "a601010205035820946fb7305a4946881f8e1a7693ab6f3dc9ed500ee9db61557e1897aef2c4c72b04744572724d616e646174655265664d697373696e67056c676174652d70617065722d31061a6ac07dfc"
     },
     {
       "id": "rejection_ErrH0TooOld",
@@ -586,6 +585,13 @@
       "id": "rejection_not_a_marker",
       "description": "Kind 5 with ErrAnchorPending: a stage 1 refusal, never a marker.",
       "record_cbor_hex": "a601010205035820946fb7305a4946881f8e1a7693ab6f3dc9ed500ee9db61557e1897aef2c4c72b0470457272416e63686f7250656e64696e67056c676174652d70617065722d31061a6ac07dfc",
+      "expect_error": "archive.ErrCorrupt",
+      "cause": "ErrInvalidEnum"
+    },
+    {
+      "id": "rejection_mandate_mismatch_not_a_marker",
+      "description": "Kind 5 with ErrMandateMismatch: an M0 or M2 refusal writes no decision record and so no marker (core 8.8).",
+      "record_cbor_hex": "a601010205035820946fb7305a4946881f8e1a7693ab6f3dc9ed500ee9db61557e1897aef2c4c72b04724572724d616e646174654d69736d61746368056c676174652d70617065722d31061a6ac07dfc",
       "expect_error": "archive.ErrCorrupt",
       "cause": "ErrInvalidEnum"
     },

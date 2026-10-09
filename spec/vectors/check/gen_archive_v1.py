@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/v1/archive.json and spec/vectors/v1/verify.json (v1-draft.5). Deterministic.
+"""Writes spec/vectors/v1/archive.json, verify.json and stage4m.json (v1-draft.6). Deterministic.
 
 Archive format 1 records of kinds 13, 14 (small synthetic proof parts: the
 record layer never verifies them; da/absence.json carries real ones), 15
@@ -9,6 +9,8 @@ authorization, anchor, retention_replay, decision and action checks from
 archived records plus abstract evidence and absence results (whose bytes are
 vectored in the core files and in da/absence.json). spec/vectors/archive/
 (gen_archive.py) covers the payload, evidence and rejection kinds.
+stage4m.json gives the gate's stage 4m outcome (core 8.8) and the archive
+writes that follow it, per gate mandate and commitment mandate_ref.
 
 Usage: python3 spec/vectors/check/gen_archive_v1.py [--out DIR]
 """
@@ -33,7 +35,7 @@ VECTORS = Path(__file__).resolve().parent.parent
 OUT = VECTORS / "v1"
 if "--out" in sys.argv:
     OUT = Path(sys.argv[sys.argv.index("--out") + 1]).resolve()
-FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.5"
+FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.6"
 T0, NOW = gv.T0, gv.NOW
 WINDOW = 3
 T_REF = T0 - 12
@@ -166,7 +168,7 @@ def records() -> dict:
     out["reveal_pending_fibre_wrong_salt"] = (
         {"kind": 18, "signed_receipt": receipt_bytes(PF, "a" * 64), "action_salt": bytes([pf_salt[0] ^ 1]) + pf_salt[1:]},
         "A reveal whose salt has one bit flipped: decodes; the verifier's reveal path finds it corrupt.")
-    for err in ("ErrMandateMismatch", "ErrH0TooOld", "ErrAnchorWindowClosed", "ErrFastModeNotAllowed"):
+    for err in ("ErrMandateRefMissing", "ErrH0TooOld", "ErrAnchorWindowClosed", "ErrFastModeNotAllowed"):
         out[f"rejection_{err}"] = ({"kind": 5, "commitment_hash": E.commitment_hash(gv.VALID[PF][1]),
                                     "error": err, "gate_id": gv.GID, "rejected_at": NOW},
                                    f"Rejection marker {err}.")
@@ -248,6 +250,8 @@ def archive_vectors() -> tuple:
          mut("reveal_pending_fibre", k3=b"\xa0")),
         ("rejection_not_a_marker", "Kind 5 with ErrAnchorPending: a stage 1 refusal, never a marker.",
          mut("rejection_ErrH0TooOld", k4="ErrAnchorPending")),
+        ("rejection_mandate_mismatch_not_a_marker", "Kind 5 with ErrMandateMismatch: an M0 or M2 refusal writes no "
+         "decision record and so no marker (core 8.8).", mut("rejection_ErrH0TooOld", k4="ErrMandateMismatch")),
         ("kind_16_reserved", "Kind 16 (reserved for the batch record): undefined.", encode({1: 1, 2: 16, 3: b"\x01"})),
         ("kind_6_reserved", "Kind 6 stays undefined.", encode({1: 1, 2: 6, 3: b"\x01"})),
         ("kind_19_undefined", "Kind 19: undefined.", encode({1: 1, 2: 19, 3: b"\x01"})),
@@ -529,10 +533,83 @@ def action_cases(allrec: dict) -> list:
     return out
 
 
+def stage4m_outcome(gate_mandate: dict | None, ref: bytes | None, stored_same: bool) -> dict:
+    """Core 8.8: the stage 4m result and the archive writes the gate makes after it."""
+    if gate_mandate is None:
+        rule = "M0" if ref is not None else None
+    elif ref is None:
+        rule = "M1"
+    else:
+        rule = "M2" if ref != gate_mandate["hash"] else None
+    if rule is None:
+        return {"rule": "none", "result": "continue", "next_stage": "4a" if gate_mandate is None else "4p",
+                "verdict_signed": False, "writes": []}
+    err = "ErrMandateRefMissing" if rule == "M1" else "ErrMandateMismatch"
+    if stored_same:
+        return {"rule": rule, "result": "ErrNonceUsed", "stored_authorization": True, "verdict_signed": False,
+                "writes": []}
+    writes = []
+    if rule == "M1":
+        writes = (["private_blob_action", "decision_form_2"] if gate_mandate["auditors"] else ["decision_form_1"])
+        writes.append("marker:" + err)
+    return {"rule": rule, "result": err, "verdict_signed": False, "writes": writes}
+
+
+def stage4m_vectors() -> dict:
+    m_full = gv.mandate_ref()
+    other = hashlib.sha256(b"edicta/v1 test other mandate in force").digest()
+    mandates = {"m_full": m_full, "other": other}
+    cases = []
+
+    def case(cid, desc, gate, commitment, stored_same=False):
+        gm = None if gate is None else {"hash": mandates[gate[0]], "auditors": gate[1]}
+        ref = gv.VALID[commitment][0].get("mandate_ref")
+        c = {"id": cid, "description": desc,
+             "gate_mandate": None if gate is None else {"mandate": gate[0], "auditors": gate[1]},
+             "commitment_ref": commitment, "stored_entry_same_commitment": stored_same,
+             "expect": stage4m_outcome(gm, ref, stored_same)}
+        cases.append(c)
+
+    case("no_mandate_no_ref", "Gate without a mandate, commitment without key 14: stage 4m passes; 4p and 10p do "
+         "not exist, stage 4a writes form 1.", None, "v1_minimal_included_blob")
+    case("m0_no_mandate_with_ref", "Gate without a mandate (dropped from its configuration), commitment naming "
+         "m_full: M0 refuses; nothing is written, no verdict.", None, "v1_mandate_ref")
+    case("m0_stored_retry", "As m0_no_mandate_with_ref, but the nonce entry holds this commitment (authorized "
+         "before the mandate was dropped): the stored Authorization with ErrNonceUsed, nothing written.",
+         None, "v1_mandate_ref", True)
+    case("m1_public_no_ref", "Public mandate in force, commitment without key 14: M1; the commitment named no "
+         "mandate, so stage 4a writes form 1 and the marker.", ("m_full", False), "v1_minimal_included_blob")
+    case("m1_private_no_ref", "Private mandate in force, commitment without key 14: M1; stage 4a writes the "
+         "kind 15 action record, then form 2, then the marker.", ("m_full", True), "v1_minimal_included_blob")
+    case("m2_public_gate_other_ref", "Public mandate in force (another mandate_hash), commitment naming m_full "
+         "(for example a private mandate before a switch to public mode): M2; no decision record, no kind 15, no "
+         "marker, so the action bytes and the salt are never written in clear.", ("other", False), "v1_mandate_ref")
+    case("m2_private_gate_other_ref", "Private mandate in force with its own auditors, commitment naming m_full: "
+         "M2; nothing is encrypted to auditors the agent's principal did not choose, nothing is written.",
+         ("other", True), "v1_mandate_ref")
+    case("m2_stored_retry", "M2 on a commitment whose nonce entry holds it: the stored Authorization with "
+         "ErrNonceUsed, nothing written.", ("other", False), "v1_mandate_ref", True)
+    case("equal_ref_public", "mandate_ref equals the mandate in force: stage 4p runs next.", ("m_full", False),
+         "v1_mandate_ref")
+    case("equal_ref_private", "mandate_ref equals the private mandate in force: stage 4p runs next (stage 4a "
+         "later writes form 2).", ("m_full", True), "v1_mandate_ref")
+    return {"format": FORMAT, "revision": REVISION, "generator": "spec/vectors/check/gen_archive_v1.py",
+            "description": "Gate stage 4m (core 8.8) and the archive writes after it. gate_mandate: null (no mandate) "
+            "or the mandate in force (its name in mandates, auditors true for private mode). commitment_ref: a case "
+            "of v1/valid.json; its key 14 is the agent's mandate_ref. stored_entry_same_commitment: the nonce entry "
+            "of (agent_pubkey, nonce) holds this commitment_hash (the stored-retry check). expect.writes in order: "
+            "private_blob_action (kind 15 (5, action_hash)), decision_form_1 or decision_form_2 (kind 17), "
+            "marker:<name> (kind 5). No case signs a policy verdict.",
+            "mandates": {k: v.hex() for k, v in mandates.items()},
+            "mandate_sources": {"m_full": "spec/vectors/policy/mandate.json case m_full (mandate_hash)",
+                                "other": "placeholder: SHA-256(\"edicta/v1 test other mandate in force\")"},
+            "cases": cases}
+
+
 def build() -> dict:
     gv.build()
     arch, by_name = archive_vectors()
-    return {"archive.json": arch, "verify.json": verify_vectors(by_name)}
+    return {"archive.json": arch, "verify.json": verify_vectors(by_name), "stage4m.json": stage4m_vectors()}
 
 
 def main():

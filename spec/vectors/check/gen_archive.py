@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates spec/vectors/archive/records.json and state.json (v1-draft.5): archive records of
+"""Generates spec/vectors/archive/records.json and state.json (v1-draft.6): archive records of
 format 1 for the payload, evidence, decision, Authorization and rejection kinds. Deterministic.
 
 Decisions, Authorizations and payloads are real vector data from the core set (v1/valid.json,
@@ -39,7 +39,7 @@ def arg(name: str, default: Path) -> Path:
 CORE = arg("--core", VECTORS / "v1")
 OUT = arg("--out", VECTORS / "archive")
 FORMAT = "edicta-vectors/v1"
-REVISION = "v1-draft.5"
+REVISION = "v1-draft.6"
 GENERATOR = "spec/vectors/check/gen_archive.py"
 INLINE_MAX = 1024
 RECORD_INLINE_MAX = 4096

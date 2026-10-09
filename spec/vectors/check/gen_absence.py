@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/da/absence.json (v1-draft.4, core v1 section 10.4). Deterministic.
+"""Writes spec/vectors/da/absence.json (v1-draft.6, core v1 sections 10.4 and 20.8). Deterministic.
 
 Synthetic absence proofs over one synthetic chain: blocks whose squares are
 built here (compact shares, NMT rows and their namespace proofs, the DAH,
@@ -42,7 +42,7 @@ if "--out" in sys.argv:
 LIVE_FILE = None
 if "--live" in sys.argv:
     LIVE_FILE = Path(sys.argv[sys.argv.index("--live") + 1]).resolve()
-FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.5"
+FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.6"
 LIVE_KEYS = ("live", "live_source", "live_tail_rule")
 
 
@@ -352,7 +352,14 @@ def results_leaf(code: int, gas_used: int) -> bytes:
 
 # ---- the chain ----
 
-def build_chain(query: dict, app_at: dict | None = None, codes_at: dict | None = None) -> dict:
+def undecodable_pff_tx(label: str) -> bytes:
+    """A unit with the MsgPayForFibre type URL whose message is cut inside the promise: it does not decode."""
+    msg = plen(1, bech32("celestia", stream(f"{label}/signer", 20)).encode()) + plen(2, stream(f"{label}/promise", 120))
+    return tx_raw([plen(1, PFF_URL) + plen(2, msg[:-20])], label)
+
+
+def build_chain(query: dict, app_at: dict | None = None, codes_at: dict | None = None,
+                undecodable_c: bool = False) -> dict:
     ns, cm = query["namespace"], query["commitment"]
     h0 = BASE + 1
     other_cm = sha(b"another commitment")
@@ -375,6 +382,8 @@ def build_chain(query: dict, app_at: dict | None = None, codes_at: dict | None =
     c_pffs = [("other commitment", pff_tx("c/0", ns, other_cm, CHAIN_ID, h0)),
               ("other chain_id", pff_tx("c/1", ns, cm, "other-chain-9", h0)),
               ("promise.height = h + 1", pff_tx("c/2", ns, cm, CHAIN_ID, BASE + 3))]
+    if undecodable_c:
+        c_pffs[0] = ("undecodable", undecodable_pff_tx("c/0"))
     c_sh = compact_shares(PFF_NS, [t for _, t in c_pffs])
     assert len(c_sh) == 3
     block(BASE + 2, tx1 + c_sh, 1, c_pffs, [0, 0, 0, 0],
@@ -466,6 +475,8 @@ def build() -> dict:
     other_nonzero = build_chain(query, {BASE + 3: 11}, {BASE + 3: [5, 5, 5, 11]})
     other_zero = build_chain(query, {BASE + 3: 11}, {BASE + 3: [0, 0, 0, 0]})
     short = build_chain(query, None, {BASE + 3: [11]})
+    undecodable = build_chain(query, undecodable_c=True)
+    other_app_c = build_chain(query, {BASE + 2: 11})
     th = lambda ch: {str(h): ch[h]["hash"].hex() for h in sorted(ch)}  # noqa: E731
 
     def q(h0, d):
@@ -591,6 +602,22 @@ def build() -> dict:
              BASE + 3, BASE + 3, [(BASE + 3, record(query, short, BASE + 3))],
              [bad(BASE + 3, "AB5", "n >= p >= 1 does not hold")], trusted_headers=th(short),
              extra={"results_counts": {str(BASE + 3): "1"}}),
+        case("fibre_unit_undecodable",
+             "Block C of the chain with its first PFF_NS unit replaced: the unit carries the MsgPayForFibre type URL, "
+             "but its message is cut inside the promise, so it does not decode (CV1). The other two units decode and "
+             "are not candidates. Skipping the unit would give absent; it may be the anchor in an encoding this "
+             "decoder does not read (another app version, or a decoder stricter than upstream), so the height is not "
+             "proven (AB4).",
+             BASE + 2, BASE + 2, [(BASE + 2, record(query, undecodable, BASE + 2))],
+             [bad(BASE + 2, "AB4", "a unit of PFF_NS does not decode as a MsgPayForFibre tx")],
+             extra={"chain_variant": "block C: first PFF_NS unit undecodable"}, trusted_headers=th(undecodable)),
+        case("fibre_no_candidate_other_app_version",
+             "Block C (three PFFs, none a candidate) with version.app = 11 in its header. At the pinned app version "
+             "this is absent (window_three_heights_proven); at another app version the units may follow another "
+             "encoding, so no candidate among them proves nothing: not proven (AB4).",
+             BASE + 2, BASE + 2, [(BASE + 2, record(query, other_app_c, BASE + 2))],
+             [bad(BASE + 2, "AB4", "another app version with units in PFF_NS: not proven")],
+             extra={"app_versions": {str(BASE + 2): "11"}}, trusted_headers=th(other_app_c)),
     ]
     blocks_out = [{"height": str(h), "layout": blocks[h]["layout"], "header_hash": blocks[h]["hash"].hex(),
                    "data_hash": blocks[h]["square"]["data_hash"].hex(), "txs": str(len(blocks[h]["codes"])),
@@ -608,7 +635,9 @@ def build() -> dict:
             "candidate's result index is n - p + j: n results, p units of PFF_NS, j the candidate's position among "
             "them (Fibre txs are the tail of the block's txs), when header(h) has version.app 10 (the pinned app "
             "version), and n >= p >= 1 must hold; at any other app version only every result code 0 proves "
-            "presence, and nothing proves absence. A case with app_versions uses a chain whose headers "
+            "presence, and nothing proves absence. A unit of PFF_NS that does not decode as a MsgPayForFibre tx "
+            "makes the height not proven, at any app version. A case with chain_variant uses a chain with the "
+            "named block changed; its trusted_headers are that chain's. A case with app_versions uses a chain whose headers "
             "carry those app versions; its trusted_headers are that chain's. Synthetic: parity quadrants are pseudo-random, not "
             "Reed-Solomon; commit and PFF signatures are placeholders; system blobs are left out; no AB rule reads "
             "any of them. live: Mocha heights captured by spec/vectors/tools/absence-gen, with their own chain_id "

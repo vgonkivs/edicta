@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/v1/archive.json and spec/vectors/v1/verify.json (v1-draft.5).
+"""Verifies spec/vectors/v1/archive.json, verify.json and stage4m.json (v1-draft.6).
 
-- the generator (gen_archive_v1.py) reproduces both files byte for byte;
+- the generator (gen_archive_v1.py) reproduces the three files byte for byte;
 - every record decodes with archive.py to its input, re-encodes to its bytes,
   and its path is recomputed here from the literal key formulas (not from
   archive.py);
 - every reject is refused, every read case compares path and key;
 - the verify outcomes are recomputed here from the rule tables, independently
   of archive.py's rule functions, with the Authorization and commitment re-read
-  from the record bytes.
+  from the record bytes;
+- the stage 4m outcomes and the writes after them are recomputed from the
+  rule table of core 8.8, with mandate_ref read from the valid.json envelope.
 
 Usage: python3 spec/vectors/check/check_archive_v1.py
 """
@@ -20,22 +22,26 @@ import sys
 sys.dont_write_bytecode = True
 
 import hashlib
+import hmac
 import json
 from pathlib import Path
 
 import archive as A
+import edicta as E
 from edicta import Reject
 
 DIR = Path(__file__).resolve().parent.parent / "v1"
+VECTORS = DIR.parent
 REQUIRED_VERIFY = ("fast_pass_in_window", "fast_h_below_h0", "fast_late_absence_proven", "fast_late_absence_unproven",
                    "fast_pending", "fast_absent_proven", "fast_absence_missing_height", "auth_mode_mismatch",
                    "auth_deadline_over_1000", "replay_fast_window_inconsistent")
 REQUIRED_REJECT = ("signer_on_fibre_intent", "fast_window_on_strict", "kind_16_reserved", "decision_form1_missing_salt",
                    "decision_form2_with_action", "decision_salt_31", "decision_form_3", "kind_3_unassigned",
                    "kind_19_undefined", "format_0_decision", "private_envelope_empty", "private_envelope_65537",
-                   "private_action_envelope_69633", "header_empty")
+                   "private_action_envelope_69633", "header_empty",
+                   "rejection_mandate_mismatch_not_a_marker")
 REQUIRED_READS = ("absence_key_mismatch", "decision_key_mismatch")
-REVISION = "v1-draft.5"
+REVISION = "v1-draft.6"
 
 
 class Failure(Exception):
@@ -395,6 +401,58 @@ def check_verify(f: dict) -> str:
     return f"{len(f['cases'])} verify cases, {len(f['action_cases'])} action cases"
 
 
+def check_stage4m(f: dict) -> str:
+    """Core 8.8 restated: M0 without a mandate, M1 and M2 with one; only M1 is followed by stage 4a and a marker."""
+    expect(f["format"] == "edicta-vectors/v1" and f["revision"] == REVISION, "stage4m header")
+    mandates = {k: bytes.fromhex(v) for k, v in f["mandates"].items()}
+    pol = json.loads((VECTORS / "policy" / "mandate.json").read_text())
+    expect(mandates["m_full"].hex() == next(c for c in pol["cases"] if c["id"] == "m_full")["mandate_hash_hex"],
+           "stage4m: m_full is policy mandate.json m_full")
+    expect(mandates["other"] == H(b"edicta/v1 test other mandate in force"), "stage4m: other placeholder")
+    valid = {c["id"]: c for c in json.loads((DIR / "valid.json").read_text())["cases"]}
+    seen = set()
+    for c in f["cases"]:
+        signed, _ = E.decode_signed(bytes.fromhex(valid[c["commitment_ref"]]["envelope_hex"]))
+        ref = signed["commitment"].get("mandate_ref")
+        g = c["gate_mandate"]
+        if g is None:
+            refused, rule, nxt = ref is not None, "M0", "4a"
+        else:
+            in_force = mandates[g["mandate"]]
+            nxt = "4p"
+            if ref is None:
+                refused, rule = True, "M1"
+            else:
+                refused, rule = not hmac.compare_digest(ref, in_force), "M2"
+        e = c["expect"]
+        expect(e["verdict_signed"] is False, f"{c['id']}: a 4m outcome never signs a verdict")
+        if not refused:
+            expect(e == {"rule": "none", "result": "continue", "next_stage": nxt, "verdict_signed": False,
+                         "writes": []}, f"{c['id']}: continue")
+            seen.add("continue")
+            continue
+        seen.add(rule)
+        if c["stored_entry_same_commitment"]:
+            expect(e == {"rule": rule, "result": "ErrNonceUsed", "stored_authorization": True,
+                         "verdict_signed": False, "writes": []}, f"{c['id']}: stored retry")
+            continue
+        name = "ErrMandateRefMissing" if rule == "M1" else "ErrMandateMismatch"
+        if rule == "M1":
+            want = ["private_blob_action", "decision_form_2"] if g["auditors"] else ["decision_form_1"]
+            want = want + ["marker:" + name]
+            expect(name in A.VERDICTS, f"{c['id']}: marker name")
+        else:
+            # The form would follow the mandate in force, not the one the agent named: nothing is written.
+            want = []
+            expect(name not in A.VERDICTS, "ErrMandateMismatch is never a marker")
+        expect(e == {"rule": rule, "result": name, "verdict_signed": False, "writes": want}, f"{c['id']}: {e}")
+    expect({"continue", "M0", "M1", "M2"} <= seen, "stage4m: every rule has a case")
+    ids = {c["id"] for c in f["cases"]}
+    expect({"m0_no_mandate_with_ref", "m2_public_gate_other_ref", "m2_private_gate_other_ref"} <= ids,
+           "stage4m: required cases")
+    return f"{len(f['cases'])} stage 4m cases"
+
+
 def main() -> int:
     try:
         import gen_archive_v1 as gen
@@ -403,7 +461,8 @@ def main() -> int:
             text = json.dumps(obj, indent=2, ensure_ascii=True) + "\n"
             expect((DIR / name).read_text() == text, f"{name}: generator output differs")
             files[name] = obj
-        out = [check_archive(files["archive.json"], files["verify.json"]), check_verify(files["verify.json"])]
+        out = [check_archive(files["archive.json"], files["verify.json"]), check_verify(files["verify.json"]),
+               check_stage4m(files["stage4m.json"])]
         out[0] += f", {len(files['archive.json']['reject_large'])} large reject"
     except (Failure, Reject, KeyError, ValueError) as e:
         print(f"FAIL (v1 archive): {type(e).__name__}: {e}", file=sys.stderr)

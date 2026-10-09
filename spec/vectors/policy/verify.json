@@ -1,6 +1,6 @@
 {
   "format": "edicta-policy-vectors/v1",
-  "revision": "policy-v1-draft.8",
+  "revision": "policy-v1-draft.9",
   "generator": "spec/vectors/check/gen_policy.py",
   "gate": {
     "gate_id": "gate-paper-1",
@@ -3478,6 +3478,59 @@
       "archive": [
         "mandate/6bc4ec3c1f47f7a6dc6d45aef44587a096c4cab7a96e939458ba9488633d666f",
         "policy-closed/3e26b88f36bdee33ad19034595bebb2e250042795578fe4068b5d17907ef8ed5"
+      ],
+      "expect": {
+        "policy": {
+          "status": "unchecked",
+          "reason": "policy_verdict_unavailable"
+        },
+        "gate_integrity": {
+          "status": "not_checked",
+          "reason": null,
+          "evidence": []
+        },
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "mandate_ref_without_verdict",
+      "description": "A strict-mode (mode 1) decision whose envelope carries mandate_ref, authorized by a gate that issued no verdict (for example a gate whose mandate was dropped and that skipped M0); require_policy is off. mandate_ref makes the policy check required (core v1 20.5): no policy_allow record, so unchecked, never valid.",
+      "decision": {
+        "commitment_hash_hex": "57e8639600dad6c5cdcd357619f7fe2ae0c948bbdcd638d8493f1b0ff43a42ff",
+        "agent_pubkey_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "action_type": "application/vnd.edicta.test-facts.v1+cbor",
+        "action_hex": "a501687472616e736665720268746573743a7573640341640402056a746573743a616c696365",
+        "action_hash_hex": "8d374bd209cdab7b2b7258123b47eb07224fc2b5b719bfb4d681bca9357043d5",
+        "valid_until": "1791001300",
+        "gate_id": "gate-paper-1",
+        "version": "1",
+        "action_salt_hex": "17b6bbcff124d89dc63b7680014e0850d726983928c2fd8e37b9de1c2d1091ae",
+        "mandate_ref_hex": "dcf2b56b3b81d48c1c543b2895606923d92c53e0e4e4c8e2a03aa467d96c6ada",
+        "mode": "1"
+      },
+      "t_h": "1791000400",
+      "config": {
+        "require_policy": false,
+        "policy_full": false,
+        "max_walk_steps": null,
+        "principal_keys": [
+          "fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e"
+        ],
+        "extractors": {
+          "application/vnd.edicta.test-facts.v1+cbor": "edicta/test-facts/v1"
+        },
+        "evidence": []
+      },
+      "archive": [
+        "mandate/dcf2b56b3b81d48c1c543b2895606923d92c53e0e4e4c8e2a03aa467d96c6ada",
+        "policy-allow/529ee10739cb641bb5eeac9258125ebca8abc7eb20526562afbd04ad556bac1f",
+        "policy-allow/5916c82bf79e4d8e0fb79323d458ed5611ab7163865734f30c8487481eeed28d",
+        "policy-allow/d255cd1ce016a931df464d9a56c41f655b15b8260d23e14fb3a8f9a53d8e07b4",
+        "policy-closed/3e26b88f36bdee33ad19034595bebb2e250042795578fe4068b5d17907ef8ed5",
+        "policy-successor/9d3e0ddcbef8bfada870601872eb9034bd3de6f9b3ef0d128b349b87644060f6",
+        "policy-successor/e0ec9aec86e34c60b9392f788e8fa46b1569fb44219093a504089fb954156af5",
+        "policy-successor/f3b03b2c931fb1c4ecfc52df1b494b3619d2ded817257c2cba44fef246515787"
       ],
       "expect": {
         "policy": {

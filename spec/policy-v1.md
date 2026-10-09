@@ -1,9 +1,9 @@
 # Edicta policy v1 (mandate, facts, rule engine, verdicts)
 
-Status: revision `policy-v1-draft.8` (2026-10-09). Final draft, proposed for
+Status: revision `policy-v1-draft.9` (2026-10-09). Final draft, proposed for
 the policy v1 freeze together with format v1; subject to the human's
 approval. Built on the core spec `spec/decision-commitment-v1.md`, revision
-`v1-draft.5`. Section numbers prefixed "core" refer to that document.
+`v1-draft.6`. Section numbers prefixed "core" refer to that document.
 
 Keywords MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Items marked
 `UNVERIFIED` are facts about Celestia or Fibre that a Celestia protocol
@@ -28,8 +28,10 @@ decision; it bounds what may be authorized.
 The policy changes no core byte: DecisionCommitment, the envelope, the
 Authorization, the receipt, the record request, the publish request and the
 core tags are as the core defines them. A gate without a mandate behaves
-exactly as core section 8.7 says. A gate with a mandate requires the
-commitment's `mandate_ref` to name the mandate in force (core section 8.8).
+exactly as core section 8.7 says, which includes refusing a commitment that
+carries `mandate_ref` (core section 8.8, rule M0). A gate with a mandate
+requires the commitment's `mandate_ref` to name the mandate in force (core
+section 8.8).
 
 ## 0. Versioning
 
@@ -39,7 +41,7 @@ commitment's `mandate_ref` to name the mandate in force (core section 8.8).
 | Any change to an encoding, a hash or signature preimage, a limit, the engine, or the outcome of a check, while in draft | Bump `policy-v1-draft.N`, regenerate the vectors under `spec/vectors/policy/`, record the change below. |
 | Any such change after freeze | New family version: tags `edicta/policy/v2/*`, `format = 2` in every structure. A v1 reader rejects `format != 1`. |
 
-The freeze turns `policy-v1-draft.7` into `policy-v1`, `format = 1`, tags
+The freeze turns `policy-v1-draft.9` into `policy-v1`, `format = 1`, tags
 `edicta/policy/v1/*`, at the same tag as format v1 of the core.
 
 | Revision | Change | Vectors |
@@ -52,6 +54,7 @@ The freeze turns `policy-v1-draft.7` into `policy-v1`, `format = 1`, tags
 | `policy-v1-draft.6` | Vectors of task 031 phase P2. No encoding, hash, preimage or limit changes. 6.1: the scheme rule is checked before the principal rule (the principal's size depends on the scheme; only multi-defect inputs see a difference), the signature size is a decoding check reported first, and the parenthesized labels are the vectors' `rule` field. Section 15: the vector field `t_h` carries `T_ref`; the ADR-036 rejects gain `d_without_empty_line` and `d_trailing_lf` (the exact `D` of 6.2: one empty line before the hash line, no LF after the hex); `spec/vectors/principal/ed25519.json` is listed. Vector conventions for the verifier files (section 15): a draft.5 case's `decision` is a v1 decision (`version`, `mandate_ref_hex`, `mode`, `h0`, `anchor_deadline`), and only such cases carry the report fields `policy.mode`, `policy.mandate_ref` and `policy.auditor_kid` in `expect`, so every draft.4 case keeps its bytes; `config.principal_keys` entries use the CLI forms of 13.1 (bare hex is Ed25519); optional `config.principal_schemes` and `config.auditor_keys`. | The files produced in P2 (`mandate.json`, `render.json`, `verify.json`, `archive.json`, `api.json`, `private.json`, `spec/vectors/principal/*`) carry `policy-v1-draft.6`; `facts.json`, `state.json`, `engine.json` stay byte-identical at `policy-v1-draft.1`. |
 | `policy-v1-draft.7` | Post-audit change list of task 031 (human decisions of 2026-10-09). (1) Auditor kid derived from the key (`edicta/v1/auditor-kid`), Auditor key 3 `label` with its charset and value rules, auditor value-rule order with `auditor_kid` (`ErrAuditorKidMismatch`) and `auditor_label_duplicate` (6.1). (2) Mandate key 18 `state_salt`, present iff auditors; adoption refuses a changed salt (`state_salt_changed`), so a counter keeps one mode (6.3). (3) Render: auditor lines with the unverified label and the full 128-bit fingerprint, the label note, the general label rule and tool rule (7). (4) Private form of the PolicyVerdict: public part = hashes, links, outcome bit (denies: keys 1 to 7, 19 only); PrivatePart = the moved keys plus a per-verdict salt; merge; key 17 absent in private form (10.1, 10.2). (5) Blinded state hashes `state_hash_p` and blinded kind 15 keys for buckets and ClosedSets (9.1, 9.5). (6) Kind 9 private path segment, marker `ErrDenied` in private mode, a kind 15 PrivatePart for every private verdict, kind 15 plaintext kind 5 and cap 69,760 (12). (7) Verifier: without a key only step 1 and the hash checks run (facts and `anchor_time` no longer); with a key the merged verdict and blinded recomputations; `mode = 2` requires the policy check (13). (8) Residual leakage list 9.6; threat rows for private mode, fingerprints and wallet display (1); producer rule for a CSPRNG `mandate_id` and `state_salt` (6.1); EIP-712 range checks named (6.2). Outcome changes: private-mode outcomes without a key (facts and anchor-time mismatches are `policy_private`); every private-form encoding; kind 15 plaintext kind 5 accepted; a fast-mode decision without an allow record is `unchecked`. | Regenerated: `mandate.json` (m_private, draft.5 auditor rejects, new rejects, adoption case), `render.json` (`render_m_private`, new two-auditor case), `verify.json` (draft.5 v1 decisions salted, new case), `private.json` (rewritten), `archive.json` (kind 15 cases and rejects, private deny, reads, `ErrDenied`), `api.json` (alias example, private deny), `spec/vectors/principal/adr036.json`, `eip712.json` (new case and rejects). Changed existing rejects: `private_kind_5` replaced by `private_kind_6`, `private_over_cap` resized (archive.json). Every draft.4 case and record keeps its bytes; `facts.json`, `state.json`, `engine.json`, `principal/ed25519.json` byte-identical. |
 | `policy-v1-draft.8` | Core-only rebase on `spec/decision-commitment-v1.md` `v1-draft.5` (human decisions of 2026-10-09, Rounds 5 and 6). (1) Section references are to the one core document; the version gate at stage 1 (`ErrVersionNotAccepted`) and the `/v0/` paths and alias are gone (11.1, 11.3). (2) Policy records are kinds of archive format 1 (12). (3) A PrivatePart that hashes to the gate-signed `private_hash` but breaks the presence rule is a gate fault, not `source_corrupt`: `gate_integrity` violated with reason `gate_signed_inconsistent_private_part`, and the policy is judged on the verifier's own derivation, so a deny there is a fail and the decision `invalid` (10.2, 13.2, 13.4, 13.5). (4) A counter keeps its mode; switching between public and private needs a new `mandate_id`, which restarts the counters; principal tools warn (6.3). Outcome changes: the two PrivatePart presence cases move from `source_corrupt` (exit 2) to `gate_integrity` violated (exit 5) or `policy` fail (exit 1); every archive record changes its format byte. | Regenerated: `verify.json`, `archive.json`, `api.json`, `private.json` (format 1 records, the alias example removed, new case `private_part_missing_facts_denies`). `mandate.json`, `render.json`, `facts.json`, `state.json`, `engine.json` and the principal files byte-identical. |
+| `policy-v1-draft.9` | Pre-freeze re-audit fixes (task 031, `audit-2.md`), on core `v1-draft.6`. (1) The `policy` check also runs, and is required, when the verified envelope has `mandate_ref` (13.1); a gate without a mandate refuses such a commitment (core 8.8 M0); threat rows (1). (2) Section 1 private-mode row no longer claims to hide the `seq` position or times. (3) Freeze sentence names this revision. Outcome change: an authorized decision with `mandate_ref` and no allow record is `unchecked` without `RequirePolicy`. | `verify.json` (new case `mandate_ref_without_verdict`); every other file byte-identical. |
 
 ## 1. Threat model
 
@@ -60,7 +63,7 @@ The freeze turns `policy-v1-draft.7` into `policy-v1`, `format = 1`, tags
 | Principal signature over the mandate under the scheme its `sig_type` names (section 6) | An operator or gate inventing or loosening the rules; a mandate of one gate configured at another (`gate_id` inside the signed bytes); one signature read under two schemes | The principal's key is secret; the verifier pins the principal identities it trusts, typed by scheme (`PrincipalKeys`). `sig_type` is inside `mandate_hash`, so a key is read under exactly one scheme. Key roles never overlap, compared as `(sig_type, bytes)` (core invariant 7) |
 | ADR-036 signs the rendered text ending in the mandate hash (sections 6.2, 7) | A wallet user signing rules they were never shown | The renderer is part of the trust base for `sig_type = 2`: two renderers MUST produce the same bytes (vectored); a verifier whose re-render differs rejects (fail closed). The hash line binds the text to the CBOR. Keplr display limits are `UNVERIFIED` |
 | Fast-mode consent `fast_mode_max_delay` (sections 6.1, 8.2) | An operator enabling fast mode for a principal who never accepted the weaker publication guarantee, or with a longer anchoring delay than the principal accepted | The gate clamps the deadline to the bound (core 13.3); the verifier checks consent and the bound from the gate-signed Authorization and the principal-signed mandate (13.2) |
-| Private mode: auditors in the mandate, encrypted mandate, state and decision content, public hash links (sections 9.5, 9.6, 10, 13; core 20.11) | Everyone reading, from a shared archive, the mandate's rules (limits, allowlists, auditor list) and the decision content: facts, deny reasons, amounts, state, the `seq` value, times, and on off-chain rails the action bytes | The action bytes are not public (core kind 17 form 2; the payload is encrypted to the auditors); the public `action_hash` is salted (core 5.1); state hashes and kind 15 keys are blinded with the counter's `state_salt` (9.1); HPKE and ChaCha20-Poly1305 as core 9.1; the auditor's private key is secret. Integrity comes from hashes the gate signs or the record keys, never from the AEAD (non-committing). Without the key, hash links and forks stay checkable, the rules and the facts do not. What stays visible is listed in 9.6 |
+| Private mode: auditors in the mandate, encrypted mandate, state and decision content, public hash links (sections 9.5, 9.6, 10, 13; core 20.11) | Everyone reading, from a shared archive, the mandate's rules (limits, allowlists, auditor list) and the decision content: facts, deny reasons, amounts, state contents (sums, counts, open buckets), and on off-chain rails the action bytes. Not hidden: the `seq` position (derivable by walking the public links), `T_ref`, anchor heights and the other items of 9.6 | The action bytes are not public (core kind 17 form 2; the payload is encrypted to the auditors); the public `action_hash` is salted (core 5.1); state hashes and kind 15 keys are blinded with the counter's `state_salt` (9.1); HPKE and ChaCha20-Poly1305 as core 9.1; the auditor's private key is secret. Integrity comes from hashes the gate signs or the record keys, never from the AEAD (non-committing). Without the key, hash links and forks stay checkable, the rules and the facts do not. What stays visible is listed in 9.6 |
 | Auditor key fingerprints in the rendered text (sections 6.1, 7) | An operator's tool swapping auditor keys under the principal's labels | The kid is derived from the key; the principal checks each full 128-bit fingerprint out of band (labels are untrusted); the principal CLI keeps an address book of auditor keys and warns loudly when a known label maps to another key (tooling rule, SHOULD) |
 | Wallet display for `sig_type` absent or 3 (section 6.2) | Nothing beyond the hash: the wallet shows only the hash (EIP-712: `mandateHash`, `mandateId`, `version`, `gateId`) | Consent rests on the CLI render being exactly what was hashed (trusted tooling); for ADR-036 the wallet shows the rendered text itself |
 | `mandate_id` and monotonic `version` (section 6.3) | Rolling a mandate back to a looser version; resetting the counters by re-signing the same rules | The gate's registry keeps the counter cell (never pruned); the verifier's walk checks versions along the chain. A new `mandate_id` is a fresh counter by the principal's explicit choice |
@@ -75,7 +78,8 @@ The freeze turns `policy-v1-draft.7` into `policy-v1`, `format = 1`, tags
 | Walk to genesis with a step cap, `ok` only at genesis (section 13.3) | A verifier reading `ok` as "the gate's history is clean" when its older part was never read; a gate hiding an old fork behind a long history | `ok` needs every link from the target back to genesis checked. A cut walk is `unchecked` (`policy_walk_truncated`) with the walked range, never `ok`. A gate that pads its history only makes full walks `unchecked` or costlier, never `ok`. The cap bounds the verifier's memory; the archive must keep every allow record and ClosedSet back to genesis, or the walk is `unchecked` (`state_history_unavailable`) |
 | Archive of closed buckets, sets, verdicts and successor index (section 12) | Losing the data a verifier needs | The archive is trusted for availability only: every record is bound to a hash or a signature. A withheld record gives `unchecked`, never `valid` or `invalid` |
 | `ErrHistoryFull` (section 8.4) | Unbounded state | Capacity is independent of action frequency (768 buckets per counter); the bound that remains is per-bucket assets and integer widths |
-| Nothing (open gap) | An operator who runs a gate without a mandate, or edits its own executor to skip the Authorization | Core section 16: enforcement is the integrator's. An auditor relying on a mandate sets `RequirePolicy` (section 13.1) |
+| `mandate_ref` makes the check required (section 13.1; core 8.8 M0, 20.5) | An operator who drops the mandate from a gate while its agents still commit under it: the gate refuses (M0), and an Authorization from a gate that skipped M0 is never `valid` without an allow verdict, even when the auditor did not set `RequirePolicy` | The agent sets `mandate_ref` whenever it acts under a mandate; the verifier reads it from the agent-signed envelope |
+| Nothing (open gap) | An operator who runs a gate without a mandate for agents that do not set `mandate_ref`, or edits its own executor to skip the Authorization | Core section 16: enforcement is the integrator's. An auditor relying on a mandate for such agents sets `RequirePolicy` (section 13.1) |
 | Nothing (out of scope) | Cross-asset or fiat totals; whether the facts' recipient is a good counterparty | Needs an oracle; v1 has per-asset limits only |
 
 ## 2. Notation and tag namespace
@@ -1010,7 +1014,8 @@ Vectors: `spec/vectors/policy/verify.json` (and the verdicts inside it).
 
 The core order of core section 8.7, with two stages added. Without a mandate
 both are skipped and nothing else changes. With a mandate, stage 4m checks
-`mandate_ref` before 4p (core 8.8).
+`mandate_ref` before 4p (core 8.8). Stage 4m also runs without a mandate:
+it refuses a commitment that names one (M0).
 
 | # | Stage | What | Sentinels |
 |---|---|---|---|
@@ -1083,7 +1088,7 @@ deadline at or below the mandate's bound.
 | deny-only, fail-closed | every policy error refuses; nothing in the policy can skip a core stage |
 | verdict under the gate's policy tag, no tx hash or rail reference | 10.1 |
 | mandate signed by its principal under its `sig_type`, bound to this `gate_id`, version not lower than current | adoption (6.2, 6.3), and every compare-and-swap of stage 12 |
-| `mandate_ref` equals the hash of the mandate in force | core stage 4m |
+| `mandate_ref` equals the hash of the mandate in force | core stage 4m (M1, M2); without a mandate a commitment with `mandate_ref` is refused (M0) |
 | fast mode only with consent, deadline at or below the bound | P15; core 13.3 clamps the window to `fast_mode_max_delay` |
 
 ### 11.3 HTTP (additive to core 18)
@@ -1246,11 +1251,14 @@ Vectors: `spec/vectors/policy/archive.json`.
 
 The named check `policy` (core 20.1) runs for a decision in record state
 `authorized` when `RequirePolicy` is set, a `policy_allow` record exists for
-it, or its verified Authorization has `mode = 2` (fast mode needs the
-principal's consent, core 20.5); it is then required for `valid`. Without
+it, its verified envelope has `mandate_ref` (the agent signed that a mandate
+applies, core 8.8 M0 and 20.5), or its verified Authorization has `mode = 2`
+(fast mode needs the principal's consent, core 20.5); it is then required
+for `valid`. Without
 an allow record it is then `unchecked` (`policy_verdict_unavailable`). `RequirePolicy` is the auditor's
-statement that the gate had a mandate: without it, an archive that withholds
-the allow record silently skips the check. Every report also carries
+statement that the gate had a mandate: without it and without `mandate_ref`
+in the envelope, an archive that withholds the allow record silently skips
+the check. Vector: `verify.json` `mandate_ref_without_verdict`. Every report also carries
 `gate_integrity` (13.4). Inputs: the gate key on record for `gate_id` (the
 key Authorizations verify under), `PrincipalKeys` (typed principal
 identities: CLI `--principal ed25519:<hex>`, `--principal cosmos:<bech32>`

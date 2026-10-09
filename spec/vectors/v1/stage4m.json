@@ -1,0 +1,179 @@
+{
+  "format": "edicta-vectors/v1",
+  "revision": "v1-draft.6",
+  "generator": "spec/vectors/check/gen_archive_v1.py",
+  "description": "Gate stage 4m (core 8.8) and the archive writes after it. gate_mandate: null (no mandate) or the mandate in force (its name in mandates, auditors true for private mode). commitment_ref: a case of v1/valid.json; its key 14 is the agent's mandate_ref. stored_entry_same_commitment: the nonce entry of (agent_pubkey, nonce) holds this commitment_hash (the stored-retry check). expect.writes in order: private_blob_action (kind 15 (5, action_hash)), decision_form_1 or decision_form_2 (kind 17), marker:<name> (kind 5). No case signs a policy verdict.",
+  "mandates": {
+    "m_full": "8984925e5ea465e4768790c1bce43e813d4feae75335ef1690570bc1a8b681d3",
+    "other": "d30c8de2eba517590a9238e4f397999a2f4f95d8ba75421543cd83d64c9cffea"
+  },
+  "mandate_sources": {
+    "m_full": "spec/vectors/policy/mandate.json case m_full (mandate_hash)",
+    "other": "placeholder: SHA-256(\"edicta/v1 test other mandate in force\")"
+  },
+  "cases": [
+    {
+      "id": "no_mandate_no_ref",
+      "description": "Gate without a mandate, commitment without key 14: stage 4m passes; 4p and 10p do not exist, stage 4a writes form 1.",
+      "gate_mandate": null,
+      "commitment_ref": "v1_minimal_included_blob",
+      "stored_entry_same_commitment": false,
+      "expect": {
+        "rule": "none",
+        "result": "continue",
+        "next_stage": "4a",
+        "verdict_signed": false,
+        "writes": []
+      }
+    },
+    {
+      "id": "m0_no_mandate_with_ref",
+      "description": "Gate without a mandate (dropped from its configuration), commitment naming m_full: M0 refuses; nothing is written, no verdict.",
+      "gate_mandate": null,
+      "commitment_ref": "v1_mandate_ref",
+      "stored_entry_same_commitment": false,
+      "expect": {
+        "rule": "M0",
+        "result": "ErrMandateMismatch",
+        "verdict_signed": false,
+        "writes": []
+      }
+    },
+    {
+      "id": "m0_stored_retry",
+      "description": "As m0_no_mandate_with_ref, but the nonce entry holds this commitment (authorized before the mandate was dropped): the stored Authorization with ErrNonceUsed, nothing written.",
+      "gate_mandate": null,
+      "commitment_ref": "v1_mandate_ref",
+      "stored_entry_same_commitment": true,
+      "expect": {
+        "rule": "M0",
+        "result": "ErrNonceUsed",
+        "stored_authorization": true,
+        "verdict_signed": false,
+        "writes": []
+      }
+    },
+    {
+      "id": "m1_public_no_ref",
+      "description": "Public mandate in force, commitment without key 14: M1; the commitment named no mandate, so stage 4a writes form 1 and the marker.",
+      "gate_mandate": {
+        "mandate": "m_full",
+        "auditors": false
+      },
+      "commitment_ref": "v1_minimal_included_blob",
+      "stored_entry_same_commitment": false,
+      "expect": {
+        "rule": "M1",
+        "result": "ErrMandateRefMissing",
+        "verdict_signed": false,
+        "writes": [
+          "decision_form_1",
+          "marker:ErrMandateRefMissing"
+        ]
+      }
+    },
+    {
+      "id": "m1_private_no_ref",
+      "description": "Private mandate in force, commitment without key 14: M1; stage 4a writes the kind 15 action record, then form 2, then the marker.",
+      "gate_mandate": {
+        "mandate": "m_full",
+        "auditors": true
+      },
+      "commitment_ref": "v1_minimal_included_blob",
+      "stored_entry_same_commitment": false,
+      "expect": {
+        "rule": "M1",
+        "result": "ErrMandateRefMissing",
+        "verdict_signed": false,
+        "writes": [
+          "private_blob_action",
+          "decision_form_2",
+          "marker:ErrMandateRefMissing"
+        ]
+      }
+    },
+    {
+      "id": "m2_public_gate_other_ref",
+      "description": "Public mandate in force (another mandate_hash), commitment naming m_full (for example a private mandate before a switch to public mode): M2; no decision record, no kind 15, no marker, so the action bytes and the salt are never written in clear.",
+      "gate_mandate": {
+        "mandate": "other",
+        "auditors": false
+      },
+      "commitment_ref": "v1_mandate_ref",
+      "stored_entry_same_commitment": false,
+      "expect": {
+        "rule": "M2",
+        "result": "ErrMandateMismatch",
+        "verdict_signed": false,
+        "writes": []
+      }
+    },
+    {
+      "id": "m2_private_gate_other_ref",
+      "description": "Private mandate in force with its own auditors, commitment naming m_full: M2; nothing is encrypted to auditors the agent's principal did not choose, nothing is written.",
+      "gate_mandate": {
+        "mandate": "other",
+        "auditors": true
+      },
+      "commitment_ref": "v1_mandate_ref",
+      "stored_entry_same_commitment": false,
+      "expect": {
+        "rule": "M2",
+        "result": "ErrMandateMismatch",
+        "verdict_signed": false,
+        "writes": []
+      }
+    },
+    {
+      "id": "m2_stored_retry",
+      "description": "M2 on a commitment whose nonce entry holds it: the stored Authorization with ErrNonceUsed, nothing written.",
+      "gate_mandate": {
+        "mandate": "other",
+        "auditors": false
+      },
+      "commitment_ref": "v1_mandate_ref",
+      "stored_entry_same_commitment": true,
+      "expect": {
+        "rule": "M2",
+        "result": "ErrNonceUsed",
+        "stored_authorization": true,
+        "verdict_signed": false,
+        "writes": []
+      }
+    },
+    {
+      "id": "equal_ref_public",
+      "description": "mandate_ref equals the mandate in force: stage 4p runs next.",
+      "gate_mandate": {
+        "mandate": "m_full",
+        "auditors": false
+      },
+      "commitment_ref": "v1_mandate_ref",
+      "stored_entry_same_commitment": false,
+      "expect": {
+        "rule": "none",
+        "result": "continue",
+        "next_stage": "4p",
+        "verdict_signed": false,
+        "writes": []
+      }
+    },
+    {
+      "id": "equal_ref_private",
+      "description": "mandate_ref equals the private mandate in force: stage 4p runs next (stage 4a later writes form 2).",
+      "gate_mandate": {
+        "mandate": "m_full",
+        "auditors": true
+      },
+      "commitment_ref": "v1_mandate_ref",
+      "stored_entry_same_commitment": false,
+      "expect": {
+        "rule": "none",
+        "result": "continue",
+        "next_stage": "4p",
+        "verdict_signed": false,
+        "writes": []
+      }
+    }
+  ]
+}

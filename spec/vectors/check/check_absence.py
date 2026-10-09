@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/da/absence.json (v1-draft.5) without Go and without the network.
+"""Verifies spec/vectors/da/absence.json (v1-draft.6) without Go and without the network.
 
 Runs AB1 to AB5 on the bytes of every kind 14 record, with the code that
 already checks the anchor proof and result proof:
@@ -12,7 +12,9 @@ already checks the anchor proof and result proof:
 - AB3: NamespaceData decoding and Verify against the row roots, NMT
   completeness included (check_fibre_anchor);
 - AB4: compact-share reassembly with the re-split check, PFF decoding
-  (check_fibre_cert) and the candidate filter;
+  (check_fibre_cert; a unit that does not decode makes the height not
+  proven, never absent) and the candidate filter (at another app version,
+  units without a candidate prove nothing);
 - AB5: the block results (JSON of /block_results) hashed to last_results_hash
   of the trusted header at h + 1 (leaves from check_execution_outcomes), the
   candidate's result bound as the tail of the block's results (only when
@@ -48,11 +50,12 @@ import check_fibre_cert as FC
 
 HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
-FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.5"
+FORMAT, REVISION = "edicta-vectors/v1", "v1-draft.6"
 APP_VERSION = 10
 SYNTHETIC = ("fibre_candidate_nonzero_code", "fibre_present", "window_three_heights_proven",
              "window_one_height_missing", "tampered_row_root", "cut_namespace_entry", "candidate_other_app_version",
-             "candidate_other_app_version_all_nonzero", "candidate_other_app_version_all_zero", "tail_n_less_than_p")
+             "candidate_other_app_version_all_nonzero", "candidate_other_app_version_all_zero", "tail_n_less_than_p",
+             "fibre_unit_undecodable", "fibre_no_candidate_other_app_version")
 LIVE = ("fibre_no_pff_row", "fibre_other_pffs_only", "blob_empty_namespace", "blob_other_blobs", "blob_present")
 ROOT_SIZE = 2 * FA.NS_SIZE + 32
 THRESHOLD = 64
@@ -235,12 +238,16 @@ def classify(rec: dict, q: dict, h: int, trusted: dict) -> dict:
     for j, tx in enumerate(units):
         try:
             p = FC.parse_pff(tx)
-        except FC.Failure:
-            continue
+        except FC.Failure as e:
+            # At the pinned version every PFF_NS unit is a Fibre tx the proposer's ClassifyTxs accepted; a unit
+            # this decoder refuses may be the anchor in an encoding it does not read, so skipping it is unsafe.
+            raise Unproven("AB4", f"unit {j} does not decode as a MsgPayForFibre tx: {e}")
         if (p["namespace"] == q["namespace"] and p["commitment"] == q["commitment"] and p["blob_version"] == 0
                 and p["chain_id"] == q["chain_id"] and p["height"] <= h):
             cands.append(j)
+    other_app = app_version(hf) != APP_VERSION
     if not cands:
+        need(not other_app, "AB4", "another app version with units in PFF_NS: not proven")
         return {**out, "result": "absent", "rule": "AB4"}
 
     need("results" in rec and "next_header" in rec, "AB5", "a candidate whose code is not proven")
@@ -257,7 +264,7 @@ def classify(rec: dict, q: dict, h: int, trusted: dict) -> dict:
     n, p = len(res), len(units)
     need(n >= p >= 1, "AB5", "n >= p >= 1 does not hold")
     codes = {r["code"] for r in res}
-    if app_version(hf) != APP_VERSION:
+    if other_app:
         # Other app versions: only every code 0 proves presence; nothing there can prove absence.
         need(codes == {"0"}, "AB5", "another app version without every code 0: not proven")
         out["candidates"] = [{"position": str(j), "code": "0"} for j in cands]
@@ -281,7 +288,7 @@ def window(heights: list) -> dict:
 
 def check_case(c: dict, chain_id: str) -> set:
     cid = c["id"]
-    expect(set(c) - {"app_versions", "results_counts"} == {"id", "description", "query", "trusted_headers", "records",
+    expect(set(c) - {"app_versions", "results_counts", "chain_variant"} == {"id", "description", "query", "trusted_headers", "records",
                                                           "expect"},
            f"{cid}: keys")
     qj = c["query"]
@@ -422,6 +429,10 @@ def check(f: dict) -> str:
     for c in f["synthetic"]:
         if "app_versions" in c:
             check_app_versions(c)
+            continue
+        if "chain_variant" in c:
+            expect(c["trusted_headers"] != {b["height"]: b["header_hash"] for b in f["blocks"]},
+                   f"{c['id']}: chain_variant on the unchanged chain")
             continue
         for b in f["blocks"]:
             if "results_counts" in c and int(b["height"]) > min(int(x) for x in c["results_counts"]):

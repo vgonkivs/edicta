@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1-draft.5",
+  "revision": "v1-draft.6",
   "generator": "spec/vectors/check/gen_archive_v1.py",
   "description": "Verifier outcomes of the authorization, anchor and retention_replay checks for a decision. decision and authorization name records (records: path and bytes; the archive.json case of the same name has the same bytes). evidence and absence are the results of verifying those proofs (bytes in the core evidence vectors and da/absence.json): a height of [h0, deadline] not listed has no proof. trusted_head is the height header trust reached. expect gives each check's outcome, the report fields and the verdict when every other check passes.",
   "window": "3",

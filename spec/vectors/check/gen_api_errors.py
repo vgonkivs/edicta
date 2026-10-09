@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generates spec/vectors/api/errors.json: the HTTP error mapping of spec/decision-commitment-v1.md
-section 18 (v1-draft.5) and example request and response bytes per endpoint, from the v1 core
+section 18 (v1-draft.6) and example request and response bytes per endpoint, from the v1 core
 vectors. Deterministic.
 
 Usage: python3 spec/vectors/check/gen_api_errors.py [--core DIR] [--out DIR]
@@ -32,7 +32,7 @@ def arg(name: str, default: Path) -> Path:
 CORE = arg("--core", VECTORS / "v1")
 OUT = arg("--out", VECTORS / "api")
 FORMAT = "edicta-vectors/v1"
-REVISION = "v1-draft.5"
+REVISION = "v1-draft.6"
 
 P, A, R, H = "/v1/publish", "/v1/authorize", "/v1/record", "/v1/health"
 POSTS = [P, A, R]
@@ -76,7 +76,7 @@ ERRORS = [
     ("ErrAnchorPending", 403, "none", [A], "C5a"),
     ("ErrNamespaceNotAllowed", 403, "none", [A], "C5b"),
     ("ErrMandateRefMissing", 403, "none", [A], "M1"),
-    ("ErrMandateMismatch", 403, "none", [A], "M2"),
+    ("ErrMandateMismatch", 403, "none", [A], "M0, M2"),
     ("edictaapi.ErrRouteNotFound", 404, "none", ALL, "18.1"),
     ("edictaapi.ErrPublishDisabled", 404, "none", [P], "18.2"),
     ("edictaapi.ErrMethodNotAllowed", 405, "none", ALL, "18.1"),
@@ -154,6 +154,7 @@ MESSAGES = {
     "ErrMissingField": "commitment: missing field",
     "ErrUnknownKey": "commitment: unknown key",
     "ErrFieldSize": "commitment: field size",
+    "ErrMandateMismatch": "gate: mandate_ref does not name the mandate in force",
 }
 
 
@@ -238,6 +239,11 @@ def main():
          "start so configured): C5a refuses, 403, nothing written.", "commitment_ref": "v1_pending_blob_mandate_ref",
          "request_cbor_hex": authorize(valid["v1_pending_blob_mandate_ref"]).hex(), "status": "403",
          "response_cbor_hex": error_body("ErrAnchorPending").hex()},
+        {"id": "authorize_mandate_ref_without_mandate", "endpoint": A, "method": "POST", "description":
+         "v1_mandate_ref (key 14 names policy mandate m_full) at a gate without a mandate: M0 refuses with 403 "
+         "ErrMandateMismatch; no decision record, no marker, no verdict (core 8.8).", "commitment_ref": "v1_mandate_ref",
+         "request_cbor_hex": authorize(valid["v1_mandate_ref"]).hex(), "status": "403",
+         "response_cbor_hex": error_body("ErrMandateMismatch").hex()},
         {"id": "record_ok", "endpoint": R, "method": "POST", "description": "The record request of core receipt vector "
          "receipt_minimal_lmt; the answer is that SignedReceipt.", "commitment_ref": "minimal_lmt",
          "receipt_ref": "receipt_minimal_lmt", "request_cbor_hex": record_req.hex(),
