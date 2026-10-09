@@ -1684,6 +1684,13 @@ def check_private(f, verify):
     v_private_part(pp2)
     expect(H(T_PRIV_PART, hx(sd["private_part_cbor_hex"])) == dv2[19] and pp2[8] == sd["reason"]
            and sd["reason"] != pd["with_key"]["reason"], "second deny PrivatePart")
+    # A retry denied for a reason already archived for this decision writes nothing, though its private_hash is new.
+    rr = pd["same_reason_retry"]
+    dv3, _ = verdict_verify(hx(rr["signed_verdict_hex"]), gate_pub)
+    expect(set(dv3) == {1, 2, 3, 4, 5, 6, 7, 19} and dv3[4] == dv[4] and dv3[19] not in (dv[19], dv2[19])
+           and dv3[19].hex() == rr["private_hash_hex"] and rr["reason"] == pd["with_key"]["reason"]
+           and rr["dedup_key"] == {"commitment_hash": dv[4].hex(), "reason": rr["reason"]}
+           and rr["archive_writes"] == [], "same-reason private retry")
     mk = lenient(hx(pd["marker_record_cbor_hex"]), "x", 512, 1)
     expect(mk[2] == 5 and mk[4] == "ErrDenied" and pd["marker_path"] == f"rejection/{mk[3].hex()}/ErrDenied", "marker")
     dpp = lenient(hx(pd["with_key"]["private_part_cbor_hex"]), "x", 16384)

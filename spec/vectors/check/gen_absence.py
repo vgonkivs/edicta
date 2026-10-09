@@ -477,6 +477,7 @@ def build() -> dict:
     short = build_chain(query, None, {BASE + 3: [11]})
     undecodable = build_chain(query, undecodable_c=True)
     other_app_c = build_chain(query, {BASE + 2: 11})
+    other_app_a = build_chain(query, {BASE + 1: 11})
     th = lambda ch: {str(h): ch[h]["hash"].hex() for h in sorted(ch)}  # noqa: E731
 
     def q(h0, d):
@@ -618,6 +619,13 @@ def build() -> dict:
              BASE + 2, BASE + 2, [(BASE + 2, record(query, other_app_c, BASE + 2))],
              [bad(BASE + 2, "AB4", "another app version with units in PFF_NS: not proven")],
              extra={"app_versions": {str(BASE + 2): "11"}}, trusted_headers=th(other_app_c)),
+        case("fibre_s_empty_other_app_version",
+             "Block A (no row holds PFF_NS, S empty) with version.app = 11 in its header. At the pinned app version "
+             "this is absent (window_three_heights_proven); another app version may place Fibre txs outside PFF_NS "
+             "or change the square layout, so an empty PFF_NS proves nothing: not proven (AB4).",
+             BASE + 1, BASE + 1, [(BASE + 1, record(query, other_app_a, BASE + 1))],
+             [bad(BASE + 1, "AB4", "another app version: S empty proves nothing")],
+             extra={"app_versions": {str(BASE + 1): "11"}}, trusted_headers=th(other_app_a)),
     ]
     blocks_out = [{"height": str(h), "layout": blocks[h]["layout"], "header_hash": blocks[h]["hash"].hex(),
                    "data_hash": blocks[h]["square"]["data_hash"].hex(), "txs": str(len(blocks[h]["codes"])),
@@ -635,7 +643,7 @@ def build() -> dict:
             "candidate's result index is n - p + j: n results, p units of PFF_NS, j the candidate's position among "
             "them (Fibre txs are the tail of the block's txs), when header(h) has version.app 10 (the pinned app "
             "version), and n >= p >= 1 must hold; at any other app version only every result code 0 proves "
-            "presence, and nothing proves absence. A unit of PFF_NS that does not decode as a MsgPayForFibre tx "
+            "presence, and nothing proves absence (S empty included). A unit of PFF_NS that does not decode as a MsgPayForFibre tx "
             "makes the height not proven, at any app version. A case with chain_variant uses a chain with the "
             "named block changed; its trusted_headers are that chain's. A case with app_versions uses a chain whose headers "
             "carry those app versions; its trusted_headers are that chain's. Synthetic: parity quadrants are pseudo-random, not "

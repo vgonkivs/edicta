@@ -1389,6 +1389,26 @@ def second_private_deny(PV, pd, dpp) -> dict:
             "kind9_path": P.decode_record(rec9)["path"], "kind9_record_cbor_hex": rec9.hex()}
 
 
+def same_reason_private_retry(PV, pd, dpp) -> dict:
+    """A retry of the denied decision refused again for the same reason. The fresh PrivatePart salt gives a new
+    private_hash, so the kind 9 key alone would not dedup it; the gate's local (commitment_hash, reason) index does."""
+    now = pd["th"] + 60
+    v = PV.base_verdict(pd, now)
+    v.update(outcome=2, reason=dpp["reason"], extractor=dpp["extractor"], facts=dpp["facts"],
+             anchor_time=pd["th"], gate_clock=1)
+    pub, pp = P.split_verdict(v, sha("edicta/policy/v1 test private part salt|" + pd["commitment_hash"].hex() + "|3"))
+    sv, vh = sign_unchecked(SEEDS["gate1"], pub)
+    return {"id": "private_deny_same_reason_retry", "description": "A retry of the same decision 60 s after T_ref, "
+            "refused again for the first deny's reason (" + dpp["reason"] + "). The gate signs and returns this fresh "
+            "deny (new salt, so a new private_hash), but it already archived a private deny with this reason for "
+            "this commitment_hash (gate-local index keyed (commitment_hash, reason)), so it writes no kind 9, no "
+            "kind 15 PrivatePart and no marker: archive_writes is empty.",
+            "reason": dpp["reason"], "signed_verdict_hex": sv.hex(), "verdict_hash_hex": vh.hex(),
+            "private_hash_hex": pub["private_hash"].hex(),
+            "dedup_key": {"commitment_hash": pd["commitment_hash"].hex(), "reason": dpp["reason"]},
+            "archive_writes": []}
+
+
 def private_mandate(label, **kw):
     return base_mandate(label, **{"auditors": AUDITORS, "state_salt": state_salt(label), **kw})
 
@@ -1611,7 +1631,8 @@ def gen_private(priv: dict, sims: dict) -> dict:
             "marker_record_cbor_hex": marker.hex(), "marker_path": f"rejection/{pd['commitment_hash'].hex()}/ErrDenied",
             "with_key": {"id": "private_deny_with_key", "auditor": "auditor-2", "private_part_cbor_hex": dppb.hex(),
                          "private_part": js(dpp), "reason": dpp["reason"]},
-            "second_deny": second_private_deny(PV, pd, dpp)}
+            "second_deny": second_private_deny(PV, pd, dpp),
+            "same_reason_retry": same_reason_private_retry(PV, pd, dpp)}
     assert sorted(deny["public_keys"], key=int) == ["1", "2", "3", "4", "5", "6", "7", "19"]
     base = envs[3]
     pt, h = bytes.fromhex(base["plaintext_cbor_hex"]), bytes.fromhex(base["hash_hex"])

@@ -13,8 +13,8 @@ already checks the anchor proof and result proof:
   completeness included (check_fibre_anchor);
 - AB4: compact-share reassembly with the re-split check, PFF decoding
   (check_fibre_cert; a unit that does not decode makes the height not
-  proven, never absent) and the candidate filter (at another app version,
-  units without a candidate prove nothing);
+  proven, never absent) and the candidate filter (at another app version
+  nothing proves absence: neither S empty nor units without a candidate);
 - AB5: the block results (JSON of /block_results) hashed to last_results_hash
   of the trusted header at h + 1 (leaves from check_execution_outcomes), the
   candidate's result bound as the tail of the block's results (only when
@@ -55,7 +55,8 @@ APP_VERSION = 10
 SYNTHETIC = ("fibre_candidate_nonzero_code", "fibre_present", "window_three_heights_proven",
              "window_one_height_missing", "tampered_row_root", "cut_namespace_entry", "candidate_other_app_version",
              "candidate_other_app_version_all_nonzero", "candidate_other_app_version_all_zero", "tail_n_less_than_p",
-             "fibre_unit_undecodable", "fibre_no_candidate_other_app_version")
+             "fibre_unit_undecodable", "fibre_no_candidate_other_app_version",
+             "fibre_s_empty_other_app_version")
 LIVE = ("fibre_no_pff_row", "fibre_other_pffs_only", "blob_empty_namespace", "blob_other_blobs", "blob_present")
 ROOT_SIZE = 2 * FA.NS_SIZE + 32
 THRESHOLD = 64
@@ -226,7 +227,11 @@ def classify(rec: dict, q: dict, h: int, trusted: dict) -> dict:
             blobs.append(bd)
         return {**out, "blobs": blobs, "result": "present" if present else "absent", "rule": "AB6"}
     out = {"rows": [str(x) for x in want], "pff_txs": "0"}
+    # Another app version may place Fibre txs outside PFF_NS or lay out the square differently, so an empty
+    # PFF_NS there does not show that no anchor exists.
+    other_app = app_version(hf) != APP_VERSION
     if not shares:
+        need(not other_app, "AB4", "another app version: S empty proves nothing")
         return {**out, "result": "absent", "rule": "AB4"}
 
     try:
@@ -245,7 +250,6 @@ def classify(rec: dict, q: dict, h: int, trusted: dict) -> dict:
         if (p["namespace"] == q["namespace"] and p["commitment"] == q["commitment"] and p["blob_version"] == 0
                 and p["chain_id"] == q["chain_id"] and p["height"] <= h):
             cands.append(j)
-    other_app = app_version(hf) != APP_VERSION
     if not cands:
         need(not other_app, "AB4", "another app version with units in PFF_NS: not proven")
         return {**out, "result": "absent", "rule": "AB4"}
