@@ -15,6 +15,7 @@ require (
 
 require (
 	github.com/celestiaorg/nmt v0.24.5 // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
