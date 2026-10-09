@@ -296,11 +296,15 @@ func (g *Gate) intentBlob(ctx context.Context, c *commitment.Commitment) ([]byte
 		}
 		return nil, fmt.Errorf("%w: archived blob for the broadcast: %w", ErrAnchorIntentRejected, err)
 	}
-	if err := commitment.CheckPayload(c, blob); err != nil {
-		return nil, fmt.Errorf("%w: archived blob for the broadcast: %v", ErrAnchorIntentRejected, err)
-	}
+	// A blob off its DA commitment would be refused by the node, so that is
+	// the broadcast's rejection. A blob on its commitment would be anchored,
+	// and then a size or hash mismatch is the payload verdict, which no retry
+	// can change.
 	if err := g.d.Committers[commitment.DACelestiaBlob].Check(c.PayloadRef, blob); err != nil {
 		return nil, fmt.Errorf("%w: archived blob for the broadcast: %v", ErrAnchorIntentRejected, err)
+	}
+	if err := commitment.CheckPayload(c, blob); err != nil {
+		return nil, fmt.Errorf("archived blob for the broadcast: %w", err)
 	}
 	return blob, nil
 }

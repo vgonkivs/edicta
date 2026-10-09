@@ -198,6 +198,37 @@ func TestFastIntentRefusals(t *testing.T) {
 	}
 }
 
+func TestFastBlobMismatchBeforeTheBroadcast(t *testing.T) {
+	for name, tc := range map[string]struct {
+		mutate func(f *fEnv)
+		want   error
+	}{
+		"blob off its DA commitment": {func(f *fEnv) {
+			f.Archive.Put(f.c.PayloadRef, gatefix.BlobY(f.t))
+		}, gate.ErrAnchorIntentRejected},
+		"size differs from the decision": {func(f *fEnv) {
+			f.c.PayloadSize++
+		}, commitment.ErrPayloadSizeMismatch},
+		"hash differs from the decision": {func(f *fEnv) {
+			f.c.CiphertextHash = append([]byte(nil), f.c.CiphertextHash...)
+			f.c.CiphertextHash[0] ^= 1
+		}, commitment.ErrPayloadHashMismatch},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFastEnv(t, commitment.DACelestiaBlob, fastMandate(t, fastDelay))
+			tc.mutate(f)
+			res, err := f.authorize()
+			require.ErrorIs(t, err, tc.want)
+			if tc.want != gate.ErrAnchorIntentRejected {
+				assert.NotErrorIs(t, err, gate.ErrAnchorIntentRejected, "a payload verdict is final, not a retryable rejection")
+			}
+			assert.Empty(t, res.Authorization)
+			assert.Empty(t, f.Broadcaster.Broadcasts())
+			f.RequireUntouched(f.c)
+		})
+	}
+}
+
 func TestFastAnchorAlreadyInWindowWaivesTheSlack(t *testing.T) {
 	f := newFastEnv(t, commitment.DAFibre, fastMandate(t, 5))
 	f.facts.Head = f.h0 + 5
