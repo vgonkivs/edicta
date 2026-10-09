@@ -107,8 +107,7 @@ func TestDA1ProofFormAndEarlierCandidatesReachTheReport(t *testing.T) {
 	}{
 		{"form 1, no earlier candidate", 1, 0, verifier.VerdictValid, 0},
 		{"form 1, earlier candidates", 1, 3, verifier.VerdictValid, 1},
-		{"form 0 is a warning", 0, 0, verifier.VerdictValid, 1},
-		{"form 0 and earlier candidates", 0, 2, verifier.VerdictValid, 2},
+		{"form 0 is refused", 0, 0, verifier.VerdictUnchecked, 0},
 		{"unknown form", 2, 0, verifier.VerdictUnchecked, 0},
 		{"negative count", 1, -1, verifier.VerdictUnchecked, 0},
 	}

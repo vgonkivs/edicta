@@ -49,7 +49,7 @@ func loadReasons(t testing.TB) reasonsDoc {
 	require.NoError(t, err)
 	var d reasonsDoc
 	require.NoError(t, json.Unmarshal(raw, &d))
-	require.Equal(t, "v0-draft.30", d.Revision)
+	require.Equal(t, "v1-draft.5", d.Revision)
 	return d
 }
 
@@ -269,6 +269,23 @@ func TestReasonBoundaryCases(t *testing.T) {
 				rep = r.verify(t)
 			case "payload_action_differs":
 				t.Skip("the verifier holds no payload key to open it")
+			case "authorization_mode_mismatch", "authorization_deadline_over_1000":
+				p := newParts(t)
+				a := commitment.Authorization{Version: commitment.Version, CommitmentHash: p.hash[:], ActionHash: p.c.Action.Hash,
+					GateID: gatefix.GateID, Expires: authExpires, Path: commitment.PathDA, Mode: commitment.ModeFast,
+					AnchorDeadline: p.c.PayloadRef.Height + 10}
+				if c.ID == "authorization_deadline_over_1000" {
+					cc := gatefix.Clone(p.c)
+					cc.PayloadRef.Anchor = commitment.AnchorPending
+					p.c = cc
+					p.env, p.hash = gatefix.Sign(t, "agent1", cc)
+					a.CommitmentHash, a.AnchorDeadline = p.hash[:], cc.PayloadRef.Height+1001
+				}
+				// A repaired record carries no K2 inputs, so the archive
+				// takes the signed contradiction as it is.
+				p.k2 = nil
+				p.auth = signAuthorization(t, gateKey(t), a)
+				rep = newRig(t, p).verify(t)
 			case "execution_body_mismatch":
 				e := newExecRig(t, newParts(t), nil)
 				e.chk.err = verifier.ErrExecutionViolation

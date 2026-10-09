@@ -121,22 +121,19 @@ func TestHeaderTrustMissingInputOnEveryHeaderIsUnchecked(t *testing.T) {
 func TestReplayPromiseCreationRules(t *testing.T) {
 	const earlier = blockTime - 100
 	tests := []struct {
-		name        string
-		form        int
-		creations   []uint64
-		created     uint64
-		path        commitment.PayloadPath
-		consistent  bool
-		unconfirmed bool
+		name       string
+		creations  []uint64
+		created    uint64
+		path       commitment.PayloadPath
+		consistent bool
 	}{
-		{"the archived candidate", 1, nil, blockTime, commitment.PathDA, true, false},
-		{"an earlier candidate", 1, []uint64{earlier}, earlier, commitment.PathDA, true, false},
-		{"an unrelated time", 1, []uint64{earlier}, earlier - 7, commitment.PathDA, false, false},
-		{"a later time than the archived one", 1, []uint64{earlier}, blockTime + 1, commitment.PathDA, false, false},
-		{"smaller time on a form-0 record", 0, nil, earlier, commitment.PathDA, true, true},
-		{"larger time on a form-0 record", 0, nil, blockTime + 1, commitment.PathDA, false, false},
-		{"absent time on the archive path", 1, nil, 0, commitment.PathArchive, true, false},
-		{"absent time on the DA path", 1, nil, 0, commitment.PathDA, false, false},
+		{"the archived candidate", nil, blockTime, commitment.PathDA, true},
+		{"an earlier candidate", []uint64{earlier}, earlier, commitment.PathDA, true},
+		{"an unrelated time", []uint64{earlier}, earlier - 7, commitment.PathDA, false},
+		{"a later time than the archived one", []uint64{earlier}, blockTime + 1, commitment.PathDA, false},
+		{"an earlier time no candidate has", nil, earlier, commitment.PathDA, false},
+		{"absent time on the archive path", nil, 0, commitment.PathArchive, true},
+		{"absent time on the DA path", nil, 0, commitment.PathDA, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -144,22 +141,18 @@ func TestReplayPromiseCreationRules(t *testing.T) {
 			p.k2.PromiseCreated = tc.created
 			p.auth = signAuth(t, gateKey(t), p.hash, p.c, tc.path, authExpires)
 			r := newRig(t, p)
-			r.anchor.proofForm = tc.form
+			r.anchor.proofForm = 1
 			r.anchor.creations = tc.creations
 			r.anchor.earlier = len(tc.creations)
 
 			rr := replay(t, r)
 			require.True(t, rr.K2.Replayable)
 			assert.Equal(t, tc.consistent, rr.K2.Consistent, "%v", rr.K2.Err)
-			assert.Equal(t, tc.unconfirmed, rr.K2.Unconfirmed)
 			switch {
 			case !tc.consistent:
 				require.ErrorIs(t, rr.K2.Err, verifier.ErrGateInconsistent)
 				assert.Equal(t, verifier.VerdictUnchecked, rr.Report.Verdict, "the K2 inputs are unsigned: a gate error and an altered record look the same")
 				unchecked(t, rr.Report, verifier.CheckRetention, verifier.ReasonReplayInconsistent)
-			case tc.unconfirmed:
-				assert.Equal(t, verifier.VerdictUnchecked, rr.Report.Verdict)
-				unchecked(t, rr.Report, verifier.CheckRetention, verifier.ReasonReplayUnconfirmed)
 			default:
 				assert.Equal(t, verifier.VerdictValid, rr.Report.Verdict)
 			}

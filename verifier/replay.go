@@ -38,9 +38,6 @@ func (v *Verifier) Replay(ctx context.Context, h commitment.Hash) (ReplayReport,
 		case !out.K2.Consistent:
 			r.unchecked(CheckRetention, ReasonReplayInconsistent, out.K2.Err)
 			r.finish()
-		case out.K2.Unconfirmed:
-			r.unchecked(CheckRetention, ReasonReplayUnconfirmed, errors.New("an earlier promise creation time cannot be checked against a form-0 record"))
-			r.finish()
 		}
 	}
 	out.Report = r.rep
@@ -91,9 +88,6 @@ func replayK2(r *run) K2Replay {
 		rep.Err = fmt.Errorf("%w: the DA path was authorized outside the retention window", ErrGateInconsistent)
 	}
 	rep.Consistent = rep.Err == nil
-	rep.Unconfirmed = rep.Consistent && r.c.PayloadRef.DA == commitment.DAFibre &&
-		k.PromiseCreated != 0 && k.PromiseCreated != r.facts.RetentionStart &&
-		!slices.Contains(r.facts.EarlierCreations, k.PromiseCreated)
 	return rep
 }
 
@@ -104,11 +98,5 @@ func creationAccepted(created uint64, f *AnchorFacts, path commitment.PayloadPat
 	if created == 0 {
 		return path == commitment.PathArchive
 	}
-	return created == f.RetentionStart || slices.Contains(f.EarlierCreations, created) || formZeroEarlier(created, f)
-}
-
-// formZeroEarlier: a form-0 record shows no other candidates, so a smaller
-// recorded time cannot be confirmed or refuted; it is reported as unchecked.
-func formZeroEarlier(created uint64, f *AnchorFacts) bool {
-	return f.ProofForm == 0 && created < f.RetentionStart
+	return created == f.RetentionStart || slices.Contains(f.EarlierCreations, created)
 }

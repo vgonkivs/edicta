@@ -20,6 +20,7 @@ func signReceipt(t testing.TB, key ed25519.PrivateKey, p *parts, mod func(*commi
 	req, err := commitment.RecordRequestMessage(p.hash, gatefix.GateID, railRef)
 	require.NoError(t, err)
 	r := commitment.Receipt{
+		Version:           commitment.Version,
 		CommitmentHash:    append([]byte(nil), p.hash[:]...),
 		GateID:            gatefix.GateID,
 		GatePubKey:        key.Public().(ed25519.PublicKey),

@@ -123,8 +123,8 @@ func (fibreAnchor) VerifyAnchor(ref commitment.PayloadRef, ev *archive.EvidenceR
 		return verifier.AnchorFacts{}, fmt.Errorf("commitment is %d bytes", len(ref.Commitment))
 	case len(ev.SystemBlobProof) == 0:
 		return verifier.AnchorFacts{}, errors.New("evidence has no anchor proof")
-	case ev.SystemBlobProof[0] == '{':
-		return verifier.AnchorFacts{}, fmt.Errorf("%w: the evidence holds the form-0 anchor proof, which is not checked", verifier.ErrAnchorUnsupported)
+	case ev.SystemBlobProof[0] != 0xa3:
+		return verifier.AnchorFacts{}, errors.New("the anchor proof is not the deterministic CBOR map of the namespace data form")
 	}
 	hd, err := decodeSignedHeader(ev.Header)
 	if err != nil {

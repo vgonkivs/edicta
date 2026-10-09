@@ -38,7 +38,7 @@ func TestMandateRefVectors(t *testing.T) {
 			assert.Equal(t, c.Expect.Exit, exitFor(rep))
 		})
 	}
-	assert.Equal(t, 3, n)
+	assert.Equal(t, 4, n)
 }
 
 func TestFastModeAuthorizationRequiresPolicy(t *testing.T) {
@@ -50,9 +50,10 @@ func TestFastModeAuthorizationRequiresPolicy(t *testing.T) {
 		c.Archive = nil
 		v, _ := c.verifier(t, d)
 		in := c.input(t, d)
+		in.MandateRef = nil
 		out, err := v.checkPolicy(t.Context(), in)
 		require.NoError(t, err)
-		assert.False(t, out.Ran, "no allow record and policy not required: no check")
+		assert.False(t, out.Ran, "no allow record, no mandate_ref and policy not required: no check")
 
 		in.RequirePolicy = true
 		out, err = v.checkPolicy(t.Context(), in)

@@ -160,6 +160,7 @@ func (s *scenario) receipt(t testing.TB, railRef string) []byte {
 	require.NoError(t, err)
 	gk := gatefix.Key(t, "gate1")
 	r := commitment.Receipt{
+		Version:           commitment.Version,
 		CommitmentHash:    append([]byte(nil), s.hash[:]...),
 		GateID:            gatefix.GateID,
 		GatePubKey:        gk.Public().(ed25519.PublicKey),

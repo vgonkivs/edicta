@@ -221,10 +221,6 @@ func (c vecCase) input(t testing.TB, d vecDoc) policyInput {
 		Action: unhex(t, c.Decision.Action), ActionHash: unhex(t, c.Decision.ActionHash),
 		ValidUntil: vu, GateID: c.Decision.GateID, GateKeys: []ed25519.PublicKey{unhex(t, d.Gate.Key)},
 	}
-	if c.Decision.Version != "" {
-		in.Version, err = strconv.ParseUint(c.Decision.Version, 10, 64)
-		require.NoError(t, err)
-	}
 	if c.Decision.MandateRef != "" {
 		in.MandateRef = unhex(t, c.Decision.MandateRef)
 	}
@@ -327,9 +323,11 @@ func TestPolicyCheckSkippedWithoutRecords(t *testing.T) {
 	c := d.Cases[0]
 	c.Archive = nil
 	v, _ := c.verifier(t, d)
-	out, err := v.checkPolicy(t.Context(), c.input(t, d))
+	in := c.input(t, d)
+	in.MandateRef = nil
+	out, err := v.checkPolicy(t.Context(), in)
 	require.NoError(t, err)
-	assert.False(t, out.Ran, "no allow record and no RequirePolicy: no check")
+	assert.False(t, out.Ran, "no allow record, no mandate_ref and no RequirePolicy: no check")
 	rep := verdictOf(v, out)
 	assert.Equal(t, VerdictValid, rep.Verdict)
 	assert.Equal(t, IntegrityNotChecked, rep.GateIntegrity.Status)

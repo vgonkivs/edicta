@@ -149,7 +149,7 @@ func (r *run) execution() {
 		blocked(string(CheckAction), "the action did not pass its check")
 		return
 	}
-	if err := commitment.CheckAction(r.c, r.action); err != nil {
+	if err := commitment.CheckAction(r.c, r.action, r.salt); err != nil {
 		blocked(string(CheckAction), fmt.Sprintf("the action bytes are not the committed ones: %v", err))
 		return
 	}

@@ -173,6 +173,15 @@ type PolicyInfo struct {
 	MandateRef MandateRefStatus
 }
 
+// ActionSource is the record the verified action bytes were read from.
+type ActionSource string
+
+const (
+	ActionSourceDecisionRecord ActionSource = "decision_record"
+	ActionSourcePrivateBlob    ActionSource = "private_blob"
+	ActionSourceReveal         ActionSource = "reveal"
+)
+
 // MandateRefStatus is how a v1 decision's mandate_ref relates to the mandate
 // the gate allowed it under.
 type MandateRefStatus string
@@ -200,7 +209,10 @@ type Report struct {
 	RetentionStart uint64
 	GateID         string
 	ActionType     string
-	Settlement     string
+	// ActionSource names the record the action bytes came from; empty when
+	// the action check did not pass.
+	ActionSource ActionSource
+	Settlement   string
 	// AnchorProofForm and AnchorCandidatesEarlier are set for da = 1.
 	AnchorProofForm         int
 	AnchorCandidatesEarlier int
@@ -236,10 +248,7 @@ type K2Replay struct {
 	Route          commitment.PayloadPath
 	AuthorizedPath commitment.PayloadPath
 	Consistent     bool
-	// Unconfirmed: consistent, but the recorded creation time is earlier
-	// than the archived one and no candidate list is there to confirm it.
-	Unconfirmed bool
-	Err         error
+	Err            error
 }
 
 type ReplayReport struct {

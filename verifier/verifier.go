@@ -18,6 +18,7 @@ import (
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/sdk/blob"
 )
 
 var (
@@ -162,6 +163,10 @@ type Config struct {
 	// Evidence are extra signed verdicts held by the auditor, for example
 	// those agents received. They only ever serve as fork evidence.
 	Evidence [][]byte
+	// PayloadKeys are payload recipient keys the auditor holds. With one
+	// that opens the payload, the payload check also runs O5 to O8 and the
+	// payload's action salt is compared with the archive copy's.
+	PayloadKeys []blob.RecipientKey
 }
 
 // ValidateBasic checks the fields that need no dependency.
@@ -224,11 +229,11 @@ type AnchorFacts struct {
 	CertTokenPrecision string
 	CertValsetHeader   string
 	Settlement         string
-	// ProofForm is the form of the archived anchor proof (da = 1): 1 for
-	// namespace data and DAH, 0 for the system blob commitment proof.
+	// ProofForm is the form of the archived anchor proof (da = 1), always 1:
+	// namespace data and DAH.
 	ProofForm int
 	// CandidatesEarlier counts the other candidates with an earlier promise
-	// creation time than the archived anchor (da = 1, form 1).
+	// creation time than the archived anchor (da = 1).
 	CandidatesEarlier int
 	// EarlierCreations are the promise creation times of those candidates.
 	EarlierCreations []uint64

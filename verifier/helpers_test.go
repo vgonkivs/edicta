@@ -148,6 +148,7 @@ type parts struct {
 	hash       commitment.Hash
 	env        []byte
 	action     []byte
+	salt       []byte
 	blob       []byte
 	payloadRef []byte
 	ev         *archive.EvidenceRecord
@@ -168,28 +169,29 @@ func gatePub(t testing.TB) ed25519.PublicKey { return gateKey(t).Public().(ed255
 func signAuth(t testing.TB, key ed25519.PrivateKey, h commitment.Hash, c *commitment.Commitment, path commitment.PayloadPath, expires uint64) []byte {
 	t.Helper()
 	a := commitment.Authorization{
-		Version:        c.Version,
+		Version:        commitment.Version,
 		CommitmentHash: h[:],
 		ActionHash:     c.Action.Hash,
 		GateID:         gatefix.GateID,
 		Expires:        expires,
 		Path:           path,
+		Mode:           commitment.ModeStrict,
 	}
-	if c.Version == commitment.VersionV1 {
-		a.Mode = commitment.ModeStrict
+	if c.PayloadRef.Pending() {
+		a.Mode = commitment.ModeFast
 	}
 	return signAuthorization(t, key, a)
 }
 
-// signAuthorization signs a under the tags of its version.
+// signAuthorization signs a under the Authorization tags.
 func signAuthorization(t testing.TB, key ed25519.PrivateKey, a commitment.Authorization) []byte {
 	t.Helper()
 	canon, err := commitment.EncodeAuthorization(&a)
 	require.NoError(t, err)
-	ah := commitment.HashAuthorizationFor(a.Version, canon)
+	ah := commitment.HashAuthorization(canon)
 	b, err := commitment.EncodeSignedAuthorization(&commitment.SignedAuthorization{
 		Authorization: a,
-		Signature:     ed25519.Sign(key, commitment.AuthorizationSigningMessageFor(a.Version, ah)),
+		Signature:     ed25519.Sign(key, commitment.AuthorizationSigningMessage(ah)),
 	})
 	require.NoError(t, err)
 	return b
@@ -204,6 +206,7 @@ func newParts(t testing.TB) *parts {
 	p := &parts{
 		da: commitment.DACelestiaBlob, c: c, hash: h, env: env,
 		action:     gatefix.Action(t),
+		salt:       gatefix.Salt(t),
 		blob:       gatefix.Blob(t),
 		payloadRef: c.PayloadRef.Commitment,
 		ev: &archive.EvidenceRecord{
@@ -223,7 +226,7 @@ func newFibreParts(t testing.TB) *parts {
 	c := gatefix.FibreTemplate(t)
 	env, h := gatefix.Sign(t, "agent1", c)
 	action := gatefix.Action(t)
-	ah, err := commitment.ActionHash(c.Action.Type, action)
+	ah, err := commitment.ActionHash(c.Action.Type, gatefix.Salt(t), action)
 	require.NoError(t, err)
 	if !bytes.Equal(ah[:], c.Action.Hash) {
 		c = gatefix.WithAction(t, c, gatefix.ActionType, action)
@@ -236,7 +239,7 @@ func newFibreParts(t testing.TB) *parts {
 	ev.Header = goodHeader()
 	ev.SystemBlobProof = proofFor(goodHeader())
 	p := &parts{
-		da: commitment.DAFibre, c: c, hash: h, env: env, action: action,
+		da: commitment.DAFibre, c: c, hash: h, env: env, action: action, salt: gatefix.Salt(t),
 		blob: gatefix.FibreBlob(), payloadRef: c.PayloadRef.Commitment, ev: &ev,
 		k2: &archive.K2Inputs{
 			DA: commitment.DAFibre, CheckedAt: authorizedAt, BlockTime: blockTime,
@@ -280,7 +283,7 @@ func (p *parts) write(t testing.TB) *fsarchive.Store {
 	if p.ev != nil && p.blob != nil {
 		put(p.ev)
 	}
-	put(&archive.DecisionRecord{Envelope: p.env, Action: p.action})
+	put(&archive.DecisionRecord{Envelope: p.env, Form: archive.FormPublic, Action: p.action, ActionSalt: p.salt})
 	for _, m := range p.markers {
 		put(&archive.RejectionRecord{CommitmentHash: p.hash, Error: m, GateID: gatefix.GateID, RejectedAt: authorizedAt - 10})
 	}
@@ -306,7 +309,7 @@ type rig struct {
 
 func newRig(t testing.TB, p *parts) *rig {
 	t.Helper()
-	r := &rig{p: p, store: p.write(t), anchor: &fakeAnchor{blockTime: blockTime, payloadSize: p.c.PayloadSize}}
+	r := &rig{p: p, store: p.write(t), anchor: &fakeAnchor{blockTime: blockTime, payloadSize: p.c.PayloadSize, proofForm: 1}}
 	h := sha256.Sum256(goodHeader())
 	hashes := map[uint64][]byte{p.ev.Height: h[:]}
 	if p.da == commitment.DAFibre {

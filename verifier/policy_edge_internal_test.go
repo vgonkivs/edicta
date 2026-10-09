@@ -18,12 +18,14 @@ func TestRequirePolicyWithAnArchiveThatReadsNoPolicyRecords(t *testing.T) {
 	v, _ := c.verifier(t, d)
 	v.archive = struct{ Reader }{}
 
-	out, err := v.checkPolicy(t.Context(), c.input(t, d))
+	in := c.input(t, d)
+	in.MandateRef = nil
+	out, err := v.checkPolicy(t.Context(), in)
 	require.NoError(t, err)
 	assert.False(t, out.Ran, "not required: no check, as before")
 
 	v.cfg.RequirePolicy = true
-	out, err = v.checkPolicy(t.Context(), c.input(t, d))
+	out, err = v.checkPolicy(t.Context(), in)
 	require.NoError(t, err)
 	require.True(t, out.Ran)
 	assert.Equal(t, StatusUnchecked, out.Check.Status)

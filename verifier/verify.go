@@ -12,6 +12,8 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/sdk"
+	"github.com/vgonkivs/edicta/sdk/payload"
 )
 
 const (
@@ -51,9 +53,11 @@ type run struct {
 	// authKey is the gate key the Authorization verified under.
 	authKey ed25519.PublicKey
 
-	// action is the action bytes the action check matched; the execution
+	// action and salt are what the action check matched; the execution
 	// check uses these and never reads the record again.
-	action []byte
+	action, salt []byte
+	// sig is the agent signature of the verified envelope.
+	sig []byte
 
 	execRequested bool
 }
@@ -243,7 +247,7 @@ func (r *run) envelope(dec *archive.DecisionRecord) bool {
 	sc, err := commitment.DecodeSigned(dec.Envelope)
 	if err != nil {
 		if raw, rerr := commitment.EnvelopeCommitment(dec.Envelope); rerr == nil &&
-			commitment.HashCanonicalFor(commitment.CanonicalVersion(raw), raw) == r.h {
+			commitment.HashCanonical(raw) == r.h {
 			if _, derr := commitment.Decode(raw); derr != nil {
 				return proven(derr)
 			}
@@ -274,7 +278,7 @@ func (r *run) envelope(dec *archive.DecisionRecord) bool {
 			return proven(errors.New("the agent key is a gate key"))
 		}
 	}
-	r.c = &sc.Commitment
+	r.c, r.sig = &sc.Commitment, bytes.Clone(sc.Signature)
 	r.rep.DA = r.c.PayloadRef.DA
 	r.rep.Height = r.c.PayloadRef.Height
 	r.rep.GateID = r.c.Scope.GateID
@@ -283,12 +287,20 @@ func (r *run) envelope(dec *archive.DecisionRecord) bool {
 	return true
 }
 
+// checkAction reads the action from the decision record. A public record
+// holds the bytes and the salt; a private one holds neither, and without an
+// opened private action record the action stays unchecked.
 func (r *run) checkAction(dec *archive.DecisionRecord) {
-	if err := commitment.CheckAction(r.c, dec.Action); err != nil {
+	if dec.Form != archive.FormPublic {
+		r.unchecked(CheckAction, ReasonPolicyPrivate, errors.New("private decision record: the action is encrypted to the auditors"))
+		return
+	}
+	if err := commitment.CheckAction(r.c, dec.Action, dec.ActionSalt); err != nil {
 		r.corrupt(CheckAction, ErrActionInvalid, err)
 		return
 	}
-	r.action = bytes.Clone(dec.Action)
+	r.action, r.salt = bytes.Clone(dec.Action), bytes.Clone(dec.ActionSalt)
+	r.rep.ActionSource = ActionSourceDecisionRecord
 	r.pass(CheckAction)
 }
 
@@ -316,7 +328,7 @@ func (r *run) authorization() error {
 		r.corrupt(CheckAuthorization, ErrAuthorizationInvalid, err)
 		return nil
 	}
-	msg := commitment.AuthorizationSigningMessageFor(sa.Authorization.Version, ah)
+	msg := commitment.AuthorizationSigningMessage(ah)
 	trusted := false
 	for _, k := range r.v.cfg.GateKeys {
 		if ed25519.Verify(k, msg, sa.Signature) {
@@ -337,13 +349,11 @@ func (r *run) authorization() error {
 		return nil
 	}
 	var problem string
-	verr := commitment.ValidateAuthorization(a, nil)
+	verr := commitment.ValidateAuthorization(a)
 	switch {
-	case a.Version != r.c.Version:
-		problem = fmt.Sprintf("authorization version %d, decision version %d", a.Version, r.c.Version)
 	case verr != nil:
 		problem = verr.Error()
-	case a.Version == commitment.VersionV1 && (a.Mode == commitment.ModeFast) != r.c.PayloadRef.Pending():
+	case (a.Mode == commitment.ModeFast) != r.c.PayloadRef.Pending():
 		problem = fmt.Sprintf("mode %d does not match the reference form", a.Mode)
 	case a.Mode == commitment.ModeFast && (a.AnchorDeadline <= r.c.PayloadRef.Height || a.AnchorDeadline-r.c.PayloadRef.Height > maxFastWindow):
 		problem = fmt.Sprintf("anchor deadline %d outside (h0, h0 + %d]", a.AnchorDeadline, maxFastWindow)
@@ -393,8 +403,55 @@ func (r *run) payload() error {
 		r.corrupt(CheckPayload, ErrPayloadInvalid, err)
 		return nil
 	}
+	o, err := r.openPayload(rec.Blob)
+	if err != nil {
+		r.fail(CheckPayload, fmt.Errorf("%w: %w", ErrPayloadInvalid, err))
+		return nil
+	}
 	r.pass(CheckPayload)
+	if o != nil {
+		r.compareSalt(o.Payload.Action.Salt)
+	}
 	return nil
+}
+
+// openPayload opens the payload with the first configured recipient key
+// that unwraps it. Without such a key nothing is opened and nil is returned:
+// a payload this auditor cannot read is no finding. Once a key opens it, a
+// plaintext hash or O8 failure is the agent's own contradiction.
+func (r *run) openPayload(raw []byte) (*sdk.Opened, error) {
+	if len(r.v.cfg.PayloadKeys) == 0 {
+		return nil, nil
+	}
+	env, err := commitment.EncodeSigned(&commitment.SignedCommitment{Commitment: *r.c, Signature: r.sig})
+	if err != nil {
+		return nil, nil
+	}
+	for _, k := range r.v.cfg.PayloadKeys {
+		o, err := sdk.OpenPayload(env, raw, k)
+		switch {
+		case err == nil:
+			return o, nil
+		case errors.Is(err, sdk.ErrPlaintextHashMismatch), errors.Is(err, sdk.ErrPayloadMismatch),
+			errors.Is(err, payload.ErrMalformed), errors.Is(err, payload.ErrVersion):
+			return nil, err
+		}
+	}
+	return nil, nil
+}
+
+// compareSalt runs after O8 passed: the payload's salt and the archive
+// copy's both hash the committed action, so a difference can only be a bad
+// archive copy, never the agent's.
+func (r *run) compareSalt(payloadSalt []byte) {
+	if r.salt == nil || bytes.Equal(r.salt, payloadSalt) {
+		return
+	}
+	r.replaceCheck(Check{Name: CheckAction, Status: StatusUnchecked, Reason: ReasonSourceCorrupt,
+		Sources: []string{archive.HashPath(archive.KindDecision, r.h)},
+		Err:     fmt.Errorf("%w: the decision record's action salt differs from the payload's", ErrActionInvalid)})
+	r.action, r.salt = nil, nil
+	r.rep.ActionSource = ""
 }
 
 func (r *run) anchorAndTrust() error {
@@ -503,7 +560,7 @@ func (r *run) anchor() (bool, error) {
 		if want, ok := uploadSize(r.c.PayloadSize); !ok || facts.PromiseBlobSize != want {
 			return bad(fmt.Errorf("promise blob size %d does not match the committed payload size %d", facts.PromiseBlobSize, r.c.PayloadSize))
 		}
-		if facts.ProofForm != 0 && facts.ProofForm != 1 {
+		if facts.ProofForm != 1 {
 			return bad(fmt.Errorf("anchor proof form %d", facts.ProofForm))
 		}
 		if facts.CandidatesEarlier < 0 {
@@ -522,9 +579,6 @@ func (r *run) anchor() (bool, error) {
 		r.cert(facts)
 		r.rep.AnchorProofForm = facts.ProofForm
 		r.rep.AnchorCandidatesEarlier = facts.CandidatesEarlier
-		if facts.ProofForm == 0 {
-			r.warn("anchor: the proof is the system blob commitment proof, without the completeness of the namespace data")
-		}
 		if facts.CandidatesEarlier > 0 {
 			r.warn("anchor: %d other promises for this blob are earlier; their result codes are not archived, so the retention start rests on the creation time the gate recorded", facts.CandidatesEarlier)
 		}
@@ -760,7 +814,7 @@ func (r *run) allRequiredPassed() bool {
 	if r.execRequested {
 		required = append(required, CheckExecution)
 	}
-	if r.v.cfg.RequirePolicy {
+	if r.v.cfg.RequirePolicy || r.policyRequired() {
 		required = append(required, CheckPolicy)
 	}
 	for _, n := range required {
@@ -770,6 +824,16 @@ func (r *run) allRequiredPassed() bool {
 		}
 	}
 	return true
+}
+
+// policyRequired holds when the signed data says a mandate applies: the
+// agent named one (mandate_ref), or the gate authorized in fast mode, which
+// needs the principal's consent.
+func (r *run) policyRequired() bool {
+	if r.c != nil && r.c.MandateRef != nil {
+		return true
+	}
+	return r.sa != nil && r.sa.Authorization.Mode == commitment.ModeFast
 }
 
 // firstOther names the first check, other than skip, that did not pass, so
@@ -812,8 +876,8 @@ func (r *run) policy() error {
 	in := policyInput{
 		Hash: r.h, AgentPub: r.c.AgentPubKey, ActionType: r.c.Action.Type, Action: r.action,
 		ActionHash: r.c.Action.Hash, ValidUntil: r.c.ValidUntil, GateID: r.c.Scope.GateID,
-		Version: r.c.Version, MandateRef: r.c.MandateRef,
-		RequirePolicy: r.sa != nil && r.sa.Authorization.Mode == commitment.ModeFast,
+		MandateRef:    r.c.MandateRef,
+		RequirePolicy: r.policyRequired(),
 	}
 	if r.authKey != nil {
 		in.GateKeys = []ed25519.PublicKey{r.authKey}

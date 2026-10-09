@@ -56,8 +56,7 @@ type policyInput struct {
 	GateKeys   []ed25519.PublicKey
 	TH         uint64
 	THVerified bool
-	// Version and MandateRef come from the verified envelope.
-	Version    uint64
+	// MandateRef comes from the verified envelope.
 	MandateRef []byte
 	// RequirePolicy makes the check required for this decision whatever the
 	// configuration: a fast-mode Authorization is valid only with the
@@ -270,7 +269,9 @@ func missingReason(st srcStatus) Reason {
 
 func (p *policyRun) run() (policyOutcome, error) {
 	var out policyOutcome
-	required := p.v.cfg.RequirePolicy || p.in.RequirePolicy
+	// An agent-signed mandate_ref says a mandate applies, so its verdict is
+	// required whatever the auditor configured.
+	required := p.v.cfg.RequirePolicy || p.in.RequirePolicy || p.in.MandateRef != nil
 	if p.rd == nil {
 		if !required {
 			return out, nil
@@ -297,16 +298,14 @@ func (p *policyRun) run() (policyOutcome, error) {
 	// Both sides are signed: the agent's mandate_ref and the gate's verdict.
 	// An absent reference is the agent's omission, which the envelope alone
 	// cannot turn into a finding about the gate.
-	if p.in.Version == commitment.VersionV1 {
-		switch {
-		case p.in.MandateRef == nil:
-			p.mandRef = MandateRefAbsent
-		case bytes.Equal(p.in.MandateRef, v.MandateHash):
-			p.mandRef = MandateRefMatch
-		default:
-			p.mandRef = MandateRefMismatch
-			p.setFail("mandate_ref_mismatch", fmt.Errorf("decision names mandate %x, allow is under %x", p.in.MandateRef, v.MandateHash))
-		}
+	switch {
+	case p.in.MandateRef == nil:
+		p.mandRef = MandateRefAbsent
+	case bytes.Equal(p.in.MandateRef, v.MandateHash):
+		p.mandRef = MandateRefMatch
+	default:
+		p.mandRef = MandateRefMismatch
+		p.setFail("mandate_ref_mismatch", fmt.Errorf("decision names mandate %x, allow is under %x", p.in.MandateRef, v.MandateHash))
 	}
 
 	m, err := p.fast(allow)
