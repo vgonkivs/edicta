@@ -19,6 +19,7 @@ import (
 	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/gate/registry"
 	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
@@ -47,14 +48,40 @@ func withArchiver(a gate.Archiver) gatefix.Option {
 	return gatefix.WithDeps(func(d *gate.Deps) { d.Archiver = a })
 }
 
+// written is what a gate has written so far: decision records and, at a
+// mandate gate, the mandate's counter cell.
+type written struct {
+	records int
+	counter registry.StateCell
+}
+
+func snapshot(t *testing.T, e *gatefix.Env, arch *countingArchiver) written {
+	t.Helper()
+	w := written{records: arch.count()}
+	if len(e.Cfg.Mandate) == 0 {
+		return w
+	}
+	sm, _, err := policy.VerifyMandate(e.Cfg.Mandate)
+	require.NoError(t, err)
+	sr, ok := e.Reg.(registry.StateRegistry)
+	require.True(t, ok, "a mandate gate needs a state registry")
+	w.counter, err = sr.State(context.Background(), registry.StateKey(sm.Mandate.CounterKey()))
+	require.NoError(t, err)
+	return w
+}
+
 // requireNothingWritten is the "refused before any write" check: no
-// Authorization, no verdict, no decision record, untouched nonce.
-func requireNothingWritten(t *testing.T, e *gatefix.Env, arch *countingArchiver, before int, c *commitment.Commitment, res gate.Result) {
+// Authorization, no verdict, no decision record, untouched nonce and, at a
+// mandate gate, an untouched counter cell.
+func requireNothingWritten(t *testing.T, e *gatefix.Env, arch *countingArchiver, before written, c *commitment.Commitment, res gate.Result) {
 	t.Helper()
 	assert.Empty(t, res.Authorization, "no Authorization")
 	assert.Empty(t, res.PolicyVerdict, "no verdict")
 	assert.False(t, res.DecisionArchived)
-	assert.Equal(t, before, arch.count(), "no decision record")
+	after := snapshot(t, e, arch)
+	assert.Equal(t, before.records, after.records, "no decision record")
+	assert.Equal(t, before.counter.Version, after.counter.Version, "counter version unchanged")
+	assert.Equal(t, before.counter.Value, after.counter.Value, "counter value unchanged")
 	e.RequireUntouched(c)
 }
 
@@ -115,9 +142,10 @@ func TestV1AttackActionSalt(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			arch := &countingArchiver{}
 			e, c, b := armed(t, withArchiver(arch))
+			before := snapshot(t, e, arch)
 			res, err := e.AuthorizeWithSalt(b, tc.action, tc.salt)
 			require.ErrorIs(t, err, tc.want)
-			requireNothingWritten(t, e, arch, 0, c, res)
+			requireNothingWritten(t, e, arch, before, c, res)
 
 			_, err = e.Authorize(b)
 			require.NoError(t, err, "the refusal consumed nothing")
@@ -139,7 +167,7 @@ func TestV1AttackSaltFromAnotherDecision(t *testing.T) {
 
 	resA, err := e.Authorize(envA)
 	require.NoError(t, err)
-	before := arch.count()
+	before := snapshot(t, e, arch)
 
 	res, err := e.AuthorizeWithSalt(envB, gatefix.Action(t), gatefix.Salt(t))
 	require.ErrorIs(t, err, commitment.ErrActionMismatch, "decision A's salt presented for decision B")
@@ -173,14 +201,15 @@ func TestV1AttackActionHashedWithoutSalt(t *testing.T) {
 			c.Action.Hash = h
 			e.StageDA(c, gatefix.Blob(t))
 			b, _ := gatefix.Sign(t, "agent1", c)
+			before := snapshot(t, e, arch)
 			for _, salt := range [][]byte{gatefix.Salt(t), make([]byte, 32)} {
 				res, err := e.AuthorizeWithSalt(b, gatefix.Action(t), salt)
 				require.ErrorIs(t, err, commitment.ErrActionMismatch)
-				requireNothingWritten(t, e, arch, 0, c, res)
+				requireNothingWritten(t, e, arch, before, c, res)
 			}
 			res, err := e.AuthorizeWithSalt(b, gatefix.Action(t), nil)
 			require.ErrorIs(t, err, commitment.ErrMissingField)
-			requireNothingWritten(t, e, arch, 0, c, res)
+			requireNothingWritten(t, e, arch, before, c, res)
 		})
 	}
 }
@@ -270,13 +299,14 @@ func TestV1AttackMandateRefAtGateWithoutMandate(t *testing.T) {
 	arch := &countingArchiver{}
 	e := gatefix.New(t, withArchiver(arch))
 	c, b := decisionWithRef(t, e, 1, ref)
+	before := snapshot(t, e, arch)
 	res, err := e.Authorize(b)
 	require.ErrorIs(t, err, gate.ErrMandateMismatch)
-	requireNothingWritten(t, e, arch, 0, c, res)
+	requireNothingWritten(t, e, arch, before, c, res)
 
 	res, err = e.Authorize(b)
 	require.ErrorIs(t, err, gate.ErrMandateMismatch, "a retry is refused the same way")
-	requireNothingWritten(t, e, arch, 0, c, res)
+	requireNothingWritten(t, e, arch, before, c, res)
 }
 
 // A commitment naming another mandate than the one in force is refused at
@@ -291,10 +321,11 @@ func TestV1AttackMandateMismatch(t *testing.T) {
 		c.MandateRef = otherRef
 		e.StageDA(c, gatefix.Blob(t))
 		b, _ := gatefix.Sign(t, "agent1", c)
+		before := snapshot(t, e, arch)
 		res, err := e.AuthorizeWith(b, gatefix.OtherAction(t, 250))
 		require.ErrorIs(t, err, gate.ErrMandateMismatch)
 		require.NotErrorIs(t, err, policy.ErrDenied)
-		requireNothingWritten(t, e, arch, 0, c, res)
+		requireNothingWritten(t, e, arch, before, c, res)
 	})
 	t.Run("previous version after a bump", func(t *testing.T) {
 		arch := &countingArchiver{}
@@ -308,7 +339,7 @@ func TestV1AttackMandateMismatch(t *testing.T) {
 		v2 := mandate(t, 2, 1)
 		e.Cfg.Mandate, _ = signMandate(t, v2)
 		require.NoError(t, e.Restart())
-		before := arch.count()
+		before := snapshot(t, e, arch)
 		c, b2 := decisionWithRef(t, e, 2, ref1)
 		res, err := e.Authorize(b2)
 		require.ErrorIs(t, err, gate.ErrMandateMismatch)
@@ -521,9 +552,10 @@ func TestV1AttackPendingAtFastModeGateWritesNothing(t *testing.T) {
 	c.PayloadRef.Anchor = commitment.AnchorPending
 	e.StageDA(c, gatefix.Blob(t))
 	b, _ := gatefix.Sign(t, "agent1", c)
+	before := snapshot(t, e, arch)
 	res, err := e.Authorize(b)
 	require.ErrorIs(t, err, gate.ErrAnchorPending)
-	requireNothingWritten(t, e, arch, 0, c, res)
+	requireNothingWritten(t, e, arch, before, c, res)
 
 	// Red until the gate wraps the sentinel with the interim reason.
 	t.Run("message names the missing fast-mode path", func(t *testing.T) {
