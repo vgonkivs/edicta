@@ -67,6 +67,21 @@ allowlist_file = "/etc/edictad/agents.toml"   # [[agents]] agent_id, pubkey (hex
 executor_keys = ["<64 hex characters>"]       # the executor's Ed25519 public key
 anchor_verifier = "self"
 
+# Fast mode (off by default): authorize a pending payload reference on its
+# archived anchor intent, before the anchor lands. Needs the archive and a
+# mandate that allows fast mode. The gate looks intents up and broadcasts
+# them through network.consensus_grpc, which must be the operator's own node.
+# [gate.fast]
+# enabled = true
+# own_node = true
+# intent_source = "archive"
+# pending_namespaces = ["<58 hex characters>"]
+# fast_window_blocks = 100
+# max_h0_age_blocks = 10
+# min_fast_slack_blocks = 3
+# min_promise_slack_seconds = 15
+# rebroadcast_intent = true                   # da = "fibre" only
+
 [http]
 listen = "127.0.0.1:8080"
 tls_cert_file = ""

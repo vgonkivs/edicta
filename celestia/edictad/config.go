@@ -363,11 +363,11 @@ func (c Config) ValidateBasic() error {
 	if err := c.Policy.ValidateBasic(); err != nil {
 		return err
 	}
-	if c.Policy.Enabled() && c.Archive.Dir == "" {
-		return cfgErr("policy.mandate_file needs the archive: archive.dir is required")
-	}
 	if err := c.validateFastNeeds(); err != nil {
 		return err
+	}
+	if c.Policy.Enabled() && c.Archive.Dir == "" {
+		return cfgErr("policy.mandate_file needs the archive: archive.dir is required")
 	}
 	if err := c.validateArchive(); err != nil {
 		return err
