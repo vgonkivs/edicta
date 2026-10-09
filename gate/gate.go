@@ -335,6 +335,9 @@ func (g *Gate) authorize(ctx context.Context, envelope, action, salt []byte, ev 
 	// Stage K-fast is not implemented, so even a gate with FastMode on
 	// authorizes only after the anchor is proven at the reference height.
 	if c.PayloadRef.Pending() {
+		if g.cfg.FastMode {
+			return res, fmt.Errorf("%w: fast-mode authorization not implemented", ErrAnchorPending)
+		}
 		return res, ErrAnchorPending
 	}
 
