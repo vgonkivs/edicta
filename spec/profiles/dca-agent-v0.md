@@ -2,12 +2,11 @@
 
 Edicta profile for the dogfood agent in `examples/dca-agent`.
 
-Status: revision `dca-agent-v0-draft.3` (2026-10-09). Working draft, subject
-to change. Built on the core spec `spec/decision-commitment-v0.md`,
-revision `v0-draft.9`; section numbers prefixed "core" refer to it. Since
-`dca-agent-v0-draft.2` the executor also accepts Authorization v1 of
-`spec/decision-commitment-v1.md` (`v1-draft.4` since `dca-agent-v0-draft.3`,
-"core v1"). At the freeze tag this line cites the frozen revision.
+Status: revision `dca-agent-v0-draft.4` (2026-10-09). Working draft, subject
+to change. Built on the core spec `spec/decision-commitment-v1.md`, revision
+`v1-draft.5`; section numbers prefixed "core" refer to it. At the freeze tag
+this line cites the frozen revision. The `v0` in this profile's name and
+media types is the profile's own version, not the core's.
 
 Keywords MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Items marked
 `UNVERIFIED` are facts about IBKR that must be confirmed before a real
@@ -34,8 +33,8 @@ not change this profile's bytes.
 | Revision | Change | Vectors |
 |---|---|---|
 | `dca-agent-v0-draft.1` | First draft. | Initial set. |
-| `dca-agent-v0-draft.3` | Core v1 `v1-draft.4`. (1) The executor's input gains the action salt: `Execute(authorization, action_bytes, action_salt)`; X1 passes it as `check.action_salt` (core v1 6.3: X2s, and X3 with the salted `ActionHashV1` for an Authorization v1; a salt with an Authorization v0 is refused). The integrator carries the salt next to the bytes from the agent; the executor never derives it. (2) X1a: the executor logs `mode` and `anchor_deadline` and MAY keep them in its dedupe record (was: records them); it SHOULD place the order only while its own chain head is below `anchor_deadline`, and without a chain head source relies on `expires`. (3) `refuse_fast_mode` default false, with its rationale. (4) Profile flag `public_execution = false` (section 3.4). Encodings unchanged. Outcome changes: an Authorization v1 without the salt, or with a wrong one, is refused (`commitment.ErrMissingField`, `ErrFieldSize`, `ErrActionMismatch`). | Every profile file byte-identical. The salt rules are covered by core `spec/vectors/v1/authorization.json` (`exec_v1_*`, `exec_v0_salt_present`) and `v1/action.json`. |
-| `dca-agent-v0-draft.2` | Rule X1 verifies both Authorization versions (core 15.3 for v0, core v1 6.3 for v1); new configuration `accept_versions` (default `{0, 1}`) and `refuse_fast_mode` (default false); new rule X1a refuses `mode = 2` when `refuse_fast_mode` is set (`ibkr.ErrFastModeRefused`). Action and context media types, encodings and every other rule unchanged; `commitment_hash` stays the idempotency key for both versions (a v1 hash is computed under the v1 tag, core v1 4.5). Outcome change: an executor at the defaults now accepts an Authorization v1 it refused before. | Every file byte-identical (`dca-agent-v0-draft.1`). The v1 Authorization check is covered by core `spec/vectors/v1/authorization.json`, as X1 is by the v0 one. |
+| `dca-agent-v0-draft.4` | Core `v1-draft.5` only (the `v0` core drafts are superseded). (1) The executor verifies the one Authorization the core defines (core 15.3); the configuration `accept_versions` and every branch for a version 0 Authorization or commitment are removed. (2) `action_salt` is always required. (3) Section references are to the one core document. Action and context encodings unchanged. Outcome change: an Authorization of the superseded drafts is refused at decoding (`commitment.ErrUnsupportedVersion`), as is any Authorization without the salt. | `ibkr_order.json` and `client_order_id.json` regenerated: every case carries `action_salt_hex`, and `action_hash_hex`, the commitment hashes and the client order ids follow the salted core vectors. `dca_context.json` byte-identical. |
+| `dca-agent-v0-draft.2`, `dca-agent-v0-draft.3` | Additions for the `v1` drafts written beside the `v0` core (fast-mode refusal X1a, salt input); superseded by draft.4, history in git. | |
 
 ## 1. Threat model
 
@@ -127,21 +126,19 @@ In this order; every failure is `ibkrorder.ErrInvalid`:
 | `account` | The one IBKR account this executor's credentials trade. |
 | `max_notional` | Operator risk limit, `10^8` scale, per order; `0` disables it. |
 | `skew_s` | Clock tolerance for `VerifyAuthorization`, `0..300`. |
-| `accept_versions` | Authorization versions accepted, a non-empty subset of `{0, 1}`; default `{0, 1}` (passed as `check.accept_versions`, core v1 6.3). |
-| `refuse_fast_mode` | Refuse an Authorization v1 with `mode = 2` (fast: the payload was attested available but not yet anchored on L1 when the gate authorized); default false. Rationale for the default: a gate issues `mode = 2` only under a mandate whose principal stated `fast_mode_max_delay` (core v1 7.2, policy P15), and an executor default must not silently override that consent; `true` is the explicit setting of a strict-only executor. |
+| `refuse_fast_mode` | Refuse an Authorization with `mode = 2` (fast: the payload was attested available but not yet anchored on L1 when the gate authorized); default false. Rationale for the default: a gate issues `mode = 2` only under a mandate whose principal stated `fast_mode_max_delay` (core 8.3, policy P15), and an executor default must not silently override that consent; `true` is the explicit setting of a strict-only executor. |
 | `exec_timeout` | Bound on one placement call. |
 
 ### 3.2 Rules
 
 `Execute(authorization, action_bytes, action_salt)` runs, in this order
-(`action_salt` is the 32-byte salt of a v1 decision, carried by the
-integrator next to the action bytes from the agent; absent for a v0
-decision):
+(`action_salt` is the 32-byte salt of the decision's action hash, carried by
+the integrator next to the action bytes from the agent):
 
 | Rule | Check or step | On failure |
 |---|---|---|
-| X1 | `VerifyAuthorization(authorization, {gate_pubkey, gate_id, type = application/vnd.edicta.ibkr.order.v0+cbor, action_bytes, action_salt, now, skew_s, accept_versions})`: core 15.3 for `version = 0`, core v1 6.3 for `version = 1` (stages D, S including `mode` and `anchor_deadline`, G under the v1 tags, X1, X2, X2s, X3 with `ActionHashV1`, X4) | the core sentinel |
-| X1a | If the Authorization is v1 with `mode = 2` and `refuse_fast_mode` is set: refuse. Otherwise log the mode (and `anchor_deadline` for `mode = 2`); the executor MAY keep both in its dedupe record. The source of truth is the gate-signed Authorization (archived as kind 4). With `mode = 2` the executor SHOULD place the order only while its own chain head is below `anchor_deadline`; an executor without a chain head source relies on `expires`. No sentinel is mandated; an implementation MAY use `ibkr.ErrFastModeDeadlinePassed` | `ibkr.ErrFastModeRefused` |
+| X1 | `VerifyAuthorization(authorization, {gate_pubkey, gate_id, type = application/vnd.edicta.ibkr.order.v0+cbor, action_bytes, action_salt, now, skew_s})`: core 15.3 (stages D, S including `mode` and `anchor_deadline`, G, X1, X2, X2s, X3 with the salted `ActionHash`, X4) | the core sentinel |
+| X1a | If the Authorization has `mode = 2` and `refuse_fast_mode` is set: refuse. Otherwise log the mode (and `anchor_deadline` for `mode = 2`); the executor MAY keep both in its dedupe record. The source of truth is the gate-signed Authorization (archived as kind 4). With `mode = 2` the executor SHOULD place the order only while its own chain head is below `anchor_deadline`; an executor without a chain head source relies on `expires`. No sentinel is mandated; an implementation MAY use `ibkr.ErrFastModeDeadlinePassed` | `ibkr.ErrFastModeRefused` |
 | X2 | `ibkrorder.Decode(action_bytes)`: the order is parsed from the authorized bytes, never taken from the caller (core I3). The broker request is built only from this result, by the total mapping of 3.3 (`RequestFromOrder`); the executor never calls `ibkrorder.Encode`, never fills defaults, and sends nothing the order does not contain except `cOID` and the account path | `ibkrorder.ErrMalformed` |
 | X3 | `ibkrorder.Validate(order)` | `ibkrorder.ErrInvalid` |
 | X4 | `order.account == account` | `ibkr.ErrAccountMismatch` |
@@ -157,8 +154,8 @@ to end case whose bytes come from the core Authorization vector
 `auth_minimal_lmt_da` (`exec_minimal_from_authorization`). X1 is covered by the
 core `authorization.json`; X6 to X8 need a broker fake (example tests).
 
-Crash and timeout handling (replaces the draft.8 gate's Unknown state, now
-local to the executor):
+Crash and timeout handling (local to the executor; the gate does not
+execute):
 - A record that is in flight after a crash or a placement timeout is resolved
   by `FindByClientOrderID(cOID)` (section 4.2), never by placing again.
 - Reconciliation is separate from execution: resolving an in-flight record
@@ -171,7 +168,7 @@ local to the executor):
   declared absent. Otherwise the record stays in flight for an operator.
 - The dedupe record is kept at least until `expires + skew_s` (core I5); the
   in-flight record until it is resolved.
-- Fast mode (core v1 6.4). An Authorization with `mode = 2` was issued before
+- Fast mode (core 15.5). An Authorization with `mode = 2` was issued before
   the payload's L1 anchor landed; the anchor is due by `anchor_deadline`, and
   if it never lands the decision is provably invalid afterwards, possibly
   after the order was placed. An operator who needs "anchored before the
@@ -201,11 +198,11 @@ fetched 2026-10-03 and again 2026-10-04 with the same hash):
 The JSON numbers are written from the exact decimal text; a JSON encoder that
 goes through a binary float MUST NOT be used for them.
 
-### 3.4 Public execution (core v1 10.7)
+### 3.4 Public execution (core 20.11)
 
 `public_execution = false`. An IBKR order is executed off chain: its bytes
 never become public, so this profile defines no `ActionFromTx`, a gate does
-not list its action type in `RevealOnExecution` (core v1 7.4), and the action
+not list its action type in `RevealOnExecution` (core 8.9), and the action
 salt of a private-mode decision is never revealed. A verifier without an
 auditor key reports the action and execution checks of such a decision as
 `unchecked` (`policy_private`).
@@ -377,17 +374,20 @@ of X1 keep their core names.
 ## 7. Vectors
 
 Location `spec/vectors/profiles/dca-agent/`, generated by
-`spec/vectors/check/gen_profile_dca_agent.py` from the core draft.9 set and
-checked by `spec/vectors/check/check_profile_dca_agent.py` (both also run by
+`spec/vectors/check/gen_profile_dca_agent.py` from the core set
+(`spec/vectors/v1/`) and checked by
+`spec/vectors/check/check_profile_dca_agent.py` (also run by
 `check_vectors.py` without arguments). Every file has `format`
-`edicta-vectors/v0`, `profile` `dca-agent` and `revision`
-`dca-agent-v0-draft.1`; uints are decimal strings, bytes lowercase hex.
+`edicta-vectors/v0` (the profile's version), `profile` `dca-agent` and the
+`revision` that last changed it: `dca-agent-v0-draft.4` for `ibkr_order.json`
+and `client_order_id.json`, `dca-agent-v0-draft.1` for `dca_context.json`;
+uints are decimal strings, bytes lowercase hex.
 
 | File | Contents |
 |---|---|
-| `ibkr_order.json` | `action_type`. `cases`: `input` (section 2.1 names), `cbor_hex`, `action_hash_hex` (core 5.1 under this type), `qty_decimal`, `limit_price_decimal`, optional `core_commitment_ref` (the core `valid.json` case whose action these bytes are). `malformed`: `cbor_hex`, `expect_error` `ibkrorder.ErrMalformed`. `invalid`: canonical bodies that fail validation, `expect_error` `ibkrorder.ErrInvalid`. `executor`: `config` (`account`, `max_notional`), `cbor_hex`, optional `authorization_ref` (a core `authorization.json` case whose `check` holds these bytes), optional `expect_error`. 6 cases, 21 malformed, 10 invalid, 9 executor. |
+| `ibkr_order.json` | `action_type`. `cases`: `input` (section 2.1 names), `cbor_hex`, `action_salt_hex`, `action_hash_hex` (core 5.1 under this type and salt), `qty_decimal`, `limit_price_decimal`, optional `core_commitment_ref` (the core `valid.json` case whose action these bytes are). `malformed`: `cbor_hex`, `expect_error` `ibkrorder.ErrMalformed`. `invalid`: canonical bodies that fail validation, `expect_error` `ibkrorder.ErrInvalid`. `executor`: `config` (`account`, `max_notional`), `cbor_hex`, optional `authorization_ref` (a core `authorization.json` case whose `check` holds these bytes), optional `expect_error`. 6 cases, 21 malformed, 10 invalid, 9 executor. |
 | `dca_context.json` | `media_type`. `cases` and `reject`: the draft.8 core `payload_blob.json` `dca` section, moved unchanged (2 cases, 10 rejects). `consistency`: `dca_cbor_hex`, `order_cbor_hex`, `expect_failed` (the DCA check ids that fail; empty when consistent), 7 cases. |
-| `client_order_id.json` | `core_revision`; `cases`: one per core `valid.json` case: `commitment_ref`, `commitment_hash_hex`, `client_order_id`. 14 cases. Replaces the draft.8 core `client_order_id.json`; the `rail` input and its rejects are gone with the rail enum. |
+| `client_order_id.json` | `core_revision`; `cases`: one per core `valid.json` case: `commitment_ref`, `commitment_hash_hex`, `client_order_id`. 22 cases. Replaces the draft.8 core `client_order_id.json`; the `rail` input and its rejects are gone with the rail enum. |
 
 The checker also verifies, against the core set: every core action of this
 type decodes and validates; the bytes of `exec_minimal_from_authorization`

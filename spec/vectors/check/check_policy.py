@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.6).
+"""Verifies the policy v1 vectors (spec/policy-v1.md, policy-v1-draft.8).
 
 Two independent paths:
 - the generator (gen_policy.py over policy_v1.py) reproduces every file byte

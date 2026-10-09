@@ -3,14 +3,12 @@
 Edicta profile for a bank transfer on a Cosmos SDK chain, used by the demo in
 `examples/tia-transfer`.
 
-Status: revision `bank-send-v0-draft.10` (2026-10-09). Working draft, subject
-to change. Built on the core spec `spec/decision-commitment-v0.md`, revision
-`v0-draft.11`. Rule T1 also accepts Authorization v1 of
-`spec/decision-commitment-v1.md` ("core v1") since `bank-send-v0-draft.9`;
-since `bank-send-v0-draft.10` at revision `v1-draft.4` (at the freeze tag
-this line cites the frozen revision). Section 3.4 needs core `v0-draft.28` (core section 20). Section 2.4 needs
-`spec/policy-v1.md` (`policy-v1-draft.1`). Section
-numbers prefixed "core" refer to the core spec.
+Status: revision `bank-send-v0-draft.11` (2026-10-09). Working draft, subject
+to change. Built on the core spec `spec/decision-commitment-v1.md`, revision
+`v1-draft.5` (at the freeze tag this line cites the frozen revision). Section
+2.4 needs `spec/policy-v1.md` (`policy-v1-draft.1` or later). Section numbers
+prefixed "core" refer to the core spec. The `v0` in this profile's name and
+media types is the profile's own version, not the core's.
 
 Keywords MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Items marked
 `UNVERIFIED` are facts about Celestia or the Cosmos SDK that a Celestia
@@ -41,8 +39,8 @@ Changes:
 | `bank-send-v0-draft.6` | Execution check outcomes under core `v0-draft.27` 20.2.1 (human decisions of 2026-10-07). The rules are evaluated in a new order: BX0, BX1, then per candidate BX2, BX3, BX5, header trust, BX6, then BX8, RP and BX9. Changes: (1) New BX0. A configured chain id other than the action's is `unchecked` (`railverify.ErrChainConfig`); it was `fail`. (2) BX1: a malformed `rail_ref` is still `fail`, now `railverify.ErrRailRefMalformed`. Not found and unavailable set the candidate aside, and alternates are tried. (3) BX2 and BX6: wrong bytes and a bad proof set the candidate aside and end `unchecked` (was `fail`). (4) BX4: compared only with a trusted header. A different chain id is `fail` only with proven inclusion. (5) BX5 runs before header trust. (6) New result proof RP1 to RP6: block results from any source are recomputed to `last_results_hash` of the trusted header at `height + 1`, with the index bound by the share proof or uniform codes. (7) BX7 becomes the fact `outcome`. New BX9: a nonzero code is `fail` only when proven (`ErrTxFailed`); `pass` needs a proven code, or the interim cross confirmation. Cross agreement never gives `fail`. (8) BX8: per-source `agree`, `disagree` or `fault`; a mismatch is `unchecked`. (9) Threat note rewritten. New sentinels `ErrRailRefMalformed`, `ErrChainConfig`, `ErrResultUnconfirmed`, `ErrResultsProof`. `ErrTxHashMismatch` and `ErrTxProof` become `unchecked` classes. Rail facts: results hashing, result order and `block_results` availability. Executor rules and every encoding are unchanged. | Every file byte-identical. New: core `spec/vectors/verifier/execution_outcomes.json` (section 8). |
 | `bank-send-v0-draft.7` | Under core `v0-draft.28`. (1) BX7 and BX9: the interim cross-confirmed `pass` is removed (human decision of 2026-10-07: it held until the result proof landed, and it has landed). `result = cross-confirmed` is reported only, and `pass` needs `inclusion = proven` and `result = proven`. A success that only agreeing sources confirm is `unchecked` (was `pass`). (2) RP5: a new way (b) binds the index for a tx at any position. The block's txs from any source (`/block`) are rebuilt into the square as celestia-app `v10.4.0-mocha` `ProcessProposal` builds it (go-square `v4.0.1`), and the rebuilt data root MUST equal `data_hash` of the trusted header. The share-0 way stays (a); uniform codes become (c). (3) Rail facts: the square rebuild, the result count per block, and the ante handler in `ProcessProposal` (VERIFIED by code). The last one resolves the `UNVERIFIED` item of the BX threat note. (4) Threat note: no interim; the block source. Executor rules and every encoding are unchanged. | Every profile file byte-identical. Core `execution_outcomes.json` regenerated (`v0-draft.28`, section 8). |
 | `bank-send-v0-draft.8` | New section 2.4: the policy extractor `celestia/tia-transfer/v1` (policy v1, task 028). It maps a bank-send action whose MsgSend decodes with HRP `celestia` and denom `utia` to facts; everything else is `policy.ErrFactsInvalid`. Encodings, executor rules and every existing outcome unchanged. | New: `tia_transfer_facts.json` (5 cases, 15 must-deny), written by `spec/vectors/check/gen_policy.py` from the existing action and msg vectors, checked by `check_policy.py`. Every other file byte-identical. |
-| `bank-send-v0-draft.10` | Core v1 `v1-draft.4`. (1) The executor's input gains the action salt: `Execute(authorization, action_bytes, action_salt)`; T1 passes it as `check.action_salt` (core v1 6.3: X2s, and X3 with the salted `ActionHashV1` for an Authorization v1; a salt with an Authorization v0 is refused). The integrator carries the salt next to the bytes from the agent; the executor never derives it. (2) T1a: the executor logs `mode` and `anchor_deadline` and MAY keep them in its dedupe record; it SHOULD sign only while its own chain head is below `anchor_deadline` (it reads the head anyway, T8 and T10), otherwise it relies on `expires`. (3) `refuse_fast_mode` default false, with its rationale. (4) New section 3.5: profile flag `public_execution = true` and `ActionFromTx`, the reconstruction of the action bytes from an executed transaction, which the core v1 reveal path uses (core v1 10.7). Encodings and every other rule unchanged. Outcome changes: an Authorization v1 without the salt, or with a wrong one, is refused (`commitment.ErrMissingField`, `ErrFieldSize`, `ErrActionMismatch`). | Every existing profile file byte-identical. New: `action_from_tx.json` (`gen_bank_send_action_from_tx.py`, `check_bank_send_action_from_tx.py`). The salt rules are covered by core `spec/vectors/v1/authorization.json` and `v1/action.json`; the reveal path by core `v1/verify.json` `action_cases`. |
-| `bank-send-v0-draft.9` | Rule T1 verifies both Authorization versions (core 15.3 for v0, core v1 6.3 for v1); new configuration `accept_versions` (default `{0, 1}`) and `refuse_fast_mode` (default false); new rule T1a refuses `mode = 2` when `refuse_fast_mode` is set (`transfer.ErrFastModeRefused`). Fast mode (core v1 6.4): an Authorization with `mode = 2` was issued before the payload's L1 anchor landed; if the anchor misses `anchor_deadline` the decision is provably invalid afterwards, possibly after the transfer was signed, so an operator who needs "anchored before the transfer" refuses fast mode. Encodings, the body rule, the execution check and every other rule unchanged; `commitment_hash` in the memo (3.1) is the v1 hash for a v1 decision. Outcome change: an executor at the defaults now accepts an Authorization v1 it refused before. | Every file byte-identical. The v1 Authorization check is covered by core `spec/vectors/v1/authorization.json`, as T1 is by the v0 one. |
+| `bank-send-v0-draft.9`, `bank-send-v0-draft.10` | Additions for the `v1` drafts written beside the `v0` core (fast-mode refusal T1a, salt input, `ActionFromTx` of 3.5); superseded by draft.11, history in git. | |
+| `bank-send-v0-draft.11` | Core `v1-draft.5` only (the `v0` core drafts are superseded). (1) The executor verifies the one Authorization the core defines (core 15.3); the configuration `accept_versions` and every branch for a version 0 Authorization or commitment are removed. (2) `action_salt` is always required. (3) Section references are to the one core document. Action, context and transaction encodings unchanged. Outcome change: an Authorization of the superseded drafts is refused at decoding (`commitment.ErrUnsupportedVersion`), as is any Authorization without the salt. | `action.json` and `e2e.json` regenerated: every action carries `action_salt_hex` and its salted `action_hash_hex`; the end-to-end commitment, envelope and hashes follow the core vectors. Every other file byte-identical. |
 
 Editorial clarification of `bank-send-v0-draft.4` (2026-10-05, no bump): T10
 names the loop height as the status node's latest committed height and the
@@ -54,12 +52,9 @@ clock read; so no outcome changes for an implementation that followed
 draft.4. A non-positive height counted as a failed read only refuses a value
 no live chain reports. Every vector file is byte-identical.
 
-The profile depends on the core only through `ActionHash` (and, for a v1
-decision, `ActionHashV1`, core v1 4.7),
-`VerifyAuthorization`, `commitment_hash` and rule I5 as amended in
-`v0-draft.10`. Since `bank-send-v0-draft.5`, section 3.4 also depends on core
-section 20 (`v0-draft.26`; since `bank-send-v0-draft.6`, `v0-draft.27` and its
-outcome rule 20.2.1).
+The profile depends on the core only through the salted `ActionHash` (core
+5.1), `VerifyAuthorization`, `commitment_hash` and rule I5; section 3.4 also
+depends on core section 20 and its outcome rule 20.2.1.
 
 ## 1. Threat model
 
@@ -310,9 +305,9 @@ inclusion never implies `outcome = success`; RP decides it.
 ### 3.5 Public execution and `ActionFromTx` (since `bank-send-v0-draft.10`)
 
 `public_execution = true`: an executed transfer is a public transaction, so
-a gate MAY list this action type in `RevealOnExecution` (core v1 7.4) and
+a gate MAY list this action type in `RevealOnExecution` (core 8.9) and
 reveal the action salt of a private-mode decision once a receipt names its
-transaction (core v1 11.4, kind 18). The reveal hides nothing new: the
+transaction (core 19.7, kind 18). The reveal hides nothing new: the
 transaction is public and the gate-signed receipt already links it to the
 decision.
 
@@ -327,7 +322,7 @@ checker is configured for (BX0):
 | AT3 | `A' = bankaction.Encode(chain_id, msg)` (2.1, canonical CBOR `{1: chain_id, 2: msg}`). | - |
 
 The core then accepts `A'` as the committed action only if
-`ActionHashV1(type, revealed salt, A') == action_hash` (core v1 10.7); a
+`ActionHash(type, revealed salt, A') == action_hash` (core 20.11); a
 second preimage is infeasible, so `A'` is then exactly the authorized
 action, and BX5 (`CheckBody`) runs on it as usual. `ActionFromTx` does not
 check the memo, the timeout or anything beyond `msg`: those are BX5's job.
@@ -352,8 +347,7 @@ for another type URL, a trailing byte and a missing signature).
 | `max_timeout_blocks` | Cap on `timeout_height - H0`, `1..10000`, default 200. |
 | `rebroadcast_every` | Resend interval, default 10 s. |
 | `skew_s` | Clock tolerance, `0..300`. |
-| `accept_versions` | Authorization versions accepted, a non-empty subset of `{0, 1}`; default `{0, 1}` (passed as `check.accept_versions`, core v1 6.3). |
-| `refuse_fast_mode` | Refuse an Authorization v1 with `mode = 2` (fast: the payload was attested available but not yet anchored on L1 when the gate authorized); default false. Rationale for the default: a gate issues `mode = 2` only under a mandate whose principal stated `fast_mode_max_delay` (core v1 7.2, policy P15), and an executor default must not silently override that consent; `true` is the explicit setting of a strict-only executor. |
+| `refuse_fast_mode` | Refuse an Authorization with `mode = 2` (fast: the payload was attested available but not yet anchored on L1 when the gate authorized); default false. Rationale for the default: a gate issues `mode = 2` only under a mandate whose principal stated `fast_mode_max_delay` (core 8.3, policy P15), and an executor default must not silently override that consent; `true` is the explicit setting of a strict-only executor. |
 | `hand_off_grace` | How long after `expires` the executor keeps watching a transaction whose `timeout_height` the head has not passed (a stalled or halted chain), default 10 min. Never negative. |
 | `indexer_lag_blocks` | How many blocks past `timeout_height` the status node's height must be before T12 (a) applies, default 3. It covers the lag of the node's transaction indexer behind block commit, not reorgs (CometBFT has instant finality). Never negative; 0 is allowed but not recommended. |
 | `confirm_delay` | Wait before the second status query of T12 (a), default 2 s, at most `rebroadcast_every`. |
@@ -362,14 +356,13 @@ for another type URL, a trailing byte and a missing signature).
 ### 4.2 Rules
 
 `Execute(authorization, action_bytes, action_salt)`, in this order
-(`action_salt` is the 32-byte salt of a v1 decision, carried by the
-integrator next to the action bytes from the agent; absent for a v0
-decision):
+(`action_salt` is the 32-byte salt of the decision's action hash, carried by
+the integrator next to the action bytes from the agent):
 
 | Rule | Step | On failure |
 |---|---|---|
-| T1 | `VerifyAuthorization` with the pinned key and gate id, `type = application/vnd.edicta.cosmos.bank-send.v0+cbor`, the exact action bytes, the action salt, clock, `skew_s` and `accept_versions`: core 15.3 for `version = 0`, core v1 6.3 for `version = 1` (stages D, S including `mode` and `anchor_deadline`, G under the v1 tags, X1, X2, X2s, X3 with `ActionHashV1`, X4) | the core sentinel |
-| T1a | If the Authorization is v1 with `mode = 2` and `refuse_fast_mode` is set: refuse, before anything is decoded or signed. Otherwise log the mode (and `anchor_deadline` for `mode = 2`); the executor MAY keep both in its dedupe record. The source of truth is the gate-signed Authorization (archived as kind 4). With `mode = 2` the executor SHOULD sign and broadcast only while its own chain head is below `anchor_deadline`; an executor without a chain head source relies on `expires`. No sentinel is mandated; an implementation MAY use `transfer.ErrFastModeDeadlinePassed` | `transfer.ErrFastModeRefused` |
+| T1 | `VerifyAuthorization` with the pinned key and gate id, `type = application/vnd.edicta.cosmos.bank-send.v0+cbor`, the exact action bytes, the action salt, clock and `skew_s`: core 15.3 (stages D, S including `mode` and `anchor_deadline`, G, X1, X2, X2s, X3 with the salted `ActionHash`, X4) | the core sentinel |
+| T1a | If the Authorization has `mode = 2` and `refuse_fast_mode` is set: refuse, before anything is decoded or signed. Otherwise log the mode (and `anchor_deadline` for `mode = 2`); the executor MAY keep both in its dedupe record. The source of truth is the gate-signed Authorization (archived as kind 4). With `mode = 2` the executor SHOULD sign and broadcast only while its own chain head is below `anchor_deadline`; an executor without a chain head source relies on `expires`. No sentinel is mandated; an implementation MAY use `transfer.ErrFastModeDeadlinePassed` | `transfer.ErrFastModeRefused` |
 | T2 | `bankaction.Decode(action_bytes)` (2.2) | `bankaction.ErrMalformed` |
 | T3 | `chain_id == Domain.chain_id`, bytewise (core I4) | `transfer.ErrChainMismatch` |
 | T4 | `bankmsg.Decode(msg, Domain.hrp)` (2.3) | `bankmsg.ErrMalformed` |
@@ -653,17 +646,17 @@ changed it (section 0); uints are decimal strings, bytes lowercase hex.
 |---|---|---|
 | `msg_send.json` | `banksend-gen` | `type_url`, `upstream`. `cases`: `hrp`, `input` (`from_address`, `to_address`, `amount{denom, amount}`), `from_hex`, `to_hex`, `msg_hex` (gogoproto `MsgSend.Marshal`). `reject`: `hrp`, `msg_hex`, `expect_error` `bankmsg.ErrMalformed`, `sdk_unmarshal_ok` (whether gogoproto `Unmarshal` accepts it; informative). 6 cases, 39 rejects. |
 | `tx.json` | `banksend-gen` | `body`: `msg_ref`, `commitment_hash_hex`, `timeout_height`, `memo`, `body_hex` (gogoproto `TxBody.Marshal`). `body_reject`: bodies a 3.3 check refuses, `expect_error` `bankaction.ErrBodyMismatch`. `signed`: `body_ref`, `chain_id`, `account_number`, `sequence`, `fee`, `gas_limit`, `key` (label, private key, compressed public key, address), `auth_info_hex`, `sign_doc_hex`, `signature_hex`, `tx_raw_hex`, `tx_hash_hex`, `rail_ref`. 7 bodies, 12 body rejects, 2 signed. |
-| `action.json` | `gen_profile_bank_send.py` | `action_type`. `cases`: `msg_ref` (absent for an opaque msg), `input{chain_id, msg_hex}`, `cbor_hex`, `action_hash_hex`. `reject`: `cbor_hex`, `expect_error` `bankaction.ErrMalformed`. 6 cases, 22 rejects. |
+| `action.json` | `gen_profile_bank_send.py` | `bank-send-v0-draft.11`. `action_type`. `cases`: `msg_ref` (absent for an opaque msg), `input{chain_id, msg_hex}`, `cbor_hex`, `action_salt_hex`, `action_hash_hex` (salted). `reject`: `cbor_hex`, `expect_error` `bankaction.ErrMalformed`. 6 cases, 22 rejects. |
 | `action_from_tx.json` | `gen_bank_send_action_from_tx.py` | `bank-send-v0-draft.10`. Section 3.5. `cases`: `tx_ref` (a `tx.json` signed case), `tx_raw_hex`, `chain_id`, `action_hex`, optional `action_ref` (the `action.json` case with these bytes). `reject`: `tx_raw_hex`, `chain_id`, `expect` `refused`, `cause`. 2 cases, 3 rejects. Checker `check_bank_send_action_from_tx.py`. |
 | `executor.json` | `gen_profile_bank_send.py` | `cases`: `domain`, `destinations`, `max_amount`, `action_hex`, optional `expect_error`: rules T2 to T5 and their order. 17 cases. |
 | `timeout_height.json` | `gen_profile_bank_send.py` | `bank-send-v0-draft.2`. `slowdown_factor`, `max_timeout_blocks_limit`. `interval`: `headers[{height, time_ns}]`, `tau_ms`. `cases`: `head_height`, `head_time`, `tau_ms`, `expires`, `skew_s`, `max_timeout_blocks`, `now`, and `timeout_height` or `expect_error` `transfer.ErrExpired`. 4 intervals, 12 cases. |
 | `price_trigger.json` | `gen_profile_bank_send.py` | `media_type`. `cases`: `input`, `cbor_hex`. `reject`: `cbor_hex`, `expect_error`. `consistency`: `context_cbor_hex`, `msg_ref`, `hrp`, `issued_at`, `expect_failed` (PT ids). 4 cases, 25 rejects, 9 consistency. |
 | `tia_transfer_facts.json` | `gen_policy.py` | `bank-send-v0-draft.8`. `extractor` (ID, action type, HRP, denom, scale). `cases`: `action_ref` or `msg_ref`, `action_hex`, `facts`, `facts_cbor_hex`. `reject`: `action_hex`, `expect_error` `ErrFactsInvalid` (package `policy`), informational `cause`: other denom, `cosmos` HRP, bad checksum, amount 0, leading zero, from == to, trailing bytes, unknown fields, non-canonical CBOR, bad `chain_id` character. 5 cases, 15 rejects. |
-| `e2e.json` | `gen_profile_bank_send.py` | `bank-send-v0-draft.2`. One decision end to end: the gate and params; a commitment by `agent1` (core `keys.json`) with this action type, its envelope and hash (payload fields are placeholders, listed); the action bytes; a price-trigger context consistent with the transfer; the Authorization by `gate1`; the executor's clock, domain, headers, `tau_ms`, `timeout_height`, memo and body. 1 case. |
+| `e2e.json` | `gen_profile_bank_send.py` | `bank-send-v0-draft.11`. One decision end to end: the gate and params; a commitment by `agent1` (core `keys.json`) with this action type, its envelope and hash (payload fields are placeholders, listed); the action bytes; a price-trigger context consistent with the transfer; the Authorization by `gate1`; the executor's clock, domain, headers, `tau_ms`, `timeout_height`, memo and body. 1 case. |
 
 Section 3.4 has its vectors in the core set,
-`spec/vectors/verifier/execution_outcomes.json` (`v0-draft.28`, profile
-`bank-send-v0-draft.7`), written by `spec/vectors/check/gen_execution_outcomes.py`
+`spec/vectors/verifier/execution_outcomes.json` (core `v1-draft.5`, profile
+`bank-send-v0-draft.7` rules), written by `spec/vectors/check/gen_execution_outcomes.py`
 and checked by `check_execution_outcomes.py`. The file holds:
 - `defaults`: the decision under test (`action_minimal_mocha`,
   `signed_minimal_mocha`), and the anchor, transaction and checkpoint heights.

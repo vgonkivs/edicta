@@ -127,7 +127,7 @@ CLIENT = "client side (SDK producer checks or payload opening); never crosses th
 PROFILE = "dca-agent profile, executor side; never crosses the API"
 NOT_API = {
     "ErrInvalidParams": "the gate's own parameters; reported as edictaapi.ErrInternal",
-    "ErrFastModeRefused": "profile executors (section 16.2); never crosses the API",
+    "ErrFastModeRefused": "profile executors (section 15.3); never crosses the API",
     "ErrInvalidConfig": "gate start configuration (section 8.9); a misconfigured gate does not serve requests",
     **{n: REMOVED for n in ["ErrUnsupportedActionKind", "ErrUnsupportedRail", "ErrUnsupportedOrderType", "ErrLimitPrice",
                             "ErrAccountMismatch", "ErrChainIDRule", "ErrDeadlineRange", "ErrPriceBound",

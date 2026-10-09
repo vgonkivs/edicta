@@ -1037,7 +1037,7 @@
     },
     {
       "name": "ErrFastModeRefused",
-      "reason": "profile executors (section 16.2); never crosses the API"
+      "reason": "profile executors (section 15.3); never crosses the API"
     },
     {
       "name": "ErrInvalidConfig",
