@@ -39,6 +39,10 @@ func checkPayloadRef(ref PayloadRef) error {
 		return fmt.Errorf("%w: height", ErrIntRange)
 	}
 	switch {
+	// The standalone reference is the frozen v0 form of the publish answer;
+	// a pending reference has no encoding here.
+	case ref.Anchor != 0 || ref.anchorZero:
+		return fmt.Errorf("%w: payload_ref.anchor", ErrUnknownKey)
 	case ref.DA == DAFibre && ref.Signer != nil:
 		return fmt.Errorf("%w: payload_ref.signer on da 1", ErrUnknownKey)
 	case ref.DA == DACelestiaBlob && len(ref.Signer) != 20:

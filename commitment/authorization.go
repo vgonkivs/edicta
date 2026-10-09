@@ -8,15 +8,24 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
+	"slices"
 )
 
 // MaxAuthorizationSize bounds a SignedAuthorization, checked before parsing.
 const MaxAuthorizationSize = 256
 
+// Mode of an Authorization v1.
+const (
+	ModeStrict = 1
+	ModeFast   = 2
+)
+
 var errNilAuthorization = errors.New("commitment: nil authorization")
 
 // Authorization is the gate's statement that one commitment passed every
-// check for exactly one action, until Expires. All fields are required.
+// check for exactly one action, until Expires. Keys 1 to 6 are required in
+// both versions; Mode is required in v1 and absent in v0, AnchorDeadline is
+// present exactly when Mode is ModeFast.
 type Authorization struct {
 	Version        uint64      `cbor:"1,keyasint"`
 	CommitmentHash []byte      `cbor:"2,keyasint"`
@@ -24,6 +33,12 @@ type Authorization struct {
 	GateID         string      `cbor:"4,keyasint"`
 	Expires        uint64      `cbor:"5,keyasint"`
 	Path           PayloadPath `cbor:"6,keyasint"`
+	Mode           uint64      `cbor:"7,keyasint,omitempty"`
+	AnchorDeadline uint64      `cbor:"8,keyasint,omitempty"`
+
+	// A decoded key 7 or 8 holding 0 cannot be told from an absent key by
+	// the fields above; static validation refuses both.
+	modeZero, deadlineZero bool
 }
 
 type SignedAuthorization struct {
@@ -39,15 +54,42 @@ type AuthorizationCheck struct {
 	Action     []byte
 	Now        uint64
 	SkewS      uint64
+	// AcceptVersions lists the Authorization versions accepted; empty means
+	// both 0 and 1.
+	AcceptVersions []uint64
 }
 
-var authorizationSchema = []field{
-	{key: 1, name: "version", kind: kUint, required: true},
-	{key: 2, name: "commitment_hash", kind: kBytes, min: 32, max: 32, required: true},
-	{key: 3, name: "action_hash", kind: kBytes, min: 32, max: 32, required: true},
-	{key: 4, name: "gate_id", kind: kText, min: 1, max: 64, charset: isID, required: true},
-	{key: 5, name: "expires", kind: kUint, required: true},
-	{key: 6, name: "path", kind: kUint, required: true},
+var (
+	authorizationSchema = []field{
+		{key: 1, name: "version", kind: kUint, required: true},
+		{key: 2, name: "commitment_hash", kind: kBytes, min: 32, max: 32, required: true},
+		{key: 3, name: "action_hash", kind: kBytes, min: 32, max: 32, required: true},
+		{key: 4, name: "gate_id", kind: kText, min: 1, max: 64, charset: isID, required: true},
+		{key: 5, name: "expires", kind: kUint, required: true},
+		{key: 6, name: "path", kind: kUint, required: true},
+	}
+	// Key 7 precedes key 8 in canonical order, so the deadline's presence
+	// rule is decided in the same pass, as for signer and da.
+	authorizationSchemaV1 = append(slices.Clone(authorizationSchema),
+		field{key: 7, name: "mode", kind: kUint, required: true},
+		field{key: 8, name: "anchor_deadline", kind: kUint, onlyIf: notStrict, requiredIf: isFast},
+	)
+)
+
+func modeIs(seen map[uint64]*node, mode uint64) bool {
+	n := seen[7]
+	return n != nil && n.major == majUint && n.u == mode
+}
+
+func notStrict(seen map[uint64]*node) bool { return !modeIs(seen, ModeStrict) }
+func isFast(seen map[uint64]*node) bool    { return modeIs(seen, ModeFast) }
+
+// AuthorizationTags returns the hash and signature tags of a version.
+func AuthorizationTags(version uint64) (hashTag, sigTag string) {
+	if version == VersionV1 {
+		return TagAuthorizationV1, TagAuthorizationSigV1
+	}
+	return TagAuthorization, TagAuthorizationSig
 }
 
 // EncodeAuthorization returns the canonical CBOR of a. It does not validate values.
@@ -79,20 +121,41 @@ func EncodeSignedAuthorization(s *SignedAuthorization) ([]byte, error) {
 	return b, nil
 }
 
-// HashAuthorization hashes canonical Authorization bytes under its domain tag.
+// HashAuthorization hashes canonical v0 Authorization bytes under the v0 tag.
 func HashAuthorization(canon []byte) Hash {
-	return sha256.Sum256(tagged(TagAuthorization, canon))
+	return HashAuthorizationFor(VersionV0, canon)
 }
 
-// AuthorizationSigningMessage is the exact 60 bytes the gate signs.
+// HashAuthorizationFor hashes canonical Authorization bytes under the tag of
+// the given version.
+func HashAuthorizationFor(version uint64, canon []byte) Hash {
+	tag, _ := AuthorizationTags(version)
+	return sha256.Sum256(tagged(tag, canon))
+}
+
+// AuthorizationSigningMessage is the exact 60 bytes the gate signs for a v0
+// Authorization.
 func AuthorizationSigningMessage(h Hash) []byte {
-	return tagged(TagAuthorizationSig, h[:])
+	return AuthorizationSigningMessageFor(VersionV0, h)
+}
+
+// AuthorizationSigningMessageFor is the exact 60 bytes the gate signs for an
+// Authorization of the given version.
+func AuthorizationSigningMessageFor(version uint64, h Hash) []byte {
+	_, tag := AuthorizationTags(version)
+	return tagged(tag, h[:])
 }
 
 // DecodeSignedAuthorization parses and strictly validates a SignedAuthorization
-// (wire format only) and returns the Authorization hash. It checks neither
-// values nor the signature.
+// of either version (wire format only) and returns the Authorization hash
+// under the tag of its version. The Authorization's key 1 selects the schema.
+// It checks neither values nor the signature.
 func DecodeSignedAuthorization(b []byte) (*SignedAuthorization, Hash, error) {
+	return decodeSignedAuthorization(b, true)
+}
+
+// decodeSignedAuthorization with v1 false is the frozen v0 reader.
+func decodeSignedAuthorization(b []byte, v1 bool) (*SignedAuthorization, Hash, error) {
 	if len(b) > MaxAuthorizationSize {
 		return nil, Hash{}, fmt.Errorf("%w: authorization of %d bytes", ErrTooLarge, len(b))
 	}
@@ -111,7 +174,11 @@ func DecodeSignedAuthorization(b []byte) (*SignedAuthorization, Hash, error) {
 			if e.val.major != majMap {
 				return nil, Hash{}, fmt.Errorf("%w: signed_authorization.authorization", ErrWrongType)
 			}
-			if err := checkMap(e.val, authorizationSchema, "authorization"); err != nil {
+			schema := authorizationSchema
+			if v1 && schemaVersion(e.val) == VersionV1 {
+				schema = authorizationSchemaV1
+			}
+			if err := checkMap(e.val, schema, "authorization"); err != nil {
 				return nil, Hash{}, err
 			}
 			an = e.val
@@ -143,48 +210,97 @@ func DecodeSignedAuthorization(b []byte) (*SignedAuthorization, Hash, error) {
 		},
 		Signature: bytes.Clone(sn.b),
 	}
-	canon, err := EncodeAuthorization(&s.Authorization)
-	if err != nil || !bytes.Equal(canon, b[an.start:an.end]) {
-		return nil, Hash{}, fmt.Errorf("%w: authorization", ErrNonCanonical)
+	a := &s.Authorization
+	if n := m[7]; n != nil {
+		a.Mode, a.modeZero = n.u, n.u == 0
 	}
-	enc, err := EncodeSignedAuthorization(s)
-	if err != nil || !bytes.Equal(enc, b) {
-		return nil, Hash{}, fmt.Errorf("%w: signed authorization", ErrNonCanonical)
+	if n := m[8]; n != nil {
+		a.AnchorDeadline, a.deadlineZero = n.u, n.u == 0
 	}
-	return s, HashAuthorization(canon), nil
+	canon := b[an.start:an.end]
+	// A present zero cannot re-encode; the value is refused by static
+	// validation, so only the comparison is skipped.
+	if !a.modeZero && !a.deadlineZero {
+		enc, err := EncodeAuthorization(a)
+		if err != nil || !bytes.Equal(enc, canon) {
+			return nil, Hash{}, fmt.Errorf("%w: authorization", ErrNonCanonical)
+		}
+		enc, err = EncodeSignedAuthorization(s)
+		if err != nil || !bytes.Equal(enc, b) {
+			return nil, Hash{}, fmt.Errorf("%w: signed authorization", ErrNonCanonical)
+		}
+	}
+	return s, HashAuthorizationFor(a.Version, canon), nil
 }
 
-// VerifyAuthorization is the executor-side check: decode, static rules, the
-// signature under the pinned gate key, then the gate id, the exact action
-// bytes under the expected type, and the expiry.
+// ValidateAuthorization runs the static rules of an Authorization of either
+// version in their normative order: the version (and acceptVersions, empty
+// meaning 0 and 1), integer ranges, path, mode, expires, anchor_deadline.
+func ValidateAuthorization(a *Authorization, acceptVersions []uint64) error {
+	if a == nil {
+		return errNilAuthorization
+	}
+	if len(acceptVersions) == 0 {
+		acceptVersions = []uint64{VersionV0, VersionV1}
+	}
+	if a.Version != VersionV0 && a.Version != VersionV1 || !slices.Contains(acceptVersions, a.Version) {
+		return fmt.Errorf("%w: %d", ErrUnsupportedVersion, a.Version)
+	}
+	v1 := a.Version == VersionV1
+	if !v1 && (a.Mode != 0 || a.AnchorDeadline != 0 || a.modeZero || a.deadlineZero) {
+		return fmt.Errorf("%w: v1 key in a v0 authorization", ErrUnknownKey)
+	}
+	for _, u := range []struct {
+		name string
+		v    uint64
+	}{
+		{"version", a.Version}, {"expires", a.Expires}, {"path", uint64(a.Path)},
+		{"mode", a.Mode}, {"anchor_deadline", a.AnchorDeadline},
+	} {
+		if u.v > maxUint63 {
+			return fmt.Errorf("%w: %s", ErrIntRange, u.name)
+		}
+	}
+	if a.Path != PathDA && a.Path != PathArchive {
+		return fmt.Errorf("%w: path %d", ErrInvalidEnum, a.Path)
+	}
+	if v1 && a.Mode != ModeStrict && a.Mode != ModeFast {
+		return fmt.Errorf("%w: mode %d", ErrInvalidEnum, a.Mode)
+	}
+	if a.Expires == 0 {
+		return fmt.Errorf("%w: expires", ErrZeroValue)
+	}
+	if a.deadlineZero {
+		return fmt.Errorf("%w: anchor_deadline", ErrZeroValue)
+	}
+	// Built in memory rather than decoded: the presence rule of key 8.
+	if v1 && (a.Mode == ModeFast) != (a.AnchorDeadline != 0) {
+		if a.Mode == ModeFast {
+			return fmt.Errorf("%w: anchor_deadline", ErrMissingField)
+		}
+		return fmt.Errorf("%w: anchor_deadline with mode %d", ErrUnknownKey, a.Mode)
+	}
+	return nil
+}
+
+// VerifyAuthorization is the executor-side check for both versions: decode,
+// static rules, the signature under the pinned gate key and the tags of the
+// Authorization's version, then the gate id, the exact action bytes under the
+// expected type, and the expiry.
 func VerifyAuthorization(b []byte, chk AuthorizationCheck) (*SignedAuthorization, Hash, error) {
 	s, h, err := DecodeSignedAuthorization(b)
 	if err != nil {
 		return nil, Hash{}, err
 	}
 	a := &s.Authorization
-	if a.Version != 0 {
-		return nil, Hash{}, fmt.Errorf("%w: %d", ErrUnsupportedVersion, a.Version)
-	}
-	for _, u := range []struct {
-		name string
-		v    uint64
-	}{{"version", a.Version}, {"expires", a.Expires}, {"path", uint64(a.Path)}} {
-		if u.v > maxUint63 {
-			return nil, Hash{}, fmt.Errorf("%w: %s", ErrIntRange, u.name)
-		}
-	}
-	if a.Path != PathDA && a.Path != PathArchive {
-		return nil, Hash{}, fmt.Errorf("%w: path %d", ErrInvalidEnum, a.Path)
-	}
-	if a.Expires == 0 {
-		return nil, Hash{}, fmt.Errorf("%w: expires", ErrZeroValue)
+	if err := ValidateAuthorization(a, chk.AcceptVersions); err != nil {
+		return nil, Hash{}, err
 	}
 
 	if err := CheckPublicKey(chk.GatePubKey); err != nil {
 		return nil, Hash{}, err
 	}
-	if !ed25519.Verify(chk.GatePubKey, AuthorizationSigningMessage(h), s.Signature) {
+	if !ed25519.Verify(chk.GatePubKey, AuthorizationSigningMessageFor(a.Version, h), s.Signature) {
 		return nil, Hash{}, ErrSignatureInvalid
 	}
 

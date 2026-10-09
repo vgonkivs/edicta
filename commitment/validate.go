@@ -13,7 +13,18 @@ func ValidateStatic(c *Commitment, p Params) error {
 	}
 	ref := &c.PayloadRef
 
-	if c.Version != 0 {
+	switch c.Version {
+	case VersionV0:
+		// A struct built in memory can carry the v1 keys; the v0 schema has
+		// no place for them.
+		if c.MandateRef != nil || ref.Anchor != 0 || ref.anchorZero {
+			return fmt.Errorf("%w: v1 key in a v0 commitment", ErrUnknownKey)
+		}
+	case VersionV1:
+		if c.MandateRef != nil && len(c.MandateRef) != 32 {
+			return fmt.Errorf("%w: mandate_ref length %d", ErrFieldSize, len(c.MandateRef))
+		}
+	default:
 		return fmt.Errorf("%w: %d", ErrUnsupportedVersion, c.Version)
 	}
 
@@ -22,7 +33,7 @@ func ValidateStatic(c *Commitment, p Params) error {
 		v    uint64
 	}{
 		{"version", c.Version}, {"issued_at", c.IssuedAt}, {"valid_until", c.ValidUntil},
-		{"da", uint64(ref.DA)}, {"height", ref.Height}, {"payload_size", c.PayloadSize},
+		{"da", uint64(ref.DA)}, {"height", ref.Height}, {"anchor", ref.Anchor}, {"payload_size", c.PayloadSize},
 	} {
 		if u.v > maxUint63 {
 			return fmt.Errorf("%w: %s", ErrIntRange, u.name)
@@ -31,6 +42,10 @@ func ValidateStatic(c *Commitment, p Params) error {
 
 	if ref.DA != DAFibre && ref.DA != DACelestiaBlob {
 		return fmt.Errorf("%w: da %d", ErrInvalidEnum, ref.DA)
+	}
+	// One encoding for an included reference: the absent key.
+	if ref.anchorZero || ref.Anchor != 0 && ref.Anchor != AnchorPending {
+		return fmt.Errorf("%w: anchor %d", ErrInvalidEnum, ref.Anchor)
 	}
 
 	for _, z := range []struct {

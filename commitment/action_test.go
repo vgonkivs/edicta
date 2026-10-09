@@ -180,19 +180,21 @@ func TestSchemaShape(t *testing.T) {
 		rt := reflect.TypeOf(v)
 		out := make([]string, 0, rt.NumField())
 		for i := 0; i < rt.NumField(); i++ {
-			out = append(out, rt.Field(i).Name)
+			if rt.Field(i).IsExported() {
+				out = append(out, rt.Field(i).Name)
+			}
 		}
 		return out
 	}
 	assert.ElementsMatch(t, []string{
 		"Version", "AgentID", "AgentPubKey", "Nonce", "IssuedAt", "ValidUntil",
-		"Scope", "Action", "PayloadRef", "CiphertextHash", "PlaintextHash", "PayloadSize",
+		"Scope", "Action", "PayloadRef", "CiphertextHash", "PlaintextHash", "PayloadSize", "MandateRef",
 	}, names(commitment.Commitment{}))
 	assert.ElementsMatch(t, []string{"GateID"}, names(commitment.Scope{}))
 	assert.ElementsMatch(t, []string{"Type", "Hash"}, names(commitment.Action{}))
 	assert.ElementsMatch(t, []string{"GateID", "ActionTypes"}, names(commitment.GateScope{}))
 	assert.ElementsMatch(t, []string{"Version", "CommitmentHash", "GateID", "GatePubKey", "RailRef", "RecordedAt", "ExecutorPubKey", "ExecutorSignature"}, names(commitment.Receipt{}))
-	assert.ElementsMatch(t, []string{"Version", "CommitmentHash", "ActionHash", "GateID", "Expires", "Path"}, names(commitment.Authorization{}))
+	assert.ElementsMatch(t, []string{"Version", "CommitmentHash", "ActionHash", "GateID", "Expires", "Path", "Mode", "AnchorDeadline"}, names(commitment.Authorization{}))
 }
 
 // The wire keys: action is {3: type, 4: hash}, scope is {1: gate_id}, and no

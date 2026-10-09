@@ -186,7 +186,7 @@ func TestValidateStaticBoundaries(t *testing.T) {
 			c.PayloadSize = commitment.MaxPayloadSize + 1
 		}, "ErrPayloadTooLarge"},
 		{"issued_at zero", func(c *commitment.Commitment, _ *commitment.Params) { c.IssuedAt = 0 }, "ErrZeroValue"},
-		{"version 1", func(c *commitment.Commitment, _ *commitment.Params) { c.Version = 1 }, "ErrUnsupportedVersion"},
+		{"version 2", func(c *commitment.Commitment, _ *commitment.Params) { c.Version = 2 }, "ErrUnsupportedVersion"},
 		{"height 2^63", func(c *commitment.Commitment, _ *commitment.Params) { c.PayloadRef.Height = 1 << 63 }, "ErrIntRange"},
 		{"height zero", func(c *commitment.Commitment, _ *commitment.Params) { c.PayloadRef.Height = 0 }, "ErrZeroValue"},
 		{"payload_size zero", func(c *commitment.Commitment, _ *commitment.Params) { c.PayloadSize = 0 }, "ErrZeroValue"},

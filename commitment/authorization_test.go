@@ -152,6 +152,13 @@ func TestAuthorizationRejectVectors(t *testing.T) {
 	for _, rc := range af.Reject {
 		t.Run(rc.ID, func(t *testing.T) {
 			b := mustHex(t, rc.SignedAuthorizationHex)
+			// A v0-shaped Authorization with version 1 is a v0-reader vector:
+			// a v1 executor dispatches it to the v1 schema (v1 vector
+			// v0_shape_version_1).
+			if rc.ID == "authorization_version_1" {
+				assertSentinel(t, commitment.FrozenV0VerifyAuthorization(b), rc.ExpectError)
+				return
+			}
 			_, _, err := commitment.VerifyAuthorization(b, toAuthorizationCheck(t, rc.Check))
 			assertSentinel(t, err, rc.ExpectError)
 
@@ -297,7 +304,7 @@ func TestVerifyAuthorizationSignedGarbage(t *testing.T) {
 		mutate func(a *commitment.Authorization)
 		want   string
 	}{
-		{"version 1", func(a *commitment.Authorization) { a.Version = 1 }, "ErrUnsupportedVersion"},
+		{"version 2", func(a *commitment.Authorization) { a.Version = 2 }, "ErrUnsupportedVersion"},
 		{"expires zero", func(a *commitment.Authorization) { a.Expires = 0 }, "ErrZeroValue"},
 		{"expires 2^63", func(a *commitment.Authorization) { a.Expires = 1 << 63 }, "ErrIntRange"},
 		{"path zero", func(a *commitment.Authorization) { a.Path = 0 }, "ErrInvalidEnum"},

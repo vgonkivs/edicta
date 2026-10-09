@@ -34,6 +34,16 @@ func TestRejectVectors(t *testing.T) {
 				gate = toGate(t, *rc.Gate)
 			}
 
+			// A v0-shaped commitment with version 1 is a v0-reader vector: a
+			// v1 reader takes the v1 path, where the v0 signature fails.
+			if raw, err := commitment.EnvelopeCommitment(env); err == nil && commitment.CanonicalVersion(raw) == commitment.VersionV1 {
+				_, err := commitment.FrozenV0Reader(env)
+				assertSentinel(t, err, rc.ExpectError)
+				_, _, pipeErr := commitment.VerifyForGate(env, now, gate, params)
+				assertSentinel(t, pipeErr, "ErrSignatureInvalid")
+				return
+			}
+
 			_, _, pipeErr := commitment.VerifyForGate(env, now, gate, params)
 
 			if rc.Stage == "D" {
