@@ -95,9 +95,11 @@ func (w walkView) MarshalJSON() ([]byte, error) {
 
 type policyView struct {
 	MandateHash string `json:"mandate_hash"`
-	MandateID   string `json:"mandate_id"`
-	Version     uint64 `json:"version"`
-	Principal   string `json:"principal"`
+	// The mandate id, version and principal are left out when no key opens
+	// a private mandate, for the same reason as the fields below.
+	MandateID string  `json:"mandate_id,omitempty"`
+	Version   *uint64 `json:"version,omitempty"`
+	Principal string  `json:"principal,omitempty"`
 	// Seq, the times, the extractor and the facts are left out when a
 	// private verdict was not opened: a zero would read as a value.
 	Seq           *uint64  `json:"seq,omitempty"`
@@ -275,10 +277,13 @@ func viewOf(r verifier.Report) reportView {
 	}
 	if p := r.Policy; p != nil {
 		v.Policy = &policyView{
-			MandateHash: hex.EncodeToString(p.MandateHash[:]), MandateID: hex.EncodeToString(p.MandateID),
-			Version: p.Version, Principal: hex.EncodeToString(p.Principal),
+			MandateHash:   hex.EncodeToString(p.MandateHash[:]),
 			PrevStateHash: hex.EncodeToString(p.PrevStateHash[:]), NewStateHash: hex.EncodeToString(p.NewStateHash[:]),
 			Denials: p.Denials, MandateRef: string(p.MandateRef), Mode: string(p.Mode),
+		}
+		if p.Mode != verifier.PolicyModePrivate || len(p.MandateID) > 0 {
+			ver := p.Version
+			v.Policy.MandateID, v.Policy.Version, v.Policy.Principal = hex.EncodeToString(p.MandateID), &ver, hex.EncodeToString(p.Principal)
 		}
 		if !p.ContentPrivate {
 			seq, at, et, scale := p.Seq, p.AnchorTime, p.EvalTime, p.Facts.Scale
@@ -436,10 +441,10 @@ func writeText(out io.Writer, v reportView, colour bool) {
 		case pv.Mode == string(verifier.PolicyModePrivate) && pv.MandateID == "":
 			p("policy: private mandate %s, not opened: no configured auditor key opens it", pv.MandateHash)
 		case pv.Seq == nil:
-			p("policy: private mandate %s version %d, the decision's private part was not opened", pv.MandateHash, pv.Version)
+			p("policy: private mandate %s version %d, the decision's private part was not opened", pv.MandateHash, *pv.Version)
 		default:
 			p("policy: mandate %s version %d, counter position %d, %s %s (scale %d), anchor time %d, evaluated at %d",
-				pv.MandateHash, pv.Version, *pv.Seq, pv.Asset, pv.Amount, *pv.Scale, *pv.AnchorTime, *pv.EvalTime)
+				pv.MandateHash, *pv.Version, *pv.Seq, pv.Asset, pv.Amount, *pv.Scale, *pv.AnchorTime, *pv.EvalTime)
 		}
 		if pv.AuditorKid != "" {
 			p("policy: private mandate opened with auditor key fingerprint %s", pv.AuditorKid)
