@@ -110,8 +110,8 @@ type PendingChain interface {
 	// error is for a cancelled context only.
 	Absence(ctx context.Context, ref commitment.PayloadRef, deadline uint64, confirm Confirm) (AbsenceWindow, error)
 	// IntentSigner returns the hex address that signed the archived anchor
-	// intent tx of ref, read from the tx, when the intent binds to ref (F2
-	// on chainID and payloadSize for da = 1, B2 for da = 2); "" when no
+	// intent tx of ref, read from the tx, when the intent binds to ref (for
+	// da = 1 on chainID and the upload size of payloadSize too); "" when no
 	// intent binds.
 	IntentSigner(ctx context.Context, ref commitment.PayloadRef, payloadSize uint64, chainID string) (string, error)
 }

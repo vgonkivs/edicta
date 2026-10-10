@@ -311,7 +311,7 @@ func blobs(h uint64, q Query, rows []int, shares []libshare.Share) Outcome {
 func fibre(h uint64, q Query, rec *archive.AbsenceProofRecord, sh *core.SignedHeader, rows []int, shares []libshare.Share,
 	trusted TrustedHashes) Outcome {
 	out := Outcome{Height: h, Rule: RuleCandidates, Rows: rows}
-	// AB3 selects rows by the pinned layout. At another app version Fibre
+	// The namespace rows are selected by the pinned layout. At another app version Fibre
 	// txs may sit elsewhere or be encoded otherwise, so neither an empty
 	// PFF_NS nor units without a candidate prove the anchor absent.
 	pinned := sh.Version.App == PinnedAppVersion
@@ -393,10 +393,11 @@ func fibre(h uint64, q Query, rec *archive.AbsenceProofRecord, sh *core.SignedHe
 	return out
 }
 
-// isCandidate decodes a PFF_NS unit the way CV1 reads a PayForFibre tx and
-// reports whether it promises the queried blob no later than h. A unit that
-// does not decode is an error whatever the upstream classifier says: what it
-// promises is unknown, so skipping it could hide the anchor.
+// isCandidate decodes a PFF_NS unit the way the anchor check reads a
+// PayForFibre tx and reports whether it promises the queried blob no later
+// than h. A unit that does not decode is an error whatever the upstream
+// classifier says: what it promises is unknown, so skipping it could hide
+// the anchor.
 func isCandidate(tx []byte, q Query, h uint64) (bool, error) {
 	var raw cosmostx.TxRaw
 	if err := raw.Unmarshal(tx); err != nil {

@@ -657,9 +657,11 @@ func atMostTwoThirds(signed, total int64) bool {
 	return sh < th || sh == th && sl <= tl
 }
 
-// uploadSize is the paid upload size of a blob: 4096 bytes times the row
+// UploadSize is the paid upload size of a blob: 4096 bytes times the row
 // size, which is the encoded length (5-byte header included) in 4096-byte
 // rows, rounded up to a multiple of 64 rows.
+func UploadSize(payloadSize uint64) (uint64, bool) { return uploadSize(payloadSize) }
+
 func uploadSize(payloadSize uint64) (uint64, bool) {
 	const maxPayload = 1 << 27
 	if payloadSize == 0 || payloadSize > maxPayload {

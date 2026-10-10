@@ -300,9 +300,10 @@ func (c *Chain) verify(ctx context.Context, q Query, h uint64, rec *archive.Abse
 }
 
 // IntentSigner reads the archived anchor intent of ref and returns the hex
-// address that signed its tx when the intent binds to ref: F2 (the promise
-// for this blob, chain, upload size and h0, owner-signed, created_at) for
-// da = 1, B2 for da = 2.
+// address that signed its tx when the intent binds to ref. For da = 1 that
+// is a promise for this blob, chain, upload size and h0, signed by its owner
+// and created when the record says; for da = 2 a blob tx for this reference
+// and its signer.
 func (c *Chain) IntentSigner(ctx context.Context, ref commitment.PayloadRef, payloadSize uint64, chainID string) (string, error) {
 	if c.d.Intents == nil {
 		return "", nil
@@ -359,15 +360,12 @@ func fibreIntentSigner(rec *archive.AnchorIntentRecord, ref commitment.PayloadRe
 	return hex.EncodeToString(addr)
 }
 
-// fibreUploadSize is the paid upload size of a payload: 4096 bytes times the
-// row count of the encoded blob (5-byte header included), rounded up to a
-// multiple of 64 rows.
+// fibreUploadSize is the paid upload size of a payload, as the anchor check
+// computes it.
 func fibreUploadSize(payloadSize uint64) (uint32, bool) {
-	const maxPayload = 1 << 27
-	if payloadSize == 0 || payloadSize > maxPayload {
+	u, ok := verifier.UploadSize(payloadSize)
+	if !ok || u > math.MaxUint32 {
 		return 0, false
 	}
-	rows := (payloadSize + 5 + 4095) / 4096
-	rows = (rows + 63) / 64 * 64
-	return uint32(rows * 4096), true
+	return uint32(u), true
 }
