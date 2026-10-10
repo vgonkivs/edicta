@@ -52,6 +52,7 @@ func (s *Store) Intents(ctx context.Context, da commitment.DA, from uint64) ([]*
 		return nil, fmt.Errorf("fsarchive: %w", err)
 	}
 	var out []*archive.AnchorIntentRecord
+	var bad []error
 	for _, d := range dirs {
 		commit, err := hex.DecodeString(d.Name())
 		if !d.IsDir() || err != nil || len(commit) != 32 || hex.EncodeToString(commit) != d.Name() {
@@ -67,13 +68,17 @@ func (s *Store) Intents(ctx context.Context, da commitment.DA, from uint64) ([]*
 				continue
 			}
 			rec, err := s.Intent(ctx, da, commit, h)
-			if err != nil {
+			switch {
+			case errors.Is(err, archive.ErrCorrupt):
+				bad = append(bad, err)
+				continue
+			case err != nil:
 				return nil, err
 			}
 			out = append(out, rec)
 		}
 	}
-	return out, nil
+	return out, errors.Join(bad...)
 }
 
 func (s *Store) Absence(_ context.Context, da commitment.DA, commit []byte, height uint64) (*archive.AbsenceProofRecord, error) {

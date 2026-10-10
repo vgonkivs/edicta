@@ -191,6 +191,14 @@ type fastCore struct {
 	recErr   error
 	// recAttempt is closed when the running or next attempt ends.
 	recAttempt chan struct{}
+	// recList is the listing the first attempt that read one got, and recNext
+	// the first record no attempt has handled: a failed attempt resumes there
+	// instead of walking the archive again. Intents archived after the listing
+	// are this process's, which signs nothing before the recovery is done.
+	// Only the recovery goroutine reads them.
+	recList   []*archive.AnchorIntentRecord
+	recListed bool
+	recNext   int
 
 	seqMu sync.Mutex
 	// floor is the sequence the node last named in a refusal: the account
@@ -203,8 +211,12 @@ type fastCore struct {
 	blind bool
 	// gap is set while the node expects a sequence no live intent of this
 	// Recorder holds: every new intent would wait above a hole nobody fills.
-	gap  bool
-	bech string
+	gap bool
+	// reserved holds the sequences of archived txs that may land but are not
+	// followed: a record that failed its checks, or a second intent of one
+	// blob.
+	reserved []reservedSeq
+	bech     string
 
 	mu      sync.Mutex
 	entries map[pendingKey]*fastEntry
@@ -512,47 +524,111 @@ func (f *fastCore) recover(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	recs, err := f.lister.Intents(ctx, d.da(), head-min(head, reach))
-	if err != nil {
-		return archiveFault("list anchor intents", err)
+	if !f.recListed {
+		recs, err := f.lister.Intents(ctx, d.da(), head-min(head, reach))
+		switch {
+		case errors.Is(err, archive.ErrCorrupt):
+			f.d.Log.Error("recorder: archived anchor intents that do not decode are not followed", "err", err)
+		case err != nil:
+			return archiveFault("list anchor intents", err)
+		}
+		f.recList, f.recListed = recs, true
 	}
-	for _, rec := range recs {
+	for ; f.recNext < len(f.recList); f.recNext++ {
+		rec := f.recList[f.recNext]
 		if !d.owns(rec, addr) {
 			continue
 		}
-		key := pendingKey(rec.Commitment)
-		f.mu.Lock()
-		_, known := f.entries[key]
-		f.mu.Unlock()
-		if known {
-			continue
-		}
-		switch _, err := f.eng.archive.Evidence(ctx, d.da(), rec.Commitment); {
+		bad, err := f.recoverOne(ctx, d, rec, head, headTime, reach)
+		switch {
 		case err == nil:
-			continue
-		case !errors.Is(err, archive.ErrNotFound):
-			return archiveFault("read evidence record", err)
-		}
-		p, err := f.eng.archive.Payload(ctx, d.da(), rec.Commitment)
-		if err != nil {
-			return archiveFault("read payload record", err)
-		}
-		dr, err := d.restore(ctx, rec.Commitment, p.Blob, rec)
-		if err != nil {
-			return err
-		}
-		e := &fastEntry{}
-		if expired(dr, head, headTime) {
-			e.closing = ErrAnchorExpired
-		}
-		f.mu.Lock()
-		f.entries[key] = e
-		f.mu.Unlock()
-		if err := f.adopt(d, e, dr, p.Blob, true); err != nil {
+		case bad:
+			f.skip(rec, reach, err)
+		default:
 			return err
 		}
 	}
 	return nil
+}
+
+// recoverOne follows one listed intent again. bad reports an error of the
+// record itself, which no retry mends.
+func (f *fastCore) recoverOne(ctx context.Context, d fastDA, rec *archive.AnchorIntentRecord, head uint64, headTime time.Time, reach uint64) (bad bool, err error) {
+	key := pendingKey(rec.Commitment)
+	f.mu.Lock()
+	e, known := f.entries[key]
+	same := known && e.draft != nil && bytes.Equal(e.draft.rec.Tx, rec.Tx)
+	f.mu.Unlock()
+	if known {
+		// Another intent of the same blob: only one is followed, but this one
+		// may hold a higher sequence, so the next intent is signed above it.
+		if !same {
+			f.reserve(rec, reach)
+		}
+		return false, nil
+	}
+	switch _, err := f.eng.archive.Evidence(ctx, d.da(), rec.Commitment); {
+	case err == nil:
+		return false, nil
+	case errors.Is(err, archive.ErrCorrupt):
+		return true, archiveFault("read evidence record", err)
+	case !errors.Is(err, archive.ErrNotFound):
+		return false, archiveFault("read evidence record", err)
+	}
+	p, err := f.eng.archive.Payload(ctx, d.da(), rec.Commitment)
+	if err != nil {
+		return errors.Is(err, archive.ErrNotFound) || errors.Is(err, archive.ErrCorrupt), archiveFault("read payload record", err)
+	}
+	dr, err := d.restore(ctx, rec.Commitment, p.Blob, rec)
+	if err != nil {
+		// The node and the clock fail for a while; a record that fails its
+		// checks fails them every time.
+		return !errors.Is(err, ErrNodeUnavailable) && ctx.Err() == nil, err
+	}
+	e = &fastEntry{}
+	if expired(dr, head, headTime) {
+		e.closing = ErrAnchorExpired
+	}
+	f.mu.Lock()
+	f.entries[key] = e
+	f.mu.Unlock()
+	if err := f.adopt(d, e, dr, p.Blob, true); err != nil {
+		f.mu.Lock()
+		delete(f.entries, key)
+		f.mu.Unlock()
+		return true, err
+	}
+	return false, nil
+}
+
+// skip leaves out an intent record that cannot be followed. Refusing every
+// new intent for it would stop all publishing until an operator steps in;
+// its tx may still be in a mempool, though, so its sequence, when readable,
+// is never signed again while the tx can land.
+func (f *fastCore) skip(rec *archive.AnchorIntentRecord, reach uint64, err error) {
+	path, _ := archive.IntentPath(rec.DA, rec.Commitment, rec.RefHeight)
+	seq, ok := f.reserve(rec, reach)
+	f.d.Log.Error("recorder: an archived anchor intent cannot be followed and is skipped", "path", path,
+		"sequence_known", ok, "sequence", seq, "err", err)
+}
+
+// reserve keeps the sequence of the tx of rec out of new intents until the
+// committed sequence passes it or the tx can no longer land.
+func (f *fastCore) reserve(rec *archive.AnchorIntentRecord, reach uint64) (uint64, bool) {
+	seq, err := node.TxSequence(rec.Tx)
+	if err != nil {
+		return 0, false
+	}
+	f.seqMu.Lock()
+	f.reserved = append(f.reserved, reservedSeq{seq: seq, until: rec.RefHeight + reach})
+	f.seqMu.Unlock()
+	return seq, true
+}
+
+type reservedSeq struct {
+	seq uint64
+	// until is the last height the tx may land at.
+	until uint64
 }
 
 func (f *fastCore) pendingOf(e *fastEntry) sdk.Published {
@@ -799,7 +875,7 @@ func (f *fastCore) kick(ctx context.Context, seq uint64) {
 func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentDraft, blob []byte) (bool, error) {
 	f.seqMu.Lock()
 	defer f.seqMu.Unlock()
-	p, err := f.params(ctx, dr.timeout)
+	p, err := f.params(ctx, dr.timeout, dr.rec.RefHeight)
 	if err != nil {
 		f.giveUp(dr)
 		return false, err
@@ -894,8 +970,9 @@ func (f *fastCore) markScan(e *fastEntry) {
 // lags while intents of this account wait in the mempool, so the next one
 // never goes below the sequence after the highest live intent: taking a live
 // intent's sequence would make one of the two fail, and that intent's
-// reference may already be authorized.
-func (f *fastCore) params(ctx context.Context, timeout uint64) (node.TxParams, error) {
+// reference may already be authorized. For the same reason it stays above a
+// reserved sequence whose tx may still land at the new intent's height at.
+func (f *fastCore) params(ctx context.Context, timeout, at uint64) (node.TxParams, error) {
 	if f.bech == "" {
 		addr, err := f.d.Signer.Address(ctx)
 		if err != nil {
@@ -916,6 +993,14 @@ func (f *fastCore) params(ctx context.Context, timeout uint64) (node.TxParams, e
 	if hi, ok := f.highestLive(); ok {
 		next = max(next, hi+1)
 	}
+	kept := f.reserved[:0]
+	for _, r := range f.reserved {
+		if r.until >= at && r.seq >= acc.Sequence {
+			next = max(next, r.seq+1)
+			kept = append(kept, r)
+		}
+	}
+	f.reserved = kept
 	price, err := f.d.Node.MinGasPrice(ctx)
 	if err != nil {
 		return node.TxParams{}, fmt.Errorf("%w: gas price: %w", ErrNodeUnavailable, err)

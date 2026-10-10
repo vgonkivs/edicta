@@ -64,9 +64,11 @@ type IntentReader interface {
 }
 
 // IntentLister lists the anchor intents of da whose reference height is at
-// least from, in no particular order, with the error rules of IntentReader
-// for each record. A restarting Recorder needs it to find the intents it
-// signed and may still have to follow.
+// least from, in no particular order. A restarting Recorder needs it to find
+// the intents it signed and may still have to follow. A stored record that
+// does not decode is left out and named in an ErrCorrupt error returned with
+// the records that do: one bad record must not hide the others. Any other
+// error returns no records.
 type IntentLister interface {
 	Intents(ctx context.Context, da commitment.DA, from uint64) ([]*AnchorIntentRecord, error)
 }

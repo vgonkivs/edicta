@@ -53,3 +53,34 @@ func TestIntentsListsByDAAndHeight(t *testing.T) {
 		}
 	}
 }
+
+// A record that does not decode is left out and named; the others are still
+// listed.
+func TestIntentsListsAroundARecordThatDoesNotDecode(t *testing.T) {
+	fx := archivefix.Load(t)
+	s, dir := open(t, fx)
+	var stored []*archive.AnchorIntentRecord
+	for _, c := range loadV1(t).Cases {
+		if c.Kind != "13" {
+			continue
+		}
+		rec := archivefix.Build(t, c.Input).(*archive.AnchorIntentRecord)
+		if rec.DA != commitment.DACelestiaBlob {
+			continue
+		}
+		_, err := s.Put(bg, rec)
+		require.NoError(t, err)
+		stored = append(stored, rec)
+	}
+	require.NotEmpty(t, stored)
+	bad := *stored[0]
+	bad.RefHeight += 1000
+	p, err := archive.IntentPath(bad.DA, bad.Commitment, bad.RefHeight)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, filepath.FromSlash(p)), []byte("not a record"), 0o644))
+
+	got, err := s.Intents(bg, commitment.DACelestiaBlob, 0)
+	require.ErrorIs(t, err, archive.ErrCorrupt)
+	assert.Contains(t, err.Error(), p, "the error names the record")
+	assert.ElementsMatch(t, stored, got)
+}
