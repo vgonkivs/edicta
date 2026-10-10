@@ -27,7 +27,14 @@ var errArchiveBusy = errors.New("edictad: archive calls at the in-flight limit")
 type archiveIO struct {
 	st  archive.Store
 	sem chan struct{}
+	// private is set under a mandate with auditors: its rules and state
+	// then go to the archive only sealed.
+	private bool
 }
+
+// errClearInPrivate refuses a clear mandate, bucket or closed set under a
+// private mandate. The records are built sealed, so this is a last guard.
+var errClearInPrivate = errors.New("edictad: a private mandate's record must be sealed")
 
 func newArchiveIO(st archive.Store) *archiveIO {
 	return &archiveIO{st: st, sem: make(chan struct{}, maxArchiveCalls)}
@@ -59,6 +66,12 @@ func call[T any](ctx context.Context, a *archiveIO, f func(context.Context) (T, 
 }
 
 func (a *archiveIO) put(ctx context.Context, r archive.Record) (archive.Outcome, error) {
+	if a.private {
+		switch r.Kind() {
+		case archive.KindMandate, archive.KindPolicyBucket, archive.KindPolicyClosed:
+			return 0, fmt.Errorf("%w: kind %d", errClearInPrivate, r.Kind())
+		}
+	}
 	return call(ctx, a, func(ctx context.Context) (archive.Outcome, error) { return a.st.Put(ctx, r) })
 }
 
@@ -396,7 +409,7 @@ func recordHash(r archive.Record) string {
 // permanent reports a write error that retrying cannot cure: the record is
 // damaged or fails the archive's own validation.
 func permanent(err error) bool {
-	if errors.Is(err, archive.ErrCorrupt) {
+	if errors.Is(err, archive.ErrCorrupt) || errors.Is(err, errClearInPrivate) {
 		return true
 	}
 	for _, e := range []error{

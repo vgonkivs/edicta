@@ -416,6 +416,7 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 		}
 	}
 	aio := newArchiveIO(store)
+	aio.private = mandate != nil && len(mandate.Mandate.Auditors) > 0
 	reg, err := boltreg.Open(cfg.Gate.RegistryPath, uint64(clock.Now().Unix()))
 	if err != nil {
 		return nil, fmt.Errorf("edictad: registry: %w", err)
