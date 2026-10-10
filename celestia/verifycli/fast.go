@@ -16,24 +16,6 @@ import (
 	"github.com/vgonkivs/edicta/verifier"
 )
 
-// signedHeaders is the part of the bridge reader that serves the protobuf
-// SignedHeader the archive stores.
-type signedHeaders interface {
-	SignedHeader(ctx context.Context, height uint64) ([]byte, error)
-}
-
-// bridgeProofs serves absence proofs from one bridge node: the signed
-// header from its header API, the DAH and the namespace data through the
-// size-capped Fibre bridge client.
-type bridgeProofs struct {
-	*node.FibreBridge
-	headers signedHeaders
-}
-
-func (b bridgeProofs) SignedHeader(ctx context.Context, height uint64) ([]byte, error) {
-	return b.headers.SignedHeader(ctx, height)
-}
-
 // newProofSource connects to the bridge at rawURL. It is a variable so that
 // tests can serve proofs without a network.
 var newProofSource = func(ctx context.Context, rawURL string) (absence.ProofSource, string, func(), error) {
@@ -42,26 +24,13 @@ var newProofSource = func(ctx context.Context, rawURL string) (absence.ProofSour
 		return nil, "", nil, fmt.Errorf("--absence-source %q is not an http or https URL", rawURL)
 	}
 	cfg := node.BridgeConfig{Addr: rawURL, TLS: u.Scheme == "https"}
+	// Every read, the signed header included, goes through the size-capped
+	// client: the source is untrusted and could stream an endless answer.
 	fb, err := node.NewFibreBridge(ctx, cfg, node.BridgeLimits{NamespaceDataBytes: absence.MaxHeightBytes})
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("--absence-source: %w", err)
 	}
-	rc, r, err := node.NewReadOnly(ctx, cfg)
-	if err != nil {
-		fb.Close()
-		return nil, "", nil, fmt.Errorf("--absence-source: %w", err)
-	}
-	sh, ok := r.(signedHeaders)
-	if !ok {
-		fb.Close()
-		_ = rc.Close()
-		return nil, "", nil, errors.New("--absence-source: the bridge reader serves no signed headers")
-	}
-	closer := func() {
-		fb.Close()
-		_ = rc.Close()
-	}
-	return bridgeProofs{FibreBridge: fb, headers: sh}, u.Hostname(), closer, nil
+	return fb, u.Hostname(), fb.Close, nil
 }
 
 // absenceFetcher builds the online fetcher of --absence-source, with the

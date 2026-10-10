@@ -11,6 +11,7 @@ import (
 
 	"github.com/celestiaorg/celestia-node/api/client"
 	"github.com/celestiaorg/celestia-node/blob"
+	"github.com/celestiaorg/celestia-node/header"
 
 	"github.com/vgonkivs/edicta/celestia/heightcheck"
 )
@@ -153,6 +154,12 @@ func (b bridge) SignedHeader(ctx context.Context, height uint64) ([]byte, error)
 	if err != nil {
 		return nil, wrapCtx(ctx, err)
 	}
+	return signedHeaderOf(h, height)
+}
+
+// signedHeaderOf encodes the consensus header and commit of a bridge header
+// answer for height.
+func signedHeaderOf(h *header.ExtendedHeader, height uint64) ([]byte, error) {
 	if h == nil {
 		return nil, fmt.Errorf("%w: bridge returned no header at height %d", ErrUnavailable, height)
 	}

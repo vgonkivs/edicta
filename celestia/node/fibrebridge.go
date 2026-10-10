@@ -119,6 +119,16 @@ func (b *FibreBridge) DAH(ctx context.Context, height uint64) (*da.DataAvailabil
 	return h.DAH, nil
 }
 
+// SignedHeader is the bridge's consensus header and commit at height as a
+// protobuf SignedHeader, read through the capped header client.
+func (b *FibreBridge) SignedHeader(ctx context.Context, height uint64) ([]byte, error) {
+	h, err := b.header.GetByHeight(ctx, height)
+	if err != nil {
+		return nil, wrapCtx(ctx, err)
+	}
+	return signedHeaderOf(h, height)
+}
+
 // NamespaceData is share.GetNamespaceData(height, namespace).
 func (b *FibreBridge) NamespaceData(ctx context.Context, height uint64, ns libshare.Namespace) (shwap.NamespaceData, error) {
 	nd, err := b.share.GetNamespaceData(withBodyLimit(ctx, b.nsWire), height, ns)
