@@ -83,6 +83,11 @@ func (v *FibreIntents) VerifyIntent(ctx context.Context, ref commitment.PayloadR
 	if created <= 0 {
 		return gate.IntentFacts{}, invalidIntent("promise creation time %v", f.Promise.CreationTime)
 	}
+	// Checked before any chain read: a record that misstates the promise is
+	// invalid whatever the endpoint or the certificate would say.
+	if uint64(created) != rec.CreatedAt {
+		return gate.IntentFacts{}, invalidIntent("created_at %d, promise creation %d", rec.CreatedAt, created)
+	}
 
 	refTime, err := v.headerTime(ctx, h0)
 	if err != nil {
