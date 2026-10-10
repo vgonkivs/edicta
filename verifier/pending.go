@@ -277,7 +277,9 @@ func (r *run) pendingInWindow(H uint64, facts AnchorFacts) error {
 	}
 	for _, h := range evidence {
 		if t.refused[h.height] {
-			r.noteCheckpoint(t.cpH)
+			if r.checkpointH == 0 {
+				r.noteCheckpoint(t.cpH)
+			}
 			r.warn("anchor: the evidence header at height %d is not the trusted chain's (source_corrupt), so the absence proofs decide: %v", h.height, t.problem)
 			return r.pendingWindow(fast)
 		}

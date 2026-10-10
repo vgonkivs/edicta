@@ -122,3 +122,26 @@ func (f refusingTrust) Trusted(ctx context.Context, height uint64, hash []byte) 
 	res.CheckpointH = f.cp
 	return res, err
 }
+
+// A Checkpointer answer below D stays authoritative when the refusing
+// trust's results name a checkpoint at or above D.
+func TestPendingRefusedEvidenceKeepsCheckpointerAnswerBelowDeadline(t *testing.T) {
+	for _, k := range pendingKinds {
+		t.Run(k.name, func(t *testing.T) {
+			r, fp := pendingRig(t, k.parts(t), verifier.AbsenceWindow{Result: verifier.AbsencePresentUnpaid})
+			d := r.p.c.PayloadRef.Height + fastWindow
+			delete(r.trust.hashes, r.p.ev.Height)
+			r.deps.Trust = answeringRefusingTrust{refusingTrust{r.trust, d}, d - 1}
+			rep := r.verify(t)
+			unchecked(t, rep, verifier.CheckAnchor, verifier.ReasonAnchorPending)
+			assert.Zero(t, fp.asked)
+		})
+	}
+}
+
+type answeringRefusingTrust struct {
+	refusingTrust
+	at uint64
+}
+
+func (a answeringRefusingTrust) CheckpointHeight(context.Context) (uint64, error) { return a.at, nil }
