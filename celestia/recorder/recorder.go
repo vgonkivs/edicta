@@ -239,6 +239,9 @@ func (b blobBackend) head(ctx context.Context) (uint64, time.Time, error) {
 	if err != nil {
 		return 0, time.Time{}, fmt.Errorf("%w: head: %w", ErrNodeUnavailable, err)
 	}
+	if h.Height == 0 {
+		return 0, time.Time{}, fmt.Errorf("%w: head at height 0", ErrNodeUnavailable)
+	}
 	return h.Height, h.Time, nil
 }
 

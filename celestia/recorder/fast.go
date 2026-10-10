@@ -419,7 +419,7 @@ func (f *fastCore) recover(ctx context.Context, d fastDA) error {
 	if err != nil {
 		return err
 	}
-	recs, err := f.lister.Intents(ctx, d.da(), head-min(head-1, reach))
+	recs, err := f.lister.Intents(ctx, d.da(), head-min(head, reach))
 	if err != nil {
 		return archiveFault("list anchor intents", err)
 	}
