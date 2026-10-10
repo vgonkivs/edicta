@@ -261,6 +261,10 @@ def outcome(c: dict, records: dict, window: int) -> dict:
             ev = c.get("evidence")
             if ev and ev["verifies"] and int(ev["height"]) < h0:
                 out["anchor"] = {"status": "unchecked", "reason": "source_corrupt"}
+            elif ev and ev["verifies"] and int(ev["height"]) <= dl and head_ < max(dl, int(ev["height"])):
+                # Header trust must reach max(D, H) before in-window evidence counts, for every kind of trust root.
+                out["anchor"] = {"status": "unchecked", "reason": "anchor_pending"}
+                rep["publication"] = "unknown"
             elif ev and ev["verifies"] and int(ev["height"]) <= dl:
                 out["anchor"] = {"status": "pass"}
                 rep |= {"anchor_height": ev["height"], "publication": "anchored"}
