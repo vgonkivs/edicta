@@ -1,9 +1,10 @@
 // Package absence verifies proofs that an anchor is not included at a
 // height, and windows of them, against hashes that header trust already
-// established. It does no I/O: fetching the proofs and the trusted hashes is
-// the caller's job. Every failure of a proof means "not proven", never
-// "absent": a hostile source can withhold, but it cannot make an included
-// anchor look absent without breaking SHA-256 or the NMT.
+// established. VerifyHeight and VerifyWindow are pure; Fetcher and Chain
+// read archived and online proofs through interfaces and hand them to the
+// pure check. Every failure of a proof means "not proven", never "absent":
+// a hostile source can withhold, but it cannot make an included anchor look
+// absent without breaking SHA-256 or the NMT.
 package absence
 
 const (

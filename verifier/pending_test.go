@@ -51,7 +51,7 @@ type fakePending struct {
 	asked     int
 }
 
-func (f *fakePending) Header(context.Context, uint64) (verifier.ChainHeader, error) {
+func (f *fakePending) Header(context.Context, commitment.PayloadRef, uint64) (verifier.ChainHeader, error) {
 	return f.header, f.headerErr
 }
 

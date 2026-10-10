@@ -1,6 +1,9 @@
 package absence
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Invalid arguments: the caller's mistake, not a property of a proof.
 var (
@@ -33,3 +36,7 @@ var (
 	// proven.
 	ErrResultUnproven = errors.New("absence: candidate result code not proven")
 )
+
+// ErrResultsMissing: a candidate exists and the record holds no results
+// proof; fetching the results of the height may prove it.
+var ErrResultsMissing = fmt.Errorf("%w: no results proof", ErrResultUnproven)

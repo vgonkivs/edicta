@@ -102,8 +102,9 @@ type Confirm func(ctx context.Context, height uint64, hash []byte) bool
 // ties every header hash a result rests on to the chain, through header
 // trust or through the Confirm it passes.
 type PendingChain interface {
-	// Header returns the header at height from any source.
-	Header(ctx context.Context, height uint64) (ChainHeader, error)
+	// Header returns the header at height from any source; ref names the
+	// reference whose records may hold it.
+	Header(ctx context.Context, ref commitment.PayloadRef, height uint64) (ChainHeader, error)
 	// Absence checks the absence proofs of [ref.Height, deadline]. A height
 	// whose proof rests on a header hash confirm refuses is not proven. The
 	// error is for a cancelled context only.
@@ -250,7 +251,7 @@ func (r *run) refHeader(h0 uint64) (ChainHeader, error) {
 	if r.v.pending == nil {
 		return ChainHeader{}, errors.New("no header source for a pending reference")
 	}
-	hd, err := r.v.pending.Header(r.ctx, h0)
+	hd, err := r.v.pending.Header(r.ctx, r.c.PayloadRef, h0)
 	if err != nil {
 		return ChainHeader{}, err
 	}

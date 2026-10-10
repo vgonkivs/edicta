@@ -32,6 +32,17 @@ type Query struct {
 
 // ValidateBasic checks the query fields.
 func (q Query) ValidateBasic() error {
+	if err := q.validateTarget(); err != nil {
+		return err
+	}
+	if q.DA == commitment.DAFibre && q.ChainID == "" {
+		return fmt.Errorf("%w: da = 1 needs the chain id", ErrQuery)
+	}
+	return nil
+}
+
+// validateTarget checks the fields that name the anchor.
+func (q Query) validateTarget() error {
 	switch {
 	case q.DA != commitment.DAFibre && q.DA != commitment.DACelestiaBlob:
 		return fmt.Errorf("%w: da %d", ErrQuery, q.DA)
@@ -43,8 +54,6 @@ func (q Query) ValidateBasic() error {
 		return fmt.Errorf("%w: signer is %d bytes", ErrQuery, len(q.Signer))
 	case q.DA == commitment.DAFibre && q.Signer != nil:
 		return fmt.Errorf("%w: signer is not defined for da = 1", ErrQuery)
-	case q.DA == commitment.DAFibre && q.ChainID == "":
-		return fmt.Errorf("%w: da = 1 needs the chain id", ErrQuery)
 	}
 	return nil
 }
@@ -302,7 +311,7 @@ func fibre(h uint64, q Query, rec *archive.AbsenceProofRecord, sh *core.SignedHe
 
 	out.Rule = RuleResults
 	if rec.Results == nil || rec.NextHeader == nil {
-		return unproven(h, RuleResults, ErrResultUnproven, "%d candidate(s) and no results proof", len(cands))
+		return unproven(h, RuleResults, ErrResultsMissing, "%d candidate(s)", len(cands))
 	}
 	next, err := trustedHeader(rec.NextHeader, h+1, trusted)
 	if err != nil {
