@@ -545,6 +545,11 @@ func (f *FastLive) authorize(ctx context.Context) error {
 	return nil
 }
 
+const (
+	deadlineBlockTime = 6 * time.Second
+	deadlineMargin    = 2 * time.Minute
+)
+
 // waitAnchor polls the own node and the archive until the anchor tx is in a
 // block and its evidence is archived, or the deadline is well past.
 func (f *FastLive) waitAnchor(ctx context.Context) (bool, error) {
@@ -658,13 +663,58 @@ func (f *FastLive) intents(ctx context.Context, comm []byte) (int, bool) {
 	return n, same
 }
 
+// waitDeadline blocks until the chain head is past the Authorization's
+// anchor_deadline, bounded by the blocks left times the block time plus a
+// margin.
+func (f *FastLive) waitDeadline(ctx context.Context) error {
+	r := f.r
+	cons := r.gateDeps.Consensus
+	want := f.out.Deadline + 1
+	head, err := cons.LatestHeight(ctx)
+	if err != nil {
+		return coded(ExitInconclusive, fmt.Errorf("demo: the node: %w", err))
+	}
+	var left uint64
+	if want > head {
+		left = want - head
+	}
+	limit := time.Duration(left)*deadlineBlockTime + deadlineMargin
+	r.deps.Screen.Info(fmt.Sprintf("verify needs the chain head past the anchor deadline %d: head %d, waiting up to %s", f.out.Deadline, head, limit.Round(time.Second)))
+	end := r.deps.now().Add(limit)
+	fails := 0
+	for head < want {
+		if !r.deps.now().Before(end) {
+			return coded(ExitInconclusive, fmt.Errorf("demo: the chain head %d did not pass the anchor deadline %d within %s", head, f.out.Deadline, limit.Round(time.Second)))
+		}
+		if err := r.deps.sleep(ctx, r.cfg.PollEvery); err != nil {
+			return err
+		}
+		h, err := cons.LatestHeight(ctx)
+		if err != nil {
+			if fails++; fails > maxReadFailures {
+				return coded(ExitInconclusive, fmt.Errorf("demo: the node: %w", err))
+			}
+			continue
+		}
+		fails = 0
+		head = h
+		r.deps.Screen.Wait("waiting for the anchor deadline...", fmt.Sprintf("head %d, deadline %d, %d blocks to go", head, f.out.Deadline, max(int64(want)-int64(head), 0)))
+	}
+	return nil
+}
+
 func (f *FastLive) verify(ctx context.Context) error {
 	r := f.r
 	var err error
 	if r.archive, err = openArchiveServer(filepath.Join(r.runDir, "archive")); err != nil {
 		return coded(ExitUsage, err)
 	}
-	root, err := r.trustRoot(ctx, f.out.AnchorHeight)
+	if err := f.waitDeadline(ctx); err != nil {
+		return err
+	}
+	// The verifier's header trust must reach max(D, H); the root is taken
+	// past D even when the anchor landed earlier.
+	root, err := r.trustRoot(ctx, max(f.out.AnchorHeight, f.out.Deadline))
 	if err != nil {
 		if errors.Is(err, ErrTrustRootUnavailable) {
 			f.add("4.7", "edicta verify", "VALID, anchor at H inside its window", "no trust root", "unchecked")
