@@ -179,6 +179,10 @@ type PolicyInfo struct {
 	// that opened a private mandate, printed as its fingerprint.
 	Mode       PolicyMode
 	AuditorKid []byte
+	// ContentPrivate: the verdict's PrivatePart was not opened, so seq, the
+	// times, the extractor and the facts are unknown; the state hashes are
+	// the public ones.
+	ContentPrivate bool
 }
 
 // PolicyMode says whether the mandate publishes its rules.

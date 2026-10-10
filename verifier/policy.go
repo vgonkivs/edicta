@@ -125,13 +125,13 @@ type policyRun struct {
 	// Private mode. signed holds every held verdict as signed, for the fork
 	// search that works without the key; ppViol is the target or walked
 	// verdict whose PrivatePart breaks the presence rule.
-	parts    map[commitment.Hash]partRead
-	kids     map[commitment.Hash][]byte
-	private  bool
-	noKey    bool
-	ppViol   []byte
-	signed   []signedVerdict
-	target   *policy.Verdict
+	parts   map[commitment.Hash]partRead
+	kids    map[commitment.Hash][]byte
+	private bool
+	noKey   bool
+	ppViol  []byte
+	signed  []signedVerdict
+	target  *policy.Verdict
 }
 
 type signedVerdict struct {
@@ -379,7 +379,11 @@ func (p *policyRun) run() (policyOutcome, error) {
 	p.noKey = mst == srcPrivate
 	p.private = p.noKey || (m0 != nil && len(m0.Auditors) > 0) || (m0 == nil && v.Private())
 	if p.private {
-		p.info = &PolicyInfo{MandateHash: commitment.Hash(v.MandateHash), Mode: PolicyModePrivate}
+		p.info = &PolicyInfo{MandateHash: commitment.Hash(v.MandateHash), Mode: PolicyModePrivate, ContentPrivate: true}
+		if h, ok := v.PrevStateHash(); ok {
+			p.info.PrevStateHash = h
+		}
+		copy(p.info.NewStateHash[:], v.NewStateHash)
 	}
 	// Both sides are signed: the agent's mandate_ref and the gate's verdict.
 	// An absent reference is the agent's omission, which the envelope alone
@@ -609,6 +613,7 @@ func (p *policyRun) fillInfo(allow *allowRec, v *policy.Verdict, m *policy.Manda
 		MandateHash: mh, MandateID: bytes.Clone(m.MandateID), Version: m.Version,
 		Principal: bytes.Clone(m.Principal), AnchorTime: v.AnchorTime, EvalTime: v.EvalTime,
 		ExtractorID: v.Extractor, Mode: PolicyModePublic, AuditorKid: bytes.Clone(p.kids[mh]),
+		ContentPrivate: v.Private(),
 	}
 	if len(m.Auditors) > 0 {
 		info.Mode = PolicyModePrivate

@@ -94,18 +94,20 @@ func (w walkView) MarshalJSON() ([]byte, error) {
 }
 
 type policyView struct {
-	MandateHash   string   `json:"mandate_hash"`
-	MandateID     string   `json:"mandate_id"`
-	Version       uint64   `json:"version"`
-	Principal     string   `json:"principal"`
-	Seq           uint64   `json:"seq"`
-	AnchorTime    uint64   `json:"anchor_time"`
-	EvalTime      uint64   `json:"eval_time"`
-	Extractor     string   `json:"extractor"`
-	Kind          string   `json:"kind"`
-	Asset         string   `json:"asset"`
-	Amount        string   `json:"amount"`
-	Scale         uint64   `json:"scale"`
+	MandateHash string `json:"mandate_hash"`
+	MandateID   string `json:"mandate_id"`
+	Version     uint64 `json:"version"`
+	Principal   string `json:"principal"`
+	// Seq, the times, the extractor and the facts are left out when a
+	// private verdict was not opened: a zero would read as a value.
+	Seq           *uint64  `json:"seq,omitempty"`
+	AnchorTime    *uint64  `json:"anchor_time,omitempty"`
+	EvalTime      *uint64  `json:"eval_time,omitempty"`
+	Extractor     string   `json:"extractor,omitempty"`
+	Kind          string   `json:"kind,omitempty"`
+	Asset         string   `json:"asset,omitempty"`
+	Amount        string   `json:"amount,omitempty"`
+	Scale         *uint64  `json:"scale,omitempty"`
 	Recipient     string   `json:"recipient,omitempty"`
 	PrevStateHash string   `json:"prev_state_hash"`
 	NewStateHash  string   `json:"new_state_hash"`
@@ -274,12 +276,15 @@ func viewOf(r verifier.Report) reportView {
 	if p := r.Policy; p != nil {
 		v.Policy = &policyView{
 			MandateHash: hex.EncodeToString(p.MandateHash[:]), MandateID: hex.EncodeToString(p.MandateID),
-			Version: p.Version, Principal: hex.EncodeToString(p.Principal), Seq: p.Seq,
-			AnchorTime: p.AnchorTime, EvalTime: p.EvalTime, Extractor: p.ExtractorID,
-			Kind: p.Facts.Kind, Asset: p.Facts.Asset, Amount: hex.EncodeToString(p.Facts.Amount),
-			Scale: p.Facts.Scale, Recipient: p.Facts.Recipient,
+			Version: p.Version, Principal: hex.EncodeToString(p.Principal),
 			PrevStateHash: hex.EncodeToString(p.PrevStateHash[:]), NewStateHash: hex.EncodeToString(p.NewStateHash[:]),
 			Denials: p.Denials, MandateRef: string(p.MandateRef), Mode: string(p.Mode),
+		}
+		if !p.ContentPrivate {
+			seq, at, et, scale := p.Seq, p.AnchorTime, p.EvalTime, p.Facts.Scale
+			v.Policy.Seq, v.Policy.AnchorTime, v.Policy.EvalTime, v.Policy.Scale = &seq, &at, &et, &scale
+			v.Policy.Extractor, v.Policy.Kind, v.Policy.Asset = p.ExtractorID, p.Facts.Kind, p.Facts.Asset
+			v.Policy.Amount, v.Policy.Recipient = hex.EncodeToString(p.Facts.Amount), p.Facts.Recipient
 		}
 		if len(p.AuditorKid) > 0 {
 			v.Policy.AuditorKid = policy.Fingerprint(p.AuditorKid)
@@ -430,9 +435,11 @@ func writeText(out io.Writer, v reportView, colour bool) {
 		switch {
 		case pv.Mode == string(verifier.PolicyModePrivate) && pv.MandateID == "":
 			p("policy: private mandate %s, not opened: no configured auditor key opens it", pv.MandateHash)
+		case pv.Seq == nil:
+			p("policy: private mandate %s version %d, the decision's private part was not opened", pv.MandateHash, pv.Version)
 		default:
 			p("policy: mandate %s version %d, counter position %d, %s %s (scale %d), anchor time %d, evaluated at %d",
-				pv.MandateHash, pv.Version, pv.Seq, pv.Asset, pv.Amount, pv.Scale, pv.AnchorTime, pv.EvalTime)
+				pv.MandateHash, pv.Version, *pv.Seq, pv.Asset, pv.Amount, *pv.Scale, *pv.AnchorTime, *pv.EvalTime)
 		}
 		if pv.AuditorKid != "" {
 			p("policy: private mandate opened with auditor key fingerprint %s", pv.AuditorKid)
