@@ -42,6 +42,23 @@ decided, on what context, before the action, and that exactly that action ran.
 | 6 Verify | The verifier re-checks everything from the archive and public RPCs, with the trust root below, and the policy: `--principal-key <this run's principal> --require-policy --policy-full` (the decision must satisfy the mandate, and the gate's verdict chain is walked to genesis, shown as the `gate_integrity` line). Must end VALID, and VALID now lists `policy: pass` among its assumptions. | nothing |
 | 7 Cheating attempts | Layer 1 and 2 attempts run first and move no funds. Layer 1 now includes the over-limit commitment, which the policy refuses (a blob for the refused decision is published). The rogue executor (layer 3) runs last with a second decision. | the rogue run: one blob and one `MsgSend` |
 
+## Offline scene: fast mode
+
+`celestia/bin/edicta demo fast-mode [--dir DIR] [--json]` runs in about a second,
+with no network, no funds and no Enter. An in-process chain stands in for
+Celestia; the gate, the Recorder's fast path, the absence proofs and the
+verifier are the real code. The mandate consents to fast mode
+(`fast_mode_max_delay` 20 blocks). The agent publishes a pending reference,
+and the gate authorizes it in fast mode in the block of h0, with an
+`anchor_deadline`. The anchor tx is killed: the chain accepts it and never
+includes it. Inside the window the verifier says INCONCLUSIVE
+(`anchor_pending`). After the deadline the absence proofs of every height of
+the window are fetched from the bridge and archived, and the verifier says
+INVALID: `anchor_absent`, `publication: failed`, intent signer = the
+Recorder's account. Exit 0 when both verdicts are as expected, 1 otherwise.
+The run directory (archive, trusted headers, config) is kept, and the printed
+`edicta verify` commands rerun offline.
+
 ## Build and run
 
 From the repository root:

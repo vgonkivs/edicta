@@ -12,7 +12,10 @@ import (
 	"golang.org/x/term"
 
 	"github.com/vgonkivs/edicta/celestia/demo"
+	"github.com/vgonkivs/edicta/celestia/verifycli"
 )
+
+const fastUsage = "usage: edicta demo fast-mode [--dir DIR] [--json]"
 
 const demoUsage = "usage: edicta demo [--network mocha] [--home DIR] [--amount UTIA] [--json] " +
 	"[--funder-keyring-dir DIR --funder-key NAME [--funder-passphrase-file FILE] [--address ADDR]] " +
@@ -66,6 +69,9 @@ func isTTY(w io.Writer) bool {
 // runDemo returns the demo's exit code: 0 ok, 1 wrong, 2 inconclusive,
 // 3 not authorized, 4 usage, 130 interrupted.
 func runDemo(ctx context.Context, args []string, out io.Writer, in *os.File) int {
+	if len(args) > 0 && args[0] == "fast-mode" {
+		return runFastDemo(ctx, args[1:], out)
+	}
 	cfg, err := parseDemo(args, out)
 	if err != nil {
 		fmt.Fprintf(out, "edicta: %v\n%s\n", err, demoUsage)
@@ -94,5 +100,22 @@ func runDemo(ctx context.Context, args []string, out io.Writer, in *os.File) int
 		return demo.ExitCodeOf(err)
 	}
 	res, _ := r.Run(ctx)
+	return res.Code
+}
+
+// runFastDemo runs the offline fast-mode scene: 0 when the verifier ended as
+// the scene expects, 1 when it did not, 4 on bad flags.
+func runFastDemo(ctx context.Context, args []string, out io.Writer) int {
+	var cfg demo.FastSceneConfig
+	var jsonOut bool
+	fs := flag.NewFlagSet("demo fast-mode", flag.ContinueOnError)
+	fs.SetOutput(out)
+	fs.StringVar(&cfg.Dir, "dir", "", "where the kept run directory is created; default the system temp directory")
+	fs.BoolVar(&jsonOut, "json", false, "print one JSON event per line")
+	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
+		fmt.Fprintln(out, fastUsage)
+		return demo.ExitUsage
+	}
+	res, _ := demo.RunFastScene(ctx, cfg, demo.NewScreen(out, isTTY(out), jsonOut), verifycli.Run)
 	return res.Code
 }
