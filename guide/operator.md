@@ -48,8 +48,9 @@ only for record requests), and the principal key of the mandate. All four
 are Ed25519 except a principal that signs with Keplr or MetaMask. The gate
 refuses to start when the principal key equals a gate, executor or agent
 key. The Recorder's chain key is a secp256k1 Cosmos key in its own keyring,
-never the executor's; in fast mode it must also not be the principal's Keplr
-or MetaMask key, and edictad refuses to start if it is.
+never the executor's; in every mode (strict and fast, blob and Fibre) it
+must also not be the principal's Keplr or MetaMask key, and edictad refuses
+to start if it is.
 
 The gate key is as sensitive as the rail credentials it guards: whoever holds
 it can authorize any bytes. Executors pin its public key out of band, never
@@ -121,7 +122,8 @@ agents sign a publish request, the Recorder pays the blob fee from its
 account and returns the payload reference. In `celestia_blob` mode it submits
 a PayForBlobs; in `fibre` mode it uploads to Fibre and submits a
 PayForFibre, only through your own consensus node (`recorder.own_node =
-true`), paying from the account's escrow. Fibre keys and escrow:
+true`), paying from the account's escrow. The Recorder's key must not be the
+mandate's principal in any mode (see Keys). Fibre keys and escrow:
 [../celestia/README.md](../celestia/README.md), sections "Fibre Recorder"
 and "Fibre escrow".
 
@@ -246,8 +248,12 @@ mode has not run live.
   scale or state salt, too many assets);
 - fast mode is enabled without the archive, a mandate or `own_node`, or with
   inconsistent bounds (above);
-- the Recorder's fast keys are inconsistent, its signer is not its account,
-  or its key is the mandate's principal (above);
+- the Recorder's key is the mandate's principal, in any mode (compared as
+  the same secp256k1 key under Keplr ADR-036 and MetaMask EIP-712);
+- the Recorder's fast keys are inconsistent or its signer is not its
+  account (above);
+- `fibre` with fast mode: the x/fibre params (promise window, timeout,
+  withdrawal delay) stay unreadable after 6 reads (above);
 - `gate.reveal_on_execution` names a type not in `gate.action_types` or
   without a public-execution profile.
 
