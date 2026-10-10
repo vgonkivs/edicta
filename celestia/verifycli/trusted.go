@@ -39,7 +39,9 @@ func (b bundle) Header(_ context.Context, height uint64) ([]byte, error) {
 	return bytes.Clone(raw), nil
 }
 
-func loadTrusted(path string) (verifier.HeaderTrust, error) {
+// loadTrusted reads the trusted header file. The walk takes the bundled
+// headers first and then those of more, if any.
+func loadTrusted(path string, more ...headertrust.HeaderChain) (verifier.HeaderTrust, error) {
 	st, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("trusted header file: %w", err)
@@ -82,5 +84,5 @@ func loadTrusted(path string) (verifier.HeaderTrust, error) {
 		chain[uint64(ph.Height)] = b
 	}
 	cp := headertrust.Checkpoint{Height: f.Height, Hash: hash, Header: header}
-	return headertrust.New(cp, chain, nil), nil
+	return fileTrust{HeaderTrust: headertrust.New(cp, append(firstOf{chain}, more...), nil), height: f.Height}, nil
 }

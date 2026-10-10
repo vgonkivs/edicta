@@ -5,7 +5,14 @@
 //	    [--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)]
 //	    [--checkpoint-quorum N] [--cross-check URL]...
 //	    [--receipt FILE [--tx-rpc URL... --check-execution]]
-//	    [--skew SECONDS] [--blob-retention SECONDS] [--json]
+//	    [--absence-source URL] [--skew SECONDS] [--blob-retention SECONDS] [--json]
+//	absence <commitment_hash> --gate-key HEX --archive DIR --absence-source URL
+//	    (--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)) [--json]
+//
+// absence fetches the absence proofs of a pending reference's window from a
+// bridge node, verifies each against the trusted chain and writes those that
+// verify to the archive as kind 14 records. It exits 0 when every height is
+// proven, 2 otherwise.
 //
 // The archive is only read, never created, locked or cleaned.
 //
@@ -34,9 +41,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/archive/httparchive"
+	"github.com/vgonkivs/edicta/celestia/absence"
 	"github.com/vgonkivs/edicta/celestia/anchorverify"
+	"github.com/vgonkivs/edicta/celestia/cometrpc"
 	"github.com/vgonkivs/edicta/celestia/inclusion"
 	"github.com/vgonkivs/edicta/celestia/policyext/tiatransfer"
 	"github.com/vgonkivs/edicta/celestia/secret"
@@ -156,15 +166,17 @@ type flags struct {
 	maxWalkSteps  int
 	evidencePaths []string
 	auditorKeys   []string
+	absenceSource string
 }
 
 func parseFlags(args []string, out io.Writer) (flags, error) {
 	const usage = "usage: verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) " +
 		"[--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)] [--cross-check URL]... [--exclude-host HOST]... " +
 		"[--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution] " +
-		"[--principal-key HEX]... [--principal ed25519:HEX|cosmos:BECH32|eth:0xHEX]... [--require-policy] [--policy-full] [--max-walk-steps N] [--policy-evidence FILE]... [--auditor-key FILE]... [--json]"
+		"[--principal-key HEX]... [--principal ed25519:HEX|cosmos:BECH32|eth:0xHEX]... [--require-policy] [--policy-full] [--max-walk-steps N] [--policy-evidence FILE]... [--auditor-key FILE]... [--absence-source URL] [--json]\n" +
+		"       absence <commitment_hash> --gate-key HEX --archive DIR --absence-source URL (--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)) [--json]"
 	var f flags
-	if len(args) == 0 || (args[0] != "verify" && args[0] != "replay") {
+	if len(args) == 0 || (args[0] != "verify" && args[0] != "replay" && args[0] != "absence") {
 		return f, usagef("%s", usage)
 	}
 	f.cmd = args[0]
@@ -185,6 +197,7 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	fs.StringVar(&f.checkpoint, "checkpoint", "", "explicit checkpoint HEIGHT:HASH, taken out of band")
 	fs.StringVar(&f.headersRPC, "headers-rpc", "", "CometBFT RPC that serves the headers between the checkpoint and the anchor")
 	fs.StringVar(&f.receiptPath, "receipt", "", "signed receipt file")
+	fs.StringVar(&f.absenceSource, "absence-source", "", "bridge node JSON-RPC URL that serves absence proofs of a pending reference; block results come from --headers-rpc")
 	fs.BoolVar(&f.checkExec, "check-execution", false, "check the transaction the receipt names")
 	fs.DurationVar(&f.timeout, "timeout", defaultTimeout, "overall time limit of the run")
 	fs.BoolVar(&f.asJSON, "json", false, "print one JSON document")
@@ -294,8 +307,14 @@ func (f flags) validate() error {
 		return usagef("--tx-rpc is used only with --check-execution")
 	case f.checkExec && (len(f.txRPC) == 0 || f.receiptPath == ""):
 		return usagef("--check-execution needs --receipt and --tx-rpc, or the execution is never checked")
-	case f.headersRPC != "" && !online && !f.checkExec:
-		return usagef("--headers-rpc is used only with a checkpoint or --check-execution")
+	case f.cmd == "absence" && (f.archiveDir == "" || f.absenceSource == ""):
+		return usagef("absence needs --archive DIR, which it writes, and --absence-source")
+	case f.cmd == "absence" && f.trustedPath == "" && !online:
+		return usagef("absence needs --trusted or a checkpoint: every proof is checked against the trusted chain")
+	case f.cmd == "absence" && (f.receiptPath != "" || len(f.txRPC) > 0 || f.checkExec):
+		return usagef("absence takes no receipt and no execution check")
+	case f.headersRPC != "" && !online && !f.checkExec && f.absenceSource == "":
+		return usagef("--headers-rpc is used only with a checkpoint, --check-execution or --absence-source")
 	case len(f.crossRPC) > 0 && !online && !f.checkExec:
 		return usagef("--cross-check is used only with a checkpoint or --check-execution")
 	}
@@ -349,9 +368,22 @@ func execute(ctx context.Context, args []string, out io.Writer) (int, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, f.timeout)
 	defer cancel()
+	if f.cmd == "absence" {
+		return runAbsence(ctx, f, out)
+	}
 	reader, err := openArchive(f.archiveDir, f.archiveURL)
 	if err != nil {
 		return codeUsage, usageError{err}
+	}
+	fetch, closeFetch, err := absenceFetcher(ctx, f)
+	if err != nil {
+		return codeUsage, usageError{err}
+	}
+	defer closeFetch()
+	base := reader
+	window := &windowHeaders{fetch: fetch}
+	if ar, ok := base.(archive.AbsenceReader); ok {
+		window.r = ar
 	}
 	online := f.checkpoint != "" || len(f.checkpointRPC) > 0
 	var rec *recordingReader
@@ -389,7 +421,7 @@ func execute(ctx context.Context, args []string, out io.Writer) (int, error) {
 	var opts []verifier.Option
 	switch {
 	case f.trustedPath != "":
-		trust, err := loadTrusted(f.trustedPath)
+		trust, err := loadTrusted(f.trustedPath, window)
 		if err != nil {
 			return codeUsage, usageError{err}
 		}
@@ -400,8 +432,18 @@ func execute(ctx context.Context, args []string, out io.Writer) (int, error) {
 		if err != nil {
 			return codeUsage, usageError{err}
 		}
+		lt.window = window
 		deps.Trust = lt
 	}
+	var headers absence.HeaderSource
+	if f.headersRPC != "" {
+		src, err := cometrpc.New(f.headersRPC, nil)
+		if err != nil {
+			return codeUsage, usageError{err}
+		}
+		headers = src
+	}
+	deps.Pending = newPendingChain(base, headers, fetch, window)
 
 	if f.receiptPath != "" {
 		b, err := readFileCapped(f.receiptPath, maxReceiptFile)

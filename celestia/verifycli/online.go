@@ -107,7 +107,12 @@ type rangeChain struct {
 	top   uint64
 	first uint64
 	batch [][]byte
+	// seen keeps the headers already fetched, up to maxSeen, for the many
+	// walks of an absence window.
+	seen map[uint64][]byte
 }
+
+const maxSeen = 4096
 
 // Name is the operator behind the walk, for the reports of a header that does
 // not link.
@@ -117,10 +122,21 @@ func (c *rangeChain) Header(ctx context.Context, h uint64) ([]byte, error) {
 	if h >= c.first && h-c.first < uint64(len(c.batch)) {
 		return c.batch[h-c.first], nil
 	}
+	if b, ok := c.seen[h]; ok {
+		return b, nil
+	}
 	if h <= c.top {
 		hi := min(h+19, c.top)
 		if batch, err := c.src.Headers(ctx, h, hi); err == nil {
 			c.first, c.batch = h, batch
+			if c.seen == nil {
+				c.seen = map[uint64][]byte{}
+			}
+			for i, b := range batch {
+				if len(c.seen) < maxSeen {
+					c.seen[h+uint64(i)] = b
+				}
+			}
 			return batch[0], nil
 		}
 		if err := ctx.Err(); err != nil {
@@ -301,11 +317,15 @@ type lazyTrust struct {
 	cross  []*cometrpc.Source
 	info   *trustInfo
 
-	done  bool
-	inner verifier.HeaderTrust
-	err   error
-	rep   headertrust.CheckpointReport
-	known map[uint64][]byte
+	done     bool
+	inner    verifier.HeaderTrust
+	err      error
+	rep      headertrust.CheckpointReport
+	known    map[uint64][]byte
+	cpHeight uint64
+	// window serves the headers of the archived absence proofs after the
+	// online source.
+	window headertrust.HeaderChain
 }
 
 func newLazyTrust(rec *recordingReader, f flags, info *trustInfo) (*lazyTrust, error) {
@@ -423,7 +443,11 @@ func (l *lazyTrust) init(ctx context.Context) {
 		chains[i] = s
 		l.info.crossSources = append(l.info.crossSources, s.Name())
 	}
-	walk := &rangeChain{src: l.online, top: cp.Height - 1}
+	var walk headertrust.HeaderChain = &rangeChain{src: l.online, top: cp.Height - 1}
+	if l.window != nil {
+		walk = firstOf{walk, l.window}
+	}
+	l.cpHeight = cp.Height
 	l.inner = headertrust.New(cp, headertrust.Prefer(l.known, walk), chains)
 }
 

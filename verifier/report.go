@@ -225,9 +225,11 @@ type Report struct {
 	// verdict does.
 	AuthorizationVerified bool
 	// Params are the retention and skew parameters the verification used.
-	Params         commitment.Params
-	DA             commitment.DA
-	Height         uint64
+	Params commitment.Params
+	DA     commitment.DA
+	Height uint64
+	// PayloadRef is the verified envelope's reference.
+	PayloadRef     commitment.PayloadRef
 	BlockTime      uint64
 	RetentionStart uint64
 	GateID         string

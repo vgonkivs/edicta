@@ -290,6 +290,7 @@ func (r *run) envelope(dec *archive.DecisionRecord) bool {
 	r.c, r.sig = &sc.Commitment, bytes.Clone(sc.Signature)
 	r.rep.DA = r.c.PayloadRef.DA
 	r.rep.Height = r.c.PayloadRef.Height
+	r.rep.PayloadRef = r.c.PayloadRef
 	r.rep.GateID = r.c.Scope.GateID
 	r.rep.ActionType = r.c.Action.Type
 	r.pass(CheckEnvelope)

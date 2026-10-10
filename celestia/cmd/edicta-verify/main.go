@@ -2,7 +2,9 @@
 // replay of the edicta command, kept under its old name:
 //
 //	edicta-verify verify|replay --archive DIR --gate-key HEX [--trusted FILE]
-//	    [--skew SECONDS] [--blob-retention SECONDS] [--json] <commitment_hash>
+//	    [--absence-source URL] [--skew SECONDS] [--blob-retention SECONDS] [--json] <commitment_hash>
+//	edicta-verify absence --archive DIR --gate-key HEX --absence-source URL
+//	    (--trusted FILE | --headers-rpc URL --checkpoint H:HASH) <commitment_hash>
 //
 // The flags, the output and the exit codes are those of the verifycli
 // package.

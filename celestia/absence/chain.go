@@ -83,7 +83,7 @@ func (c *Chain) Header(ctx context.Context, ref commitment.PayloadRef, height ui
 		errs = append(errs, fmt.Errorf("header source: %w", err))
 	}
 	if c.d.Fetch != nil {
-		raw, err := c.d.Fetch.proofs.SignedHeader(ctx, height)
+		raw, err := c.d.Fetch.SignedHeader(ctx, height)
 		if err == nil {
 			hd, herr := signedHeaderInfo(raw, height)
 			if herr == nil {

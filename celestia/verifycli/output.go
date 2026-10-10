@@ -203,6 +203,28 @@ type reportView struct {
 	Checks            []checkView    `json:"checks"`
 	Warnings          []string       `json:"warnings,omitempty"`
 	K2                *k2View        `json:"retention_replay,omitempty"`
+	// The fast-mode fields, for a pending reference whose Authorization
+	// verified.
+	Version        uint64       `json:"version,omitempty"`
+	Mode           string       `json:"mode,omitempty"`
+	H0             uint64       `json:"h0,omitempty"`
+	AnchorDeadline uint64       `json:"anchor_deadline,omitempty"`
+	AnchorHeight   uint64       `json:"anchor_height,omitempty"`
+	Publication    string       `json:"publication,omitempty"`
+	IntentSigner   string       `json:"intent_signer,omitempty"`
+	Absence        *absenceInfo `json:"absence,omitempty"`
+	Assumptions    []string     `json:"assumptions,omitempty"`
+}
+
+// absenceInfo summarizes the absence proofs a pending reference was checked
+// with.
+type absenceInfo struct {
+	Result        string   `json:"result"`
+	Heights       int      `json:"heights"`
+	Bytes         uint64   `json:"bytes"`
+	FirstUnproven uint64   `json:"first_unproven,omitempty"`
+	AnchorHeight  uint64   `json:"anchor_height,omitempty"`
+	Sources       []string `json:"sources,omitempty"`
 }
 
 func pathName(p commitment.PayloadPath) string {
@@ -308,6 +330,18 @@ func viewOf(r verifier.Report) reportView {
 	}
 	if a := r.Authorization; a != nil {
 		v.Authorization = &authView{Path: pathName(a.Path), Expires: a.Expires, AuthorizedAt: a.AuthorizedAt, Mode: modeName(a.Mode)}
+		v.Version, v.Mode = a.Version, modeName(a.Mode)
+	}
+	if fi := r.Fast; fi != nil {
+		v.H0, v.AnchorDeadline, v.AnchorHeight = fi.H0, fi.AnchorDeadline, fi.AnchorHeight
+		v.Publication, v.IntentSigner = string(fi.Publication), fi.IntentSigner
+		if w := fi.Absence; w != nil {
+			v.Absence = &absenceInfo{Result: string(w.Result), Heights: w.Heights, Bytes: w.Bytes,
+				FirstUnproven: w.FirstUnproven, AnchorHeight: w.AnchorHeight, Sources: w.Sources}
+		}
+		if r.Verdict == verifier.VerdictValid {
+			v.Assumptions = append([]string(nil), verifier.FastAssumptions...)
+		}
 	}
 	if r.Cert != nil {
 		form, earlier := r.AnchorProofForm, r.AnchorCandidatesEarlier
@@ -482,6 +516,29 @@ func writeText(out io.Writer, v reportView, colour bool) {
 	if v.Authorization != nil {
 		a := v.Authorization
 		p("authorization: path %s, expires %d, issued at %d", a.Path, a.Expires, a.AuthorizedAt)
+	}
+	if v.Mode == "fast" {
+		line := fmt.Sprintf("fast mode: h0 %d, anchor deadline %d", v.H0, v.AnchorDeadline)
+		if v.AnchorHeight != 0 {
+			line += fmt.Sprintf(", anchor height %d", v.AnchorHeight)
+		}
+		p("%s, publication %s", line, v.Publication)
+		if a := v.Absence; a != nil {
+			switch a.Result {
+			case string(verifier.AbsenceAbsent):
+				p("absence proof: absent at %d..%d, %d heights, %d bytes", v.H0, v.AnchorDeadline, a.Heights, a.Bytes)
+			case string(verifier.AbsencePresent):
+				p("absence proof: the anchor is present at %d", a.AnchorHeight)
+			default:
+				p("absence proof: not proven, first height %d", a.FirstUnproven)
+			}
+		}
+		if v.IntentSigner != "" {
+			p("intent signer: %s; the gate issued a fast-mode Authorization with anchor deadline %d", v.IntentSigner, v.AnchorDeadline)
+		}
+		for _, a := range v.Assumptions {
+			p("%s", a)
+		}
 	}
 	if v.BlockTime != 0 {
 		p("anchor block time: %d", v.BlockTime)

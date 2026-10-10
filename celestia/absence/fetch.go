@@ -63,6 +63,12 @@ func NewFetcher(proofs ProofSource, results ResultsSource, name string) (*Fetche
 // Name is the source the proofs come from.
 func (f *Fetcher) Name() string { return f.name }
 
+// SignedHeader is the proof source's protobuf SignedHeader at height,
+// untrusted.
+func (f *Fetcher) SignedHeader(ctx context.Context, height uint64) ([]byte, error) {
+	return f.proofs.SignedHeader(ctx, height)
+}
+
 // Fetch builds the record of q at h. It does not tie the record to the
 // chain: the caller verifies it against trusted hashes before relying on it
 // or storing it. q.ChainID may be empty; the header's chain id then decides
