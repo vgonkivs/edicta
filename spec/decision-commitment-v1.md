@@ -2,9 +2,7 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v1.0-s1` (2026-10-10): the frozen revision `v1.0`
-(2026-10-09) plus the verifier-only security fix S1 (section 20.6.1). Wire
-version: `version = 1`; no wire byte, tag or gate rule differs from `v1.0`.
+Status: revision `v1.0` (2026-10-09). Frozen. Wire version: `version = 1`.
 Domain tags: `edicta/v1/...`. This document is the whole core specification;
 the policy layer is `spec/policy-v1.md` (revision `policy-v1.0`,
 "policy"). The earlier `v0` drafts are superseded and unsupported; they are
@@ -33,7 +31,6 @@ normative.
 | Editorial (wording, examples, sources) | No version change. |
 | Any change to wire bytes, a hash or signature preimage, a limit, or the outcome of any check, while in draft | Bump `v1-draft.N`, regenerate every vector the change touches, record it below. |
 | Defining a reserved value (section 4.6) after the freeze | Minor revision `v1.M` with the human's approval. It only turns a refusal into an acceptance; no byte string accepted before changes meaning (rule V6). |
-| Verifier-only security fix after the freeze | Patch revision `v1.0-sN` with the human's approval. Only the verifier's checks change, and only so that a `pass` that rested on data the verifier cannot verify becomes `unchecked`, or reaches `fail` through rules already in force. Wire bytes, hashes, tags, records, limits and every gate, Recorder and producer check stay as they are; a decision a `v1.0` verifier reports `valid` is reported `valid` again once the missing proof is supplied, or the proof shows a violation. Vector expectations that change are superseded by new files or additive entries named in the table below. A verifier states the revision it implements. |
 | Any other such change after the freeze | New wire `version` (2) and new tags `edicta/v2/...`. A v1 verifier refuses `version != 1` (`ErrUnsupportedVersion`). The archive record `format`, the payload plaintext and blob versions and the receipt version follow the same rule, each independently. |
 
 The domain tags carry the version, so a signature never verifies across
@@ -45,7 +42,6 @@ versions even if a byte layout were identical.
 | `v1-draft.5` | 2026-10-09 | One self-contained v1 document (human decisions of 2026-10-09, Rounds 4 to 6: `v0` dropped before the v1 freeze). (1) Every core rule the `v0` drafts held is restated here for version 1; the version dispatch, `AcceptV0`, `ErrVersionNotAccepted`, the `/v0/` routes and alias, the Authorization of version 0, the unsalted action hash and the payload schema chosen by the commitment version are gone. (2) Receipt, record request, publish request and the payload AEAD and HPKE tags move to `edicta/v1/*`; receipt `version = 1`; payload blob `version = 1`; payload plaintext `version = 1` with the action salt (sections 9, 14, 17). (3) Archive records `format = 1`: kinds 17 (decision) and 18 (reveal) keep their numbers, kind 3 is unassigned, the evidence record drops `promise_valset` (key 18) and the legacy anchor-proof form 0 (section 19). (4) Verifier: the Authorization rules are A1 (mode) and A2 (deadline range); the reason `replay_unconfirmed` is gone with form 0; new reason `gate_signed_inconsistent_private_part` and the matching policy rule (policy 13); O8 runs before the payload-versus-archive salt comparison (section 20.11). (5) HTTP paths `/v1/*` only; the authorize request requires its key 3. | Core vectors under `spec/vectors/v1/` carry the coverage of the `v0` sets as v1 cases (`v1-draft.5`); the `v0` sets moved unchanged to `spec/vectors/historical/v0/` and are not checked. Archive, policy, absence, reasons, API and profile files regenerated (section 22). |
 | `v1-draft.6` | 2026-10-09 | Pre-freeze re-audit fixes (task 031, `audit-2.md`). Later note, no new revision: invariant 8 in section 1.1 now states the M0 refusal and the no-record rule, with the rationale in section 8.8; `CLAUDE.md` carries one-line summaries, not a verbatim copy. Later note, fix verification (`audit-2.md` F1, F4, F6 to F8), no new revision: AB4 never gives absent at an app version other than the pinned one, `S` empty included (not proven), and AB3 states that its row selection assumes the pinned layout (F1; outcome change: such a height was absent, now unproven; vector `fibre_s_empty_other_app_version` in `da/absence.json`, other cases byte-identical); section 10.9 threat notes say HR (F4); the `RevealOnExecution` registry check runs in the constructor, the registry being a dependency the integrator's build fills (F6); a mandate version whose `fast_mode_max_delay` is below the slack is refused as a whole, with the reason (F7); 8.8 restates the stored-retry check through the 8.7 retry rule (F8). (1) AB4: a `PFF_NS` unit that does not decode as a PFF tx makes the height not proven, at any app version, and at an app version other than the pinned one units without a candidate prove nothing (section 20.8); NA5 states that the gate may skip such a unit (MJ1). (2) Stage 4m runs at every gate: new rule M0, a gate without a mandate refuses a commitment with `mandate_ref` (`ErrMandateMismatch`); the verifier requires the `policy` check whenever the envelope has `mandate_ref` (sections 8.7, 8.8, 20.5) (MJ2). (3) After an M0 or M2 refusal the gate writes no decision record, no kind 15 record and no marker; `ErrMandateMismatch` is no longer a marker name (sections 8.7, 8.8, 19.2) (MJ3). (4) `RevealOnExecution` admits only types whose compiled profile has `public_execution = true` (cause `reveal_not_public_execution`) (section 8.9). (5) With `FastMode` on, a mandate whose `fast_mode_max_delay < MinFastSlackBlocks + 1` is refused at start and at adoption (cause `fast_delay_below_slack`) (section 8.9). (6) Rule ids: the at-height rules of section 10.9 are HR1 to HR5 (were AH1 to AH5, which collided with the action-hash rules of 5.1), the verifier Authorization rules of 20.5 are AM1 and AM2 (were A1 and A2, which collided with stage A). (7) Editorial: the salt in the inputs of 8.6 and 8.7; section 22 explains the `edicta-vectors/v0` file labels. | `da/absence.json` (new synthetic cases `fibre_unit_undecodable`, `fibre_no_candidate_other_app_version`); new `v1/stage4m.json`; `v1/archive.json` (record `rejection_ErrMandateMismatch` replaced by `rejection_ErrMandateRefMissing`, new reject `rejection_mandate_mismatch_not_a_marker`, `marker_names`); `archive/records.json` (`verdicts`); `api/errors.json` (example `authorize_mandate_ref_without_mandate`, rules `M0, M2`); `policy/verify.json` (`mandate_ref_without_verdict`); `v1/gate.json` (`profile_registry`; `reveal_type_allowlisted` now uses the bank-send type; new `reveal_type_offchain_profile`, `reveal_type_without_profile`, `fast_delay_below_slack`, `fast_delay_at_slack_plus_1`, `fast_delay_low_fast_mode_off`); `v1/verify.json` (`rule` values `AM1`, `AM2`). |
 | `v1.0` | 2026-10-09 | Frozen; identical rules to `v1-draft.6` plus later notes (invariant 8 in section 1.1 with the M0 refusal and the no-record rule; dedup-hit marker rule of policy 12.1). Revision labels of the vector files are `v1.0`. | all core vectors |
-| `v1.0-s1` | 2026-10-10 | v1.0.x security fix (human decision of 2026-10-10, task 044 Q3 step 2; verifier only, not an erratum). In-window evidence of a pending reference counts only once the result code of its anchor tx (PFF or PFB) is proven against `last_results_hash` of the trusted header at `H + 1`, with the results of block `H` from any source and the result index bound by the tail rule of AB5 or by uniform codes (new section 20.6.1, rules RA1 to RA6). Proven code 0: `anchor` passes, `anchor_result: proven`, and the assumption `anchor tx result: node-attested` of erratum E2 is no longer printed (20.9). Proven nonzero code: the evidence is not usable and the rows for a missing anchor apply (20.6). Not proven: `anchor` is `unchecked` with the new reason `anchor_result_unproven` (20.1.1, 44 reasons), never `pass`. Header trust for in-window evidence reaches `max(D, H + 1)` instead of `max(D, H)` (HT1, 20.6); a later relaxation of presence to trust up to the anchor height (spec `v1.1`) therefore needs `H + 1`. Threat model: the open-gap row of erratum E2 becomes the mechanism row of RA. Outcome changes: `pass` becomes `unchecked` (no proof), or `fail` `anchor_absent` (proven nonzero code with absence proven over the window). | New `da/anchor_result.json` (rules RA1 to RA6 on bytes, both `da`) and `v1/verify_anchor_result.json` (the 20.6 rows with the result proof). `verifier/reasons.json` additive: the reason `anchor_result_unproven` and its case, revision `v1.0-s1`. `v1/verify.json` is unchanged; since `v1.0-s1` its `evidence.verifies = true` reads as "the evidence and its anchor result proof verify, code 0" (section 22). |
 
 ## 1. Threat model in one table
 
@@ -83,7 +79,7 @@ Policy section 1 adds the mandate layer.
 | Reference time `T_ref` and rules K1, K2 (section 12.2) | A commitment signed before its payload was public; a commitment whose validity outlives the DA retention window being executed as if the DA layer still served the payload | The gate reads true header time from a node it trusts (the operator's own node is recommended; a public endpoint is allowed). Every read at a past height, on every module and on both `da` paths, is used only if the response echoes the requested height and, where the content allows, is bound to the header at that height (HR1 to HR5, section 10.9). At-height retention comes from such a read on an endpoint that passed the canary, or from the gate's own persisted observations (observations-only mode when the endpoint ignores heights); a non-monotone pair of changes between two observations (for example a change and its revert) is missed (RS1 to RS6, section 12.2) |
 | PFF certificate check, one rule for gate, Recorder and verifiers (section 10.6.1) | A forged or under-signed availability certificate presented after the chain pruned the state that could re-check it | More than 2/3 of voting power honest at `PaymentPromise.height`; the archived validator set is the one the chain used, tied by `next_validators_hash` to the header at `PaymentPromise.height` and that header to the chain by the hash chain of section 10.6.2; Ed25519 |
 | Fibre anchor proof from namespace data, rules NA1 to NA7 (section 10.4) | A bridge or an archive presenting a PFF that was not in block `height`, hiding one that was (a false `ErrAnchorNotFound`, or an earlier promise that would move K2's `start`), or a cut or padded tx | The header at `height` is the chain's: the gate's trusted node or the W5 verifier (section 10.9), and for verifiers the header trust of section 10.6.2; SHA-256; NMT completeness as in nmt `v0.24.3` or later; more than 2/3 of voting power honest, so the square follows the protocol. Result code 0 stays `node-attested` |
-| Anchor result proof for fast-mode evidence, rules RA1 to RA6 (section 20.6.1, since `v1.0-s1`; in `v1.0` an open gap, erratum E2) | Adversary: one party that writes the archive and also controls the node the anchor's result code was read from, presenting in-window evidence for a PFF or PFB that failed in execution. Inclusion, the certificate and the window would verify; the result proof does not, so the decision is never `valid` on that node's word | The trust root of section 20.4 and SHA-256: the results of block `H` hash to `last_results_hash` of the trusted header at `H + 1`. The index binding (tail rule) assumes more than 2/3 of voting power honest, so the block passed `ProcessProposal` at the pin, as AB5 does. Results and namespace data come from any source, so a hostile source can only withhold (`anchor_result_unproven`). For an included reference the code stays `node-attested` (section 10.6.1); the gate itself ran the anchor lookup (K0) before it authorized |
+| Nothing in `v1.0` (open gap): the result code of the anchor tx behind fast-mode evidence (sections 10.6.1, 20.6, 20.9) | Adversary: one party that writes the archive and also controls the node the anchor's result code was read from. It can archive in-window evidence for a PFF or PFB that failed in execution: inclusion, the certificate and the window still verify against the trusted chain, so the verifier reports `valid` | Reported, not prevented: a `valid` fast-mode report lists `anchor tx result: node-attested` under its assumptions (section 20.9). Inclusion stays proven. For an included reference the gate itself ran the anchor lookup (K0) before it authorized |
 | Startup compatibility check (section 10.8) | Silent divergence after an upstream change: another Fibre encoding, another sign-bytes layout, another chain or a node that answers in another format | The pinned versions and the known-answer vectors describe the network; the check runs before the gate serves |
 | Registry epoch, rule E1 (section 8.7) | Replay after the nonce registry was lost or recreated | The gate clock did not step back across the recreation |
 | Signed receipt and record request (section 14) | A fabricated `commitment_hash -> rail_ref` mapping in an archive or report; two different mappings for one decision; a third party who holds the (non-secret) envelope recording a bogus `rail_ref` first and so owning the decision's only receipt | Gate and executor private keys are secret; the gate admits a claim only if it is signed by a key in its executor allowlist, over a message that names this gate, this decision and this `rail_ref`; the receipt carries the executor key and signature, so a verifier needs no trust in the gate for who claimed what; the gate stores at most one receipt per authorized decision. **Not proof of execution**: the receipt attests that a known executor claimed `rail_ref`, and that the gate recorded that claim; whether the rail executed anything is only in the rail's own records. A compromised or malicious allowlisted executor can still claim a false `rail_ref` first |
@@ -2022,7 +2018,7 @@ verdict, `verify` and `replay` report:
 | `cert_quorum_warning` | `WARN` iff `3 * cert_signed_power <= 2 * cert_total_power`: the certificate passed the network rule but not the classic BFT "more than 2/3". The verdict stays valid. |
 | `cert_token_precision` | `robust` iff CV6 gives the same verdict for every assignment of tokens that keeps each validator's consensus power (each `tokens` anywhere in `[10^6 * p, 10^6 * p + 10^6 - 1]`): the walk accepts with the lowest tokens for signers and the highest for the rest, or rejects with the opposite. Otherwise `bucket-dependent` (a warning; the verdict stays the one computed from the archived tokens). |
 | `cert_valset_header` | The header that committed to `V` in CV7: `next_validators_hash` at `promise.height`. |
-| `settlement` | `node-attested` in v1 (below); for in-window evidence of a pending reference since `v1.0-s1`: `proven` (code 0 proven, section 20.6.1) or `failed` (a proven nonzero code); `failed` if CV8 fails. |
+| `settlement` | `node-attested` in v1 (below); `failed` if CV8 fails. |
 | `anchor_candidates_earlier` | The number of other candidates in `T` (NA5) whose `creation_timestamp` is earlier than the archived anchor's. Their result codes are not archived, so the verifier cannot tell whether the gate's NA7 picked one of them; a non-zero value is a warning that K2 replay rests on the `promise_created` the gate recorded, which replay checks against the creation times of these candidates (section 19.2). It never changes the verdict. |
 | `header_trust` | Section 10.6.2: the trusted header's height and hash, and the cross-check result. |
 
@@ -2032,13 +2028,10 @@ verifier establishes it from three parts: the certificate (CV1 to CV7,
 cryptographic given the validator set), the PFF tx in block `height` (the
 anchor proof, cryptographic given the header), and code 0, which is only
 what the Recorder's node reported when the archive was written. A verifier
-MUST report it as `node-attested` and MUST NOT call it proven. A proof of
-code 0 against `last_results_hash` of the header at `height + 1`, by
-recomputing the results Merkle root from the results of block `height`,
-gives the level `proven`. Since `v1.0-s1` the verifier requires that proof
-for in-window evidence of a pending reference (section 20.6.1), because there
-no gate saw the anchor land before it authorized. For an included reference
-it is still planned, and the level stays `node-attested`.
+MUST report it as `node-attested` and MUST NOT call it proven. Planned: a
+proof of code 0 against `last_results_hash` of the header at `height + 1`,
+by recomputing the results Merkle root from the archived results of block
+`height`; that level will be reported as `proven`.
 Threat note: a node that lies about code 0 can make a PFF that failed in
 execution look settled. The certificate and the anchor proof still show that
 validators attested the blob and that the PFF was in block `height`; what
@@ -2104,7 +2097,7 @@ the hash chain, without signatures:
 
 | Rule | Requirement |
 |---|---|
-| HT1 Trusted header | The auditor supplies a trusted header file: one header at height `T` with its hash, obtained out of band. `T` MUST be at least the highest height the verifier needs (`payload_ref.height`, or `promise.height` if that is higher; no header at `promise.height + 1` is needed, other than as a link of the HT3 chain; for a pending reference `max(anchor_deadline, H)`, `max(anchor_deadline, H + 1)` for evidence inside the window (since `v1.0-s1`: the anchor result proof of section 20.6.1 needs the header at `H + 1`), and `anchor_deadline + 1` for an AB5 results proof, section 20.6). A file with `T` below that is refused: forward verification from an older header is out of scope. CV2 rejects `promise.height > payload_ref.height`, so for an included reference that can verify this is `payload_ref.height`. The trusted header may instead be an explicit or an agreed checkpoint (section 20.4), and with the execution check `T` MUST also be at least the execution height (EX5). |
+| HT1 Trusted header | The auditor supplies a trusted header file: one header at height `T` with its hash, obtained out of band. `T` MUST be at least the highest height the verifier needs (`payload_ref.height`, or `promise.height` if that is higher; no header at `promise.height + 1` is needed, other than as a link of the HT3 chain; for a pending reference `max(anchor_deadline, H)`, and `anchor_deadline + 1` for an AB5 results proof, section 20.6). A file with `T` below that is refused: forward verification from an older header is out of scope. CV2 rejects `promise.height > payload_ref.height`, so for an included reference that can verify this is `payload_ref.height`. The trusted header may instead be an explicit or an agreed checkpoint (section 20.4), and with the execution check `T` MUST also be at least the execution height (EX5). |
 | HT2 Hash of the trusted header | The verifier recomputes the header hash (CometBFT `Header.Hash()`, the Merkle root of the header fields) and it MUST equal the hash in the file. |
 | HT3 Backward chain | For each `k` from `T` down to the lowest needed height, the header at `k - 1` is accepted iff its recomputed hash equals `last_block_id.hash` of the accepted header at `k`. Headers between come from the archive, a file or any online source; they need no trust, because the chain checks them. Any break: the header trust fails. OH6 (section 20.4) refines this for online sources: an online header that does not link is a fault of its source (`unchecked` if no source links). An archived header that does not link is `unchecked` too, with reason `chain_mismatch` (20.1). |
 | HT4 No signatures | Commit signatures are not checked in v1: the trust comes from the trusted header and SHA-256 collision resistance, not from a validator set. |
@@ -2152,7 +2145,7 @@ reasons:
 | For PFF: the signed header at `PaymentPromise.height` | 1 | MUST | CV7: its `next_validators_hash` ties the `HistoricalInfo` set to the chain. CV7 reads no CometBFT validator set and no header at `promise.height + 1`, so neither is archived: the CometBFT set is rebuilt from the `HistoricalInfo` set (consensus powers) and bound by this header's `next_validators_hash`. |
 | The retention inputs the gate used: `shard_retention` latest and at `height`, and which source gave the at-height value (section 12.2, RS rules), next to the Authorization (section 19.2, K2 inputs) | 1 | MUST | K2 replay; the at-height value cannot be read back reliably later. |
 | The result of the anchor tx (code 0) as the node reported it | 1 | MUST | CV8, settlement `node-attested` (section 10.6.1). |
-| The results of all txs of block `height` and the header at `height + 1`, for a proof of code 0 against `last_results_hash` | 1 | SHOULD | Lets the `proven` settlement level be checked later for decisions archived now. For a pending reference the verifier requires this proof (section 20.6.1); in format 1 a kind 14 record at `(1, commitment, H)` carries it (keys 10 and 11), because the evidence record has no field for it (section 19.8). A verifier that finds no source for it after the nodes pruned the results reports `anchor_result_unproven`. |
+| The results of all txs of block `height` and the header at `height + 1`, for a proof of code 0 against `last_results_hash` | 1 | SHOULD | Lets the planned `proven` settlement level be checked later for decisions archived now. |
 | The share-version-2 system blob | 1 | MUST | Checked for equality with `NewV2Blob` of the archived PFF (CV8). |
 | For a pending reference: the anchor intent (kind 13), written before the reference is returned and before the anchor tx is broadcast (section 11.3) | both | MUST | K-fast reads it (section 13); with `anchor_absent` the verifier names its signer (section 20.10). |
 
@@ -3723,7 +3716,7 @@ Anchor intent, absence proof, private blob, decision and execution reveal
 | Kind | Name | Fields (key: name, type) | Logical key | Path | Cap (bytes) | Identity (AW2) | Writer |
 |---|---|---|---|---|---|---|---|
 | 13 | `anchor_intent` | 3: `da` uint {1, 2}; 4: `commitment` bstr 32; 5: `namespace` bstr 29; 6: `ref_height` uint > 0; 7: `tx` bstr 1..65536; 8: `signer` bstr 20 (R iff `da = 2`, else not defined); 9: `created_at` uint > 0 (Fibre: `floor(creation_timestamp)`; blob: the Recorder clock) | `(da, commitment, ref_height)` | `intent/<da>/<commitment hex>/<ref_height>` | 65,600 | whole record | Recorder, before broadcast |
-| 14 | `absence_proof` | 3: `da` uint {1, 2}; 4: `commitment` bstr 32; 5: `namespace` bstr 29; 6: `height` uint > 0; 7: `header` bstr `1..2^22` (SignedHeader at `height`); 8: `dah` bstr `1..2^22` (proto DAH); 9: `namespace_data` bstr `0..2^24` (shwap `NamespaceData.WriteTo` of `NS`, section 20.8; empty when no row holds `NS`); ? 10: `results` bstr `1..2^22` (block results of `height`: the JSON `result` object of CometBFT `/block_results?height=<height>`, of which only `txs_results[]` `code`, `data`, `gas_wanted`, `gas_used` are read (AB5); `da = 1` only, present iff a candidate exists); ? 11: `next_header` bstr `1..2^22` (SignedHeader at `height + 1`; present iff 10 is) | `(da, commitment, height)` | `absence/<da>/<commitment hex>/<height>` | 16,777,216 | the key (first write stays) | an auditor's tool or a gate sweep after the deadline; never required for `valid` (online sources serve the same data). At the anchor height `H` of a pending reference (`da = 1`) it also carries the anchor result proof of section 20.6.1 |
+| 14 | `absence_proof` | 3: `da` uint {1, 2}; 4: `commitment` bstr 32; 5: `namespace` bstr 29; 6: `height` uint > 0; 7: `header` bstr `1..2^22` (SignedHeader at `height`); 8: `dah` bstr `1..2^22` (proto DAH); 9: `namespace_data` bstr `0..2^24` (shwap `NamespaceData.WriteTo` of `NS`, section 20.8; empty when no row holds `NS`); ? 10: `results` bstr `1..2^22` (block results of `height`: the JSON `result` object of CometBFT `/block_results?height=<height>`, of which only `txs_results[]` `code`, `data`, `gas_wanted`, `gas_used` are read (AB5); `da = 1` only, present iff a candidate exists); ? 11: `next_header` bstr `1..2^22` (SignedHeader at `height + 1`; present iff 10 is) | `(da, commitment, height)` | `absence/<da>/<commitment hex>/<height>` | 16,777,216 | the key (first write stays) | an auditor's tool or a gate sweep after the deadline; never required for `valid` |
 | 15 | `private_blob` | 3: `plaintext_kind` uint {1 mandate, 2 bucket, 3 closed_set, 4 private_part, 5 action}; 4: `hash` bstr 32; 5: `envelope` bstr `1..65536` for plaintext kinds 1 to 4 (`ErrFieldSize` above), `1..69632` for kind 5 (policy 9.5) | `(plaintext_kind, hash)` | `private/<plaintext_kind>/<hash hex>` | 69,760 | the key (first write stays) | gate (adoption, stage 4a, stage 13) |
 | 17 | `decision` | 3: `envelope` bstr `1..2176` (strict decoding, `version = 1`); 4: `form` uint {1 public, 2 private}; 5: `action` bstr `1..65536`, exactly as presented (R iff `form = 1`, else not defined); 6: `action_salt` bstr 32, exactly as presented (R iff `form = 1`, else not defined) | `commitment_hash` (from `envelope`) | `decision/<commitment_hash hex>` | 69,632 | whole record | gate, stage 4a (also after an M1 refusal or a 4p deny; never after an M0 or M2 refusal) |
 | 18 | `execution_reveal` | 3: `signed_receipt` bstr `1..512` (section 14.2 stages D and S); 4: `action_salt` bstr 32 | `commitment_hash` (receipt key 2) | `reveal/<commitment_hash hex>` | 640 | whole record | gate, after `Record` attached the receipt (19.7) |
@@ -3892,10 +3885,8 @@ broadcasting (section 11.3); kind 2 when the anchor lands. Gate: kind 17 at
 stage 4a (in private form the kind 15 `(5, action_hash)` envelope first), kind
 4 after stage 12, kind 5 per AR5 to AR7, and the policy records of policy
 12.2; in private mode kind 15 replaces kinds 7, 10, 11 (policy 12.2). Kind 14:
-written by `edicta-verify absence <ref>` into a local or shared archive copy,
-which MAY also write it at the anchor height `H` of in-window evidence
-(`da = 1`) so that the anchor result proof of section 20.6.1 outlives the
-nodes' results; never written by the Recorder.
+written by `edicta-verify absence <ref>` into a local or shared archive copy;
+never written by the Recorder.
 
 Reveal on execution (kind 18). The gate writes it in `Record` (section 14.3),
 after step 8 attached the receipt, iff the decision's record is kind 17 with
@@ -3916,8 +3907,7 @@ receipt is the executor's claim).
 - The header at `height + 1` and the results of block `height` for the
   evidence record (section 10.7, SHOULD): planned with the `proven`
   settlement level, as a new format. (Kind 14 carries them for an absence
-  proof, and at the anchor height of a pending reference for the anchor
-  result proof of section 20.6.1, `da = 1` only.)
+  proof only.)
 - The validator set at `height`: no commit signatures are checked (HT4).
 - The CometBFT validator set at `promise.height` (former evidence key 18):
   CV7 rebuilds it from `historical_info`.
@@ -3959,7 +3949,7 @@ are normative, so that two verifiers print the same checklist.
 | `action` | The action bytes and salt, from the decision record, a private blob or a reveal, hash to `action.hash` (section 5.1, 20.11). |
 | `authorization` | The record state, the Authorization check of section 19.5 (AR8), and AM1, AM2 (20.5). |
 | `payload` | P1 to P3 on the archived blob (sections 8.5, 10.7). |
-| `anchor` | The inclusion evidence of the archived anchor, checked against the header at `payload_ref.height` (sections 10.4, 10.5, 10.6.1); for a pending reference against the header at the anchor height inside the window together with the anchor result proof (20.6.1), or the absence proof (20.6). |
+| `anchor` | The inclusion evidence of the archived anchor, checked against the header at `payload_ref.height` (sections 10.4, 10.5, 10.6.1); for a pending reference against the header at the anchor height inside the window, or the absence proof (20.6). |
 | `anchor_time` | K1 against `T_ref` (section 12.2): `T_H` of that header, or the header time at `h0` for a pending reference. |
 | `header_trust` | HT1 to HT7 (section 10.6.2), with an online checkpoint per 20.4. |
 | `receipt` | Section 14.2 and its out-of-band checks against the decision. Present only when a receipt is given. |
@@ -4070,9 +4060,8 @@ Every other non-`pass` outcome is `unchecked`.
 Every `unchecked` check carries exactly one machine-readable `reason` from
 this enum. Every `fail` carries the rule or sentinel that failed. The text
 output prints the reason, the meaning, the source it names (EO2), and the
-advice. The enum is closed: 44 reasons in this revision (`v1.0-s1`; 43 in
-`v1.0`, which lacks `anchor_result_unproven`). A new reason is a revision
-change.
+advice. The enum is closed: 43 reasons in this revision. A new reason is a
+revision change.
 
 | Reason | On checks | Meaning | Advice |
 |---|---|---|---|
@@ -4117,7 +4106,6 @@ change.
 | `gate_signed_inconsistent_private_part` | `gate_integrity` only | A PrivatePart that hashes to the gate-signed `private_hash` breaks the presence rule of its verdict (`spec/policy-v1.md` section 13.4). The gate signed a hash of contents it could not have produced honestly; the agent is not at fault. Exit code 5, unless the verifier's own facts deny, which is a `policy` fail (exit 1). | Investigate the gate; the PrivatePart and the verdict are the evidence. |
 | `anchor_pending` | `anchor` | Pending reference, no usable evidence, and the trusted header is below `anchor_deadline` (or `anchor_deadline + 1` when a results proof is needed): not decidable yet. | Retry later or with a newer checkpoint. |
 | `absence_unproven` | `anchor` | Pending reference, no evidence inside the window, and the absence proofs for `[h0, anchor_deadline]` are missing, incomplete or fail. Names the first height not proven. | Another archive copy or `--absence-source`. |
-| `anchor_result_unproven` | `anchor` | Pending reference, evidence inside the window verifies, but the result code of its anchor tx is not proven (20.6.1, since `v1.0-s1`): no source served the header at `H + 1` that links, results of block `H` that hash to its `last_results_hash`, or (`da = 2`) complete namespace data, or nothing binds the anchor's result index. Names the first rule that failed (RA1 to RA5) and every source asked. Never `pass`. | A source that serves `/block_results` at `H` (a node that persists finalize-block responses), a kind 14 record at `H` (`da = 1`), or a bridge (`da = 2`). |
 | `policy_private` | `policy`, `gate_integrity`, `action`, `execution` | The record needed is a private blob (kind 15) and no configured auditor key opens it. Names the first record. On `action` and `execution`: a form 2 decision record (20.11) without a reveal that applies. | An auditor key of the mandate. |
 | `principal_scheme_unsupported` | `policy` | The verifier build lacks the principal signature scheme the mandate names. | A verifier build with that scheme. |
 
@@ -4376,10 +4364,7 @@ at `H` that passed header trust.
 
 | Situation | `anchor` | Report |
 |---|---|---|
-| Evidence verifies, `h0 <= H <= D`, trusted header `T < max(D, H + 1)` | unchecked `anchor_pending` | retry later with a checkpoint at or above `max(D, H + 1)`; `publication: unknown`, no `anchor_height` field (a diagnostic may name `H`) |
-| Evidence verifies, `h0 <= H <= D`, `T >= max(D, H + 1)`, anchor result proven with code 0 (20.6.1) | pass | `mode: fast`, `h0`, `anchor_height: H`, `anchor_deadline: D`, `publication: anchored`, `anchor_result: proven`, assumptions (20.9) |
-| Evidence verifies, `h0 <= H <= D`, `T >= max(D, H + 1)`, anchor result proven with a nonzero code (20.6.1) | as "no usable evidence" below | `anchor_result: failed` with the code; the anchor tx at `H` failed in execution, so it is no anchor |
-| Evidence verifies, `h0 <= H <= D`, `T >= max(D, H + 1)`, anchor result not proven (20.6.1) | unchecked `anchor_result_unproven` | names the first rule that failed and the sources asked |
+| Evidence verifies, `h0 <= H <= D` | pass | `mode: fast`, `h0`, `anchor_height: H`, `anchor_deadline: D`, `publication: anchored`, assumptions (20.9) |
 | Evidence verifies, `H < h0` | unchecked `source_corrupt` | a PFF cannot precede its reference height (section 11.1) |
 | Evidence verifies, `H > D`, absence over `[h0, D]` proven | **fail** `anchor_absent` | the late `H` is reported; `publication: failed`; attribution (20.10) |
 | Evidence verifies, `H > D`, absence not proven | unchecked `absence_unproven` | names the first height not proven |
@@ -4393,85 +4378,9 @@ absence proof that shows the anchor present at some `h` in the window
 (AB5, AB6) is used as evidence at `H = h`; if the verifier cannot build the
 full evidence from it, the result is `evidence_unavailable`.
 
-Evidence whose anchor result is proven nonzero (20.6.1) is not usable
-either, and the rows for "no usable evidence" decide. Its height `H` is not
-used as evidence a second time: for `da = 1` AB5 at `H` reads the same
-proven code and gives absent when no other candidate has code 0; for `da =
-2` AB6 reads no result code and still shows the blob present at `H`, so `H`
-is not proven absent and the window ends at best in `absence_unproven`
-naming `H`.
-
 `anchor_time` (K1) uses `T_ref` from the header at `h0`. `header_trust` must
-reach `max(D, H + 1)` for evidence inside the window (since `v1.0-s1`;
-`max(D, H)` in `v1.0`), `max(D, H)` for evidence above `D`, and `D + 1` for
-an AB5 results proof; HT3 gives every header of the window from one
-backward chain.
-
-#### 20.6.1 Anchor result proof for in-window evidence (since `v1.0-s1`)
-
-Evidence that verifies at `h0 <= H <= D` proves that the anchor tx is in
-block `H`. It does not prove that the tx executed: the code in the evidence
-(`tx_code`, `da = 1`) is what the Recorder's node reported, and for `da = 2`
-the evidence holds no code (erratum E2). These rules prove the code from
-the chain. They reuse the results proof of AB5 (RP1, RP3, RP4 of the
-bank-send profile, restated there) and its tail rule. They do not apply to
-an included reference, whose settlement stays `node-attested` (section
-10.6.1), nor to evidence above `D` (the absence rows of 20.6 decide that).
-
-The rules run in order after the evidence verified and `T >= max(D, H + 1)`
-held. The first rule that fails ends them with "not proven"; that is a
-source problem, never `fail`.
-
-| Rule | Requirement |
-|---|---|
-| RA1 Header at `H + 1` | `header(H + 1)` from any source: a configured header source, or key 11 of a kind 14 record `(1, commitment, H)` of any archive copy. It is used only if its recomputed hash equals the hash header trust reached at `H + 1` (HT3, HT5). A header that does not link is that source's fault (OH6), and the next source is tried. |
-| RA2 Results | `results(H)`, the results of block `H`, from any source: `GET /block_results?height=H` of a configured header, tx, cross, results or absence source, or key 10 of a kind 14 record `(1, commitment, H)` of any archive copy. They are read, turned into leaves and hashed exactly as AB5 says (RP1, RP3, RP4), and the root MUST equal `last_results_hash` of `header(H + 1)`. A mismatch, or results that do not parse, is that source's fault, and the next source is tried. `n` is the number of results; `n >= 1`. |
-| RA3 Units (`da = 1`) | The units of `PFF_NS` at `H`: the sequence `T` that CV8 reassembled from the evidence's anchor proof (NA2 to NA4 against `data_hash` of the trusted header at `H`). `p = len(T)`, and `j` is the position of the one unit that is byte-equal to the archived anchor tx. No such unit, or more than one: not proven. |
-| RA4 Units (`da = 2`) | A DAH of `H` from any source that passes NA2 against `data_hash` of the trusted header at `H`, and from any bridge the namespace data of `PFB_NS` (go-square `PayForBlobNamespace`, `0x00 \|\| 0^27 \|\| 0x04`) and of `PFF_NS` at `H`, each passing NA3 against that DAH (completeness included) and reassembled as NA4 does, with `NewCompactShareSplitter(ns, 0)` of its own namespace for the re-split. `q` and `p` are the numbers of units of `PFB_NS` and `PFF_NS`. A unit of `PFB_NS` MUST decode as go-square `IndexWrapper` (protobuf: 1 `tx` bytes, 2 `share_indexes` packed uint32, 3 `type_id` = `"INDX"`) whose `tx` is a `TxRaw` whose `TxBody` holds exactly one message, of type URL `/celestia.blob.v1.MsgPayForBlobs` (1 `signer` string, 2 `namespaces`, 3 `blob_sizes`, 4 `share_commitments`, 8 `share_versions`); a unit that does not makes the result not proven, as AB4 does for an undecodable `PFF_NS` unit. The unit at position `k` is a candidate iff its `signer`, decoded from bech32, is `payload_ref.signer` and for some index `i` the message has `namespaces[i] = payload_ref.namespace`, `share_commitments[i] = payload_ref.commitment` and `share_versions[i] = 1`. No candidate: not proven. A verifier MAY skip this rule when the results of RA2 have uniform codes, because RA5 (b) then binds without units. |
-| RA5 Index | The anchor tx's result is `results[i]`, and `i` MUST be bound. (a) Tail, only when the trusted header at `H` has `version.app` equal to the pinned `appconsts.Version` (10): for `da = 1`, `n >= p >= 1` and `i = n - p + j`; for `da = 2`, `n >= p + q`, `q >= 1`, and each candidate `k` has `i = n - p - q + k`. (b) Uniform codes, at any app version: `n >= 1`, for `da = 1` also `n >= p`, and every result of block `H` has the same code; that code is then the anchor tx's whatever its index, because the evidence proves the tx is in the block, the block has one result per tx, and the root fixes every result. Neither binds: not proven. |
-| RA6 Outcome | With RA5 (b): the uniform code. With RA5 (a), `da = 1`: the code of the archived anchor tx; `da = 2`: code 0 if any candidate has code 0 (any PFB in block `H` that paid for this blob settles it), otherwise the code of the first candidate, all of them being nonzero. Code 0: the anchor result is **proven**, `anchor` passes by 20.6, and the report gives `anchor_result: proven` and `settlement: proven` (`da = 1`). Nonzero: the anchor result is **failed**; the evidence is not usable and 20.6 goes on with the rows for "no usable evidence". Not proven at any rule: `anchor` is `unchecked` with reason `anchor_result_unproven`, naming the rule (RA1 to RA5) and every source asked. |
-
-Why the tail binds for a PFB (`da = 2`). go-square `v4.0.1` `Construct`
-refuses a normal tx after a blob tx and a blob tx after a Fibre tx
-(`validateTxOrdering`), so the blob txs of block `H` are the `q'` elements
-of `data.txs` just before the last `p` (the Fibre txs, AB5). `Builder.AppendBlobTx`
-appends one `IndexWrapper` of the blob tx's inner tx per blob tx, in block
-order, and `Builder.Export` writes exactly those, in that order, as the units
-of `PayForBlobNamespace`; so `q' = q` and the order is the same. Each blob tx
-holds exactly one message (`ValidateBlobTx`, `ErrMultipleMsgsInBlobTx`, run
-by `ProcessProposal`). VERIFIED by code: go-square `v4.0.1` `square.go`,
-`builder.go`; celestia-app `v10.4.0-mocha` `x/blob/types/blob_tx.go`,
-`app/process_proposal.go`. Not yet checked on a live block.
-
-Threat note (RA).
-- Adversary: the party that writes the archive and controls the node it read
-  the anchor back from (threat model, section 1). Before `v1.0-s1` it could
-  archive in-window evidence for a PFF or PFB that failed in execution and
-  obtain `valid`. Now the code comes from results bound to a header of the
-  trusted chain: SHA-256 keeps it from changing a code, and it can only
-  withhold, which gives `anchor_result_unproven`.
-- A wrong index binding is not fail-safe in either direction: reading
-  another tx's code 0 would give a false `valid`, another tx's nonzero code
-  a false failure. The tail rule is therefore limited to the pinned app
-  version, under the assumption of AB5 that the block passed
-  `ProcessProposal` at the pin (more than 2/3 of voting power honest).
-  Uniform codes need no binding. `n >= p` (and `n >= p + q`) refuses
-  results that cannot belong to a block with those units.
-- `da = 2` takes code 0 from any candidate, `da = 1` only from the archived
-  anchor. For `da = 2` the blob is in the square whichever PFB paid for it.
-  For `da = 1` the certificate was checked on the archived PFF only (CV1 to
-  CV7); a settled other candidate at `H` is found by AB5 instead, as an
-  absence proof that shows the anchor present (20.6), which then needs its
-  own full evidence (`evidence_unavailable` otherwise).
-- Liveness. The proof needs a source of `/block_results` at `H` (not every
-  node persists them; pruned nodes lose them) and, for `da = 2`, a bridge
-  that still serves the namespace data, unless the codes are uniform. For
-  `da = 1` a kind 14 record at `H` keeps the proof in the archive (19.7);
-  format 1 has no carrier for `da = 2`, so a `da = 2` fast-mode decision
-  verified after both are pruned stays `unchecked`. This is the fail-closed
-  direction the human chose: no proof, no `valid`.
-- An included reference is not covered: its code stays `node-attested`
-  (section 10.6.1), and the gate read code 0 itself before it authorized.
+reach `max(D, H)` (and `D + 1` for an AB5 results proof); HT3 gives every
+header of the window from one backward chain.
 
 For an included reference the `anchor` check is the one of 20.1.
 
@@ -4526,19 +4435,6 @@ verified data, so `invalid` satisfies the general rule of 20.1.
 
 ### 20.9 Assumptions printed for a valid fast-mode decision
 
-Since `v1.0-s1`:
-
-```
-mode: fast. The gate authorized before the L1 anchor. The anchor landed at height H (window h0..deadline, in blocks).
-Proven: payload bytes match the commitment; anchored on L1 no later than T_H (anchor tx included; anchor tx result code 0 proven against header H+1); policy evaluated on T_ref (header h0).
-Attested by the gate (not proven): the availability evidence was verified before the Authorization
-  (Fibre: validators' custody certificate; celestia_blob: the signed anchor tx accepted by the gate's node).
-```
-
-A `v1.0-s1` verifier never reports such a decision `valid` without the proof
-of section 20.6.1, so it never prints the assumption below. A `v1.0`
-verifier with erratum E2 prints instead:
-
 ```
 mode: fast. The gate authorized before the L1 anchor. The anchor landed at height H (window h0..deadline, in blocks).
 Proven: payload bytes match the commitment; anchored on L1 no later than T_H (anchor tx included; anchor tx result code node-attested); policy evaluated on T_ref (header h0).
@@ -4547,7 +4443,7 @@ Attested by the gate (not proven): the availability evidence was verified before
   (Fibre: validators' custody certificate; celestia_blob: the signed anchor tx accepted by the gate's node).
 ```
 
-In `v1.0`, "anchored" means that the anchor tx is in block `H` of the trusted
+"Anchored" here means that the anchor tx is in block `H` of the trusted
 chain, proven from the evidence against the header at `H`. Whether it
 executed with code 0 is not proven: for `da = 1` it is the archived
 `tx_code`, the code the Recorder's node reported (settlement level
@@ -4555,8 +4451,7 @@ executed with code 0 is not proven: for `da = 1` it is the archived
 `da = 2` the evidence carries no code at all, and the Recorder's node
 reported the anchor tx included. A `valid` fast-mode report therefore lists
 `anchor tx result: node-attested` among its `assumptions` (20.10), in the
-text output and in JSON, with that exact text. `v1.0-s1` proves the code
-(20.6.1).
+text output and in JSON, with that exact text.
 
 ### 20.10 Report fields and attribution
 
@@ -4564,10 +4459,7 @@ Report fields, present for every decision: `version`; `mode`
 (`strict` or `fast`, from the verified Authorization); for `fast`: `h0`,
 `anchor_deadline`, `anchor_height` (when evidence verified, or an absence
 proof shows the anchor present at `H`), `publication` (`anchored`, `failed`
-with `anchor_absent`, or `unknown`), `assumptions`, and since `v1.0-s1`
-`anchor_result` whenever in-window evidence verified and the trusted header
-reached `max(D, H + 1)`: `proven`, `failed` with `anchor_result_code`, or
-`unproven` with the rule, plus the source that served the results. When an absence proof
+with `anchor_absent`, or `unknown`) and `assumptions`. When an absence proof
 (AB5, AB6) shows the anchor present at `H` but the full evidence is not
 available (`evidence_unavailable`), the report gives `anchor_height: H` and
 `publication: unknown`.
@@ -4850,7 +4742,6 @@ hand-written strict CBOR in `cbor_strict.py`), all in `spec/vectors/check/`:
 | `gen_archive.py` / `check_archive.py` | `archive/records.json`, `archive/state.json` (rules module `archive.py`). |
 | `gen_archive_v1.py` / `check_archive_v1.py` | `v1/archive.json`, `v1/verify.json`, `v1/stage4m.json`. |
 | `gen_absence.py` / `check_absence.py` | `da/absence.json`. |
-| `gen_anchor_result.py` / `check_anchor_result.py` | `da/anchor_result.json`, `v1/verify_anchor_result.json` (`v1.0-s1`). |
 | `gen_api_vectors.py` / `check_api_vectors.py` | `api/publish_request.json`. |
 | `gen_api_errors.py` / `check_api_errors.py` | `api/errors.json`; the checker also parses sections 21 and 18.3 of this document. |
 | `gen_verifier_reasons.py` / `check_verifier_reasons.py` | `verifier/reasons.json`. |
@@ -4905,17 +4796,15 @@ an action carries `action_salt_hex`.
 | `v1/anchor.json` | Section 12.2 and 13.3: `k1` and `k2` on `T_ref` for both reference forms and both `da`; `k2_included` (the retention cases: margins, saturation, governance minimum, retention lowered and raised, unreadable at height); `epoch`; `window` (inputs and `expect`: `anchor_deadline`, `ErrH0TooOld`, `ErrAnchorWindowClosed` or `ErrChainUnavailable`). |
 | `v1/gate.json` | Section 8.9 configuration: `defaults`, `allowlist`, `profile_registry` (action type to `public_execution`, the compiled registry restated) and cases with `config`, `mandate`, optional `allowlist` (overrides the top-level one) and `mandate_fast_mode_max_delay`, and `expect` (`ok`, or `ErrInvalidConfig` with its cause). |
 | `v1/archive.json` | Section 19: kinds 13, 14 (synthetic proof parts; the record layer does not verify them), 15 (the bytes of `policy/private.json`), 17 (both forms), 18, Authorization records with K2 input key 9, rejection markers. `reject` (per-kind presence, sizes, `kind_3_unassigned`, `kind_6_reserved`, `kind_16_reserved`, `kind_19_undefined`, `format_0_decision`), `reject_large`, `reads` (key mismatches). |
-| `v1/verify.json` | Since `v1.0-s1`, `evidence.verifies = true` reads as "the evidence and its anchor result proof (20.6.1) verify, with code 0"; the cases where they do not are in `v1/verify_anchor_result.json`. Section 20.5 to 20.11 on synthetic records: `cases` (fast-mode anchor, absence, AM1 and AM2, replay with `fast_window`) and `action_cases` (both forms, private blob, reveal, salt comparison, `payload_o8_fails_before_salt_compare`, `decision_record_corrupt`). Evidence and absence are given as verification results per height; their bytes are in `da/absence.json` and the `da/` evidence vectors. |
-| `v1/verify_anchor_result.json` | Section 20.6 and 20.6.1 (`v1.0-s1`): the records of `v1/verify.json` by name, evidence at `H` with `anchor_result` (`proven`, `failed` with a code, `unproven` with the rule), absence results per height and the trusted head; `expect` as in `v1/verify.json` plus the report field `anchor_result`. Covers proof with code 0 (valid), a nonzero code (the missing-anchor rows: `anchor_absent`, `absence_unproven`), no proof (`anchor_result_unproven`), and a trusted head below `max(D, H + 1)` (`anchor_pending`). Checked by `check_anchor_result.py`. |
+| `v1/verify.json` | Section 20.5 to 20.11 on synthetic records: `cases` (fast-mode anchor, absence, AM1 and AM2, replay with `fast_window`) and `action_cases` (both forms, private blob, reveal, salt comparison, `payload_o8_fails_before_salt_compare`, `decision_record_corrupt`). Evidence and absence are given as verification results per height; their bytes are in `da/absence.json` and the `da/` evidence vectors. |
 | `v1/stage4m.json` | Section 8.8: per gate mandate (none, public, private; the one the agent named or another) and per commitment (with or without `mandate_ref`), the stage 4m rule, the result, and the archive writes after it in order (kind 15 action, kind 17 form, kind 5 marker). M0 and M2 write nothing. |
 | `archive/records.json`, `archive/state.json` | Section 19: kinds 1, 2, 4, 5, 17 in format 1, rejects (among them `rec_format_0`, `rec_format_2`, `rec_kind_3`, `rec_kind_6`, `rec_kind_19`, and the evidence record with the unassigned key 18), the write scenarios of 19.4 and the record state of 19.5. Opaque Celestia fields are stand-ins (`placeholder`), except the live `da = 1` records. |
 | `api/publish_request.json` | Section 17: `tag`, `server`, `cases`, `reject` (stages D, S, G, PR), `response`. |
 | `api/errors.json` | Section 18: `statuses`, `errors` in match order (`code`, `status`, `retryable`, `stored`, `endpoints`, `rules`), `not_api_visible` (every other name of section 21 with its reason), `examples` with refs into the core vectors. |
 | `da/blob_commit.json` | `da = 2` share commitments computed by upstream code only (go-square `v4.0.1`), by `spec/vectors/tools/dacommit-gen`. Checked by Go only (Python has no NMT); the Python checker checks the blob descriptions. Inputs to the DA layer, no Edicta bytes, so its format stays `edicta-vectors/v0`. |
 | `da/fibre_commit.json`, `da/fibre_cert.json`, `da/fibre_anchor.json` | Section 10.4 and 10.6.1: Fibre commitment, certificate (CV1 to CV8) and anchor lookup (NA2 to NA7, the anchor proof of section 19.2), live Mocha data, produced by the Go tools of `spec/vectors/tools/`. Celestia data only; their revisions name the draft that last changed them. |
-| `da/anchor_result.json` | Section 20.6.1 (`v1.0-s1`) on bytes, generator `gen_anchor_result.py`, checker `check_anchor_result.py`. `da = 1`: the synthetic chain of `da/absence.json`, a kind 14 record at `H` as the proof carrier and the archived anchor tx. `da = 2`: its own synthetic blocks (`IndexWrapper` units of `MsgPayForBlobs` in `PFB_NS`, a PFF in `PFF_NS`), the header at `H`, the DAH, both namespace data streams, the results and the header at `H + 1`. `expect`: `anchor_result` (`proven`, `failed` or `unproven`), the deciding rule, the binding (`tail` or `uniform`), the result index and the code. |
 | `da/absence.json` | Section 20.8: live Mocha cases (`live`, `mocha-5`, kind 14 records built from read-only captures) and synthetic chains; `live_tail_rule` (section 23.1). Capture tool `spec/vectors/tools/absence-gen` (not run by `check_vectors.py`). |
-| `verifier/reasons.json` | Section 20.1.1: the 44 reasons (`v1.0-s1`), one case per reason, the `fail` boundary cases. |
+| `verifier/reasons.json` | Section 20.1.1: the 43 reasons, one case per reason, the `fail` boundary cases. |
 | `verifier/execution_outcomes.json`, `verifier/live/` | Section 20.2: one case per cause of `unchecked` and `fail`, the passing cases, and the live result proof of the bank-send checker. |
 | `policy/*.json`, `principal/*.json` | `spec/policy-v1.md` section 15. |
 | `profiles/dca-agent/`, `profiles/bank-send/` | Profile documents, section "Vectors". |
