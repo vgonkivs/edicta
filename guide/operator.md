@@ -297,8 +297,8 @@ capture directory, no longer retried or tracked again, and no longer keeps
 `/v1/health` degraded. The thresholds follow the configured window, so set
 it to what the node really keeps (`min-retain-blocks` and its results
 pruning), not a guess. A pending file that does not decode is moved to
-`quarantine/`, logged at error level once, and the sweep tracks its
-reference again.
+`quarantine/`, logged at error level once, and its reference is tracked
+again by a Record retry or by the sweep after a restart.
 
 ## Startup refusals
 
