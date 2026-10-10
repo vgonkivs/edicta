@@ -2,8 +2,11 @@
 
 One command, one Enter, about 3 to 5 minutes on the Mocha testnet. The demo
 runs the whole Edicta flow with a real agent decision, a real gate, a real
-transfer on chain and an independent verifier, then tries to cheat four ways, grouped in three layers below.
-Testnet TIA only; keep the amounts small.
+transfer on chain and an independent verifier, then tries to cheat five ways, grouped in three layers below.
+Testnet TIA only; keep the amounts small. It runs Edicta wire version 1 in strict
+mode (the payload is anchored on L1 before the gate authorizes) with the
+`celestia_blob` data availability mode; the user guides are in
+[../../guide/](../../guide/README.md).
 
 ## What it proves
 
@@ -169,16 +172,19 @@ The verifier is tri-state, and every line that is not a pass shows its reason.
 | VALID | everything was proven from verified data |
 | INVALID | a violation was proven (for example the executed transaction differs from the committed action) |
 | INCONCLUSIVE | a source was missing, corrupt or lagging; no claim either way |
+| GATE INTEGRITY VIOLATED | the gate signed policy verdicts that contradict each other; its records cannot be trusted |
 
 A hostile source can cause at most INCONCLUSIVE, never VALID or INVALID.
 
-`edicta verify` exits 0 VALID, 1 INVALID, 2 INCONCLUSIVE, 3 NOT AUTHORIZED,
-4 usage or I/O error. `edicta demo` exits:
+`edicta verify` prints the verdict in lower case (`valid`, `invalid`,
+`unchecked`, `not_authorized`) and exits 0 VALID, 1 INVALID, 2 INCONCLUSIVE
+(`unchecked`), 3 NOT AUTHORIZED, 4 usage or I/O error, 5 INCONCLUSIVE with the
+gate's integrity violated. `edicta demo` exits:
 
 | Code | Meaning |
 |---|---|
 | 0 | the verify step VALID and every attempt ended as expected |
-| 1 | something proven wrong or unexpected |
+| 1 | something proven wrong or unexpected, including a gate that signed contradicting verdicts |
 | 2 | inconclusive or stopped: INCONCLUSIVE after retries, funding or network failure, funding cap, you quit |
 | 3 | the verify step NOT AUTHORIZED |
 | 4 | bad flags or configuration, no terminal, home locked by another demo |
@@ -211,7 +217,8 @@ celestia/bin/edicta verify <commitment hash> --gate-key <gate public key hex> \
   --headers-rpc https://rpc-mocha.pops.one \
   --checkpoint <HEIGHT>:<HASH> \
   --receipt ~/.edicta-demo/runs/<timestamp>/receipt.cbor \
-  --tx-rpc https://rpc-1.testnet.celestia.nodes.guru --check-execution
+  --tx-rpc https://rpc-1.testnet.celestia.nodes.guru --check-execution \
+  --principal-key <principal public key hex> --require-policy --policy-full
 ```
 
 Use the same `--checkpoint` as the run (see `trust-root.json`). Headers pruned by
