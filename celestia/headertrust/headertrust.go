@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	core "github.com/cometbft/cometbft/types"
@@ -177,6 +178,14 @@ type trust struct {
 	cp    Checkpoint
 	chain HeaderChain
 	cross []HeaderChain
+
+	// The walk is kept between calls, so that the heights of a window cost
+	// one walk from the checkpoint and not one each. walked[i] is the hash
+	// at cp.Height - i, linked from the checkpoint; next is the hash the
+	// header below the lowest walked one must have.
+	mu     sync.Mutex
+	walked [][]byte
+	next   []byte
 }
 
 // New returns a header trust anchored at cp. chain supplies the headers
@@ -206,19 +215,13 @@ func (t *trust) Trusted(ctx context.Context, height uint64, hash []byte) (verifi
 		return res, verifier.WithReason(verifier.ReasonHeaderSourceUnavailable, nil,
 			fmt.Errorf("%w: %w: %d links, use a checkpoint closer to the needed height", verifier.ErrTrustInput, ErrChainTooLong, t.cp.Height-height))
 	}
-	headers := make([][]byte, 0, t.cp.Height-height)
-	for h := height; h < t.cp.Height; h++ {
-		b, err := t.chain.Header(ctx, h)
-		if err != nil {
-			if cerr := ctx.Err(); cerr != nil {
-				return res, fmt.Errorf("headertrust: %w", cerr)
-			}
-			return res, verifier.WithReason(verifier.ReasonHeaderSourceUnavailable, nameOf(t.chain),
-				fmt.Errorf("%w: headertrust: header %d: %w", verifier.ErrTrustInput, h, err))
+	if culprit, atHeader, err := t.walk(ctx, height, hash); err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return res, fmt.Errorf("headertrust: %w", cerr)
 		}
-		headers = append(headers, b)
-	}
-	if culprit, atHeader, err := verifyBackwards(t.cp, headers, height, hash); err != nil {
+		if errors.Is(err, verifier.ErrTrustInput) {
+			return res, err
+		}
 		return res, t.chainProblem(culprit, atHeader, err)
 	}
 	res.Checked = true
@@ -237,6 +240,58 @@ func (t *trust) Trusted(ctx context.Context, height uint64, hash []byte) (verifi
 			fmt.Errorf("%w: height %d: %s", ErrCrossCheckMismatch, height, verifier.DisagreementText))
 	}
 	return res, nil
+}
+
+// walk extends the verified chain from the checkpoint down to height and
+// compares hash with the chain's hash there. Links that fail are not kept,
+// so a later call asks for that header again.
+func (t *trust) walk(ctx context.Context, height uint64, hash []byte) (culprit uint64, atHeader bool, err error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.walked) == 0 {
+		top, err := decode(t.cp.Header)
+		if err != nil {
+			return 0, false, fmt.Errorf("%w: %w", ErrCheckpointMismatch, err)
+		}
+		topHash, err := hashOf(top)
+		if err != nil {
+			return 0, false, fmt.Errorf("%w: %w", ErrCheckpointMismatch, err)
+		}
+		if uint64(top.Height) != t.cp.Height || !bytes.Equal(topHash, t.cp.Hash) {
+			return 0, false, fmt.Errorf("%w: height %d", ErrCheckpointMismatch, t.cp.Height)
+		}
+		t.walked, t.next = [][]byte{topHash}, top.LastBlockID.Hash
+	}
+	for low := t.cp.Height - uint64(len(t.walked)-1); low > height; low-- {
+		at := low - 1
+		b, err := t.chain.Header(ctx, at)
+		if err != nil {
+			if cerr := ctx.Err(); cerr != nil {
+				return 0, false, cerr
+			}
+			return 0, false, verifier.WithReason(verifier.ReasonHeaderSourceUnavailable, nameOf(t.chain),
+				fmt.Errorf("%w: headertrust: header %d: %w", verifier.ErrTrustInput, at, err))
+		}
+		h, err := decode(b)
+		if err != nil {
+			return at, true, fmt.Errorf("%w: header %d: %w", ErrChainBroken, at, err)
+		}
+		if uint64(h.Height) != at {
+			return at, true, fmt.Errorf("%w: header %d claims height %d", ErrChainBroken, at, h.Height)
+		}
+		sum, err := hashOf(h)
+		if err != nil {
+			return at, true, fmt.Errorf("%w: header %d: %w", ErrChainBroken, at, err)
+		}
+		if !bytes.Equal(sum, t.next) {
+			return at, true, fmt.Errorf("%w: header %d does not match the link from %d", ErrChainBroken, at, low)
+		}
+		t.walked, t.next = append(t.walked, sum), h.LastBlockID.Hash
+	}
+	if !bytes.Equal(t.walked[t.cp.Height-height], hash) {
+		return 0, false, fmt.Errorf("%w: hash at height %d differs from the chain's", ErrChainBroken, height)
+	}
+	return 0, false, nil
 }
 
 // chainProblem gives a break in the backward chain its reason. A header that

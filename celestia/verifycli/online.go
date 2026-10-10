@@ -102,19 +102,15 @@ func parseCheckpoint(s string) (uint64, []byte, error) {
 }
 
 // rangeChain fetches headers twenty at a time and serves the walk from the
-// last batch, which cuts the calls of a long walk by that factor. A source
-// that cannot answer a range is asked for the single header.
+// last batch, which cuts the calls of a long walk by that factor. The walk
+// goes down from the checkpoint, so a batch ends at the height asked for. A
+// source that cannot answer a range is asked for the single header.
 type rangeChain struct {
 	src   *cometrpc.Source
 	top   uint64
 	first uint64
 	batch [][]byte
-	// seen keeps the headers already fetched, up to maxSeen, for the many
-	// walks of an absence window.
-	seen map[uint64][]byte
 }
-
-const maxSeen = 4096
 
 // Name is the operator behind the walk, for the reports of a header that does
 // not link.
@@ -122,27 +118,20 @@ func (c *rangeChain) Name() string { return c.src.Name() }
 
 func (c *rangeChain) Header(ctx context.Context, h uint64) ([]byte, error) {
 	if h >= c.first && h-c.first < uint64(len(c.batch)) {
-		return c.batch[h-c.first], nil
+		return bytes.Clone(c.batch[h-c.first]), nil
 	}
-	if b, ok := c.seen[h]; ok {
-		return b, nil
-	}
-	if h <= c.top {
-		hi := min(h+19, c.top)
-		if batch, err := c.src.Headers(ctx, h, hi); err == nil {
-			c.first, c.batch = h, batch
-			if c.seen == nil {
-				c.seen = map[uint64][]byte{}
+	if h >= 1 && h <= c.top {
+		// Below the lowest height a node keeps a range ending at h fails,
+		// and one starting at h may still answer.
+		for _, r := range [][2]uint64{{h - min(h-1, 19), h}, {h, min(h+19, c.top)}} {
+			batch, err := c.src.Headers(ctx, r[0], r[1])
+			if err == nil {
+				c.first, c.batch = r[0], batch
+				return bytes.Clone(batch[h-r[0]]), nil
 			}
-			for i, b := range batch {
-				if len(c.seen) < maxSeen {
-					c.seen[h+uint64(i)] = b
-				}
+			if err := ctx.Err(); err != nil {
+				return nil, err
 			}
-			return batch[0], nil
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
 		}
 	}
 	return c.src.Header(ctx, h)

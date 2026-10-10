@@ -293,7 +293,8 @@ func (c *Chain) verify(ctx context.Context, q Query, h uint64, rec *archive.Abse
 	hq := q
 	hq.ChainID = out.ChainID
 	if q.DA == commitment.DAFibre && hq.ChainID == "" {
-		return unproven(h, RuleHeader, ErrHeader, "the header at %d does not tie to the trusted chain", h)
+		return unproven(h, RuleHeader, ErrHeader,
+			"the header at %d does not tie to the trusted chain (a --checkpoint near the deadline keeps the header walk short)", h)
 	}
 	return VerifyHeight(rec, hq, h, trusted)
 }
