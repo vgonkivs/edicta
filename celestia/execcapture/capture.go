@@ -34,6 +34,8 @@ var (
 	// that do not hash to the next header's last_results_hash, or a
 	// transaction missing from its block.
 	ErrUnproven = errors.New("execcapture: the capture does not verify")
+	// ErrWrongChain is a capture node whose chain is not the gate's.
+	ErrWrongChain = errors.New("execcapture: the capture node is on another chain")
 )
 
 // Chain reads what a capture needs from a CometBFT RPC node.
@@ -116,6 +118,27 @@ func (c *Capturer) Config() Config { return c.cfg }
 // Overdue is the number of captures still missing past the alert threshold
 // at the last pass. A capture given up as lost is not counted.
 func (c *Capturer) Overdue() uint64 { return c.overdue.Load() }
+
+// CheckChain reads the header at the node's head and requires its chain id
+// to be the configured one, so that captures of two networks never mix.
+func (c *Capturer) CheckChain(ctx context.Context) error {
+	head, err := c.chain.Latest(ctx)
+	if err != nil {
+		return fmt.Errorf("execcapture: capture node head: %w", err)
+	}
+	raw, err := c.chain.Header(ctx, head)
+	if err != nil {
+		return fmt.Errorf("execcapture: capture node header %d: %w", head, err)
+	}
+	var ph cmtproto.Header
+	if err := ph.Unmarshal(raw); err != nil {
+		return fmt.Errorf("execcapture: capture node header %d: %w", head, err)
+	}
+	if ph.ChainID != c.cfg.ChainID {
+		return fmt.Errorf("%w: %q, the gate's is %q", ErrWrongChain, ph.ChainID, c.cfg.ChainID)
+	}
+	return nil
+}
 
 // Kick is signalled after a new reference is tracked.
 func (c *Capturer) Kick() <-chan struct{} { return c.kick }

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,7 +18,10 @@ import (
 )
 
 // prunedChain is at head and no longer serves block results.
-type prunedChain struct{ head uint64 }
+type prunedChain struct {
+	head uint64
+	id   string
+}
 
 func (c prunedChain) Latest(context.Context) (uint64, error) { return c.head, nil }
 func (prunedChain) Tx(context.Context, [32]byte, bool) (railverify.RawTx, error) {
@@ -29,7 +33,20 @@ func (prunedChain) BlockTxs(context.Context, uint64) ([][]byte, error) {
 func (prunedChain) BlockResults(context.Context, uint64) ([]railverify.TxResult, error) {
 	return nil, errors.New("pruned")
 }
-func (prunedChain) Header(context.Context, uint64) ([]byte, error) { return nil, errors.New("pruned") }
+func (c prunedChain) Header(_ context.Context, h uint64) ([]byte, error) {
+	if h != c.head {
+		return nil, errors.New("pruned")
+	}
+	ph := cmtproto.Header{ChainID: c.chainID(), Height: int64(h)}
+	return ph.Marshal()
+}
+
+func (c prunedChain) chainID() string {
+	if c.id != "" {
+		return c.id
+	}
+	return "testchain-7"
+}
 
 // A capture still missing past half the prune window degrades /v1/health
 // and is logged at error level, as a skipped anchor intent is.
@@ -70,6 +87,20 @@ func TestStartWithCaptureLostCaptureClearsTheAlert(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, h.Status)
 	assert.Len(t, p.logLines("level=ERROR", "capture is lost", ref), 1)
+}
+
+// A comet_rpc node of another chain would mix networks in the capture
+// store: edictad refuses to start.
+func TestStartWithCaptureRefusesANodeOfAnotherChain(t *testing.T) {
+	p := newPolicyEnv(t)
+	p.deps.CaptureChain = prunedChain{head: 700, id: "otherchain-1"}
+	srv, err := edictad.Start(bg, p.cfg(p.edits(rep("[http]", "[capture]\nenabled = true\ndir = \""+p.path("capture")+
+		"\"\ncomet_rpc = \"http://127.0.0.1:1\"\nnode_prune_window_blocks = 1000\n\n[http]"))...), p.deps)
+	if srv != nil {
+		t.Cleanup(func() { _ = srv.Shutdown(bg) })
+	}
+	require.ErrorIs(t, err, execcapture.ErrWrongChain)
+	assert.Contains(t, err.Error(), "capture.comet_rpc")
 }
 
 func TestCaptureConfig(t *testing.T) {

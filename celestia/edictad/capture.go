@@ -223,6 +223,12 @@ func startCapture(ctx context.Context, cfg Config, d Deps, chainID string, reg r
 	if err != nil {
 		return nil, fmt.Errorf("edictad: capture: %w", err)
 	}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	err = c.CheckChain(cctx)
+	cancel()
+	if err != nil {
+		return nil, fmt.Errorf("edictad: capture.comet_rpc: %w", err)
+	}
 	sw := &captureSweep{lister: reg, decision: aio.decision, cap: c, log: log, timeout: timeout}
 	bg.Add(2)
 	go func() {

@@ -263,7 +263,10 @@ txs, then Fibre txs, and their unit counts must add up to the block's
 results), checks that the transaction at that index hashes to `rail_ref`,
 that header `H_exec + 1` names header `H_exec` as its last block, and that
 the results hash to its `last_results_hash`. Only blocks of app version 10
-are captured. The headers must carry the gate's chain id. Capture is
+are captured. The headers must carry the gate's chain id, and at start
+`edictad` reads the header at the `comet_rpc` node's head and refuses to
+start unless its chain id is the gate's, so captures of two networks never
+mix in one store. Capture is
 idempotent: a retried Record, a second receipt at the same height and a
 restart share one record per block, and the first record stays; a node
 answer that disagrees with it is logged at error level once, and the
@@ -327,7 +330,8 @@ reference again.
   without a captured type in `gate.action_types`, with `capture.dir`
   missing or inside `archive.dir`, `comet_rpc` not an http(s) URL,
   `node_prune_window_blocks` outside 100..6000000 or `retry_every_s`
-  outside 1..3600.
+  outside 1..3600, or the `comet_rpc` node does not answer its head header
+  or answers it with another chain id than the gate's.
 
 Height reads: at start each endpoint runs a height canary; a
 height-ignoring consensus endpoint does not stop the start but puts the gate
