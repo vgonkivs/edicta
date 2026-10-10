@@ -34,6 +34,9 @@ const subtreeRootThreshold = 64
 
 const kindAbsence = 14
 
+// The archive record format of the kind 14 record.
+const recordFormat = 1
+
 var pffNS = libshare.PayForFibreNamespace
 
 type liveDoc struct {
@@ -202,7 +205,7 @@ func encodeRecord(p parts) []byte {
 		b    []byte
 		isBs bool
 	}
-	fs := []field{{key: 1, u: 0}, {key: 2, u: kindAbsence}, {key: 3, u: p.da},
+	fs := []field{{key: 1, u: recordFormat}, {key: 2, u: kindAbsence}, {key: 3, u: p.da},
 		{key: 4, b: p.commitment, isBs: true}, {key: 5, b: p.namespace, isBs: true}, {key: 6, u: p.height},
 		{key: 7, b: p.header, isBs: true}, {key: 8, b: p.dah, isBs: true}, {key: 9, b: p.nsData, isBs: true}}
 	if p.results != nil {
@@ -285,8 +288,8 @@ func decodeRecord(rec []byte) (parts, error) {
 	}
 	u := func(k uint64) uint64 { v, _ := vals[k].(uint64); return v }
 	bs := func(k uint64) []byte { v, _ := vals[k].([]byte); return v }
-	if u(1) != 0 || u(2) != kindAbsence {
-		return parts{}, errors.New("not a format 0 kind 14 record")
+	if u(1) != recordFormat || u(2) != kindAbsence {
+		return parts{}, errors.New("not a format 1 kind 14 record")
 	}
 	p = parts{da: u(3), commitment: bs(4), namespace: bs(5), height: u(6), header: bs(7), dah: bs(8),
 		nsData: bs(9), results: bs(10), nextHeader: bs(11)}
@@ -357,11 +360,10 @@ func reassemble(shares []libshare.Share) ([][]byte, error) {
 	return txs, nil
 }
 
+// promiseOf decodes a PFF_NS unit the way CV1 reads a PayForFibre tx. It
+// does not ask TryParseFibreTx: a unit that fails here makes the height not
+// proven whatever the upstream classifier says.
 func promiseOf(tx []byte) (*fibretypes.MsgPayForFibre, error) {
-	_, ok, err := fibretypes.TryParseFibreTx(tx)
-	if err != nil || !ok {
-		return nil, fmt.Errorf("not a PayForFibre tx: %v", err)
-	}
 	var raw cosmostx.TxRaw
 	if err := raw.Unmarshal(tx); err != nil {
 		return nil, err
@@ -370,12 +372,23 @@ func promiseOf(tx []byte) (*fibretypes.MsgPayForFibre, error) {
 	if err := body.Unmarshal(raw.BodyBytes); err != nil {
 		return nil, err
 	}
+	if len(body.Messages) != 1 || body.Messages[0] == nil {
+		return nil, fmt.Errorf("%d messages", len(body.Messages))
+	}
+	if body.Messages[0].TypeUrl != pffTypeURL {
+		return nil, fmt.Errorf("type URL %q", body.Messages[0].TypeUrl)
+	}
 	var msg fibretypes.MsgPayForFibre
 	if err := msg.Unmarshal(body.Messages[0].Value); err != nil {
 		return nil, err
 	}
+	if len(msg.PaymentPromise.Namespace) != 29 || len(msg.PaymentPromise.Commitment) != 32 {
+		return nil, errors.New("promise namespace or commitment size")
+	}
 	return &msg, nil
 }
+
+const pffTypeURL = "/celestia.fibre.v1.MsgPayForFibre"
 
 type servedResults struct {
 	Height     string `json:"height"`
@@ -498,6 +511,12 @@ func classify(p parts, q queryDoc, qns, qcom, qsigner []byte, h uint64, trusted 
 	}
 
 	out.PFFTxs = "0"
+	// AB3 selects rows by the pinned layout, so at another app version
+	// neither an empty S nor units without a candidate prove anything.
+	pinned := sh.Version.App == pinnedAppVersion
+	if len(shares) == 0 && !pinned {
+		return heightDoc{}, unproven{"AB4", "another app version: S empty proves nothing"}
+	}
 	if len(shares) == 0 {
 		out.Result, out.Rule = "absent", "AB4"
 		out.Why = where + "; its entry is an NMT absence proof, S is empty"
@@ -515,13 +534,16 @@ func classify(p parts, q queryDoc, qns, qcom, qsigner []byte, h uint64, trusted 
 	for j, tx := range units {
 		msg, err := promiseOf(tx)
 		if err != nil {
-			continue
+			return heightDoc{}, unproven{"AB4", "a unit of PFF_NS does not decode as a MsgPayForFibre tx"}
 		}
 		pp := msg.PaymentPromise
 		if bytes.Equal(pp.Namespace, qns) && bytes.Equal(pp.Commitment, qcom) && pp.BlobVersion == 0 &&
 			pp.ChainId == q.ChainID && pp.Height <= int64(h) {
 			cands = append(cands, j)
 		}
+	}
+	if len(cands) == 0 && !pinned {
+		return heightDoc{}, unproven{"AB4", "another app version with units in PFF_NS: not proven"}
 	}
 	if len(cands) == 0 {
 		out.Result, out.Rule = "absent", "AB4"
