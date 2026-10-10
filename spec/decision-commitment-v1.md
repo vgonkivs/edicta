@@ -2,7 +2,7 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v1.0` (2026-10-09), spec revision `v1.0.1` (2026-10-10,
+Status: revision `v1.0` (2026-10-09), spec revision `v1.0.2` (2026-10-10,
 section 0). Frozen. Wire version: `version = 1`.
 Domain tags: `edicta/v1/...`. This document is the whole core specification;
 the policy layer is `spec/policy-v1.md` (revision `policy-v1.0`,
@@ -74,6 +74,7 @@ auditors can see.
 | `v1-draft.6` | 2026-10-09 | Pre-freeze re-audit fixes (task 031, `audit-2.md`). Later note, no new revision: invariant 8 in section 1.1 now states the M0 refusal and the no-record rule, with the rationale in section 8.8; `CLAUDE.md` carries one-line summaries, not a verbatim copy. Later note, fix verification (`audit-2.md` F1, F4, F6 to F8), no new revision: AB4 never gives absent at an app version other than the pinned one, `S` empty included (not proven), and AB3 states that its row selection assumes the pinned layout (F1; outcome change: such a height was absent, now unproven; vector `fibre_s_empty_other_app_version` in `da/absence.json`, other cases byte-identical); section 10.9 threat notes say HR (F4); the `RevealOnExecution` registry check runs in the constructor, the registry being a dependency the integrator's build fills (F6); a mandate version whose `fast_mode_max_delay` is below the slack is refused as a whole, with the reason (F7); 8.8 restates the stored-retry check through the 8.7 retry rule (F8). (1) AB4: a `PFF_NS` unit that does not decode as a PFF tx makes the height not proven, at any app version, and at an app version other than the pinned one units without a candidate prove nothing (section 20.8); NA5 states that the gate may skip such a unit (MJ1). (2) Stage 4m runs at every gate: new rule M0, a gate without a mandate refuses a commitment with `mandate_ref` (`ErrMandateMismatch`); the verifier requires the `policy` check whenever the envelope has `mandate_ref` (sections 8.7, 8.8, 20.5) (MJ2). (3) After an M0 or M2 refusal the gate writes no decision record, no kind 15 record and no marker; `ErrMandateMismatch` is no longer a marker name (sections 8.7, 8.8, 19.2) (MJ3). (4) `RevealOnExecution` admits only types whose compiled profile has `public_execution = true` (cause `reveal_not_public_execution`) (section 8.9). (5) With `FastMode` on, a mandate whose `fast_mode_max_delay < MinFastSlackBlocks + 1` is refused at start and at adoption (cause `fast_delay_below_slack`) (section 8.9). (6) Rule ids: the at-height rules of section 10.9 are HR1 to HR5 (were AH1 to AH5, which collided with the action-hash rules of 5.1), the verifier Authorization rules of 20.5 are AM1 and AM2 (were A1 and A2, which collided with stage A). (7) Editorial: the salt in the inputs of 8.6 and 8.7; section 22 explains the `edicta-vectors/v0` file labels. | `da/absence.json` (new synthetic cases `fibre_unit_undecodable`, `fibre_no_candidate_other_app_version`); new `v1/stage4m.json`; `v1/archive.json` (record `rejection_ErrMandateMismatch` replaced by `rejection_ErrMandateRefMissing`, new reject `rejection_mandate_mismatch_not_a_marker`, `marker_names`); `archive/records.json` (`verdicts`); `api/errors.json` (example `authorize_mandate_ref_without_mandate`, rules `M0, M2`); `policy/verify.json` (`mandate_ref_without_verdict`); `v1/gate.json` (`profile_registry`; `reveal_type_allowlisted` now uses the bank-send type; new `reveal_type_offchain_profile`, `reveal_type_without_profile`, `fast_delay_below_slack`, `fast_delay_at_slack_plus_1`, `fast_delay_low_fast_mode_off`); `v1/verify.json` (`rule` values `AM1`, `AM2`). |
 | `v1.0` | 2026-10-09 | Frozen; identical rules to `v1-draft.6` plus later notes (invariant 8 in section 1.1 with the M0 refusal and the no-record rule; dedup-hit marker rule of policy 12.1). Revision labels of the vector files are `v1.0`. | all core vectors |
 | `v1.0.1` | 2026-10-10 | Type `erratum`. E1 (`spec/ERRATA.md`): the record causes of `policy/archive.json` follow the general record reader of 19.1. Tag `spec-v1.0.1`. | `policy/archive.json` (two `cause` values) |
+| `v1.0.2` | 2026-10-10 | Type `clarification`. E2 (`spec/ERRATA.md`), human decisions of 2026-10-10 (task 045): "anchored" means inclusion proven, never a result code (new section 10.6.3). `da = 2`: the blob's commitment proof against the data root of the trusted header. `da = 1`: the complete `PFF_NS` namespace proof against `data_hash`, the PFF selected by its commitment, CV2, and the certificate CV3 to CV7 offline against the archived `historical_info` with the promise header on the trusted chain. The anchor tx result code is reported as `node-reported, not part of the claim` (20.9, 10.6.1, 20.10); CV8 keeps requiring the archived code 0 (dropping it would be a relaxation). Settled `UNVERIFIED` items: shard retention is independent of the PFF outcome, a PFF can be included with a non-zero code only through an ante failure, and the keeper's height window at the pin (sections 10.4, 10.6.1, 13.1, 23). The 10.7 item on block results for a proven settlement level becomes MAY. No check outcome changes. | none |
 
 Editorial note, no revision: the post-freeze rows of the first table and the
 revision scheme above were amended on 2026-10-10 by the human's decision. The
@@ -115,7 +116,7 @@ Policy section 1 adds the mandate layer.
 | Reference time `T_ref` and rules K1, K2 (section 12.2) | A commitment signed before its payload was public; a commitment whose validity outlives the DA retention window being executed as if the DA layer still served the payload | The gate reads true header time from a node it trusts (the operator's own node is recommended; a public endpoint is allowed). Every read at a past height, on every module and on both `da` paths, is used only if the response echoes the requested height and, where the content allows, is bound to the header at that height (HR1 to HR5, section 10.9). At-height retention comes from such a read on an endpoint that passed the canary, or from the gate's own persisted observations (observations-only mode when the endpoint ignores heights); a non-monotone pair of changes between two observations (for example a change and its revert) is missed (RS1 to RS6, section 12.2) |
 | PFF certificate check, one rule for gate, Recorder and verifiers (section 10.6.1) | A forged or under-signed availability certificate presented after the chain pruned the state that could re-check it | More than 2/3 of voting power honest at `PaymentPromise.height`; the archived validator set is the one the chain used, tied by `next_validators_hash` to the header at `PaymentPromise.height` and that header to the chain by the hash chain of section 10.6.2; Ed25519 |
 | Fibre anchor proof from namespace data, rules NA1 to NA7 (section 10.4) | A bridge or an archive presenting a PFF that was not in block `height`, hiding one that was (a false `ErrAnchorNotFound`, or an earlier promise that would move K2's `start`), or a cut or padded tx | The header at `height` is the chain's: the gate's trusted node or the W5 verifier (section 10.9), and for verifiers the header trust of section 10.6.2; SHA-256; NMT completeness as in nmt `v0.24.3` or later; more than 2/3 of voting power honest, so the square follows the protocol. Result code 0 stays `node-attested` |
-| Nothing in `v1.0` (open gap): the result code of the anchor tx behind fast-mode evidence (sections 10.6.1, 20.6, 20.9) | Adversary: one party that writes the archive and also controls the node the anchor's result code was read from. It can archive in-window evidence for a PFF or PFB that failed in execution: inclusion, the certificate and the window still verify against the trusted chain, so the verifier reports `valid` | Reported, not prevented: a `valid` fast-mode report lists `anchor tx result: node-attested` under its assumptions (section 20.9). Inclusion stays proven. For an included reference the gate itself ran the anchor lookup (K0) before it authorized |
+| "Anchored" means inclusion proven, never a result code (section 10.6.3) | A verifier calling a payload published on a node's word. Adversary: one party that writes the archive and also controls the node the anchor's result code was read from | `da = 2`: the commitment proof against the data root of the trusted header. `da = 1`: the complete `PFF_NS` namespace proof against `data_hash`, CV2, and the certificate (CV3 to CV7) against the archived `HistoricalInfo` tied to the trusted chain. The archived `tx_code` is the only node-attested field of the evidence and is not part of the claim, so that adversary can hide an unpaid escrow, not fake a publication. Validators keep their shards whatever the PFF's result (time-only pruning); more than 2/3 of voting power honest, so every included PFF passed its message, height window included, in ProcessProposal |
 | Startup compatibility check (section 10.8) | Silent divergence after an upstream change: another Fibre encoding, another sign-bytes layout, another chain or a node that answers in another format | The pinned versions and the known-answer vectors describe the network; the check runs before the gate serves |
 | Registry epoch, rule E1 (section 8.7) | Replay after the nonce registry was lost or recreated | The gate clock did not step back across the recreation |
 | Signed receipt and record request (section 14) | A fabricated `commitment_hash -> rail_ref` mapping in an archive or report; two different mappings for one decision; a third party who holds the (non-secret) envelope recording a bogus `rail_ref` first and so owning the decision's only receipt | Gate and executor private keys are secret; the gate admits a claim only if it is signed by a key in its executor allowlist, over a message that names this gate, this decision and this `rail_ref`; the receipt carries the executor key and signature, so a verifier needs no trust in the gate for who claimed what; the gate stores at most one receipt per authorized decision. **Not proof of execution**: the receipt attests that a known executor claimed `rail_ref`, and that the gate recorded that claim; whether the rail executed anything is only in the rail's own records. A compromised or malicious allowlisted executor can still claim a false `rail_ref` first |
@@ -1754,7 +1755,7 @@ depends on nothing else. The tx index of the node is needed for NA6 only.
 | gRPC `GetTx` answers for a PayForFibre tx with its height and code; it needs the node's tx index (`tx_index.indexer = "kv"`) | VERIFIED (live, `grpc-mocha.pops.one`, both vector heights, 2026-10-06) |
 | The node-reported index of a PFF (CometBFT `/tx` `index`) is its position in `data.txs` | VERIFIED (one live sample, height 1,402,819: index 1 of 2) |
 | A PFF included with code 0 at `height` has `PaymentPromise.height <= height`: the keeper reads x/staking `HistoricalInfo` at the promise height (`validateValidatorSignatures`), which is written in BeginBlock of that height, so above the current block it does not exist and the tx fails; equality is possible. The keeper makes no explicit comparison | VERIFIED (code, celestia-app-fibre snapshot `v6.0.0-20260127170033-157017cbe077`, `x/fibre/keeper/msg_server.go`). `UNVERIFIED` at the pin |
-| Whether a PFF can be included with a non-zero code, and whether its system blob is then in the square (the promise is checked in CheckTx and ProcessProposal) | `UNVERIFIED` (NA7 handles either answer) |
+| Whether a PFF can be included with a non-zero code, and whether its system blob is then in the square | Yes, through an ante failure in FinalizeBlock only: ProcessProposal runs the ante handler and the message of every PFF and rejects the block if either fails (`APP/app/process_proposal.go`), but a non-Fibre tx placed earlier in the same block can drain the PFF's fee payer, so the PFF fails `DeductFeeDecorator` in FinalizeBlock (no escrow debit, no `ProcessedPayment`). Its system blob is in the square, which is built from every tx before execution (`ClassifyTxs`). VERIFIED (code at the pin, task 045 research). Message-level failures (escrow, expiry, replay, height window) cannot be included under more than 2/3 honest voting power. NA7 handles either answer |
 
 From the anchor the gate takes `PaymentPromise.creation_timestamp` for K2
 (section 12.2) and `T_H` from the NA1 header. It MAY also check that
@@ -2054,7 +2055,8 @@ verdict, `verify` and `replay` report:
 | `cert_quorum_warning` | `WARN` iff `3 * cert_signed_power <= 2 * cert_total_power`: the certificate passed the network rule but not the classic BFT "more than 2/3". The verdict stays valid. |
 | `cert_token_precision` | `robust` iff CV6 gives the same verdict for every assignment of tokens that keeps each validator's consensus power (each `tokens` anywhere in `[10^6 * p, 10^6 * p + 10^6 - 1]`): the walk accepts with the lowest tokens for signers and the highest for the rest, or rejects with the opposite. Otherwise `bucket-dependent` (a warning; the verdict stays the one computed from the archived tokens). |
 | `cert_valset_header` | The header that committed to `V` in CV7: `next_validators_hash` at `promise.height`. |
-| `settlement` | `node-attested` in v1 (below); `failed` if CV8 fails. |
+| `settlement` | `node-attested` in v1 (below); `failed` if CV8 fails. Not part of "anchored" (section 10.6.3). |
+| `anchor_tx_result` | `code 0, node-reported, not part of the claim`, exact text, whenever CV8 passed: the archived `tx_code`, level `node-attested`. Informational; never listed under `assumptions` and never called proven (section 10.6.3). |
 | `anchor_candidates_earlier` | The number of other candidates in `T` (NA5) whose `creation_timestamp` is earlier than the archived anchor's. Their result codes are not archived, so the verifier cannot tell whether the gate's NA7 picked one of them; a non-zero value is a warning that K2 replay rests on the `promise_created` the gate recorded, which replay checks against the creation times of these candidates (section 19.2). It never changes the verdict. |
 | `header_trust` | Section 10.6.2: the trusted header's height and hash, and the cross-check result. |
 
@@ -2064,15 +2066,17 @@ verifier establishes it from three parts: the certificate (CV1 to CV7,
 cryptographic given the validator set), the PFF tx in block `height` (the
 anchor proof, cryptographic given the header), and code 0, which is only
 what the Recorder's node reported when the archive was written. A verifier
-MUST report it as `node-attested` and MUST NOT call it proven. Planned: a
-proof of code 0 against `last_results_hash` of the header at `height + 1`,
-by recomputing the results Merkle root from the archived results of block
-`height`; that level will be reported as `proven`.
+MUST report it as `node-attested` and MUST NOT call it proven. Settlement is
+not part of "anchored" (section 10.6.3): the claim is inclusion, binding and
+certificate, and no proven settlement level is planned for v1 (human
+decision, 2026-10-10).
 Threat note: a node that lies about code 0 can make a PFF that failed in
 execution look settled. The certificate and the anchor proof still show that
 validators attested the blob and that the PFF was in block `height`; what
-is not proven is the payment. `UNVERIFIED`: whether a PFF with a nonzero
-code can be included with its system blob at all (section 10.4, facts).
+is not proven is the payment. Such a PFF can exist only through an ante
+failure, with its system blob in the square and the shards kept by the same
+time rule (section 10.4, facts; section 10.6.3), so the lie hides an unpaid
+escrow, not a missing publication.
 
 Threat note (token precision). No header commits to exact token amounts:
 `validators_hash` commits to the keys and to `floor(tokens / 10^6)`. Whoever
@@ -2161,6 +2165,79 @@ blocks). A light client that verifies forward from an older trusted header
 (signature bisection) would remove the need for `T >= H` and is planned
 after v1.
 
+### 10.6.3 Anchored: what a verifier proves (both `da`)
+
+Spec revision `v1.0.2` (clarification, human decision of 2026-10-10). The
+word "anchored" (an `anchor` pass, `publication: anchored`, the `Proven:`
+line of 20.9) means that the inclusion of the anchor in block `H` of the
+trusted chain is proven from the archived evidence against the header at `H`
+that passed header trust (section 10.6.2). `H` is `payload_ref.height`, or
+for a pending reference the evidence's `height` (section 20.6). It never
+rests on a node's word, and it never includes the anchor tx's result code.
+
+| `da` | Anchored means | Rules |
+|---|---|---|
+| 2 | The share-version-1 blob with `payload_ref.namespace`, `payload_ref.commitment` and `payload_ref.signer` is in the square of block `H`: its commitment proof (evidence key 11) verifies against the data root (`data_hash`) of the header at `H`. | 10.5, 10.7 |
+| 1 | (a) Inclusion of the PFF tx: the archived anchor proof is an NMT proof of the complete `PFF_NS` range against `data_hash` of the header at `H` (NA2; NA3 with completeness), the txs are parsed from the proven shares (NA4), the archived PFF tx is byte-equal to one of them and is selected by its promise's commitment (an NA5 candidate for `payload_ref`), and the system blob equals `NewV2Blob` of that tx (the inclusion part of CV8). (b) Binding: CV2 (namespace, commitment, blob version, chain id, `blob_size`, `promise.height <= H`). (c) Certificate: CV3 to CV7, offline, against the archived `historical_info` at `promise.height`, with the promise header at `promise.height` tied to the trusted chain (CV7; section 10.6.2, two needed heights). | 10.4, 10.6.1 |
+
+Promise height (`da = 1`). `promise.height <= H` is CV2 for an included
+reference. For a pending reference CV2 requires `promise.height == h0`
+(section 20.6), and `H < h0` makes the evidence `source_corrupt` (20.6). The
+x/fibre height window, `H - promise.height <= payment_promise_height_window`
+(and `promise.height <= H + 1`), is the keeper's rule
+(`APP/x/fibre/keeper/keeper.go` `validatePaymentPromiseStatefulInternal`).
+ProcessProposal executes the message of every PFF in a proposed block and
+rejects the block if it fails (`APP/app/process_proposal.go`), so inclusion
+implies the window under the assumption of more than 2/3 honest voting
+power, the same assumption the anchor and the certificate rest on. VERIFIED
+(code at the pin, task 045 research). For a pending reference the verifier
+also has `H <= D <= h0 + 1000` (20.6, AM2). For an included reference no
+verifier rule compares `H - promise.height` with the window, and v1.0.2
+adds none: the parameter's value at `H` is chain state that no header binds
+and that format 1 does not archive, and it has no upper bound (the keeper's
+parameter check refuses only 0), so no offline check exists. Such a check
+would need a format addition, and it would close no path that the
+honest-majority assumption leaves open.
+
+Result code: not part of the claim.
+
+- `da = 2`. The blob's shares are in the square whatever the PFB's execution
+  result: ProcessProposal checks the blob tx and its ante handler, and the
+  square is built from the txs before execution. The absence proof (AB6)
+  reads no code either, so presence and absence read the same fact.
+  `UNVERIFIED` (human to confirm): no case exists where shares in the square
+  with a failed PFB do not count as published.
+- `da = 1`. Validators keep their shards whatever the PFF's result: a
+  validator fixes `pruneAt = max(creation_timestamp + ShardRetention,
+  creation_timestamp + PaymentPromiseTimeout)` at upload, before any PFF
+  exists, and deletes only by a wall-clock prune loop; nothing in the Fibre
+  server reads PFF results (`APP/fibre/server_upload.go` `shardPruneAt`,
+  `APP/fibre/server_prune.go`, `APP/fibre/store.go`). VERIFIED (code at the
+  pin, task 045 research). `UNVERIFIED`: that no component outside
+  celestia-app (a celestia-node bridge, a validator sidecar) prunes shards
+  on the PFF's result. A non-zero code (possible only through an ante
+  failure, section 10.4 facts) means the escrow did not pay, not that the
+  blob was unavailable.
+- What v1.0.x still checks. CV8 requires the archived `tx_code = 0`
+  (evidence key 12 admits only 0, section 19.2), as the gate's NA6 and NA7
+  require code 0 before K0 passes. The requirement stays in every `v1.0.N`
+  revision: dropping it would turn an `unchecked` into a pass, a relaxation
+  that needs a minor revision (section 0). It is node-attested and is not
+  part of "anchored". A `da = 1` report prints it as `anchor_tx_result:
+  code 0, node-reported, not part of the claim` (section 10.6.1), in both
+  modes. The evidence of `da = 2` carries no code, and a `da = 2` report has
+  no such field.
+
+Threat note (anchored). The adversary is a party that writes the archive and
+also controls the node a code was read from. Inclusion, binding and the
+certificate are checked against the trusted chain, so it cannot fake them.
+It can write `tx_code`, the only node-attested field of the evidence, and
+only as 0. Because the code is not part of the claim, a false code cannot
+turn into a false `valid`: a PFF whose fee payment failed still anchors a
+blob that more than 2/3 of the stake attested and whose shards the
+validators keep by the time rule. What that party can hide is an unpaid
+escrow, which `anchor_tx_result` marks as node-reported.
+
 ### 10.7 What must be archived for later verification
 
 The byte layout of these items is archive record format 1 (section 19);
@@ -2180,8 +2257,8 @@ reasons:
 | For PFF: the x/staking `HistoricalInfo` validator set at `PaymentPromise.height` (consensus keys and token amounts) | 1 | MUST | CV4 and CV6 need the keeper's order and powers. The chain keeps it only for `historical_entries` blocks (about 8 h), after which nobody can re-check the certificate without the archive. |
 | For PFF: the signed header at `PaymentPromise.height` | 1 | MUST | CV7: its `next_validators_hash` ties the `HistoricalInfo` set to the chain. CV7 reads no CometBFT validator set and no header at `promise.height + 1`, so neither is archived: the CometBFT set is rebuilt from the `HistoricalInfo` set (consensus powers) and bound by this header's `next_validators_hash`. |
 | The retention inputs the gate used: `shard_retention` latest and at `height`, and which source gave the at-height value (section 12.2, RS rules), next to the Authorization (section 19.2, K2 inputs) | 1 | MUST | K2 replay; the at-height value cannot be read back reliably later. |
-| The result of the anchor tx (code 0) as the node reported it | 1 | MUST | CV8, settlement `node-attested` (section 10.6.1). |
-| The results of all txs of block `height` and the header at `height + 1`, for a proof of code 0 against `last_results_hash` | 1 | SHOULD | Lets the planned `proven` settlement level be checked later for decisions archived now. |
+| The result of the anchor tx (code 0) as the node reported it | 1 | MUST | CV8, settlement `node-attested` (section 10.6.1); not part of "anchored" (section 10.6.3). |
+| The results of all txs of block `height` and the header at `height + 1`, for a proof of code 0 against `last_results_hash` | 1 | MAY | No check reads them, and no proven settlement level is planned for v1 (section 10.6.3; SHOULD before `v1.0.2`). Format 1 has no field for them in the evidence record (section 19.8). |
 | The share-version-2 system blob | 1 | MUST | Checked for equality with `NewV2Blob` of the archived PFF (CV8). |
 | For a pending reference: the anchor intent (kind 13), written before the reference is returned and before the anchor tx is broadcast (section 11.3) | both | MUST | K-fast reads it (section 13); with `anchor_absent` the verifier names its signer (section 20.10). |
 
@@ -2597,11 +2674,12 @@ The PFF is proven from the PayForFibre namespace data of block `height`
 honest nodes and are not by the QuickNode public endpoint (RS rules above).
 Still `UNVERIFIED`: header time final at commit for the pinned celestia-core.
 
-`UNVERIFIED`: that Fibre servers keep unsettled shards until
-`max(promise expiry, creation + retention)` (section 10.2 `pruneAt`,
-VERIFIED for the upload path, not for shards whose promise is never
-settled). If they prune earlier, the archive path still serves the payload,
-and fast mode requires an archive.
+Fibre servers keep unsettled shards until `max(promise expiry, creation +
+retention)` (section 10.2 `pruneAt`): retention is fixed at upload and
+pruning is by wall clock only, whatever the promise's settlement. VERIFIED
+(code at the pin, task 045 research; section 10.6.3). `UNVERIFIED`: that no
+component outside celestia-app prunes earlier. If one does, the archive path
+still serves the payload, and fast mode requires an archive.
 
 ### 12.3 The archive
 
@@ -2632,15 +2710,16 @@ Every read at a height follows the at-height rules of section 10.9 (HR1 to HR5).
 | F5 | In this order: (1) age, `h - h0 <= MaxH0AgeBlocks`; (2) `window >= 1` (13.3); (3) slack, `anchor_deadline >= h + MinFastSlackBlocks` with `anchor_deadline` of 13.3; (4) promise slack, `T(h) + MinPromiseSlackSeconds < creation_timestamp + payment_promise_timeout` (section 10.2), parameters read at `h`. A failure of (3) or (4) is **provisional**: F6 decides it. | `ErrH0TooOld` (410) for (1); `ErrAnchorWindowClosed` (410) for (2) |
 | F6 | Lookup `GetTx(SHA-256(tx))` on the gate's node, with `RebroadcastIntent` or after a provisional F5 failure (lookup only, never a broadcast, when `RebroadcastIntent` is off): included with code 0 at `h0 <= H <= anchor_deadline`: done, and a provisional F5 failure is waived; included elsewhere or with a nonzero code: `ErrAnchorWindowClosed`; not found after a provisional F5 failure: `ErrAnchorWindowClosed`; not found otherwise: `BroadcastTxSync(tx)`, and accepted or already known: done. | `ErrAnchorWindowClosed` (410); `ErrAnchorIntentRejected` (503) for a refused broadcast |
 
-`UNVERIFIED` (F5, window origin). The x/fibre keeper refuses a PFF whose
-promise is too old with `currentHeight - promise.height >
-PaymentPromiseHeightWindow` (default 1000), so the chain accepts inclusion
-at `H <= h0 + payment_promise_height_window`. VERIFIED (code) in local
-celestia-app checkouts `f08d07c` and celestia-app-fibre `b515db4`
-(`x/fibre/keeper/keeper.go`); not checked at the pin `5187d2f`. The same
-code allows `promise.height <= currentHeight + 1`; the certificate check
-against `HistoricalInfo` at `promise.height` is what keeps `H >= h0` (section
-11.1).
+F5, window origin. The x/fibre keeper refuses a PFF whose promise is too
+old with `currentHeight - promise.height > PaymentPromiseHeightWindow`
+(default 1000), so the chain accepts inclusion at `H <= h0 +
+payment_promise_height_window`. VERIFIED (code at the pin `5187d2f`,
+`APP/x/fibre/keeper/keeper.go` `validatePaymentPromiseStatefulInternal`;
+earlier also in local checkouts `f08d07c` and celestia-app-fibre
+`b515db4`). ProcessProposal runs this check for every PFF in a proposed
+block (section 10.6.3). The same code allows `promise.height <=
+currentHeight + 1`; the certificate check against `HistoricalInfo` at
+`promise.height` is what keeps `H >= h0` (section 11.1).
 
 ### 13.2 celestia_blob (`da = 2`)
 
@@ -3941,9 +4020,9 @@ receipt is the executor's claim).
 ### 19.8 Not in format 1
 
 - The header at `height + 1` and the results of block `height` for the
-  evidence record (section 10.7, SHOULD): planned with the `proven`
-  settlement level, as a new format. (Kind 14 carries them for an absence
-  proof only.)
+  evidence record (section 10.7, MAY): no check needs them, because
+  "anchored" is inclusion (section 10.6.3). (Kind 14 carries them for an
+  absence proof only.)
 - The validator set at `height`: no commit signatures are checked (HT4).
 - The CometBFT validator set at `promise.height` (former evidence key 18):
   CV7 rebuilds it from `historical_info`.
@@ -4400,7 +4479,7 @@ at `H` that passed header trust.
 
 | Situation | `anchor` | Report |
 |---|---|---|
-| Evidence verifies, `h0 <= H <= D` | pass | `mode: fast`, `h0`, `anchor_height: H`, `anchor_deadline: D`, `publication: anchored`, assumptions (20.9) |
+| Evidence verifies, `h0 <= H <= D` | pass | `mode: fast`, `h0`, `anchor_height: H`, `anchor_deadline: D`, `publication: anchored` (inclusion proven, 10.6.3), assumptions (20.9) |
 | Evidence verifies, `H < h0` | unchecked `source_corrupt` | a PFF cannot precede its reference height (section 11.1) |
 | Evidence verifies, `H > D`, absence over `[h0, D]` proven | **fail** `anchor_absent` | the late `H` is reported; `publication: failed`; attribution (20.10) |
 | Evidence verifies, `H > D`, absence not proven | unchecked `absence_unproven` | names the first height not proven |
@@ -4473,21 +4552,23 @@ verified data, so `invalid` satisfies the general rule of 20.1.
 
 ```
 mode: fast. The gate authorized before the L1 anchor. The anchor landed at height H (window h0..deadline, in blocks).
-Proven: payload bytes match the commitment; anchored on L1 no later than T_H (anchor tx included; anchor tx result code node-attested); policy evaluated on T_ref (header h0).
-Assumptions: anchor tx result: node-attested
+Proven: payload bytes match the commitment; anchored on L1 no later than T_H (anchor inclusion proven); policy evaluated on T_ref (header h0).
+Informational: anchor tx result: code 0, node-reported, not part of the claim   (da = 1 only)
 Attested by the gate (not proven): the availability evidence was verified before the Authorization
   (Fibre: validators' custody certificate; celestia_blob: the signed anchor tx accepted by the gate's node).
 ```
 
-"Anchored" here means that the anchor tx is in block `H` of the trusted
-chain, proven from the evidence against the header at `H`. Whether it
-executed with code 0 is not proven: for `da = 1` it is the archived
-`tx_code`, the code the Recorder's node reported (settlement level
-`node-attested`, section 10.6.1, which a verifier MUST NOT call proven); for
-`da = 2` the evidence carries no code at all, and the Recorder's node
-reported the anchor tx included. A `valid` fast-mode report therefore lists
-`anchor tx result: node-attested` among its `assumptions` (20.10), in the
-text output and in JSON, with that exact text.
+"Anchored" is defined in section 10.6.3: inclusion of the anchor in block
+`H` of the trusted chain, proven from the evidence against the header at
+`H` (for `da = 1` with the binding and the certificate). The anchor tx's
+result code is not part of the claim. For `da = 1` the report prints the
+archived `tx_code` as the informational line above and as the JSON field
+`anchor_tx_result` with the exact text `code 0, node-reported, not part of
+the claim` (section 10.6.1); it is not an assumption of the verdict and is
+not listed under `assumptions`. For `da = 2` the evidence carries no code
+and the line is absent. (Spec revision `v1.0.2` replaces the line
+`Assumptions: anchor tx result: node-attested` of E2, which was never part
+of a tagged revision.)
 
 ### 20.10 Report fields and attribution
 
@@ -4495,7 +4576,9 @@ Report fields, present for every decision: `version`; `mode`
 (`strict` or `fast`, from the verified Authorization); for `fast`: `h0`,
 `anchor_deadline`, `anchor_height` (when evidence verified, or an absence
 proof shows the anchor present at `H`), `publication` (`anchored`, `failed`
-with `anchor_absent`, or `unknown`) and `assumptions`. When an absence proof
+with `anchor_absent`, or `unknown`) and `assumptions`; for `da = 1`, in
+either mode, whenever CV8 passed: `anchor_tx_result` (section 10.6.1,
+informational). When an absence proof
 (AB5, AB6) shows the anchor present at `H` but the full evidence is not
 available (`evidence_unavailable`), the report gives `anchor_height: H` and
 `publication: unknown`.
@@ -4925,7 +5008,8 @@ this list is the index.
 | The square builder never lays out `PFF_NS` differently (NA4) as a protocol guarantee | 10.4 | read go-square at the pin |
 | The order of anchor candidates equals their order in `data.txs` | 10.4 | read square construction |
 | Fibre keeper check details at the pin (not only the snapshot) | 10.4 | read the pin |
-| Whether a PFF can be included with a nonzero code, and with its system blob | 10.4, 10.6 | read CheckTx and ProcessProposal |
+| No case exists where shares of a share-version-1 blob in the square with a failed PFB do not count as published | 10.6.3 | human to confirm |
+| No component outside celestia-app (celestia-node bridge, validator sidecar) prunes Fibre shards on the PFF's result | 10.6.3 | read celestia-node at the pin |
 | What a validator signature in the certificate attests (custody versus availability) | 10.6 | Fibre design |
 | Whether the Fibre client stops collecting signatures at the same quorum test as CV6 | 10.6.1 | read the client at the pin |
 | The version string of `node.Info`; the probe defaults for Mocha traffic | 10.8 | live check |
@@ -4933,8 +5017,6 @@ this list is the index.
 | W5 inputs: a serving API and an offline verifier for the tx inclusion proof (`da = 1`); unchanged facts at celestia-node `v0.34.2-mocha`; the stock light client on an app-v10 chain | 9.5 | task 035 research |
 | celestia-node Fibre service exposes the upload without the submit | 11.3 | task 035 research |
 | Header time final at commit (BFT time) for the pinned celestia-core | 12.2 | read the pin |
-| Unsettled Fibre shards kept until `max(promise expiry, creation + retention)` | 12.2 | read `fibre/server_upload.go` and the pruner at the pin |
-| Fibre keeper window rule `currentHeight - promise.height <= PaymentPromiseHeightWindow` at the pin `5187d2f` (VERIFIED in newer local checkouts) | 13.1 | read the pin |
 | CometBFT `BroadcastTxSync` "already in cache" result at the pin | 13.2 | task 035 research |
 | Protobuf package names of `SignedHeader`, DAH, block results at the pin | 19.2 | read the pin |
 | libsodium and ZIP-215 behaviour against specific releases | 5 | library tests |

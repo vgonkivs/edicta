@@ -103,48 +103,65 @@ Manifest after E1 (`spec/vectors/MANIFEST.sha256`, changed line):
 35a024bbfed92ce6e2dedec387ceb27c1d260e3b2df22fe3b5393e97857e9847  spec/vectors/policy/archive.json
 ```
 
-## E2. A valid fast-mode report does not call the anchor tx result proven
+## E2. "Anchored" means inclusion proven; the anchor tx result is not part of the claim
 
+- Type: clarification. Spec revision `v1.0.2`, tag `spec-v1.0.2` (the human
+  creates it).
 - Date: 2026-10-10.
-- Author: protocol-engineer (task 045), human decision Q3 step 1 of task 044.
-- Files: `spec/decision-commitment-v1.md` section 20.9 (printed assumptions)
-  and section 1 (one threat-model row). No vector file changes; no vector
-  carries the printed assumptions.
+- Author: protocol-engineer (task 045), human decisions of 2026-10-10
+  (task 045 `questions.md`: round 1 answer 1, round 2 answer A, and the
+  complete `da = 1` definition). Supersedes the first E2 text (commit
+  `2afafcd`, never tagged), which called the code `node-attested` under the
+  report's assumptions.
+- Files: `spec/decision-commitment-v1.md` sections 0, 1, 10.4 (facts), new
+  10.6.3, 10.6.1 (report table, settlement paragraph), 10.7, 12.2, 13.1,
+  19.8, 20.6, 20.9, 20.10, 23. No vector file changes; no vector carries the
+  printed report lines.
 
-| Place | Old | New |
+| Place | Before | After |
 |---|---|---|
-| 20.9, line `Proven:` | "anchored on L1 no later than T_H" | "anchored on L1 no later than T_H (anchor tx included; anchor tx result code node-attested)" |
-| 20.9, `assumptions` of a `valid` fast-mode report | the line was absent | `anchor tx result: node-attested`, exact text, in text output and JSON |
-| Section 1 | no row for the result code of fast-mode evidence | row "Nothing in `v1.0` (open gap)": the archive's writer that also controls the node the code was read from, as an adversary for anchor evidence |
+| Definition | "anchored" undefined; 20.9 put it under `Proven:` | 10.6.3: inclusion proven against the trusted header at `H`. `da = 2`: the blob's commitment proof against the data root. `da = 1`: complete `PFF_NS` namespace proof against `data_hash`, txs parsed from the proven shares, the PFF selected by its commitment; CV2; certificate CV3 to CV7 offline against the archived `historical_info`, promise header on the trusted chain |
+| 20.9, `Proven:` line | "anchored on L1 no later than T_H" (first E2: "... (anchor tx included; anchor tx result code node-attested)") | "anchored on L1 no later than T_H (anchor inclusion proven)" |
+| 20.9, result code | first E2: `Assumptions: anchor tx result: node-attested` | `da = 1` only, informational, not an assumption: `anchor tx result: code 0, node-reported, not part of the claim`; JSON `anchor_tx_result` |
+| 10.6.1 report | `settlement: node-attested` | unchanged, plus `anchor_tx_result` (both modes, `da = 1`) |
+| Section 1 | first E2: row "Nothing in `v1.0` (open gap)" | row "Anchored means inclusion proven": `tx_code` is the only node-attested field of the evidence and is not part of the claim |
+| 10.7 | block results and header `height + 1`: SHOULD, for a planned proven settlement | MAY; no proven settlement level is planned |
+| `UNVERIFIED` | non-zero PFF code; unsettled shard retention; keeper height window at the pin | VERIFIED by code at the pin (task 045 `fibre-shards-research.md`); new items: failed-PFB shares count as published (`da = 2`), no out-of-tree shard pruning |
 
-Scope check: wording only. The verdict, every check outcome, the reasons,
-wire bytes, hashes, tags, records and invariants are unchanged. The new
-assumption line restates what section 10.6.1 already requires.
+Scope check: no check outcome changes. CV8 keeps requiring the archived
+`tx_code = 0`, and the evidence record still admits only 0 (section 19.2):
+dropping that requirement would turn an `unchecked` into a pass, a
+relaxation, which section 0 allows only in a minor revision. Every other rule
+named in 10.6.3 is an existing rule (NA2 to NA5, CV2 to CV8, section 10.5,
+section 10.6.2). The x/fibre height window is implied by inclusion under the
+honest-majority assumption (ProcessProposal executes every PFF message); no
+check is added for it, because the parameter's value at `H` is not archived
+and has no upper bound. Wire bytes, hashes, tags, records, reasons and
+vectors are unchanged.
 
-Rationale. Section 10.6.1 defines settlement as "the PFF executed with code
-0 at `height`" and says a verifier "MUST report it as `node-attested` and
-MUST NOT call it proven". The fast-mode evidence of section 20.6 is checked
-with the same rules (NA1 to NA7, CV1 to CV8), so its code 0 is the archived
-`tx_code`, the word of the Recorder's node; for `da = 2` the evidence
-carries no code (section 19.2, kind 2). The `Proven:` line of 20.9 put
-"anchored" under proven without that qualification and so contradicted
-10.6.1. The threat-model row documents a limitation that section 1 already
-states for the Fibre anchor proof ("Result code 0 stays `node-attested`"),
-now with the adversary that can use it: a party that writes the archive and
-controls the node the code came from can present in-window evidence for a
-PFF or PFB that failed in execution and obtain `valid`. Closing the gap is a
-behaviour change (a proven result code), outside an erratum; the human
-approved it as a separate verifier-only security fix.
+Rationale. The human defined the claim: a fast-mode or strict decision is
+"anchored" when inclusion is proven; the result code says whether the
+escrow (`da = 1`) or the fee payer (`da = 2`) paid, not whether the payload
+was published. Research at the pin (task 045) shows that validators fix
+shard retention at upload and prune on wall-clock time only, whatever the
+PFF's result, and that a PFF can be included with a non-zero code only
+through an ante failure, after its message (escrow, expiry, replay, height
+window) passed in ProcessProposal. For `da = 2` the shares are in the square
+whatever the PFB's result, and the absence proof (AB6) already reads no
+code. The first E2 text reported a node-attested code as an assumption of
+the verdict; it is not one.
 
-Sweep (whole class). Every statement in the spec that calls the anchor or
-its settlement proven was read: sections 1, 10.4 (NA6 and the lookup threat
-note), 10.6.1 (CV8, report field `settlement`), 10.7, 19.2 (`tx_code`), 20.1,
-20.6, 20.9, 20.10. Only 20.9 overstated it. Outside the spec, not changed
-here (owners: programmer, docs): `verifier/pending.go` (the printed
-assumption lines) and `guide/verifier.md` (the copy of the 20.9 block in
-"Fast-mode decisions").
+Sweep (whole class). Every statement that calls the anchor, its settlement
+or its result code proven or assumed was read: sections 1, 10.4 (NA6, NA7,
+the lookup threat note), 10.6.1 (CV8, `settlement`), 10.7, 11.1, 12.2, 13.1,
+19.2 (`tx_code`), 19.8, 20.1, 20.6, 20.9, 20.10, 23. The gate's NA6 and NA7
+and K-fast F6 and B5 keep requiring code 0 for the gate's own lookup; that
+is the gate's check, unchanged. Outside the spec, not changed here (owners:
+programmer, docs): `verifier/pending.go` and the `da = 1` report (replace
+the assumption line of the first E2 with the informational
+`anchor_tx_result` line, in both modes), and `guide/verifier.md` (the copy
+of the 20.9 block).
 
-Prevention. The assumption line is a fixed string that the verifier's report
-test can compare. No vector change; the manifest is unchanged.
-
-Tag: the next free patch tag `v1.0.N`, assigned by the human.
+Prevention. The informational line and the JSON value are fixed strings that
+the verifier's report test can compare. No vector change; the manifest is
+unchanged.
