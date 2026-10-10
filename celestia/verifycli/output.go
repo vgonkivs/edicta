@@ -190,6 +190,7 @@ type reportView struct {
 	GateID            string         `json:"gate_id,omitempty"`
 	ActionType        string         `json:"action_type,omitempty"`
 	Settlement        string         `json:"settlement,omitempty"`
+	AnchorTxResult    string         `json:"anchor_tx_result,omitempty"`
 	Authorization     *authView      `json:"authorization,omitempty"`
 	Cert              *certView      `json:"cert,omitempty"`
 	ProofForm         *int           `json:"anchor_proof_form,omitempty"`
@@ -261,6 +262,7 @@ func viewOf(r verifier.Report) reportView {
 		GateID:         r.GateID,
 		ActionType:     r.ActionType,
 		Settlement:     r.Settlement,
+		AnchorTxResult: r.AnchorTxResult,
 		Warnings:       r.Warnings,
 		Checks:         []checkView{},
 		HeaderTrust: trustView{
@@ -517,6 +519,7 @@ func writeText(out io.Writer, v reportView, colour bool) {
 		a := v.Authorization
 		p("authorization: path %s, expires %d, issued at %d", a.Path, a.Expires, a.AuthorizedAt)
 	}
+	txResultShown := false
 	if v.Mode == "fast" {
 		line := fmt.Sprintf("fast mode: h0 %d, anchor deadline %d", v.H0, v.AnchorDeadline)
 		if v.AnchorHeight != 0 {
@@ -538,6 +541,10 @@ func writeText(out io.Writer, v reportView, colour bool) {
 		}
 		for _, a := range v.Assumptions {
 			p("%s", a)
+			if strings.HasPrefix(a, "Proven:") && v.AnchorTxResult != "" {
+				p("Informational: anchor tx result: %s", v.AnchorTxResult)
+				txResultShown = true
+			}
 		}
 	}
 	if v.BlockTime != 0 {
@@ -545,6 +552,9 @@ func writeText(out io.Writer, v reportView, colour bool) {
 	}
 	if v.Settlement != "" {
 		p("settlement: %s", v.Settlement)
+	}
+	if v.AnchorTxResult != "" && !txResultShown {
+		p("Informational: anchor tx result: %s", v.AnchorTxResult)
 	}
 	if c := v.Cert; c != nil {
 		p("certificate: signed %d of %d (%.4f), token precision %q", c.SignedPower, c.TotalPower, c.SignedShare, c.TokenPrecision)

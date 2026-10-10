@@ -622,6 +622,7 @@ func (r *run) adoptFacts(facts AnchorFacts) {
 	r.rep.RetentionStart = facts.RetentionStart
 	r.rep.Settlement = facts.Settlement
 	if r.c.PayloadRef.DA == commitment.DAFibre {
+		r.rep.AnchorTxResult = AnchorTxResultText
 		r.cert(facts)
 		r.rep.AnchorProofForm = facts.ProofForm
 		r.rep.AnchorCandidatesEarlier = facts.CandidatesEarlier

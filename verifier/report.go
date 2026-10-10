@@ -238,6 +238,9 @@ type Report struct {
 	// the action check did not pass.
 	ActionSource ActionSource
 	Settlement   string
+	// AnchorTxResult is AnchorTxResultText for a da = 1 anchor whose proof
+	// verified, else empty.
+	AnchorTxResult string
 	// AnchorProofForm and AnchorCandidatesEarlier are set for da = 1.
 	AnchorProofForm         int
 	AnchorCandidatesEarlier int

@@ -167,10 +167,22 @@ For a decision with `mode = 2` the report adds `mode: fast`, `h0`,
 
 ```
 mode: fast. The gate authorized before the L1 anchor. The anchor landed at height H (window h0..deadline, in blocks).
-Proven: payload bytes match the commitment; anchored on L1 no later than T_H; policy evaluated on T_ref (header h0).
+Proven: payload bytes match the commitment; anchored on L1 no later than T_H (anchor inclusion proven); policy evaluated on T_ref (header h0).
+Informational: anchor tx result: code 0, node-reported, not part of the claim   (da = 1 only)
 Attested by the gate (not proven): the availability evidence was verified before the Authorization
   (Fibre: validators' custody certificate; celestia_blob: the signed anchor tx accepted by the gate's node).
 ```
+
+"Anchored" means the inclusion of the anchor in block `H` of your trusted
+chain is proven from the archived evidence: for `celestia_blob` the blob's
+commitment proof against the data root, for Fibre the complete PayForFibre
+namespace proof, the binding of the PFF to the reference and the
+availability certificate. The anchor tx's result code is not part of that
+claim. For every Fibre decision whose anchor proof verified, in both modes,
+the report shows it as the JSON field `anchor_tx_result` and the text line
+`Informational: anchor tx result: code 0, node-reported, not part of the
+claim`; it is never listed under `assumptions`. A `celestia_blob` report
+has neither.
 
 The `policy` check is always required in fast mode: fast mode needs the
 principal's consent, so without an allow verdict the decision is never

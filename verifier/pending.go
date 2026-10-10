@@ -29,10 +29,15 @@ const IntentSignerUnknown = "unknown"
 // FastAssumptions is what the report states for a valid fast-mode decision.
 var FastAssumptions = []string{
 	"mode: fast. The gate authorized before the L1 anchor. The anchor landed at height H (window h0..deadline, in blocks).",
-	"Proven: payload bytes match the commitment; anchored on L1 no later than T_H; policy evaluated on T_ref (header h0).",
+	"Proven: payload bytes match the commitment; anchored on L1 no later than T_H (anchor inclusion proven); policy evaluated on T_ref (header h0).",
 	"Attested by the gate (not proven): the availability evidence was verified before the Authorization",
 	"  (Fibre: validators' custody certificate; celestia_blob: the signed anchor tx accepted by the gate's node).",
 }
+
+// AnchorTxResultText is the anchor tx result a da = 1 report carries once the
+// anchor proof verified. The archive admits only code 0 and the code is the
+// node's word, so it is informational and never an assumption of the verdict.
+const AnchorTxResultText = "code 0, node-reported, not part of the claim"
 
 // Publication says what became of the anchor of a pending reference.
 type Publication string
