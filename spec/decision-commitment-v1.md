@@ -79,6 +79,7 @@ Policy section 1 adds the mandate layer.
 | Reference time `T_ref` and rules K1, K2 (section 12.2) | A commitment signed before its payload was public; a commitment whose validity outlives the DA retention window being executed as if the DA layer still served the payload | The gate reads true header time from a node it trusts (the operator's own node is recommended; a public endpoint is allowed). Every read at a past height, on every module and on both `da` paths, is used only if the response echoes the requested height and, where the content allows, is bound to the header at that height (HR1 to HR5, section 10.9). At-height retention comes from such a read on an endpoint that passed the canary, or from the gate's own persisted observations (observations-only mode when the endpoint ignores heights); a non-monotone pair of changes between two observations (for example a change and its revert) is missed (RS1 to RS6, section 12.2) |
 | PFF certificate check, one rule for gate, Recorder and verifiers (section 10.6.1) | A forged or under-signed availability certificate presented after the chain pruned the state that could re-check it | More than 2/3 of voting power honest at `PaymentPromise.height`; the archived validator set is the one the chain used, tied by `next_validators_hash` to the header at `PaymentPromise.height` and that header to the chain by the hash chain of section 10.6.2; Ed25519 |
 | Fibre anchor proof from namespace data, rules NA1 to NA7 (section 10.4) | A bridge or an archive presenting a PFF that was not in block `height`, hiding one that was (a false `ErrAnchorNotFound`, or an earlier promise that would move K2's `start`), or a cut or padded tx | The header at `height` is the chain's: the gate's trusted node or the W5 verifier (section 10.9), and for verifiers the header trust of section 10.6.2; SHA-256; NMT completeness as in nmt `v0.24.3` or later; more than 2/3 of voting power honest, so the square follows the protocol. Result code 0 stays `node-attested` |
+| Nothing in `v1.0` (open gap): the result code of the anchor tx behind fast-mode evidence (sections 10.6.1, 20.6, 20.9) | Adversary: one party that writes the archive and also controls the node the anchor's result code was read from. It can archive in-window evidence for a PFF or PFB that failed in execution: inclusion, the certificate and the window still verify against the trusted chain, so the verifier reports `valid` | Reported, not prevented: a `valid` fast-mode report lists `anchor tx result: node-attested` under its assumptions (section 20.9). Inclusion stays proven. For an included reference the gate itself ran the anchor lookup (K0) before it authorized |
 | Startup compatibility check (section 10.8) | Silent divergence after an upstream change: another Fibre encoding, another sign-bytes layout, another chain or a node that answers in another format | The pinned versions and the known-answer vectors describe the network; the check runs before the gate serves |
 | Registry epoch, rule E1 (section 8.7) | Replay after the nonce registry was lost or recreated | The gate clock did not step back across the recreation |
 | Signed receipt and record request (section 14) | A fabricated `commitment_hash -> rail_ref` mapping in an archive or report; two different mappings for one decision; a third party who holds the (non-secret) envelope recording a bogus `rail_ref` first and so owning the decision's only receipt | Gate and executor private keys are secret; the gate admits a claim only if it is signed by a key in its executor allowlist, over a message that names this gate, this decision and this `rail_ref`; the receipt carries the executor key and signature, so a verifier needs no trust in the gate for who claimed what; the gate stores at most one receipt per authorized decision. **Not proof of execution**: the receipt attests that a known executor claimed `rail_ref`, and that the gate recorded that claim; whether the rail executed anything is only in the rail's own records. A compromised or malicious allowlisted executor can still claim a false `rail_ref` first |
@@ -4436,10 +4437,21 @@ verified data, so `invalid` satisfies the general rule of 20.1.
 
 ```
 mode: fast. The gate authorized before the L1 anchor. The anchor landed at height H (window h0..deadline, in blocks).
-Proven: payload bytes match the commitment; anchored on L1 no later than T_H; policy evaluated on T_ref (header h0).
+Proven: payload bytes match the commitment; anchored on L1 no later than T_H (anchor tx included; anchor tx result code node-attested); policy evaluated on T_ref (header h0).
+Assumptions: anchor tx result: node-attested
 Attested by the gate (not proven): the availability evidence was verified before the Authorization
   (Fibre: validators' custody certificate; celestia_blob: the signed anchor tx accepted by the gate's node).
 ```
+
+"Anchored" here means that the anchor tx is in block `H` of the trusted
+chain, proven from the evidence against the header at `H`. Whether it
+executed with code 0 is not proven: for `da = 1` it is the archived
+`tx_code`, the code the Recorder's node reported (settlement level
+`node-attested`, section 10.6.1, which a verifier MUST NOT call proven); for
+`da = 2` the evidence carries no code at all, and the Recorder's node
+reported the anchor tx included. A `valid` fast-mode report therefore lists
+`anchor tx result: node-attested` among its `assumptions` (20.10), in the
+text output and in JSON, with that exact text.
 
 ### 20.10 Report fields and attribution
 

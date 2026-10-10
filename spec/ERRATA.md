@@ -85,3 +85,49 @@ Manifest after E1 (`spec/vectors/MANIFEST.sha256`, changed line):
 ```
 35a024bbfed92ce6e2dedec387ceb27c1d260e3b2df22fe3b5393e97857e9847  spec/vectors/policy/archive.json
 ```
+
+## E2. A valid fast-mode report does not call the anchor tx result proven
+
+- Date: 2026-10-10.
+- Author: protocol-engineer (task 045), human decision Q3 step 1 of task 044.
+- Files: `spec/decision-commitment-v1.md` section 20.9 (printed assumptions)
+  and section 1 (one threat-model row). No vector file changes; no vector
+  carries the printed assumptions.
+
+| Place | Old | New |
+|---|---|---|
+| 20.9, line `Proven:` | "anchored on L1 no later than T_H" | "anchored on L1 no later than T_H (anchor tx included; anchor tx result code node-attested)" |
+| 20.9, `assumptions` of a `valid` fast-mode report | the line was absent | `anchor tx result: node-attested`, exact text, in text output and JSON |
+| Section 1 | no row for the result code of fast-mode evidence | row "Nothing in `v1.0` (open gap)": the archive's writer that also controls the node the code was read from, as an adversary for anchor evidence |
+
+Scope check: wording only. The verdict, every check outcome, the reasons,
+wire bytes, hashes, tags, records and invariants are unchanged. The new
+assumption line restates what section 10.6.1 already requires.
+
+Rationale. Section 10.6.1 defines settlement as "the PFF executed with code
+0 at `height`" and says a verifier "MUST report it as `node-attested` and
+MUST NOT call it proven". The fast-mode evidence of section 20.6 is checked
+with the same rules (NA1 to NA7, CV1 to CV8), so its code 0 is the archived
+`tx_code`, the word of the Recorder's node; for `da = 2` the evidence
+carries no code (section 19.2, kind 2). The `Proven:` line of 20.9 put
+"anchored" under proven without that qualification and so contradicted
+10.6.1. The threat-model row documents a limitation that section 1 already
+states for the Fibre anchor proof ("Result code 0 stays `node-attested`"),
+now with the adversary that can use it: a party that writes the archive and
+controls the node the code came from can present in-window evidence for a
+PFF or PFB that failed in execution and obtain `valid`. Closing the gap is a
+behaviour change (a proven result code), outside an erratum; the human
+approved it as a separate verifier-only security fix.
+
+Sweep (whole class). Every statement in the spec that calls the anchor or
+its settlement proven was read: sections 1, 10.4 (NA6 and the lookup threat
+note), 10.6.1 (CV8, report field `settlement`), 10.7, 19.2 (`tx_code`), 20.1,
+20.6, 20.9, 20.10. Only 20.9 overstated it. Outside the spec, not changed
+here (owners: programmer, docs): `verifier/pending.go` (the printed
+assumption lines) and `guide/verifier.md` (the copy of the 20.9 block in
+"Fast-mode decisions").
+
+Prevention. The assumption line is a fixed string that the verifier's report
+test can compare. No vector change; the manifest is unchanged.
+
+Tag: the next free patch tag `v1.0.N`, assigned by the human.
