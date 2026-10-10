@@ -143,13 +143,17 @@ func CheckConsume(e Entry) error {
 	if (e.ClosedBucket == nil) != (e.ClosedSet == nil) || len(e.ClosedBucket) > MaxClosedBucket || len(e.ClosedSet) > MaxClosedSet {
 		return fmt.Errorf("%w: closed bucket and set", ErrInvalidEntry)
 	}
+	if len(e.PrivatePart) > MaxPrivatePart {
+		return fmt.Errorf("%w: PrivatePart of %d bytes", ErrInvalidEntry, len(e.PrivatePart))
+	}
 	return nil
 }
 
-// Size bounds of the closed history kept with an entry.
+// Size bounds of the closed history and the PrivatePart kept with an entry.
 const (
 	MaxClosedBucket = 16384
 	MaxClosedSet    = 36864
+	MaxPrivatePart  = 16384
 )
 
 // Prunable reports whether Prune may delete e at cutoff.
