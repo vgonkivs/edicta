@@ -197,3 +197,40 @@ changes:
   `window_chain_min`, `window_chain_zero` and the gate's fast-mode tests.
 - New section 23.2, re-pin checklist; item PC1 re-verifies that
   ProcessProposal still enforces the window.
+
+## E3. The pending-reference header-trust bound holds for every header-trust kind
+
+- Type: clarification. Spec revision `v1.0.4`, tag `spec-v1.0.4` (the human
+  creates it).
+- Date: 2026-10-11.
+- Author: protocol-engineer (task 045, audit item m3), human decision Q2 of
+  2026-10-10 (task 044 `analysis.md`: "uniform D bound across all
+  header-trust kinds: conformance fix to the frozen spec (20.6, max(D, H))").
+- Files: `spec/decision-commitment-v1.md` sections 0 (status line, changelog
+  row) and 20.6 (one paragraph after the `max(D, H)` sentence). No vector
+  file changes; the manifest is unchanged.
+
+| Place | Before | After |
+|---|---|---|
+| 20.6 | "`header_trust` must reach `max(D, H)` (and `D + 1` for an AB5 results proof)" | unchanged, plus: the bound holds for every header-trust kind; each names its `T`; a trust that cannot name `T` leaves `header_trust` `unchecked` (HT1, HT7), never `pass` |
+
+Scope check: no check outcome of the spec changes. HT1 already requires `T`
+at least the highest needed height, which for a pending reference is
+`max(anchor_deadline, H)`, for every source of the trusted header (file,
+explicit or agreed checkpoint), and HT7 forbids a valid anchor without it.
+The paragraph names what that implies for a trust whose `T` is unknown.
+
+Conformance note. An implementation in which some header-trust kind skipped
+the bound (accepted a checkpoint below `D`, or did not know its checkpoint)
+could report `pass` where the frozen text requires `unchecked`. Fixing it
+moves outcomes only toward INCONCLUSIVE (`pass` to `unchecked`), never to
+`fail` and never away from `unchecked`. It is a conformance bug fix of that
+implementation, recorded in the changelog as Q2 requires, not a `security`
+revision: the spec text does not change behavior, so no frozen vector is
+superseded and nothing goes into `SUPERSEDED.json`.
+
+Vector check (Q2). No frozen vector expects a `pass` with a checkpoint below
+the bound: every case of `v1/verify.json` and `v1/verify_v1.0.3.json` whose
+`anchor` is `pass` has `trusted_head` 4200127 with `anchor_deadline`
+4200126; the cases with `trusted_head` below `D` (or below `D + 1` with a
+results proof) expect `unchecked` `anchor_pending`. No erratum is needed.
