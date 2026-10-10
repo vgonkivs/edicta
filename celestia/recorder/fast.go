@@ -98,6 +98,9 @@ type intentDraft struct {
 	retStart uint64
 	// release ends the escrow reservation of the upload.
 	release func()
+	// settleWait is how long after the expiry the reservation is kept: an
+	// expired Fibre promise can still be charged by a timeout settlement.
+	settleWait time.Duration
 }
 
 // fastDA is the da-specific side of the fast path.
@@ -189,6 +192,12 @@ func (f *fastCore) claim(key pendingKey) (*fastEntry, error) {
 	}
 	e, ok := f.entries[key]
 	if !ok {
+		if len(f.entries) >= defaultMaxPending {
+			f.prune()
+		}
+		if len(f.entries) >= defaultMaxPending {
+			return nil, fmt.Errorf("%w: %d", ErrTooManyPending, len(f.entries))
+		}
 		e = &fastEntry{}
 		f.entries[key] = e
 	}
@@ -202,6 +211,16 @@ func (f *fastCore) claim(key pendingKey) (*fastEntry, error) {
 	}
 	e.inflight = true
 	return e, nil
+}
+
+// prune drops settled entries. A dropped blob published again is found
+// through its archived payload record and intent.
+func (f *fastCore) prune() {
+	for k, e := range f.entries {
+		if (e.done != nil || e.sticky != nil || e.draft == nil) && !e.inflight && !e.looping {
+			delete(f.entries, k)
+		}
+	}
 }
 
 func (f *fastCore) unclaim(e *fastEntry) {
@@ -487,7 +506,7 @@ func (f *fastCore) resume(ctx context.Context, d fastDA, e *fastEntry, comm, blo
 	}
 	if !scan {
 		if f.expired(dr, head) {
-			dr.release()
+			time.AfterFunc(dr.settleWait, dr.release)
 			return sdk.Published{}, f.stick(e, ErrAnchorExpired)
 		}
 		if err := f.resend(ctx, d, e, dr, blob); err != nil {
@@ -658,7 +677,7 @@ func (f *fastCore) tick(d fastDA, e *fastEntry, comm []byte) bool {
 		}
 	}
 	if f.expired(dr, head) {
-		dr.release()
+		time.AfterFunc(dr.settleWait, dr.release)
 		_ = f.stick(e, ErrAnchorExpired)
 		f.d.Log.Error("recorder: the anchor of a pending reference did not land in its window", "da", d.da(),
 			"ref_height", dr.rec.RefHeight, "land_by", dr.landBy)

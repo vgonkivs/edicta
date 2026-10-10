@@ -196,7 +196,8 @@ func allZero(b []byte) bool {
 }
 
 // Publish submits blob and returns once the anchor is verified on the read
-// node. It never modifies blob.
+// node; a Recorder built by NewFast returns the pending reference instead.
+// It never modifies blob.
 func (r *Recorder) Publish(ctx context.Context, blob []byte) (sdk.Published, error) {
 	if err := ctx.Err(); err != nil {
 		return sdk.Published{}, err

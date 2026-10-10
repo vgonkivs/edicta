@@ -279,7 +279,8 @@ func normEndpoint(s string) string {
 }
 
 // Publish uploads blob, pays for it, and returns once the anchor and its
-// evidence are verified and archived.
+// evidence are verified and archived. With FibreDeps.Fast it returns the
+// pending reference once the anchor intent is archived and sent.
 func (r *FibreRecorder) Publish(ctx context.Context, blob []byte) (sdk.Published, error) {
 	if err := ctx.Err(); err != nil {
 		return sdk.Published{}, err

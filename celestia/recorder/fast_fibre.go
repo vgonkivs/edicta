@@ -133,6 +133,7 @@ func (r *FibreRecorder) draft(ctx context.Context, comm, blob []byte, _ uint64, 
 		rec: rec, sign: sign, timeout: landBy, landBy: landBy,
 		expiry:  up.Created.Add(time.Duration(fp.PromiseTimeoutS) * time.Second),
 		refTime: refTime, retStart: created, release: release,
+		settleWait: time.Duration(fp.PromiseTimeoutS) * time.Second,
 	}, nil
 }
 
