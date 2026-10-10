@@ -63,8 +63,9 @@ a Celestia blob and anchored on chain. A gate, started in-process and reached
 over its real HTTP API, authorizes it. An executor sends exactly the
 committed transfer, and the decision, the Authorization and the payload go to
 the archive. An independent verifier then checks all of it from the archive
-and public RPCs, including proof of the executed transaction. Finally the demo
-tries to cheat four ways (a different amount, a reused decision, a tampered
+and public RPCs, including proof of the executed transaction and the
+principal's mandate. Finally the demo tries to cheat five ways (a different
+amount, a reused decision, an amount above the mandate's limit, a tampered
 archive, a rogue executor) and shows each attempt refused or caught.
 
 ```sh
@@ -88,15 +89,18 @@ go -C celestia test ./...
 The older manual runner (`edicta-live`, with your own `edictad` and
 endpoints), step by step: [celestia/README.md](celestia/README.md).
 
+User guides (quickstart, operator, principal, profiles, private mode,
+verifier): [guide/](guide/README.md).
+
 ## Flow
 
 ```
 agent --payload--> Recorder --> DA layer (Celestia blob or Fibre), anchored at height H
   |
-  +- signs commitment (payload hash, locator, action {type, hash}, nonce, expiry)
+  +- signs commitment (payload hash, locator, action {type, salted hash}, nonce, expiry[, mandate_ref])
        |
        v
-  commitment + action bytes --> gate: verify, consume nonce --> signed Authorization
+  commitment + action bytes + salt --> gate: verify, check mandate, consume nonce --> signed Authorization (mode, [anchor_deadline])
                                                                      |
                                                                      v
                          executor: check Authorization, run the exact bytes once
@@ -109,11 +113,15 @@ agent --payload--> Recorder --> DA layer (Celestia blob or Fibre), anchored at h
 
 1. The agent's signature over `commitment_hash` is valid.
 2. The payload is available (DA layer or archive) and its hash matches.
-3. The action bytes presented to the gate hash to the committed `action.hash`, and the action type is one the gate is configured for. Exact match, no semantics.
+3. The action bytes presented to the gate, with the agent's 32-byte salt, hash to the committed `action.hash`, and the action type is one the gate is configured for. Exact match, no semantics.
 4. The commitment has not expired, its lifetime is well below DA retention, and the Authorization never outlives it.
 5. The nonce is unused and is marked used atomically with issuing the Authorization: at most one Authorization per `(agent_pubkey, nonce)`.
 6. `commitment_hash` is computed over the canonical encoding and is not a field of what it hashes; no decision or Authorization carries a tx hash or rail reference.
-7. The gate signs only after 1 to 6 hold, under its own domain tags; gate, agent and executor keys never overlap.
+7. The gate signs only after 1 to 6, 8 and 9 hold, under its own domain tags; gate, agent, executor and principal keys never overlap.
+8. With a mandate, an Authorization is issued only if the principal-signed mandate allows exactly the committed action; the policy is deny-only and fail-closed, and its counters are updated in the same transaction as the nonce.
+9. The Authorization states its mode: strict when the payload is already anchored, fast when only the anchor intent was checked; fast mode needs the principal's consent in the mandate, and a missing anchor by `anchor_deadline` is provable afterwards.
+
+The normative list is in [spec/decision-commitment-v1.md](spec/decision-commitment-v1.md), section 1.1.
 
 ## Format
 
@@ -122,7 +130,7 @@ agent --payload--> Recorder --> DA layer (Celestia blob or Fibre), anchored at h
 - Every hash and signature is domain-separated by a length-prefixed tag (`edicta/v1/...`).
 - The action is opaque: `{type, hash}`, where `type` is a media type and `hash` is a tagged hash over the type, a fresh 32-byte salt and the exact action bytes; the salt travels with the bytes to the gate and the executor and inside the encrypted payload.
 
-Specification: [spec/decision-commitment-v1.md](spec/decision-commitment-v1.md).
+Specification: [spec/decision-commitment-v1.md](spec/decision-commitment-v1.md) (core, revision `v1.0`, frozen) and [spec/policy-v1.md](spec/policy-v1.md) (mandates); errata in [spec/ERRATA.md](spec/ERRATA.md). Release tags: `v1.0.0` (the frozen v1 format) and `v1.0.1` (erratum E1, which changed two expectations in a vector file and no wire bytes).
 Profiles: [spec/profiles/](spec/profiles/).
 Cross-language test vectors (with an independent Python checker): [spec/vectors/](spec/vectors/).
 
@@ -136,17 +144,27 @@ Cross-language test vectors (with an independent Python checker): [spec/vectors/
 
 Wire version 1 (the earlier v0 drafts are superseded and unsupported). The gate, the Go SDK, the Recorder, the
 `edictad` daemon, the archive and the verifier (`edicta verify`, `edicta
-replay`) work end to end; the demo above, with the `celestia_blob` mode, ran
-live on Celestia Mocha. Fibre support is implemented but has not run live
-yet. Principal-signed policy (mandates with spending limits) is in progress.
+replay`, `edicta-verify absence`) work end to end; the demo above, with the
+`celestia_blob` mode and a mandate, ran live on Celestia Mocha.
+
+- Mandates (spending limits, recipients, private mode with auditors) are
+  implemented. Principals sign with Ed25519, Keplr (ADR-036) or MetaMask
+  (EIP-712); the wallet flows are vector-tested but not yet tested live with
+  real wallets.
+- Fast mode is implemented in the gate and the verifier (absence proofs);
+  the Recorder side that produces pending references is not merged yet, and
+  fast mode has not run live.
+- Fibre support is implemented but has not run live yet.
+
 Not production-ready.
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `/` (module `github.com/vgonkivs/edicta`) | Core: `commitment` (encoding, hashing, checks), `gate`, `archive`, `verifier`, `sdk`, `edictaapi` (HTTP API), `dacommit`, `test` |
+| `/` (module `github.com/vgonkivs/edicta`) | Core: `commitment` (encoding, hashing, checks), `gate`, `policy` (mandates), `principalsig`, `archive`, `verifier`, `sdk`, `edictaapi` (HTTP API), `dacommit`, `test`; `cmd/edicta-principal` (the principal's mandate tool) |
 | `celestia/` (own module) | Recorder, chain client for the gate, `edictad` daemon, `edicta` CLI (demo, verify), `edicta-live` runner |
 | `fibre/` (own module) | Fibre blob commitment |
 | `examples/` | Profiles in use: `tia-transfer` (Cosmos `MsgSend` on a price trigger) and `dca-agent` (IBKR order, offline with a fake broker) |
 | `spec/` | Specification, profiles, test vectors and their generators |
+| `guide/` | User guides |
