@@ -218,24 +218,8 @@ func (r *run) pendingInWindow(H uint64, facts AnchorFacts) error {
 		facts.BlockTime = facts.PromiseBlockTime
 		evidence = append(evidence, headerAt{h0, facts.PromiseHeaderHash})
 	}
-	if r.v.trust == nil {
-		r.adoptFacts(facts)
-		fast.AnchorHeight = H
-		r.pass(CheckAnchor)
-		if err := r.trustHeaders(evidence); err != nil {
-			return err
-		}
-		r.anchorTime()
-		return nil
-	}
-	if err := r.askCheckpoint(); err != nil {
-		return err
-	}
-	if r.checkpointH != 0 && r.checkpointH < fast.AnchorDeadline {
-		r.evidencePending(H)
-		return nil
-	}
-
+	// T_ref is the time of the header at h0, not of the evidence at H, even
+	// when no header trust is supplied.
 	headers := evidence
 	refMissing := error(nil)
 	if ref.DA != commitment.DAFibre {
@@ -250,6 +234,30 @@ func (r *run) pendingInWindow(H uint64, facts AnchorFacts) error {
 			headers = append(headers, headerAt{h0, hd.Hash})
 		}
 	}
+	if r.v.trust == nil {
+		r.adoptFacts(facts)
+		fast.AnchorHeight = H
+		r.pass(CheckAnchor)
+		if refMissing != nil {
+			r.rep.HeaderTrust.Status = TrustUnchecked
+			r.unchecked(CheckHeaderTrust, ReasonHeaderSourceUnavailable, fmt.Errorf("%w: header at h0 %d for T_ref: %w", ErrHeaderTrust, h0, refMissing))
+			r.anchorTime()
+			return nil
+		}
+		if err := r.trustHeaders(headers); err != nil {
+			return err
+		}
+		r.anchorTime()
+		return nil
+	}
+	if err := r.askCheckpoint(); err != nil {
+		return err
+	}
+	if r.checkpointH != 0 && r.checkpointH < fast.AnchorDeadline {
+		r.evidencePending(H)
+		return nil
+	}
+
 	t, err := r.tallyTrust(headers)
 	if err != nil {
 		return err

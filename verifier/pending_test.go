@@ -305,3 +305,24 @@ func TestReplayChecksTheFastWindow(t *testing.T) {
 		assert.Equal(t, tc.want, c.Status, "fast window %d: %v", tc.window, c.Err)
 	}
 }
+
+// Without header trust, a blob fast reference still takes T_ref from the
+// header at h0, so a replay with evidence above h0 agrees with the gate.
+func TestReplayFastBlobWithoutTrustKeepsTRef(t *testing.T) {
+	p := pendingParts(t, newParts(t))
+	r := newRig(t, p)
+	require.Greater(t, p.ev.Height, p.c.PayloadRef.Height)
+	r.anchor.blockTime = blockTime + 12
+	ref := sha256.Sum256([]byte("header at h0"))
+	r.deps.Pending = &fakePending{header: verifier.ChainHeader{Hash: ref[:], Time: blockTime}}
+	r.deps.Trust = nil
+	rr := replay(t, r)
+	assert.Equal(t, blockTime, rr.Report.BlockTime)
+	assert.Equal(t, blockTime, rr.Report.RetentionStart)
+	passed(t, rr.Report, verifier.CheckAnchor)
+	unchecked(t, rr.Report, verifier.CheckHeaderTrust, verifier.ReasonNoTrustedHeader)
+	c, ok := rr.Report.Check(verifier.CheckRetention)
+	require.True(t, ok)
+	assert.NotEqual(t, verifier.ReasonReplayInconsistent, c.Reason, "%v", c.Err)
+	assert.True(t, rr.K2.Consistent, "%v", rr.K2.Err)
+}
