@@ -193,7 +193,8 @@ func TestRecorderFastFibreStartRefusals(t *testing.T) {
 		assert.Zero(t, p.listens)
 		assert.EqualValues(t, 1, up.closes.Load(), "the uploader is closed once")
 		assert.EqualValues(t, 1, rf.closer.closes.Load(), "the signing client is closed once")
-		assert.Equal(t, []string{"recorder.close", "uploader.close", "signing.close"}, rf.log.list())
+		assert.Zero(t, rf.builds.Load(), "the Recorder, and with it the boot recovery, is never started")
+		assert.Equal(t, []string{"uploader.close", "signing.close"}, rf.log.list())
 		p.registryReopens()
 	})
 	t.Run("refused before the build", func(t *testing.T) {

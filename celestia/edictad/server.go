@@ -635,19 +635,23 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 	var quota edictaapi.Quota
 	switch {
 	case cfg.Recorder.Enabled && fibre:
+		addr, err := d.Fibre.Submitter.Address(ctx)
+		if err != nil {
+			return fail(fmt.Errorf("edictad: recorder signer: %w", err))
+		}
+		// Building the fast Recorder starts its boot recovery, which must not
+		// run under an account that is not the escrow owner.
+		if cfg.Recorder.Fast {
+			if err := sameAccount(ctx, d.RecorderFast.Signer, addr); err != nil {
+				return fail(err)
+			}
+		}
 		rec, err := buildFibreRecorder(cfg, d, ns, store, clock, reader, head.ChainID, fibreCommitter, log)
 		if err != nil {
 			return fail(err)
 		}
 		s.rec = rec
-		addr, err := d.Fibre.Submitter.Address(ctx)
-		if err != nil {
-			return fail(fmt.Errorf("edictad: recorder signer: %w", err))
-		}
 		if cfg.Recorder.Fast {
-			if err := sameAccount(ctx, d.RecorderFast.Signer, addr); err != nil {
-				return fail(err)
-			}
 			logRecorderFast(log, cfg, addr)
 		}
 		pub, hl.signer, hl.namespace = rec, addr, ns
