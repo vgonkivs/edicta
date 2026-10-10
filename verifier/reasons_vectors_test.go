@@ -18,10 +18,14 @@ import (
 	"github.com/vgonkivs/edicta/verifier"
 )
 
-const reasonsPath = "../spec/vectors/verifier/reasons.json"
+const (
+	reasonsPath     = "../spec/vectors/verifier/reasons.json"
+	reasonsV103Path = "../spec/vectors/verifier/reasons_v1.0.3.json"
+)
 
 type reasonsDoc struct {
 	Revision string `json:"revision"`
+	Extends  string `json:"extends"`
 	Reasons  []struct {
 		Name    string   `json:"name"`
 		Checks  []string `json:"checks"`
@@ -45,13 +49,27 @@ type reasonCase struct {
 	} `json:"expect"`
 }
 
+// loadReasons returns the enum of the current revision: the frozen file
+// plus the reasons and cases that later revisions add to it.
 func loadReasons(t testing.TB) reasonsDoc {
 	t.Helper()
-	raw, err := os.ReadFile(reasonsPath)
+	d := readReasons(t, reasonsPath)
+	require.Equal(t, "v1.0", d.Revision)
+	add := readReasons(t, reasonsV103Path)
+	require.Equal(t, "v1.0.3", add.Revision)
+	require.Equal(t, "verifier/reasons.json", add.Extends)
+	d.Reasons = append(d.Reasons, add.Reasons...)
+	d.Cases = append(d.Cases, add.Cases...)
+	d.Boundary = append(d.Boundary, add.Boundary...)
+	return d
+}
+
+func readReasons(t testing.TB, path string) reasonsDoc {
+	t.Helper()
+	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
 	var d reasonsDoc
 	require.NoError(t, json.Unmarshal(raw, &d))
-	require.Equal(t, "v1.0", d.Revision)
 	return d
 }
 
@@ -206,6 +224,15 @@ func TestReasonVectors(t *testing.T) {
 			h0 := r.p.c.PayloadRef.Height
 			r.deps.Pending.(*fakePending).window = verifier.AbsenceWindow{Result: verifier.AbsenceUnproven,
 				FirstUnproven: h0 + 1, Cause: errors.New("no absence proof at this height")}
+			r.deps.Trust = cpTrust{r.trust, h0 + fastWindow + 1}
+			return r.verify(t), verifier.ReplayReport{}
+		},
+		"anchor_unpaid": func(t *testing.T) (verifier.Report, verifier.ReplayReport) {
+			r, _ := pendingRig(t, newFibreParts(t), verifier.AbsenceWindow{})
+			withoutEvidence(r)
+			h0 := r.p.c.PayloadRef.Height
+			r.deps.Pending.(*fakePending).window = verifier.AbsenceWindow{Result: verifier.AbsencePresentUnpaid,
+				UnpaidHeight: h0 + 2}
 			r.deps.Trust = cpTrust{r.trust, h0 + fastWindow + 1}
 			return r.verify(t), verifier.ReplayReport{}
 		},

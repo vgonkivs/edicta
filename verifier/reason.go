@@ -53,6 +53,7 @@ const (
 	ReasonAbsenceUnproven                   Reason = "absence_unproven"
 	ReasonPolicyPrivate                     Reason = "policy_private"
 	ReasonPrincipalSchemeUnsupported        Reason = "principal_scheme_unsupported"
+	ReasonAnchorUnpaid                      Reason = "anchor_unpaid"
 )
 
 // DisagreementText is what the report says when header sources, or a header
@@ -111,6 +112,7 @@ var reasonTable = []ReasonInfo{
 	{ReasonAbsenceUnproven, []string{"anchor"}, "Pending reference, no evidence inside the window, and the absence proofs for [h0, anchor_deadline] are missing, incomplete or fail. Names the first height not proven.", "another archive copy or --absence-source"},
 	{ReasonPolicyPrivate, []string{"policy", "gate_integrity", "action", "execution"}, "The record needed is a private blob (kind 15) and no configured auditor key opens it. Names the first record. On action and execution: a private-form v1 decision record without a reveal that applies.", "an auditor key of the mandate"},
 	{ReasonPrincipalSchemeUnsupported, []string{"policy"}, "The verifier build lacks the principal signature scheme the mandate names.", "a verifier build with that scheme"},
+	{ReasonAnchorUnpaid, []string{"anchor"}, "Anchor included, non-zero result code; not confirmable by v1.0 verifiers. Pending reference, no evidence inside the window, and an absence proof shows a PFF candidate at a height of [h0, anchor_deadline] whose result code is proven non-zero, with no height showing one with code 0. Names the first such height.", "none in v1.0 (a v1.1 verifier confirms inclusion without the code); another archive copy or --absence-source if a paid anchor may sit at a height not proven"},
 }
 
 // Reasons returns the closed table of 20.1.1, in order.

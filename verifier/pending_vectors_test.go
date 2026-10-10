@@ -38,6 +38,7 @@ type fastCase struct {
 			Reason        string `json:"reason"`
 			Rule          string `json:"rule"`
 			FirstUnproven string `json:"first_unproven"`
+			UnpaidHeight  string `json:"unpaid_height"`
 		} `json:"anchor"`
 		Replay *struct {
 			Status string `json:"status"`
@@ -55,9 +56,19 @@ type fastCase struct {
 	} `json:"expect"`
 }
 
+const (
+	verifyVectorsPath     = "../spec/vectors/v1/verify.json"
+	verifyV103VectorsPath = "../spec/vectors/v1/verify_v1.0.3.json"
+)
+
 func loadFastCases(t *testing.T) (uint64, []fastCase) {
 	t.Helper()
-	raw, err := os.ReadFile("../spec/vectors/v1/verify.json")
+	return loadFastFile(t, verifyVectorsPath, "v1.0")
+}
+
+func loadFastFile(t *testing.T, path, revision string) (uint64, []fastCase) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
 	var d struct {
 		Revision string     `json:"revision"`
@@ -65,15 +76,16 @@ func loadFastCases(t *testing.T) (uint64, []fastCase) {
 		Cases    []fastCase `json:"cases"`
 	}
 	require.NoError(t, json.Unmarshal(raw, &d))
-	require.Equal(t, "v1.0", d.Revision)
+	require.Equal(t, revision, d.Revision)
 	w, err := strconv.ParseUint(d.Window, 10, 64)
 	require.NoError(t, err)
 	return w, d.Cases
 }
 
 // windowPending answers the absence window from per-height results the way
-// the absence package combines them: a present height wins, else the first
-// height that is not absent is the first one not proven.
+// the absence package combines them: a present height wins, then a present
+// unpaid one, else the first height that is not absent is the first one not
+// proven.
 type windowPending struct {
 	h0, deadline uint64
 	results      map[uint64]string
@@ -99,6 +111,12 @@ func (w *windowPending) Absence(context.Context, commitment.PayloadRef, uint64, 
 		}
 	}
 	for h := w.h0; h <= w.deadline; h++ {
+		if w.results[h] == "present_unpaid" {
+			out.Result, out.UnpaidHeight = verifier.AbsencePresentUnpaid, h
+			return out, nil
+		}
+	}
+	for h := w.h0; h <= w.deadline; h++ {
 		if w.results[h] != "absent" {
 			out.Result, out.FirstUnproven, out.Cause = verifier.AbsenceUnproven, h, errors.New("no absence proof")
 			return out, nil
@@ -117,6 +135,19 @@ func (w *windowPending) IntentSigner(context.Context, commitment.PayloadRef, uin
 func TestPendingVerifyVectors(t *testing.T) {
 	window, cases := loadFastCases(t)
 	require.Equal(t, uint64(fastWindow), window)
+	assert.Equal(t, 14, runFastCases(t, cases), "every fast-mode case of the file ran")
+}
+
+// The cases of spec revision v1.0.3: an in-window candidate whose result
+// code is proven non-zero is anchor_unpaid, never anchor_absent.
+func TestPendingVerifyVectorsV103(t *testing.T) {
+	window, cases := loadFastFile(t, verifyV103VectorsPath, "v1.0.3")
+	require.Equal(t, uint64(fastWindow), window)
+	assert.Equal(t, len(cases), runFastCases(t, cases), "every case of the file ran")
+}
+
+func runFastCases(t *testing.T, cases []fastCase) int {
+	t.Helper()
 	ran := 0
 	for _, c := range cases {
 		if c.Decision != "decision_pending_fibre" && c.Decision != "decision_pending_blob" {
@@ -195,6 +226,17 @@ func TestPendingVerifyVectors(t *testing.T) {
 				assert.Equal(t, at(ea.FirstUnproven), rep.Fast.Absence.FirstUnproven)
 				assert.Contains(t, got.Err.Error(), strconv.FormatUint(at(ea.FirstUnproven), 10))
 			}
+			if ea.UnpaidHeight != "" {
+				require.NotNil(t, rep.Fast.Absence)
+				assert.Equal(t, verifier.AbsencePresentUnpaid, rep.Fast.Absence.Result)
+				assert.Equal(t, at(ea.UnpaidHeight), rep.Fast.Absence.UnpaidHeight)
+				require.ErrorIs(t, got.Err, verifier.ErrAnchorUnpaid)
+				assert.Contains(t, got.Err.Error(), strconv.FormatUint(at(ea.UnpaidHeight), 10))
+			}
+			if ea.Reason == string(verifier.ReasonAnchorUnpaid) {
+				assert.NotEqual(t, verifier.VerdictInvalid, rep.Verdict)
+				assert.Empty(t, rep.Fast.IntentSigner, "nothing was proven absent, so no one is attributed")
+			}
 			if c.Expect.Replay != nil {
 				rc, ok := rep.Check(verifier.CheckRetention)
 				require.True(t, ok)
@@ -245,7 +287,7 @@ func TestPendingVerifyVectors(t *testing.T) {
 			}
 		})
 	}
-	assert.Equal(t, 14, ran, "every fast-mode case of the file ran")
+	return ran
 }
 
 // Boundaries of the window not in the vector file: evidence exactly at h0

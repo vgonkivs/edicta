@@ -14,6 +14,9 @@ var (
 	// ErrAnchorAbsent is the anchor fail of a pending reference whose anchor
 	// is proven absent at every height of [h0, anchor_deadline].
 	ErrAnchorAbsent = errors.New("verifier: anchor_absent: the anchor is proven absent over the whole window")
+	// ErrAnchorUnpaid is the unchecked anchor of a pending reference whose
+	// window holds the anchor included with a non-zero result code.
+	ErrAnchorUnpaid = errors.New("verifier: anchor_unpaid: anchor included, non-zero result code")
 	// ErrNoAbsenceSource marks a window checked with no absence source.
 	ErrNoAbsenceSource = errors.New("verifier: no absence source")
 )
@@ -69,6 +72,9 @@ const (
 	AbsenceAbsent   AbsenceResult = "absent"
 	AbsencePresent  AbsenceResult = "present"
 	AbsenceUnproven AbsenceResult = "unproven"
+	// AbsencePresentUnpaid: a height of the window holds an included PFF
+	// candidate whose result code is proven non-zero, and none shows code 0.
+	AbsencePresentUnpaid AbsenceResult = "present_unpaid"
 )
 
 // AbsenceWindow is the outcome of the absence proofs of [h0, deadline].
@@ -76,6 +82,8 @@ type AbsenceWindow struct {
 	Result AbsenceResult
 	// AnchorHeight is the first height that shows the anchor (present).
 	AnchorHeight uint64
+	// UnpaidHeight is the first height present unpaid (present_unpaid).
+	UnpaidHeight uint64
 	// FirstUnproven and Cause name the first height not proven (unproven).
 	FirstUnproven uint64
 	Cause         error
@@ -442,6 +450,11 @@ func (r *run) pendingWindow(fast *FastInfo) error {
 		fast.AnchorHeight = w.AnchorHeight
 		r.unchecked(CheckAnchor, ReasonEvidenceUnavailable,
 			fmt.Errorf("%w: an absence proof shows the anchor at height %d, and its full evidence is not archived", ErrArchiveIncomplete, w.AnchorHeight))
+	case AbsencePresentUnpaid:
+		// The included PFF published the payload, so the window is not
+		// absent; v1.0 still needs code 0 for presence, so it cannot pass.
+		r.unchecked(CheckAnchor, ReasonAnchorUnpaid,
+			fmt.Errorf("%w: unpaid_height %d: the anchor is included with a non-zero result code", ErrAnchorUnpaid, w.UnpaidHeight))
 	default:
 		cause := w.Cause
 		if cause == nil {
