@@ -136,9 +136,15 @@ type fastEntry struct {
 	// seq is the account sequence the archived anchor tx is signed for.
 	seq uint64
 	// sentAt is when the archived anchor tx was last sent.
-	sentAt  time.Time
-	scan    bool
+	sentAt time.Time
+	scan   bool
+	// scanned is the highest height read for the anchor without finding it.
+	// Blocks up to the head are final, so no height is read twice.
 	scanned uint64
+	// closing is the sticky verdict an intent gets once the blocks up to its
+	// deadline are read without the anchor: the tx lookup reads an index
+	// that can lag a commit.
+	closing error
 	pending *sdk.Published
 	done    *sdk.Published
 	sticky  error
@@ -461,7 +467,7 @@ func (f *fastCore) goBlind(err error) {
 // live reports whether e follows an intent whose anchor tx may still take
 // its sequence: neither landed, nor refused, stale or expired.
 func live(e *fastEntry) bool {
-	return e.draft != nil && e.done == nil && e.sticky == nil && !e.scan
+	return e.draft != nil && e.done == nil && e.sticky == nil && !e.scan && !errors.Is(e.closing, ErrAnchorExpired)
 }
 
 // highestLive is the highest sequence a live intent is signed for.
@@ -484,7 +490,7 @@ func (f *fastCore) kick(ctx context.Context, seq uint64) {
 	f.mu.Lock()
 	var k *fastEntry
 	for _, e := range f.entries {
-		if live(e) && e.seq == seq {
+		if live(e) && e.closing == nil && e.seq == seq {
 			k = e
 			break
 		}
@@ -661,7 +667,7 @@ func (f *fastCore) broadcast(ctx context.Context, raw []byte) error {
 // and sends the archived tx again when the node does not know it.
 func (f *fastCore) resume(ctx context.Context, d fastDA, e *fastEntry, comm, blob []byte, head uint64, headTime time.Time) (sdk.Published, error) {
 	f.mu.Lock()
-	dr, hash, scan := e.draft, e.hash, e.scan
+	dr, hash, scan, closing := e.draft, e.hash, e.scan, e.closing
 	f.mu.Unlock()
 	st, err := f.lookup(ctx, hash)
 	if err != nil {
@@ -670,27 +676,67 @@ func (f *fastCore) resume(ctx context.Context, d fastDA, e *fastEntry, comm, blo
 	if st.Found {
 		return f.landed(ctx, d, e, comm, blob, st)
 	}
-	if !scan {
-		if expired(dr, head, headTime) {
-			h, ok, err := f.presentIn(ctx, d, dr, head)
-			if err != nil {
-				return sdk.Published{}, err
-			}
-			if ok {
-				return f.landed(ctx, d, e, comm, blob, node.TxStatus{Found: true, Height: h})
-			}
-			f.giveUp(dr)
-			return sdk.Published{}, f.stick(e, ErrAnchorExpired)
-		}
+	if !scan && closing == nil && !expired(dr, head, headTime) {
 		st, err := f.resend(ctx, d, e, dr, blob)
-		if err != nil {
+		switch {
+		case errors.Is(err, errVerdictPending):
+		case err != nil:
 			return sdk.Published{}, err
-		}
-		if st.Found {
+		case st.Found:
 			return f.landed(ctx, d, e, comm, blob, st)
+		default:
+			return f.pendingOf(e), nil
 		}
 	}
+	return f.conclude(ctx, d, e, comm, blob)
+}
+
+// conclude reads the next blocks for an anchor whose hash lookup missed and
+// gives the sticky verdict once every block up to the deadline is read. The
+// head is read after the lookup that missed, so an anchor landing in between
+// is in reach. One call reads at most scanPerTick blocks; until the verdict
+// the pending reference stands.
+func (f *fastCore) conclude(ctx context.Context, d fastDA, e *fastEntry, comm, blob []byte) (sdk.Published, error) {
+	head, headTime, err := d.head(ctx)
+	if err != nil {
+		return sdk.Published{}, err
+	}
+	h, found, closed, err := f.verdictStep(ctx, d, e, comm, head, headTime)
+	switch {
+	case err != nil:
+		return sdk.Published{}, err
+	case found:
+		return f.landed(ctx, d, e, comm, blob, node.TxStatus{Found: true, Height: h})
+	case closed:
+		f.giveUp(e.draft)
+		return sdk.Published{}, f.stick(e, f.closingOf(e))
+	}
 	return f.pendingOf(e), nil
+}
+
+// verdictStep reads at most scanPerTick more blocks up to min(head, landBy).
+// It returns the height of the anchor if found; closed reports that the
+// anchor is absent from every block it could land in, and e.closing is then
+// the verdict.
+func (f *fastCore) verdictStep(ctx context.Context, d fastDA, e *fastEntry, comm []byte, head uint64, headTime time.Time) (h uint64, found, closed bool, err error) {
+	f.mu.Lock()
+	dr := e.draft
+	if e.closing == nil && expired(dr, head, headTime) {
+		e.closing = ErrAnchorExpired
+	}
+	closing := e.closing != nil
+	f.mu.Unlock()
+	h, found, done, err := f.scanStep(ctx, d, e, comm, min(head, dr.landBy))
+	if err != nil {
+		return 0, false, false, fmt.Errorf("%w: scan: %w", ErrNodeUnavailable, err)
+	}
+	return h, found, closing && done, nil
+}
+
+func (f *fastCore) closingOf(e *fastEntry) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return e.closing
 }
 
 func (f *fastCore) lookup(ctx context.Context, hash [32]byte) (node.TxStatus, error) {
@@ -705,23 +751,6 @@ func (f *fastCore) lookup(ctx context.Context, hash [32]byte) (node.TxStatus, er
 // no longer accepts the anchor. Block time decides, not this clock.
 func expired(dr *intentDraft, head uint64, headTime time.Time) bool {
 	return head > dr.landBy || !dr.expiry.IsZero() && !headTime.Before(dr.expiry)
-}
-
-// presentIn looks for the anchor in every block from the reference height
-// up to head, as far as it can land. A tx lookup by hash reads the node's
-// tx index, which can lag a commit, so a stale or expired verdict that rests
-// on a miss there is checked against the blocks first.
-func (f *fastCore) presentIn(ctx context.Context, d fastDA, dr *intentDraft, head uint64) (uint64, bool, error) {
-	for h := dr.rec.RefHeight; h <= min(head, dr.landBy); h++ {
-		ok, err := d.present(ctx, dr.rec.Commitment, h)
-		if err != nil {
-			return 0, false, fmt.Errorf("%w: scan: %w", ErrNodeUnavailable, err)
-		}
-		if ok {
-			return h, true, nil
-		}
-	}
-	return 0, false, nil
 }
 
 // landed answers from an anchor tx the node reports as committed.
@@ -773,7 +802,7 @@ func (f *fastCore) resend(ctx context.Context, d fastDA, e *fastEntry, dr *inten
 		f.markScan(e)
 		return node.TxStatus{}, nil
 	case errors.Is(err, node.ErrSequenceMismatch):
-		return f.mismatched(ctx, d, e, dr, err)
+		return f.mismatched(ctx, e, dr, err)
 	case errors.Is(err, node.ErrRejected):
 		f.giveUp(dr)
 		return node.TxStatus{}, f.stick(e, fmt.Errorf("%w: %w", ErrAnchorTxRejected, err))
@@ -781,19 +810,18 @@ func (f *fastCore) resend(ctx context.Context, d fastDA, e *fastEntry, dr *inten
 	return node.TxStatus{}, fmt.Errorf("%w: broadcast: %w", ErrNodeUnavailable, err)
 }
 
+// errVerdictPending means the node refused the archived tx for a sequence
+// the account has passed: the intent closes stale once the blocks up to now
+// are read without its anchor, which happens outside the sequence lock.
+var errVerdictPending = errors.New("recorder: stale verdict pending a block scan")
+
 // mismatched handles the node refusing the archived tx for its sequence.
 // The tx may have landed since it was looked up, which also moves the
 // sequence past it. Otherwise only a sequence the account has already passed
 // proves it can never land; a lower expected sequence means an earlier tx of
 // this account is missing from the mempool, and once that gap fills the
 // archived tx is valid again.
-func (f *fastCore) mismatched(ctx context.Context, d fastDA, e *fastEntry, dr *intentDraft, mismatch error) (node.TxStatus, error) {
-	// The head is read before the lookup, so that a tx landing in between is
-	// in the blocks scanned below.
-	head, _, err := d.head(ctx)
-	if err != nil {
-		return node.TxStatus{}, err
-	}
+func (f *fastCore) mismatched(ctx context.Context, e *fastEntry, dr *intentDraft, mismatch error) (node.TxStatus, error) {
 	st, err := f.lookup(ctx, sha256.Sum256(dr.rec.Tx))
 	if err != nil {
 		return node.TxStatus{}, err
@@ -815,13 +843,14 @@ func (f *fastCore) mismatched(ctx context.Context, d fastDA, e *fastEntry, dr *i
 		}
 		return node.TxStatus{}, fmt.Errorf("%w: the node expects another sequence than the archived tx's %d: %w", ErrNodeUnavailable, signed, mismatch)
 	}
-	if h, ok, err := f.presentIn(ctx, d, dr, head); err != nil || ok {
-		return node.TxStatus{Found: ok, Height: h}, err
-	}
 	f.floor = max(f.floor, expected)
-	f.giveUp(dr)
-	return node.TxStatus{}, f.stick(e, fmt.Errorf("%w: the archived anchor tx at sequence %d can never land; the pending reference is dead and its deadline will prove the anchor absent: %w",
-		ErrIntentStale, signed, mismatch))
+	f.mu.Lock()
+	if e.closing == nil {
+		e.closing = fmt.Errorf("%w: the archived anchor tx at sequence %d can never land; the pending reference is dead and its deadline will prove the anchor absent: %w",
+			ErrIntentStale, signed, mismatch)
+	}
+	f.mu.Unlock()
+	return node.TxStatus{}, errVerdictPending
 }
 
 // loop starts the confirmation loop of e once.
@@ -871,11 +900,11 @@ func (f *fastCore) tick(d fastDA, e *fastEntry, comm []byte) bool {
 		f.mu.Unlock()
 		return false
 	}
-	dr, hash, scan, blob, sentAt := e.draft, e.hash, e.scan, e.blob, e.sentAt
+	dr, hash, scan, blob, sentAt, closing := e.draft, e.hash, e.scan, e.blob, e.sentAt, e.closing
 	f.mu.Unlock()
 
 	// The head is read first: an anchor landing between the two reads is then
-	// at or below it, where the expiry check scans.
+	// at or below it, where the verdict scan reads.
 	head, headTime, err := d.head(ctx)
 	if err != nil {
 		f.d.Log.Warn("recorder: head read failed in the confirmation loop", "err", err)
@@ -889,31 +918,30 @@ func (f *fastCore) tick(d fastDA, e *fastEntry, comm []byte) bool {
 	if st.Found {
 		return f.settle(ctx, d, e, comm, blob, st)
 	}
-	if scan {
-		if h, ok := f.scanStep(ctx, d, e, comm, min(head, dr.landBy)); ok {
-			return f.settle(ctx, d, e, comm, blob, node.TxStatus{Found: true, Height: h})
-		}
-	}
-	if expired(dr, head, headTime) {
-		h, ok, err := f.presentIn(ctx, d, dr, head)
-		if err != nil {
+	if scan || closing != nil || expired(dr, head, headTime) {
+		h, found, closed, err := f.verdictStep(ctx, d, e, comm, head, headTime)
+		switch {
+		case err != nil:
 			f.d.Log.Warn("recorder: anchor scan failed in the confirmation loop", "err", err)
 			return false
-		}
-		if ok {
+		case found:
 			return f.settle(ctx, d, e, comm, blob, node.TxStatus{Found: true, Height: h})
+		case !closed:
+			return false
 		}
+		verdict := f.closingOf(e)
 		f.giveUp(dr)
-		_ = f.stick(e, ErrAnchorExpired)
-		f.d.Log.Error("recorder: the anchor of a pending reference did not land in its window", "da", d.da(),
-			"ref_height", dr.rec.RefHeight, "land_by", dr.landBy)
+		_ = f.stick(e, verdict)
+		f.d.Log.Error("recorder: the anchor of a pending reference can no longer land", "da", d.da(),
+			"ref_height", dr.rec.RefHeight, "land_by", dr.landBy, "err", verdict)
 		return true
 	}
-	if scan || time.Since(sentAt) < rebroadcastPolls*f.poll {
+	if time.Since(sentAt) < rebroadcastPolls*f.poll {
 		return false
 	}
 	st, err = f.resend(ctx, d, e, dr, blob)
 	switch {
+	case errors.Is(err, errVerdictPending):
 	case err != nil:
 		f.mu.Lock()
 		over := e.sticky != nil
@@ -946,9 +974,10 @@ func (f *fastCore) settle(ctx context.Context, d fastDA, e *fastEntry, comm, blo
 	return over
 }
 
-// scanStep searches the heights after e.scanned up to limit for an anchor
-// whose tx hash is not known.
-func (f *fastCore) scanStep(ctx context.Context, d fastDA, e *fastEntry, comm []byte, limit uint64) (uint64, bool) {
+// scanStep reads the heights after e.scanned up to limit, at most
+// scanPerTick of them, for an anchor whose tx hash lookup missed. done
+// reports that every height up to limit is read.
+func (f *fastCore) scanStep(ctx context.Context, d fastDA, e *fastEntry, comm []byte, limit uint64) (h uint64, found, done bool, err error) {
 	f.mu.Lock()
 	lo := e.scanned + 1
 	f.mu.Unlock()
@@ -956,14 +985,17 @@ func (f *fastCore) scanStep(ctx context.Context, d fastDA, e *fastEntry, comm []
 	for h := lo; h <= hi && h >= lo; h++ {
 		ok, err := d.present(ctx, comm, h)
 		if err != nil {
-			return 0, false
+			return 0, false, false, err
 		}
 		if ok {
-			return h, true
+			return h, true, false, nil
 		}
 		f.mu.Lock()
-		e.scanned = h
+		e.scanned = max(e.scanned, h)
 		f.mu.Unlock()
 	}
-	return 0, false
+	f.mu.Lock()
+	done = e.scanned >= limit
+	f.mu.Unlock()
+	return 0, false, done, nil
 }
