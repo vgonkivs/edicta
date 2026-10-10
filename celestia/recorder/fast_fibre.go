@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/types/bech32"
+
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/fibrecert"
 	"github.com/vgonkivs/edicta/celestia/node"
@@ -217,3 +219,23 @@ func (r *FibreRecorder) restore(ctx context.Context, comm, blob []byte, rec *arc
 }
 
 func (r *FibreRecorder) wire(tx, _ []byte) ([]byte, error) { return tx, nil }
+
+func (r *FibreRecorder) reach(ctx context.Context) (uint64, error) {
+	fp, err := r.fibreParams(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return fp.PromiseHeightWindow, nil
+}
+
+func (r *FibreRecorder) owns(rec *archive.AnchorIntentRecord, addr []byte) bool {
+	if !bytes.Equal(rec.Namespace, r.cfg.Namespace) {
+		return false
+	}
+	f, ok, err := fibrecert.ParsePFF(rec.Tx)
+	if err != nil || !ok {
+		return false
+	}
+	bech, err := bech32.ConvertAndEncode(accountPrefix, addr)
+	return err == nil && f.Signer == bech
+}

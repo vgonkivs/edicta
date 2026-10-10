@@ -3,7 +3,13 @@ package fsarchive
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strconv"
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
@@ -11,6 +17,7 @@ import (
 
 var (
 	_ archive.IntentReader  = (*Store)(nil)
+	_ archive.IntentLister  = (*Store)(nil)
 	_ archive.AbsenceReader = (*Store)(nil)
 )
 
@@ -28,6 +35,45 @@ func (s *Store) Intent(_ context.Context, da commitment.DA, commit []byte, refHe
 		return nil, corruptType(rel)
 	}
 	return r, nil
+}
+
+// Intents walks the intent directory of da. Names that are not canonical
+// keys, such as temp files of a write in progress, are skipped.
+func (s *Store) Intents(ctx context.Context, da commitment.DA, from uint64) ([]*archive.AnchorIntentRecord, error) {
+	if da != commitment.DAFibre && da != commitment.DACelestiaBlob {
+		return nil, nil
+	}
+	root := s.path("intent/" + strconv.FormatUint(uint64(da), 10))
+	dirs, err := os.ReadDir(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("fsarchive: %w", err)
+	}
+	var out []*archive.AnchorIntentRecord
+	for _, d := range dirs {
+		commit, err := hex.DecodeString(d.Name())
+		if !d.IsDir() || err != nil || len(commit) != 32 || hex.EncodeToString(commit) != d.Name() {
+			continue
+		}
+		files, err := os.ReadDir(filepath.Join(root, d.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("fsarchive: %w", err)
+		}
+		for _, f := range files {
+			h, err := strconv.ParseUint(f.Name(), 10, 64)
+			if err != nil || h < from || strconv.FormatUint(h, 10) != f.Name() {
+				continue
+			}
+			rec, err := s.Intent(ctx, da, commit, h)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, rec)
+		}
+	}
+	return out, nil
 }
 
 func (s *Store) Absence(_ context.Context, da commitment.DA, commit []byte, height uint64) (*archive.AbsenceProofRecord, error) {

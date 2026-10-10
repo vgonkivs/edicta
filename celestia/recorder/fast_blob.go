@@ -143,6 +143,12 @@ func (b fastBlob) restore(ctx context.Context, comm, _ []byte, rec *archive.Anch
 	return &intentDraft{rec: rec, timeout: timeout, landBy: timeout, refTime: t, retStart: t, release: noRelease}, nil
 }
 
+func (b fastBlob) reach(context.Context) (uint64, error) { return maxFastTimeoutBlocks, nil }
+
+func (b fastBlob) owns(rec *archive.AnchorIntentRecord, addr []byte) bool {
+	return bytes.Equal(rec.Signer, addr) && bytes.Equal(rec.Namespace, b.r.cfg.Namespace)
+}
+
 func (b fastBlob) wire(tx, blob []byte) ([]byte, error) {
 	ns, err := libshare.NewNamespaceFromBytes(b.r.cfg.Namespace)
 	if err != nil {

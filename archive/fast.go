@@ -63,6 +63,14 @@ type IntentReader interface {
 	Intent(ctx context.Context, da commitment.DA, commit []byte, refHeight uint64) (*AnchorIntentRecord, error)
 }
 
+// IntentLister lists the anchor intents of da whose reference height is at
+// least from, in no particular order, with the error rules of IntentReader
+// for each record. A restarting Recorder needs it to find the intents it
+// signed and may still have to follow.
+type IntentLister interface {
+	Intents(ctx context.Context, da commitment.DA, from uint64) ([]*AnchorIntentRecord, error)
+}
+
 // AbsenceReader is the optional read side of the absence proof record, with
 // the error rules of IntentReader.
 type AbsenceReader interface {

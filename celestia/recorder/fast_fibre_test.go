@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/types/bech32"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/celestia/fibrecert"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/commitment"
@@ -37,10 +40,18 @@ func (u *liveUploader) Endpoint() string            { return fibreEndpoint }
 func (u *liveUploader) Close(context.Context) error { return nil }
 
 // liveSigner signs every PayForFibre as the live tx, so the hash the node
-// reports for the landed anchor is the one the Recorder sent.
+// reports for the landed anchor is the one the Recorder sent. Its address is
+// the live tx's signer.
 type liveSigner struct{ f *fibreFx }
 
-func (s liveSigner) Address(context.Context) ([]byte, error) { return make([]byte, 20), nil }
+func (s liveSigner) Address(context.Context) ([]byte, error) {
+	pff, ok, err := fibrecert.ParsePFF(s.f.l.PFFTx)
+	if err != nil || !ok {
+		return nil, fmt.Errorf("the live tx is not a PayForFibre: %v", err)
+	}
+	_, addr, err := bech32.DecodeAndConvert(pff.Signer)
+	return addr, err
+}
 func (s liveSigner) SignPFB(context.Context, []byte, []byte, node.TxParams) ([]byte, error) {
 	return nil, node.ErrUnsupported
 }

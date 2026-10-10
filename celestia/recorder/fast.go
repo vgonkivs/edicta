@@ -123,6 +123,12 @@ type fastDA interface {
 	restore(ctx context.Context, comm, blob []byte, rec *archive.AnchorIntentRecord) (*intentDraft, error)
 	// wire is what goes to the node for an anchor tx.
 	wire(tx, blob []byte) ([]byte, error)
+	// reach is the most blocks after its reference height an archived
+	// intent's anchor can land.
+	reach(ctx context.Context) (uint64, error)
+	// owns reports whether rec is an intent of the account addr in this
+	// Recorder's namespace.
+	owns(rec *archive.AnchorIntentRecord, addr []byte) bool
 }
 
 type fastEntry struct {
@@ -158,13 +164,20 @@ type fastEntry struct {
 type fastCore struct {
 	eng       *engine
 	intents   archive.IntentReader
+	lister    archive.IntentLister
 	d         FastDeps
 	poll      time.Duration
 	retryWait time.Duration
 
+	// recovered is set once the intents of an earlier process that may still
+	// land are followed again.
+	recMu     sync.Mutex
+	recovered bool
+
 	seqMu sync.Mutex
-	// floor is the sequence a node refusal proved the account has reached,
-	// while the committed sequence may still lag behind it.
+	// floor is the sequence the node last named in a refusal: the account
+	// has reached it in the node's mempool while the committed sequence may
+	// still lag behind it.
 	floor uint64
 	// blind is set while the node refuses sequences without saying which one
 	// it expects: every new intent would then be signed at a guess and burn
@@ -184,15 +197,16 @@ type fastCore struct {
 
 func newFastCore(eng *engine, d FastDeps, poll time.Duration) (*fastCore, error) {
 	ir, ok := eng.archive.(archive.IntentReader)
-	if eng.archive == nil || !ok {
-		return nil, fmt.Errorf("%w: fast mode needs an archive that reads anchor intents", errInvalidInput)
+	il, okList := eng.archive.(archive.IntentLister)
+	if eng.archive == nil || !ok || !okList {
+		return nil, fmt.Errorf("%w: fast mode needs an archive that reads and lists anchor intents", errInvalidInput)
 	}
 	if d.Log == nil {
 		d.Log = slog.Default()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &fastCore{
-		eng: eng, intents: ir, d: d, poll: poll, retryWait: min(defaultRetryWait, poll),
+		eng: eng, intents: ir, lister: il, d: d, poll: poll, retryWait: min(defaultRetryWait, poll),
 		entries: map[pendingKey]*fastEntry{}, ctx: ctx, cancel: cancel,
 	}, nil
 }
@@ -314,6 +328,9 @@ func (f *fastCore) sweep() {
 // its evidence is archived.
 func (f *fastCore) publish(ctx context.Context, d fastDA, comm, blob []byte) (sdk.Published, error) {
 	f.sweep()
+	if err := f.recover(ctx, d); err != nil {
+		return sdk.Published{}, err
+	}
 	e, err := f.claim(pendingKey(comm))
 	if err != nil {
 		return sdk.Published{}, err
@@ -337,6 +354,72 @@ func (f *fastCore) publish(ctx context.Context, d fastDA, comm, blob []byte) (sd
 		}
 	}
 	return f.resume(ctx, d, e, comm, blob, head, headTime)
+}
+
+// recover follows again, before this process signs anything, every intent of
+// this account an earlier process archived whose anchor may still land: such
+// an intent holds its sequence, and its pending reference may already be
+// authorized. A failure is retried at the next Publish.
+func (f *fastCore) recover(ctx context.Context, d fastDA) error {
+	f.recMu.Lock()
+	defer f.recMu.Unlock()
+	if f.recovered {
+		return nil
+	}
+	addr, err := f.d.Signer.Address(ctx)
+	if err != nil {
+		return fmt.Errorf("recorder: signer: %w", err)
+	}
+	head, headTime, err := d.head(ctx)
+	if err != nil {
+		return err
+	}
+	reach, err := d.reach(ctx)
+	if err != nil {
+		return err
+	}
+	recs, err := f.lister.Intents(ctx, d.da(), head-min(head-1, reach))
+	if err != nil {
+		return archiveFault("list anchor intents", err)
+	}
+	for _, rec := range recs {
+		if !d.owns(rec, addr) {
+			continue
+		}
+		key := pendingKey(rec.Commitment)
+		f.mu.Lock()
+		_, known := f.entries[key]
+		f.mu.Unlock()
+		if known {
+			continue
+		}
+		switch _, err := f.eng.archive.Evidence(ctx, d.da(), rec.Commitment); {
+		case err == nil:
+			continue
+		case !errors.Is(err, archive.ErrNotFound):
+			return archiveFault("read evidence record", err)
+		}
+		p, err := f.eng.archive.Payload(ctx, d.da(), rec.Commitment)
+		if err != nil {
+			return archiveFault("read payload record", err)
+		}
+		dr, err := d.restore(ctx, rec.Commitment, p.Blob, rec)
+		if err != nil {
+			return err
+		}
+		e := &fastEntry{}
+		if expired(dr, head, headTime) {
+			e.closing = ErrAnchorExpired
+		}
+		f.mu.Lock()
+		f.entries[key] = e
+		f.mu.Unlock()
+		if err := f.adopt(d, e, dr, p.Blob); err != nil {
+			return err
+		}
+	}
+	f.recovered = true
+	return nil
 }
 
 func (f *fastCore) pendingOf(e *fastEntry) sdk.Published {
@@ -553,9 +636,9 @@ func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentD
 		return false, archiveFault("write anchor intent", err)
 	}
 	if err := f.adopt(d, e, dr, blob); err != nil {
+		f.giveUp(dr)
 		return false, err
 	}
-	f.floor = 0
 
 	raw, err := d.wire(tx, blob)
 	if err != nil {
@@ -576,11 +659,12 @@ func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentD
 			// An earlier tx of this account is missing from the mempool: once
 			// that gap fills this tx is valid, and a retry resumes it.
 			if ok && n < p.Sequence {
+				f.floor = n
 				f.kick(ctx, n)
 			}
 			return false, fmt.Errorf("%w: the node expects another sequence than %d: %w", ErrOutcomeUnknown, p.Sequence, err)
 		}
-		f.floor = max(f.floor, n)
+		f.floor = n
 		f.giveUp(dr)
 		return false, f.stick(e, fmt.Errorf("%w: %w", ErrIntentStale, err))
 	case errors.Is(err, errProcessed):
@@ -619,6 +703,9 @@ func (f *fastCore) params(ctx context.Context, timeout uint64) (node.TxParams, e
 	acc, err := f.d.Node.Account(ctx, f.bech)
 	if err != nil {
 		return node.TxParams{}, fmt.Errorf("%w: account: %w", ErrNodeUnavailable, err)
+	}
+	if acc.Sequence >= f.floor {
+		f.floor = 0
 	}
 	next := max(acc.Sequence, f.floor)
 	if hi, ok := f.highestLive(); ok {
@@ -839,11 +926,12 @@ func (f *fastCore) mismatched(ctx context.Context, e *fastEntry, dr *intentDraft
 	}
 	if !ok || expected <= signed {
 		if ok && expected < signed {
+			f.floor = expected
 			f.kick(ctx, expected)
 		}
 		return node.TxStatus{}, fmt.Errorf("%w: the node expects another sequence than the archived tx's %d: %w", ErrNodeUnavailable, signed, mismatch)
 	}
-	f.floor = max(f.floor, expected)
+	f.floor = expected
 	f.mu.Lock()
 	if e.closing == nil {
 		e.closing = fmt.Errorf("%w: the archived anchor tx at sequence %d can never land; the pending reference is dead and its deadline will prove the anchor absent: %w",
