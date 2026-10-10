@@ -146,7 +146,7 @@ func TestFastFibreRefusesACertificateForAnotherBlob(t *testing.T) {
 	require.ErrorIs(t, err, recorder.ErrSubmitMismatch)
 	assert.Empty(t, f.node.sends(), "nothing is broadcast")
 	_, err = f.rec().Publish(bg, other)
-	require.Error(t, err)
+	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown, "a restart finds the payload record without an intent")
 }
 
 func TestFastFibreReservesTheEscrowUntilTheAnchorLands(t *testing.T) {
@@ -202,10 +202,10 @@ func TestFastFibreRefusesAnUploaderOnAnotherNode(t *testing.T) {
 	d := f.deps()
 	d.Fast = &recorder.FastDeps{Signer: liveSigner{f.fibreFx}, Node: f.node, Uploader: otherNodeUploader{f.up}}
 	_, err := recorder.NewFibre(f.cfg(f.st), d)
-	require.Error(t, err)
+	require.ErrorIs(t, err, recorder.ErrInvalidInput)
 	d.Fast = &recorder.FastDeps{Signer: liveSigner{f.fibreFx}, Node: f.node}
 	_, err = recorder.NewFibre(f.cfg(f.st), d)
-	require.Error(t, err, "no uploader")
+	require.ErrorIs(t, err, recorder.ErrInvalidInput, "no uploader")
 }
 
 type otherNodeUploader struct{ *liveUploader }

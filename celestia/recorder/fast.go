@@ -183,16 +183,27 @@ type fastCore struct {
 	// it expects: every new intent would then be signed at a guess and burn
 	// its upload.
 	blind bool
-	bech  string
+	// gap is set while the node expects a sequence no live intent of this
+	// Recorder holds: every new intent would wait above a hole nobody fills.
+	gap  bool
+	bech string
 
 	mu      sync.Mutex
 	entries map[pendingKey]*fastEntry
 	// holds are escrow reservations of promises that will not be anchored by
 	// this Recorder but can still be charged.
-	holds  []heldRelease
-	ctx    context.Context
-	cancel context.CancelFunc
-	loops  sync.WaitGroup
+	holds []heldRelease
+	// retry keeps, out of entries, the blobs whose payload record this
+	// process wrote but whose Publish failed before an intent: a later
+	// Publish drafts them again instead of reading the record as an earlier
+	// process's. It is bounded; the oldest are forgotten first, which only
+	// refuses that blob as a restart would.
+	retry      map[pendingKey]uint64
+	retryOrder []retryMark
+	retrySeq   uint64
+	ctx        context.Context
+	cancel     context.CancelFunc
+	loops      sync.WaitGroup
 }
 
 func newFastCore(eng *engine, d FastDeps, poll time.Duration) (*fastCore, error) {
@@ -207,7 +218,7 @@ func newFastCore(eng *engine, d FastDeps, poll time.Duration) (*fastCore, error)
 	ctx, cancel := context.WithCancel(context.Background())
 	return &fastCore{
 		eng: eng, intents: ir, lister: il, d: d, poll: poll, retryWait: min(defaultRetryWait, poll),
-		entries: map[pendingKey]*fastEntry{}, ctx: ctx, cancel: cancel,
+		entries: map[pendingKey]*fastEntry{}, retry: map[pendingKey]uint64{}, ctx: ctx, cancel: cancel,
 	}, nil
 }
 
@@ -232,13 +243,17 @@ func (f *fastCore) claim(key pendingKey) (*fastEntry, error) {
 	}
 	e, ok := f.entries[key]
 	if !ok {
-		if len(f.entries) >= defaultMaxPending {
+		if len(f.entries) >= f.eng.maxPending {
 			f.prune()
 		}
-		if len(f.entries) >= defaultMaxPending {
+		if len(f.entries) >= f.eng.maxPending {
 			return nil, fmt.Errorf("%w: %d", ErrTooManyPending, len(f.entries))
 		}
 		e = &fastEntry{}
+		if _, ok := f.retry[key]; ok {
+			e.ours = true
+			delete(f.retry, key)
+		}
 		f.entries[key] = e
 	}
 	switch {
@@ -255,13 +270,39 @@ func (f *fastCore) claim(key pendingKey) (*fastEntry, error) {
 
 // prune drops settled entries. A dropped blob published again is found
 // through its archived payload record and intent. An entry whose payload
-// record this process wrote but which has no intent yet stays: dropped, its
-// record would read as an earlier process's without an intent, and the blob
-// would be refused for good.
+// record this process wrote but which has no intent moves to retry:
+// otherwise its record would read as an earlier process's without an intent,
+// and the blob would be refused.
 func (f *fastCore) prune() {
 	for k, e := range f.entries {
-		if (e.done != nil || e.sticky != nil || e.draft == nil && !e.ours) && !e.inflight && !e.looping {
+		if e.inflight || e.looping {
+			continue
+		}
+		switch {
+		case e.done != nil || e.sticky != nil || e.draft == nil && !e.ours:
 			delete(f.entries, k)
+		case e.draft == nil:
+			f.remember(k)
+			delete(f.entries, k)
+		}
+	}
+}
+
+type retryMark struct {
+	key pendingKey
+	seq uint64
+}
+
+// remember is called under mu.
+func (f *fastCore) remember(k pendingKey) {
+	f.retrySeq++
+	f.retry[k] = f.retrySeq
+	f.retryOrder = append(f.retryOrder, retryMark{k, f.retrySeq})
+	for len(f.retry) > f.eng.maxPending || len(f.retryOrder) > 2*f.eng.maxPending {
+		m := f.retryOrder[0]
+		f.retryOrder = f.retryOrder[1:]
+		if f.retry[m.key] == m.seq {
+			delete(f.retry, m.key)
 		}
 	}
 }
@@ -432,6 +473,19 @@ func (f *fastCore) pendingOf(e *fastEntry) sdk.Published {
 // process or makes, archives and sends a new one. answered is set when the
 // call is answered from evidence, sent when a new intent went out.
 func (f *fastCore) prepare(ctx context.Context, d fastDA, e *fastEntry, comm, blob []byte, head uint64, headTime time.Time) (pub sdk.Published, answered, sent bool, err error) {
+	if err := f.refuseNew(); err != nil {
+		// Only a blob whose payload record exists may have an intent of an
+		// earlier process to follow; anything else waits before its upload.
+		if e.ours {
+			return sdk.Published{}, false, false, err
+		}
+		switch _, perr := f.eng.archive.Payload(ctx, d.da(), comm); {
+		case errors.Is(perr, archive.ErrNotFound):
+			return sdk.Published{}, false, false, err
+		case perr != nil:
+			return sdk.Published{}, false, false, archiveFault("read payload record", perr)
+		}
+	}
 	intentHeight, existed, err := f.eng.archivePayload(ctx, d, comm, blob, head)
 	if err != nil {
 		return sdk.Published{}, false, false, err
@@ -469,8 +523,8 @@ func (f *fastCore) prepare(ctx context.Context, d fastDA, e *fastEntry, comm, bl
 		return sdk.Published{}, false, false, nil
 	}
 	e.ours = true
-	if f.isBlind() {
-		return sdk.Published{}, false, false, fmt.Errorf("%w: the node refused an anchor tx without naming the sequence it expects; new intents wait until it accepts one again", ErrNodeUnavailable)
+	if err := f.refuseNew(); err != nil {
+		return sdk.Published{}, false, false, err
 	}
 	dr, err := d.draft(ctx, comm, blob, head, headTime)
 	if err != nil {
@@ -528,15 +582,31 @@ func (f *fastCore) sent(e *fastEntry) {
 	f.mu.Unlock()
 }
 
-func (f *fastCore) isBlind() bool {
+// refuseNew refuses a new intent while the next sequence is unknown or the
+// node waits for one nobody holds. Both states end when no live intent is
+// left, since the next intent is then signed at the sequence the node named
+// or the committed one.
+func (f *fastCore) refuseNew() error {
 	f.seqMu.Lock()
 	defer f.seqMu.Unlock()
-	if f.blind {
+	if f.blind || f.gap {
 		if _, ok := f.highestLive(); !ok {
-			f.blind = false
+			f.blind, f.gap = false, false
 		}
 	}
-	return f.blind
+	switch {
+	case f.blind:
+		return fmt.Errorf("%w: the node refused an anchor tx without naming the sequence it expects; new intents wait until it accepts one again", ErrNodeUnavailable)
+	case f.gap:
+		return fmt.Errorf("%w: the node expects sequence %d, which no live intent holds; new intents wait until it is filled or the intents above it end", ErrNodeUnavailable, f.floor)
+	}
+	return nil
+}
+
+// accepted is called under seqMu when the node takes an anchor tx: the
+// sequence it expected is then filled.
+func (f *fastCore) accepted() {
+	f.blind, f.gap = false, false
 }
 
 // goBlind is called under seqMu.
@@ -569,6 +639,7 @@ func (f *fastCore) highestLive() (uint64, bool) {
 
 // kick sends the live intent signed for seq again: the node reported that
 // sequence missing, and every later intent of this account waits for it.
+// It is called under seqMu.
 func (f *fastCore) kick(ctx context.Context, seq uint64) {
 	f.mu.Lock()
 	var k *fastEntry
@@ -585,13 +656,20 @@ func (f *fastCore) kick(ctx context.Context, seq uint64) {
 	}
 	f.mu.Unlock()
 	if k == nil || d == nil {
+		if !f.gap {
+			f.d.Log.Warn("recorder: the node expects a sequence no live intent holds; new intents wait", "sequence", seq)
+		}
+		f.gap = true
 		return
 	}
 	raw, err := d.wire(tx, blob)
 	if err != nil {
 		return
 	}
-	if _, err := f.d.Node.Broadcast(ctx, raw); err != nil && !errors.Is(err, node.ErrAlreadyInMempool) {
+	switch _, err := f.d.Node.Broadcast(ctx, raw); {
+	case err == nil, errors.Is(err, node.ErrAlreadyInMempool):
+		f.accepted()
+	default:
 		f.d.Log.Warn("recorder: resending the anchor tx of a missing sequence failed", "sequence", seq, "err", err)
 	}
 }
@@ -648,7 +726,7 @@ func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentD
 	f.sent(e)
 	switch {
 	case err == nil:
-		f.blind = false
+		f.accepted()
 		return true, nil
 	case errors.Is(err, node.ErrSequenceMismatch):
 		n, ok := node.ExpectedSequence(err)
@@ -883,7 +961,7 @@ func (f *fastCore) resend(ctx context.Context, d fastDA, e *fastEntry, dr *inten
 	f.sent(e)
 	switch {
 	case err == nil:
-		f.blind = false
+		f.accepted()
 		return node.TxStatus{}, nil
 	case errors.Is(err, errProcessed):
 		f.markScan(e)

@@ -45,6 +45,40 @@ type anchorNode struct {
 	// before runs at every broadcast, before anything is decided.
 	before   func(raw []byte)
 	onAccept func(raw []byte)
+	// strict makes the node check sequences as CheckTx does: a tx is taken
+	// only at exactly the committed sequence plus the txs it holds.
+	strict   bool
+	next     uint64
+	accepted map[[32]byte]bool
+}
+
+// beStrict turns on the sequence check, starting at the committed sequence.
+func (n *anchorNode) beStrict() {
+	n.mu.Lock()
+	n.strict, n.next, n.accepted = true, n.acc.Sequence, map[[32]byte]bool{}
+	n.mu.Unlock()
+}
+
+// check is called under mu for a broadcast without a scripted result.
+func (n *anchorNode) check(raw []byte) error {
+	if !n.strict {
+		return nil
+	}
+	tx := innerTx(raw)
+	h := sha256.Sum256(tx)
+	if n.accepted[h] {
+		return fmt.Errorf("%w: tx already exists in cache", node.ErrAlreadyInMempool)
+	}
+	seq, err := node.TxSequence(tx)
+	if err != nil {
+		return fmt.Errorf("%w: %w", node.ErrRejected, err)
+	}
+	if seq != n.next {
+		return fmt.Errorf("%w: account sequence mismatch, expected %d, got %d: incorrect account sequence", node.ErrSequenceMismatch, n.next, seq)
+	}
+	n.next++
+	n.accepted[h] = true
+	return nil
 }
 
 func newAnchorNode() *anchorNode {
@@ -66,6 +100,8 @@ func (n *anchorNode) Broadcast(_ context.Context, raw []byte) ([32]byte, error) 
 	var err error
 	if len(n.results) > 0 {
 		err, n.results = n.results[0], n.results[1:]
+	} else {
+		err = n.check(raw)
 	}
 	n.mu.Unlock()
 	if before != nil {

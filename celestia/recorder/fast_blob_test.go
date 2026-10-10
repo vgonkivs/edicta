@@ -344,12 +344,12 @@ func TestFastConfigRefusals(t *testing.T) {
 	f := newBlobFast(t)
 	c := archCfg(f.st)
 	_, err := recorder.NewFast(c, recorder.FastDeps{Node: f.node}, f.rd)
-	require.Error(t, err, "no signer")
+	require.ErrorIs(t, err, recorder.ErrInvalidInput, "no signer")
 	c.Archive = nil
 	_, err = recorder.NewFast(c, recorder.FastDeps{Signer: f.sig, Node: f.node}, f.rd)
-	require.Error(t, err, "no archive")
+	require.ErrorIs(t, err, recorder.ErrInvalidInput, "no archive")
 	c = archCfg(f.st)
 	c.FastTimeoutBlocks = 12
 	_, err = recorder.NewFast(c, recorder.FastDeps{Signer: f.sig, Node: f.node}, f.rd)
-	require.Error(t, err, "timeout below the floor")
+	require.ErrorIs(t, err, recorder.ErrInvalidInput, "timeout below the floor")
 }
