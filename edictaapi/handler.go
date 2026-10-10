@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -228,7 +229,13 @@ func (h *handler) fail(r *http.Request, err error, stored []byte) response {
 func (h *handler) failIn(ctx context.Context, r *http.Request, err error, stored, verdict []byte) response {
 	own := r.Context().Err() == nil && errors.Is(ctx.Err(), context.DeadlineExceeded)
 	rule, ok := classify(err, h.cfg.ExtraErrors, own)
+	var pd privateDeny
+	private := errors.As(err, &pd)
 	if !ok {
+		if private {
+			h.log.Error("edictaapi: unmapped private policy deny", "path", r.URL.Path, "commitment_hash", hex.EncodeToString(pd.commitment[:]))
+			return errorResponse(500, codeInternal, "internal error", false, nil, nil, 0)
+		}
 		h.log.Error("edictaapi: unmapped error", "path", r.URL.Path, "err", err)
 		return errorResponse(500, codeInternal, "internal error", false, nil, nil, 0)
 	}
@@ -250,9 +257,24 @@ func (h *handler) failIn(ctx context.Context, r *http.Request, err error, stored
 		errors.Is(err, gate.ErrAnchorIntentUnavailable), errors.Is(err, gate.ErrAnchorIntentRejected):
 		after = archiveRetryAfter
 	}
-	h.log.Debug("edictaapi: request failed", "path", r.URL.Path, "code", rule.Code, "err", err)
+	if private {
+		h.log.Debug("edictaapi: private policy deny", "path", r.URL.Path, "commitment_hash", hex.EncodeToString(pd.commitment[:]))
+	} else {
+		h.log.Debug("edictaapi: request failed", "path", r.URL.Path, "code", rule.Code, "err", err)
+	}
 	return errorResponse(rule.Status, rule.Code, msg, rule.Retryable, stored, verdict, after)
 }
+
+// privateDeny marks a deny under a private mandate. The deny reason is part
+// of the sealed content there, so neither its name nor its response code may
+// reach a log; the client still gets the code in the response.
+type privateDeny struct {
+	err        error
+	commitment commitment.Hash
+}
+
+func (e privateDeny) Error() string { return e.err.Error() }
+func (e privateDeny) Unwrap() error { return e.err }
 
 // archiveRetryAfter is the advised wait after ErrArchiveUnavailable.
 const archiveRetryAfter = 5 * time.Second
@@ -300,6 +322,9 @@ func (h *handler) authorize(ctx context.Context, body []byte) (out, stored, verd
 	}
 	res, err := h.g.Authorize(ctx, f[1].b, f[2].b, f[3].b)
 	if err != nil {
+		if len(res.PrivatePart) > 0 {
+			err = privateDeny{err: err, commitment: res.CommitmentHash}
+		}
 		return nil, res.Authorization, res.PolicyVerdict, err
 	}
 	if len(res.Authorization) == 0 {
