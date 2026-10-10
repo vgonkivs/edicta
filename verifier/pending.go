@@ -277,12 +277,21 @@ func (r *run) pendingInWindow(H uint64, facts AnchorFacts) error {
 	}
 	for _, h := range evidence {
 		if t.refused[h.height] {
+			r.noteCheckpoint(t.cpH)
 			r.warn("anchor: the evidence header at height %d is not the trusted chain's (source_corrupt), so the absence proofs decide: %v", h.height, t.problem)
 			return r.pendingWindow(fast)
 		}
 	}
 	for _, h := range evidence {
 		if !t.tied[h.height] {
+			// A checkpoint the trust named below the deadline makes the
+			// reference not decidable yet whatever the tie shows, so a tie
+			// problem must not turn anchor_pending into blocked.
+			if r.checkpointH != 0 && r.checkpointH < fast.AnchorDeadline {
+				r.warn("anchor: header trust did not tie the evidence header at height %d: %v", h.height, t.problem)
+				r.evidencePending(H)
+				return nil
+			}
 			r.unchecked(CheckAnchor, ReasonBlocked, fmt.Errorf("header trust did not tie the evidence header at height %d", h.height), string(CheckHeaderTrust))
 			r.applyTrust(headers, t)
 			r.unchecked(CheckAnchorTime, ReasonBlocked, errors.New("the anchor check did not pass"), string(CheckAnchor))
@@ -434,8 +443,15 @@ func (r *run) pendingWindow(fast *FastInfo) error {
 		}
 	}
 	fast.Absence = &w
-	if w.ResultsAtDeadline && r.checkpointH != 0 && r.checkpointH < deadline+1 && w.Result != AbsencePresent {
-		pending(deadline + 1)
+	// A checkpoint learned while the proofs were tied may still be below what
+	// the window needs; anchor_pending decides before every other row except
+	// a height proven present with code 0.
+	need := deadline
+	if w.ResultsAtDeadline {
+		need = deadline + 1
+	}
+	if r.checkpointH != 0 && r.checkpointH < need && w.Result != AbsencePresent {
+		pending(need)
 		return nil
 	}
 	switch w.Result {
