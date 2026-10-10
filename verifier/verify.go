@@ -57,6 +57,9 @@ type run struct {
 	// action and salt are what the action check matched; the execution
 	// check uses these and never reads the record again.
 	action, salt []byte
+	// payloadSalt is the action salt of an opened payload, compared again
+	// with a salt the reveal supplies after the payload check.
+	payloadSalt []byte
 	// sig is the agent signature of the verified envelope.
 	sig []byte
 
@@ -416,7 +419,8 @@ func (r *run) payload() error {
 	}
 	r.pass(CheckPayload)
 	if o != nil {
-		r.compareSalt(o.Payload.Action.Salt)
+		r.payloadSalt = bytes.Clone(o.Payload.Action.Salt)
+		r.compareSalt(r.payloadSalt)
 	}
 	return nil
 }
@@ -451,16 +455,20 @@ func (r *run) openPayload(raw []byte) (*sdk.Opened, error) {
 	return nil, nil
 }
 
-// compareSalt runs once the payload's action matched the commitment: the
-// payload's salt and the archive copy's both hash the committed action, so a
-// difference can only be a bad archive copy, never the agent's.
+// compareSalt runs once the payload's action matched the commitment, and
+// again after a reveal: the payload's salt and the archive copy's both hash
+// the committed action, so a difference can only be a bad archive copy,
+// never the agent's.
 func (r *run) compareSalt(payloadSalt []byte) {
 	if r.salt == nil || bytes.Equal(r.salt, payloadSalt) {
 		return
 	}
 	src := archive.HashPath(archive.KindDecision, r.h)
-	if r.rep.ActionSource == ActionSourcePrivateBlob {
+	switch r.rep.ActionSource {
+	case ActionSourcePrivateBlob:
 		src, _ = archive.PrivateBlobPath(policy.PrivateAction, commitment.Hash(r.c.Action.Hash))
+	case ActionSourceReveal:
+		src = archive.HashPath(archive.KindReveal, r.h)
 	}
 	r.replaceCheck(Check{Name: CheckAction, Status: StatusUnchecked, Reason: ReasonSourceCorrupt,
 		Sources: []string{src},

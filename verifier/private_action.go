@@ -99,5 +99,8 @@ func (r *run) reveal(chk ExecutionChecker) error {
 	r.action, r.salt = bytes.Clone(a), bytes.Clone(rec.ActionSalt)
 	r.rep.ActionSource = ActionSourceReveal
 	r.replaceCheck(Check{Name: CheckAction, Status: StatusPass})
+	if r.payloadSalt != nil {
+		r.compareSalt(r.payloadSalt)
+	}
 	return nil
 }
