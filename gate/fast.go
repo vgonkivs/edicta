@@ -151,6 +151,10 @@ type fastOutcome struct {
 	refTime   uint64
 	createdAt uint64
 	deadline  uint64
+	// payloadErr is a size or hash mismatch of the archived blob, found
+	// while preparing the broadcast. It belongs to the payload stage, so the
+	// caller reports it only after the anchor time and retention checks.
+	payloadErr error
 }
 
 func (g *Gate) rebroadcast() bool { return g.cfg.RebroadcastIntent == nil || *g.cfg.RebroadcastIntent }
@@ -220,8 +224,13 @@ func (g *Gate) kFast(ctx context.Context, c *commitment.Commitment) (fastOutcome
 
 	var blob []byte
 	if ref.DA == commitment.DACelestiaBlob {
-		if blob, err = g.intentBlob(ctx, c); err != nil {
+		var payloadErr error
+		if blob, payloadErr, err = g.intentBlob(ctx, c); err != nil {
 			return fastOutcome{}, err
+		}
+		if payloadErr != nil {
+			out.payloadErr = payloadErr
+			return out, nil
 		}
 	}
 	bctx, cancel := g.chainCtx(ctx)
@@ -289,31 +298,32 @@ func (g *Gate) intentErr(ctx context.Context, err error) error {
 }
 
 // intentBlob reads the archived blob for a da = 2 broadcast under the fetch
-// budget and refuses to send one that does not match the commitment.
-func (g *Gate) intentBlob(ctx context.Context, c *commitment.Commitment) ([]byte, error) {
+// budget and refuses to send one that does not match the commitment. A size
+// or hash mismatch comes back as payloadErr, with no blob to send.
+func (g *Gate) intentBlob(ctx context.Context, c *commitment.Commitment) (blob []byte, payloadErr, err error) {
 	held, err := g.sem.acquire(ctx, c.PayloadSize)
 	if err != nil {
-		return nil, fmt.Errorf("gate: %w", err)
+		return nil, nil, fmt.Errorf("gate: %w", err)
 	}
 	defer g.sem.release(held)
 	actx, cancel := context.WithTimeout(ctx, g.cfg.ArchiveTimeout)
 	defer cancel()
-	blob, err := g.d.Archive.Fetch(actx, c.PayloadRef, c.PayloadSize)
+	blob, err = g.d.Archive.Fetch(actx, c.PayloadRef, c.PayloadSize)
 	if err != nil {
 		if cerr := ctx.Err(); cerr != nil {
-			return nil, fmt.Errorf("gate: %w", cerr)
+			return nil, nil, fmt.Errorf("gate: %w", cerr)
 		}
-		return nil, fmt.Errorf("%w: archived blob for the broadcast: %w", ErrAnchorIntentRejected, err)
+		return nil, nil, fmt.Errorf("%w: archived blob for the broadcast: %w", ErrAnchorIntentRejected, err)
 	}
 	// A blob off its DA commitment would be refused by the node, so that is
 	// the broadcast's rejection. A blob on its commitment would be anchored,
 	// and then a size or hash mismatch is the payload verdict, which no retry
 	// can change.
 	if err := g.d.Committers[commitment.DACelestiaBlob].Check(c.PayloadRef, blob); err != nil {
-		return nil, fmt.Errorf("%w: archived blob for the broadcast: %v", ErrAnchorIntentRejected, err)
+		return nil, nil, fmt.Errorf("%w: archived blob for the broadcast: %v", ErrAnchorIntentRejected, err)
 	}
 	if err := commitment.CheckPayload(c, blob); err != nil {
-		return nil, fmt.Errorf("archived blob for the broadcast: %w", err)
+		return nil, fmt.Errorf("archived blob for the broadcast: %w", err), nil
 	}
-	return blob, nil
+	return blob, nil, nil
 }

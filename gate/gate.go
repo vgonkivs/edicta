@@ -486,6 +486,9 @@ func (g *Gate) authorize(ctx context.Context, envelope, action, salt []byte, ev 
 	if fast.deadline != 0 {
 		res.K2.FastWindow = fast.deadline - c.PayloadRef.Height
 	}
+	if fast.payloadErr != nil {
+		return res, fast.payloadErr
+	}
 
 	// Payload.
 	path, err := g.acquirePayload(ctx, c, within)
