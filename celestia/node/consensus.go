@@ -540,7 +540,10 @@ func (c *ConsensusClient) Broadcast(ctx context.Context, txRaw []byte) ([32]byte
 		if strings.Contains(err.Error(), "account sequence mismatch") {
 			return [32]byte{}, fmt.Errorf("%w: %w", ErrSequenceMismatch, err)
 		}
-		if strings.Contains(err.Error(), "tx already exists in cache") {
+		// The SDK maps only the cache wording to code 19. A node with the CAT
+		// mempool, the default on Celestia, answers a tx it holds with the
+		// mempool wording, which reaches the client as a plain gRPC error.
+		if msg := err.Error(); strings.Contains(msg, "tx already exists in cache") || strings.Contains(msg, "tx already exists in mempool") {
 			return want, fmt.Errorf("%w: %w", ErrAlreadyInMempool, err)
 		}
 		return [32]byte{}, err

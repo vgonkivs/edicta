@@ -293,6 +293,11 @@ func (g *Gate) Authorize(ctx context.Context, envelope, action, salt []byte) (re
 			ev.CommitmentHash, ev.Path, ev.Authorized, ev.Err = res.CommitmentHash, res.Path, err == nil, err
 			g.d.Metrics.Admission(ev)
 		}
+		// The client sees only the sentinel; which read failed and why is
+		// for the operator.
+		if errors.Is(err, ErrChainUnavailable) {
+			g.log.Warn("gate: chain data unavailable", "commitment_hash", hex.EncodeToString(res.CommitmentHash[:]), "err", err)
+		}
 	}()
 	return g.authorize(ctx, envelope, action, salt, &ev)
 }
