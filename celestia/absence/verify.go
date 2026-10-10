@@ -2,6 +2,7 @@ package absence
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 
 	"github.com/celestiaorg/celestia-app/v10/pkg/da"
@@ -215,17 +216,53 @@ func sentinelFor(r Rule) error {
 	}
 }
 
-func trustedHeader(b []byte, h uint64, trusted TrustedHashes) (*core.SignedHeader, error) {
+// decodeSignedHeader decodes an untrusted protobuf SignedHeader that must be
+// for height h. Upstream decoding accepts one without a header, and every
+// caller reads the header, so that is refused here.
+func decodeSignedHeader(b []byte, h uint64) (*core.SignedHeader, error) {
 	var pb cmtproto.SignedHeader
 	if err := pb.Unmarshal(b); err != nil {
 		return nil, fmt.Errorf("signed header protobuf: %w", err)
+	}
+	if pb.Header == nil {
+		return nil, errors.New("signed header has no header")
 	}
 	sh, err := core.SignedHeaderFromProto(&pb)
 	if err != nil {
 		return nil, fmt.Errorf("signed header: %w", err)
 	}
+	if sh.Header == nil {
+		return nil, errors.New("signed header has no header")
+	}
 	if sh.Height < 0 || uint64(sh.Height) != h {
 		return nil, fmt.Errorf("header height %d, want %d", sh.Height, h)
+	}
+	return sh, nil
+}
+
+// SignedHeaderHash returns the block hash and chain id of an untrusted
+// protobuf SignedHeader that must be for height h.
+func SignedHeaderHash(b []byte, h uint64) (hash []byte, chainID string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			hash, chainID, err = nil, "", fmt.Errorf("signed header at %d: panic in upstream code: %v", h, r)
+		}
+	}()
+	sh, err := decodeSignedHeader(b, h)
+	if err != nil {
+		return nil, "", err
+	}
+	hash = sh.Header.Hash()
+	if len(hash) != 32 {
+		return nil, "", fmt.Errorf("header at %d has no hash", h)
+	}
+	return hash, sh.ChainID, nil
+}
+
+func trustedHeader(b []byte, h uint64, trusted TrustedHashes) (*core.SignedHeader, error) {
+	sh, err := decodeSignedHeader(b, h)
+	if err != nil {
+		return nil, err
 	}
 	want, ok := trusted[h]
 	if !ok {

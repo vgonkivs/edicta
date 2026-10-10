@@ -226,15 +226,8 @@ func headerHash(raw []byte, h uint64) ([]byte, string, bool) {
 	if raw == nil {
 		return nil, "", false
 	}
-	var pb cmtproto.SignedHeader
-	if pb.Unmarshal(raw) != nil {
-		return nil, "", false
-	}
-	sh, err := core.SignedHeaderFromProto(&pb)
-	if err != nil || sh.Height < 0 || uint64(sh.Height) != h {
-		return nil, "", false
-	}
-	return sh.Header.Hash(), sh.ChainID, true
+	hash, chainID, err := SignedHeaderHash(raw, h)
+	return hash, chainID, err == nil
 }
 
 // record reads the proof of h from the archive, or fetches it.

@@ -9,9 +9,6 @@ import (
 	"os"
 	"strconv"
 
-	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
-	core "github.com/cometbft/cometbft/types"
-
 	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/celestia/absence"
 	"github.com/vgonkivs/edicta/commitment"
@@ -179,7 +176,7 @@ func absenceHeight(ctx context.Context, store *fsarchive.Store, fetch *absence.F
 		if part.raw == nil {
 			continue
 		}
-		hash, cid, err := signedHeaderHash(part.raw)
+		hash, cid, err := absence.SignedHeaderHash(part.raw, part.at)
 		if err != nil {
 			continue
 		}
@@ -210,18 +207,6 @@ func absenceHeight(ctx context.Context, store *fsarchive.Store, fetch *absence.F
 	}
 	hv.Written = true
 	return hv
-}
-
-func signedHeaderHash(raw []byte) ([]byte, string, error) {
-	var pb cmtproto.SignedHeader
-	if err := pb.Unmarshal(raw); err != nil {
-		return nil, "", err
-	}
-	sh, err := core.SignedHeaderFromProto(&pb)
-	if err != nil {
-		return nil, "", err
-	}
-	return sh.Header.Hash(), sh.ChainID, nil
 }
 
 func hashHex(h commitment.Hash) string { return fmt.Sprintf("%x", h[:]) }

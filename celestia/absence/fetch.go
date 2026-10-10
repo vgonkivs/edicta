@@ -13,8 +13,6 @@ import (
 	daproto "github.com/celestiaorg/celestia-app/v10/proto/celestia/core/v1/da"
 	"github.com/celestiaorg/celestia-node/share/shwap"
 	libshare "github.com/celestiaorg/go-square/v4/share"
-	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
-	core "github.com/cometbft/cometbft/types"
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/railverify"
@@ -73,7 +71,13 @@ func (f *Fetcher) SignedHeader(ctx context.Context, height uint64) ([]byte, erro
 // chain: the caller verifies it against trusted hashes before relying on it
 // or storing it. q.ChainID may be empty; the header's chain id then decides
 // whether a height has a candidate that needs its results.
-func (f *Fetcher) Fetch(ctx context.Context, q Query, h uint64) (*archive.AbsenceProofRecord, error) {
+func (f *Fetcher) Fetch(ctx context.Context, q Query, h uint64) (rec *archive.AbsenceProofRecord, err error) {
+	// The answers are attacker-supplied and pass through upstream encoders.
+	defer func() {
+		if r := recover(); r != nil {
+			rec, err = nil, fmt.Errorf("absence: proof at %d: panic in upstream code: %v", h, r)
+		}
+	}()
 	if err := q.validateTarget(); err != nil {
 		return nil, err
 	}
@@ -106,7 +110,7 @@ func (f *Fetcher) Fetch(ctx context.Context, q Query, h uint64) (*archive.Absenc
 	if _, err := nd.WriteTo(&stream); err != nil {
 		return nil, fmt.Errorf("absence: namespace data at %d: %w", h, err)
 	}
-	rec := &archive.AbsenceProofRecord{
+	rec = &archive.AbsenceProofRecord{
 		DA: q.DA, Commitment: bytes.Clone(q.Commitment), Namespace: bytes.Clone(q.Namespace), Height: h,
 		Header: sh, DAH: dahRaw, NamespaceData: stream.Bytes(),
 	}
@@ -153,18 +157,11 @@ func (f *Fetcher) signedHeader(ctx context.Context, h uint64) ([]byte, []byte, s
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("absence: signed header at %d: %w", h, err)
 	}
-	var pb cmtproto.SignedHeader
-	if err := pb.Unmarshal(raw); err != nil {
-		return nil, nil, "", fmt.Errorf("absence: signed header at %d: %w", h, err)
-	}
-	sh, err := core.SignedHeaderFromProto(&pb)
+	hash, chainID, err := SignedHeaderHash(raw, h)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("absence: signed header at %d: %w", h, err)
 	}
-	if sh.Height < 0 || uint64(sh.Height) != h {
-		return nil, nil, "", fmt.Errorf("absence: asked for the header at %d, got %d", h, sh.Height)
-	}
-	return raw, sh.Header.Hash(), sh.ChainID, nil
+	return raw, hash, chainID, nil
 }
 
 // resultsJSON is the result object the results proof reads: per result the
