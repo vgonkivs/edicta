@@ -273,6 +273,25 @@ func TestFastBlobNewIntentWithAStaleSequenceIsSticky(t *testing.T) {
 	assert.EqualValues(t, 5, txSequence(t, innerTx(sent[1])), "the next intent uses the sequence the node expects")
 }
 
+func TestFastBlobNewIntentBehindAGapIsNotSticky(t *testing.T) {
+	f := newBlobFast(t)
+	f.node.script(mismatch(2))
+	r := f.rec()
+	_, err := r.Publish(bg, f.blob)
+	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown, "the tx may become valid once the gap fills")
+	require.NotErrorIs(t, err, recorder.ErrIntentStale)
+	rec := f.intent(genesis)
+
+	pub, err := r.Publish(bg, f.blob)
+	require.NoError(t, err, "a retry resumes the archived intent")
+	assert.True(t, pub.Ref.Pending())
+	sent := f.node.sends()
+	require.Len(t, sent, 2)
+	for _, raw := range sent {
+		assert.Equal(t, rec.Tx, innerTx(raw), "only the archived tx is ever sent")
+	}
+}
+
 func TestFastBlobRetriesTheTransientValsetRefusal(t *testing.T) {
 	f := newBlobFast(t)
 	f.node.script(fmt.Errorf("%w: failed to get historical validator set", node.ErrRejected))

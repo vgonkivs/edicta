@@ -397,8 +397,14 @@ func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentD
 		f.nextSeq = p.Sequence + 1
 		return true, nil
 	case errors.Is(err, node.ErrSequenceMismatch):
+		if n, ok := node.ExpectedSequence(err); !ok || n <= p.Sequence {
+			// An earlier tx of this account is missing from the mempool: once
+			// that gap fills this tx is valid, and a retry resumes it.
+			f.seqKnown = false
+			return false, fmt.Errorf("%w: the node expects another sequence than %d: %w", ErrOutcomeUnknown, p.Sequence, err)
+		}
 		f.learn(err)
-		dr.release()
+		time.AfterFunc(dr.settleWait, dr.release)
 		return false, f.stick(e, fmt.Errorf("%w: %w", ErrIntentStale, err))
 	case errors.Is(err, errProcessed):
 		f.seqKnown = false
