@@ -16,6 +16,7 @@ import (
 	"github.com/cometbft/cometbft/light/provider"
 	lighthttp "github.com/cometbft/cometbft/light/provider/http"
 
+	"github.com/vgonkivs/edicta/archive/httparchive"
 	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/inclusion"
 	"github.com/vgonkivs/edicta/celestia/node"
@@ -27,6 +28,7 @@ import (
 	"github.com/vgonkivs/edicta/examples/tia-transfer/pricefeed"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/pricetrigger"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
+	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/blob"
 )
@@ -205,6 +207,7 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 		verifier sdk.InclusionVerifier
 		trust    sdk.SubmitterTrust
 		level    string
+		pending  sdk.PendingVerifier
 	)
 	if cfg.DA == "fibre" {
 		open := env.newFibreReader
@@ -219,14 +222,35 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 		if verifier, trust, level, err = buildFibreVerifier(cfg, head.ChainID, fr); err != nil {
 			return err
 		}
+		if cfg.Fast {
+			v, err := gatechain.NewFibreIntents(fibreIntentChain{FibreChainReader: fr, cons: cons}, head.ChainID)
+			if err != nil {
+				return err
+			}
+			if pending, err = buildPending(cfg, v); err != nil {
+				return err
+			}
+		}
 	} else {
 		var closeVerifier func()
 		if verifier, trust, level, closeVerifier, err = buildVerifier(ctx, cfg, head.ChainID, rd); err != nil {
 			return err
 		}
 		defer closeVerifier()
+		if cfg.Fast {
+			v, err := gatechain.NewBlobIntents(rd)
+			if err != nil {
+				return err
+			}
+			if pending, err = buildPending(cfg, v); err != nil {
+				return err
+			}
+		}
 	}
 	logf("inclusion check: %s", level)
+	if cfg.Fast {
+		logf("fast mode: a pending reference is signed after its anchor intent from %s passes the gate's intent check on this run's nodes", cfg.ArchiveURL)
+	}
 
 	started := false
 	if cfg.GenRecipient != "" {
@@ -254,7 +278,7 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 	if err != nil {
 		return fmt.Errorf("agent key: %w", err)
 	}
-	builder, err := sdk.New(scfg, sdk.Deps{Publisher: pub, Signer: signer, Clock: wallClock{}, Inclusion: verifier})
+	builder, err := sdk.New(scfg, sdk.Deps{Publisher: pub, Signer: signer, Clock: wallClock{}, Inclusion: verifier, Pending: pending})
 	if err != nil {
 		return err
 	}
@@ -490,6 +514,32 @@ func openFibreReader(ctx context.Context, cfg Config, bridgeToken string, cons *
 		return nil, nil, err
 	}
 	return r, fb.Close, nil
+}
+
+// buildPending returns the fast-mode check of a pending reference: the
+// anchor intent is read from the archive and checked by v.
+func buildPending(cfg Config, v gate.IntentVerifier) (sdk.PendingVerifier, error) {
+	ac, err := httparchive.NewClient(cfg.ArchiveURL, nil)
+	if err != nil {
+		return nil, cfgErr("--archive-url: %v", err)
+	}
+	return inclusion.NewPending(inclusion.PendingConfig{Intents: ac, Verifier: v})
+}
+
+// fibreIntentChain reads the Fibre intent's headers and validator history
+// through the anchor reader and the head and x/fibre params through the
+// consensus client.
+type fibreIntentChain struct {
+	node.FibreChainReader
+	cons *node.ConsensusClient
+}
+
+func (c fibreIntentChain) LatestHeight(ctx context.Context) (uint64, error) {
+	return c.cons.LatestHeight(ctx)
+}
+
+func (c fibreIntentChain) FibreParamsAt(ctx context.Context, height uint64) (node.FibreParams, error) {
+	return c.cons.FibreParamsAt(ctx, height)
 }
 
 // buildFibreVerifier returns the da=fibre inclusion verifier: the PayForFibre

@@ -63,6 +63,10 @@ type Config struct {
 	CrossTLS       bool
 	PublishWait    time.Duration
 
+	// fast mode
+	Fast       bool
+	ArchiveURL string // where fast mode reads the anchor intent
+
 	// agent
 	AgentID         string
 	AgentKeyFile    string // 32 raw bytes
@@ -157,6 +161,8 @@ func parseFlags(args []string, usage io.Writer) (Config, error) {
 	fs.StringVar(&c.CrossTokenFile, "crosscheck-token-file", "", "crosscheck: auth token file shared by the --crosscheck-bridge nodes")
 	fs.BoolVar(&c.CrossTLS, "crosscheck-tls", false, "crosscheck: TLS to the --crosscheck-bridge nodes")
 	fs.DurationVar(&c.PublishWait, "publish-wait", 0, "bound of one publication attempt (0 = SDK default)")
+	fs.BoolVar(&c.Fast, "fast", false, "sign a pending reference edictad's Recorder returns, after checking its anchor intent through --grpc-addr (and --bridge-addr for da=blob); needs --archive-url")
+	fs.StringVar(&c.ArchiveURL, "archive-url", "", "fast mode: base URL of the archive edictad writes, read for the anchor intent")
 
 	fs.StringVar(&c.AgentID, "agent-id", "", "agent id on edictad's allowlist")
 	fs.StringVar(&c.AgentKeyFile, "agent-key-file", "", "agent Ed25519 key: file of exactly 32 raw seed bytes, mode 0600")
@@ -362,6 +368,9 @@ func (c Config) Validate() error {
 	if c.PublishWait < 0 {
 		return cfgErr("--publish-wait is negative")
 	}
+	if err := c.validateFast(); err != nil {
+		return err
+	}
 
 	if !validID(c.AgentID) {
 		return cfgErr("--agent-id is required (1..64 characters of letters, digits and . _ : / -)")
@@ -524,4 +533,27 @@ func parseMargin(s string) (*big.Rat, error) {
 		return nil, errors.New("want a non-negative decimal such as 1.2")
 	}
 	return m, nil
+}
+
+// validateFast checks the fast-mode flags. The intent check reads the run's
+// own consensus and bridge nodes, a same-operator check, so it goes only with
+// --inclusion self.
+func (c Config) validateFast() error {
+	if !c.Fast {
+		if c.ArchiveURL != "" {
+			return cfgErr("--archive-url applies to --fast only")
+		}
+		return nil
+	}
+	if c.ArchiveURL == "" {
+		return cfgErr("--fast needs --archive-url")
+	}
+	u, err := url.Parse(c.ArchiveURL)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return cfgErr("--archive-url must be an absolute http or https URL")
+	}
+	if c.DA != "fibre" && c.Inclusion != "" && c.Inclusion != "self" {
+		return cfgErr("--fast checks the anchor intent through the run's own nodes; use --inclusion self")
+	}
+	return nil
 }
