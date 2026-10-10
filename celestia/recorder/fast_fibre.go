@@ -156,8 +156,11 @@ func (r *FibreRecorder) settleBy(created time.Time, fp node.FibreParams) time.Ti
 // the intent's height and creation time, signed by its owner.
 func (r *FibreRecorder) checkPFF(tx []byte, rec *archive.AnchorIntentRecord, us uint64) error {
 	f, ok, err := fibrecert.ParsePFF(tx)
-	if err != nil || !ok {
-		return fmt.Errorf("%w: not a PayForFibre tx: %w", ErrSubmitMismatch, errors.Join(err, errors.New("parse")))
+	switch {
+	case err != nil:
+		return fmt.Errorf("%w: not a PayForFibre tx: %w", ErrSubmitMismatch, err)
+	case !ok:
+		return fmt.Errorf("%w: not a PayForFibre tx", ErrSubmitMismatch)
 	}
 	b := fibrecert.Binding{ChainID: r.d.ChainID, Namespace: r.cfg.Namespace, BlobSize: uint32(us)}
 	copy(b.Commitment[:], rec.Commitment)
