@@ -156,3 +156,64 @@ type refusing struct{ err error }
 func (r refusing) VerifyIntent(context.Context, commitment.PayloadRef, *gate.AnchorIntent, uint64) (gate.IntentFacts, error) {
 	return gate.IntentFacts{}, r.err
 }
+
+// foreignIntents answers every key with one fixed record, as a store that
+// files a record under the wrong key would.
+type foreignIntents struct{ rec *archive.AnchorIntentRecord }
+
+func (f foreignIntents) Intent(context.Context, commitment.DA, []byte, uint64) (*archive.AnchorIntentRecord, error) {
+	r := *f.rec
+	return &r, nil
+}
+
+func TestPendingRefusesAForeignIntent(t *testing.T) {
+	w := newPendingWorld(t)
+	data := []byte("payload")
+	ref := w.put(t, data, data)
+	good := *w.in[intentKey(commitment.DACelestiaBlob, ref.Commitment, w.h0)]
+	bv, err := gatechain.NewBlobIntents(w.ch)
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name string
+		bend func(r *archive.AnchorIntentRecord)
+	}{
+		{"another h0", func(r *archive.AnchorIntentRecord) { r.RefHeight = w.h0 + 1 }},
+		{"another commitment", func(r *archive.AnchorIntentRecord) { r.Commitment = bytes.Repeat([]byte{1}, 32) }},
+		{"another signer", func(r *archive.AnchorIntentRecord) { r.Signer = bytes.Repeat([]byte{2}, 20) }},
+		{"another da", func(r *archive.AnchorIntentRecord) { r.DA = commitment.DAFibre }},
+		{"no signer", func(r *archive.AnchorIntentRecord) { r.Signer = nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := good
+			tc.bend(&rec)
+			p, err := inclusion.NewPending(inclusion.PendingConfig{Intents: foreignIntents{&rec}, Verifier: bv})
+			require.NoError(t, err)
+			_, err = p.VerifyPending(bg, ref, uint64(len(data)))
+			require.ErrorIs(t, err, sdk.ErrInclusionUnverified)
+		})
+	}
+}
+
+// The intent's PFB stops being valid at h0 itself: the gate's own intent
+// check refuses it.
+func TestPendingRefusesAPFBThatTimesOutAtH0(t *testing.T) {
+	w := newPendingWorld(t)
+	data := []byte("payload")
+	ref := w.put(t, data, data)
+	rec := w.in[intentKey(commitment.DACelestiaBlob, ref.Commitment, w.h0)]
+	tx, err := w.sig.SignPFB(bg, pns, data, node.TxParams{AccountNumber: 1, Sequence: 2, GasPrice: big.NewRat(1, 250), TimeoutHeight: w.h0})
+	require.NoError(t, err)
+	rec.Tx = tx
+	_, err = w.verifier(t, nil).VerifyPending(bg, ref, uint64(len(data)))
+	require.ErrorIs(t, err, sdk.ErrInclusionUnverified)
+	require.ErrorIs(t, err, gate.ErrAnchorIntentInvalid)
+}
+
+func TestPendingReportsTheOperatorsAttestation(t *testing.T) {
+	for _, ind := range []bool{false, true} {
+		p, err := inclusion.NewPending(inclusion.PendingConfig{Intents: intents{}, Verifier: refusing{}, Independent: ind})
+		require.NoError(t, err)
+		assert.Equal(t, ind, p.Independent())
+	}
+}

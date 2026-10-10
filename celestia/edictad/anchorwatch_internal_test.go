@@ -143,3 +143,75 @@ func TestAnchorWatchRetriesWhatItCouldNotRead(t *testing.T) {
 }
 
 var errBoomWatch = assert.AnError
+
+func TestAnchorWatchMissingDecisionIsRetriedNotAlerted(t *testing.T) {
+	f := newWatchFx(t)
+	f.add(t, 1, commitment.ModeFast, 100)
+	h := f.reg.entries[0].CommitmentHash
+	f.st.mu.Lock()
+	env := f.st.decisions[h]
+	delete(f.st.decisions, h)
+	f.st.mu.Unlock()
+
+	f.head.Store(200)
+	f.w.pass(context.Background())
+	assert.Zero(t, f.al.count(), "no decision record yet is not a missing anchor")
+
+	f.st.mu.Lock()
+	f.st.decisions[h] = env
+	f.st.mu.Unlock()
+	f.head.Store(201)
+	f.w.pass(context.Background())
+	assert.Equal(t, 1, f.al.count(), "decided once the record is there")
+}
+
+func TestAnchorWatchEvidenceThatArrivesInTheGraceIsNotAlerted(t *testing.T) {
+	f := newWatchFx(t)
+	c := f.add(t, 1, commitment.ModeFast, 100)
+	f.head.Store(100 + anchorMissingGrace)
+	f.w.pass(context.Background())
+	f.st.mu.Lock()
+	f.st.evidence[string(c)] = true
+	f.st.mu.Unlock()
+	f.head.Store(300)
+	f.w.pass(context.Background())
+	assert.Zero(t, f.al.count())
+}
+
+// The alert is at-least-once: a restarted watch alerts an old entry again.
+func TestAnchorWatchAlertsAgainAfterARestart(t *testing.T) {
+	f := newWatchFx(t)
+	f.add(t, 1, commitment.ModeFast, 100)
+	f.head.Store(200)
+	f.w.pass(context.Background())
+	require.Equal(t, 1, f.al.count())
+	f.w = &anchorWatch{lister: f.reg, io: f.w.io, log: f.w.log, timeout: timeoutForTests, head: f.w.head}
+	f.w.pass(context.Background())
+	assert.Equal(t, 2, f.al.count())
+}
+
+type failingLister struct{ err error }
+
+func (l failingLister) List(context.Context, *registry.Key, int) ([]registry.Entry, error) {
+	return nil, l.err
+}
+
+func TestAnchorWatchUnreadableRegistryOrHeadAlertsNothing(t *testing.T) {
+	f := newWatchFx(t)
+	f.add(t, 1, commitment.ModeFast, 100)
+	f.head.Store(200)
+
+	f.w.lister = failingLister{assert.AnError}
+	f.w.pass(context.Background())
+	assert.Zero(t, f.al.count())
+	assert.Zero(t, f.w.lastHead, "an incomplete pass moves no watermark")
+
+	f.w.lister = f.reg
+	f.w.head = func(context.Context) (uint64, error) { return 0, assert.AnError }
+	f.w.pass(context.Background())
+	assert.Zero(t, f.al.count())
+
+	f.w.head = func(context.Context) (uint64, error) { return f.head.Load(), nil }
+	f.w.pass(context.Background())
+	assert.Equal(t, 1, f.al.count())
+}

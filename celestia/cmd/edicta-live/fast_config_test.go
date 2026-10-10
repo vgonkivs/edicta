@@ -35,3 +35,24 @@ func TestFastFlag(t *testing.T) {
 		})
 	}
 }
+
+// Each blob inclusion mode other than self is valid on its own and refused
+// only together with --fast.
+func TestFastNeedsSelfInclusion(t *testing.T) {
+	fast := []string{"--fast", "--archive-url", "https://archive.example.invalid"}
+	for name, mode := range map[string][]string{
+		"light": {"--inclusion", "light", "--rpc-primary", "https://rpc.example.invalid", "--rpc-witness", "https://w.example.invalid",
+			"--trust-height", "1", "--trust-hash", "0000000000000000000000000000000000000000000000000000000000000000"},
+		"crosscheck": {"--inclusion", "crosscheck", "--crosscheck-bridge", "a.invalid:1", "--crosscheck-bridge", "b.invalid:1", "--crosscheck-tls"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := parse(t, mode...)
+			require.NoError(t, err, "valid without --fast")
+			_, err = parse(t, append(mode, fast...)...)
+			require.ErrorIs(t, err, ErrConfig)
+		})
+	}
+	c, err := parse(t, append([]string{"--inclusion", "self"}, fast...)...)
+	require.NoError(t, err)
+	assert.True(t, c.Fast)
+}
