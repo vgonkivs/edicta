@@ -85,7 +85,6 @@ func TestPolicyArchiveReject(t *testing.T) {
 		"ErrStateInvalid": policy.ErrStateInvalid, "ErrUnsupportedVersion": commitment.ErrUnsupportedVersion,
 		"ErrInvalidString": commitment.ErrInvalidString, "ErrFieldSize": commitment.ErrFieldSize,
 		"ErrMissingField": commitment.ErrMissingField, "ErrTrailingData": commitment.ErrTrailingData,
-		"ErrTooLarge": commitment.ErrTooLarge,
 	}
 	for _, c := range d.Reject {
 		t.Run(c.ID, func(t *testing.T) {

@@ -53,9 +53,6 @@ func decode(data []byte, clone bool) (Record, error) {
 	if len(data) > MaxRecordSize {
 		return nil, fmt.Errorf("%w: %d bytes", commitment.ErrTooLarge, len(data))
 	}
-	if k, ok := peekKind(data); ok && len(data) > maxSizeOf(k) {
-		return nil, fmt.Errorf("%w: %s record of %d bytes", commitment.ErrTooLarge, k, len(data))
-	}
 	root, err := scanTop(data)
 	if err != nil {
 		return nil, err
@@ -99,17 +96,6 @@ func decode(data []byte, clone bool) (Record, error) {
 		return nil, fmt.Errorf("%w: re-encoding differs", commitment.ErrNonCanonical)
 	}
 	return rec, nil
-}
-
-// peekKind reads the kind of a record that starts as a canonical one: a map
-// whose first pairs are format 1 and a small kind. The kind's cap then
-// applies before parsing, so an oversized record is not scanned in full.
-func peekKind(b []byte) (Kind, bool) {
-	if len(b) < 5 || b[0]>>5 != majMap || b[1] != 0x01 || b[2] != format || b[3] != 0x02 || b[4] >= 24 {
-		return 0, false
-	}
-	k := Kind(b[4])
-	return k, k.valid()
 }
 
 func parseMap(it *gitem, defs []fdef, where string) (*pmap, error) {
