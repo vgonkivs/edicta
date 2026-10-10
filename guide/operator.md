@@ -285,9 +285,17 @@ included. A Record that reaches the gate when a quarter of
 `node_prune_window_blocks` has passed since `H_exec` is logged as a
 warning. A capture still missing after half the window is logged at error
 level (once per capture and process) and `/v1/health` reports degraded
-until it is captured, the same alert as a skipped anchor intent. Both
-thresholds follow the configured window, so set it to what the node really
-keeps (`min-retain-blocks` and its results pruning), not a guess.
+until it is captured, the same alert as a skipped anchor intent. A capture
+still missing when the whole window has passed (counted from `H_exec`, or
+from the head at which the gate first saw the `rail_ref` while the
+transaction was not found) can no longer succeed from that node: it is
+logged at error level once ("capture is lost"), moved to `lost/` in the
+capture directory, no longer retried or tracked again, and no longer keeps
+`/v1/health` degraded. The thresholds follow the configured window, so set
+it to what the node really keeps (`min-retain-blocks` and its results
+pruning), not a guess. A pending file that does not decode is moved to
+`quarantine/`, logged at error level once, and the sweep tracks its
+reference again.
 
 ## Startup refusals
 

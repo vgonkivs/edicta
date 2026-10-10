@@ -78,6 +78,8 @@ type Pending struct {
 	// FromSweep marks a reference that no Record announced: the sweep
 	// found it.
 	FromSweep bool `json:"from_sweep,omitempty"`
+	// LostAtHead is the chain head when the capture was given up as lost.
+	LostAtHead uint64 `json:"lost_at_head,omitempty"`
 }
 
 // Store keeps captures and the references still to capture. Every write is
@@ -92,8 +94,15 @@ type Store interface {
 	// Block reads the block at (chainID, height).
 	Block(ctx context.Context, chainID string, height uint64) (Block, error)
 	PutPending(ctx context.Context, p Pending) error
+	// ListPending returns the pending references it could read; with an
+	// error the list is still usable unless it is nil.
 	ListPending(ctx context.Context) ([]Pending, error)
 	DeletePending(ctx context.Context, railRef string) error
+	// MarkLost moves a pending reference to the lost ones: its capture can
+	// no longer succeed and it is not retried or tracked again.
+	MarkLost(ctx context.Context, p Pending) error
+	// Lost reports whether the rail reference was given up as lost.
+	Lost(ctx context.Context, railRef string) (bool, error)
 }
 
 // Dir is a Store in a local directory:
@@ -101,6 +110,8 @@ type Store interface {
 //	blocks/<chain_id>/<height>.json   one Block
 //	refs/<rail_ref>                   "<chain_id>/<height>" of its capture
 //	pending/<rail_ref>.json           one Pending
+//	lost/<rail_ref>.json              one Pending given up as lost
+//	quarantine/<file>                 a pending file that did not decode
 //
 // Files are written to a temporary name, synced and renamed.
 type Dir struct {
@@ -113,7 +124,7 @@ func OpenDir(root string) (*Dir, error) {
 	if strings.TrimSpace(root) == "" {
 		return nil, fmt.Errorf("%w: no directory", ErrInvalid)
 	}
-	for _, sub := range []string{"blocks", "refs", "pending"} {
+	for _, sub := range []string{"blocks", "refs", "pending", "lost", "quarantine"} {
 		if err := os.MkdirAll(filepath.Join(root, sub), 0o700); err != nil {
 			return nil, fmt.Errorf("execcapture: %w", err)
 		}
@@ -251,7 +262,8 @@ func (d *Dir) PutPending(_ context.Context, p Pending) error {
 }
 
 // ListPending returns every pending reference. A file that does not decode
-// is skipped with an error joined to the result.
+// is moved to quarantine/, so it is reported once and blocks nothing; its
+// reference is tracked again by the sweep.
 func (d *Dir) ListPending(_ context.Context) ([]Pending, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -260,7 +272,7 @@ func (d *Dir) ListPending(_ context.Context) ([]Pending, error) {
 		return nil, fmt.Errorf("execcapture: %w", err)
 	}
 	var (
-		out  []Pending
+		out  = []Pending{}
 		errs []error
 	)
 	for _, e := range ents {
@@ -276,7 +288,12 @@ func (d *Dir) ListPending(_ context.Context) ([]Pending, error) {
 		}
 		var p Pending
 		if err := json.Unmarshal(raw, &p); err != nil || p.RailRef != ref {
-			errs = append(errs, fmt.Errorf("execcapture: pending %s does not decode", ref))
+			qerr := os.Rename(filepath.Join(d.root, "pending", name), filepath.Join(d.root, "quarantine", name))
+			if qerr != nil {
+				errs = append(errs, fmt.Errorf("execcapture: pending %s does not decode and was not quarantined: %w", ref, qerr))
+				continue
+			}
+			errs = append(errs, fmt.Errorf("execcapture: pending %s does not decode; moved to quarantine/", ref))
 			continue
 		}
 		out = append(out, p)
@@ -296,6 +313,38 @@ func (d *Dir) DeletePending(_ context.Context, railRef string) error {
 		return fmt.Errorf("execcapture: %w", err)
 	}
 	return nil
+}
+
+// MarkLost writes p to lost/ and removes its pending entry.
+func (d *Dir) MarkLost(_ context.Context, p Pending) error {
+	if !ValidRailRef(p.RailRef) {
+		return fmt.Errorf("%w: rail_ref", ErrInvalid)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if err := d.writeJSON(filepath.Join(d.root, "lost", p.RailRef+".json"), p); err != nil {
+		return err
+	}
+	err := os.Remove(filepath.Join(d.root, "pending", p.RailRef+".json"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("execcapture: %w", err)
+	}
+	return nil
+}
+
+// Lost reports whether railRef was given up as lost.
+func (d *Dir) Lost(_ context.Context, railRef string) (bool, error) {
+	if !ValidRailRef(railRef) {
+		return false, fmt.Errorf("%w: rail_ref", ErrInvalid)
+	}
+	_, err := os.Stat(filepath.Join(d.root, "lost", railRef+".json"))
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, os.ErrNotExist):
+		return false, nil
+	}
+	return false, fmt.Errorf("execcapture: %w", err)
 }
 
 func (d *Dir) writeJSON(path string, v any) error {

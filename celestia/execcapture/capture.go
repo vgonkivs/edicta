@@ -52,7 +52,8 @@ type Config struct {
 	ChainID string
 	// PruneWindowBlocks is how many blocks the node keeps block results
 	// and headers. A Record that arrives after a quarter of it is warned
-	// about; a capture still missing after half of it is overdue.
+	// about; a capture still missing after half of it is overdue, and after
+	// all of it lost.
 	PruneWindowBlocks uint64
 }
 
@@ -72,6 +73,10 @@ func (c Config) LateBlocks() uint64 { return c.PruneWindowBlocks / 4 }
 
 // OverdueBlocks is the age at which a missing capture raises the alert.
 func (c Config) OverdueBlocks() uint64 { return c.PruneWindowBlocks / 2 }
+
+// LostBlocks is the age at which a missing capture is given up: the node
+// has pruned what it needs, so no retry can succeed.
+func (c Config) LostBlocks() uint64 { return c.PruneWindowBlocks }
 
 // Capturer captures the execution result proofs of recorded rail
 // transactions and retries until each is done.
@@ -109,7 +114,7 @@ func New(cfg Config, chain Chain, store Store, log *slog.Logger) (*Capturer, err
 func (c *Capturer) Config() Config { return c.cfg }
 
 // Overdue is the number of captures still missing past the alert threshold
-// at the last pass.
+// at the last pass. A capture given up as lost is not counted.
 func (c *Capturer) Overdue() uint64 { return c.overdue.Load() }
 
 // Kick is signalled after a new reference is tracked.
@@ -127,9 +132,18 @@ func (c *Capturer) Track(ctx context.Context, railRef string, h commitment.Hash,
 	if err != nil || done {
 		return false, err
 	}
+	lost, err := c.store.Lost(ctx, railRef)
+	if err != nil || lost {
+		return false, err
+	}
+	// A pending file that does not decode must not stop new references from
+	// being tracked; the store moves it aside, so this is logged once.
 	pend, err := c.store.ListPending(ctx)
 	if err != nil && pend == nil {
 		return false, err
+	}
+	if err != nil {
+		c.log.Error("execcapture: pending captures not all read", "err", err)
 	}
 	for _, p := range pend {
 		if p.RailRef == railRef {
@@ -181,7 +195,11 @@ func (c *Capturer) Pass(ctx context.Context) {
 		if herr != nil {
 			continue
 		}
-		if c.isOverdue(p, head) {
+		if c.isAged(p, head, c.cfg.LostBlocks()) {
+			c.markLost(ctx, p, head, err)
+			continue
+		}
+		if c.isAged(p, head, c.cfg.OverdueBlocks()) {
 			overdue++
 			if !c.alerted[p.RailRef] {
 				c.alerted[p.RailRef] = true
@@ -198,12 +216,28 @@ func (c *Capturer) Pass(ctx context.Context) {
 	}
 }
 
-func (c *Capturer) isOverdue(p Pending, head uint64) bool {
+func (c *Capturer) isAged(p Pending, head, blocks uint64) bool {
 	from := p.SeenHead
 	if p.ExecHeight != 0 {
 		from = p.ExecHeight
 	}
-	return from != 0 && head > from && head-from >= c.cfg.OverdueBlocks()
+	return from != 0 && head > from && head-from >= blocks
+}
+
+// markLost gives up a capture whose age reached the node prune window. It is
+// logged once, here, and no longer counts as overdue, so health recovers;
+// the entry stays in the store's lost list for the operator.
+func (c *Capturer) markLost(ctx context.Context, p Pending, head uint64, cause error) {
+	p.LostAtHead = head
+	if err := c.store.MarkLost(ctx, p); err != nil {
+		c.log.Warn("execcapture: a lost capture was not marked lost, retried later", "rail_ref", p.RailRef, "err", err)
+		return
+	}
+	delete(c.alerted, p.RailRef)
+	delete(c.conflicted, p.RailRef)
+	c.log.Error("execcapture: an execution result capture is lost: the node prune window has passed, so its proof is gone from that node; it is no longer retried",
+		"rail_ref", p.RailRef, "commitment_hash", p.CommitmentHash, "exec_height", p.ExecHeight, "seen_head", p.SeenHead,
+		"head", head, "prune_window_blocks", c.cfg.PruneWindowBlocks, "err", cause)
 }
 
 // attempt captures one pending reference. It keeps what it learned (the

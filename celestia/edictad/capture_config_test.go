@@ -16,11 +16,10 @@ import (
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 )
 
-// prunedChain has moved far past every capture and no longer serves block
-// results.
-type prunedChain struct{}
+// prunedChain is at head and no longer serves block results.
+type prunedChain struct{ head uint64 }
 
-func (prunedChain) Latest(context.Context) (uint64, error) { return 5000, nil }
+func (c prunedChain) Latest(context.Context) (uint64, error) { return c.head, nil }
 func (prunedChain) Tx(context.Context, [32]byte, bool) (railverify.RawTx, error) {
 	return railverify.RawTx{}, railverify.ErrTxNotFound
 }
@@ -40,7 +39,7 @@ func TestStartWithCaptureAlertsOnAnOverdueCapture(t *testing.T) {
 	require.NoError(t, err)
 	ref := strings.Repeat("ef", 32)
 	require.NoError(t, st.PutPending(bg, execcapture.Pending{RailRef: ref, ExecHeight: 100, SeenHead: 100}))
-	p.deps.CaptureChain = prunedChain{}
+	p.deps.CaptureChain = prunedChain{head: 700}
 	p.start(p.edits(rep("[http]", "[capture]\nenabled = true\ndir = \""+p.path("capture")+
 		"\"\ncomet_rpc = \"http://127.0.0.1:1\"\nnode_prune_window_blocks = 1000\n\n[http]"))...)
 
@@ -49,6 +48,28 @@ func TestStartWithCaptureAlertsOnAnOverdueCapture(t *testing.T) {
 		return err == nil && h.Status == 2
 	}, 20*time.Second, 20*time.Millisecond, "health is degraded while a capture is overdue")
 	assert.NotEmpty(t, p.logLines("level=ERROR", "still missing past half the node prune window", ref))
+}
+
+// Past the whole prune window the capture is lost: logged at error level
+// once, and health no longer degraded by it.
+func TestStartWithCaptureLostCaptureClearsTheAlert(t *testing.T) {
+	p := newPolicyEnv(t)
+	st, err := execcapture.OpenDir(p.path("capture"))
+	require.NoError(t, err)
+	ref := strings.Repeat("ef", 32)
+	require.NoError(t, st.PutPending(bg, execcapture.Pending{RailRef: ref, ExecHeight: 100, SeenHead: 100}))
+	p.deps.CaptureChain = prunedChain{head: 5000}
+	p.start(p.edits(rep("[http]", "[capture]\nenabled = true\ndir = \""+p.path("capture")+
+		"\"\ncomet_rpc = \"http://127.0.0.1:1\"\nnode_prune_window_blocks = 1000\n\n[http]"))...)
+
+	require.Eventually(t, func() bool {
+		lost, err := st.Lost(bg, ref)
+		return err == nil && lost
+	}, 20*time.Second, 20*time.Millisecond)
+	h, err := p.client("").Health(bg)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, h.Status)
+	assert.Len(t, p.logLines("level=ERROR", "capture is lost", ref), 1)
 }
 
 func TestCaptureConfig(t *testing.T) {
