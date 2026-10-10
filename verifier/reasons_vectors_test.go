@@ -2,7 +2,9 @@ package verifier_test
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -190,6 +192,23 @@ func TestReasonVectors(t *testing.T) {
 			r := newRig(t, p)
 			return r.verify(t, verifier.WithReceipt(validReceipt(t, p)), verifier.WithExecutionCheck()), verifier.ReplayReport{}
 		},
+		"anchor_pending": func(t *testing.T) (verifier.Report, verifier.ReplayReport) {
+			r, fp := pendingRig(t, newParts(t), verifier.AbsenceWindow{Result: verifier.AbsenceAbsent})
+			withoutEvidence(r)
+			r.deps.Trust = cpTrust{r.trust, r.p.c.PayloadRef.Height + fastWindow - 1}
+			rep := r.verify(t)
+			assert.Zero(t, fp.asked, "no absence proof is read while the window is open")
+			return rep, verifier.ReplayReport{}
+		},
+		"absence_unproven": func(t *testing.T) (verifier.Report, verifier.ReplayReport) {
+			r, _ := pendingRig(t, newParts(t), verifier.AbsenceWindow{})
+			withoutEvidence(r)
+			h0 := r.p.c.PayloadRef.Height
+			r.deps.Pending.(*fakePending).window = verifier.AbsenceWindow{Result: verifier.AbsenceUnproven,
+				FirstUnproven: h0 + 1, Cause: errors.New("no absence proof at this height")}
+			r.deps.Trust = cpTrust{r.trust, h0 + fastWindow + 1}
+			return r.verify(t), verifier.ReplayReport{}
+		},
 		"execution_blocked": func(t *testing.T) (verifier.Report, verifier.ReplayReport) {
 			r := newRig(t, newParts(t))
 			return r.verify(t, verifier.WithExecutionCheck()), verifier.ReplayReport{}
@@ -294,6 +313,14 @@ func TestReasonBoundaryCases(t *testing.T) {
 				p.k2 = nil
 				p.auth = signAuthorization(t, gateKey(t), a)
 				rep = newRig(t, p).verify(t)
+			case "anchor_absent":
+				r, _ := pendingRig(t, newParts(t), verifier.AbsenceWindow{Result: verifier.AbsenceAbsent, Heights: fastWindow + 1, ChainID: "c"})
+				withoutEvidence(r)
+				r.deps.Trust = cpTrust{r.trust, r.p.c.PayloadRef.Height + fastWindow + 1}
+				rep = r.verify(t)
+				require.NotNil(t, rep.Fast)
+				assert.Equal(t, verifier.PublicationFailed, rep.Fast.Publication)
+				assert.Equal(t, hex.EncodeToString(r.p.c.PayloadRef.Signer), rep.Fast.IntentSigner)
 			case "execution_body_mismatch":
 				e := newExecRig(t, newParts(t), nil)
 				e.chk.err = verifier.ErrExecutionViolation

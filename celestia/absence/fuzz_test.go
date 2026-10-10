@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -37,5 +38,35 @@ func FuzzVerifyHeight(f *testing.F) {
 		o := absence.VerifyHeight(&r, q, d, trusted)
 		assert.Equal(t, o.Result == absence.Unproven, o.Err != nil)
 		assert.NotEqual(t, absence.Absent, o.Result, "a height with the anchor never reads absent")
+	})
+}
+
+// FuzzUntrustedHeader: whatever bytes a header source or a bridge serves as
+// the header of a height, the Chain and the Fetcher answer with an error or a
+// header of exactly that height, never a panic.
+func FuzzUntrustedHeader(f *testing.F) {
+	f.Add([]byte{0x0a, 0x00}, false)
+	f.Add([]byte{0xff, 0x01}, true)
+	f.Fuzz(func(t *testing.T, raw []byte, signed bool) {
+		ref, d, m, _ := caseOf(t, "window_three_heights_proven")
+		if signed {
+			var pb cmtproto.SignedHeader
+			if pb.Unmarshal(raw) == nil && pb.Header == nil {
+				t.Skip("a SignedHeader without a header is TestHeaderlessSignedHeaderIsNotProven")
+			}
+			b := &badSource{recordSource: &recordSource{recs: m.recs}, from: d,
+				header: func(uint64) ([]byte, error) { return raw, nil }}
+			fe, err := absence.NewFetcher(b, nil, "fuzz")
+			require.NoError(t, err)
+			rec, err := fe.Fetch(t.Context(), absence.Query{DA: ref.DA, Namespace: ref.Namespace, Commitment: ref.Commitment}, d)
+			if err == nil {
+				assert.Equal(t, d, rec.Height)
+			}
+			return
+		}
+		hd, err := absence.NewChain(absence.ChainDeps{Headers: rawHeaders{d: raw}}).Header(t.Context(), ref, d)
+		if err == nil {
+			assert.Len(t, hd.Hash, 32)
+		}
 	})
 }

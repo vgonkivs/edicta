@@ -95,6 +95,7 @@ func (f *fakeAnchor) VerifyAnchor(ref commitment.PayloadRef, ev *archive.Evidenc
 			facts.PromiseHeaderHash = f.promiseHash
 		}
 		facts.PromiseHeight = ev.PromiseHeight
+		facts.PromiseBlockTime = f.blockTime
 		if f.promiseHeight != nil {
 			facts.PromiseHeight = f.promiseHeight(ev)
 		}
