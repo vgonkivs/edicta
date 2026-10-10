@@ -152,7 +152,7 @@ func TestFibreIntentRefusals(t *testing.T) {
 }
 
 // pfbTx builds a signed-looking tx holding msgs, with the given timeout.
-func pfbTx(t *testing.T, timeout uint64, signed bool, msgs ...*blobtypes.MsgPayForBlobs) []byte {
+func pfbTx(t testing.TB, timeout uint64, signed bool, msgs ...*blobtypes.MsgPayForBlobs) []byte {
 	t.Helper()
 	body := cosmostx.TxBody{TimeoutHeight: timeout}
 	for _, m := range msgs {
@@ -176,7 +176,7 @@ func pfbTx(t *testing.T, timeout uint64, signed bool, msgs ...*blobtypes.MsgPayF
 	return out
 }
 
-func blobRef(t *testing.T) (commitment.PayloadRef, *blobtypes.MsgPayForBlobs) {
+func blobRef(t testing.TB) (commitment.PayloadRef, *blobtypes.MsgPayForBlobs) {
 	t.Helper()
 	ns := append(make([]byte, 19), []byte("edicta/d01")...)
 	signer := make([]byte, 20)

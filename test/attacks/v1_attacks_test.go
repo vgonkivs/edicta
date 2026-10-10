@@ -531,34 +531,96 @@ func TestV1AttackFastModeWithoutMandate(t *testing.T) {
 	})
 }
 
-// Until stage K-fast exists, a gate with FastMode on still refuses every
-// pending reference, and the refusal writes nothing.
-func TestV1AttackPendingAtFastModeGateWritesNothing(t *testing.T) {
-	arch := &countingArchiver{}
+// fastGate is a mandate gate with FastMode on that lists the template's
+// namespace for pending references.
+func fastGate(t *testing.T, m *policy.Mandate, arch *countingArchiver, fast bool, opts ...gatefix.Option) (*gatefix.Env, []byte) {
+	t.Helper()
 	tmpl := gatefix.Template(t)
 	x, err := policy.NewExtractors(lastByteExtractor{})
 	require.NoError(t, err)
-	mb, ref := signMandate(t, mandate(t, 1, 1))
-	e := gatefix.New(t,
+	mb, ref := signMandate(t, m)
+	e := gatefix.New(t, append([]gatefix.Option{
 		gatefix.WithConfig(func(c *gate.Config) {
 			c.Mandate = mb
-			c.FastMode = true
-			c.PendingNamespaces = [][]byte{tmpl.PayloadRef.Namespace}
+			c.FastMode = fast
+			if fast {
+				c.PendingNamespaces = [][]byte{tmpl.PayloadRef.Namespace}
+			}
 		}),
 		gatefix.WithDeps(func(d *gate.Deps) { d.Extractors = x }),
-		withArchiver(arch))
-	c := gatefix.Clone(tmpl)
+		withArchiver(arch)}, opts...)...)
+	return e, ref
+}
+
+func pendingDecision(t *testing.T, e *gatefix.Env, ref []byte, tag byte) (*commitment.Commitment, []byte) {
+	t.Helper()
+	c := gatefix.Fresh(gatefix.Template(t), tag)
 	c.MandateRef = ref
 	c.PayloadRef.Anchor = commitment.AnchorPending
 	e.StageDA(c, gatefix.Blob(t))
 	b, _ := gatefix.Sign(t, "agent1", c)
+	return c, b
+}
+
+// requireNoIntentWork asserts stage K-fast never ran: no intent read, no
+// lookup and no broadcast on the gate's node.
+func requireNoIntentWork(t *testing.T, e *gatefix.Env) {
+	t.Helper()
+	assert.Zero(t, e.Intents.Reads(), "no intent read")
+	assert.Zero(t, e.Verifier.Calls(), "no intent verification")
+	assert.Zero(t, e.Broadcaster.Lookups(), "no lookup")
+	assert.Empty(t, e.Broadcaster.Broadcasts(), "no broadcast")
+}
+
+// Fast mode issues an Authorization before the anchor exists, so a mandate
+// that never consented to it (no fast_mode_max_delay) gets a signed policy
+// deny for every pending reference: the decision record is written (the
+// deny is a verdict about it), and nothing else. No Authorization, no nonce,
+// no counter change, and the gate never touches the intent or the chain.
+func TestV1AttackPendingWithoutConsentGetsOnlyP15Deny(t *testing.T) {
+	arch := &countingArchiver{}
+	m := mandate(t, 1, 1)
+	require.Zero(t, m.FastModeMaxDelay, "the mandate has no key 16")
+	e, ref := fastGate(t, m, arch, true)
+	c, b := pendingDecision(t, e, ref, 1)
+	before := snapshot(t, e, arch)
+
+	for i := range 2 {
+		res, err := e.Authorize(b)
+		require.ErrorIs(t, err, policy.ErrDenied)
+		require.ErrorIs(t, err, policy.ErrFastModeNotAllowed)
+		assert.Empty(t, res.Authorization, "no Authorization")
+		assert.True(t, res.DecisionArchived, "a deny after the archive stage keeps the decision record")
+
+		sv, _, verr := policy.VerifyVerdict(res.PolicyVerdict, gatefix.Pub(t, "gate1"))
+		require.NoError(t, verr, "the deny is signed under the gate's policy tag")
+		assert.EqualValues(t, policy.OutcomeDeny, sv.Verdict.Outcome)
+		assert.Equal(t, "ErrFastModeNotAllowed", sv.Verdict.Reason)
+		assert.Nil(t, sv.Verdict.Facts, "P15 is decided before any fact is extracted")
+		assert.Nil(t, sv.Verdict.PrevState, "a stage 4p deny reads no state")
+
+		after := snapshot(t, e, arch)
+		// Put is idempotent: a retry rewrites the same decision record.
+		assert.Equal(t, before.records+i+1, after.records, "attempt %d: one decision record put per attempt", i)
+		assert.Equal(t, before.counter.Version, after.counter.Version, "counter version unchanged")
+		assert.Equal(t, before.counter.Value, after.counter.Value, "counter value unchanged")
+		e.RequireUntouched(c)
+		requireNoIntentWork(t, e)
+	}
+}
+
+// With FastMode off the same pending commitment is refused before the
+// policy stage: no verdict, no record, no chain work.
+func TestV1AttackPendingAtStrictMandateGateWritesNothing(t *testing.T) {
+	arch := &countingArchiver{}
+	m := mandate(t, 1, 1)
+	m.FastModeMaxDelay = 50
+	e, ref := fastGate(t, m, arch, false)
+	c, b := pendingDecision(t, e, ref, 1)
 	before := snapshot(t, e, arch)
 	res, err := e.Authorize(b)
 	require.ErrorIs(t, err, gate.ErrAnchorPending)
+	assert.NotErrorIs(t, err, policy.ErrDenied)
 	requireNothingWritten(t, e, arch, before, c, res)
-
-	// Red until the gate wraps the sentinel with the interim reason.
-	t.Run("message names the missing fast-mode path", func(t *testing.T) {
-		require.ErrorContains(t, err, "fast-mode authorization not implemented")
-	})
+	requireNoIntentWork(t, e)
 }

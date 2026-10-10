@@ -32,6 +32,8 @@ type vecCase struct {
 		Version        string `json:"version"`
 		MandateRef     string `json:"mandate_ref_hex"`
 		Mode           string `json:"mode"`
+		H0             string `json:"h0"`
+		AnchorDeadline string `json:"anchor_deadline"`
 	} `json:"decision"`
 	TH     *string `json:"t_h"`
 	Config struct {
@@ -228,6 +230,15 @@ func (c vecCase) input(t testing.TB, d vecDoc) policyInput {
 		in.MandateRef = unhex(t, c.Decision.MandateRef)
 	}
 	in.RequirePolicy = c.Decision.Mode == "2"
+	in.FastMode = c.Decision.Mode == "2"
+	if in.FastMode {
+		require.NotEmpty(t, c.Decision.H0, "a mode 2 case states h0")
+		require.NotEmpty(t, c.Decision.AnchorDeadline, "a mode 2 case states anchor_deadline")
+		in.H0, err = strconv.ParseUint(c.Decision.H0, 10, 64)
+		require.NoError(t, err)
+		in.AnchorDeadline, err = strconv.ParseUint(c.Decision.AnchorDeadline, 10, 64)
+		require.NoError(t, err)
+	}
 	if c.TH != nil {
 		in.TH, err = strconv.ParseUint(*c.TH, 10, 64)
 		require.NoError(t, err)

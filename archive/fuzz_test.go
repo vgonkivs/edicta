@@ -1,6 +1,9 @@
 package archive_test
 
 import (
+	"encoding/hex"
+	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -19,6 +22,7 @@ func FuzzDecode(f *testing.F) {
 	for _, r := range fx.Rejects {
 		f.Add(r.CBOR)
 	}
+	addV1Seeds(f)
 	f.Add([]byte{})
 	f.Fuzz(func(t *testing.T, b []byte) {
 		rec, err := archive.Decode(b)
@@ -31,4 +35,25 @@ func FuzzDecode(f *testing.F) {
 		require.NoError(t, err)
 		require.Equal(t, b, again)
 	})
+}
+
+// addV1Seeds seeds every format 1 record and reject, the anchor intent and
+// absence proof kinds included.
+func addV1Seeds(f *testing.F) {
+	raw, err := os.ReadFile("../spec/vectors/v1/archive.json")
+	require.NoError(f, err)
+	var v struct {
+		Cases []struct {
+			CBOR string `json:"record_cbor_hex"`
+		} `json:"cases"`
+		Reject []struct {
+			CBOR string `json:"record_cbor_hex"`
+		} `json:"reject"`
+	}
+	require.NoError(f, json.Unmarshal(raw, &v))
+	for _, c := range append(v.Cases, v.Reject...) {
+		b, err := hex.DecodeString(c.CBOR)
+		require.NoError(f, err)
+		f.Add(b)
+	}
 }

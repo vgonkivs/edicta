@@ -13,7 +13,9 @@ import (
 // The public-mode marker is the specific deny name; ErrDenied names only the
 // private-mode marker, so ReasonOf must never produce it.
 func TestReasonOfNeverReturnsErrDenied(t *testing.T) {
-	require.Len(t, policy.DenyReasons, 13)
+	require.Len(t, policy.DenyReasons, 14)
+	// Policy order: P1, then P15 (consent to fast mode), then P2.
+	assert.Equal(t, []string{"ErrAgentNotCovered", "ErrFastModeNotAllowed", "ErrNoExtractor"}, policy.DenyReasons[:3])
 	for _, name := range policy.DenyReasons {
 		sentinel, ok := policy.DenySentinel(name)
 		require.True(t, ok, name)
