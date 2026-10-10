@@ -34,11 +34,12 @@ func (v *Verifier) Replay(ctx context.Context, h commitment.Hash) (ReplayReport,
 		r.finish()
 	default:
 		out.K2 = replayK2(r)
-		switch {
-		case !out.K2.Consistent:
+		if out.K2.Consistent {
+			r.pass(CheckRetention)
+		} else {
 			r.unchecked(CheckRetention, ReasonReplayInconsistent, out.K2.Err)
-			r.finish()
 		}
+		r.finish()
 	}
 	out.Report = r.rep
 	return out, nil
@@ -84,6 +85,11 @@ func replayK2(r *run) K2Replay {
 		rep.Err = fmt.Errorf("%w: authorized at %d, not before valid until %d", ErrGateInconsistent, a.AuthorizedAt, r.c.ValidUntil)
 	case r.sa.Authorization.Expires < a.AuthorizedAt:
 		rep.Err = fmt.Errorf("%w: expires %d before it was issued at %d", ErrGateInconsistent, r.sa.Authorization.Expires, a.AuthorizedAt)
+	case k.FastWindow != 0 && r.sa.Authorization.Mode != commitment.ModeFast:
+		rep.Err = fmt.Errorf("%w: a fast window %d for a strict Authorization", ErrGateInconsistent, k.FastWindow)
+	case k.FastWindow != 0 && r.sa.Authorization.AnchorDeadline-r.c.PayloadRef.Height > k.FastWindow:
+		rep.Err = fmt.Errorf("%w: anchor deadline %d is more than the archived fast window %d above h0 %d", ErrGateInconsistent,
+			r.sa.Authorization.AnchorDeadline, k.FastWindow, r.c.PayloadRef.Height)
 	case rep.AuthorizedPath == commitment.PathDA && !rep.Within:
 		rep.Err = fmt.Errorf("%w: the DA path was authorized outside the retention window", ErrGateInconsistent)
 	}

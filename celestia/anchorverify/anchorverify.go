@@ -174,7 +174,7 @@ func (fibreAnchor) VerifyAnchor(ref commitment.PayloadRef, ev *archive.EvidenceR
 	if ev.PromiseHeight > ref.Height {
 		return verifier.AnchorFacts{}, fmt.Errorf("promise height %d is above the anchor height %d", ev.PromiseHeight, ref.Height)
 	}
-	promiseHeader, ph, err := decodePromiseHeader(ev.PromiseHeader)
+	promiseHeader, ph, promiseTime, err := decodePromiseHeader(ev.PromiseHeader)
 	if err != nil {
 		return verifier.AnchorFacts{}, err
 	}
@@ -209,6 +209,7 @@ func (fibreAnchor) VerifyAnchor(ref commitment.PayloadRef, ev *archive.EvidenceR
 		AnchorHeaderHash:   hash,
 		PromiseHeaderHash:  ph,
 		PromiseHeight:      ev.PromiseHeight,
+		PromiseBlockTime:   promiseTime,
 		PromiseBlobSize:    uint64(pff.Promise.BlobSize),
 		CertSignedPower:    rep.SignedPower,
 		CertTotalPower:     rep.TotalPower,
@@ -304,26 +305,29 @@ func checkSystemBlob(ev *archive.EvidenceRecord) error {
 
 // decodePromiseHeader reads the protobuf SignedHeader the archive keeps for
 // the promise height. It returns the inner header, marshalled for the
-// certificate check, and its hash.
-func decodePromiseHeader(raw []byte) ([]byte, []byte, error) {
+// certificate check, its hash and its time in seconds.
+func decodePromiseHeader(raw []byte) ([]byte, []byte, uint64, error) {
 	var sh cmtproto.SignedHeader
 	if err := sh.Unmarshal(raw); err != nil {
-		return nil, nil, fmt.Errorf("promise header: %w", err)
+		return nil, nil, 0, fmt.Errorf("promise header: %w", err)
 	}
 	if sh.Header == nil {
-		return nil, nil, errors.New("promise header: signed header has no header")
+		return nil, nil, 0, errors.New("promise header: signed header has no header")
 	}
 	ch, err := core.HeaderFromProto(sh.Header)
 	if err != nil {
-		return nil, nil, fmt.Errorf("promise header: %w", err)
+		return nil, nil, 0, fmt.Errorf("promise header: %w", err)
 	}
 	hash := ch.Hash()
 	if len(hash) != 32 {
-		return nil, nil, errors.New("promise header has no hash")
+		return nil, nil, 0, errors.New("promise header has no hash")
+	}
+	if ch.Time.Unix() < 0 {
+		return nil, nil, 0, fmt.Errorf("promise header time %s is before 1970", ch.Time.UTC().Format(time.RFC3339))
 	}
 	inner, err := sh.Header.Marshal()
 	if err != nil {
-		return nil, nil, fmt.Errorf("promise header: %w", err)
+		return nil, nil, 0, fmt.Errorf("promise header: %w", err)
 	}
-	return inner, hash, nil
+	return inner, hash, uint64(ch.Time.Unix()), nil
 }

@@ -245,9 +245,11 @@ type Report struct {
 	Execution               *ExecutionInfo
 	Policy                  *PolicyInfo
 	GateIntegrity           GateIntegrity
-	HeaderTrust             HeaderTrustReport
-	Checks                  []Check
-	Warnings                []string
+	// Fast is set for a pending reference whose Authorization verified.
+	Fast        *FastInfo
+	HeaderTrust HeaderTrustReport
+	Checks      []Check
+	Warnings    []string
 }
 
 // Check returns the step with this name.

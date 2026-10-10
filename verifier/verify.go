@@ -64,6 +64,9 @@ type run struct {
 	sig []byte
 
 	execRequested bool
+	// checkpointH is the trusted header height a pending reference's
+	// absence check learned; 0 when unknown.
+	checkpointH uint64
 }
 
 // Verify checks the archived decision under h. The error is for operational
@@ -478,6 +481,9 @@ func (r *run) compareSalt(payloadSalt []byte) {
 }
 
 func (r *run) anchorAndTrust() error {
+	if r.c.PayloadRef.Pending() {
+		return r.pendingAnchor()
+	}
 	ok, err := r.anchor()
 	if err != nil {
 		return err
@@ -522,10 +528,6 @@ func (r *run) anchorTime() {
 // do not depend on the DA.
 func (r *run) anchor() (bool, error) {
 	ref := r.c.PayloadRef
-	bad := func(err error) (bool, error) {
-		r.corrupt(CheckAnchor, ErrAnchorInvalid, err)
-		return false, nil
-	}
 	av := r.v.anchors[ref.DA]
 	if av == nil {
 		r.unchecked(CheckAnchor, ReasonDAUnsupported, fmt.Errorf("%w: da %d", ErrAnchorUnsupported, ref.DA))
@@ -540,65 +542,85 @@ func (r *run) anchor() (bool, error) {
 		return false, nil
 	}
 	if ev.Height != ref.Height {
-		return bad(fmt.Errorf("evidence is for height %d, the decision names %d", ev.Height, ref.Height))
+		r.corrupt(CheckAnchor, ErrAnchorInvalid, fmt.Errorf("evidence is for height %d, the decision names %d", ev.Height, ref.Height))
+		return false, nil
 	}
-	facts, err := av.VerifyAnchor(ref, ev)
+	facts, err := r.evidenceFacts(av, ref, ev)
 	if errors.Is(err, ErrAnchorUnsupported) {
 		r.unchecked(CheckAnchor, ReasonDAUnsupported, err)
 		return false, nil
 	}
 	if err != nil {
-		return bad(err)
+		r.corrupt(CheckAnchor, ErrAnchorInvalid, err)
+		return false, nil
+	}
+	r.adoptFacts(facts)
+	r.pass(CheckAnchor)
+	return true, nil
+}
+
+// evidenceFacts runs the anchor verifier on ev, read as the evidence at
+// ref.Height, and holds its facts to the rules that do not depend on the DA.
+// An error wrapping ErrAnchorUnsupported means the verifier declined the da;
+// any other error is evidence that does not verify.
+func (r *run) evidenceFacts(av AnchorVerifier, ref commitment.PayloadRef, ev *archive.EvidenceRecord) (AnchorFacts, error) {
+	facts, err := av.VerifyAnchor(ref, ev)
+	if err != nil {
+		return AnchorFacts{}, err
 	}
 	if facts.Settlement != "" && facts.Settlement != settlementNodeAttested {
-		return bad(fmt.Errorf("settlement level %q is not reported", facts.Settlement))
+		return AnchorFacts{}, fmt.Errorf("settlement level %q is not reported", facts.Settlement)
 	}
 	if ref.DA == commitment.DAFibre {
 		if facts.Settlement != settlementNodeAttested {
-			return bad(errors.New("a da = 1 anchor must report the node-attested settlement"))
+			return AnchorFacts{}, errors.New("a da = 1 anchor must report the node-attested settlement")
 		}
 		if p := facts.CertTokenPrecision; p != precisionRobust && p != precisionBucketDependent {
-			return bad(fmt.Errorf("certificate token precision %q is neither %s nor %s", p, precisionRobust, precisionBucketDependent))
+			return AnchorFacts{}, fmt.Errorf("certificate token precision %q is neither %s nor %s", p, precisionRobust, precisionBucketDependent)
 		}
 	}
 	if len(facts.AnchorHeaderHash) == 0 {
-		return bad(fmt.Errorf("no header hash for height %d", ref.Height))
+		return AnchorFacts{}, fmt.Errorf("no header hash for height %d", ref.Height)
 	}
 	if ref.DA == commitment.DAFibre {
 		if ev.PromiseHeight == 0 {
-			return bad(errors.New("evidence has no promise height"))
+			return AnchorFacts{}, errors.New("evidence has no promise height")
 		}
 		if facts.PromiseHeight != ev.PromiseHeight {
-			return bad(fmt.Errorf("promise height %d, the evidence names %d", facts.PromiseHeight, ev.PromiseHeight))
+			return AnchorFacts{}, fmt.Errorf("promise height %d, the evidence names %d", facts.PromiseHeight, ev.PromiseHeight)
 		}
 		if facts.PromiseHeight > ref.Height {
-			return bad(fmt.Errorf("promise height %d is above the anchor height %d", facts.PromiseHeight, ref.Height))
+			return AnchorFacts{}, fmt.Errorf("promise height %d is above the anchor height %d", facts.PromiseHeight, ref.Height)
 		}
 		if len(facts.PromiseHeaderHash) == 0 {
-			return bad(fmt.Errorf("no header hash for height %d", facts.PromiseHeight))
+			return AnchorFacts{}, fmt.Errorf("no header hash for height %d", facts.PromiseHeight)
 		}
 		if facts.PromiseHeight == ref.Height && !bytes.Equal(facts.PromiseHeaderHash, facts.AnchorHeaderHash) {
-			return bad(fmt.Errorf("two different headers at height %d", ref.Height))
+			return AnchorFacts{}, fmt.Errorf("two different headers at height %d", ref.Height)
 		}
 		if want, ok := uploadSize(r.c.PayloadSize); !ok || facts.PromiseBlobSize != want {
-			return bad(fmt.Errorf("promise blob size %d does not match the committed payload size %d", facts.PromiseBlobSize, r.c.PayloadSize))
+			return AnchorFacts{}, fmt.Errorf("promise blob size %d does not match the committed payload size %d", facts.PromiseBlobSize, r.c.PayloadSize)
 		}
 		if facts.ProofForm != 1 {
-			return bad(fmt.Errorf("anchor proof form %d", facts.ProofForm))
+			return AnchorFacts{}, fmt.Errorf("anchor proof form %d", facts.ProofForm)
 		}
 		if facts.CandidatesEarlier < 0 {
-			return bad(fmt.Errorf("%d earlier candidates", facts.CandidatesEarlier))
+			return AnchorFacts{}, fmt.Errorf("%d earlier candidates", facts.CandidatesEarlier)
 		}
 		if facts.CertTotalPower <= 0 || facts.CertSignedPower < 0 || facts.CertSignedPower > facts.CertTotalPower {
-			return bad(fmt.Errorf("certificate powers %d of %d", facts.CertSignedPower, facts.CertTotalPower))
+			return AnchorFacts{}, fmt.Errorf("certificate powers %d of %d", facts.CertSignedPower, facts.CertTotalPower)
 		}
 	}
+	return facts, nil
+}
 
+// adoptFacts makes verified anchor facts the run's and reports them.
+func (r *run) adoptFacts(facts AnchorFacts) {
 	r.facts = &facts
 	r.rep.BlockTime = facts.BlockTime
 	r.rep.RetentionStart = facts.RetentionStart
 	r.rep.Settlement = facts.Settlement
-	if ref.DA == commitment.DAFibre {
+	if r.c.PayloadRef.DA == commitment.DAFibre {
 		r.cert(facts)
 		r.rep.AnchorProofForm = facts.ProofForm
 		r.rep.AnchorCandidatesEarlier = facts.CandidatesEarlier
@@ -606,8 +628,6 @@ func (r *run) anchor() (bool, error) {
 			r.warn("anchor: %d other promises for this blob are earlier; their result codes are not archived, so the retention start rests on the creation time the gate recorded", facts.CandidatesEarlier)
 		}
 	}
-	r.pass(CheckAnchor)
-	return true, nil
 }
 
 func (r *run) cert(f AnchorFacts) {
@@ -662,14 +682,16 @@ func (r *run) neededHeaders() []headerAt {
 	return hs
 }
 
-func (r *run) headerTrust() error {
+func (r *run) headerTrust() error { return r.trustHeaders(r.neededHeaders()) }
+
+// trustHeaders ties every header the anchor check relied on to the chain.
+func (r *run) trustHeaders(headers []headerAt) error {
 	ht := &r.rep.HeaderTrust
 	if r.v.trust == nil {
 		ht.Status = TrustUnchecked
 		r.unchecked(CheckHeaderTrust, ReasonNoTrustedHeader, errors.New("no trusted header supplied"))
 		return nil
 	}
-	headers := r.neededHeaders()
 	ht.Hashes = make(map[uint64][]byte, len(headers))
 	for _, h := range headers {
 		ht.Hashes[h.height] = h.hash

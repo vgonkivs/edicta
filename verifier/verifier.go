@@ -265,8 +265,11 @@ type AnchorFacts struct {
 	// PromiseHeaderHash, PromiseHeight and PromiseBlobSize describe the
 	// payment promise (da = 1). The promise height never exceeds the anchor
 	// height; the two headers are checked through header trust separately.
-	PromiseHeaderHash  []byte
-	PromiseHeight      uint64
+	PromiseHeaderHash []byte
+	PromiseHeight     uint64
+	// PromiseBlockTime is the time of the promise header, in seconds: T_ref
+	// of a pending reference, whose promise height is h0.
+	PromiseBlockTime   uint64
 	PromiseBlobSize    uint64
 	CertSignedPower    int64
 	CertTotalPower     int64
@@ -326,6 +329,10 @@ type Deps struct {
 	// Extractors serve the policy check. Without one for an action type,
 	// the policy check of such a decision is unchecked.
 	Extractors *policy.Extractors
+	// Pending serves the anchor check of pending references: the header at
+	// h0 for da = 2, the absence proofs and the intent signer. Without it a
+	// pending reference without evidence in its window is never decided.
+	Pending PendingChain
 }
 
 type Verifier struct {
@@ -336,6 +343,7 @@ type Verifier struct {
 	trust      HeaderTrust
 	executions map[string]ExecutionChecker
 	extractors *policy.Extractors
+	pending    PendingChain
 }
 
 func New(d Deps) (*Verifier, error) {
@@ -361,6 +369,7 @@ func New(d Deps) (*Verifier, error) {
 		committers: make(map[commitment.DA]gate.DACommitter, len(d.Committers)),
 		anchors:    make(map[commitment.DA]AnchorVerifier, len(d.Anchors)),
 		trust:      d.Trust,
+		pending:    d.Pending,
 	}
 	for da, c := range d.Committers {
 		if c == nil {
