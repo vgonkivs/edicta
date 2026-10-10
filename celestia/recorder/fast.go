@@ -531,7 +531,32 @@ func (f *fastCore) prepare(ctx context.Context, d fastDA, e *fastEntry, comm, bl
 		return sdk.Published{}, false, false, err
 	}
 	sent, err = f.send(ctx, d, e, dr, blob)
+	if errors.Is(err, errProcessed) {
+		pub, err := f.processed(ctx, d, e, comm, blob)
+		return pub, true, false, err
+	}
 	return sdk.Published{}, false, sent, err
+}
+
+// processed answers a new intent whose promise the chain settled before its
+// tx arrived: a tx carrying the promise landed since the promise height, or
+// a timeout settlement took it and no anchor will ever land. No pending
+// reference is returned for it: it would rest on a tx that cannot land.
+func (f *fastCore) processed(ctx context.Context, d fastDA, e *fastEntry, comm, blob []byte) (sdk.Published, error) {
+	head, _, err := d.head(ctx)
+	if err != nil {
+		return sdk.Published{}, err
+	}
+	dr := e.draft
+	h, found, _, err := f.scanStep(ctx, d, e, comm, min(head, dr.landBy))
+	if err != nil {
+		return sdk.Published{}, fmt.Errorf("%w: scan: %w", ErrNodeUnavailable, err)
+	}
+	if found {
+		return f.landed(ctx, d, e, comm, blob, node.TxStatus{Found: true, Height: h})
+	}
+	f.giveUp(dr)
+	return sdk.Published{}, f.stick(e, fmt.Errorf("%w: the chain had already processed the promise, and no block since its height carries the anchor", ErrAnchorTxRejected))
 }
 
 // findIntent looks for an archived intent of comm near the payload record's
@@ -747,7 +772,7 @@ func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentD
 		return false, f.stick(e, fmt.Errorf("%w: %w", ErrIntentStale, err))
 	case errors.Is(err, errProcessed):
 		f.markScan(e)
-		return true, nil
+		return false, err
 	case errors.Is(err, node.ErrRejected):
 		f.giveUp(dr)
 		return false, f.stick(e, fmt.Errorf("%w: %w", ErrAnchorTxRejected, err))

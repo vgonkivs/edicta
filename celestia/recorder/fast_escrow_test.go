@@ -166,21 +166,31 @@ func TestFastFibreReleasesTheEscrowOfALandedAnchorOnce(t *testing.T) {
 	require.ErrorAs(t, err, &short, "two uploads are in flight; a release counted twice would let a third through")
 }
 
+// The node answers "already processed" only for a promise the chain has
+// settled: the anchor is then in a block since the promise height, or a
+// timeout settlement took the promise and no anchor will land.
 func TestFastFibreAlreadyProcessedPromiseIsFoundByScanning(t *testing.T) {
 	f := newFibreFast(t)
+	h := f.h0 + 1
+	f.fibreFx.node.Land(*f.pff(h))
 	f.node.script(fmt.Errorf("%w: payment promise has already been processed", node.ErrRejected))
 	r := f.rec()
 	pub, err := r.Publish(bg, f.blob)
 	require.NoError(t, err, "a promise the chain settled under another tx is not a refusal")
-	require.True(t, pub.Ref.Pending())
+	assert.False(t, pub.Ref.Pending(), "the anchor is found before Publish returns")
+	assert.Equal(t, h, pub.Ref.Height)
+	assert.True(t, f.evidence())
+	assert.Len(t, f.node.sends(), 1)
+}
 
-	h := f.h0 + 3
-	f.fibreFx.node.Land(*f.pff(h))
-	f.truth.Store(h)
-	require.Eventually(t, f.evidence, 5*time.Second, time.Millisecond, "the loop finds the anchor by height")
-	again, err := r.Publish(bg, f.blob)
-	require.NoError(t, err)
-	assert.Equal(t, h, again.Ref.Height)
+func TestFastFibreAlreadyProcessedPromiseWithoutAnAnchorIsRefused(t *testing.T) {
+	f := newFibreFast(t)
+	f.node.script(fmt.Errorf("%w: payment promise has already been processed", node.ErrRejected))
+	r := f.rec()
+	_, err := r.Publish(bg, f.blob)
+	require.ErrorIs(t, err, recorder.ErrAnchorTxRejected, "no pending reference on a tx that cannot land")
+	_, err = r.Publish(bg, f.blob)
+	require.ErrorIs(t, err, recorder.ErrAnchorTxRejected, "sticky")
 	assert.Len(t, f.node.sends(), 1)
 }
 
