@@ -21,6 +21,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/secret"
 	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
+	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/sdk/blob"
 )
 
@@ -109,6 +110,12 @@ func (r *Runner) newRunKeys() error {
 
 // prepare is steps 0a to 0c: no broadcast, nothing needs the user's Enter.
 func (r *Runner) prepare(ctx context.Context) error {
+	return r.prepareWith(ctx, r.loadChainKeys, nil)
+}
+
+// prepareWith runs chainKeys before the run directory exists and runKeys,
+// when set, right after the run's own keys are written into it.
+func (r *Runner) prepareWith(ctx context.Context, chainKeys, runKeys func() error) error {
 	sc := r.deps.Screen
 	var err error
 	if r.dirs, err = prepareHome(r.cfg.Home); err != nil {
@@ -117,7 +124,7 @@ func (r *Runner) prepare(ctx context.Context) error {
 	if r.releaseHome, err = lockHome(filepath.Join(r.dirs.home, "lock")); err != nil {
 		return coded(ExitUsage, err)
 	}
-	if err := r.loadChainKeys(); err != nil {
+	if err := chainKeys(); err != nil {
 		return err
 	}
 	if r.runDir, err = newRunDir(r.dirs.runs, r.deps.now()); err != nil {
@@ -126,6 +133,11 @@ func (r *Runner) prepare(ctx context.Context) error {
 	r.out.RunDir = r.runDir
 	if err := r.newRunKeys(); err != nil {
 		return coded(ExitUsage, err)
+	}
+	if runKeys != nil {
+		if err := runKeys(); err != nil {
+			return err
+		}
 	}
 	sc.Info(fmt.Sprintf("run directory %s (kept); a fresh archive, registry and keys for this run", r.runDir))
 
@@ -137,15 +149,10 @@ func (r *Runner) prepare(ctx context.Context) error {
 
 func (r *Runner) loadChainKeys() error {
 	hrp := r.preset.HRP
+	if err := r.loadFunderKey(); err != nil {
+		return err
+	}
 	var err error
-	if r.cfg.Funder.Generated() {
-		r.funder, err = loadOrCreateKey(filepath.Join(r.dirs.chain, funderName), funderName, hrp)
-	} else {
-		r.funder, err = r.userFunderKey(hrp)
-	}
-	if err != nil {
-		return coded(ExitUsage, err)
-	}
 	if r.recorderKey, err = loadOrCreateKey(filepath.Join(r.dirs.chain, recorderName), recorderName, hrp); err != nil {
 		return coded(ExitUsage, err)
 	}
@@ -155,6 +162,19 @@ func (r *Runner) loadChainKeys() error {
 	a, b, c := r.funder.addr, r.recorderKey.addr, r.executorKey.addr
 	if a == b || a == c || b == c {
 		return coded(ExitUsage, ErrSameAccount)
+	}
+	return nil
+}
+
+func (r *Runner) loadFunderKey() error {
+	var err error
+	if r.cfg.Funder.Generated() {
+		r.funder, err = loadOrCreateKey(filepath.Join(r.dirs.chain, funderName), funderName, r.preset.HRP)
+	} else {
+		r.funder, err = r.userFunderKey(r.preset.HRP)
+	}
+	if err != nil {
+		return coded(ExitUsage, err)
 	}
 	return nil
 }
@@ -282,10 +302,16 @@ func readTotalSent(path string) uint64 {
 // startGate is step 1: write the gate's files, build its dependencies with
 // the Recorder's submitter behind the Consent, and start it in this process.
 func (r *Runner) startGate(ctx context.Context) error {
-	sc := r.deps.Screen
 	if err := r.writeConfigs(); err != nil {
 		return coded(ExitUsage, err)
 	}
+	return r.launchGate(ctx)
+}
+
+// launchGate builds the gate's dependencies from the written configuration,
+// starts it and opens the API clients.
+func (r *Runner) launchGate(ctx context.Context) error {
+	sc := r.deps.Screen
 	deps, closeDeps, err := r.deps.NewGateDeps(ctx, r.edCfg)
 	if err != nil {
 		return coded(ExitInconclusive, fmt.Errorf("demo: gate dependencies: %w", err))
@@ -343,7 +369,11 @@ func (r *Runner) startGate(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runner) writeConfigs() error {
+func (r *Runner) writeConfigs() error { return r.writeConfigsWith(nil, nil) }
+
+// writeConfigsWith lets a scene change the mandate before it is signed and
+// the daemon's configuration before it is written.
+func (r *Runner) writeConfigsWith(mm func(*policy.Mandate), mc func(*edictad.Config)) error {
 	agents := struct {
 		Agents []map[string]string `toml:"agents"`
 	}{Agents: []map[string]string{{"agent_id": agentID, "pubkey": hex.EncodeToString(r.keys.agent.Public().(ed25519.PublicKey))}}}
@@ -360,7 +390,7 @@ func (r *Runner) writeConfigs() error {
 	if err := os.Mkdir(archiveDir, 0o700); err != nil {
 		return err
 	}
-	mandatePath, err := r.writeMandate(gateID)
+	mandatePath, err := r.writeMandateWith(gateID, mm)
 	if err != nil {
 		return err
 	}
@@ -389,6 +419,9 @@ func (r *Runner) writeConfigs() error {
 			AuthorizeTokenFile: filepath.Join(r.runDir, "api.token"), RecordTokenFile: filepath.Join(r.runDir, "record.token"),
 		},
 	}
+	if mc != nil {
+		mc(&cfg)
+	}
 	raw, err := toml.Marshal(cfg)
 	if err != nil {
 		return err
@@ -409,42 +442,32 @@ func (r *Runner) fundAndStart(ctx context.Context) error {
 	if err := l.settle(ctx); err != nil {
 		return err
 	}
-	bal := func(addr string) (uint64, error) {
-		v, _, err := r.deps.Chain.BalanceAt(ctx, addr, r.preset.Denom, l.seen)
-		if err != nil {
-			return 0, coded(ExitInconclusive, fmt.Errorf("demo: balance of %s: %w", addr, err))
-		}
-		return v, nil
-	}
-	var have Balances
+	var b Budget
 	var err error
-	if have.Funder, err = bal(r.funder.addr); err != nil {
-		return err
+	if r.budget != nil {
+		b, err = r.budget(ctx)
+	} else {
+		b, err = r.demoBudget(ctx)
 	}
-	if have.Recorder, err = bal(r.recorderKey.addr); err != nil {
-		return err
-	}
-	if have.Executor, err = bal(r.executorKey.addr); err != nil {
-		return err
-	}
-	b, err := ComputeBudget(BudgetParams{
-		MinGasPrice: r.minGas, SendGas: f.GasLimit, PFBGas: f.PFBGas, Amount: r.cfg.AmountUTIA, MaxAmount: f.MaxAmount,
-	}, have)
 	if err != nil {
-		return coded(ExitUsage, err)
+		return err
 	}
 	sc.Info(fmt.Sprintf("Funding node %s is trusted; at most %d utia per send, %d in total from this funder.", r.preset.GRPC.Addr, f.MaxAmount, f.MaxTotalAmount))
+	have, err := r.funderBalance(ctx)
+	if err != nil {
+		return err
+	}
 	var prompt string
 	switch {
 	case b.Total == 0:
 		sc.Info("[funding] nothing to move: the demo accounts already hold enough")
 		prompt = "Press Enter to start."
-	case have.Funder >= b.Total:
+	case have >= b.Total:
 		sc.Info(fmt.Sprintf("[funding] will move %d utia from %s (recorder %d, executor %d, fees %d)", b.Total, r.funder.addr, b.Recorder, b.Executor, b.FunderFees))
 		prompt = fmt.Sprintf("Press Enter to move %d utia and start.", b.Total)
 	default:
 		sc.Info(fmt.Sprintf("[funding] will move %d utia from %s (recorder %d, executor %d, fees %d)", b.Total, r.funder.addr, b.Recorder, b.Executor, b.FunderFees))
-		sc.Info(fmt.Sprintf("The funder holds %d. Fund %s (%s)", have.Funder, r.funder.addr, r.preset.FaucetHint))
+		sc.Info(fmt.Sprintf("The funder holds %d. Fund %s (%s)", have, r.funder.addr, r.preset.FaucetHint))
 		prompt = fmt.Sprintf("Will move %d utia from %s. Fund it, then press Enter to start.", b.Total, r.funder.addr)
 	}
 	if err := r.deps.Console.Flush(); err != nil {
@@ -477,4 +500,40 @@ func (r *Runner) fundAndStart(ctx context.Context) error {
 	r.out.Funding = l.sends
 	sc.OK(fmt.Sprintf("accounts funded (%d send(s))", len(l.sends)))
 	return nil
+}
+
+func (r *Runner) balance(ctx context.Context, addr string) (uint64, error) {
+	v, _, err := r.deps.Chain.BalanceAt(ctx, addr, r.preset.Denom, r.loop.seen)
+	if err != nil {
+		return 0, coded(ExitInconclusive, fmt.Errorf("demo: balance of %s: %w", addr, err))
+	}
+	return v, nil
+}
+
+func (r *Runner) funderBalance(ctx context.Context) (uint64, error) {
+	return r.balance(ctx, r.funder.addr)
+}
+
+// demoBudget is what the demo's Recorder and executor accounts lack.
+func (r *Runner) demoBudget(ctx context.Context) (Budget, error) {
+	f := r.preset.Funding
+	bal := func(addr string) (uint64, error) { return r.balance(ctx, addr) }
+	var have Balances
+	var err error
+	if have.Funder, err = bal(r.funder.addr); err != nil {
+		return Budget{}, err
+	}
+	if have.Recorder, err = bal(r.recorderKey.addr); err != nil {
+		return Budget{}, err
+	}
+	if have.Executor, err = bal(r.executorKey.addr); err != nil {
+		return Budget{}, err
+	}
+	b, err := ComputeBudget(BudgetParams{
+		MinGasPrice: r.minGas, SendGas: f.GasLimit, PFBGas: f.PFBGas, Amount: r.cfg.AmountUTIA, MaxAmount: f.MaxAmount,
+	}, have)
+	if err != nil {
+		return Budget{}, coded(ExitUsage, err)
+	}
+	return b, nil
 }

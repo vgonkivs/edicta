@@ -55,6 +55,7 @@ type decision struct {
 
 	authBytes   []byte
 	authExpires uint64
+	auth        commitment.Authorization
 	txHash      [32]byte
 	txHeight    uint64
 	receipt     []byte
@@ -230,6 +231,7 @@ func (r *Runner) authorizeWith(ctx context.Context, az authorizer, d *decision) 
 	}
 	d.authBytes = raw
 	d.authExpires = sa.Authorization.Expires
+	d.auth = sa.Authorization
 	return nil
 }
 

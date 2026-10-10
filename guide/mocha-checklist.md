@@ -21,6 +21,16 @@ What it shows, per data availability mode:
 Steps marked **UNVERIFIED** use commands or node options nobody has run
 yet. Write down what actually happened.
 
+**Recommended for `celestia_blob`:** `edicta demo fast-live` runs sections 1
+to 4 in one command (fresh Recorder account, fees from your funder, fast
+config, publish, fast Authorization, evidence at H, `verify`), and
+`edicta demo fast-live --restart` adds section 7. It prints a report keyed by
+the section numbers below; copy it into the Results table. It uses public
+endpoints with `own_node = true` as a test-only attestation. See
+[the demo README](../celestia/demo/README.md#live-scene-fast-mode-on-mocha).
+The manual steps below remain for `fibre`, for your own node, and for
+sections 5 and 6.
+
 ## 0. Prerequisites
 
 - Your own Mocha consensus node: celestia-app 10.x, `tx_index = "kv"`, gRPC

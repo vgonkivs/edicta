@@ -59,6 +59,34 @@ Recorder's account. Exit 0 when both verdicts are as expected, 1 otherwise.
 The run directory (archive, trusted headers, config) is kept, and the printed
 `edicta verify` commands rerun offline.
 
+## Live scene: fast mode on Mocha
+
+`celestia/bin/edicta demo fast-live [--restart] [funder and endpoint flags]`
+runs section 4 of [the Mocha checklist](../../guide/mocha-checklist.md) (and
+section 7 with `--restart`) in one command, with `da = celestia_blob` and the
+same funder flags, caps, endpoints and `--trusted-header` as `edicta demo`.
+It:
+1. creates a fresh Recorder account (a new secp256k1 key in
+   `<run>/recorder-fast/`, never the demo's own Recorder key) and funds it
+   with fees only through the capped funder (`--max-recorder-funding`, default
+   20000 utia per send);
+2. signs a mandate with `fast_mode_max_delay` 30 (Ed25519 principal) and
+   starts edictad in this process with `[gate.fast]` and the fast Recorder
+   (`fast_timeout_blocks` 40). `own_node = true` is set as a test-only
+   attestation: the endpoints are public, and the scene warns about it;
+3. publishes, signs the pending reference (`inclusion.Pending`) and gets a
+   fast-mode Authorization (it is never executed);
+4. waits for the anchor at H > h0 and its evidence, checks the intent was
+   archived before the evidence, one anchor tx (sequence + 1), and the block
+   time of H after h0, then runs `edicta verify`;
+5. with `--restart`, stops the in-process daemon right after the publish
+   (before H) and starts it again: the evidence comes at H from the archived
+   intent, with no second signature.
+
+The step report names each row by its checklist section; it is also written
+to `<run>/fast-live.json`. Exit codes are those of `edicta demo`. Sections 5
+and 6 of the checklist (stale sequence, killed anchor) stay manual.
+
 ## Build and run
 
 From the repository root:

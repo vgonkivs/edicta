@@ -1,7 +1,7 @@
 // Command edicta is the Edicta command line.
 //
 //	edicta verify|replay <commitment_hash> --gate-key HEX ...
-//	edicta demo [flags]
+//	edicta demo [fast-mode | fast-live] [flags]
 package main
 
 import (
@@ -14,7 +14,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/verifycli"
 )
 
-const usage = "usage: edicta demo [fast-mode] | verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) [flags]"
+const usage = "usage: edicta demo [fast-mode | fast-live [--restart]] | verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) [flags]"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout)) }
 

@@ -57,10 +57,15 @@ func (r *Runner) buildMandate(gateID string) (*policy.Mandate, error) {
 
 // writeMandate signs the mandate with the run's principal key, writes it for
 // the gate and keeps the text to show.
-func (r *Runner) writeMandate(gateID string) (string, error) {
+func (r *Runner) writeMandate(gateID string) (string, error) { return r.writeMandateWith(gateID, nil) }
+
+func (r *Runner) writeMandateWith(gateID string, mm func(*policy.Mandate)) (string, error) {
 	m, err := r.buildMandate(gateID)
 	if err != nil {
 		return "", err
+	}
+	if mm != nil {
+		mm(m)
 	}
 	signed, mh, err := policy.SignMandate(r.keys.principal, m)
 	if err != nil {

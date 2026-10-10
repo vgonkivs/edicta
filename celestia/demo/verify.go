@@ -78,11 +78,12 @@ func (r *Runner) verifyArgs(hash commitment.Hash, archiveURL, receipt string, ro
 		"--archive-url", archiveURL,
 		"--headers-rpc", v.HeadersRPC,
 		"--checkpoint", fmt.Sprintf("%d:%s", root.Height, hex.EncodeToString(root.Hash)),
-		"--receipt", receipt,
-		"--tx-rpc", v.TxRPC,
-		"--check-execution",
-		"--principal-key", r.principalHex, "--require-policy", "--policy-full",
 	}
+	// No receipt means no execution to check: the fast-live scene never sends.
+	if receipt != "" {
+		args = append(args, "--receipt", receipt, "--tx-rpc", v.TxRPC, "--check-execution")
+	}
+	args = append(args, "--principal-key", r.principalHex, "--require-policy", "--policy-full")
 	for _, c := range v.CrossCheckRPC {
 		args = append(args, "--cross-check", c)
 	}

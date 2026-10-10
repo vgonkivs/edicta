@@ -91,6 +91,8 @@ type Runner struct {
 	funding                          Funding
 	abandoner                        Abandoner
 	loop                             *fundingLoop
+	// budget replaces the demo's budget when a scene funds other accounts.
+	budget func(ctx context.Context) (Budget, error)
 
 	keys        runKeys
 	edCfg       edictad.Config
@@ -127,6 +129,19 @@ type Runner struct {
 
 // New validates cfg and the preset and returns a Runner. It does no I/O.
 func New(cfg Config, d Deps) (*Runner, error) {
+	r, err := newRunner(cfg, d, nil)
+	if err != nil {
+		return nil, err
+	}
+	if d.NewRail == nil || d.NewFeed == nil {
+		return nil, fmt.Errorf("%w: factories are required", ErrConfig)
+	}
+	return r, nil
+}
+
+// newRunner is New without the agent's rail and price feed; adjust, when
+// set, changes the preset before it is validated.
+func newRunner(cfg Config, d Deps, adjust func(*Preset)) (*Runner, error) {
 	cfg = cfg.WithDefaults()
 	if err := cfg.ValidateBasic(); err != nil {
 		return nil, coded(ExitUsage, err)
@@ -140,6 +155,9 @@ func New(cfg Config, d Deps) (*Runner, error) {
 	if cfg.MaxTotalFunding > 0 {
 		p.Funding.MaxTotalAmount = cfg.MaxTotalFunding
 	}
+	if adjust != nil {
+		adjust(&p)
+	}
 	if err := p.ValidateBasic(); err != nil {
 		return nil, coded(ExitUsage, err)
 	}
@@ -149,7 +167,7 @@ func New(cfg Config, d Deps) (*Runner, error) {
 	switch {
 	case d.Console == nil || d.Screen == nil || d.Chain == nil || d.Gate == nil:
 		return nil, fmt.Errorf("%w: console, screen, chain and gate are required", ErrConfig)
-	case d.NewFunder == nil || d.NewGateDeps == nil || d.NewRail == nil || d.NewFeed == nil || d.Verify == nil:
+	case d.NewFunder == nil || d.NewGateDeps == nil || d.Verify == nil:
 		return nil, fmt.Errorf("%w: factories are required", ErrConfig)
 	}
 	if d.TrustRoot == nil {

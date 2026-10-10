@@ -17,6 +17,10 @@ import (
 
 const fastUsage = "usage: edicta demo fast-mode [--dir DIR] [--json]"
 
+const fastLiveUsage = "usage: edicta demo fast-live [--restart] [--max-recorder-funding UTIA] [--network mocha] [--home DIR] [--json] " +
+	"[--funder-keyring-dir DIR --funder-key NAME [--funder-passphrase-file FILE] [--address ADDR]] " +
+	"[--max-total-funding UTIA [--yes]] [--trusted-header H:HASH]"
+
 const demoUsage = "usage: edicta demo [--network mocha] [--home DIR] [--amount UTIA] [--json] " +
 	"[--funder-keyring-dir DIR --funder-key NAME [--funder-passphrase-file FILE] [--address ADDR]] " +
 	"[--max-total-funding UTIA [--yes]] [--trusted-header H:HASH]"
@@ -33,6 +37,35 @@ func parseDemo(args []string, out io.Writer) (demo.Config, error) {
 	var c demo.Config
 	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
 	fs.SetOutput(out)
+	demoFlags(fs, &c)
+	if err := fs.Parse(args); err != nil {
+		return c, err
+	}
+	if fs.NArg() != 0 {
+		return c, fmt.Errorf("unexpected argument %q", fs.Arg(0))
+	}
+	return c, nil
+}
+
+func parseFastLive(args []string, out io.Writer) (demo.FastLiveConfig, error) {
+	var c demo.FastLiveConfig
+	fs := flag.NewFlagSet("demo fast-live", flag.ContinueOnError)
+	fs.SetOutput(out)
+	demoFlags(fs, &c.Config)
+	fs.BoolVar(&c.Restart, "restart", false, "stop the in-process edictad before the anchor lands and start it again")
+	fs.Uint64Var(&c.MaxRecorderFunding, "max-recorder-funding", 0, "cap of one funding send to the run's Recorder account (utia); default 20000")
+	if err := fs.Parse(args); err != nil {
+		return c, err
+	}
+	if fs.NArg() != 0 {
+		return c, fmt.Errorf("unexpected argument %q", fs.Arg(0))
+	}
+	return c, nil
+}
+
+// demoFlags are the flags the live scenes share: network, funder and
+// endpoints.
+func demoFlags(fs *flag.FlagSet, c *demo.Config) {
 	fs.StringVar(&c.Network, "network", "mocha", "network preset")
 	fs.StringVar(&c.Home, "home", defaultHome(), "demo home directory; chain keys and run directories live here")
 	fs.Uint64Var(&c.AmountUTIA, "amount", 1000, "utia the agent decides to send")
@@ -52,13 +85,6 @@ func parseDemo(args []string, out io.Writer) (demo.Config, error) {
 	fs.StringVar(&c.Overrides.TxRPC, "tx-rpc", "", "CometBFT RPC for the transaction and its proofs")
 	fs.StringVar(&c.Overrides.TrustRootAPI, "trust-root-api", "", "trust-root block API template with {height}")
 	fs.StringVar(&c.Overrides.TrustRootPage, "trust-root-page", "", "trust-root block page template with {height}")
-	if err := fs.Parse(args); err != nil {
-		return c, err
-	}
-	if fs.NArg() != 0 {
-		return c, fmt.Errorf("unexpected argument %q", fs.Arg(0))
-	}
-	return c, nil
 }
 
 func isTTY(w io.Writer) bool {
@@ -71,6 +97,9 @@ func isTTY(w io.Writer) bool {
 func runDemo(ctx context.Context, args []string, out io.Writer, in *os.File) int {
 	if len(args) > 0 && args[0] == "fast-mode" {
 		return runFastDemo(ctx, args[1:], out)
+	}
+	if len(args) > 0 && args[0] == "fast-live" {
+		return runFastLive(ctx, args[1:], out, in)
 	}
 	cfg, err := parseDemo(args, out)
 	if err != nil {
@@ -100,6 +129,39 @@ func runDemo(ctx context.Context, args []string, out io.Writer, in *os.File) int
 		return demo.ExitCodeOf(err)
 	}
 	res, _ := r.Run(ctx)
+	return res.Code
+}
+
+// runFastLive runs fast mode on the live network with the exit codes of
+// runDemo.
+func runFastLive(ctx context.Context, args []string, out io.Writer, in *os.File) int {
+	cfg, err := parseFastLive(args, out)
+	if err != nil {
+		fmt.Fprintf(out, "edicta: %v\n%s\n", err, fastLiveUsage)
+		return demo.ExitUsage
+	}
+	cfg = cfg.WithDefaults()
+	if err := cfg.ValidateBasic(); err != nil {
+		fmt.Fprintf(out, "edicta: %v\n", err)
+		return demo.ExitUsage
+	}
+	console, err := demo.NewTerminalConsole(in, out)
+	if err != nil {
+		fmt.Fprintf(out, "edicta: %v\n", err)
+		return demo.ExitUsage
+	}
+	deps, closeDeps, err := demo.RealDeps(cfg.Config, console, demo.NewScreen(out, isTTY(out), cfg.JSON))
+	if err != nil {
+		fmt.Fprintf(out, "edicta: %v\n", err)
+		return demo.ExitCodeOf(err)
+	}
+	defer closeDeps()
+	f, err := demo.NewFastLive(cfg, deps)
+	if err != nil {
+		fmt.Fprintf(out, "edicta: %v\n", err)
+		return demo.ExitCodeOf(err)
+	}
+	res, _ := f.Run(ctx)
 	return res.Code
 }
 
