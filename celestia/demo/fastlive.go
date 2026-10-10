@@ -170,7 +170,7 @@ func (f *FastLive) run(ctx context.Context) error {
 	defer r.cleanup()
 
 	f.next("Environment and a fresh Recorder account")
-	if err := r.prepareWith(ctx, r.loadFunderKey, f.newRecorderKey); err != nil {
+	if err := r.prepareWith(ctx, f.loadChainKeys, f.newRecorderKey); err != nil {
 		return err
 	}
 	f.next("edictad in fast mode")
@@ -235,6 +235,23 @@ func passIf(ok bool) string {
 
 // newRecorderKey creates the run's Recorder account in the run directory: a
 // new secp256k1 key no other tool holds, never the demo's own Recorder key.
+// loadChainKeys loads the funder and the executor account; the executor never
+// moves funds here (the Authorization is not executed), so it stays unfunded.
+func (f *FastLive) loadChainKeys() error {
+	r := f.r
+	if err := r.loadFunderKey(); err != nil {
+		return err
+	}
+	var err error
+	if r.executorKey, err = loadOrCreateKey(filepath.Join(r.dirs.chain, executorName), executorName, r.preset.HRP); err != nil {
+		return coded(ExitUsage, err)
+	}
+	if r.executorKey.addr == r.funder.addr {
+		return coded(ExitUsage, ErrSameAccount)
+	}
+	return nil
+}
+
 func (f *FastLive) newRecorderKey() error {
 	r := f.r
 	dir := filepath.Join(r.runDir, fastLiveRecorder)
@@ -246,7 +263,7 @@ func (f *FastLive) newRecorderKey() error {
 		return coded(ExitUsage, err)
 	}
 	r.recorderKey = k
-	if k.addr == r.funder.addr {
+	if k.addr == r.funder.addr || k.addr == r.executorKey.addr {
 		return coded(ExitUsage, ErrSameAccount)
 	}
 	_, b, err := bech32.DecodeAndConvert(k.addr)
@@ -411,7 +428,7 @@ func (f *FastLive) publish(ctx context.Context) error {
 		return coded(ExitUsage, err)
 	}
 	amount := r.cfg.AmountUTIA
-	msg, err := bankmsg.Encode(bankmsg.MsgSend{From: r.funder.addr, To: r.funder.addr, Denom: r.preset.Denom, Amount: amount}, r.preset.HRP)
+	msg, err := bankmsg.Encode(bankmsg.MsgSend{From: r.executorKey.addr, To: r.funder.addr, Denom: r.preset.Denom, Amount: amount}, r.preset.HRP)
 	if err != nil {
 		return coded(ExitUsage, err)
 	}
@@ -420,7 +437,7 @@ func (f *FastLive) publish(ctx context.Context) error {
 		return coded(ExitUsage, err)
 	}
 	note, err := json.Marshal(map[string]any{"strategy": "edicta-demo/fast-live", "rule": "act now, anchor within the window",
-		"action": map[string]any{"type": "bank-send", "from": r.funder.addr, "to": r.funder.addr, "denom": r.preset.Denom, "amount": amount}})
+		"action": map[string]any{"type": "bank-send", "from": r.executorKey.addr, "to": r.funder.addr, "denom": r.preset.Denom, "amount": amount}})
 	if err != nil {
 		return err
 	}
