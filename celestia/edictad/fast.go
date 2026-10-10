@@ -87,13 +87,15 @@ func (f FastConfig) namespaces() ([][]byte, error) {
 	return out, nil
 }
 
-// applyTo copies the table into the gate configuration. The namespaces must
-// have passed validation.
-func (f FastConfig) applyTo(g *gate.Config) {
+// applyTo copies the table into the gate configuration.
+func (f FastConfig) applyTo(g *gate.Config) error {
 	if !f.Enabled {
-		return
+		return nil
 	}
-	ns, _ := f.namespaces()
+	ns, err := f.namespaces()
+	if err != nil {
+		return err
+	}
 	g.FastMode = true
 	g.PendingNamespaces = ns
 	g.FastWindowBlocks = f.FastWindowBlocks
@@ -104,6 +106,7 @@ func (f FastConfig) applyTo(g *gate.Config) {
 		v := *f.RebroadcastIntent
 		g.RebroadcastIntent = &v
 	}
+	return nil
 }
 
 // validateFastNeeds runs before the archive table is checked, so that a
@@ -141,15 +144,14 @@ func (c Config) validateFast() error {
 	if len(f.PendingNamespaces) == 0 {
 		return cfgErr("gate.fast.pending_namespaces is empty")
 	}
-	if _, err := f.namespaces(); err != nil {
-		return err
-	}
 	if f.RebroadcastIntent != nil && !*f.RebroadcastIntent && c.Network.DA != DAConfigFibre {
 		return cfgErr(`gate.fast.rebroadcast_intent applies to da = "fibre" only: with celestia_blob the gate always looks the intent up and broadcasts it`)
 	}
 	g := gate.DefaultConfig()
 	g.Scope = commitment.GateScope{GateID: c.Gate.GateID, ActionTypes: slices.Clone(c.Gate.ActionTypes)}
-	f.applyTo(&g)
+	if err := f.applyTo(&g); err != nil {
+		return err
+	}
 	if err := g.ValidateBasic(); err != nil {
 		return cfgErr("gate.fast: %v", err)
 	}

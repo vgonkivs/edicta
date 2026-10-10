@@ -392,7 +392,9 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 	if fibre {
 		gcfg.FibreMaxDataBytes = cfg.Fibre.MaxDataBytes
 	}
-	cfg.Gate.Fast.applyTo(&gcfg)
+	if err := cfg.Gate.Fast.applyTo(&gcfg); err != nil {
+		return nil, err
+	}
 	if err := gate.Preflight(ctx, gcfg, gate.Deps{Params: gatechain.NewParams(d.Consensus)}); err != nil {
 		return nil, fmt.Errorf("edictad: gate preflight: %w", err)
 	}
