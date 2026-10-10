@@ -183,8 +183,9 @@ func (g *Gate) kFast(ctx context.Context, c *commitment.Commitment) (fastOutcome
 	if err != nil {
 		return fastOutcome{}, g.intentErr(ctx, err)
 	}
-	if f.DA != ref.DA || f.RefTime == 0 {
-		return fastOutcome{}, fmt.Errorf("%w: intent verifier reported da %d and reference time %d", ErrChainUnavailable, f.DA, f.RefTime)
+	// A head time of 0 would let any promise pass the promise slack check.
+	if f.DA != ref.DA || f.RefTime == 0 || (ref.DA == commitment.DAFibre && f.HeadTime == 0) {
+		return fastOutcome{}, fmt.Errorf("%w: intent verifier reported da %d, reference time %d, head time %d", ErrChainUnavailable, f.DA, f.RefTime, f.HeadTime)
 	}
 	if ref.DA == commitment.DAFibre && f.CreatedAt != rec.CreatedAt {
 		return fastOutcome{}, fmt.Errorf("%w: created_at %d, promise creation %d", ErrAnchorIntentInvalid, rec.CreatedAt, f.CreatedAt)
