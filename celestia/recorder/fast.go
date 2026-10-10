@@ -122,13 +122,16 @@ type fastEntry struct {
 	ours  bool
 	draft *intentDraft
 	// hash is the hash of the archived anchor tx, the only one ever sent.
-	hash    [32]byte
+	hash [32]byte
+	// seq is the account sequence the archived anchor tx is signed for.
+	seq     uint64
 	scan    bool
 	scanned uint64
 	pending *sdk.Published
 	done    *sdk.Published
 	sticky  error
 	looping bool
+	d       fastDA
 	blob    []byte
 }
 
@@ -141,13 +144,11 @@ type fastCore struct {
 	poll      time.Duration
 	retryWait time.Duration
 
-	seqMu    sync.Mutex
-	seqKnown bool
-	// learned is set when nextSeq came from the node's own refusal.
-	learned bool
-	accNum  uint64
-	nextSeq uint64
-	bech    string
+	seqMu sync.Mutex
+	// floor is the sequence a node refusal proved the account has reached,
+	// while the committed sequence may still lag behind it.
+	floor uint64
+	bech  string
 
 	mu      sync.Mutex
 	entries map[pendingKey]*fastEntry
@@ -309,7 +310,9 @@ func (f *fastCore) prepare(ctx context.Context, d fastDA, e *fastEntry, comm, bl
 		if err != nil {
 			return sdk.Published{}, false, false, err
 		}
-		f.adopt(d, e, dr, blob)
+		if err := f.adopt(d, e, dr, blob); err != nil {
+			return sdk.Published{}, false, false, err
+		}
 		return sdk.Published{}, false, false, nil
 	}
 	e.ours = true
@@ -337,7 +340,11 @@ func (f *fastCore) findIntent(ctx context.Context, da commitment.DA, comm []byte
 	return nil, nil
 }
 
-func (f *fastCore) adopt(d fastDA, e *fastEntry, dr *intentDraft, blob []byte) {
+func (f *fastCore) adopt(d fastDA, e *fastEntry, dr *intentDraft, blob []byte) error {
+	seq, err := node.TxSequence(dr.rec.Tx)
+	if err != nil {
+		return archiveFault("anchor intent", err)
+	}
 	ref := commitment.PayloadRef{
 		DA: d.da(), Namespace: bytes.Clone(dr.rec.Namespace), Commitment: bytes.Clone(dr.rec.Commitment),
 		Height: dr.rec.RefHeight, Signer: bytes.Clone(dr.rec.Signer), Anchor: commitment.AnchorPending,
@@ -345,11 +352,63 @@ func (f *fastCore) adopt(d fastDA, e *fastEntry, dr *intentDraft, blob []byte) {
 	f.mu.Lock()
 	e.ours = true
 	e.draft = dr
+	e.d = d
 	e.blob = blob
 	e.scanned = dr.rec.RefHeight - 1
 	e.hash = sha256.Sum256(dr.rec.Tx)
+	e.seq = seq
 	e.pending = &sdk.Published{Ref: ref, BlockTime: dr.refTime, RetentionStart: dr.retStart}
 	f.mu.Unlock()
+	return nil
+}
+
+// live reports whether e follows an intent whose anchor tx may still take
+// its sequence: neither landed, nor refused, stale or expired.
+func live(e *fastEntry) bool {
+	return e.draft != nil && e.done == nil && e.sticky == nil && !e.scan
+}
+
+// highestLive is the highest sequence a live intent is signed for.
+func (f *fastCore) highestLive() (uint64, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var hi uint64
+	found := false
+	for _, e := range f.entries {
+		if live(e) && (!found || e.seq > hi) {
+			hi, found = e.seq, true
+		}
+	}
+	return hi, found
+}
+
+// kick sends the live intent signed for seq again: the node reported that
+// sequence missing, and every later intent of this account waits for it.
+func (f *fastCore) kick(ctx context.Context, seq uint64) {
+	f.mu.Lock()
+	var k *fastEntry
+	for _, e := range f.entries {
+		if live(e) && e.seq == seq {
+			k = e
+			break
+		}
+	}
+	var d fastDA
+	var tx, blob []byte
+	if k != nil {
+		d, tx, blob = k.d, k.draft.rec.Tx, k.blob
+	}
+	f.mu.Unlock()
+	if k == nil || d == nil {
+		return
+	}
+	raw, err := d.wire(tx, blob)
+	if err != nil {
+		return
+	}
+	if _, err := f.d.Node.Broadcast(ctx, raw); err != nil && !errors.Is(err, node.ErrAlreadyInMempool) {
+		f.d.Log.Warn("recorder: resending the anchor tx of a missing sequence failed", "sequence", seq, "err", err)
+	}
 }
 
 // send signs the new intent at the account's next sequence, archives it and
@@ -382,13 +441,15 @@ func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentD
 			return false, archiveFault("read anchor intent", rerr)
 		}
 		dr.rec = stored
-		f.adopt(d, e, dr, blob)
-		return false, nil
+		return false, f.adopt(d, e, dr, blob)
 	default:
 		dr.release()
 		return false, archiveFault("write anchor intent", err)
 	}
-	f.adopt(d, e, dr, blob)
+	if err := f.adopt(d, e, dr, blob); err != nil {
+		return false, err
+	}
+	f.floor = 0
 
 	raw, err := d.wire(tx, blob)
 	if err != nil {
@@ -397,28 +458,29 @@ func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentD
 	err = f.broadcast(ctx, raw)
 	switch {
 	case err == nil:
-		f.nextSeq = p.Sequence + 1
 		return true, nil
 	case errors.Is(err, node.ErrSequenceMismatch):
-		if n, ok := node.ExpectedSequence(err); !ok || n <= p.Sequence {
+		n, ok := node.ExpectedSequence(err)
+		if !ok || n <= p.Sequence {
 			// An earlier tx of this account is missing from the mempool: once
 			// that gap fills this tx is valid, and a retry resumes it.
-			f.seqKnown = false
+			if ok && n < p.Sequence {
+				f.kick(ctx, n)
+			}
 			return false, fmt.Errorf("%w: the node expects another sequence than %d: %w", ErrOutcomeUnknown, p.Sequence, err)
 		}
-		f.learn(err)
+		f.floor = max(f.floor, n)
 		time.AfterFunc(dr.settleWait, dr.release)
 		return false, f.stick(e, fmt.Errorf("%w: %w", ErrIntentStale, err))
 	case errors.Is(err, errProcessed):
-		f.seqKnown = false
 		f.markScan(e)
 		return true, nil
 	case errors.Is(err, node.ErrRejected):
 		dr.release()
 		return false, f.stick(e, fmt.Errorf("%w: %w", ErrAnchorTxRejected, err))
 	}
-	// Whether the node kept the tx is unknown, so the sequence is read again.
-	f.seqKnown = false
+	// Whether the node kept the tx is unknown: the intent stays live and holds
+	// its sequence.
 	return false, fmt.Errorf("%w: broadcast: %w", ErrOutcomeUnknown, err)
 }
 
@@ -428,8 +490,11 @@ func (f *fastCore) markScan(e *fastEntry) {
 	f.mu.Unlock()
 }
 
-// params returns the signing state for the next tx: the higher of the
-// sequence this process expects and the chain's committed one.
+// params returns the signing state for the next tx. The committed sequence
+// lags while intents of this account wait in the mempool, so the next one
+// never goes below the sequence after the highest live intent: taking a live
+// intent's sequence would make one of the two fail, and that intent's
+// reference may already be authorized.
 func (f *fastCore) params(ctx context.Context, timeout uint64) (node.TxParams, error) {
 	if f.bech == "" {
 		addr, err := f.d.Signer.Address(ctx)
@@ -444,25 +509,15 @@ func (f *fastCore) params(ctx context.Context, timeout uint64) (node.TxParams, e
 	if err != nil {
 		return node.TxParams{}, fmt.Errorf("%w: account: %w", ErrNodeUnavailable, err)
 	}
-	if !f.learned && (!f.seqKnown || f.accNum != acc.Number) {
-		f.nextSeq = acc.Sequence
+	next := max(acc.Sequence, f.floor)
+	if hi, ok := f.highestLive(); ok {
+		next = max(next, hi+1)
 	}
-	f.accNum, f.seqKnown, f.learned = acc.Number, true, false
-	f.nextSeq = max(f.nextSeq, acc.Sequence)
 	price, err := f.d.Node.MinGasPrice(ctx)
 	if err != nil {
 		return node.TxParams{}, fmt.Errorf("%w: gas price: %w", ErrNodeUnavailable, err)
 	}
-	return node.TxParams{AccountNumber: f.accNum, Sequence: f.nextSeq, GasPrice: price, TimeoutHeight: timeout}, nil
-}
-
-// learn takes the sequence the node expects from a mismatch.
-func (f *fastCore) learn(err error) {
-	if n, ok := node.ExpectedSequence(err); ok {
-		f.nextSeq, f.learned = n, true
-		return
-	}
-	f.seqKnown = false
+	return node.TxParams{AccountNumber: acc.Number, Sequence: next, GasPrice: price, TimeoutHeight: timeout}, nil
 }
 
 // errProcessed marks a Fibre promise the chain has already settled: some tx
@@ -578,8 +633,6 @@ func (f *fastCore) resend(ctx context.Context, d fastDA, e *fastEntry, dr *inten
 	err = f.broadcast(ctx, raw)
 	switch {
 	case err == nil:
-		// The archived tx's sequence is not tracked here: read it again.
-		f.seqKnown = false
 		return node.TxStatus{}, nil
 	case errors.Is(err, errProcessed):
 		f.markScan(e)
@@ -613,9 +666,12 @@ func (f *fastCore) mismatched(ctx context.Context, e *fastEntry, dr *intentDraft
 	}
 	expected, ok := node.ExpectedSequence(mismatch)
 	if !ok || expected <= signed {
+		if ok && expected < signed {
+			f.kick(ctx, expected)
+		}
 		return node.TxStatus{}, fmt.Errorf("%w: the node expects another sequence than the archived tx's %d: %w", ErrNodeUnavailable, signed, mismatch)
 	}
-	f.learn(mismatch)
+	f.floor = max(f.floor, expected)
 	// A Fibre promise that will never be paid can still be charged by its
 	// timeout settlement, so the escrow stays reserved until then.
 	time.AfterFunc(dr.settleWait, dr.release)
