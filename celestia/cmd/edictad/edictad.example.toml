@@ -103,7 +103,7 @@ anchor_verifier = "self"
 # prunes them. Not read by verifiers.
 # [capture]
 # enabled = true
-# dir = "/var/lib/edictad/capture"            # not inside archive.dir
+# dir = "/var/lib/edictad/capture"            # neither inside nor containing archive.dir
 # comet_rpc = "http://127.0.0.1:26657"        # serves /tx, /block, /block_results, /header
 # node_prune_window_blocks = 100000           # what that node keeps; at least 100
 # retry_every_s = 30

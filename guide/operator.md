@@ -242,7 +242,7 @@ only be node-attested. The capture keeps that proof before it is lost:
 ```toml
 [capture]
 enabled = true
-dir = "/var/lib/edictad/capture"       # not inside archive.dir
+dir = "/var/lib/edictad/capture"       # neither inside nor containing archive.dir
 comet_rpc = "http://127.0.0.1:26657"   # serves /tx, /block, /block_results, /header
 node_prune_window_blocks = 100000      # how many blocks that node keeps; at least 100
 retry_every_s = 30                     # default 30
@@ -328,7 +328,9 @@ reference again.
   without a public-execution profile;
 - `[capture]` keys are set without `capture.enabled`, or it is enabled
   without a captured type in `gate.action_types`, with `capture.dir`
-  missing or inside `archive.dir`, `comet_rpc` not an http(s) URL,
+  missing, equal to, inside or containing `archive.dir` (compared as
+  absolute clean paths, and at start also with symlinks resolved),
+  `comet_rpc` not an http(s) URL,
   `node_prune_window_blocks` outside 100..6000000 or `retry_every_s`
   outside 1..3600, or the `comet_rpc` node does not answer its head header
   or answers it with another chain id than the gate's.

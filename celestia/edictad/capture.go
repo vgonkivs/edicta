@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"path/filepath"
 	"slices"
@@ -26,7 +27,8 @@ import (
 // prunes it. Verifiers do not read the store.
 type CaptureConfig struct {
 	Enabled bool `toml:"enabled"`
-	// Dir is the capture store; it must not be the archive directory.
+	// Dir is the capture store; it must neither be nor contain nor lie in
+	// the archive directory.
 	Dir string `toml:"dir"`
 	// CometRPC is the CometBFT RPC URL of a node of the rail's chain that
 	// serves /tx, /block, /block_results and /header.
@@ -69,7 +71,7 @@ func (c Config) validateCapture() error {
 	switch {
 	case strings.TrimSpace(p.Dir) == "":
 		return cfgErr("capture.dir is required")
-	case sameOrInside(p.Dir, c.Archive.Dir):
+	case dirsOverlap(p.Dir, c.Archive.Dir, lexicalDir):
 		return cfgErr("capture.dir must be outside archive.dir: captures are not archive records")
 	case !strings.HasPrefix(p.CometRPC, "http://") && !strings.HasPrefix(p.CometRPC, "https://"):
 		return cfgErr("capture.comet_rpc must be an http or https URL")
@@ -84,12 +86,61 @@ func (c Config) validateCapture() error {
 	return nil
 }
 
-func sameOrInside(dir, root string) bool {
-	if root == "" {
+// dirsOverlap reports whether a and b are one directory or one lies inside
+// the other, after resolve. A path that cannot be resolved counts as
+// overlapping, so the check fails closed.
+func dirsOverlap(a, b string, resolve func(string) (string, error)) bool {
+	if strings.TrimSpace(a) == "" || strings.TrimSpace(b) == "" {
 		return false
 	}
-	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(dir))
-	return err == nil && (rel == "." || !strings.HasPrefix(rel, ".."))
+	ra, err := resolve(a)
+	if err != nil {
+		return true
+	}
+	rb, err := resolve(b)
+	if err != nil {
+		return true
+	}
+	return within(ra, rb) || within(rb, ra)
+}
+
+// within reports whether dir is root or below it; both are absolute and
+// clean.
+func within(dir, root string) bool {
+	rel, err := filepath.Rel(root, dir)
+	if err != nil {
+		return true
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// lexicalDir is the absolute, clean form of p.
+func lexicalDir(p string) (string, error) { return filepath.Abs(p) }
+
+// realDir is the absolute, clean form of p with the symlinks of its longest
+// existing prefix resolved; the part that does not exist yet is kept as it
+// is.
+func realDir(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	var rest []string
+	for cur := abs; ; {
+		r, err := filepath.EvalSymlinks(cur)
+		if err == nil {
+			return filepath.Join(append([]string{r}, rest...)...), nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return abs, nil
+		}
+		rest = append([]string{filepath.Base(cur)}, rest...)
+		cur = parent
+	}
 }
 
 // captureSweep finds receipts of captured types that no capture and no
@@ -206,6 +257,10 @@ func startCapture(ctx context.Context, cfg Config, d Deps, chainID string, reg r
 	p := cfg.Capture
 	if !p.Enabled {
 		return nil, nil
+	}
+	// The configuration check is lexical; here symlinks are resolved too.
+	if dirsOverlap(p.Dir, cfg.Archive.Dir, realDir) {
+		return nil, cfgErr("capture.dir must be outside archive.dir: captures are not archive records")
 	}
 	chain := d.CaptureChain
 	if chain == nil {
