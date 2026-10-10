@@ -2,6 +2,7 @@ package edictad_test
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/celestia/edictad"
+	"github.com/vgonkivs/edicta/celestia/node"
+	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/celestia/test/fibreworld"
 )
 
@@ -86,5 +89,33 @@ func TestRecorderFastFibreStartParamsWaitEndsWithTheContext(t *testing.T) {
 	_, err := edictad.Start(bg, p.cfg(p.fibreFastEdits()...), p.deps)
 	require.ErrorIs(t, err, edictad.ErrFibreParams)
 	require.ErrorIs(t, err, context.Canceled)
+	assert.Zero(t, rf.builds.Load())
+}
+
+type blockingParamsChain struct {
+	recorder.FibreChain
+	calls atomic.Int32
+}
+
+func (b *blockingParamsChain) FibreParams(ctx context.Context) (node.FibreParams, error) {
+	b.calls.Add(1)
+	<-ctx.Done()
+	return node.FibreParams{}, ctx.Err()
+}
+
+// A node that never answers fails each attempt on its own timeout, so the
+// start still refuses after the retries.
+func TestRecorderFastFibreStartParamsReadTimesOut(t *testing.T) {
+	p, rf, _ := fibreFastEnv(t)
+	chain := &blockingParamsChain{FibreChain: rf.node}
+	p.deps.Fibre.RecorderChain = chain
+	p.deps.ParamsTimeout = 5 * time.Millisecond
+	var waits []time.Duration
+	p.deps.RetryWait = recordWaits(&waits, nil)
+	_, err := edictad.Start(bg, p.cfg(p.fibreFastEdits()...), p.deps)
+	require.ErrorIs(t, err, edictad.ErrFibreParams)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.EqualValues(t, 6, chain.calls.Load())
+	assert.Equal(t, startBackoff, waits)
 	assert.Zero(t, rf.builds.Load())
 }

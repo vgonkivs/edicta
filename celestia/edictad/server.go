@@ -72,6 +72,8 @@ type Deps struct {
 	// RetryWait waits between the start's x/fibre params reads; nil sleeps.
 	// It returns ctx's error when ctx ends first.
 	RetryWait func(ctx context.Context, d time.Duration) error
+	// ParamsTimeout bounds each x/fibre params read at start; zero means 10s.
+	ParamsTimeout time.Duration
 }
 
 // FibreDeps are the da = 1 dependencies.
@@ -664,7 +666,7 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 			if err := sameAccount(ctx, d.RecorderFast.Signer, addr); err != nil {
 				return fail(err)
 			}
-			p, err := readFastFibreParams(ctx, d.Fibre.RecorderChain, d.RetryWait, log)
+			p, err := readFastFibreParams(ctx, d.Fibre.RecorderChain, d.RetryWait, d.ParamsTimeout, log)
 			if err != nil {
 				return fail(err)
 			}
@@ -816,6 +818,8 @@ func buildFibreRecorder(cfg Config, d Deps, ns []byte, store archive.Store, cloc
 const (
 	fibreParamsAttempts  = 6
 	fibreParamsFirstWait = time.Second
+	// A node that never answers must count as a failed attempt.
+	fibreParamsTimeout = 10 * time.Second
 )
 
 // readFastFibreParams reads the x/fibre params a fast da = 1 Recorder needs,
@@ -823,15 +827,20 @@ const (
 // window would rest on guesses, so a node that never answers refuses the
 // start.
 func readFastFibreParams(ctx context.Context, chain recorder.FibreChain, wait func(context.Context, time.Duration) error,
-	log *slog.Logger) (node.FibreParams, error) {
+	timeout time.Duration, log *slog.Logger) (node.FibreParams, error) {
 	if wait == nil {
 		wait = sleepCtx
+	}
+	if timeout <= 0 {
+		timeout = fibreParamsTimeout
 	}
 	var err error
 	delay := fibreParamsFirstWait
 	for attempt := 1; ; attempt++ {
 		var p node.FibreParams
-		p, err = chain.FibreParams(ctx)
+		actx, cancel := context.WithTimeout(ctx, timeout)
+		p, err = chain.FibreParams(actx)
+		cancel()
 		if err == nil {
 			err = recorder.CheckFastFibreParams(p)
 		}
