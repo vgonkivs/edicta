@@ -209,7 +209,8 @@ type FibreRecorder struct {
 	cancels  map[int]context.CancelFunc
 	nextID   int
 
-	fast *fastCore
+	fast      *fastCore
+	delayWarn sync.Once
 }
 
 var (

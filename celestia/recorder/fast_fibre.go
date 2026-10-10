@@ -99,7 +99,9 @@ func (r *FibreRecorder) draft(ctx context.Context, comm, blob []byte, _ uint64, 
 		free()
 	})
 	if err != nil {
-		release()
+		// A failed upload may still have left a signed promise with the
+		// validators, and anyone holding it can settle it from the escrow.
+		r.fast.hold(r.settleBy(r.cfg.Now(), fp), release)
 		return nil, fmt.Errorf("%w: upload: %w", ErrNodeUnavailable, err)
 	}
 
@@ -137,17 +139,23 @@ func (r *FibreRecorder) draft(ctx context.Context, comm, blob []byte, _ uint64, 
 	}, nil
 }
 
-// defaultWithdrawalDelay is the x/fibre default, for a node that does not
-// report the parameter.
-const defaultWithdrawalDelay = 24 * time.Hour
+// maxWithdrawalDelay is the largest withdrawal delay x/fibre accepts. A node
+// that does not report the parameter gets this bound: holding a reservation
+// too long only costs capacity, releasing it too early can leave a later
+// anchor without funds.
+const maxWithdrawalDelay = 7 * 24 * time.Hour
 
 // settleBy is when a promise created at created can no longer be charged by
 // a timeout settlement: it must be fresher than the withdrawal delay, in
 // block time, which may run ahead of this clock by the allowed skew.
 func (r *FibreRecorder) settleBy(created time.Time, fp node.FibreParams) time.Time {
-	delay := defaultWithdrawalDelay
+	delay := maxWithdrawalDelay
 	if fp.WithdrawalDelayS != 0 {
 		delay = time.Duration(fp.WithdrawalDelayS) * time.Second
+	} else {
+		r.delayWarn.Do(func() {
+			r.fast.d.Log.Warn("recorder: the node reports no fibre withdrawal delay; escrow reservations are held for the chain maximum", "hold", maxWithdrawalDelay)
+		})
 	}
 	return created.Add(delay + r.cfg.MaxClockSkew)
 }
