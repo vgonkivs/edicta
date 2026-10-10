@@ -36,6 +36,20 @@ type sweeper struct {
 	// reveals reports whether a receipt for the action type publishes its
 	// salt; nil reveals nothing.
 	reveals func(actionType string) bool
+	// revealDone holds the decisions whose reveal this process has seen in
+	// the archive or found not to apply, so a pass does not read it again.
+	revealDone map[commitment.Hash]struct{}
+}
+
+// maxRevealDone bounds revealDone; a full set is dropped, which only costs
+// one more read per entry.
+const maxRevealDone = 1 << 16
+
+func (s *sweeper) revealSettled(h commitment.Hash) {
+	if s.revealDone == nil || len(s.revealDone) >= maxRevealDone {
+		s.revealDone = map[commitment.Hash]struct{}{}
+	}
+	s.revealDone[h] = struct{}{}
 }
 
 // maxRecheck bounds the entries kept for another look.
@@ -200,10 +214,16 @@ func (s *sweeper) repairReveal(ctx context.Context, e registry.Entry, st *sweepS
 	if s.reveals == nil || len(e.Receipt) == 0 || len(e.ActionSalt) == 0 || !s.pol.private() {
 		return true
 	}
+	if _, ok := s.revealDone[e.CommitmentHash]; ok {
+		return true
+	}
 	rctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	switch _, err := s.io.reveal(rctx, e.CommitmentHash); {
-	case err == nil, errors.Is(err, errNoRevealReader):
+	case err == nil:
+		s.revealSettled(e.CommitmentHash)
+		return true
+	case errors.Is(err, errNoRevealReader):
 		return true
 	case !errors.Is(err, archive.ErrNotFound):
 		st.failed++
@@ -220,9 +240,15 @@ func (s *sweeper) repairReveal(ctx context.Context, e registry.Entry, st *sweepS
 	}
 	sc, err := commitment.DecodeSigned(d.Envelope)
 	if err != nil || d.Form != archive.FormPrivate || !s.reveals(sc.Commitment.Action.Type) {
+		s.revealSettled(e.CommitmentHash)
 		return true
 	}
-	return s.put(ctx, &archive.RevealRecord{SignedReceipt: e.Receipt, ActionSalt: e.ActionSalt}, st)
+	repaired := st.repaired
+	done := s.put(ctx, &archive.RevealRecord{SignedReceipt: e.Receipt, ActionSalt: e.ActionSalt}, st)
+	if st.repaired > repaired {
+		s.revealSettled(e.CommitmentHash)
+	}
+	return done
 }
 
 // putChain writes the records in order and returns what is left to retry: the
