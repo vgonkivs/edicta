@@ -30,8 +30,20 @@ type SubmitResult struct {
 
 type localSubmitter struct{ s node.Submitter }
 
-// NewLocalSubmitter submits with the node's local keyring key.
-func NewLocalSubmitter(s node.Submitter) Submitter { return localSubmitter{s: s} }
+// localKeySubmitter also shows the public key of the submitting account.
+type localKeySubmitter struct {
+	localSubmitter
+	node.AnchorPublicKey
+}
+
+// NewLocalSubmitter submits with the node's local keyring key. When s shows
+// its public key (node.AnchorPublicKey), the result shows it too.
+func NewLocalSubmitter(s node.Submitter) Submitter {
+	if pk, ok := s.(node.AnchorPublicKey); ok {
+		return localKeySubmitter{localSubmitter: localSubmitter{s: s}, AnchorPublicKey: pk}
+	}
+	return localSubmitter{s: s}
+}
 
 func (l localSubmitter) Signer(ctx context.Context) ([]byte, error) {
 	a, err := l.s.Address(ctx)

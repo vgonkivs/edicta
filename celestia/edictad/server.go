@@ -395,9 +395,11 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 		if mandateBytes, mandate, mandateHash, err = loadMandate(cfg.Policy.MandateFile, cfg.Gate.GateID); err != nil {
 			return nil, err
 		}
-		if cfg.Recorder.Fast {
-			if err := recorderIsNotPrincipal(ctx, d.RecorderFast.Signer, &mandate.Mandate); err != nil {
-				return nil, err
+		if cfg.Recorder.Enabled {
+			if acct := signingAccount(cfg, d); acct != nil {
+				if err := recorderIsNotPrincipal(ctx, acct, &mandate.Mandate); err != nil {
+					return nil, err
+				}
 			}
 		}
 		if extractors, err = policyExtractors(); err != nil {

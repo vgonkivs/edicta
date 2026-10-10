@@ -1,12 +1,14 @@
 package recorder_test
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/nodefake"
 	"github.com/vgonkivs/edicta/celestia/recorder"
 )
@@ -58,4 +60,29 @@ func TestRecorderWithLocalSubmitterRefusesStandInCommitment(t *testing.T) {
 	rec := mk(t, cfg(), recorder.NewLocalSubmitter(ch), ch)
 	_, err := rec.Publish(bg, []byte("x"))
 	require.Error(t, err)
+}
+
+type keyedChain struct {
+	*nodefake.Chain
+	pub []byte
+}
+
+func (k keyedChain) PublicKey(context.Context) ([]byte, error) { return k.pub, nil }
+
+// The local submitter shows the node submitter's public key when that one
+// shows it, and only then.
+func TestLocalSubmitterForwardsThePublicKey(t *testing.T) {
+	_, ok := recorder.NewLocalSubmitter(newChain()).(node.AnchorPublicKey)
+	assert.False(t, ok, "nothing to show")
+
+	pub := bytes.Repeat([]byte{2}, 33)
+	s := recorder.NewLocalSubmitter(keyedChain{Chain: newChain(), pub: pub})
+	pk, ok := s.(node.AnchorPublicKey)
+	require.True(t, ok)
+	got, err := pk.PublicKey(bg)
+	require.NoError(t, err)
+	assert.Equal(t, pub, got)
+	addr, err := s.Signer(bg)
+	require.NoError(t, err)
+	assert.Equal(t, signer, addr)
 }

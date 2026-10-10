@@ -14,6 +14,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/recorder"
+	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/fibre/fibrecommit"
 	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/principalsig"
@@ -155,13 +156,51 @@ func sameAccount(ctx context.Context, s node.AnchorSigner, escrowOwner []byte) e
 	return nil
 }
 
+// recorderAccount is the account the Recorder signs with. It may also
+// implement node.AnchorPublicKey.
+type recorderAccount interface {
+	Address(ctx context.Context) ([]byte, error)
+}
+
+// submitterAccount reads the account of a strict-mode blob Submitter.
+type submitterAccount struct{ s recorder.Submitter }
+
+func (a submitterAccount) Address(ctx context.Context) ([]byte, error) { return a.s.Signer(ctx) }
+
+type keyedSubmitterAccount struct {
+	submitterAccount
+	node.AnchorPublicKey
+}
+
+// signingAccount is the account that signs this Recorder's txs in the
+// configured mode, or nil when no signer was given (the start refuses that
+// later).
+func signingAccount(cfg Config, d Deps) recorderAccount {
+	switch {
+	case cfg.Recorder.Fast:
+		return d.RecorderFast.Signer
+	case cfg.DA() == commitment.DAFibre:
+		if d.Fibre == nil || isNil(d.Fibre.Submitter) {
+			return nil
+		}
+		return d.Fibre.Submitter
+	case isNil(d.Submitter):
+		return nil
+	}
+	a := submitterAccount{s: d.Submitter}
+	if pk, ok := d.Submitter.(node.AnchorPublicKey); ok {
+		return keyedSubmitterAccount{submitterAccount: a, AnchorPublicKey: pk}
+	}
+	return a
+}
+
 // recorderIsNotPrincipal refuses a mandate whose principal is the Recorder's
-// own secp256k1 key. The key is compared, not the (sig_type, bytes) pair: one
-// private key signing anchors and mandates is the hazard whether the mandate
-// names it as a Cosmos key or as the Ethereum address of the same point. A
-// signer that cannot show its key cannot be cleared against an Ethereum
-// principal, so that is refused too.
-func recorderIsNotPrincipal(ctx context.Context, s node.AnchorSigner, m *policy.Mandate) error {
+// own secp256k1 key, in either mode. The key is compared, not the
+// (sig_type, bytes) pair: one private key signing anchors and mandates is the
+// hazard whether the mandate names it as a Cosmos key or as the Ethereum
+// address of the same point. A signer that cannot show its key cannot be
+// cleared against an Ethereum principal, so that is refused too.
+func recorderIsNotPrincipal(ctx context.Context, s recorderAccount, m *policy.Mandate) error {
 	scheme, err := m.Scheme()
 	if err != nil {
 		return err
@@ -169,7 +208,7 @@ func recorderIsNotPrincipal(ctx context.Context, s node.AnchorSigner, m *policy.
 	var pub []byte
 	if pk, ok := s.(node.AnchorPublicKey); ok {
 		if pub, err = pk.PublicKey(ctx); err != nil {
-			return fmt.Errorf("edictad: anchor signer public key: %w", err)
+			return fmt.Errorf("edictad: recorder signer public key: %w", err)
 		}
 		if err := shownKeyIsTheAccount(ctx, s, pub); err != nil {
 			return err
@@ -188,13 +227,13 @@ func recorderIsNotPrincipal(ctx context.Context, s node.AnchorSigner, m *policy.
 		if pub != nil {
 			own, err := principalsig.CosmosAddress(pub, m.PrincipalHRP)
 			if err != nil {
-				return fmt.Errorf("edictad: anchor signer public key: %w", err)
+				return fmt.Errorf("edictad: recorder signer public key: %w", err)
 			}
 			same = own == principal
 		} else {
 			addr, err := s.Address(ctx)
 			if err != nil {
-				return fmt.Errorf("edictad: anchor signer: %w", err)
+				return fmt.Errorf("edictad: recorder signer: %w", err)
 			}
 			_, a, err := principalsig.ParseCosmosAddress(principal)
 			if err != nil {
@@ -204,11 +243,11 @@ func recorderIsNotPrincipal(ctx context.Context, s node.AnchorSigner, m *policy.
 		}
 	case principalsig.EIP712:
 		if pub == nil {
-			return cfgErr("recorder.fast: the anchor signer does not show its public key, so it cannot be told apart from the mandate's eip712 principal")
+			return cfgErr("recorder: the Recorder's signer does not show its public key, so it cannot be told apart from the mandate's eip712 principal")
 		}
 		own, err := principalsig.EthereumAddress(pub)
 		if err != nil {
-			return fmt.Errorf("edictad: anchor signer public key: %w", err)
+			return fmt.Errorf("edictad: recorder signer public key: %w", err)
 		}
 		same = bytes.Equal(own[:], m.Principal)
 	}
@@ -221,22 +260,22 @@ func recorderIsNotPrincipal(ctx context.Context, s node.AnchorSigner, m *policy.
 // shownKeyIsTheAccount refuses an injected signer whose shown key is not a
 // compressed secp256k1 key of its own account: the principal check compares
 // that key, so it must be the one that signs.
-func shownKeyIsTheAccount(ctx context.Context, s node.AnchorSigner, pub []byte) error {
+func shownKeyIsTheAccount(ctx context.Context, s recorderAccount, pub []byte) error {
 	if len(pub) != 33 {
-		return cfgErr("recorder.fast: the anchor signer's public key is not a compressed secp256k1 key: %d bytes", len(pub))
+		return cfgErr("recorder: the Recorder signer's public key is not a compressed secp256k1 key: %d bytes", len(pub))
 	}
 	if _, err := principalsig.EthereumAddress(pub); err != nil {
-		return cfgErr("recorder.fast: the anchor signer's public key is not a compressed secp256k1 key: %v", err)
+		return cfgErr("recorder: the Recorder signer's public key is not a compressed secp256k1 key: %v", err)
 	}
 	addr, err := s.Address(ctx)
 	if err != nil {
-		return fmt.Errorf("edictad: anchor signer: %w", err)
+		return fmt.Errorf("edictad: recorder signer: %w", err)
 	}
 	sh := sha256.Sum256(pub)
 	r := ripemd160.New()
 	r.Write(sh[:])
 	if !bytes.Equal(r.Sum(nil), addr) {
-		return cfgErr("recorder.fast: the anchor signer's public key is not the key of its account")
+		return cfgErr("recorder: the Recorder signer's public key is not the key of its account")
 	}
 	return nil
 }

@@ -101,7 +101,8 @@ func NewReadOnly(ctx context.Context, b BridgeConfig) (*client.ReadClient, Reade
 // is built and signed here with the keyring key and broadcast to the consensus
 // endpoint; the bridge serves reads only, so it needs no state methods and no
 // token. Close the result: it closes the client and the state clients dialed
-// for it.
+// for it. The Submitter shows the key's public key (AnchorPublicKey) when the
+// keyring holds a secp256k1 key under keyName.
 func NewSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Keyring, keyName, network string) (io.Closer, Reader, Submitter, error) {
 	c, sc, err := dialSigning(ctx, b, g, kr, keyName, network)
 	if err != nil {
@@ -117,7 +118,7 @@ func NewSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Ke
 		_ = sc.Close()
 		return nil, nil, nil, err
 	}
-	return sc, r, s, nil
+	return sc, r, withSubmitterKey(s, keyringPublicKey(kr, keyName)), nil
 }
 
 // NewFibreSigning is NewSigning for da = 1: the same validated dial, with a
@@ -139,7 +140,7 @@ func NewFibreSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyri
 		_ = sc.Close()
 		return nil, nil, nil, err
 	}
-	return sc, r, s, nil
+	return sc, r, withFibreSubmitterKey(s, keyringPublicKey(kr, keyName)), nil
 }
 
 func dialSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Keyring, keyName, network string) (*client.Client, *signingCloser, error) {
