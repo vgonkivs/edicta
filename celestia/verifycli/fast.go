@@ -144,6 +144,22 @@ func (w *windowHeaders) Header(ctx context.Context, h uint64) ([]byte, error) {
 	w.mu.Lock()
 	ref := w.ref
 	w.mu.Unlock()
+	// The source the auditor chose comes first: a header of a bad archive
+	// copy would break the walk for every height below it.
+	var fetchErr error
+	if w.fetch != nil {
+		raw, err := w.fetch.SignedHeader(ctx, h)
+		if err == nil {
+			var b []byte
+			if b, err = headertrust.HeaderOfSigned(raw); err == nil {
+				return b, nil
+			}
+		}
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
+		}
+		fetchErr = err
+	}
 	if w.r != nil && ref != nil {
 		if rec, err := w.r.Absence(ctx, ref.DA, ref.Commitment, h); err == nil {
 			return headertrust.HeaderOfSigned(rec.Header)
@@ -154,12 +170,8 @@ func (w *windowHeaders) Header(ctx context.Context, h uint64) ([]byte, error) {
 			}
 		}
 	}
-	if w.fetch != nil {
-		raw, err := w.fetch.SignedHeader(ctx, h)
-		if err != nil {
-			return nil, err
-		}
-		return headertrust.HeaderOfSigned(raw)
+	if fetchErr != nil {
+		return nil, fetchErr
 	}
 	return nil, fmt.Errorf("no absence proof holds the header at %d", h)
 }

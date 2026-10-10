@@ -142,7 +142,7 @@ func headerInfo(raw []byte, height uint64) (verifier.ChainHeader, error) {
 }
 
 // Absence checks [ref.Height, deadline]: the archived proof of each height,
-// or a fetched one where the archive has none that decodes. A header hash
+// or a fetched one where the archive has none that verifies. A header hash
 // confirm refuses leaves its height unproven. Heights are checked one at a
 // time, so at most one proof is held in memory.
 func (c *Chain) Absence(ctx context.Context, ref commitment.PayloadRef, deadline uint64, confirm verifier.Confirm) (verifier.AbsenceWindow, error) {
@@ -165,45 +165,20 @@ func (c *Chain) Absence(ctx context.Context, ref commitment.PayloadRef, deadline
 	srcs := map[string]bool{}
 	outcomes := make([]Outcome, 0, deadline-h0+1)
 	for h := h0; h <= deadline; h++ {
-		rec, src, err := c.record(ctx, q, h)
-		if cerr := ctx.Err(); cerr != nil {
-			return verifier.AbsenceWindow{}, cerr
-		}
+		o, err := c.height(ctx, q, h, confirm, &out, srcs)
 		if err != nil {
-			outcomes = append(outcomes, unproven(h, RuleNoProof, ErrNoProof, "%w", err))
-			continue
+			return verifier.AbsenceWindow{}, err
 		}
-		srcs[src] = true
-		out.Bytes += uint64(Size(rec))
-		trusted := TrustedHashes{}
-		for _, part := range []struct {
-			at  uint64
-			raw []byte
-		}{{h, rec.Header}, {h + 1, rec.NextHeader}} {
-			hash, chainID, ok := headerHash(part.raw, part.at)
-			if ok && confirm(ctx, part.at, hash) {
-				trusted[part.at] = hash
-				if out.ChainID == "" {
-					out.ChainID = chainID
-				}
-			}
-		}
-		if cerr := ctx.Err(); cerr != nil {
-			return verifier.AbsenceWindow{}, cerr
-		}
-		hq := q
-		hq.ChainID = out.ChainID
-		if q.DA == commitment.DAFibre && hq.ChainID == "" {
-			outcomes = append(outcomes, unproven(h, RuleHeader, ErrHeader, "the header at %d does not tie to the trusted chain", h))
-			continue
-		}
-		outcomes = append(outcomes, VerifyHeight(rec, hq, h, trusted))
+		outcomes = append(outcomes, o)
 	}
 	for s := range srcs {
 		out.Sources = append(out.Sources, s)
 	}
 	sort.Strings(out.Sources)
-	out.ResultsAtDeadline = outcomes[len(outcomes)-1].Rule == RuleResults
+	// Only a results proof that waits for its next header can be completed
+	// by a newer checkpoint; one with no results at all cannot.
+	last := outcomes[len(outcomes)-1]
+	out.ResultsAtDeadline = last.Result == Unproven && last.Rule == RuleResults && !errors.Is(last.Err, ErrResultsMissing)
 	out.Result = verifier.AbsenceAbsent
 	for _, o := range outcomes {
 		if o.Result == Present {
@@ -230,27 +205,97 @@ func headerHash(raw []byte, h uint64) ([]byte, string, bool) {
 	return hash, chainID, err == nil
 }
 
-// record reads the proof of h from the archive, or fetches it.
-func (c *Chain) record(ctx context.Context, q Query, h uint64) (*archive.AbsenceProofRecord, string, error) {
-	var errs []error
+// height decides one height: the archived proof first, and the fetched one
+// when the archive has none or its proof does not verify, so that a bad
+// archive copy cannot block a source the auditor chose. The error is for a
+// cancelled context only.
+func (c *Chain) height(ctx context.Context, q Query, h uint64, confirm verifier.Confirm, out *verifier.AbsenceWindow,
+	srcs map[string]bool) (Outcome, error) {
+	var (
+		causes []error
+		first  *Outcome
+	)
+	try := func(src string, rec *archive.AbsenceProofRecord) (Outcome, bool, error) {
+		srcs[src] = true
+		o := c.verify(ctx, q, h, rec, confirm, out)
+		if err := ctx.Err(); err != nil {
+			return Outcome{}, false, err
+		}
+		if o.Result != Unproven {
+			return o, true, nil
+		}
+		o.Err = fmt.Errorf("%s: %w", src, o.Err)
+		if first == nil {
+			first = &o
+		}
+		causes = append(causes, o.Err)
+		return o, false, nil
+	}
 	if c.d.Records != nil {
 		rec, err := c.d.Records.Absence(ctx, q.DA, q.Commitment, h)
-		if err == nil {
-			return rec, SourceArchive, nil
+		if cerr := ctx.Err(); cerr != nil {
+			return Outcome{}, cerr
 		}
-		errs = append(errs, fmt.Errorf("archive: %w", err))
+		if err == nil {
+			if o, done, err := try(SourceArchive, rec); err != nil || done {
+				return o, err
+			}
+		} else {
+			causes = append(causes, fmt.Errorf("%s: %w", SourceArchive, err))
+		}
 	}
 	if c.d.Fetch != nil {
 		rec, err := c.d.Fetch.Fetch(ctx, q, h)
-		if err == nil {
-			return rec, c.d.Fetch.name, nil
+		if cerr := ctx.Err(); cerr != nil {
+			return Outcome{}, cerr
 		}
-		errs = append(errs, fmt.Errorf("%s: %w", c.d.Fetch.name, err))
+		if err == nil {
+			if o, done, err := try(c.d.Fetch.name, rec); err != nil || done {
+				return o, err
+			}
+		} else {
+			causes = append(causes, fmt.Errorf("%s: %w", c.d.Fetch.name, err))
+		}
 	}
-	if len(errs) == 0 {
-		return nil, "", fmt.Errorf("%w: no absence source", ErrNoProof)
+	if len(causes) == 0 {
+		return unproven(h, RuleNoProof, ErrNoProof, "no absence source"), nil
 	}
-	return nil, "", errors.Join(errs...)
+	if first == nil {
+		return unproven(h, RuleNoProof, ErrNoProof, "%w", errors.Join(causes...)), nil
+	}
+	o := *first
+	o.Err = errors.Join(causes...)
+	return o, nil
+}
+
+// verify checks one record of h against the header hashes confirm ties to
+// the chain.
+func (c *Chain) verify(ctx context.Context, q Query, h uint64, rec *archive.AbsenceProofRecord, confirm verifier.Confirm,
+	out *verifier.AbsenceWindow) Outcome {
+	out.Bytes += uint64(Size(rec))
+	trusted := TrustedHashes{}
+	chainID := ""
+	for _, part := range []struct {
+		at  uint64
+		raw []byte
+	}{{h, rec.Header}, {h + 1, rec.NextHeader}} {
+		hash, cid, ok := headerHash(part.raw, part.at)
+		if ok && confirm(ctx, part.at, hash) {
+			trusted[part.at] = hash
+			if chainID == "" {
+				chainID = cid
+			}
+		}
+	}
+	if out.ChainID == "" {
+		out.ChainID = chainID
+	}
+	hq := q
+	hq.ChainID = out.ChainID
+	if q.DA == commitment.DAFibre && hq.ChainID == "" {
+		return unproven(h, RuleHeader, ErrHeader, "the header at %d does not tie to the trusted chain", h)
+	}
+	return VerifyHeight(rec, hq, h, trusted)
 }
 
 // IntentSigner reads the archived anchor intent of ref and returns the hex
