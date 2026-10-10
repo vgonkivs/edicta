@@ -190,8 +190,8 @@ func (p *policyRun) privateStruct(kind policy.PrivateKind, h []byte, m *policy.M
 	return pt, st, err
 }
 
-// noKeyHop checks one hop of a walk on public fields only: the verdict link
-// (L1) and the blinded state link (L2).
+// noKeyHop checks one hop of a walk on public fields only: the link to the
+// previous verdict and commitment, and the blinded state link.
 func noKeyHop(prev *allowRec, next *policy.Verdict) bool {
 	ph, ok := next.PrevStateHash()
 	return bytes.Equal(prev.hash[:], next.PrevVerdictHash) && bytes.Equal(prev.sv.Verdict.CommitmentHash, next.PrevCommitmentHash) &&
