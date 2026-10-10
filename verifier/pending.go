@@ -258,7 +258,7 @@ func (r *run) pendingInWindow(H uint64, facts AnchorFacts) error {
 	if err := r.askCheckpoint(); err != nil {
 		return err
 	}
-	if r.checkpointH != 0 && r.checkpointH < fast.AnchorDeadline {
+	if r.checkpointH != 0 && r.checkpointH < H {
 		r.evidencePending(H)
 		return nil
 	}
@@ -280,6 +280,18 @@ func (r *run) pendingInWindow(H uint64, facts AnchorFacts) error {
 			r.unchecked(CheckAnchorTime, ReasonBlocked, errors.New("the anchor check did not pass"), string(CheckAnchor))
 			return nil
 		}
+	}
+	// Every header trust kind is held to the deadline, including one that
+	// names its checkpoint only in its results: evidence tied below D cannot
+	// pass, since the window must hang from one chain that reaches D. When
+	// the two answers differ, the lower one counts.
+	cp := t.cpH
+	if r.checkpointH != 0 && (cp == 0 || r.checkpointH < cp) {
+		cp = r.checkpointH
+	}
+	if cp < fast.AnchorDeadline {
+		r.evidenceTiedBelowDeadline(H, cp, headers, t)
+		return nil
 	}
 
 	r.adoptFacts(facts)
@@ -309,6 +321,35 @@ func (r *run) evidencePending(H uint64) {
 	r.unchecked(CheckAnchorTime, ReasonBlocked, why, string(CheckAnchor))
 	r.unchecked(CheckHeaderTrust, ReasonBlocked, why, string(CheckAnchor))
 	r.rep.HeaderTrust.Status = TrustUnchecked
+}
+
+// evidenceTiedBelowDeadline: the evidence headers are the chain's, but the
+// checkpoint is below the deadline (or unknown), so the verdict waits for a
+// checkpoint that reaches it. The report keeps the checkpoint and the tied
+// hashes, so the auditor sees that only the checkpoint is missing.
+func (r *run) evidenceTiedBelowDeadline(H, cp uint64, headers []headerAt, t trustTally) {
+	deadline := r.rep.Fast.AnchorDeadline
+	why := errors.New("the anchor check did not pass")
+	ht := &r.rep.HeaderTrust
+	ht.Hashes = make(map[uint64][]byte, len(headers))
+	for _, h := range headers {
+		if t.tied[h.height] {
+			ht.Hashes[h.height] = h.hash
+		}
+	}
+	ht.CheckpointH, ht.CheckpointHash, ht.CrossCheck = t.cpH, t.cpHash, t.cross
+	ht.Status = TrustUnchecked
+	if cp == 0 {
+		r.unchecked(CheckAnchor, ReasonBlocked, fmt.Errorf("evidence ties at %d; header trust did not name its checkpoint height, and the verdict needs a checkpoint >= D (height %d)", H, deadline),
+			string(CheckHeaderTrust))
+		r.unchecked(CheckHeaderTrust, ReasonNoTrustedHeader, fmt.Errorf("%w: the checkpoint height is unknown, so it is not shown to reach the anchor deadline %d", ErrHeaderTrust, deadline))
+		r.unchecked(CheckAnchorTime, ReasonBlocked, why, string(CheckAnchor))
+		return
+	}
+	r.unchecked(CheckAnchor, ReasonAnchorPending, fmt.Errorf("%w: evidence ties at %d; verdict needs a checkpoint >= D (height %d), the trusted header is %d",
+		ErrAnchorInvalid, H, deadline, cp))
+	r.unchecked(CheckAnchorTime, ReasonBlocked, why, string(CheckAnchor))
+	r.unchecked(CheckHeaderTrust, ReasonBlocked, why, string(CheckAnchor))
 }
 
 // askCheckpoint learns the trusted header height from a header trust that

@@ -22,7 +22,7 @@ import (
 
 const (
 	anchorHeight = uint64(4200000)
-	checkpointH  = uint64(4200100)
+	checkpointH  = uint64(4200200)
 	blockTime    = uint64(1790999950)
 	authorizedAt = uint64(1791000060)
 	authExpires  = uint64(1791000360)

@@ -156,7 +156,7 @@ ones you will meet most:
 | `policy_private` | A private record no configured `--auditor-key` opens. |
 | `policy_walk_truncated` | Raise `--max-walk-steps` above the target's seq. |
 | `gate_equivocation`, `gate_signed_inconsistent_private_part` | The gate is at fault; the report attaches the signed evidence. Exit 5. |
-| `anchor_pending` | Fast mode, deadline not reached by your trusted header yet. Retry later or with a newer checkpoint. |
+| `anchor_pending` | Fast mode, deadline not reached by your trusted header yet. Retry later or with a newer checkpoint. With a checkpoint in `[H, D)` the report says `evidence ties at H; verdict needs a checkpoint >= D (height D)`: the anchor is already tied to your chain, and only a checkpoint at or above the deadline is missing. A header trust that cannot name its checkpoint height leaves `header_trust` unchecked (`no_trusted_header`). |
 | `absence_unproven` | Fast mode, no anchor in the window and absence not proven. Run `edicta-verify absence` or pass `--absence-source`. |
 
 ## Fast-mode decisions

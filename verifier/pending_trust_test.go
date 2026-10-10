@@ -2,6 +2,7 @@ package verifier_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -93,12 +94,14 @@ func TestPendingInWindowEvidenceNeedsCheckpointAtDeadline(t *testing.T) {
 			rep := r.verify(t)
 			c := unchecked(t, rep, verifier.CheckAnchor, verifier.ReasonAnchorPending)
 			require.ErrorIs(t, c.Err, verifier.ErrAnchorInvalid)
+			assert.Contains(t, c.Err.Error(), fmt.Sprintf("evidence ties at %d; verdict needs a checkpoint >= D (height %d)", r.p.ev.Height, d))
 			unchecked(t, rep, verifier.CheckAnchorTime, verifier.ReasonBlocked)
 			unchecked(t, rep, verifier.CheckHeaderTrust, verifier.ReasonBlocked)
 			assert.Equal(t, verifier.TrustUnchecked, rep.HeaderTrust.Status)
 			assert.Zero(t, rep.Fast.AnchorHeight)
+			assert.Equal(t, verifier.PublicationUnknown, rep.Fast.Publication)
 			assert.Zero(t, fp.asked)
-			assert.Empty(t, r.trust.asked, "no header is tied before the checkpoint reaches the deadline")
+			assert.Contains(t, r.trust.asked, r.p.ev.Height, "a checkpoint in [H, D) ties the evidence header")
 			assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
 		})
 	}
