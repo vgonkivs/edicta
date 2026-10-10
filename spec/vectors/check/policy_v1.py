@@ -1159,6 +1159,7 @@ KIND_NAMES = {7: "mandate", 8: "policy_allow", 9: "policy_deny", 10: "policy_buc
 PATHS = {7: "mandate", 8: "policy-allow", 9: "policy-deny", 10: "policy-bucket", 11: "policy-closed",
          12: "policy-successor", 15: "private"}
 REC_CAP = {7: 16448, 8: 16448, 9: 16448, 10: 16448, 11: 36928, 12: 256, 15: 69760}
+MAX_RECORD_SIZE = (1 << 27) + 4096
 
 
 def record(kind: int, **f) -> bytes:
@@ -1176,7 +1177,9 @@ def decode_record(b: bytes) -> dict:
     """Policy kinds only. Raises PolicyError('archive.ErrCorrupt', cause). Returns
     {kind, key, path, body} where key is the logical key bytes."""
     s = "archive.ErrCorrupt"
-    if len(b) > REC_CAP[15]:
+    # Only the global limit before parsing; the cap of the kind waits for the header, so a malformed
+    # oversized record reports its malformation, as the general record reader does.
+    if len(b) > MAX_RECORD_SIZE:
         raise PolicyError(s, "ErrTooLarge")
     d = _D(b, s)
     it = d.item(0)

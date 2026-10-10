@@ -2,9 +2,9 @@
 """Cross-suite check of the archive record vectors (core 19.1, policy 12).
 
 Every suite that lists format 1 records (core v1/archive.json and
-archive/records.json, policy/archive.json, and the record pools of
-policy/verify.json and policy/private.json) is run through the one general
-reader of records.py together:
+archive/records.json, policy/archive.json, policy/private_cap.json, and the
+record pools of policy/verify.json and policy/private.json) is run through the
+one general reader of records.py together:
 
 - each listed record gives exactly its expected outcome (accepted, or the
   expected cause) under that reader;
@@ -49,7 +49,7 @@ def collect() -> dict:
     def add(b: bytes, where: str, outcome: str):
         seen.setdefault(b, []).append((where, outcome))
 
-    for rel in ("v1/archive.json", "archive/records.json", "policy/archive.json"):
+    for rel in ("v1/archive.json", "archive/records.json", "policy/archive.json", "policy/private_cap.json"):
         f = json.loads((VECTORS / rel).read_text())
         for c in f["cases"]:
             if "record_cbor_hex" not in c:
