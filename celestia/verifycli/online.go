@@ -228,6 +228,10 @@ func (r *recordingReader) PolicySuccessor(ctx context.Context, h commitment.Hash
 	return pr.PolicySuccessor(ctx, h)
 }
 
+// A wrapped reader without private blobs or reveals answers ErrNotFound. The
+// verifier reads an archive that lacks the reader exactly as one that lacks
+// the record, so the wrapper changes no outcome; an operational error here
+// would instead abort the whole verification.
 var (
 	_ archive.PrivateReader = (*recordingReader)(nil)
 	_ archive.RevealReader  = (*recordingReader)(nil)
