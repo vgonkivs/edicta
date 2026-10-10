@@ -145,14 +145,29 @@ func TestFastBlobArchivesTheIntentBeforeTheBroadcast(t *testing.T) {
 func TestFastBlobSequencesFollowEachOther(t *testing.T) {
 	f := newBlobFast(t)
 	r := f.rec()
-	_, err := r.Publish(bg, f.blob)
+	first, err := r.Publish(bg, f.blob)
 	require.NoError(t, err)
-	_, err = r.Publish(bg, []byte("a second payload"))
+	second, err := r.Publish(bg, []byte("a second payload"))
 	require.NoError(t, err)
-	sent := f.node.sends()
-	require.Len(t, sent, 2)
-	assert.EqualValues(t, 3, txSequence(t, innerTx(sent[0])))
-	assert.EqualValues(t, 4, txSequence(t, innerTx(sent[1])), "the next intent takes the next sequence")
+
+	archived := make(map[string]uint64)
+	for _, ref := range []commitment.PayloadRef{first.Ref, second.Ref} {
+		rec, err := f.st.Intent(bg, commitment.DACelestiaBlob, ref.Commitment, ref.Height)
+		require.NoError(t, err)
+		archived[string(rec.Tx)] = txSequence(t, rec.Tx)
+	}
+	require.Len(t, archived, 2)
+
+	// The boot recovery loop may send an archived tx again, so the number of
+	// sends is not fixed; what is fixed is that each is an archived intent and
+	// the two intents take consecutive sequences.
+	seqs := make(map[uint64]bool)
+	for _, raw := range f.node.sends() {
+		seq, ok := archived[string(innerTx(raw))]
+		require.True(t, ok, "every send is byte-equal to an archived intent")
+		seqs[seq] = true
+	}
+	assert.Equal(t, map[uint64]bool{3: true, 4: true}, seqs, "the next intent takes the next sequence")
 }
 
 func TestFastBlobCrashAfterTheIntentResumesWithTheArchivedTx(t *testing.T) {
