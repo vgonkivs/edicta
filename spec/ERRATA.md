@@ -12,7 +12,9 @@ the spec texts and in the `revision` field of the vector files, because no
 byte string that a v1.0 implementation produces or accepts changes meaning.
 The fix commit carries the annotated patch tag `v1.0.N` (E1 = `v1.0.1`), whose message lists
 the erratum ids and the new hashes of `spec/vectors/MANIFEST.sha256`.
-`v1.0.0` never moves.
+`v1.0.0` never moves. Patch tags `v1.0.N` are shared with code-only fixes
+that change no wire byte; such tags carry no erratum and are not listed here
+(`v1.0.2`: code-only).
 
 Threat note: a frozen vector that contradicts the frozen text pushes
 implementations to invent a rule that no text defines. Here that rule would
