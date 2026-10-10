@@ -200,6 +200,19 @@ func PFFMessage(tx []byte) ([]byte, error) {
 	return append([]byte(nil), body.Messages[0].Value...), nil
 }
 
+// TxTimeoutHeight returns the timeout_height of a signed tx; 0 is none.
+func TxTimeoutHeight(tx []byte) (uint64, error) {
+	var raw cosmostx.TxRaw
+	if err := raw.Unmarshal(tx); err != nil {
+		return 0, fmt.Errorf("node: tx: %w", err)
+	}
+	var body cosmostx.TxBody
+	if err := body.Unmarshal(raw.BodyBytes); err != nil {
+		return 0, fmt.Errorf("node: tx body: %w", err)
+	}
+	return body.TimeoutHeight, nil
+}
+
 // TxSequence returns the account sequence a signed single-signer tx was
 // signed at.
 func TxSequence(tx []byte) (uint64, error) {

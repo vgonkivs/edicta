@@ -210,7 +210,15 @@ func (r *FibreRecorder) restore(ctx context.Context, comm, blob []byte, rec *arc
 	if err != nil {
 		return nil, err
 	}
-	landBy := rec.RefHeight + fp.PromiseHeightWindow
+	// The tx carries the window of the process that signed it; the current
+	// one may have changed since.
+	landBy, err := node.TxTimeoutHeight(rec.Tx)
+	if err != nil {
+		return nil, archiveFault("anchor intent", err)
+	}
+	if landBy == 0 {
+		landBy = rec.RefHeight + fp.PromiseHeightWindow
+	}
 	return &intentDraft{
 		rec: rec, timeout: landBy, landBy: landBy,
 		expiry:  time.Unix(int64(rec.CreatedAt)+1, 0).Add(time.Duration(fp.PromiseTimeoutS) * time.Second),

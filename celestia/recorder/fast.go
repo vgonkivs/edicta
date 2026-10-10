@@ -75,6 +75,9 @@ type AnchorNode interface {
 // FastDeps switch a Recorder to pending references: Publish returns once the
 // payload and the anchor intent are archived and the anchor tx is accepted by
 // the node, and a background loop writes the evidence when the anchor lands.
+// The archive of the Recorder must implement archive.IntentReader and
+// archive.IntentLister, through which a restart finds the intents it has to
+// follow; the HTTP archive client does not list them.
 type FastDeps struct {
 	// Signer signs the anchor txs; for da = 2 it is the blob signer.
 	Signer node.AnchorSigner
@@ -716,12 +719,17 @@ func (f *fastCore) processed(ctx context.Context, d fastDA, e *fastEntry, comm, 
 		return sdk.Published{}, err
 	}
 	dr := e.draft
-	h, found, _, err := f.scanStep(ctx, d, e, comm, min(head, dr.landBy))
-	if err != nil {
-		return sdk.Published{}, fmt.Errorf("%w: scan: %w", ErrNodeUnavailable, err)
-	}
-	if found {
-		return f.landed(ctx, d, e, comm, blob, node.TxStatus{Found: true, Height: h})
+	for {
+		h, found, done, err := f.scanStep(ctx, d, e, comm, min(head, dr.landBy))
+		if err != nil {
+			return sdk.Published{}, fmt.Errorf("%w: scan: %w", ErrNodeUnavailable, err)
+		}
+		if found {
+			return f.landed(ctx, d, e, comm, blob, node.TxStatus{Found: true, Height: h})
+		}
+		if done {
+			break
+		}
 	}
 	f.giveUp(dr)
 	return sdk.Published{}, f.stick(e, fmt.Errorf("%w: the chain had already processed the promise, and no block since its height carries the anchor", ErrAnchorTxRejected))
