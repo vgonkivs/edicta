@@ -34,6 +34,7 @@ type Config struct {
 	Gate     GateConfig     `toml:"gate"`
 	HTTP     HTTPConfig     `toml:"http"`
 	Policy   PolicyConfig   `toml:"policy"`
+	Capture  CaptureConfig  `toml:"capture"`
 }
 
 // NetworkConfig describes the chain access. Zero versions take the defaults of
@@ -269,6 +270,7 @@ func validID(s string, max int) bool {
 // only filled with da = "fibre".
 func (c Config) WithDefaults() Config {
 	c.Archive = c.Archive.withDefaults()
+	c.Capture = c.Capture.withDefaults()
 	c.Policy = c.Policy.WithDefaults()
 	c.Gate.Fast = c.Gate.Fast.WithDefaults()
 	c.Recorder = c.Recorder.withFastDefaults(c.Network.DA)
@@ -396,6 +398,9 @@ func (c Config) ValidateBasic() error {
 		return cfgErr("policy.mandate_file needs the archive: archive.dir is required")
 	}
 	if err := c.validateArchive(); err != nil {
+		return err
+	}
+	if err := c.validateCapture(); err != nil {
 		return err
 	}
 	if err := c.validateFibre(); err != nil {

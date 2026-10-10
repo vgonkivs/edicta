@@ -38,6 +38,7 @@ address unless `http.allow_insecure` or TLS is set.
 | `[gate]` | `gate_id`, `key_file`, `registry_path`, `action_types`, `allowlist_file` (agents), `executor_keys`, `anchor_verifier = "self"`, `reveal_on_execution` |
 | `[gate.fast]` | fast mode (below) |
 | `[policy]` | `mandate_file` |
+| `[capture]` | execution result capture for bank-send receipts (below) |
 | `[http]` | listener, TLS, token files |
 
 ## Keys
@@ -230,6 +231,54 @@ sequence, a killed anchor and its absence proof, a restart while pending) is
 in [mocha-checklist.md](mocha-checklist.md). It has not been run yet, so fast
 mode has not run live.
 
+## Execution result capture (`[capture]`)
+
+For a rail whose result is proven through the chain's `last_results_hash`
+(today the bank-send profile), the proof of a transaction's result lives on
+nodes that prune it: the block results at the execution height `H_exec` and
+the header at `H_exec + 1`. Once every node has pruned them, the result can
+only be node-attested. The capture keeps that proof before it is lost:
+
+```toml
+[capture]
+enabled = true
+dir = "/var/lib/edictad/capture"       # not inside archive.dir
+comet_rpc = "http://127.0.0.1:26657"   # serves /tx, /block, /block_results, /header
+node_prune_window_blocks = 100000      # how many blocks that node keeps; at least 100
+retry_every_s = 30                     # default 30
+```
+
+When `POST /v1/record` returns a receipt for a decision of a captured action
+type, the gate tracks its `rail_ref` and, once the block `H_exec + 1`
+exists, stores under `(chain_id, H_exec)`: the protobuf header at
+`H_exec + 1`, the transaction's result, its index in the block and the
+Merkle path from that result to `last_results_hash`. The results are
+checked against the header before anything is stored, and the header must
+carry the gate's chain id: a `comet_rpc` node of another chain fails every
+capture and ends in the alert below. Capture is
+idempotent: a retried Record, a second receipt at the same height and a
+restart share one record per block, and the first header stays.
+
+The store is a local directory next to the registry, outside the archive
+format: verifiers of this release do not read it, and nothing in it changes
+an answer or an archive record. A later release moves its entries into the
+archive.
+
+Retries and fallback. Pending captures are retried every `retry_every_s`.
+The sweep (every `archive.sweep_interval_s`, and at start) reads the
+registry and tracks every receipt of a captured type that has neither a
+capture nor a pending entry, for example after a crash between the receipt
+and the tracking.
+
+Timeliness. Executors should call Record right after their transaction is
+included. A Record that reaches the gate when a quarter of
+`node_prune_window_blocks` has passed since `H_exec` is logged as a
+warning. A capture still missing after half the window is logged at error
+level (once per capture and process) and `/v1/health` reports degraded
+until it is captured, the same alert as a skipped anchor intent. Both
+thresholds follow the configured window, so set it to what the node really
+keeps (`min-retain-blocks` and its results pruning), not a guess.
+
 ## Startup refusals
 
 `edictad` refuses to start, before it listens, when:
@@ -255,7 +304,12 @@ mode has not run live.
 - `fibre` with fast mode: the x/fibre params (promise window, timeout,
   withdrawal delay) stay unreadable after 6 reads (above);
 - `gate.reveal_on_execution` names a type not in `gate.action_types` or
-  without a public-execution profile.
+  without a public-execution profile;
+- `[capture]` keys are set without `capture.enabled`, or it is enabled
+  without a captured type in `gate.action_types`, with `capture.dir`
+  missing or inside `archive.dir`, `comet_rpc` not an http(s) URL,
+  `node_prune_window_blocks` outside 100..6000000 or `retry_every_s`
+  outside 1..3600.
 
 Height reads: at start each endpoint runs a height canary; a
 height-ignoring consensus endpoint does not stop the start but puts the gate

@@ -21,6 +21,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/archive/fsarchive"
+	"github.com/vgonkivs/edicta/celestia/execcapture"
 	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/heightcheck"
 	"github.com/vgonkivs/edicta/celestia/node"
@@ -74,6 +75,13 @@ type Deps struct {
 	RetryWait func(ctx context.Context, d time.Duration) error
 	// ParamsTimeout bounds each x/fibre params read at start; zero means 10s.
 	ParamsTimeout time.Duration
+	// CaptureChain serves the execution result capture; nil means the
+	// CometBFT RPC of capture.comet_rpc. Used only with capture.enabled.
+	CaptureChain execcapture.Chain
+	// CaptureTick paces the capture retries; nil means a ticker of
+	// capture.retry_every_s. CaptureSweepTick paces the capture sweep; nil
+	// means a ticker of archive.sweep_interval_s.
+	CaptureTick, CaptureSweepTick <-chan time.Time
 }
 
 // FibreDeps are the da = 1 dependencies.
@@ -725,8 +733,15 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 		quota = recorderQuota(cfg, clock)
 	}
 
+	capturer, err := startCapture(runCtx, cfg, d, head.ChainID, reg, aio, timeout, log, &s.bg)
+	if err != nil {
+		return fail(err)
+	}
+	if capturer != nil {
+		hl.captures = capturer
+	}
 	var api edictaapi.Gate = &archivingGate{
-		g: g, clock: clock, gateID: cfg.Gate.GateID, q: q, pol: pol,
+		g: g, clock: clock, gateID: cfg.Gate.GateID, q: q, pol: pol, cap: capturer,
 		w: &writer{io: aio, q: q, log: log, timeout: timeout},
 	}
 	if d.WrapGate != nil {
@@ -1027,7 +1042,8 @@ type archivingGate struct {
 	gateID string
 	q      *retryQueue
 	w      *writer
-	pol    *polInfo // nil without a mandate
+	pol    *polInfo              // nil without a mandate
+	cap    *execcapture.Capturer // nil without capture.enabled
 }
 
 func (a *archivingGate) Authorize(ctx context.Context, envelope, action, salt []byte) (gate.Result, error) {
@@ -1108,7 +1124,11 @@ func (a *archivingGate) after(ctx context.Context, res gate.Result, err error, v
 }
 
 func (a *archivingGate) Record(ctx context.Context, envelope []byte, railRef string, execPub, execSig []byte) ([]byte, error) {
-	return a.g.Record(ctx, envelope, railRef, ed25519.PublicKey(execPub), execSig)
+	receipt, err := a.g.Record(ctx, envelope, railRef, ed25519.PublicKey(execPub), execSig)
+	if err == nil || errors.Is(err, gate.ErrReceiptExists) {
+		a.trackRecord(ctx, envelope, receipt)
+	}
+	return receipt, err
 }
 
 // secrets holds what is read from files before anything else starts.
@@ -1169,6 +1189,11 @@ func loadSecrets(cfg Config) (*secrets, error) {
 	return s, nil
 }
 
+// overdueCaptures is implemented by the execution result capturer.
+type overdueCaptures interface {
+	Overdue() uint64
+}
+
 // skippedIntents is implemented by a fast Recorder.
 type skippedIntents interface {
 	SkippedIntents() uint64
@@ -1193,6 +1218,10 @@ type health struct {
 	// decision later reads as anchor_missing, so health stays degraded
 	// while it is not zero.
 	skipped skippedIntents
+	// captures, when set, counts the execution result captures still
+	// missing past half the node prune window; health stays degraded while
+	// it is not zero.
+	captures overdueCaptures
 
 	mu     sync.Mutex
 	last   node.Header
@@ -1219,7 +1248,8 @@ func (h *health) Health(ctx context.Context) (edictaapi.HealthInfo, error) {
 		}
 	}
 	status := uint64(1)
-	if !h.lastOK || h.degraded.Load() || (h.skipped != nil && h.skipped.SkippedIntents() > 0) {
+	if !h.lastOK || h.degraded.Load() || (h.skipped != nil && h.skipped.SkippedIntents() > 0) ||
+		(h.captures != nil && h.captures.Overdue() > 0) {
 		status = 2
 	}
 	return edictaapi.HealthInfo{

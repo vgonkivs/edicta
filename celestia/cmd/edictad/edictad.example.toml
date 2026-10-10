@@ -97,6 +97,17 @@ anchor_verifier = "self"
 # min_promise_slack_seconds = 15
 # rebroadcast_intent = true                   # da = "fibre" only
 
+# Execution result capture (off by default): for bank-send receipts, keep the
+# header at H + 1, the transaction's result and its Merkle path to
+# last_results_hash in a local store, outside the archive, before the node
+# prunes them. Not read by verifiers.
+# [capture]
+# enabled = true
+# dir = "/var/lib/edictad/capture"            # not inside archive.dir
+# comet_rpc = "http://127.0.0.1:26657"        # serves /tx, /block, /block_results, /header
+# node_prune_window_blocks = 100000           # what that node keeps; at least 100
+# retry_every_s = 30
+
 [http]
 listen = "127.0.0.1:8080"
 tls_cert_file = ""
