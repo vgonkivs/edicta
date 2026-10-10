@@ -53,6 +53,21 @@ max_blob_bytes = 1048576
 # submit_timeout_s = 300           # bound of one submit
 # upload_drain_s = 120             # shard uploads may continue this long after the submit returns
 # close_timeout_s = 150            # shutdown wait for draining uploads; not below upload_drain_s
+#
+# Fast mode (off by default): Publish returns a pending reference once the
+# payload and the anchor intent are archived and the node accepted the anchor
+# tx; the evidence is archived when the anchor lands. Needs [gate.fast] with
+# this namespace in pending_namespaces.
+# fast = true
+# fast_dedicated_account = true    # required: the account of key_name signs NOTHING else
+#                                  # (no other process, no executor, no manual txs), or
+#                                  # pending references go stale and are never re-signed
+# fast_timeout_blocks = 100        # celestia_blob only, 13..1000; above
+#                                  # gate.fast.max_h0_age_blocks + min_fast_slack_blocks
+# fast_upload_addr = "consensus.example.invalid:9090"  # da = "fibre" only; must be network.consensus_grpc.addr
+# fast_escrow_headroom_utia = <n>  # da = "fibre" only; at least one upload of max_blob_bytes. Reservations
+#                                  # are in memory and lost on restart: size it as max blob cost times the
+#                                  # promises that may be unsettled at a restart
 
 [recorder.quota]
 blobs_per_hour = 60
