@@ -8,8 +8,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	blobtypes "github.com/celestiaorg/celestia-app/v10/x/blob/types"
 	libshare "github.com/celestiaorg/go-square/v4/share"
 	squaretx "github.com/celestiaorg/go-square/v4/tx"
+	"github.com/cosmos/cosmos-sdk/types/bech32"
+	cosmostx "github.com/cosmos/cosmos-sdk/types/tx"
 
 	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/node"
@@ -112,5 +115,38 @@ func FuzzCheckPFB(f *testing.F) {
 			return
 		}
 		assert.True(t, timeout == 0 || timeout > ref.Height, "an accepted timeout_height is above h0")
+		requirePFBNamesRef(t, tx, ref, timeout)
 	})
+}
+
+// requirePFBNamesRef re-decodes an accepted tx on its own and requires one
+// signed MsgPayForBlobs that pays for the reference's blob, from its signer,
+// with the timeout_height CheckPFB reported.
+func requirePFBNamesRef(t *testing.T, tx []byte, ref commitment.PayloadRef, timeout uint64) {
+	t.Helper()
+	_, isBlob, _ := squaretx.UnmarshalBlobTx(tx)
+	require.False(t, isBlob)
+	var raw cosmostx.TxRaw
+	require.NoError(t, raw.Unmarshal(tx))
+	require.NotEmpty(t, raw.Signatures, "an accepted tx is signed")
+	var body cosmostx.TxBody
+	require.NoError(t, body.Unmarshal(raw.BodyBytes))
+	require.Len(t, body.Messages, 1)
+	require.NotNil(t, body.Messages[0])
+	require.Equal(t, "/celestia.blob.v1.MsgPayForBlobs", body.Messages[0].TypeUrl)
+	assert.Equal(t, timeout, body.TimeoutHeight)
+	var msg blobtypes.MsgPayForBlobs
+	require.NoError(t, msg.Unmarshal(body.Messages[0].Value))
+	_, signer, err := bech32.DecodeAndConvert(msg.Signer)
+	require.NoError(t, err)
+	assert.Equal(t, ref.Signer, signer)
+	named := false
+	for i := range msg.Namespaces {
+		if i < len(msg.ShareCommitments) && i < len(msg.ShareVersions) &&
+			bytes.Equal(msg.Namespaces[i], ref.Namespace) && bytes.Equal(msg.ShareCommitments[i], ref.Commitment) &&
+			msg.ShareVersions[i] == uint32(libshare.ShareVersionOne) {
+			named = true
+		}
+	}
+	assert.True(t, named, "the accepted PFB pays for the reference's blob")
 }

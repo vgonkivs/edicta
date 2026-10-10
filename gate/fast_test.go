@@ -336,36 +336,70 @@ func TestDeadlineVectors(t *testing.T) {
 	}
 	gatefix.ReadVector(t, "anchor.json", &af)
 	require.NotEmpty(t, af.Window)
+	waived := 0
 	for _, v := range af.Window {
 		t.Run(v.ID, func(t *testing.T) {
 			in := v.Input
-			cfg := gate.DefaultConfig()
-			cfg.FastWindowBlocks, cfg.MaxH0AgeBlocks = gatefix.U64(t, in.Window), gatefix.U64(t, in.MaxAge)
-			cfg.MinFastSlackBlocks = gatefix.U64(t, in.Slack)
-			f := gate.IntentFacts{DA: commitment.DA(gatefix.U64(t, in.DA)), ChainWindow: optU64(t, in.ChainWindow),
+			setCfg := func(cfg *gate.Config) {
+				cfg.FastWindowBlocks, cfg.MaxH0AgeBlocks = gatefix.U64(t, in.Window), gatefix.U64(t, in.MaxAge)
+				cfg.MinFastSlackBlocks = gatefix.U64(t, in.Slack)
+				if p := in.Promise; p != nil {
+					cfg.MinPromiseSlackSeconds = gatefix.U64(t, p.MinSlack)
+				}
+			}
+			da := commitment.DA(gatefix.U64(t, in.DA))
+			f := gate.IntentFacts{DA: da, ChainWindow: optU64(t, in.ChainWindow),
 				TimeoutHeight: optU64(t, in.TimeoutHeight), PromiseTimeout: 3600, CreatedAt: 1 << 40}
 			if p := in.Promise; p != nil {
 				f.HeadTime, f.CreatedAt, f.PromiseTimeout = gatefix.U64(t, p.THead), gatefix.U64(t, p.Creation), gatefix.U64(t, p.Timeout)
-				cfg.MinPromiseSlackSeconds = gatefix.U64(t, p.MinSlack)
 			}
-			h0, head := gatefix.U64(t, in.H0), gatefix.U64(t, in.Head)
-			d, provisional, err := gate.Deadline(h0, head, f, cfg, gatefix.U64(t, in.Delay))
-			if provisional && in.IncludedAt != "" {
-				at := gatefix.U64(t, in.IncludedAt)
-				if gatefix.U64(t, in.IncludedCode) == 0 && at >= h0 && at <= d {
-					err = nil
-				}
-			}
+			h0, head, delay := gatefix.U64(t, in.H0), gatefix.U64(t, in.Head), gatefix.U64(t, in.Delay)
+			var want error
 			if v.Expect.Error != "" {
-				want, ok := gatefix.Sentinel(v.Expect.Error)
+				var ok bool
+				want, ok = gatefix.Sentinel(v.Expect.Error)
 				require.True(t, ok, v.Expect.Error)
-				require.ErrorIs(t, err, want)
+			}
+
+			if in.IncludedAt == "" {
+				cfg := gate.DefaultConfig()
+				setCfg(&cfg)
+				d, _, err := gate.Deadline(h0, head, f, cfg, delay)
+				if want != nil {
+					require.ErrorIs(t, err, want)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, gatefix.U64(t, v.Expect.Deadline), d)
 				return
 			}
-			require.NoError(t, err)
-			assert.Equal(t, gatefix.U64(t, v.Expect.Deadline), d)
+
+			// The waiver lives in the gate, so an inclusion vector runs
+			// through it: heights are moved onto the fixture's h0, which
+			// leaves every bound in the vector unchanged.
+			require.Nil(t, in.Promise, "an inclusion vector with a promise needs the promise times staged")
+			waived++
+			e := newFastEnv(t, da, fastMandate(t, delay), gatefix.WithConfig(setCfg))
+			e.facts.Head = e.h0 + head - h0
+			e.facts.ChainWindow, e.facts.TimeoutHeight = f.ChainWindow, 0
+			if f.TimeoutHeight != 0 {
+				e.facts.TimeoutHeight = e.h0 + f.TimeoutHeight - h0
+			}
+			e.stage()
+			e.Broadcaster.SetStatus(e.rec.Tx, gate.TxStatus{Included: true,
+				Height: e.h0 + gatefix.U64(t, in.IncludedAt) - h0, Code: uint32(optU64(t, in.IncludedCode))})
+			res, err := e.authorize()
+			assert.Empty(t, e.Broadcaster.Broadcasts(), "an included anchor is never broadcast again")
+			if want != nil {
+				require.ErrorIs(t, err, want)
+				assert.Empty(t, res.Authorization)
+				e.RequireUntouched(e.c)
+				return
+			}
+			e.requireFast(res, err, e.h0+gatefix.U64(t, v.Expect.Deadline)-h0)
 		})
 	}
+	require.GreaterOrEqual(t, waived, 2, "the inclusion vectors ran through the gate")
 }
 
 func TestPendingK2Vectors(t *testing.T) {
@@ -395,8 +429,9 @@ func TestPendingK2Vectors(t *testing.T) {
 			da := commitment.DA(gatefix.U64(t, v.DA))
 			tRef, vu := gatefix.U64(t, v.TRef), gatefix.U64(t, v.ValidUntil)
 			issued := vu - 600
-			// The vectors' T_ref lies hours before issued_at; only K2 is
-			// under test, so the decision age bound is set out of the way.
+			// The vectors' T_ref lies hours before issued_at; only the
+			// retention window is under test, so the decision age bound is
+			// set out of the way.
 			m := fastMandate(t, fastDelay)
 			m.MaxDecisionAge = 86400
 			fc := gatetest.NewDACommitter()

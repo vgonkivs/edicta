@@ -2,7 +2,7 @@ package gate_test
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -213,13 +213,18 @@ func TestFastIntentForAnotherReference(t *testing.T) {
 // The verifier must report the reference's da and a reference time; an
 // answer without them is the chain's failure, never an Authorization.
 func TestFastVerifierFactsAreChecked(t *testing.T) {
-	for name, mutate := range map[string]func(*gate.IntentFacts){
-		"other da":    func(f *gate.IntentFacts) { f.DA = commitment.DAFibre },
-		"no ref time": func(f *gate.IntentFacts) { f.RefTime = 0 },
+	for name, tc := range map[string]struct {
+		da     commitment.DA
+		mutate func(*gate.IntentFacts)
+	}{
+		"other da":    {commitment.DACelestiaBlob, func(f *gate.IntentFacts) { f.DA = commitment.DAFibre }},
+		"no ref time": {commitment.DACelestiaBlob, func(f *gate.IntentFacts) { f.RefTime = 0 }},
+		// A head time of 0 would let any promise pass the promise slack check.
+		"fibre head time zero": {commitment.DAFibre, func(f *gate.IntentFacts) { f.HeadTime = 0 }},
 	} {
 		t.Run(name, func(t *testing.T) {
-			f := newFastEnv(t, commitment.DACelestiaBlob, fastMandate(t, fastDelay))
-			mutate(&f.facts)
+			f := newFastEnv(t, tc.da, fastMandate(t, fastDelay))
+			tc.mutate(&f.facts)
 			f.stage()
 			res, err := f.authorize()
 			require.ErrorIs(t, err, gate.ErrChainUnavailable)
@@ -251,7 +256,7 @@ func TestFastConcurrentRequestsIssueOneAuthorization(t *testing.T) {
 			defer mu.Unlock()
 			if err == nil {
 				fresh++
-			} else if !errors.Is(err, gate.ErrNonceUsed) {
+			} else if !assert.ErrorIs(t, err, gate.ErrNonceUsed, "a loser sees only the used nonce") {
 				return
 			}
 			issued = append(issued, res.Authorization)
@@ -266,4 +271,88 @@ func TestFastConcurrentRequestsIssueOneAuthorization(t *testing.T) {
 	sa, _, err := commitment.DecodeSignedAuthorization(issued[0])
 	require.NoError(t, err)
 	assert.Equal(t, f.h0+fastDelay, sa.Authorization.AnchorDeadline)
+}
+
+// A payload mismatch of the archived blob is found while preparing the
+// broadcast, but it is reported in its own place: a decision that also fails
+// the anchor time check is refused for that, and neither is broadcast.
+func TestFastPayloadMismatchKeepsTheCheckOrder(t *testing.T) {
+	sizeOff := func(f *fEnv) { f.c.PayloadSize++ }
+	hashOff := func(f *fEnv) {
+		f.c.CiphertextHash = append([]byte(nil), f.c.CiphertextHash...)
+		f.c.CiphertextHash[0] ^= 1
+	}
+	issuedEarly := func(f *fEnv) {
+		f.facts.RefTime = f.issued + f.Cfg.SkewS + 1
+		f.stage()
+	}
+	for name, tc := range map[string]struct {
+		mutate  []func(*fEnv)
+		want    error
+		notWant error
+	}{
+		"size mismatch and issued before T_ref": {[]func(*fEnv){sizeOff, issuedEarly}, commitment.ErrIssuedBeforeAnchor, commitment.ErrPayloadSizeMismatch},
+		"hash mismatch and issued before T_ref": {[]func(*fEnv){hashOff, issuedEarly}, commitment.ErrIssuedBeforeAnchor, commitment.ErrPayloadHashMismatch},
+		"size mismatch alone":                   {[]func(*fEnv){sizeOff}, commitment.ErrPayloadSizeMismatch, commitment.ErrIssuedBeforeAnchor},
+		"hash mismatch alone":                   {[]func(*fEnv){hashOff}, commitment.ErrPayloadHashMismatch, commitment.ErrIssuedBeforeAnchor},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFastEnv(t, commitment.DACelestiaBlob, fastMandate(t, fastDelay))
+			for _, m := range tc.mutate {
+				m(f)
+			}
+			res, err := f.authorize()
+			require.ErrorIs(t, err, tc.want)
+			assert.NotErrorIs(t, err, tc.notWant)
+			assert.NotErrorIs(t, err, gate.ErrAnchorIntentRejected)
+			assert.Empty(t, res.Authorization)
+			assert.Empty(t, f.Broadcaster.Broadcasts(), "a blob that is not the decision's payload is never broadcast")
+			f.RequireUntouched(f.c)
+		})
+	}
+}
+
+// An intent verifier that reports a timeout_height at or below h0 is not
+// trusted: the deadline would be at or below h0, and an anchor included at
+// h0 would otherwise waive the slack and authorize a window of zero blocks.
+func TestFastTimeoutHeightNotAboveH0IsRefused(t *testing.T) {
+	for name, below := range map[string]uint64{"at h0": 0, "one below h0": 1} {
+		for _, included := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/included %v", name, included), func(t *testing.T) {
+				f := newFastEnv(t, commitment.DACelestiaBlob, fastMandate(t, fastDelay))
+				f.facts.Head = f.h0
+				f.facts.TimeoutHeight = f.h0 - below
+				f.stage()
+				if included {
+					f.Broadcaster.SetStatus(f.rec.Tx, gate.TxStatus{Included: true, Height: f.h0})
+				}
+				res, err := f.authorize()
+				require.ErrorIs(t, err, gate.ErrAnchorIntentInvalid)
+				assert.Empty(t, res.Authorization)
+				assert.Empty(t, f.Broadcaster.Broadcasts())
+				f.RequireUntouched(f.c)
+			})
+		}
+	}
+}
+
+func TestDeadlineTimeoutHeightNotAboveH0(t *testing.T) {
+	const h0 = 1000
+	cfg := gate.DefaultConfig()
+	for name, tc := range map[string]struct {
+		head, timeout uint64
+	}{
+		"at h0":                       {h0, h0},
+		"below h0":                    {h0, h0 - 1},
+		"at h0 with h0 too old":       {h0 + 50, h0},
+		"one below h0, head below h0": {h0 - 1, h0 - 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, provisional, err := gate.Deadline(h0, tc.head,
+				gate.IntentFacts{DA: commitment.DACelestiaBlob, Head: tc.head, TimeoutHeight: tc.timeout}, cfg, 50)
+			require.ErrorIs(t, err, gate.ErrAnchorIntentInvalid)
+			assert.False(t, provisional, "a bad timeout_height is never waived by an inclusion")
+			assert.Zero(t, d)
+		})
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -148,6 +149,66 @@ func TestFibreIntentRefusals(t *testing.T) {
 			_, err = v.VerifyIntent(t.Context(), ref, rec, size)
 			require.ErrorIs(t, err, tc.want)
 		})
+	}
+}
+
+// downChain fails every chain read and counts them.
+type downChain struct {
+	*intentChain
+	reads int
+}
+
+func (c *downChain) fail() error { c.reads++; return errors.New("dial") }
+
+func (c *downChain) Header(context.Context, uint64) (node.FibreHeader, error) {
+	return node.FibreHeader{}, c.fail()
+}
+func (c *downChain) TxCode(context.Context, uint64, [32]byte) (uint32, error) { return 0, c.fail() }
+func (c *downChain) HistoricalInfo(context.Context, uint64) ([]byte, error)   { return nil, c.fail() }
+func (c *downChain) SignedHeader(context.Context, uint64) ([]byte, error)     { return nil, c.fail() }
+func (c *downChain) LatestHeight(context.Context) (uint64, error)             { return 0, c.fail() }
+func (c *downChain) FibreParamsAt(context.Context, uint64) (node.FibreParams, error) {
+	return node.FibreParams{}, c.fail()
+}
+
+// A record whose created_at is not the promise's creation time is invalid
+// whatever the chain would say: with the endpoint down it is not a
+// retryable chain failure, and with a certificate below quorum it is not a
+// certificate failure.
+func TestFibreIntentCreatedAtIsCheckedBeforeTheChain(t *testing.T) {
+	for name, tc := range map[string]struct {
+		down    bool
+		badCert bool
+		notWant error
+	}{
+		"chain down":               {down: true, notWant: gate.ErrChainUnavailable},
+		"certificate below quorum": {badCert: true, notWant: gate.ErrCertInvalid},
+	} {
+		for _, delta := range []int64{-1, 1} {
+			t.Run(fmt.Sprintf("%s/created_at %+d", name, delta), func(t *testing.T) {
+				ic := newIntentChain(t)
+				dc := &downChain{intentChain: ic}
+				var chain gatechain.FibreIntentChain = ic
+				if tc.down {
+					chain = dc
+				}
+				v, err := gatechain.NewFibreIntents(chain, mochaID)
+				require.NoError(t, err)
+				ref, rec := liveIntent(ic.l)
+				rec.CreatedAt = uint64(int64(rec.CreatedAt) + delta)
+				if tc.badCert {
+					rec.Tx = mutateTx(t, rec.Tx, func(m *fibretypes.MsgPayForFibre) {
+						for i := range m.ValidatorSignatures {
+							m.ValidatorSignatures[i] = nil
+						}
+					})
+				}
+				_, err = v.VerifyIntent(t.Context(), ref, rec, uint64(len(ic.l.payload)))
+				require.ErrorIs(t, err, gate.ErrAnchorIntentInvalid)
+				assert.NotErrorIs(t, err, tc.notWant)
+				assert.Zero(t, dc.reads, "no chain read before the created_at check")
+			})
+		}
 	}
 }
 

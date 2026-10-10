@@ -62,7 +62,7 @@ func putIntent(t *testing.T, p *policyEnv, ref commitment.PayloadRef) {
 }
 
 // A fast-mode daemon whose mandate never consented to fast mode (no key 16)
-// answers a pending decision with the signed P15 deny and archives exactly
+// answers a pending decision with the signed fast-mode consent deny and archives exactly
 // the decision, the deny verdict and its marker. It never reads the intent,
 // never broadcasts and never issues an Authorization.
 func TestFastModeWithoutConsentWritesOnlyTheDeny(t *testing.T) {
