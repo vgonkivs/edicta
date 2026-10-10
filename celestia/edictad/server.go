@@ -303,6 +303,8 @@ func checkFibreDeps(cfg Config, d Deps) error {
 	return nil
 }
 
+const minUploaderCloseTimeout = 5 * time.Second
+
 // Start validates everything, then serves. Order: secret files, the
 // compatibility check, gate preflight, the archive, the registry, the
 // retention observer, the archive sweep, the Recorder, the listener. A refusal
@@ -319,7 +321,10 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 	}
 	srv, err := start(ctx, cfg, d, signing, uploader)
 	if err != nil {
-		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.WithDefaults().recorderCloseTimeout())
+		// The Recorder's bound is zero when it is disabled, yet an injected
+		// uploader still needs a live context to close.
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx),
+			max(cfg.WithDefaults().recorderCloseTimeout(), minUploaderCloseTimeout))
 		defer cancel()
 		if cerr := uploader.Close(cctx); cerr != nil {
 			startLogger(d).Error("edictad: closing the fibre uploader", "err", cerr)

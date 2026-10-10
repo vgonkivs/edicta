@@ -142,6 +142,17 @@ func (u *fakeUploader) Close(context.Context) error {
 	return nil
 }
 
+// ctxUploader records whether its close context was already done.
+type ctxUploader struct {
+	*fakeUploader
+	ctxErr error
+}
+
+func (u *ctxUploader) Close(ctx context.Context) error {
+	u.ctxErr = ctx.Err()
+	return u.fakeUploader.Close(ctx)
+}
+
 func fibreFastEnv(t *testing.T) (*policyEnv, *fibreRecFakes, *fakeUploader) {
 	t.Helper()
 	e, _, rf := newFibreRecEnv(t)
@@ -196,6 +207,17 @@ func TestRecorderFastFibreStartRefusals(t *testing.T) {
 		assert.Zero(t, rf.builds.Load(), "the Recorder, and with it the boot recovery, is never started")
 		assert.Equal(t, []string{"uploader.close", "signing.close"}, rf.log.list())
 		p.registryReopens()
+	})
+	t.Run("uploader closes with a live context when the Recorder is off", func(t *testing.T) {
+		p, _, up := fibreFastEnv(t)
+		cu := &ctxUploader{fakeUploader: up}
+		p.deps.RecorderFast.Uploader = cu
+		cfg := p.cfg(p.fibreFastEdits()...)
+		cfg.Recorder.Enabled = false
+		_, err := edictad.Start(bg, cfg, p.deps)
+		require.ErrorIs(t, err, edictad.ErrConfig)
+		require.EqualValues(t, 1, up.closes.Load())
+		assert.NoError(t, cu.ctxErr, "the close context was already expired")
 	})
 	t.Run("refused before the build", func(t *testing.T) {
 		p, _, up := fibreFastEnv(t)
