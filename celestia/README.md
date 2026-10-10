@@ -1,6 +1,8 @@
 # Edicta on Celestia: running the live demo
 
-Looking for the one-command demo? See [demo/README.md](demo/README.md) (`edicta demo`). This page covers the older, manual `edicta-live` runner.
+Looking for the one-command demo? See [demo/README.md](demo/README.md) (`edicta demo`). This page covers the older, manual `edicta-live` runner and is the full `edictad` configuration reference. The user guides, including fast mode and mandates, are in [../guide/](../guide/README.md).
+
+Everything here is Edicta wire version 1 (spec revision `v1.0`, tags `v1.0.0` and `v1.0.1`): `/v1/*` HTTP paths, `edicta/v1/*` tags, and a salted action hash whose 32-byte salt `edicta-live` carries from the agent to the gate and the executor.
 
 This module holds the Celestia side of Edicta: the Recorder, the chain client
 for the gate, the executor's transaction signer, the `edictad` daemon and the
@@ -177,7 +179,31 @@ At start edictad verifies the mandate, logs its rendered text, and writes the ma
 record and the genesis closed set to the archive before it listens; a failed write
 refuses the start. To replace a mandate, sign a higher `version` with the same
 `mandate_id` (counters continue) and restart. Auditors verify with
-`edicta-verify --principal-key HEX --require-policy`.
+`edicta-verify --principal ed25519:HEX|cosmos:BECH32|eth:0xHEX --require-policy`
+(`--principal-key HEX` is the Ed25519-only form).
+
+The principal builds and signs the mandate with `cmd/edicta-principal` (Ed25519,
+Keplr or MetaMask; a private mandate encrypted to auditors); see
+[../guide/principal.md](../guide/principal.md). With a mandate, every commitment must
+carry `mandate_ref`, the mandate's hash, or the gate refuses it with
+`ErrMandateRefMissing`. `edicta-live` sets no `mandate_ref`, so it runs only against a
+gate without `[policy]`; the demo sets it through the SDK (`sdk.Config.MandateHash`).
+
+`gate.reveal_on_execution` (optional) lists action types whose action salt the gate
+publishes, under a private mandate, once a receipt names the executed transaction.
+Only types of a compiled profile with public execution are accepted (the bank send).
+
+### Fast mode (optional `[gate.fast]`)
+
+Off by default. With it the gate authorizes a pending payload reference on its
+archived anchor intent before the anchor lands, and the Authorization says `mode =
+2` with an `anchor_deadline` height. It needs `archive.dir`, a mandate whose
+`fast_mode_max_delay` is set, and `own_node = true`, because intents are looked up
+and broadcast through `network.consensus_grpc`. The keys, their ranges and the
+startup refusals: [../guide/operator.md](../guide/operator.md). The Recorder's own
+fast-mode keys (`recorder.fast`, `fast_dedicated_account`, `fast_timeout_blocks`,
+`fast_upload_addr`, `fast_escrow_headroom_utia`) arrive with the fast Recorder and
+are described there too.
 
 ## 4. Run edicta-live
 
@@ -209,7 +235,7 @@ to seal to a key you already have. `--bridge-addr` takes `host:port` (the scheme
 `http://` or `https://` URL, which must agree with `--bridge-tls`. Drop `--bridge-tls`, `--grpc-tls` for a
 local plaintext endpoint. The gRPC endpoint must present a certificate that
 verifies against the system roots; one with a private or origin-only
-certificate cannot be used with `--grpc-tls`. `--da` (blob by default) must equal the `da` of edictad's config. `--chain-id` and `--namespace` optionally pin what
+certificate cannot be used with `--grpc-tls`. `--da` (`blob` by default) must match edictad's `network.da`: `blob` for `"celestia_blob"`, `fibre` for `"fibre"`. `--chain-id` and `--namespace` optionally pin what
 the nodes and edictad report.
 
 The default inclusion check is `self`: it trusts your own bridge node, which is
