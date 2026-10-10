@@ -76,7 +76,8 @@ func (r *Runner) writeMandate(gateID string) (string, error) {
 	return path, nil
 }
 
-// authorizer is the part of the API client the over-limit attempt uses.
+// authorizer is the part of the API client the authorize step and the
+// over-limit attempt use.
 type authorizer interface {
 	AuthorizeWithVerdict(ctx context.Context, envelope, action, salt []byte) (auth, verdict []byte, err error)
 }

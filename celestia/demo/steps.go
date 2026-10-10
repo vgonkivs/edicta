@@ -213,12 +213,16 @@ func (r *Runner) publish(ctx context.Context, d *decision) error {
 
 // authorize asks the gate and checks the Authorization it returns.
 func (r *Runner) authorize(ctx context.Context, d *decision) error {
-	raw, err := r.authClient.Authorize(ctx, d.res.Envelope, d.res.Action, d.res.ActionSalt)
+	return r.authorizeWith(ctx, r.authClient, d)
+}
+
+func (r *Runner) authorizeWith(ctx context.Context, az authorizer, d *decision) error {
+	raw, _, err := az.AuthorizeWithVerdict(ctx, d.res.Envelope, d.res.Action, d.res.ActionSalt)
 	if err != nil {
 		return coded(ExitInconclusive, fmt.Errorf("demo: gate authorize: %w", err))
 	}
 	sa, _, err := commitment.VerifyAuthorization(raw, commitment.AuthorizationCheck{
-		GatePubKey: r.gatePub, GateID: r.gateID, ActionType: bankaction.ActionType, Action: d.res.Action,
+		GatePubKey: r.gatePub, GateID: r.gateID, ActionType: bankaction.ActionType, Action: d.res.Action, ActionSalt: d.res.ActionSalt,
 		Now: uint64(r.deps.now().Unix()), SkewS: skewS,
 	})
 	if err != nil {

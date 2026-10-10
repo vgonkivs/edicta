@@ -37,7 +37,7 @@ func edicta(t *testing.T, args ...string) (int, string) {
 func TestNoSubcommandIsAUsageError(t *testing.T) {
 	code, out := edicta(t)
 	assert.Equal(t, exitUsage, code)
-	for _, sub := range []string{"verify", "replay"} {
+	for _, sub := range []string{"demo", "fast-mode", "verify", "replay"} {
 		assert.Contains(t, out, sub, "the usage names the subcommand")
 	}
 }
