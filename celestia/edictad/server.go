@@ -662,6 +662,8 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 			logRecorderFast(log, cfg, addr)
 			if sk, ok := rec.(skippedIntents); ok {
 				hl.skipped = sk
+			} else {
+				log.Warn("edictad: the fibre recorder cannot count skipped anchor intents; health will not report them")
 			}
 		}
 		pub, hl.signer, hl.namespace = rec, addr, ns
@@ -1095,6 +1097,10 @@ func loadSecrets(cfg Config) (*secrets, error) {
 type skippedIntents interface {
 	SkippedIntents() uint64
 }
+
+// The default fibre Recorder must keep counting skipped intents, or health
+// would lose the alert without any error.
+var _ skippedIntents = (*recorder.FibreRecorder)(nil)
 
 // health serves GET /v1/health from a copy refreshed at most once a minute, so
 // the open endpoint cannot be used to hammer the node.
