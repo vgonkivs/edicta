@@ -103,6 +103,18 @@ func New(cfg Config, d Deps) (*Builder, error) {
 	default:
 		return nil, bad("submitter trust %d", cfg.SubmitterTrust)
 	}
+	if d.Pending != nil && cfg.SubmitterTrust == SubmitterUntrusted {
+		rep, ok := d.Pending.(IndependenceReporter)
+		independent := false
+		if ok {
+			if err := guard("independence report", func() error { independent = rep.Independent(); return nil }); err != nil {
+				independent = false
+			}
+		}
+		if !independent {
+			return nil, bad("an untrusted submitter needs a pending verifier independent of it")
+		}
+	}
 	if n := len(cfg.ExpectNamespace); n != 0 && n != 29 {
 		return nil, bad("expected namespace of %d bytes", n)
 	}
@@ -380,10 +392,13 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 	if ref.Height == 0 {
 		return nil, fmt.Errorf("%w: no height", ErrPublishResult)
 	}
+	if ref.Anchor != 0 && !ref.Pending() {
+		return nil, fmt.Errorf("%w: anchor %d", ErrPublishResult, ref.Anchor)
+	}
 	// A pending reference is signed only after its anchor intent was
-	// verified, which this builder does not do yet.
-	if ref.Anchor != 0 {
-		return nil, fmt.Errorf("%w: pending reference (anchor %d) not supported", ErrPublishResult, ref.Anchor)
+	// verified.
+	if ref.Pending() && b.deps.Pending == nil {
+		return nil, fmt.Errorf("%w: pending reference without a pending verifier", ErrPublishResult)
 	}
 	if err := b.checkExpected(ref); err != nil {
 		return nil, err
@@ -392,7 +407,15 @@ func (b *Builder) finalize(ctx context.Context, s *Sealed, pub Published) (*Resu
 	if err != nil {
 		return nil, err
 	}
-	if b.deps.Inclusion != nil {
+	if ref.Pending() {
+		t, err := b.verifyPending(ctx, ref, uint64(len(s.blob)))
+		if err != nil {
+			return nil, err
+		}
+		if t != pub.BlockTime {
+			return nil, fmt.Errorf("%w: header time at h0 %d, published %d", ErrBlockTimeMismatch, t, pub.BlockTime)
+		}
+	} else if b.deps.Inclusion != nil {
 		t, err := b.verifyInclusion(ctx, ref)
 		if err != nil {
 			return nil, err
@@ -531,6 +554,24 @@ func (b *Builder) verifyInclusion(ctx context.Context, ref commitment.PayloadRef
 	defer cancel()
 	err = guard("inclusion verifier", func() (err error) {
 		t, err = b.deps.Inclusion.VerifyInclusion(cctx, cloneRef(ref))
+		return err
+	})
+	if err != nil {
+		if errors.Is(err, ErrInclusionUnverified) {
+			return 0, err
+		}
+		return 0, fmt.Errorf("%w: %w", ErrInclusionUnverified, err)
+	}
+	return t, nil
+}
+
+// verifyPending asks the pending verifier about ref and returns T_ref. Every
+// failure, including a panic, is ErrInclusionUnverified.
+func (b *Builder) verifyPending(ctx context.Context, ref commitment.PayloadRef, size uint64) (t uint64, err error) {
+	cctx, cancel := context.WithTimeout(ctx, b.cfg.CallTimeout)
+	defer cancel()
+	err = guard("pending verifier", func() (err error) {
+		t, err = b.deps.Pending.VerifyPending(cctx, cloneRef(ref), size)
 		return err
 	})
 	if err != nil {

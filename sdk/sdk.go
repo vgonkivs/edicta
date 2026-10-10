@@ -42,10 +42,12 @@ type Publisher interface {
 	Publish(ctx context.Context, blob []byte) (Published, error)
 }
 
+// Published is a publisher's answer. For a pending reference Ref.Height is
+// h0 and BlockTime is T_ref, the header time at h0.
 type Published struct {
-	Ref            commitment.PayloadRef // da, namespace, commitment, height, signer (da = 2)
+	Ref            commitment.PayloadRef // da, namespace, commitment, height, signer (da = 2), anchor
 	BlockTime      uint64                // header time of Ref.Height, Unix seconds
-	RetentionStart uint64                // da = 1: payment promise creation time; 0 for da = 2
+	RetentionStart uint64                // da = 1: payment promise creation time; 0 for an included da = 2 reference
 }
 
 type Signer interface {
@@ -83,6 +85,14 @@ func ShareV1Committer() Committer { return shareV1Committer{} }
 // ref.Height, and returns the time of that verified header in Unix seconds.
 type InclusionVerifier interface {
 	VerifyInclusion(ctx context.Context, ref commitment.PayloadRef) (blockTime uint64, err error)
+}
+
+// PendingVerifier checks the anchor intent of a pending reference the way
+// the gate does, against an endpoint of the producer's choice, and returns
+// the time of the verified header at h0 in Unix seconds. It must refuse an
+// intent whose reference height is not ref.Height.
+type PendingVerifier interface {
+	VerifyPending(ctx context.Context, ref commitment.PayloadRef, payloadSize uint64) (refTime uint64, err error)
 }
 
 // IndependenceReporter is implemented by a verifier that says whether its
@@ -182,6 +192,10 @@ type Deps struct {
 	// Inclusion verifies, before signing, that the published reference is on
 	// chain. Required with SubmitterUntrusted.
 	Inclusion InclusionVerifier
+	// Pending verifies the anchor intent of a pending reference before
+	// signing. Without it a pending reference is refused; with
+	// SubmitterUntrusted it must report that it is independent.
+	Pending PendingVerifier
 	// Committers adds checks per da. For da 2 the built-in recompute always
 	// runs first and cannot be replaced; UnsafeSkipDACheck switches it off.
 	Committers map[commitment.DA]Committer

@@ -1,0 +1,123 @@
+package sdk_test
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/sdk"
+)
+
+// pendingFake answers VerifyPending with t or err and records the calls.
+type pendingFake struct {
+	mu          sync.Mutex
+	t           uint64
+	err         error
+	refs        []commitment.PayloadRef
+	sizes       []uint64
+	independent bool
+}
+
+func (p *pendingFake) VerifyPending(_ context.Context, ref commitment.PayloadRef, size uint64) (uint64, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.refs = append(p.refs, ref)
+	p.sizes = append(p.sizes, size)
+	return p.t, p.err
+}
+
+func (p *pendingFake) Independent() bool { return p.independent }
+
+// pendingPub is a publish result turned into a pending reference at the same
+// height and time.
+func pendingPub(t *testing.T, b *sdk.Builder, s *sdk.Sealed) sdk.Published {
+	t.Helper()
+	pub, err := b.Publish(bg, s)
+	require.NoError(t, err)
+	pub.Ref.Anchor = commitment.AnchorPending
+	return pub
+}
+
+func TestFinalizeSignsAPendingReferenceAfterTheIntentCheck(t *testing.T) {
+	r := newRig(t)
+	pv := &pendingFake{}
+	r.deps.Pending = pv
+	b := r.builder()
+	s, err := b.Seal(bg, r.payload())
+	require.NoError(t, err)
+	pub := pendingPub(t, b, s)
+	pv.t = pub.BlockTime
+
+	res, err := b.Finalize(bg, s, pub)
+	require.NoError(t, err)
+	assert.True(t, res.Commitment.PayloadRef.Pending(), "the signed reference stays pending")
+	assert.Equal(t, pub.Ref.Height, res.Commitment.PayloadRef.Height, "h0 is signed as given")
+	require.Len(t, pv.refs, 1)
+	assert.True(t, pv.refs[0].Pending())
+	assert.Equal(t, uint64(len(res.Blob)), pv.sizes[0])
+	assert.Equal(t, 1, r.signer.calls())
+	requireValidAtGate(t, res, now)
+}
+
+func TestFinalizeRefusesAPendingReferenceTheVerifierRefuses(t *testing.T) {
+	r := newRig(t)
+	pv := &pendingFake{err: errors.New("certificate below quorum")}
+	r.deps.Pending = pv
+	b := r.builder()
+	s, err := b.Seal(bg, r.payload())
+	require.NoError(t, err)
+	_, err = b.Finalize(bg, s, pendingPub(t, b, s))
+	require.ErrorIs(t, err, sdk.ErrInclusionUnverified)
+	assert.Zero(t, r.signer.calls())
+}
+
+func TestFinalizeRefusesAPendingReferenceWithAnotherRefTime(t *testing.T) {
+	r := newRig(t)
+	pv := &pendingFake{}
+	r.deps.Pending = pv
+	b := r.builder()
+	s, err := b.Seal(bg, r.payload())
+	require.NoError(t, err)
+	pub := pendingPub(t, b, s)
+	pv.t = pub.BlockTime - 1
+	_, err = b.Finalize(bg, s, pub)
+	require.ErrorIs(t, err, sdk.ErrBlockTimeMismatch)
+	assert.Zero(t, r.signer.calls())
+}
+
+func TestFinalizeRefusesAnUnknownAnchorValue(t *testing.T) {
+	r := newRig(t)
+	r.deps.Pending = &pendingFake{}
+	b := r.builder()
+	s, err := b.Seal(bg, r.payload())
+	require.NoError(t, err)
+	pub, err := b.Publish(bg, s)
+	require.NoError(t, err)
+	pub.Ref.Anchor = 3
+	_, err = b.Finalize(bg, s, pub)
+	require.ErrorIs(t, err, sdk.ErrPublishResult)
+}
+
+func TestUntrustedSubmitterNeedsAnIndependentPendingVerifier(t *testing.T) {
+	r := newRig(t)
+	r.cfg.SubmitterTrust = sdk.SubmitterUntrusted
+	r.deps.Inclusion = independentInclusion{}
+	r.deps.Pending = &pendingFake{}
+	_, err := r.tryNew()
+	require.ErrorIs(t, err, sdk.ErrInvalidConfig)
+	r.deps.Pending = &pendingFake{independent: true}
+	_, err = r.tryNew()
+	require.NoError(t, err)
+}
+
+type independentInclusion struct{}
+
+func (independentInclusion) VerifyInclusion(context.Context, commitment.PayloadRef) (uint64, error) {
+	return 0, errors.New("unused")
+}
+func (independentInclusion) Independent() bool { return true }
