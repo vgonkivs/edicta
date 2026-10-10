@@ -183,6 +183,9 @@ type PolicyInfo struct {
 	// times, the extractor and the facts are unknown; the state hashes are
 	// the public ones.
 	ContentPrivate bool
+	// NoSeq: an opened PrivatePart that breaks the presence rule holds no
+	// prev_state, so there is no seq; a zero would read as genesis.
+	NoSeq bool
 }
 
 // PolicyMode says whether the mandate publishes its rules.

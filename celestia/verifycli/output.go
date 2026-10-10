@@ -101,7 +101,8 @@ type policyView struct {
 	Version   *uint64 `json:"version,omitempty"`
 	Principal string  `json:"principal,omitempty"`
 	// Seq, the times, the extractor and the facts are left out when a
-	// private verdict was not opened: a zero would read as a value.
+	// private verdict was not opened: a zero would read as a value. Seq is
+	// also left out when the verdict holds no prev_state.
 	Seq           *uint64  `json:"seq,omitempty"`
 	AnchorTime    *uint64  `json:"anchor_time,omitempty"`
 	EvalTime      *uint64  `json:"eval_time,omitempty"`
@@ -286,8 +287,12 @@ func viewOf(r verifier.Report) reportView {
 			v.Policy.MandateID, v.Policy.Version, v.Policy.Principal = hex.EncodeToString(p.MandateID), &ver, hex.EncodeToString(p.Principal)
 		}
 		if !p.ContentPrivate {
-			seq, at, et, scale := p.Seq, p.AnchorTime, p.EvalTime, p.Facts.Scale
-			v.Policy.Seq, v.Policy.AnchorTime, v.Policy.EvalTime, v.Policy.Scale = &seq, &at, &et, &scale
+			at, et, scale := p.AnchorTime, p.EvalTime, p.Facts.Scale
+			v.Policy.AnchorTime, v.Policy.EvalTime, v.Policy.Scale = &at, &et, &scale
+			if !p.NoSeq {
+				seq := p.Seq
+				v.Policy.Seq = &seq
+			}
 			v.Policy.Extractor, v.Policy.Kind, v.Policy.Asset = p.ExtractorID, p.Facts.Kind, p.Facts.Asset
 			v.Policy.Amount, v.Policy.Recipient = hex.EncodeToString(p.Facts.Amount), p.Facts.Recipient
 		}
@@ -440,8 +445,11 @@ func writeText(out io.Writer, v reportView, colour bool) {
 		switch {
 		case pv.Mode == string(verifier.PolicyModePrivate) && pv.MandateID == "":
 			p("policy: private mandate %s, not opened: no configured auditor key opens it", pv.MandateHash)
-		case pv.Seq == nil:
+		case pv.AnchorTime == nil:
 			p("policy: private mandate %s version %d, the decision's private part was not opened", pv.MandateHash, *pv.Version)
+		case pv.Seq == nil:
+			p("policy: mandate %s version %d, no counter position, %s %s (scale %d), anchor time %d, evaluated at %d",
+				pv.MandateHash, *pv.Version, pv.Asset, pv.Amount, *pv.Scale, *pv.AnchorTime, *pv.EvalTime)
 		default:
 			p("policy: mandate %s version %d, counter position %d, %s %s (scale %d), anchor time %d, evaluated at %d",
 				pv.MandateHash, *pv.Version, *pv.Seq, pv.Asset, pv.Amount, *pv.Scale, *pv.AnchorTime, *pv.EvalTime)

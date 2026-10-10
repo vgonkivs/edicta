@@ -1,6 +1,7 @@
 package verifycli
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,4 +27,18 @@ func TestKeylessPrivateMandateLeavesOutItsIdentity(t *testing.T) {
 	assert.JSONEq(t, "0", string(pol["version"]))
 	assert.JSONEq(t, `"03"`, string(pol["mandate_id"]))
 	assert.JSONEq(t, `"04"`, string(pol["principal"]))
+}
+
+// An opened verdict without prev_state prints no seq and is not reported as
+// unopened.
+func TestOpenedVerdictWithoutPrevStateLeavesOutSeq(t *testing.T) {
+	info := &verifier.PolicyInfo{Mode: verifier.PolicyModePrivate, MandateID: []byte{1}, Version: 2, NoSeq: true, AnchorTime: 7}
+	pol := policyJSON(t, info)
+	assert.NotContains(t, pol, "seq")
+	assert.JSONEq(t, "7", string(pol["anchor_time"]))
+
+	var text bytes.Buffer
+	writeText(&text, viewOf(verifier.Report{Verdict: verifier.VerdictUnchecked, Policy: info}), false)
+	assert.Contains(t, text.String(), "no counter position")
+	assert.NotContains(t, text.String(), "not opened")
 }

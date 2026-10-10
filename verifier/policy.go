@@ -436,7 +436,7 @@ func (p *policyRun) fast(allow *allowRec) (*policy.Mandate, error) {
 		p.setFast(p.unchecked(reason, errors.New(msg)))
 		return nil, nil
 	}
-	p.fillInfo(allow, v, m)
+	p.fillInfo(allow, v, m, v.Private())
 	if !p.principalTrusted(m) {
 		p.setFast(p.unchecked(ReasonPolicyPrincipalUntrusted, errors.New("the mandate's principal is not a trusted key")))
 		return m, nil
@@ -470,6 +470,7 @@ func (p *policyRun) fast(allow *allowRec) (*policy.Mandate, error) {
 			p.ppViol = allow.raw
 			d, chk := p.derive(l.v)
 			if chk != nil {
+				p.fillInfo(allow, l.v, m, false)
 				p.setFast(chk)
 				return m, nil
 			}
@@ -477,7 +478,7 @@ func (p *policyRun) fast(allow *allowRec) (*policy.Mandate, error) {
 		default:
 			v = l.v
 		}
-		p.fillInfo(allow, v, m)
+		p.fillInfo(allow, v, m, false)
 	}
 	if p.in.Action == nil {
 		p.setFast(p.unchecked(ReasonPolicyPrivate, errors.New("the action bytes are private")))
@@ -607,13 +608,15 @@ func (p *policyRun) ledger(v *policy.Verdict, raw []byte, m *policy.Mandate) (po
 	return led, true, nil
 }
 
-func (p *policyRun) fillInfo(allow *allowRec, v *policy.Verdict, m *policy.Mandate) {
+// fillInfo records what the report shows of v. contentPrivate is whether v
+// still lacks its PrivatePart, which a merged verdict no longer tells.
+func (p *policyRun) fillInfo(allow *allowRec, v *policy.Verdict, m *policy.Mandate, contentPrivate bool) {
 	mh := commitment.Hash(v.MandateHash)
 	info := &PolicyInfo{
 		MandateHash: mh, MandateID: bytes.Clone(m.MandateID), Version: m.Version,
 		Principal: bytes.Clone(m.Principal), AnchorTime: v.AnchorTime, EvalTime: v.EvalTime,
 		ExtractorID: v.Extractor, Mode: PolicyModePublic, AuditorKid: bytes.Clone(p.kids[mh]),
-		ContentPrivate: v.Private(),
+		ContentPrivate: contentPrivate, NoSeq: v.PrevState == nil,
 	}
 	if len(m.Auditors) > 0 {
 		info.Mode = PolicyModePrivate
