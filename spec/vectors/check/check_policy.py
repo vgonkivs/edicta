@@ -1760,12 +1760,25 @@ def check_archive(f, verify, private):
     for x in f["reads"]:
         ok = read_record(hx(x["record_cbor_hex"]))["path"] == x["path"]
         expect(ok == (x["expect_error"] is None), x["id"])
+    import archive as A
+    from edicta import Reject
     for r in f["reject"]:
         try:
             read_record(hx(r["record_cbor_hex"]))
             raise Failure(f"{r['id']} accepted")
         except Bad as e:
             expect(e.sentinel == r["expect_error"] == "archive.ErrCorrupt", r["id"])
+        # Every record goes through the one general reader of core 19.1, so a record that is not of a policy
+        # kind 7 to 12 must give exactly the cause of the core rules module, whichever suite lists it.
+        b = hx(r["record_cbor_hex"])
+        if b[1:3] == b"\x01\x01" and b[3] == 2 and b[4] in range(7, 13):
+            continue
+        try:
+            A.decode_record(b)
+            got = None
+        except Reject as e:
+            got = e.sentinel
+        expect(got == r["cause"], f"{r['id']}: cause {r['cause']}, core reader gives {got}")
     expect(f["reserved_kinds"] == ["6"] and f["marker_names"] == DENY + ["ErrDenied"]
            and f["marker_names_private_only"] == ["ErrDenied"], "kinds and markers")
     return f"{len(f['cases'])} records, {len(f['reject'])} reject"

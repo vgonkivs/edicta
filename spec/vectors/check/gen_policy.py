@@ -21,6 +21,7 @@ from pathlib import Path
 
 import policy_v1 as P
 import profile_bank_send as bs
+import records as R
 from cbor_strict import Raw, encode
 from edicta import TAG_AUTHORIZATION, TAG_AUTHORIZATION_SIG, action_hash, tagged
 
@@ -1801,7 +1802,8 @@ def gen_archive(pool, ppool):
         ("allow_holds_deny", "Kind 8 holding a deny verdict.", encode({1: 1, 2: 8, 3: body(deny)})),
         ("deny_holds_allow", "Kind 9 holding an allow verdict.", encode({1: 1, 2: 9, 3: body(allow)})),
         ("kind_6_reserved", "Kind 6 stays undefined.", encode({1: 1, 2: 6, 3: body(sm)})),
-        ("kind_13", "Kind 13.", encode({1: 1, 2: 13, 3: body(sm)})),
+        ("kind_13", "Kind 13 holding a mandate body: kind 13 (anchor intent) is assigned in format 1, so its schema "
+         "decides (key 3 `da` must be a uint).", encode({1: 1, 2: 13, 3: body(sm)})),
         ("mandate_unknown_key", "Kind 7 with key 4.", encode({1: 1, 2: 7, 3: body(sm), 4: 0})),
         ("mandate_body_tstr", "Kind 7 body as text.", encode({1: 1, 2: 7, 3: "x"})),
         ("mandate_body_garbage", "Kind 7 body that is not a signed mandate.", encode({1: 1, 2: 7, 3: b"\xa0"})),
@@ -1827,7 +1829,8 @@ def gen_archive(pool, ppool):
         ("private_envelope_tstr", "Kind 15 envelope as text.", pr({5: "x"})),
         ("private_missing_envelope", "Kind 15 without key 5.", encode({1: 1, 2: 15, 3: 4, 4: priv["key"]})),
         ("private_unknown_key", "Kind 15 with key 6.", pr({6: 0})),
-        ("private_over_cap", "Kind 15 of 69,761 bytes.", None),
+        ("private_over_cap", "Kind 15 of 69,761 bytes whose map head counts four entries while a fifth follows: "
+         "the generic decoding refuses the trailing bytes before the cap of the kind is checked.", None),
     ]
     head = encode({1: 1, 2: 15, 3: 5, 4: priv["key"]})
     filler = 69761 - (len(head) + 1 + 5)
@@ -1836,12 +1839,10 @@ def gen_archive(pool, ppool):
     rej[-1] = (rej[-1][0], rej[-1][1], big)
     out = []
     for i, d, b in rej:
-        try:
-            P.decode_record(b)
-            raise AssertionError(i)
-        except P.PolicyError as e:
-            out.append({"id": i, "description": d, "record_cbor_hex": b.hex(), "expect_error": "archive.ErrCorrupt",
-                        "cause": e.cause})
+        c = R.cause(b)
+        assert c is not None, i
+        out.append({"id": i, "description": d, "record_cbor_hex": b.hex(), "expect_error": "archive.ErrCorrupt",
+                    "cause": c})
     pub_deny = next(p for p in sorted(pool) if p.startswith("policy-deny/"))
     pd_rec = P.decode_record(pool[pub_deny])
     pv_rec = P.decode_record(ppool[pdeny])
