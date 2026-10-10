@@ -646,8 +646,15 @@ func (p *policyRun) denials() error {
 
 func (p *policyRun) finish(c *Check) (policyOutcome, error) {
 	out := policyOutcome{Ran: true, Info: p.info}
+	// A mismatch is reported only as the check's fail: the report names a
+	// match or an absent reference, and no auditor key of a mandate the agent
+	// did not commit to.
 	if p.info != nil {
-		p.info.MandateRef = p.mandRef
+		if p.mandRef == MandateRefMismatch {
+			p.info.AuditorKid = nil
+		} else {
+			p.info.MandateRef = p.mandRef
+		}
 	}
 	out.Integrity = GateIntegrity{Status: IntegrityNotChecked}
 	switch {

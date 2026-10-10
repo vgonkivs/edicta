@@ -172,7 +172,8 @@ type PolicyInfo struct {
 	// ErrDecisionAge is marked gate-attested.
 	Denials []string
 	// MandateRef compares a v1 decision's mandate_ref with the allow's
-	// mandate hash; empty for a v0 decision.
+	// mandate hash: match or absent, empty for a v0 decision and on a
+	// mismatch, which the check reports as its fail.
 	MandateRef MandateRefStatus
 	// Mode is public or private; AuditorKid is the kid of the auditor key
 	// that opened a private mandate, printed as its fingerprint.

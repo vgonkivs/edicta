@@ -116,16 +116,11 @@ func runPrivCase(t *testing.T, c privCase, d vecDoc) policyOutcome {
 		info = *out.Info
 	}
 	assert.Equal(t, PolicyMode(c.Expect.Policy.Mode), info.Mode)
-	// The reference stops at a mandate_ref mismatch before it reports the
-	// match status or opens the mandate; the verifier reports both. The
-	// public vectors leave the field out the same way.
-	if c.vecCase.Expect.Policy.Rule != "mandate_ref_mismatch" {
-		assert.Equal(t, MandateRefStatus(c.vecCase.Expect.Policy.MandateRef), info.MandateRef)
-		if c.Expect.Policy.AuditorKid != "" {
-			assert.Equal(t, c.Expect.Policy.AuditorKid, policy.Fingerprint(info.AuditorKid))
-		} else {
-			assert.Empty(t, info.AuditorKid)
-		}
+	assert.Equal(t, MandateRefStatus(c.vecCase.Expect.Policy.MandateRef), info.MandateRef)
+	if c.Expect.Policy.AuditorKid != "" {
+		assert.Equal(t, c.Expect.Policy.AuditorKid, policy.Fingerprint(info.AuditorKid))
+	} else {
+		assert.Empty(t, info.AuditorKid)
 	}
 
 	ig := out.Integrity

@@ -29,10 +29,12 @@ func TestMandateRefVectors(t *testing.T) {
 				require.ErrorAs(t, out.Check.Err, &pf)
 				assert.Equal(t, c.Expect.Policy.Rule, pf.Rule)
 			}
-			if want := c.Expect.Policy.MandateRef; want != "" {
-				require.NotNil(t, out.Info)
-				assert.Equal(t, MandateRefStatus(want), out.Info.MandateRef)
+			info := PolicyInfo{}
+			if out.Info != nil {
+				info = *out.Info
 			}
+			assert.Equal(t, MandateRefStatus(c.Expect.Policy.MandateRef), info.MandateRef)
+			assert.Empty(t, info.AuditorKid)
 			rep := verdictOf(v, out)
 			assert.Equal(t, Verdict(c.Expect.Verdict), rep.Verdict)
 			assert.Equal(t, c.Expect.Exit, exitFor(rep))
