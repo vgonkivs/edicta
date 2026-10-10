@@ -14,7 +14,10 @@ The fix commit carries the annotated patch tag `v1.0.N` (E1 = `v1.0.1`), whose m
 the erratum ids and the new hashes of `spec/vectors/MANIFEST.sha256`.
 `v1.0.0` never moves. Patch tags `v1.0.N` are shared with code-only fixes
 that change no wire byte; such tags carry no erratum and are not listed here
-(`v1.0.2`: code-only).
+(`v1.0.2`: code-only). A verifier-only security fix (revision `v1.0-sN`,
+section 0 of the core text) changes check outcomes and is not an erratum
+either; it is recorded in the core changelog (`v1.0-s1`: anchor result
+proof, section 20.6.1).
 
 Threat note: a frozen vector that contradicts the frozen text pushes
 implementations to invent a rule that no text defines. Here that rule would

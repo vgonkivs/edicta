@@ -1,6 +1,6 @@
 {
   "format": "edicta-vectors/v1",
-  "revision": "v1.0",
+  "revision": "v1.0-s1",
   "generator": "spec/vectors/check/gen_verifier_reasons.py",
   "description": "The verifier reason enum and one case per reason. Each case starts from a valid, authorized decision with a trusted header and changes what setup says; refs give concrete bytes where a vector has them. expect gives the check that carries the reason, its status, the record state and the verdict with its exit code. boundary lists verified data that proves a violation and stays fail.",
   "reasons": [
@@ -391,6 +391,15 @@
       ],
       "meaning": "Pending reference, no evidence inside the window, and the absence proofs for [h0, anchor_deadline] are missing, incomplete or fail. Names the first height not proven.",
       "advice": "another archive copy or --absence-source"
+    },
+    {
+      "name": "anchor_result_unproven",
+      "group": "archive",
+      "checks": [
+        "anchor"
+      ],
+      "meaning": "Pending reference, evidence inside the window verifies, but the result code of its anchor tx is not proven (v1.0-s1): no source served a linking header at H + 1, results of block H that hash to its last_results_hash, or (da = 2) complete namespace data, or nothing binds the anchor's result index. Names the first rule that failed (RA1 to RA5) and every source asked. Never pass.",
+      "advice": "a source that serves /block_results at H, a kind 14 record at H (da = 1), or a bridge (da = 2)"
     },
     {
       "name": "policy_private",
@@ -1369,6 +1378,22 @@
         "check": "anchor",
         "status": "unchecked",
         "reason": "absence_unproven",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "anchor_result_unproven",
+      "description": "Fast mode: evidence inside the window verifies, and no source serves the header at H + 1 or the results of block H (v1.0-s1).",
+      "setup": {},
+      "refs": [
+        "v1/verify_anchor_result.json#fast_result_unproven"
+      ],
+      "expect": {
+        "check": "anchor",
+        "status": "unchecked",
+        "reason": "anchor_result_unproven",
         "record_state": "authorized",
         "verdict": "unchecked",
         "exit": "2"

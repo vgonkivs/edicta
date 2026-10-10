@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifies spec/vectors/verifier/reasons.json (v1.0).
+"""Verifies spec/vectors/verifier/reasons.json (v1.0-s1).
 
 - the reason enum: unique lower-case names, known groups and checks;
 - every reason has at least one case, and every case's reason is in the enum
@@ -70,7 +70,7 @@ def check(path: Path) -> str:
     f = json.loads(raw)
     if path == FILE:
         expect(raw == json.dumps(gen.build(), indent=2, ensure_ascii=True) + "\n", "generator output differs")
-    expect(f["format"] == "edicta-vectors/v1" and f["revision"] == "v1.0", "format or revision")
+    expect(f["format"] == "edicta-vectors/v1" and f["revision"] == "v1.0-s1", "format or revision")
     expect(set(f) == {"format", "revision", "generator", "description", "reasons", "cases", "boundary"}, "keys")
     enum = {}
     for r in f["reasons"]:
@@ -79,7 +79,7 @@ def check(path: Path) -> str:
         expect(r["group"] in GROUPS and set(r["checks"]) <= CHECKS and r["checks"], f"reason {r['name']}")
         enum[r["name"]] = r
     for need in ("payload_unavailable", "source_corrupt", "chain_mismatch", "header_disagreement", "anchor_pending",
-                 "absence_unproven", "policy_private", "principal_scheme_unsupported"):
+                 "absence_unproven", "anchor_result_unproven", "policy_private", "principal_scheme_unsupported"):
         expect(need in enum, f"missing reason {need}")
     seen_ids, used, ref_cache = set(), set(), {}
 
@@ -149,6 +149,8 @@ def main() -> int:
         pby |= {f"{rel}#{c['id']}": c for c in json.loads((VECTORS / rel).read_text())["cases"]}
     v1f = json.loads((VECTORS / "v1" / "verify.json").read_text())
     vby = {f"v1/verify.json#{c['id']}": c for c in v1f["cases"]}
+    s1f = json.loads((VECTORS / "v1" / "verify_anchor_result.json").read_text())
+    vby |= {f"v1/verify_anchor_result.json#{c['id']}": c for c in s1f["cases"]}
     aby = {f"v1/verify.json#{c['id']}": c for c in v1f["action_cases"]}
     f = json.loads(path.read_text())
     try:
@@ -176,7 +178,7 @@ def main() -> int:
     except (Failure, KeyError) as ex:
         print(f"FAIL (reasons.json): {ex}", file=sys.stderr)
         return 1
-    print(f"OK (reasons.json, v1.0): {summary}")
+    print(f"OK (reasons.json, v1.0-s1): {summary}")
     return 0
 
 

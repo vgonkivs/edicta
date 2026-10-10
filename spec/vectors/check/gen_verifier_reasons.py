@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes spec/vectors/verifier/reasons.json (v1.0).
+"""Writes spec/vectors/verifier/reasons.json (v1.0-s1; v1.0 plus anchor_result_unproven).
 
 The machine-readable verifier reason enum and one case per
 reason: the check it is reported on, the scenario as overrides of a valid,
@@ -131,6 +131,12 @@ REASONS = [
     ("absence_unproven", "archive", ["anchor"],
      "Pending reference, no evidence inside the window, and the absence proofs for [h0, anchor_deadline] are "
      "missing, incomplete or fail. Names the first height not proven.", "another archive copy or --absence-source"),
+    ("anchor_result_unproven", "archive", ["anchor"],
+     "Pending reference, evidence inside the window verifies, but the result code of its anchor tx is not proven "
+     "(v1.0-s1): no source served a linking header at H + 1, results of block H that hash to its last_results_hash, "
+     "or (da = 2) complete namespace data, or nothing binds the anchor's result index. Names the first rule that "
+     "failed (RA1 to RA5) and every source asked. Never pass.",
+     "a source that serves /block_results at H, a kind 14 record at H (da = 1), or a bridge (da = 2)"),
     ("policy_private", "configuration", ["policy", "gate_integrity", "action", "execution"],
      "The record needed is a private blob (kind 15) and no configured auditor key opens it. Names the first record. "
      "On action and execution: a private-form v1 decision record without a reveal that applies.",
@@ -312,6 +318,9 @@ def build() -> dict:
              ["v1/verify.json#fast_pending"], unchecked("anchor", "anchor_pending")),
         case("absence_unproven", "Fast mode: no evidence, and the absence proof of one height of the window is "
              "missing.", {}, ["v1/verify.json#fast_absence_missing_height"], unchecked("anchor", "absence_unproven")),
+        case("anchor_result_unproven", "Fast mode: evidence inside the window verifies, and no source serves the "
+             "header at H + 1 or the results of block H (v1.0-s1).", {},
+             ["v1/verify_anchor_result.json#fast_result_unproven"], unchecked("anchor", "anchor_result_unproven")),
         case("policy_private", "Private mandate and no auditor key: the rules cannot be checked.", {},
              ["policy/private.json#private_without_key"], unchecked("policy", "policy_private")),
         case("policy_private_walk", "Private mandate, full walk without an auditor key: L1 and L2 pass down to the "
@@ -363,7 +372,7 @@ def build() -> dict:
     ]
     return {
         "format": "edicta-vectors/v1",
-        "revision": "v1.0",
+        "revision": "v1.0-s1",
         "generator": "spec/vectors/check/gen_verifier_reasons.py",
         "description": (
             "The verifier reason enum and one case per reason. Each case starts from a valid, authorized "
