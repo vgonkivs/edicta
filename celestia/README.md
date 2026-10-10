@@ -186,8 +186,9 @@ The principal builds and signs the mandate with `cmd/edicta-principal` (Ed25519,
 Keplr or MetaMask; a private mandate encrypted to auditors); see
 [../guide/principal.md](../guide/principal.md). With a mandate, every commitment must
 carry `mandate_ref`, the mandate's hash, or the gate refuses it with
-`ErrMandateRefMissing`. `edicta-live` sets no `mandate_ref`, so it runs only against a
-gate without `[policy]`; the demo sets it through the SDK (`sdk.Config.MandateHash`).
+`ErrMandateRefMissing`. `edicta-live --mandate-hash <64 hex>` sets `mandate_ref` to the
+mandate's hash; without it `edicta-live` runs only against a gate without `[policy]`.
+The demo sets it through the SDK (`sdk.Config.MandateHash`).
 
 `gate.reveal_on_execution` (optional) lists action types whose action salt the gate
 publishes, under a private mandate, once a receipt names the executed transaction.
@@ -202,8 +203,10 @@ archived anchor intent before the anchor lands, and the Authorization says `mode
 and broadcast through `network.consensus_grpc`. The keys, their ranges and the
 startup refusals: [../guide/operator.md](../guide/operator.md). The Recorder's own
 fast-mode keys (`recorder.fast`, `fast_dedicated_account`, `fast_timeout_blocks`,
-`fast_upload_addr`, `fast_escrow_headroom_utia`) arrive with the fast Recorder and
-are described there too.
+`fast_upload_addr`, `fast_escrow_headroom_utia`), the dedicated Recorder account and
+the escrow headroom are described there too. `edicta-live --fast --mandate-hash <64
+hex> --archive-url <archive URL>` signs the pending reference the fast Recorder
+returns; `--mandate-hash` is required with `--fast`.
 
 ## 4. Run edicta-live
 

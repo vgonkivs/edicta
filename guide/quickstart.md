@@ -73,11 +73,11 @@ ways to cheat. Details, flags, exit codes and offline re-verification:
    ```
    See [verifier.md](verifier.md).
 
-`edicta-live` signs commitments without `mandate_ref`, so it works only
-against a gate without a `[policy]` mandate: a gate with a mandate refuses a
-commitment that names none (`ErrMandateRefMissing`, core spec section 8.8,
-rule M1). The demo sets `mandate_ref` through the Go SDK
-(`sdk.Config.MandateHash`).
+Against a gate with a `[policy]` mandate, pass `--mandate-hash <64 hex>`
+(the mandate's hash) to `edicta-live`: it becomes the commitment's
+`mandate_ref`, and a gate with a mandate refuses a commitment that names none
+(`ErrMandateRefMissing`, core spec section 8.8). The demo sets `mandate_ref`
+through the Go SDK (`sdk.Config.MandateHash`).
 
 ## Your own agent in Go
 
@@ -114,10 +114,7 @@ Fast mode exists only with the principal's consent: the mandate must state
 executor may refuse fast mode (`refuse_fast_mode`, see
 [profiles.md](profiles.md)). Core spec, sections 11, 13, 15.
 
-### Fast mode end to end (final after the fast Recorder lands)
-
-This section is final once the fast Recorder is merged. Its flags and keys
-come from that implementation and are not on the v1 tag yet.
+### Fast mode end to end
 
 1. Operator: `[gate.fast]` and `[policy]` in `edictad`, and the Recorder's
    fast keys (`recorder.fast = true`, `fast_dedicated_account = true`, the
@@ -136,14 +133,15 @@ come from that implementation and are not on the v1 tag yet.
    anchor height, or proves the anchor absent with `edicta-verify absence`
    (see [verifier.md](verifier.md)).
 
-`edicta-live --fast --archive-url <URL>` (with `--inclusion self`) is the
-runner's fast-mode switch in that implementation. It still sets no
-`mandate_ref`, so a fast gate, which always has a mandate, refuses its
-commitments; a fast-mode run today needs an agent built on the SDK with
-`MandateHash` set.
+`edicta-live --fast --mandate-hash <64 hex> --archive-url <URL>` runs the
+price agent in fast mode: it checks the anchor intent of the pending reference
+through its own `--grpc-addr` (and `--bridge-addr` with `--da blob`) before it
+signs, a same-operator check, so with `--da blob` it accepts only
+`--inclusion self` (the default). `--mandate-hash` is required with
+`--fast`, because only a gate with a mandate accepts fast mode.
 
-A live run of fast mode on Mocha is a manual checklist that has not been run
-yet.
+Fast mode has not run live yet. The live run on Mocha is a manual checklist,
+[mocha-checklist.md](mocha-checklist.md), that nobody has run so far.
 
 ## What is verified, what is not
 

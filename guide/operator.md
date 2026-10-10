@@ -48,7 +48,8 @@ only for record requests), and the principal key of the mandate. All four
 are Ed25519 except a principal that signs with Keplr or MetaMask. The gate
 refuses to start when the principal key equals a gate, executor or agent
 key. The Recorder's chain key is a secp256k1 Cosmos key in its own keyring,
-never the executor's.
+never the executor's; in fast mode it must also not be the principal's Keplr
+or MetaMask key, and edictad refuses to start if it is.
 
 The gate key is as sensitive as the rail credentials it guards: whoever holds
 it can authorize any bytes. Executors pin its public key out of band, never
@@ -124,47 +125,60 @@ true`), paying from the account's escrow. Fibre keys and escrow:
 [../celestia/README.md](../celestia/README.md), sections "Fibre Recorder"
 and "Fibre escrow".
 
-### Recorder in fast mode (final after the fast Recorder lands)
-
-This section describes the fast Recorder as implemented on its development
-branch; the keys are not in the v1 tag yet and the section is final once it
-is merged.
+### Recorder in fast mode
 
 The fast Recorder returns a pending reference as soon as the payload record
-and the signed anchor intent are archived and the node accepted the anchor
-tx; it writes the anchor evidence when the anchor lands.
+and the signed anchor intent are archived and your node accepted the anchor
+tx; it writes the anchor evidence at `H` when the anchor lands.
 
 ```toml
 [recorder]
 # ... the usual Recorder keys
 fast = true
-fast_dedicated_account = true
-fast_timeout_blocks = 100                       # celestia_blob only, 13..1000
+fast_dedicated_account = true                   # required
+fast_timeout_blocks = 100                       # celestia_blob only; default 100, 13..1000
 # fibre only:
 # fast_upload_addr = "<own node>:9090"          # must equal network.consensus_grpc.addr
-# fast_escrow_headroom_utia = <n>
+# fast_escrow_headroom_utia = <n>               # at least one upload of max_blob_bytes
 ```
 
-Refused at start:
-- `recorder.fast needs recorder.enabled`, `recorder.fast needs
-  gate.fast.enabled`, and the Recorder namespace must be in
-  `gate.fast.pending_namespaces`;
-- `fast_dedicated_account` must be `true` (see below);
-- `celestia_blob`: `fast_timeout_blocks` must exceed
-  `gate.fast.max_h0_age_blocks + gate.fast.min_fast_slack_blocks`;
-  `fast_upload_addr` and `fast_escrow_headroom_utia` are refused;
-- `fibre`: `fast_timeout_blocks` is refused; `fast_upload_addr` is required
-  and must equal `network.consensus_grpc.addr` (compared without scheme or
-  case, before anything is dialled); `fast_escrow_headroom_utia` must be at
-  least the cost of one upload of `recorder.max_blob_bytes`;
-- any fast key without `recorder.fast = true`.
+Refused at start (the message names the key):
+- any of `fast_timeout_blocks`, `fast_dedicated_account`, `fast_upload_addr`,
+  `fast_escrow_headroom_utia` without `recorder.fast = true`;
+- `recorder.fast needs recorder.enabled`;
+- `recorder.fast needs gate.fast.enabled`: the anchor txs go out through the
+  node `[gate.fast] own_node` attests as yours, and only a fast gate accepts
+  the pending references;
+- `recorder.fast needs recorder.namespace in gate.fast.pending_namespaces`;
+- `recorder.fast_dedicated_account must be true` (see below);
+- `celestia_blob`: `fast_upload_addr` and `fast_escrow_headroom_utia` are
+  refused; `fast_timeout_blocks` outside 13..1000, or not above
+  `gate.fast.max_h0_age_blocks + gate.fast.min_fast_slack_blocks`, is refused;
+- `fibre`: `fast_timeout_blocks` is refused (the promise height window bounds
+  the anchor); `fast_upload_addr` is required and must equal
+  `network.consensus_grpc.addr`, compared without scheme or case before
+  anything is dialled; `fast_escrow_headroom_utia` below the cost of one
+  upload of `recorder.max_blob_bytes` is refused, and the message names that
+  cost;
+- `fibre`: the anchor signer is not the account of the Fibre submitter
+  (`recorder.key_name`, whose escrow pays the uploads); checked before the
+  boot recovery starts;
+- the Recorder key is the mandate's principal: `the recorder key is the
+  mandate's <scheme> principal`. The secp256k1 key is compared, so a Keplr
+  (ADR-036) principal with the same address and a MetaMask (EIP-712)
+  principal with the Ethereum address of the same key are both refused. An
+  injected anchor signer that cannot show its public key is refused against
+  an EIP-712 principal, and a signer whose shown key is not its account's
+  key is refused whatever the principal scheme.
 
-**Dedicated Recorder account.** The account of `recorder.key_name` must sign
-nothing but this Recorder's anchor txs: no other process, no strict-mode
-Recorder, no executor, no manual transaction, no wallet. A signed and
-archived anchor tx is never signed again; another tx on the account moves its
-sequence, the archived one goes stale (`recorder.ErrIntentStale`, answered as
-409), and that decision's anchor is then provably absent at its deadline.
+**Dedicated Recorder account.** Create a fresh key for `recorder.key_name`
+and use it for nothing else. The account must sign nothing but this
+Recorder's anchor txs: no other process, no strict-mode Recorder, no
+executor, no manual transaction, no wallet, and it must not be a principal
+key. A signed and archived anchor tx is never signed again; another tx on the
+account moves its sequence, the archived one goes stale
+(`recorder.ErrIntentStale`, answered as 409; publish a new blob), and that
+decision's anchor is then provably absent at its deadline.
 `fast_dedicated_account = true` is your written attestation of this. The log
 names only the account address:
 `edictad: recorder fast mode on; this account must sign nothing else`.
@@ -174,21 +188,36 @@ names only the account address:
 held in memory and lost on restart, while promises of the earlier process can
 still be charged until they settle. Size `fast_escrow_headroom_utia` as the
 maximum blob cost times the number of promises that may be unsettled at a
-restart; the minimum accepted is one upload of `recorder.max_blob_bytes`
-(start once with 0 and the refusal names the number). A smaller
+restart. The minimum accepted is one upload of `recorder.max_blob_bytes`;
+start once with 0 and the refusal names the number. A smaller
 `max_blob_bytes` lowers it. The headroom is added to `escrow_margin_utia`, so
 each upload needs cost + margin + headroom in the escrow. The Recorder never
 deposits; fund the escrow yourself.
 
-Other errors a fast Recorder answers: `recorder.ErrAnchorExpired` (409, the
-anchor can no longer land) and `recorder.ErrAnchorTxRejected` (502, the node
-refused the anchor tx). The gate's sweep logs `anchor_missing` for a
-fast-mode Authorization with no anchor evidence 10 blocks past its deadline;
-it is an alert only and may repeat after a restart.
+**Boot recovery.** At start the fast Recorder follows again every anchor
+intent of its account that an earlier process archived and whose anchor may
+still land: it re-sends the archived bytes (never signs them again) and
+writes the evidence when they land. It signs nothing new until this is done;
+a publish meanwhile waits for it and fails, to be retried later, if the
+recovery cannot finish yet. The recovery retries with a bounded backoff; an
+archived intent that can never be followed is skipped with an error in the
+log, and its sequence is not reused while its tx could still land. Publishing right after a restart can still collide with an
+old intent that is in a mempool; that costs at most one stale blob, never a
+second anchor for one blob.
 
-A manual live checklist for the fast Recorder on Mocha (both DA modes, a
-forced stale sequence, a killed anchor and its absence proof) exists and has
-not been run yet. Until it has, fast mode has not run live.
+Other errors a fast Recorder answers, sticky per blob: `recorder.ErrAnchorExpired`
+(409, the anchor did not land in its window) and `recorder.ErrAnchorTxRejected`
+(502, the node refused the anchor tx).
+
+**`anchor_missing`.** The gate's sweep logs `edictad: anchor_missing` for a
+fast-mode Authorization with no anchor evidence 10 blocks past its deadline.
+It is an alert only, and at-least-once: each entry is alerted at most once
+per process, again after a restart. It changes no answer and no record.
+
+A manual live checklist for fast mode on Mocha (both DA modes, a forced stale
+sequence, a killed anchor and its absence proof, a restart while pending) is
+in [mocha-checklist.md](mocha-checklist.md). It has not been run yet, so fast
+mode has not run live.
 
 ## Startup refusals
 
@@ -208,6 +237,8 @@ not been run yet. Until it has, fast mode has not run live.
   scale or state salt, too many assets);
 - fast mode is enabled without the archive, a mandate or `own_node`, or with
   inconsistent bounds (above);
+- the Recorder's fast keys are inconsistent, its signer is not its account,
+  or its key is the mandate's principal (above);
 - `gate.reveal_on_execution` names a type not in `gate.action_types` or
   without a public-execution profile.
 

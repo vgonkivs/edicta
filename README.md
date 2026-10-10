@@ -151,9 +151,10 @@ replay`, `edicta-verify absence`) work end to end; the demo above, with the
   implemented. Principals sign with Ed25519, Keplr (ADR-036) or MetaMask
   (EIP-712); the wallet flows are vector-tested but not yet tested live with
   real wallets.
-- Fast mode is implemented in the gate and the verifier (absence proofs);
-  the Recorder side that produces pending references is not merged yet, and
-  fast mode has not run live.
+- Fast mode is implemented in the gate, the Recorder (`[recorder] fast`, both
+  DA modes) and the verifier (absence proofs); it has not run live, and its
+  Mocha checklist ([guide/mocha-checklist.md](guide/mocha-checklist.md)) has
+  not been run.
 - Fibre support is implemented but has not run live yet.
 
 Not production-ready.

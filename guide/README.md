@@ -13,6 +13,7 @@ earlier v0 drafts are superseded and unsupported.
 | [profiles.md](profiles.md) | integrators | Executor side: Authorization check, salt, fast-mode policy, public execution |
 | [private-mode.md](private-mode.md) | principals, auditors | What a private mandate hides and what it does not |
 | [verifier.md](verifier.md) | auditors | `verify`, `replay`, `absence`: checks, reasons, verdicts, trust inputs |
+| [mocha-checklist.md](mocha-checklist.md) | gate operators | Manual live run of fast mode on Mocha; not yet run |
 
 Other documents:
 - [../README.md](../README.md): what Edicta is and is not.
