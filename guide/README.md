@@ -17,6 +17,7 @@ earlier v0 drafts are superseded and unsupported.
 
 Other documents:
 - [../README.md](../README.md): what Edicta is and is not.
+- [../ARCHITECTURE.md](../ARCHITECTURE.md): architecture and the reasons behind the main design decisions.
 - [../celestia/README.md](../celestia/README.md): the manual `edicta-live` run and the full `edictad` reference.
 - [../celestia/demo/README.md](../celestia/demo/README.md): the one-command demo.
 - [../examples/dca-agent/README.md](../examples/dca-agent/README.md): an off-chain profile (IBKR order).

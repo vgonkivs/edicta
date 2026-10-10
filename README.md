@@ -91,6 +91,7 @@ endpoints), step by step: [celestia/README.md](celestia/README.md).
 
 User guides (quickstart, operator, principal, profiles, private mode,
 verifier): [guide/](guide/README.md).
+Architecture and design rationale: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Flow
 
