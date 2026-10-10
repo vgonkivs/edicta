@@ -118,7 +118,8 @@ func NewSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Ke
 		_ = sc.Close()
 		return nil, nil, nil, err
 	}
-	return sc, r, withSubmitterKey(s, keyringPublicKey(kr, keyName)), nil
+	pub, kerr := keyringPublicKey(kr, keyName)
+	return sc, r, withSubmitterKey(s, pub, kerr), nil
 }
 
 // NewFibreSigning is NewSigning for da = 1: the same validated dial, with a
@@ -140,7 +141,8 @@ func NewFibreSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyri
 		_ = sc.Close()
 		return nil, nil, nil, err
 	}
-	return sc, r, withFibreSubmitterKey(s, keyringPublicKey(kr, keyName)), nil
+	pub, kerr := keyringPublicKey(kr, keyName)
+	return sc, r, withFibreSubmitterKey(s, pub, kerr), nil
 }
 
 func dialSigning(ctx context.Context, b BridgeConfig, g GRPCConfig, kr keyring.Keyring, keyName, network string) (*client.Client, *signingCloser, error) {

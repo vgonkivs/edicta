@@ -36,11 +36,21 @@ type localKeySubmitter struct {
 	node.AnchorPublicKey
 }
 
+// localUnkeyedSubmitter also says why the key cannot be shown.
+type localUnkeyedSubmitter struct {
+	localSubmitter
+	node.AnchorKeyUnavailable
+}
+
 // NewLocalSubmitter submits with the node's local keyring key. When s shows
-// its public key (node.AnchorPublicKey), the result shows it too.
+// its public key (node.AnchorPublicKey), or why it cannot
+// (node.AnchorKeyUnavailable), the result shows it too.
 func NewLocalSubmitter(s node.Submitter) Submitter {
 	if pk, ok := s.(node.AnchorPublicKey); ok {
 		return localKeySubmitter{localSubmitter: localSubmitter{s: s}, AnchorPublicKey: pk}
+	}
+	if u, ok := s.(node.AnchorKeyUnavailable); ok {
+		return localUnkeyedSubmitter{localSubmitter: localSubmitter{s: s}, AnchorKeyUnavailable: u}
 	}
 	return localSubmitter{s: s}
 }

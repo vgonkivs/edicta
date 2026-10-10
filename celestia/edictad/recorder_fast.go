@@ -172,6 +172,11 @@ type keyedSubmitterAccount struct {
 	node.AnchorPublicKey
 }
 
+type unkeyedSubmitterAccount struct {
+	submitterAccount
+	node.AnchorKeyUnavailable
+}
+
 // signingAccount is the account that signs this Recorder's txs in the
 // configured mode, or nil when no signer was given (the start refuses that
 // later).
@@ -190,6 +195,9 @@ func signingAccount(cfg Config, d Deps) recorderAccount {
 	a := submitterAccount{s: d.Submitter}
 	if pk, ok := d.Submitter.(node.AnchorPublicKey); ok {
 		return keyedSubmitterAccount{submitterAccount: a, AnchorPublicKey: pk}
+	}
+	if u, ok := d.Submitter.(node.AnchorKeyUnavailable); ok {
+		return unkeyedSubmitterAccount{submitterAccount: a, AnchorKeyUnavailable: u}
 	}
 	return a
 }
@@ -243,7 +251,11 @@ func recorderIsNotPrincipal(ctx context.Context, s recorderAccount, m *policy.Ma
 		}
 	case principalsig.EIP712:
 		if pub == nil {
-			return cfgErr("recorder: the Recorder's signer does not show its public key, so it cannot be told apart from the mandate's eip712 principal")
+			err := cfgErr("recorder: the Recorder's signer does not show its public key, so it cannot be told apart from the mandate's eip712 principal")
+			if u, ok := s.(node.AnchorKeyUnavailable); ok && u.PublicKeyUnavailable() != nil {
+				return fmt.Errorf("%w: %w", err, u.PublicKeyUnavailable())
+			}
+			return err
 		}
 		own, err := principalsig.EthereumAddress(pub)
 		if err != nil {
