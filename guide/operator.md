@@ -205,6 +205,10 @@ log, and its sequence is not reused while its tx could still land. Publishing ri
 old intent that is in a mempool; that costs at most one stale blob, never a
 second anchor for one blob.
 
+While any intent is skipped, `/v1/health` reports status 2 until the next
+restart. Inspect the record at the logged path, remove or repair it, and
+restart; a record whose tx can no longer land is not listed again.
+
 Other errors a fast Recorder answers, sticky per blob: `recorder.ErrAnchorExpired`
 (409, the anchor did not land in its window) and `recorder.ErrAnchorTxRejected`
 (502, the node refused the anchor tx).
