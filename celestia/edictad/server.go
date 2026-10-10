@@ -390,6 +390,11 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 		if mandateBytes, mandate, mandateHash, err = loadMandate(cfg.Policy.MandateFile, cfg.Gate.GateID); err != nil {
 			return nil, err
 		}
+		if cfg.Recorder.Fast {
+			if err := recorderIsNotPrincipal(ctx, d.RecorderFast.Signer, &mandate.Mandate); err != nil {
+				return nil, err
+			}
+		}
 		if extractors, err = policyExtractors(); err != nil {
 			return nil, fmt.Errorf("edictad: policy extractors: %w", err)
 		}

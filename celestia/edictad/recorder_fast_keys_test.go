@@ -103,6 +103,83 @@ func TestRecorderFastKeyEqualToThePrincipalIsRefused(t *testing.T) {
 	}
 }
 
+// The same key named as an EIP-712 principal is a 20-byte Ethereum address,
+// not the Cosmos account: it is still the Recorder's key and is refused.
+func TestRecorderFastKeyEqualToAnEIP712PrincipalIsRefused(t *testing.T) {
+	recKey := sha256.Sum256([]byte("recorder and principal"))
+	other := sha256.Sum256([]byte("another principal"))
+	for name, tc := range map[string]struct {
+		principal [32]byte
+		refused   bool
+	}{
+		"EIP-712 principal is the Recorder key": {recKey, true},
+		"EIP-712 principal is another key":      {other, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := newPolicyEnv(t)
+			p.mandate.FastModeMaxDelay = fastDelay
+			p.signSecp(principalsig.EIP712, tc.principal)
+			p.deps.Archive = p.real
+			p.deps.RecorderFast = &edictad.RecorderFastDeps{Signer: secpSigner(t, recKey)}
+
+			srv, err := edictad.Start(bg, p.cfg(p.edits(gateFastFor(), recFast())...), p.deps)
+			if srv != nil {
+				t.Cleanup(func() { _ = srv.Shutdown(bg) })
+			}
+			if !tc.refused {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, edictad.ErrConfig, "the Recorder key is the mandate's principal")
+			assert.Contains(t, err.Error(), "eip712 principal")
+			assert.Zero(t, p.listens)
+		})
+	}
+}
+
+// A signer that cannot show its public key cannot be cleared against an
+// EIP-712 principal, so the start is refused.
+func TestRecorderFastSignerWithoutPublicKeyAndEIP712PrincipalIsRefused(t *testing.T) {
+	p := newPolicyEnv(t)
+	p.mandate.FastModeMaxDelay = fastDelay
+	p.signSecp(principalsig.EIP712, sha256.Sum256([]byte("another principal")))
+	p.deps.Archive = p.real
+	p.deps.RecorderFast = &edictad.RecorderFastDeps{Signer: fixedSigner{bytes.Repeat([]byte{1}, 20)}}
+
+	_, err := edictad.Start(bg, p.cfg(p.edits(gateFastFor(), recFast())...), p.deps)
+	require.ErrorIs(t, err, edictad.ErrConfig)
+	assert.Contains(t, err.Error(), "does not show its public key")
+	assert.Zero(t, p.listens)
+}
+
+// A successor version adopted at a restart is checked like the first one: a
+// new version whose principal is the Recorder's key is refused before any
+// listener, and nothing more is archived.
+func TestRecorderFastSuccessorMandateWithTheRecorderKeyIsRefused(t *testing.T) {
+	recKey := sha256.Sum256([]byte("recorder and principal"))
+	p := newPolicyEnv(t)
+	p.mandate.FastModeMaxDelay = fastDelay
+	p.signSecp(principalsig.CosmosADR036, sha256.Sum256([]byte("another principal")))
+	p.deps.Archive = p.real
+	p.deps.RecorderFast = &edictad.RecorderFastDeps{Signer: secpSigner(t, recKey)}
+	edits := func() [][2]string { return p.edits(gateFastFor(), recFast()) }
+	require.NoError(t, p.start(edits()...).Shutdown(bg))
+	listens := p.listens
+
+	for _, scheme := range []principalsig.Scheme{principalsig.CosmosADR036, principalsig.EIP712} {
+		t.Run(scheme.String(), func(t *testing.T) {
+			p.mandate.Version = 2
+			p.signSecp(scheme, recKey)
+			srv, err := edictad.Start(bg, p.cfg(edits()...), p.deps)
+			if srv != nil {
+				t.Cleanup(func() { _ = srv.Shutdown(bg) })
+			}
+			require.ErrorIs(t, err, edictad.ErrConfig, "the successor's principal is the Recorder key")
+			assert.Equal(t, listens, p.listens, "no listener")
+		})
+	}
+}
+
 // The fast keys are refused without recorder.fast for da = fibre as well.
 func TestRecorderFastFibreKeysWithoutFast(t *testing.T) {
 	for name, line := range map[string]string{

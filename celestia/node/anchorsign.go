@@ -18,6 +18,7 @@ import (
 	fibretypes "github.com/celestiaorg/celestia-app/v10/x/fibre/types"
 	libshare "github.com/celestiaorg/go-square/v4/share"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	cosmossecp "github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdktypes "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 	cosmostx "github.com/cosmos/cosmos-sdk/types/tx"
@@ -53,6 +54,15 @@ type AnchorSigner interface {
 	SignPFF(ctx context.Context, msg []byte, p TxParams) ([]byte, error)
 }
 
+// AnchorPublicKey is implemented by an AnchorSigner that can show its public
+// key, so a caller can rule out that the key also serves another role under
+// an encoding the account address does not reveal, such as an Ethereum
+// address of the same secp256k1 key.
+type AnchorPublicKey interface {
+	// PublicKey is the 33-byte compressed secp256k1 key that signs.
+	PublicKey(ctx context.Context) ([]byte, error)
+}
+
 var expectedSeq = regexp.MustCompile(`expected (\d+)`)
 
 // ExpectedSequence reads the sequence a node expects from a sequence
@@ -73,6 +83,7 @@ type keyringAnchorSigner struct {
 	keyName string
 	addr    []byte
 	bech    string
+	pub     []byte
 
 	mu     sync.Mutex
 	signer *user.Signer
@@ -99,16 +110,28 @@ func NewAnchorSigner(kr keyring.Keyring, keyName, chainID string) (AnchorSigner,
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrUnsupported, err)
 	}
+	pk, err := rec.GetPubKey()
+	if err != nil {
+		return nil, fmt.Errorf("%w: key %q: %w", ErrKeyring, keyName, err)
+	}
+	if _, ok := pk.(*cosmossecp.PubKey); !ok || len(pk.Bytes()) != 33 {
+		return nil, fmt.Errorf("%w: key %q is not a secp256k1 key", ErrUnsupported, keyName)
+	}
 	enc := encoding.MakeConfig(app.ModuleEncodingRegisters...)
 	s, err := user.NewSigner(kr, enc.TxConfig, chainID)
 	if err != nil {
 		return nil, fmt.Errorf("node: signer: %w", err)
 	}
-	return &keyringAnchorSigner{keyName: keyName, addr: append([]byte(nil), addr...), bech: bech, signer: s}, nil
+	return &keyringAnchorSigner{keyName: keyName, addr: append([]byte(nil), addr...), bech: bech,
+		pub: append([]byte(nil), pk.Bytes()...), signer: s}, nil
 }
 
 func (k *keyringAnchorSigner) Address(context.Context) ([]byte, error) {
 	return append([]byte(nil), k.addr...), nil
+}
+
+func (k *keyringAnchorSigner) PublicKey(context.Context) ([]byte, error) {
+	return append([]byte(nil), k.pub...), nil
 }
 
 func (k *keyringAnchorSigner) SignPFB(_ context.Context, namespace, data []byte, p TxParams) ([]byte, error) {

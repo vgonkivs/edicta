@@ -12,6 +12,8 @@ import (
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/fibre/fibrecommit"
+	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/principalsig"
 )
 
 // defaultFastTimeoutBlocks is the recorder's own default, repeated here so the
@@ -146,6 +148,66 @@ func sameAccount(ctx context.Context, s node.AnchorSigner, escrowOwner []byte) e
 	}
 	if !bytes.Equal(a, escrowOwner) {
 		return cfgErr("the anchor signer is not the account of the fibre submitter: both must be recorder.key_name")
+	}
+	return nil
+}
+
+// recorderIsNotPrincipal refuses a mandate whose principal is the Recorder's
+// own secp256k1 key. The key is compared, not the (sig_type, bytes) pair: one
+// private key signing anchors and mandates is the hazard whether the mandate
+// names it as a Cosmos key or as the Ethereum address of the same point. A
+// signer that cannot show its key cannot be cleared against an Ethereum
+// principal, so that is refused too.
+func recorderIsNotPrincipal(ctx context.Context, s node.AnchorSigner, m *policy.Mandate) error {
+	scheme, err := m.Scheme()
+	if err != nil {
+		return err
+	}
+	if scheme == principalsig.Ed25519 {
+		return nil
+	}
+	var pub []byte
+	if pk, ok := s.(node.AnchorPublicKey); ok {
+		if pub, err = pk.PublicKey(ctx); err != nil {
+			return fmt.Errorf("edictad: anchor signer public key: %w", err)
+		}
+	}
+	same := false
+	switch scheme {
+	case principalsig.CosmosADR036:
+		principal, err := principalsig.CosmosAddress(m.Principal, m.PrincipalHRP)
+		if err != nil {
+			return fmt.Errorf("edictad: mandate principal: %w", err)
+		}
+		if pub != nil {
+			own, err := principalsig.CosmosAddress(pub, m.PrincipalHRP)
+			if err != nil {
+				return fmt.Errorf("edictad: anchor signer public key: %w", err)
+			}
+			same = own == principal
+		} else {
+			addr, err := s.Address(ctx)
+			if err != nil {
+				return fmt.Errorf("edictad: anchor signer: %w", err)
+			}
+			_, a, err := principalsig.ParseCosmosAddress(principal)
+			if err != nil {
+				return fmt.Errorf("edictad: mandate principal: %w", err)
+			}
+			same = bytes.Equal(a[:], addr)
+		}
+	case principalsig.EIP712:
+		if pub == nil {
+			return cfgErr("recorder.fast: the anchor signer does not show its public key, so it cannot be told apart from the mandate's eip712 principal")
+		}
+		own, err := principalsig.EthereumAddress(pub)
+		if err != nil {
+			return fmt.Errorf("edictad: anchor signer public key: %w", err)
+		}
+		same = bytes.Equal(own[:], m.Principal)
+	}
+	if same {
+		return cfgErr("the recorder key is the mandate's %s principal; the Recorder and the principal must hold different keys", scheme)
 	}
 	return nil
 }
