@@ -12,7 +12,7 @@ the spec texts and in the `revision` field of the vector files, because no
 byte string that a v1.0 implementation produces or accepts changes meaning.
 The fix commit carries the annotated tag `v1.0-errata.N`, whose message lists
 the erratum ids and the new hashes of `spec/vectors/MANIFEST.sha256`.
-`v1-format-freeze` never moves.
+`v1.0.0` never moves.
 
 Threat note: a frozen vector that contradicts the frozen text pushes
 implementations to invent a rule that no text defines. Here that rule would
