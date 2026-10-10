@@ -76,6 +76,11 @@ type IntentSource interface {
 // back as ErrAnchorWindowClosed with provisional set: an anchor already
 // included in the window waives it.
 func Deadline(h0, head uint64, f IntentFacts, cfg Config, mandateDelay uint64) (deadline uint64, provisional bool, err error) {
+	// The verifier refuses such a PFB too; checked here as well because a
+	// deadline at or below h0 would authorize an anchor window of zero blocks.
+	if f.DA == commitment.DACelestiaBlob && f.TimeoutHeight > 0 && f.TimeoutHeight <= h0 {
+		return 0, false, fmt.Errorf("%w: timeout_height %d is not above the reference height %d", ErrAnchorIntentInvalid, f.TimeoutHeight, h0)
+	}
 	if head < h0 {
 		return 0, false, fmt.Errorf("%w: head %d below the reference height %d", ErrChainUnavailable, head, h0)
 	}
@@ -92,6 +97,9 @@ func Deadline(h0, head uint64, f IntentFacts, cfg Config, mandateDelay uint64) (
 	deadline = satAdd(h0, window)
 	if f.DA == commitment.DACelestiaBlob && f.TimeoutHeight > 0 && f.TimeoutHeight < deadline {
 		deadline = f.TimeoutHeight
+	}
+	if deadline <= h0 {
+		return 0, false, fmt.Errorf("%w: deadline %d is not above the reference height %d", ErrAnchorWindowClosed, deadline, h0)
 	}
 	if deadline < satAdd(head, cfg.MinFastSlackBlocks) {
 		return deadline, true, fmt.Errorf("%w: deadline %d, head %d, slack %d", ErrAnchorWindowClosed, deadline, head, cfg.MinFastSlackBlocks)
