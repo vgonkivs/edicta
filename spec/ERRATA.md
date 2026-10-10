@@ -10,7 +10,7 @@ decision.
 Versioning: an erratum keeps the revision labels (`v1.0`, `policy-v1.0`), in
 the spec texts and in the `revision` field of the vector files, because no
 byte string that a v1.0 implementation produces or accepts changes meaning.
-The fix commit carries the annotated tag `v1.0-errata.N`, whose message lists
+The fix commit carries the annotated patch tag `v1.0.N` (E1 = `v1.0.1`), whose message lists
 the erratum ids and the new hashes of `spec/vectors/MANIFEST.sha256`.
 `v1.0.0` never moves.
 
