@@ -3,6 +3,9 @@ package policy_test
 import (
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -77,5 +80,37 @@ func FuzzDecodeSignedVerdict(f *testing.F) {
 			_, _ = sv.Verdict.PrevStateHash()
 			_, _ = sv.Verdict.Delta()
 		}
+	})
+}
+
+// FuzzDecodePrivatePart: the strict decoder accepts canonical bytes only, a
+// part it accepts hashes and merges deterministically, and nothing panics.
+func FuzzDecodePrivatePart(f *testing.F) {
+	raw, err := os.ReadFile("../spec/vectors/policy/private.json")
+	require.NoError(f, err)
+	for _, m := range regexp.MustCompile(`"private_part_cbor_hex": "([0-9a-f]*)"`).FindAllSubmatch(raw, -1) {
+		b, err := hex.DecodeString(string(m[1]))
+		require.NoError(f, err)
+		f.Add(b)
+		f.Add(b[:len(b)/2])
+	}
+	f.Add([]byte{})
+	f.Add([]byte{0xa2, 0x01, 0x01, 0x02, 0x40})
+	priv := &policy.Verdict{
+		Format: 1, GateID: "g", MandateHash: make([]byte, 32), CommitmentHash: make([]byte, 32), ActionHash: make([]byte, 32),
+		AgentPubKey: make([]byte, 32), Outcome: policy.OutcomeDeny, PrivateHash: make([]byte, 32),
+	}
+	f.Fuzz(func(t *testing.T, b []byte) {
+		p, err := policy.DecodePrivatePart(b)
+		if err != nil {
+			require.ErrorIs(t, err, policy.ErrVerdictInvalid)
+			return
+		}
+		again, err := policy.EncodePrivatePart(p)
+		require.NoError(t, err)
+		require.Equal(t, b, again, "decoding accepts canonical bytes only")
+		require.Equal(t, policy.PrivateHash(b), policy.PrivateHash(again))
+		_, _ = policy.MergeVerdict(priv, p)
+		_ = policy.MergeUnchecked(priv, p)
 	})
 }
