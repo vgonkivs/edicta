@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/types/bech32"
@@ -202,6 +203,9 @@ type fastCore struct {
 	recList   []*archive.AnchorIntentRecord
 	recListed bool
 	recNext   int
+	// skipped counts the archived intents the recovery could not follow. Each
+	// may be a lost intent whose decision later reads as anchor_missing.
+	skipped atomic.Uint64
 
 	seqMu sync.Mutex
 	// floor is the sequence the node last named in a refusal: the account
@@ -534,7 +538,10 @@ func (f *fastCore) recover(ctx context.Context) error {
 		recs, err := f.lister.Intents(ctx, d.da(), head-min(head, reach))
 		switch {
 		case errors.Is(err, archive.ErrCorrupt):
-			f.d.Log.Error("recorder: archived anchor intents that do not decode are not followed", "err", err)
+			for _, e := range joined(err) {
+				f.skipped.Add(1)
+				f.d.Log.Error("recorder: an archived anchor intent does not decode and is not followed", "err", e)
+			}
 		case err != nil:
 			return archiveFault("list anchor intents", err)
 		}
@@ -614,8 +621,25 @@ func (f *fastCore) recoverOne(ctx context.Context, d fastDA, rec *archive.Anchor
 func (f *fastCore) skip(rec *archive.AnchorIntentRecord, reach uint64, err error) {
 	path, _ := archive.IntentPath(rec.DA, rec.Commitment, rec.RefHeight)
 	seq, ok := f.reserve(rec, reach)
+	f.skipped.Add(1)
 	f.d.Log.Error("recorder: an archived anchor intent cannot be followed and is skipped", "path", path,
 		"sequence_known", ok, "sequence", seq, "err", err)
+}
+
+// joined splits an error made by errors.Join into its parts.
+func joined(err error) []error {
+	if j, ok := err.(interface{ Unwrap() []error }); ok {
+		return j.Unwrap()
+	}
+	return []error{err}
+}
+
+// skippedIntents is zero for a Recorder without fast mode.
+func (f *fastCore) skippedIntents() uint64 {
+	if f == nil {
+		return 0
+	}
+	return f.skipped.Load()
 }
 
 // reserve keeps the sequence of the tx of rec out of new intents until the

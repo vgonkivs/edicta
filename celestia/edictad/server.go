@@ -660,6 +660,9 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 		s.rec = rec
 		if cfg.Recorder.Fast {
 			logRecorderFast(log, cfg, addr)
+			if sk, ok := rec.(skippedIntents); ok {
+				hl.skipped = sk
+			}
 		}
 		pub, hl.signer, hl.namespace = rec, addr, ns
 		quota = recorderQuota(cfg, clock)
@@ -679,6 +682,7 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 			return fail(fmt.Errorf("edictad: recorder signer: %w", err))
 		}
 		logRecorderFast(log, cfg, addr)
+		hl.skipped = rec
 		pub, hl.signer, hl.namespace = rec, addr, ns
 		quota = recorderQuota(cfg, clock)
 	case cfg.Recorder.Enabled:
@@ -1087,6 +1091,11 @@ func loadSecrets(cfg Config) (*secrets, error) {
 	return s, nil
 }
 
+// skippedIntents is implemented by a fast Recorder.
+type skippedIntents interface {
+	SkippedIntents() uint64
+}
+
 // health serves GET /v1/health from a copy refreshed at most once a minute, so
 // the open endpoint cannot be used to hammer the node.
 type health struct {
@@ -1101,6 +1110,11 @@ type health struct {
 
 	// degraded is set when the retention observer has stopped.
 	degraded atomic.Bool
+	// skipped, when set, counts the archived anchor intents the fast
+	// Recorder could not follow. Any of them may be a lost intent whose
+	// decision later reads as anchor_missing, so health stays degraded
+	// while it is not zero.
+	skipped skippedIntents
 
 	mu     sync.Mutex
 	last   node.Header
@@ -1127,7 +1141,7 @@ func (h *health) Health(ctx context.Context) (edictaapi.HealthInfo, error) {
 		}
 	}
 	status := uint64(1)
-	if !h.lastOK || h.degraded.Load() {
+	if !h.lastOK || h.degraded.Load() || (h.skipped != nil && h.skipped.SkippedIntents() > 0) {
 		status = 2
 	}
 	return edictaapi.HealthInfo{

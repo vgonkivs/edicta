@@ -119,6 +119,11 @@ type Recorder struct {
 
 var _ sdk.Publisher = (*Recorder)(nil)
 
+// SkippedIntents is the number of archived anchor intents this Recorder's
+// recovery could not follow; each may be a lost intent. Zero without fast
+// mode.
+func (r *Recorder) SkippedIntents() uint64 { return r.fast.skippedIntents() }
+
 // ValidateBasic checks the stateless fields.
 func (c Config) ValidateBasic() error {
 	if err := checkNamespace(c.Namespace); err != nil {

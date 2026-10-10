@@ -301,6 +301,11 @@ func (r *FibreRecorder) Publish(ctx context.Context, blob []byte) (sdk.Published
 	return r.eng.publish(ctx, r, c[:], blob)
 }
 
+// SkippedIntents is the number of archived anchor intents this Recorder's
+// recovery could not follow; each may be a lost intent. Zero without fast
+// mode.
+func (r *FibreRecorder) SkippedIntents() uint64 { return r.fast.skippedIntents() }
+
 // Close refuses new publishes, waits until ctx ends for uploads to drain, and
 // then cancels whatever is still uploading. Call it before closing the node
 // client.
