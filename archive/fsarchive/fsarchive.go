@@ -374,7 +374,12 @@ func (s *Store) syncExisting(final string) error {
 	return syncDir(filepath.Dir(final))
 }
 
-func (s *Store) publish(final string, b []byte) (err error) {
+func (s *Store) publish(final string, b []byte) error { return s.write(final, b, false) }
+
+// write stores b at final through a synced temp file. Without replace a
+// hard link publishes it, which fails when final exists; with replace a
+// rename swaps it in atomically.
+func (s *Store) write(final string, b []byte, replace bool) (err error) {
 	dir := filepath.Dir(final)
 	if err := s.ensureDir(dir); err != nil {
 		return err
@@ -406,8 +411,12 @@ func (s *Store) publish(final string, b []byte) (err error) {
 			return fmt.Errorf("fsarchive: before publish: %w", err)
 		}
 	}
-	// A hard link fails when the final path exists, where a rename would
-	// replace it.
+	if replace {
+		if err := os.Rename(tmp, final); err != nil {
+			return fmt.Errorf("fsarchive: replace: %w", err)
+		}
+		return syncDir(dir)
+	}
 	if err := os.Link(tmp, final); err != nil {
 		return fmt.Errorf("fsarchive: publish: %w", err)
 	}

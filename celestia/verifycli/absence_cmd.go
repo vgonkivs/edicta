@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/celestia/absence"
 	"github.com/vgonkivs/edicta/commitment"
@@ -22,7 +23,11 @@ type absenceHeightView struct {
 	Rule    string `json:"rule"`
 	Bytes   int    `json:"bytes,omitempty"`
 	Written bool   `json:"written"`
-	Error   string `json:"error,omitempty"`
+	// Replaced: the archived proof of the height did not verify and the new
+	// one took its place. Kept: an archived proof that verifies was left.
+	Replaced bool   `json:"replaced,omitempty"`
+	Kept     bool   `json:"kept,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 type absenceView struct {
@@ -36,6 +41,7 @@ type absenceView struct {
 	Heights        int                 `json:"heights"`
 	Bytes          int                 `json:"bytes"`
 	Written        int                 `json:"written"`
+	Kept           int                 `json:"kept"`
 	Source         string              `json:"source"`
 	PerHeight      []absenceHeightView `json:"per_height"`
 }
@@ -121,6 +127,9 @@ func runAbsence(ctx context.Context, f flags, out io.Writer) (int, error) {
 		if hv.Written {
 			view.Written++
 		}
+		if hv.Kept {
+			view.Kept++
+		}
 	}
 	view.Heights = len(view.PerHeight)
 	view.Result = string(verifier.AbsenceAbsent)
@@ -138,9 +147,11 @@ func runAbsence(ctx context.Context, f flags, out io.Writer) (int, error) {
 			}
 		}
 	}
+	// A proven height whose record is not in the archive leaves a later
+	// verify of that archive unproven, so it is not a success either.
 	code := codeValid
 	for _, hv := range view.PerHeight {
-		if hv.Result == absence.Unproven.String() {
+		if hv.Result == absence.Unproven.String() || (!hv.Written && !hv.Kept) {
 			code = codeUnchecked
 		}
 	}
@@ -157,7 +168,8 @@ func runAbsence(ctx context.Context, f flags, out io.Writer) (int, error) {
 }
 
 // absenceHeight fetches, verifies and, when it verifies, stores the proof of
-// one height.
+// one height. An archived proof that does not verify is replaced; one that
+// verifies is kept.
 func absenceHeight(ctx context.Context, store *fsarchive.Store, fetch *absence.Fetcher, trust verifier.HeaderTrust,
 	q absence.Query, h uint64) absenceHeightView {
 	hv := absenceHeightView{Height: h, Result: absence.Unproven.String(), Rule: string(absence.RuleNoProof)}
@@ -167,6 +179,38 @@ func absenceHeight(ctx context.Context, store *fsarchive.Store, fetch *absence.F
 		return hv
 	}
 	hv.Bytes = absence.Size(rec)
+	o := verifyRecord(ctx, trust, q, h, rec)
+	hv.Result, hv.Rule = o.Result.String(), string(o.Rule)
+	if o.Err != nil {
+		hv.Error = o.Err.Error()
+		return hv
+	}
+	// The archive takes an absence proof once per key whatever its bytes, so
+	// an archived one is checked first: one that verifies stays, one that
+	// does not is replaced.
+	old, err := store.Absence(ctx, q.DA, q.Commitment, h)
+	switch {
+	case err == nil && verifyRecord(ctx, trust, q, h, old).Result == o.Result:
+		hv.Kept = true
+		return hv
+	case err == nil || errors.Is(err, archive.ErrCorrupt):
+		_, err = store.ReplaceAbsence(ctx, rec)
+		hv.Replaced = err == nil
+	case errors.Is(err, archive.ErrNotFound):
+		_, err = store.Put(ctx, rec)
+	}
+	if err != nil {
+		path, _ := archive.KeyPath(rec)
+		hv.Error = fmt.Sprintf("verified, not written to %s: %v", path, err)
+		return hv
+	}
+	hv.Written = true
+	return hv
+}
+
+// verifyRecord checks a record of h against the header hashes header trust
+// ties to the chain.
+func verifyRecord(ctx context.Context, trust verifier.HeaderTrust, q absence.Query, h uint64, rec *archive.AbsenceProofRecord) absence.Outcome {
 	trusted := absence.TrustedHashes{}
 	chainID := ""
 	for _, part := range []struct {
@@ -189,24 +233,13 @@ func absenceHeight(ctx context.Context, store *fsarchive.Store, fetch *absence.F
 		}
 	}
 	if q.DA == commitment.DAFibre {
+		if chainID == "" {
+			return absence.Outcome{Height: h, Result: absence.Unproven, Rule: absence.RuleHeader,
+				Err: fmt.Errorf("%w: the header at %d does not tie to the trusted chain", absence.ErrHeader, h)}
+		}
 		q.ChainID = chainID
 	}
-	if q.DA == commitment.DAFibre && chainID == "" {
-		hv.Rule, hv.Error = string(absence.RuleHeader), fmt.Sprintf("%v: the header at %d does not tie to the trusted chain", absence.ErrHeader, h)
-		return hv
-	}
-	o := absence.VerifyHeight(rec, q, h, trusted)
-	hv.Result, hv.Rule = o.Result.String(), string(o.Rule)
-	if o.Err != nil {
-		hv.Error = o.Err.Error()
-		return hv
-	}
-	if _, err := store.Put(ctx, rec); err != nil {
-		hv.Error = fmt.Sprintf("verified, not written: %v", err)
-		return hv
-	}
-	hv.Written = true
-	return hv
+	return absence.VerifyHeight(rec, q, h, trusted)
 }
 
 func hashHex(h commitment.Hash) string { return fmt.Sprintf("%x", h[:]) }
@@ -217,8 +250,13 @@ func writeAbsenceText(out io.Writer, v absenceView) {
 	p("window: h0 %d to anchor deadline %d, da %d, proofs from %s", v.H0, v.AnchorDeadline, v.DA, v.Source)
 	for _, hv := range v.PerHeight {
 		line := strconv.FormatUint(hv.Height, 10) + ": " + hv.Result + " (" + hv.Rule + ")"
-		if hv.Written {
+		switch {
+		case hv.Replaced:
+			line += ", written over an archived proof that does not verify"
+		case hv.Written:
 			line += ", written"
+		case hv.Kept:
+			line += ", a verifying proof is already archived"
 		}
 		if hv.Error != "" {
 			line += ": " + hv.Error
@@ -227,10 +265,17 @@ func writeAbsenceText(out io.Writer, v absenceView) {
 	}
 	switch v.Result {
 	case string(verifier.AbsenceAbsent):
-		p("absence: absent at %d..%d, %d heights, %d bytes; %d records written", v.H0, v.AnchorDeadline, v.Heights, v.Bytes, v.Written)
+		p("absence: absent at %d..%d, %d heights, %d bytes; %d records written%s", v.H0, v.AnchorDeadline, v.Heights, v.Bytes, v.Written, kept(v))
 	case string(verifier.AbsencePresent):
-		p("absence: the anchor is present at %d; %d records written", v.AnchorHeight, v.Written)
+		p("absence: the anchor is present at %d; %d records written%s", v.AnchorHeight, v.Written, kept(v))
 	default:
-		p("absence: not proven, first height %d; %d of %d records written", v.FirstUnproven, v.Written, v.Heights)
+		p("absence: not proven, first height %d; %d of %d records written%s", v.FirstUnproven, v.Written, v.Heights, kept(v))
 	}
+}
+
+func kept(v absenceView) string {
+	if v.Kept == 0 {
+		return ""
+	}
+	return fmt.Sprintf(", %d already archived", v.Kept)
 }
