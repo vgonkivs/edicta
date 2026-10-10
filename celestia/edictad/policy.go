@@ -273,9 +273,11 @@ type denyKey struct {
 
 // denyIndex is the gate-local dedup index of private denies. It is not
 // evidence: losing an entry only writes one more record. An entry is
-// reserved before the deny's records are written and kept once the
-// policy_deny write is acknowledged, so concurrent retries never both
-// write; a failed write releases it.
+// reserved before the deny's records are written, stays reserved while the
+// policy_deny record waits in the retry queue, and is kept once the store
+// acknowledged it, so neither concurrent retries nor retries during an
+// outage write a second deny (their count would show the number of denied
+// attempts). A refusal by the store or a record dropped for good releases it.
 type denyIndex struct {
 	mu sync.Mutex
 	m  map[denyKey]denyEntry
@@ -305,10 +307,16 @@ func (x *denyIndex) reserve(k denyKey, validUntil, now uint64) bool {
 			}
 		}
 	}
+	// Only a settled entry may go: dropping a reservation in flight would
+	// let a retry write a second deny. Reservations are few, bounded by the
+	// requests at work and the retry queue, so the map may pass the bound
+	// by that many.
 	if len(x.m) >= maxDenyIndex {
-		for key := range x.m {
-			delete(x.m, key)
-			break
+		for key, e := range x.m {
+			if e.done {
+				delete(x.m, key)
+				break
+			}
 		}
 	}
 	x.m[k] = denyEntry{until: validUntil}
@@ -351,9 +359,5 @@ func (a *archivingGate) privateDeny(ctx context.Context, res gate.Result, reason
 		return
 	}
 	recs := []archive.Record{part, &archive.PolicyDenyRecord{SignedVerdict: res.PolicyVerdict}, marker}
-	if a.w.writeChain(ctx, &chain{recs: recs}) >= 2 {
-		a.pol.denies.commit(k)
-		return
-	}
-	a.pol.denies.release(k)
+	a.w.writeChain(ctx, &chain{recs: recs, deny: &denyHold{x: a.pol.denies, k: k}})
 }

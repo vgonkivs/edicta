@@ -280,7 +280,49 @@ func (q *retryQueue) takeDropped() bool {
 // chain is a group of records that must reach the archive in this order: a
 // record is never written before the ones ahead of it. When a write has to be
 // retried, the queue keeps the tail from the failed record on.
-type chain struct{ recs []archive.Record }
+type chain struct {
+	recs []archive.Record
+	// deny is set on a private deny's chain: its policy_deny record settles
+	// the dedup reservation.
+	deny *denyHold
+}
+
+// denyHold is a private deny's dedup reservation, held until the store has
+// acknowledged or refused the policy_deny record.
+type denyHold struct {
+	x *denyIndex
+	k denyKey
+}
+
+// tail is the chain from record i on, still carrying the reservation.
+func (c *chain) tail(i int) *chain { return &chain{recs: c.recs[i:], deny: c.deny} }
+
+// settle commits the reservation once the policy_deny record is stored and
+// releases it when the store refused it, so a later retry writes it again.
+func (c *chain) settle(r archive.Record, acked bool) {
+	if c.deny == nil || r.Kind() != archive.KindPolicyDeny {
+		return
+	}
+	if acked {
+		c.deny.x.commit(c.deny.k)
+		return
+	}
+	c.deny.x.release(c.deny.k)
+}
+
+// abandon releases the reservation when the chain stops for good before its
+// policy_deny record was settled.
+func (c *chain) abandon(rest []archive.Record) {
+	if c.deny == nil {
+		return
+	}
+	for _, r := range rest {
+		if r.Kind() == archive.KindPolicyDeny {
+			c.deny.x.release(c.deny.k)
+			return
+		}
+	}
+}
 
 func (c *chain) Kind() archive.Kind {
 	if len(c.recs) == 0 {
@@ -389,36 +431,44 @@ func (w *writer) write(ctx context.Context, r archive.Record) {
 	}
 }
 
-func (w *writer) queue(r archive.Record) {
+func (w *writer) queue(r archive.Record) bool {
 	queued := w.q.add(r)
 	w.log.Error("edictad: archive write failed", "kind", r.Kind(), "queued", queued)
+	return queued
 }
 
 // writeChain writes the records in order and stops at the first one that has
 // to be retried, queueing it and the ones behind it as one chain. A record
 // that can never be written ends the chain too: the registry still holds the
-// Authorization, and the scan repairs the rest in order. It returns how many
-// records were written now.
-func (w *writer) writeChain(ctx context.Context, c *chain) int {
+// Authorization, and the scan repairs the rest in order.
+func (w *writer) writeChain(ctx context.Context, c *chain) {
 	for i, r := range c.recs {
-		switch w.writeOne(ctx, r) {
+		res := w.writeOne(ctx, r)
+		switch res {
 		case writeRetry:
-			w.queue(&chain{recs: c.recs[i:]})
-			return i
+			if !w.queue(c.tail(i)) {
+				c.abandon(c.recs[i:])
+			}
+			return
 		case writeStop:
+			c.abandon(c.recs[i:])
 			if h, ok := authorizationHash(c); ok {
 				w.q.markDroppedFor(h)
 			}
-			return i
+			return
 		}
+		c.settle(r, res == writeDone)
 	}
-	return len(c.recs)
 }
 
 type writeResult int
 
 const (
 	writeDone writeResult = iota
+	// writeRefused: the store answered and keeps something else, or lacks
+	// a record this one depends on. The chain goes on, but the record is
+	// not stored.
+	writeRefused
 	writeRetry
 	writeStop
 )
@@ -431,10 +481,13 @@ func (w *writer) writeOne(ctx context.Context, r archive.Record) writeResult {
 	case err == nil:
 	case errors.Is(err, archive.ErrConflict) && r.Kind() == archive.KindPolicySuccessor:
 		w.log.Error("edictad: a second allow consumed the same policy state: possible fork of the gate's counter", "err", err)
+		return writeRefused
 	case errors.Is(err, archive.ErrConflict):
 		w.log.Error("edictad: archive record conflicts with the stored one", "kind", r.Kind(), "err", err)
+		return writeRefused
 	case errors.Is(err, archive.ErrNotFound):
 		w.log.Error("edictad: archive record depends on a record that is missing", "kind", r.Kind(), "err", err)
+		return writeRefused
 	case permanent(err):
 		w.log.Error("edictad: archive record cannot be written and is dropped", "kind", r.Kind(),
 			"commitment_hash", recordHash(r), "err", err)

@@ -66,6 +66,7 @@ func (s *sweeper) run(ctx context.Context, full bool) sweepResult {
 				s.q.markDroppedFor(h)
 			}
 			if rest != nil && !s.q.add(rest) {
+				rest.abandon(rest.recs)
 				s.log.Error("edictad: archive retry queue is full; the record is left to the next registry scan",
 					"kind", r.Kind(), "commitment_hash", recordHash(r))
 			}
@@ -230,11 +231,13 @@ func (s *sweeper) repairReveal(ctx context.Context, e registry.Entry, st *sweepS
 // chain without a retry, so that nothing is written ahead of it.
 func (s *sweeper) putChain(ctx context.Context, c *chain, st *sweepStats) *chain {
 	for i, r := range c.recs {
-		perm, nodec := st.permanent, st.noDecision
+		perm, nodec, repaired := st.permanent, st.noDecision, st.repaired
 		if !s.put(ctx, r, st) {
-			return &chain{recs: c.recs[i:]}
+			return c.tail(i)
 		}
+		c.settle(r, st.repaired > repaired)
 		if st.permanent > perm || st.noDecision > nodec {
+			c.abandon(c.recs[i+1:])
 			return nil
 		}
 	}
