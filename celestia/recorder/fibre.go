@@ -183,6 +183,10 @@ type FibreDeps struct {
 	ChainID   string
 	Committer *fibrecommit.Committer
 	Log       *slog.Logger
+	// Fast, when set, makes Publish return pending references. Its uploader
+	// must read from the same consensus node as Chain. Submitter is still
+	// needed for the escrow reads.
+	Fast *FastDeps
 }
 
 // FibreRecorder implements sdk.Publisher for da = 1 through the operator's
@@ -204,6 +208,8 @@ type FibreRecorder struct {
 	reserved uint64
 	cancels  map[int]context.CancelFunc
 	nextID   int
+
+	fast *fastCore
 }
 
 var (
@@ -236,6 +242,17 @@ func NewFibre(cfg FibreConfig, d FibreDeps) (*FibreRecorder, error) {
 	if d.Log == nil {
 		d.Log = slog.Default()
 	}
+	if d.Fast != nil {
+		if err := d.Fast.check(commitment.DAFibre); err != nil {
+			return nil, err
+		}
+		if normEndpoint(d.Fast.Uploader.Endpoint()) != normEndpoint(d.Chain.Addr()) {
+			return nil, fmt.Errorf("%w: the upload node %q is not the read node %q", errInvalidInput, d.Fast.Uploader.Endpoint(), d.Chain.Addr())
+		}
+		if d.Fast.Log == nil {
+			d.Fast.Log = d.Log
+		}
+	}
 	r := &FibreRecorder{
 		cfg: cfg, d: d,
 		eng:       newEngine(cfg.Archive, cfg.Now, cfg.MaxPending, cfg.ScanBlocks),
@@ -243,6 +260,12 @@ func NewFibre(cfg FibreConfig, d FibreDeps) (*FibreRecorder, error) {
 		confirmer: gatechain.NewFibreAnchors(d.Reader, d.ChainID, gatechain.FibreAnchorOptions{Log: d.Log}),
 		slots:     make(chan struct{}, cfg.MaxDraining),
 		cancels:   map[int]context.CancelFunc{},
+	}
+	if d.Fast != nil {
+		var err error
+		if r.fast, err = newFastCore(r.eng, *d.Fast, cfg.PollInterval); err != nil {
+			return nil, err
+		}
 	}
 	return r, nil
 }
@@ -268,6 +291,9 @@ func (r *FibreRecorder) Publish(ctx context.Context, blob []byte) (sdk.Published
 	c, err := fibrecommit.Commitment(blob)
 	if err != nil {
 		return sdk.Published{}, fmt.Errorf("recorder: commitment: %w", err)
+	}
+	if r.fast != nil {
+		return r.publishFast(ctx, c[:], blob)
 	}
 	return r.eng.publish(ctx, r, c[:], blob)
 }
@@ -301,6 +327,9 @@ func (r *FibreRecorder) Close(ctx context.Context) error {
 		cancel()
 	}
 	r.mu.Unlock()
+	if r.fast != nil {
+		err = errors.Join(err, r.fast.close(ctx))
+	}
 	return err
 }
 

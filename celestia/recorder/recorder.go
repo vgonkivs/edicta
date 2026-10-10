@@ -94,6 +94,11 @@ type Config struct {
 	// archive): two live Recorders on one archive can both submit once the
 	// settle window has passed.
 	Archive archive.Store
+	// FastTimeoutBlocks is how many blocks above h0 the anchor tx of a
+	// pending reference stays valid (NewFast only); default 100, else
+	// 13..1000. It should exceed the gate's MaxH0AgeBlocks plus
+	// MinFastSlackBlocks, or the gate refuses for lack of slack.
+	FastTimeoutBlocks uint64
 }
 
 // headerReader is implemented by readers that can return the protobuf
@@ -108,6 +113,8 @@ type Recorder struct {
 	sub Submitter
 	rd  node.Reader
 	eng *engine
+	// fast is set by NewFast.
+	fast *fastCore
 }
 
 var _ sdk.Publisher = (*Recorder)(nil)
@@ -119,6 +126,9 @@ func (c Config) ValidateBasic() error {
 	}
 	if c.SettleBlocks != 0 && c.SettleBlocks < settleFloor {
 		return fmt.Errorf("%w: settle window of %d blocks is below %d", errInvalidInput, c.SettleBlocks, settleFloor)
+	}
+	if c.FastTimeoutBlocks != 0 && (c.FastTimeoutBlocks < minFastTimeoutBlocks || c.FastTimeoutBlocks > maxFastTimeoutBlocks) {
+		return fmt.Errorf("%w: fast timeout of %d blocks is outside %d..%d", errInvalidInput, c.FastTimeoutBlocks, minFastTimeoutBlocks, maxFastTimeoutBlocks)
 	}
 	return nil
 }
@@ -193,6 +203,9 @@ func (r *Recorder) Publish(ctx context.Context, blob []byte) (sdk.Published, err
 	}
 	if uint64(len(blob)) > r.cfg.MaxBlobBytes {
 		return sdk.Published{}, fmt.Errorf("%w: %d bytes", ErrTooLarge, len(blob))
+	}
+	if r.fast != nil {
+		return r.publishFast(ctx, blob)
 	}
 	signer, err := r.sub.Signer(ctx)
 	if err != nil {
