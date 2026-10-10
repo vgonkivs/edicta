@@ -119,22 +119,23 @@ func TestFastFibreRefusedAnchorTxKeepsTheEscrowReserved(t *testing.T) {
 }
 
 // The settle wait of a stale intent must run past created +
-// PromiseTimeoutS: settlement only starts to be possible then.
+// PromiseTimeoutS: settlement only starts to be possible then. The promise
+// timeout is just above the chain time at the stale verdict, which block
+// time, not the Recorder's clock, would otherwise turn into an expiry.
 func TestFastFibreStaleIntentKeepsTheEscrowPastThePromiseTimeout(t *testing.T) {
 	f := newFibreFast(t)
-	f.fibreFx.node.SetFibreParams(node.FibreParams{RetentionS: 14400, PromiseHeightWindow: fibreWindow, PromiseTimeoutS: 1})
+	f.fibreFx.node.SetFibreParams(node.FibreParams{RetentionS: 14400, PromiseHeightWindow: fibreWindow, PromiseTimeoutS: 10})
 	f.sub.EscrowVal = node.Escrow{AvailableUtia: f.cost() + 10}
 	f.node.script(errTransport)
 	r := f.rec()
 	_, err := r.Publish(bg, f.blob)
 	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
-	f.skew.Store(int64(-time.Hour))
 	seq, err := node.TxSequence(f.l.PFFTx)
 	require.NoError(t, err)
 	f.node.script(mismatch(seq + 1))
 	_, err = r.Publish(bg, f.blob)
 	require.ErrorIs(t, err, recorder.ErrIntentStale)
-	f.skew.Store(0)
+	f.grow(f.h0 + 10)
 
 	var short *recorder.EscrowShortfall
 	assert.Never(t, func() bool {

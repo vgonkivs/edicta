@@ -104,12 +104,11 @@ func TestFastFibreKeepsTheEscrowOfAnExpiredPromiseThroughItsSettlement(t *testin
 	require.NoError(t, err)
 	require.True(t, pub.Ref.Pending())
 
-	f.skew.Store(int64(2 * time.Hour))
+	f.grow(f.h0 + fibreWindow + 1)
 	require.Eventually(t, func() bool {
 		_, err := r.Publish(bg, f.blob)
 		return errors.Is(err, recorder.ErrAnchorExpired)
 	}, 5*time.Second, time.Millisecond)
-	f.skew.Store(0)
 
 	_, err = r.Publish(bg, f.sameSize(0x66))
 	var short *recorder.EscrowShortfall
