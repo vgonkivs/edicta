@@ -7,12 +7,14 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 )
 
-// Window is the verdict over [h0, deadline]. Absent only when every height is
-// proven absent; Present names the first height that shows the anchor;
-// otherwise Unproven names the first height not proven.
+// Window is the verdict over [h0, deadline]. Present names the first height
+// that shows the anchor; else PresentUnpaid names the first height present
+// unpaid; Absent only when every height is proven absent; otherwise Unproven
+// names the first height not proven.
 type Window struct {
 	Result        Result
 	AnchorHeight  uint64 // Present only
+	UnpaidHeight  uint64 // PresentUnpaid only
 	FirstUnproven uint64 // Unproven only
 	Heights       []Outcome
 }
@@ -34,6 +36,12 @@ func VerifyWindow(q Query, h0, deadline uint64, recs map[uint64]*archive.Absence
 	for _, o := range w.Heights {
 		if o.Result == Present {
 			w.Result, w.AnchorHeight = Present, o.Height
+			return w, nil
+		}
+	}
+	for _, o := range w.Heights {
+		if o.Result == PresentUnpaid {
+			w.Result, w.UnpaidHeight = PresentUnpaid, o.Height
 			return w, nil
 		}
 	}

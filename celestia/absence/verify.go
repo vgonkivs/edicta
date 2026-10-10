@@ -70,6 +70,10 @@ const (
 	Unproven Result = iota
 	Absent
 	Present
+	// PresentUnpaid is a height whose candidates are all included with a
+	// proven non-zero result code: the payload was published, the escrow did
+	// not pay. It is never absence.
+	PresentUnpaid
 )
 
 func (r Result) String() string {
@@ -78,6 +82,8 @@ func (r Result) String() string {
 		return "absent"
 	case Present:
 		return "present"
+	case PresentUnpaid:
+		return "present_unpaid"
 	default:
 		return "unproven"
 	}
@@ -381,8 +387,10 @@ func fibre(h uint64, q Query, rec *archive.AbsenceProofRecord, sh *core.SignedHe
 	}
 
 	// At the pinned version the Fibre txs are the last p txs of the block, in
-	// PFF namespace order, with one result per tx.
-	out.Result = Absent
+	// PFF namespace order, with one result per tx. An included candidate
+	// published the payload whatever its code, so a non-zero code only tells
+	// that the escrow did not pay.
+	out.Result = PresentUnpaid
 	for _, j := range cands {
 		i := n - p + j
 		out.Candidates = append(out.Candidates, Candidate{Position: j, ResultIndex: i, IndexBound: true, Code: codes[i]})

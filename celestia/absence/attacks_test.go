@@ -255,6 +255,10 @@ func TestFetcherBoundCountsResults(t *testing.T) {
 // the height as not proven, never absent.
 func TestChainCorruptArchivedRecord(t *testing.T) {
 	ref, d, m, trusted := caseOf(t, "window_three_heights_proven")
+	// The deadline height holds a candidate with a non-zero code, which
+	// decides ahead of absence and of heights not proven; the window ends
+	// before it so that only absent and unproven heights are in play.
+	d--
 	recs := map[uint64]*archive.AbsenceProofRecord{}
 	for h, r := range m.recs {
 		recs[h] = r
@@ -326,6 +330,36 @@ func TestHeaderlessSignedHeaderIsNotProven(t *testing.T) {
 				_, err = f.Fetch(t.Context(), absence.Query{DA: ref.DA, Namespace: ref.Namespace, Commitment: ref.Commitment}, d)
 			})
 			require.Error(t, err)
+		})
+	}
+}
+
+// An included candidate with a proven non-zero result code published the
+// payload, so whatever the other heights of the window show, the window is
+// never absent and names the unpaid height.
+func TestUnpaidCandidateIsNeverAbsence(t *testing.T) {
+	ref, d, m, trusted := caseOf(t, "window_three_heights_proven")
+	for name, mut := range map[string]func(recs map[uint64]*archive.AbsenceProofRecord){
+		"every other height absent": func(map[uint64]*archive.AbsenceProofRecord) {},
+		"a height missing":          func(recs map[uint64]*archive.AbsenceProofRecord) { delete(recs, ref.Height) },
+		"a height corrupt": func(recs map[uint64]*archive.AbsenceProofRecord) {
+			bad := *recs[ref.Height+1]
+			bad.NamespaceData = []byte{0x05, 0x01}
+			recs[ref.Height+1] = &bad
+		},
+		"only the unpaid height": func(recs map[uint64]*archive.AbsenceProofRecord) {
+			delete(recs, ref.Height)
+			delete(recs, ref.Height+1)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			recs := cloneRecs(m)
+			mut(recs)
+			w, err := absence.NewChain(absence.ChainDeps{Records: &memRecords{recs: recs}}).
+				Absence(t.Context(), ref, d, confirmFrom(trusted, nil))
+			require.NoError(t, err)
+			assert.Equal(t, verifier.AbsencePresentUnpaid, w.Result, "%v", w.Cause)
+			assert.Equal(t, d, w.UnpaidHeight)
 		})
 	}
 }

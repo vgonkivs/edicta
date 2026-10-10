@@ -16,7 +16,13 @@ import (
 	"github.com/vgonkivs/edicta/commitment"
 )
 
-const absencePath = "../../spec/vectors/da/absence.json"
+const (
+	absencePath     = "../../spec/vectors/da/absence.json"
+	absenceV103Path = "../../spec/vectors/da/absence_v1.0.3.json"
+	supersededPath  = "../../spec/vectors/SUPERSEDED.json"
+	absenceFileName = "da/absence.json"
+	absenceV103Name = "da/absence_v1.0.3.json"
+)
 
 type vQuery struct {
 	DA             string `json:"da"`
@@ -53,6 +59,7 @@ type vHeight struct {
 type vWindow struct {
 	Result        string `json:"result"`
 	AnchorHeight  string `json:"anchor_height"`
+	UnpaidHeight  string `json:"unpaid_height"`
 	FirstUnproven string `json:"first_unproven"`
 }
 
@@ -181,6 +188,9 @@ func runCase(t *testing.T, c vCase, chainID string) {
 	if w.Result == absence.Present {
 		gw.AnchorHeight = strconv.FormatUint(w.AnchorHeight, 10)
 	}
+	if w.Result == absence.PresentUnpaid {
+		gw.UnpaidHeight = strconv.FormatUint(w.UnpaidHeight, 10)
+	}
 	if w.Result == absence.Unproven {
 		gw.FirstUnproven = strconv.FormatUint(w.FirstUnproven, 10)
 	}
@@ -203,18 +213,103 @@ func decodeAt(t *testing.T, q absence.Query, h uint64, b []byte) *archive.Absenc
 	return rec
 }
 
+type supersededEntry struct {
+	File       string `json:"file"`
+	Case       string `json:"case"`
+	Revision   string `json:"revision"`
+	Type       string `json:"type"`
+	ReplacedBy string `json:"replaced_by"`
+}
+
+// superseded returns the cases of file that a later revision replaced, by
+// case id, with the reference of the replacing case. A frozen case is skipped
+// only through this list.
+func superseded(t *testing.T, file string) map[string]string {
+	t.Helper()
+	b, err := os.ReadFile(supersededPath)
+	require.NoError(t, err)
+	var f struct {
+		Entries []supersededEntry `json:"entries"`
+	}
+	require.NoError(t, json.Unmarshal(b, &f))
+	out := map[string]string{}
+	for _, e := range f.Entries {
+		if e.File == file {
+			out[e.Case] = e.ReplacedBy
+		}
+	}
+	return out
+}
+
+type v103File struct {
+	Revision string  `json:"revision"`
+	ChainID  string  `json:"chain_id"`
+	Cases    []vCase `json:"cases"`
+}
+
+func loadAbsenceV103(t *testing.T) v103File {
+	t.Helper()
+	b, err := os.ReadFile(absenceV103Path)
+	require.NoError(t, err)
+	var f v103File
+	require.NoError(t, json.Unmarshal(b, &f))
+	require.Equal(t, "v1.0.3", f.Revision)
+	return f
+}
+
+func runFrozen(t *testing.T, cases []vCase, chainID string, skip map[string]string) {
+	for _, c := range cases {
+		t.Run(c.ID, func(t *testing.T) {
+			if by, ok := skip[c.ID]; ok {
+				t.Skipf("superseded by %s", by)
+			}
+			runCase(t, c, chainID)
+		})
+	}
+}
+
 func TestVectorsSynthetic(t *testing.T) {
 	f := loadAbsence(t)
 	require.NotEmpty(t, f.Synthetic)
-	for _, c := range f.Synthetic {
-		t.Run(c.ID, func(t *testing.T) { runCase(t, c, f.ChainID) })
-	}
+	runFrozen(t, f.Synthetic, f.ChainID, superseded(t, absenceFileName))
 }
 
 func TestVectorsLive(t *testing.T) {
 	f := loadAbsence(t)
 	require.NotEmpty(t, f.Live)
-	for _, c := range f.Live {
-		t.Run(c.ID, func(t *testing.T) { runCase(t, c, f.Source.ChainID) })
+	runFrozen(t, f.Live, f.Source.ChainID, superseded(t, absenceFileName))
+}
+
+func TestVectorsV103(t *testing.T) {
+	f := loadAbsenceV103(t)
+	require.NotEmpty(t, f.Cases)
+	for _, c := range f.Cases {
+		t.Run(c.ID, func(t *testing.T) { runCase(t, c, f.ChainID) })
+	}
+}
+
+// Every superseded case has its replacement in the new file, on
+// byte-identical inputs, so skipping the frozen case loses no coverage.
+func TestSupersededCasesAreReplaced(t *testing.T) {
+	skip := superseded(t, absenceFileName)
+	require.NotEmpty(t, skip)
+	old := loadAbsence(t)
+	frozen := map[string]vCase{}
+	for _, c := range append(append([]vCase{}, old.Synthetic...), old.Live...) {
+		frozen[c.ID] = c
+	}
+	repl := map[string]vCase{}
+	for _, c := range loadAbsenceV103(t).Cases {
+		repl[absenceV103Name+"#"+c.ID] = c
+	}
+	for id, by := range skip {
+		oc, ok := frozen[id]
+		require.True(t, ok, "superseded case %s is not in %s", id, absenceFileName)
+		nc, ok := repl[by]
+		require.True(t, ok, "replacement %s of %s not found", by, id)
+		assert.Equal(t, oc.Query, nc.Query, id)
+		assert.Equal(t, oc.Records, nc.Records, id)
+		assert.Equal(t, oc.TrustedHeaders, nc.TrustedHeaders, id)
+		assert.NotEqual(t, oc.Expect, nc.Expect, id)
 	}
 }

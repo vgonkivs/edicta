@@ -38,7 +38,7 @@ func fixture(t *testing.T, id string) (absence.Query, *archive.AbsenceProofRecor
 func TestVerifyHeightFailClosed(t *testing.T) {
 	q, rec, trusted := fixture(t, "fibre_candidate_nonzero_code")
 	h := rec.Height
-	require.Equal(t, absence.Absent, absence.VerifyHeight(rec, q, h, trusted).Result)
+	require.Equal(t, absence.PresentUnpaid, absence.VerifyHeight(rec, q, h, trusted).Result)
 
 	t.Run("another commitment", func(t *testing.T) {
 		q2 := q
@@ -113,8 +113,10 @@ func TestVerifyWindowArguments(t *testing.T) {
 
 	w, err := absence.VerifyWindow(q, rec.Height, rec.Height+1, recs, trusted)
 	require.NoError(t, err)
-	assert.Equal(t, absence.Unproven, w.Result)
-	assert.Equal(t, rec.Height+1, w.FirstUnproven)
+	// The unpaid candidate decides ahead of the height with no proof.
+	assert.Equal(t, absence.PresentUnpaid, w.Result)
+	assert.Equal(t, rec.Height, w.UnpaidHeight)
+	assert.Equal(t, absence.Unproven, w.Heights[1].Result)
 	require.ErrorIs(t, w.Heights[1].Err, absence.ErrNoProof)
 	assert.Equal(t, absence.RuleNoProof, w.Heights[1].Rule)
 }

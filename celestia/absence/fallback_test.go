@@ -47,6 +47,10 @@ func (e errRecords) Absence(context.Context, commitment.DA, []byte, uint64) (*ar
 // auditor chose: the fetched proof of that height decides.
 func TestChainBadArchivedProofFallsBackToFetcher(t *testing.T) {
 	ref, d, m, trusted := caseOf(t, "window_three_heights_proven")
+	// The deadline height holds a candidate with a non-zero code, which
+	// decides ahead of absence and of heights not proven; the window ends
+	// before it so that only absent and unproven heights are in play.
+	d--
 	src := windowSource(m)
 	f, err := absence.NewFetcher(src, src, "bridge.good")
 	require.NoError(t, err)
@@ -99,6 +103,10 @@ func TestChainBadArchivedProofFallsBackToFetcher(t *testing.T) {
 // cause names both.
 func TestChainKeepsBothCauses(t *testing.T) {
 	ref, d, m, trusted := caseOf(t, "window_three_heights_proven")
+	// The deadline height holds a candidate with a non-zero code, which
+	// decides ahead of absence and of heights not proven; the window ends
+	// before it so that only absent and unproven heights are in play.
+	d--
 	errDown := errors.New("bridge down")
 	down := &badSource{recordSource: windowSource(m), from: 0,
 		header: func(uint64) ([]byte, error) { return nil, errDown }}

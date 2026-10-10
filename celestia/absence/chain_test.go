@@ -84,7 +84,7 @@ func confirmFrom(trusted map[uint64][]byte, asked *[]uint64) verifier.Confirm {
 
 func TestChainAbsenceFromTheArchive(t *testing.T) {
 	for id, want := range map[string]verifier.AbsenceResult{
-		"window_three_heights_proven": verifier.AbsenceAbsent,
+		"window_three_heights_proven": verifier.AbsencePresentUnpaid,
 		"window_one_height_missing":   verifier.AbsenceUnproven,
 		"fibre_present":               verifier.AbsencePresent,
 		"fibre_unit_undecodable":      verifier.AbsenceUnproven,
@@ -260,7 +260,8 @@ func TestFetcherBuildsVerifiableRecords(t *testing.T) {
 
 	w, err := absence.NewChain(absence.ChainDeps{Fetch: f}).Absence(t.Context(), ref, d, confirmFrom(trusted, nil))
 	require.NoError(t, err)
-	assert.Equal(t, verifier.AbsenceAbsent, w.Result, "%v", w.Cause)
+	assert.Equal(t, verifier.AbsencePresentUnpaid, w.Result, "%v", w.Cause)
+	assert.Equal(t, d, w.UnpaidHeight)
 	assert.Equal(t, []string{"bridge.example"}, w.Sources)
 	assert.Equal(t, 1, src.results, "only the height with a candidate reads its results")
 
@@ -270,7 +271,7 @@ func TestFetcherBuildsVerifiableRecords(t *testing.T) {
 	_, err = archive.Encode(rec)
 	require.NoError(t, err, "a fetched record is a valid kind 14 record")
 	q.ChainID = loadAbsence(t).ChainID
-	assert.Equal(t, absence.Absent, absence.VerifyHeight(rec, q, d, trusted).Result)
+	assert.Equal(t, absence.PresentUnpaid, absence.VerifyHeight(rec, q, d, trusted).Result)
 
 	t.Run("without a results source the candidate stays unproven", func(t *testing.T) {
 		f, err := absence.NewFetcher(src, nil, "bridge.example")

@@ -186,6 +186,14 @@ func (c *Chain) Absence(ctx context.Context, ref commitment.PayloadRef, deadline
 			return out, nil
 		}
 	}
+	// An included candidate with a non-zero code published the payload, so
+	// it decides ahead of absence and of heights not proven.
+	for _, o := range outcomes {
+		if o.Result == PresentUnpaid {
+			out.Result, out.UnpaidHeight = verifier.AbsencePresentUnpaid, o.Height
+			return out, nil
+		}
+	}
 	for _, o := range outcomes {
 		if o.Result != Absent {
 			out.Result, out.FirstUnproven, out.Cause = verifier.AbsenceUnproven, o.Height, o.Err
