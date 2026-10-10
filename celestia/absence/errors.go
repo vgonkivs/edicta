@@ -26,6 +26,9 @@ var (
 	// ErrShares: the shares of the namespace do not reassemble (PFF txs) or
 	// do not parse (blobs).
 	ErrShares = errors.New("absence: namespace shares do not parse")
+	// ErrOtherAppVersion: the header's app version is not the pinned one,
+	// and only a candidate with every result code 0 can be proven there.
+	ErrOtherAppVersion = errors.New("absence: app version is not the pinned one")
 	// ErrResultUnproven: a candidate exists and its result code is not
 	// proven.
 	ErrResultUnproven = errors.New("absence: candidate result code not proven")

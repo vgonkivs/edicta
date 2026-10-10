@@ -16,12 +16,14 @@ import (
 	core "github.com/cometbft/cometbft/types"
 	cosmostx "github.com/cosmos/cosmos-sdk/types/tx"
 
+	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/fibreproof"
+	"github.com/vgonkivs/edicta/commitment"
 )
 
 // Query names the anchor whose absence is proven.
 type Query struct {
-	DA         uint64
+	DA         commitment.DA
 	Namespace  []byte // payload_ref.namespace
 	Commitment []byte // payload_ref.commitment
 	Signer     []byte // payload_ref.signer, da = 2 only
@@ -31,17 +33,17 @@ type Query struct {
 // ValidateBasic checks the query fields.
 func (q Query) ValidateBasic() error {
 	switch {
-	case q.DA != DAFibre && q.DA != DACelestiaBlob:
+	case q.DA != commitment.DAFibre && q.DA != commitment.DACelestiaBlob:
 		return fmt.Errorf("%w: da %d", ErrQuery, q.DA)
 	case len(q.Commitment) != commitmentSize:
 		return fmt.Errorf("%w: commitment is %d bytes", ErrQuery, len(q.Commitment))
 	case !namespaceOK(q.Namespace):
 		return fmt.Errorf("%w: namespace %x is not a user blob namespace", ErrQuery, q.Namespace)
-	case q.DA == DACelestiaBlob && len(q.Signer) != signerSize:
+	case q.DA == commitment.DACelestiaBlob && len(q.Signer) != signerSize:
 		return fmt.Errorf("%w: signer is %d bytes", ErrQuery, len(q.Signer))
-	case q.DA == DAFibre && q.Signer != nil:
+	case q.DA == commitment.DAFibre && q.Signer != nil:
 		return fmt.Errorf("%w: signer is not defined for da = 1", ErrQuery)
-	case q.DA == DAFibre && q.ChainID == "":
+	case q.DA == commitment.DAFibre && q.ChainID == "":
 		return fmt.Errorf("%w: da = 1 needs the chain id", ErrQuery)
 	}
 	return nil
@@ -123,7 +125,7 @@ func unproven(h uint64, rule Rule, sentinel error, format string, a ...any) Outc
 // VerifyHeight checks one record for height h of the query against the
 // trusted hashes. It never returns Absent unless every byte the verdict rests
 // on is tied to a trusted header.
-func VerifyHeight(rec Record, q Query, h uint64, trusted TrustedHashes) (out Outcome) {
+func VerifyHeight(rec *archive.AbsenceProofRecord, q Query, h uint64, trusted TrustedHashes) (out Outcome) {
 	if err := q.ValidateBasic(); err != nil {
 		return Outcome{Height: h, Result: Unproven, Rule: RuleRecord, Err: err}
 	}
@@ -134,6 +136,9 @@ func VerifyHeight(rec Record, q Query, h uint64, trusted TrustedHashes) (out Out
 			out = unproven(h, out.Rule, sentinelFor(out.Rule), "panic in upstream code: %v", r)
 		}
 	}()
+	if rec == nil {
+		return unproven(h, RuleNoProof, ErrNoProof, "height %d", h)
+	}
 	out.Rule = RuleRecord
 	if rec.DA != q.DA || !bytes.Equal(rec.Commitment, q.Commitment) || !bytes.Equal(rec.Namespace, q.Namespace) ||
 		rec.Height != h {
@@ -158,7 +163,7 @@ func VerifyHeight(rec Record, q Query, h uint64, trusted TrustedHashes) (out Out
 
 	out.Rule = RuleNamespaceData
 	ns := libshare.PayForFibreNamespace
-	if q.DA == DACelestiaBlob {
+	if q.DA == commitment.DACelestiaBlob {
 		if ns, err = libshare.NewNamespaceFromBytes(q.Namespace); err != nil {
 			return unproven(h, RuleNamespaceData, ErrNamespaceData, "namespace: %w", err)
 		}
@@ -176,7 +181,7 @@ func VerifyHeight(rec Record, q Query, h uint64, trusted TrustedHashes) (out Out
 	}
 	shares := nd.Flatten()
 
-	if q.DA == DACelestiaBlob {
+	if q.DA == commitment.DACelestiaBlob {
 		out.Rule = RuleBlobs
 		return blobs(h, q, rows, shares)
 	}
@@ -257,10 +262,17 @@ func blobs(h uint64, q Query, rows []int, shares []libshare.Share) Outcome {
 	return out
 }
 
-func fibre(h uint64, q Query, rec Record, sh *core.SignedHeader, rows []int, shares []libshare.Share,
+func fibre(h uint64, q Query, rec *archive.AbsenceProofRecord, sh *core.SignedHeader, rows []int, shares []libshare.Share,
 	trusted TrustedHashes) Outcome {
 	out := Outcome{Height: h, Rule: RuleCandidates, Rows: rows}
+	// AB3 selects rows by the pinned layout. At another app version Fibre
+	// txs may sit elsewhere or be encoded otherwise, so neither an empty
+	// PFF_NS nor units without a candidate prove the anchor absent.
+	pinned := sh.Version.App == PinnedAppVersion
 	if len(shares) == 0 {
+		if !pinned {
+			return unproven(h, RuleCandidates, ErrOtherAppVersion, "app version %d, PFF_NS empty", sh.Version.App)
+		}
 		out.Result = Absent
 		return out
 	}
@@ -280,6 +292,10 @@ func fibre(h uint64, q Query, rec Record, sh *core.SignedHeader, rows []int, sha
 		}
 	}
 	if len(cands) == 0 {
+		if !pinned {
+			return unproven(h, RuleCandidates, ErrOtherAppVersion, "app version %d, no candidate among %d unit(s)",
+				sh.Version.App, len(units))
+		}
 		out.Result = Absent
 		return out
 	}
@@ -304,7 +320,7 @@ func fibre(h uint64, q Query, rec Record, sh *core.SignedHeader, rows []int, sha
 	// A block of another app version may follow other square rules, so its
 	// results bind no index and can never prove absence. Every code 0 still
 	// proves presence, because the root fixes every result.
-	if sh.Version.App != PinnedAppVersion {
+	if !pinned {
 		for _, c := range codes {
 			if c != 0 {
 				return unproven(h, RuleResults, ErrResultUnproven,
@@ -331,18 +347,11 @@ func fibre(h uint64, q Query, rec Record, sh *core.SignedHeader, rows []int, sha
 	return out
 }
 
-// isCandidate reports whether tx is a PayForFibre for the queried blob with
-// a promise no later than h. A tx the upstream classifier calls a Fibre tx
-// but whose message does not decode is an error, not "no candidate": what it
-// promises is unknown, so it must not count towards absence.
+// isCandidate decodes a PFF_NS unit the way CV1 reads a PayForFibre tx and
+// reports whether it promises the queried blob no later than h. A unit that
+// does not decode is an error whatever the upstream classifier says: what it
+// promises is unknown, so skipping it could hide the anchor.
 func isCandidate(tx []byte, q Query, h uint64) (bool, error) {
-	_, ok, err := fibretypes.TryParseFibreTx(tx)
-	if !ok {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("fibre tx does not decode: %w", err)
-	}
 	var raw cosmostx.TxRaw
 	if err := raw.Unmarshal(tx); err != nil {
 		return false, fmt.Errorf("tx: %w", err)
@@ -352,13 +361,19 @@ func isCandidate(tx []byte, q Query, h uint64) (bool, error) {
 		return false, fmt.Errorf("tx body: %w", err)
 	}
 	if len(body.Messages) != 1 || body.Messages[0] == nil {
-		return false, fmt.Errorf("fibre tx with %d messages", len(body.Messages))
+		return false, fmt.Errorf("tx with %d messages", len(body.Messages))
+	}
+	if body.Messages[0].TypeUrl != pffTypeURL {
+		return false, fmt.Errorf("message type %q", body.Messages[0].TypeUrl)
 	}
 	var msg fibretypes.MsgPayForFibre
 	if err := msg.Unmarshal(body.Messages[0].Value); err != nil {
 		return false, fmt.Errorf("MsgPayForFibre: %w", err)
 	}
 	pp := msg.PaymentPromise
+	if len(pp.Namespace) != namespaceSize || len(pp.Commitment) != commitmentSize {
+		return false, fmt.Errorf("promise namespace of %d bytes, commitment of %d", len(pp.Namespace), len(pp.Commitment))
+	}
 	return bytes.Equal(pp.Namespace, q.Namespace) && bytes.Equal(pp.Commitment, q.Commitment) &&
 		pp.BlobVersion == 0 && pp.ChainId == q.ChainID && pp.Height <= int64(h), nil
 }

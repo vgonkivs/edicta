@@ -7,12 +7,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/absence"
+	"github.com/vgonkivs/edicta/commitment"
 )
 
 // fixture returns the query, the one record and the trusted hashes of a
 // single-height synthetic case.
-func fixture(t *testing.T, id string) (absence.Query, absence.Record, absence.TrustedHashes) {
+func fixture(t *testing.T, id string) (absence.Query, *archive.AbsenceProofRecord, absence.TrustedHashes) {
 	t.Helper()
 	f := loadAbsence(t)
 	for _, c := range f.Synthetic {
@@ -20,10 +22,9 @@ func fixture(t *testing.T, id string) (absence.Query, absence.Record, absence.Tr
 			continue
 		}
 		require.Len(t, c.Records, 1)
-		q := absence.Query{DA: u64(t, c.Query.DA), Namespace: unhex(t, c.Query.Namespace),
+		q := absence.Query{DA: commitment.DA(u64(t, c.Query.DA)), Namespace: unhex(t, c.Query.Namespace),
 			Commitment: unhex(t, c.Query.Commitment), ChainID: c.Query.ChainID}
-		rec, err := absence.DecodeRecord(unhex(t, c.Records[0].RecordHex))
-		require.NoError(t, err)
+		rec := decodeAt(t, q, u64(t, c.Records[0].Height), unhex(t, c.Records[0].RecordHex))
 		trusted := absence.TrustedHashes{}
 		for h, x := range c.TrustedHeaders {
 			trusted[u64(t, h)] = unhex(t, x)
@@ -31,7 +32,7 @@ func fixture(t *testing.T, id string) (absence.Query, absence.Record, absence.Tr
 		return q, rec, trusted
 	}
 	require.Fail(t, "no case "+id)
-	return absence.Query{}, absence.Record{}, nil
+	return absence.Query{}, nil, nil
 }
 
 func TestVerifyHeightFailClosed(t *testing.T) {
@@ -65,28 +66,28 @@ func TestVerifyHeightFailClosed(t *testing.T) {
 		require.ErrorIs(t, o.Err, absence.ErrResultUnproven)
 	})
 	t.Run("garbage dah", func(t *testing.T) {
-		r := rec
+		r := *rec
 		r.DAH = []byte{0xff, 0xff}
-		o := absence.VerifyHeight(r, q, h, trusted)
+		o := absence.VerifyHeight(&r, q, h, trusted)
 		require.ErrorIs(t, o.Err, absence.ErrDAH)
 	})
 	t.Run("garbage namespace data", func(t *testing.T) {
-		r := rec
+		r := *rec
 		r.NamespaceData = []byte{0x05, 0x01}
-		o := absence.VerifyHeight(r, q, h, trusted)
+		o := absence.VerifyHeight(&r, q, h, trusted)
 		require.ErrorIs(t, o.Err, absence.ErrNamespaceData)
 	})
 	t.Run("empty namespace data where rows hold PFF_NS", func(t *testing.T) {
-		r := rec
+		r := *rec
 		r.NamespaceData = nil
-		o := absence.VerifyHeight(r, q, h, trusted)
+		o := absence.VerifyHeight(&r, q, h, trusted)
 		assert.Equal(t, absence.Unproven, o.Result)
 		require.ErrorIs(t, o.Err, absence.ErrNamespaceData)
 	})
 	t.Run("garbage results", func(t *testing.T) {
-		r := rec
+		r := *rec
 		r.Results = []byte("not json")
-		o := absence.VerifyHeight(r, q, h, trusted)
+		o := absence.VerifyHeight(&r, q, h, trusted)
 		require.ErrorIs(t, o.Err, absence.ErrResultUnproven)
 	})
 	t.Run("invalid query", func(t *testing.T) {
@@ -100,7 +101,7 @@ func TestVerifyHeightFailClosed(t *testing.T) {
 
 func TestVerifyWindowArguments(t *testing.T) {
 	q, rec, trusted := fixture(t, "fibre_candidate_nonzero_code")
-	recs := map[uint64]absence.Record{rec.Height: rec}
+	recs := map[uint64]*archive.AbsenceProofRecord{rec.Height: rec}
 	for _, w := range [][2]uint64{{0, 0}, {5, 4}, {1, 1 + absence.MaxWindow + 1}, {math.MaxUint64 - 1, math.MaxUint64}} {
 		_, err := absence.VerifyWindow(q, w[0], w[1], recs, trusted)
 		require.ErrorIs(t, err, absence.ErrWindow, "%v", w)
@@ -127,11 +128,30 @@ func TestQueryValidateBasic(t *testing.T) {
 		"namespace":        func(q *absence.Query) { q.Namespace = make([]byte, 29) },
 		"signer on fibre":  func(q *absence.Query) { q.Signer = make([]byte, 20) },
 		"no chain id":      func(q *absence.Query) { q.ChainID = "" },
-		"blob, no signer":  func(q *absence.Query) { q.DA = absence.DACelestiaBlob },
-		"blob, short sign": func(q *absence.Query) { q.DA = absence.DACelestiaBlob; q.Signer = make([]byte, 19) },
+		"blob, no signer":  func(q *absence.Query) { q.DA = commitment.DACelestiaBlob },
+		"blob, short sign": func(q *absence.Query) { q.DA = commitment.DACelestiaBlob; q.Signer = make([]byte, 19) },
 	} {
 		x := q
 		mut(&x)
 		require.ErrorIs(t, x.ValidateBasic(), absence.ErrQuery, name)
 	}
+}
+
+// The single-height cases that must never read as absent name their cause.
+func TestVerifyHeightNotProvenCauses(t *testing.T) {
+	for id, want := range map[string]error{
+		"fibre_unit_undecodable":               absence.ErrShares,
+		"fibre_no_candidate_other_app_version": absence.ErrOtherAppVersion,
+		"fibre_s_empty_other_app_version":      absence.ErrOtherAppVersion,
+	} {
+		q, rec, trusted := fixture(t, id)
+		o := absence.VerifyHeight(rec, q, rec.Height, trusted)
+		assert.Equal(t, absence.Unproven, o.Result, id)
+		assert.Equal(t, absence.RuleCandidates, o.Rule, id)
+		require.ErrorIs(t, o.Err, want, id)
+	}
+	q, rec, trusted := fixture(t, "fibre_candidate_nonzero_code")
+	o := absence.VerifyHeight(nil, q, rec.Height, trusted)
+	assert.Equal(t, absence.RuleNoProof, o.Rule)
+	require.ErrorIs(t, o.Err, absence.ErrNoProof)
 }

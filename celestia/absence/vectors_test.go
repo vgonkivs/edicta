@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/absence"
+	"github.com/vgonkivs/edicta/commitment"
 )
 
 const absencePath = "../../spec/vectors/da/absence.json"
@@ -103,7 +105,7 @@ func loadAbsence(t *testing.T) vFile {
 	require.NoError(t, err)
 	var f vFile
 	require.NoError(t, json.Unmarshal(b, &f))
-	require.Equal(t, "v1-draft.4", f.Revision)
+	require.Equal(t, "v1.0", f.Revision)
 	return f
 }
 
@@ -143,28 +145,27 @@ func normWant(w vHeight) vHeight {
 
 func runCase(t *testing.T, c vCase, chainID string) {
 	q := absence.Query{
-		DA:         u64(t, c.Query.DA),
+		DA:         commitment.DA(u64(t, c.Query.DA)),
 		Namespace:  unhex(t, c.Query.Namespace),
 		Commitment: unhex(t, c.Query.Commitment),
 		Signer:     unhex(t, c.Query.Signer),
 	}
 	require.Equal(t, chainID, c.Query.ChainID)
-	if q.DA == absence.DAFibre {
+	if q.DA == commitment.DAFibre {
 		q.ChainID = c.Query.ChainID
 	}
 	trusted := absence.TrustedHashes{}
 	for h, x := range c.TrustedHeaders {
 		trusted[u64(t, h)] = unhex(t, x)
 	}
-	recs := map[uint64]absence.Record{}
+	recs := map[uint64]*archive.AbsenceProofRecord{}
 	for _, r := range c.Records {
 		b := unhex(t, r.RecordHex)
 		sum := sha256.Sum256(b)
 		require.Equal(t, r.SHA256, hex.EncodeToString(sum[:]))
 		require.Equal(t, r.Size, strconv.Itoa(len(b)))
-		rec, err := absence.DecodeRecordAt(absence.Record{DA: q.DA, Commitment: q.Commitment, Height: u64(t, r.Height)}.Path(), b)
-		require.NoError(t, err, "record at %s", r.Height)
-		again, err := absence.EncodeRecord(rec)
+		rec := decodeAt(t, q, u64(t, r.Height), b)
+		again, err := archive.Encode(rec)
 		require.NoError(t, err)
 		require.Equal(t, b, again)
 		recs[rec.Height] = rec
@@ -184,6 +185,22 @@ func runCase(t *testing.T, c vCase, chainID string) {
 		gw.FirstUnproven = strconv.FormatUint(w.FirstUnproven, 10)
 	}
 	assert.Equal(t, c.Expect.Window, gw)
+}
+
+// decodeAt decodes a kind 14 record and requires it to carry the key of
+// height h, as the archive readers do.
+func decodeAt(t *testing.T, q absence.Query, h uint64, b []byte) *archive.AbsenceProofRecord {
+	t.Helper()
+	r, err := archive.Decode(b)
+	require.NoError(t, err, "record at %d", h)
+	rec, ok := r.(*archive.AbsenceProofRecord)
+	require.True(t, ok, "kind %d", r.Kind())
+	want, err := archive.AbsencePath(q.DA, q.Commitment, h)
+	require.NoError(t, err)
+	got, err := archive.KeyPath(rec)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+	return rec
 }
 
 func TestVectorsSynthetic(t *testing.T) {
