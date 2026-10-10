@@ -3,7 +3,6 @@ package execcapture
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -16,6 +15,8 @@ import (
 	"github.com/cometbft/cometbft/crypto/merkle"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	core "github.com/cometbft/cometbft/types"
+
+	"github.com/celestiaorg/celestia-app/v10/pkg/appconsts"
 
 	"github.com/vgonkivs/edicta/celestia/railverify"
 	"github.com/vgonkivs/edicta/commitment"
@@ -85,7 +86,9 @@ type Capturer struct {
 	mu      sync.Mutex
 	overdue atomic.Uint64
 	alerted map[string]bool
-	kick    chan struct{}
+	// conflicted holds the references whose conflict was logged.
+	conflicted map[string]bool
+	kick       chan struct{}
 }
 
 // New returns a Capturer.
@@ -99,7 +102,7 @@ func New(cfg Config, chain Chain, store Store, log *slog.Logger) (*Capturer, err
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Capturer{cfg: cfg, chain: chain, store: store, log: log, alerted: map[string]bool{}, kick: make(chan struct{}, 1)}, nil
+	return &Capturer{cfg: cfg, chain: chain, store: store, log: log, alerted: map[string]bool{}, conflicted: map[string]bool{}, kick: make(chan struct{}, 1)}, nil
 }
 
 // Config is the configuration the Capturer runs with.
@@ -167,7 +170,13 @@ func (c *Capturer) Pass(ctx context.Context) {
 		err := c.attempt(ctx, &p)
 		if err == nil {
 			delete(c.alerted, p.RailRef)
+			delete(c.conflicted, p.RailRef)
 			continue
+		}
+		if errors.Is(err, ErrConflict) && !c.conflicted[p.RailRef] {
+			c.conflicted[p.RailRef] = true
+			c.log.Error("execcapture: the node's answer conflicts with the capture already stored for the block; the stored one stays and the reference stays pending",
+				"rail_ref", p.RailRef, "commitment_hash", p.CommitmentHash, "exec_height", p.ExecHeight, "err", err)
 		}
 		if herr != nil {
 			continue
@@ -254,9 +263,9 @@ func (c *Capturer) warnLate(ctx context.Context, p Pending) {
 }
 
 // Capture reads and checks the proof of the result of the transaction
-// railRef at height: the results of the block hash to last_results_hash of
-// the header at height + 1, and the transaction sits at the captured index
-// of the block.
+// railRef at height: the namespace proofs against data_hash of the header at
+// height give the transaction's index, the header at height + 1 follows that
+// header, and the results of the block hash to its last_results_hash.
 func (c *Capturer) Capture(ctx context.Context, railRef string, height uint64) (Block, error) {
 	var hash [32]byte
 	if !ValidRailRef(railRef) {
@@ -283,19 +292,24 @@ func (c *Capturer) Capture(ctx context.Context, railRef string, height uint64) (
 	if ph.Height < 0 || uint64(ph.Height) != height+1 || ph.ChainID != c.cfg.ChainID {
 		return Block{}, fmt.Errorf("%w: header %d is for height %d on chain %q", ErrUnproven, height+1, ph.Height, ph.ChainID)
 	}
+	rawHdr, hdr, err := c.execHeader(ctx, height, &ph)
+	if err != nil {
+		return Block{}, err
+	}
 	txs, err := c.chain.BlockTxs(ctx, height)
 	if err != nil {
 		return Block{}, fmt.Errorf("execcapture: block %d: %w", height, err)
 	}
-	index := -1
-	for i, tx := range txs {
-		if sha256.Sum256(tx) == hash {
-			index = i
-			break
-		}
+	proofs, err := positionProofs(txs, hdr.DataHash)
+	if err != nil {
+		return Block{}, fmt.Errorf("block %d: %w", height, err)
 	}
-	if index < 0 {
-		return Block{}, fmt.Errorf("%w: transaction %s not in block %d", ErrUnproven, railRef, height)
+	index, unit, err := position(proofs, hdr.DataHash, hash, len(txs))
+	if err != nil {
+		return Block{}, fmt.Errorf("block %d: %w", height, err)
+	}
+	if !bytes.Equal(txs[index], unit) {
+		return Block{}, fmt.Errorf("%w: transaction %d of block %d is not the proven unit", ErrUnproven, index, height)
 	}
 	results, err := c.chain.BlockResults(ctx, height)
 	if err != nil {
@@ -322,7 +336,7 @@ func (c *Capturer) Capture(ctx context.Context, railRef string, height uint64) (
 	}
 	r := results[index]
 	return Block{
-		ChainID: c.cfg.ChainID, Height: height, NextHeader: bytes.Clone(rawNext),
+		ChainID: c.cfg.ChainID, Height: height, Header: rawHdr, NextHeader: bytes.Clone(rawNext), Namespaces: proofs,
 		Txs: []Tx{{
 			RailRef: railRef, Index: uint32(index),
 			Result: Result{Code: r.Code, Data: bytes.Clone(r.Data), GasWanted: r.GasWanted, GasUsed: r.GasUsed},
@@ -331,8 +345,47 @@ func (c *Capturer) Capture(ctx context.Context, railRef string, height uint64) (
 	}, nil
 }
 
-// VerifyTx checks a stored capture against its block's next header: the
-// result's leaf, through the path, gives last_results_hash.
+// execHeader reads the header at height and ties it to the next header.
+func (c *Capturer) execHeader(ctx context.Context, height uint64, next *cmtproto.Header) ([]byte, core.Header, error) {
+	raw, err := c.chain.Header(ctx, height)
+	if err != nil {
+		return nil, core.Header{}, fmt.Errorf("execcapture: header %d: %w", height, err)
+	}
+	hdr, err := tieHeader(raw, c.cfg.ChainID, height, next)
+	if err != nil {
+		return nil, core.Header{}, err
+	}
+	return bytes.Clone(raw), hdr, nil
+}
+
+// tieHeader decodes the header at height and requires the next header's
+// last_block_id to name its hash. The position of a transaction is derived
+// under the square rules of the pinned app version only.
+func tieHeader(raw []byte, chainID string, height uint64, next *cmtproto.Header) (core.Header, error) {
+	var ph cmtproto.Header
+	if err := ph.Unmarshal(raw); err != nil {
+		return core.Header{}, fmt.Errorf("%w: header %d: %w", ErrUnproven, height, err)
+	}
+	hdr, err := core.HeaderFromProto(&ph)
+	if err != nil {
+		return core.Header{}, fmt.Errorf("%w: header %d: %w", ErrUnproven, height, err)
+	}
+	if hdr.Height < 0 || uint64(hdr.Height) != height || hdr.ChainID != chainID {
+		return core.Header{}, fmt.Errorf("%w: header %d is for height %d on chain %q", ErrUnproven, height, hdr.Height, hdr.ChainID)
+	}
+	if h := hdr.Hash(); len(h) == 0 || !bytes.Equal(h, next.LastBlockId.Hash) {
+		return core.Header{}, fmt.Errorf("%w: header %d is not the one header %d follows", ErrUnproven, height, height+1)
+	}
+	if hdr.Version.App != appconsts.Version {
+		return core.Header{}, fmt.Errorf("%w: block %d is of app version %d; the position proof is built for %d only", ErrUnproven, height, hdr.Version.App, appconsts.Version)
+	}
+	return hdr, nil
+}
+
+// VerifyTx checks a stored capture against its block's headers: the
+// namespace proofs give the transaction's index under data_hash, the next
+// header follows the header, and the result's leaf, through the path, gives
+// last_results_hash.
 func VerifyTx(b Block, t Tx) error {
 	var ph cmtproto.Header
 	if err := ph.Unmarshal(b.NextHeader); err != nil {
@@ -340,6 +393,27 @@ func VerifyTx(b Block, t Tx) error {
 	}
 	if ph.Height < 0 || uint64(ph.Height) != b.Height+1 || ph.ChainID != b.ChainID {
 		return fmt.Errorf("%w: next header for height %d on chain %q", ErrUnproven, ph.Height, ph.ChainID)
+	}
+	var hash [32]byte
+	if !ValidRailRef(t.RailRef) {
+		return fmt.Errorf("%w: rail_ref", ErrInvalid)
+	}
+	if _, err := hex.Decode(hash[:], []byte(t.RailRef)); err != nil {
+		return fmt.Errorf("%w: rail_ref", ErrInvalid)
+	}
+	hdr, err := tieHeader(b.Header, b.ChainID, b.Height, &ph)
+	if err != nil {
+		return err
+	}
+	if t.Proof.Total < 1 || t.Proof.Total > int64(maxInt) {
+		return fmt.Errorf("%w: path total %d", ErrUnproven, t.Proof.Total)
+	}
+	index, _, err := position(b.Namespaces, hdr.DataHash, hash, int(t.Proof.Total))
+	if err != nil {
+		return err
+	}
+	if index != int(t.Index) {
+		return fmt.Errorf("%w: the namespace proofs give index %d, the capture %d", ErrUnproven, index, t.Index)
 	}
 	leaf, err := core.NewResults([]*abci.ExecTxResult{{Code: t.Result.Code, Data: t.Result.Data, GasWanted: t.Result.GasWanted, GasUsed: t.Result.GasUsed}})[0].Marshal()
 	if err != nil {
@@ -354,6 +428,8 @@ func VerifyTx(b Block, t Tx) error {
 	}
 	return nil
 }
+
+const maxInt = int(^uint(0) >> 1)
 
 func merkleProof(p Proof) *merkle.Proof {
 	return &merkle.Proof{Total: p.Total, Index: p.Index, LeafHash: p.LeafHash, Aunts: p.Aunts}

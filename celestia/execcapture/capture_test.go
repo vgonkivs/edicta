@@ -10,9 +10,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	cmtversion "github.com/cometbft/cometbft/proto/tendermint/version"
 	core "github.com/cometbft/cometbft/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,14 +33,20 @@ type fakeChain struct {
 	txs     map[uint64][][]byte
 	results map[uint64][]railverify.TxResult
 	// badRoot makes the header at height + 1 carry another results hash.
-	badRoot  map[uint64]bool
+	badRoot map[uint64]bool
+	// swapServed serves the txs of that height in another order.
+	swapServed uint64
+	// unlinked makes the header at that height name another last block.
+	unlinked uint64
+	// app overrides the app version of the header at a height.
+	app      map[uint64]uint64
 	resErr   error
 	txCalls  int
 	resCalls int
 }
 
 func newFakeChain() *fakeChain {
-	return &fakeChain{txs: map[uint64][][]byte{}, results: map[uint64][]railverify.TxResult{}, badRoot: map[uint64]bool{}}
+	return &fakeChain{txs: map[uint64][][]byte{}, results: map[uint64][]railverify.TxResult{}, badRoot: map[uint64]bool{}, app: map[uint64]uint64{}}
 }
 
 // block adds a block of n txs at height and returns their rail refs.
@@ -88,7 +96,11 @@ func (f *fakeChain) Tx(_ context.Context, hash [32]byte, _ bool) (railverify.Raw
 func (f *fakeChain) BlockTxs(_ context.Context, h uint64) ([][]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.txs[h], nil
+	txs := f.txs[h]
+	if h == f.swapServed && len(txs) > 1 {
+		txs = append([][]byte{txs[1], txs[0]}, txs[2:]...)
+	}
+	return txs, nil
 }
 
 func (f *fakeChain) BlockResults(_ context.Context, h uint64) ([]railverify.TxResult, error) {
@@ -115,12 +127,56 @@ func (f *fakeChain) Header(_ context.Context, h uint64) ([]byte, error) {
 	if h > f.head {
 		return nil, errors.New("no such header")
 	}
-	root := resultsHash(f.results[h-1])
-	if f.badRoot[h-1] {
-		root = bytes.Repeat([]byte{1}, 32)
+	ph, err := f.header(h)
+	if err != nil {
+		return nil, err
 	}
-	ph := cmtproto.Header{ChainID: chainID, Height: int64(h), LastResultsHash: root}
 	return ph.Marshal()
+}
+
+// header builds a valid header at h: its data_hash is the square of the
+// block's txs, last_results_hash the results of h - 1, and last_block_id the
+// hash of the header at h - 1 when that block has txs.
+func (f *fakeChain) header(h uint64) (cmtproto.Header, error) {
+	ph := cmtproto.Header{
+		Version: cmtversion.Consensus{Block: 11, App: f.appVersion(h)}, ChainID: chainID, Height: int64(h),
+		Time: time.Unix(1_700_000_000+int64(h), 0).UTC(), ValidatorsHash: bytes.Repeat([]byte{2}, 32),
+		NextValidatorsHash: bytes.Repeat([]byte{2}, 32), ConsensusHash: bytes.Repeat([]byte{3}, 32),
+		ProposerAddress: bytes.Repeat([]byte{4}, 20),
+		LastResultsHash: resultsHash(f.results[h-1]),
+	}
+	if f.badRoot[h-1] {
+		ph.LastResultsHash = bytes.Repeat([]byte{1}, 32)
+	}
+	if txs := f.txs[h]; len(txs) > 0 {
+		root, err := railverify.RebuildDataRoot(txs)
+		if err != nil {
+			return cmtproto.Header{}, err
+		}
+		ph.DataHash = root
+	}
+	if len(f.txs[h-1]) > 0 {
+		prev, err := f.header(h - 1)
+		if err != nil {
+			return cmtproto.Header{}, err
+		}
+		hdr, err := core.HeaderFromProto(&prev)
+		if err != nil {
+			return cmtproto.Header{}, err
+		}
+		ph.LastBlockId = cmtproto.BlockID{Hash: hdr.Hash(), PartSetHeader: cmtproto.PartSetHeader{Total: 1, Hash: bytes.Repeat([]byte{5}, 32)}}
+		if h == f.unlinked {
+			ph.LastBlockId.Hash = bytes.Repeat([]byte{6}, 32)
+		}
+	}
+	return ph, nil
+}
+
+func (f *fakeChain) appVersion(h uint64) uint64 {
+	if v, ok := f.app[h]; ok {
+		return v
+	}
+	return 10
 }
 
 type rig struct {

@@ -1,7 +1,8 @@
 // Package execcapture keeps, outside the archive, the proof of a rail
-// transaction's execution result before the nodes prune it: the header at
-// height + 1, the transaction's result, its index and the Merkle path from
-// that result to the header's last_results_hash. It is a writer-side store
+// transaction's execution result before the nodes prune it: the headers at
+// height and height + 1, namespace proofs against the first one's data_hash
+// that give the transaction's index, the transaction's result and the Merkle
+// path from that result to the second one's last_results_hash. It is a writer-side store
 // of the gate; verifiers do not read it.
 package execcapture
 
@@ -52,13 +53,17 @@ type Tx struct {
 	Proof   Proof  `json:"proof"`
 }
 
-// Block is everything captured at (ChainID, Height): the protobuf header
-// at Height + 1 and the transactions captured from that block.
+// Block is everything captured at (ChainID, Height): the protobuf headers
+// at Height and Height + 1, the namespace proofs that give every captured
+// transaction's index, and the transactions captured from that block. The
+// header and the proofs are shared by all captures of the block.
 type Block struct {
-	ChainID    string `json:"chain_id"`
-	Height     uint64 `json:"height"`
-	NextHeader []byte `json:"next_header"`
-	Txs        []Tx   `json:"txs"`
+	ChainID    string           `json:"chain_id"`
+	Height     uint64           `json:"height"`
+	Header     []byte           `json:"header"`
+	NextHeader []byte           `json:"next_header"`
+	Namespaces []NamespaceProof `json:"namespace_proofs"`
+	Txs        []Tx             `json:"txs"`
 }
 
 // Pending is a rail reference whose capture is not done yet.
@@ -150,8 +155,8 @@ func (d *Dir) blockPath(chainID string, height uint64) string {
 
 // PutBlock merges b into the stored block.
 func (d *Dir) PutBlock(_ context.Context, b Block) error {
-	if !validChainID(b.ChainID) || b.Height == 0 || len(b.NextHeader) == 0 {
-		return fmt.Errorf("%w: block key or next header", ErrInvalid)
+	if !validChainID(b.ChainID) || b.Height == 0 || len(b.Header) == 0 || len(b.NextHeader) == 0 || len(b.Namespaces) == 0 {
+		return fmt.Errorf("%w: block key, headers or namespace proofs", ErrInvalid)
 	}
 	for _, t := range b.Txs {
 		if !ValidRailRef(t.RailRef) {
@@ -163,11 +168,11 @@ func (d *Dir) PutBlock(_ context.Context, b Block) error {
 	cur, err := d.readBlock(b.ChainID, b.Height)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		cur = Block{ChainID: b.ChainID, Height: b.Height, NextHeader: bytes.Clone(b.NextHeader)}
+		cur = Block{ChainID: b.ChainID, Height: b.Height, Header: bytes.Clone(b.Header), NextHeader: bytes.Clone(b.NextHeader), Namespaces: b.Namespaces}
 	case err != nil:
 		return err
-	case !bytes.Equal(cur.NextHeader, b.NextHeader):
-		return fmt.Errorf("%w: another next header at %s/%d", ErrConflict, b.ChainID, b.Height)
+	case !bytes.Equal(cur.Header, b.Header) || !bytes.Equal(cur.NextHeader, b.NextHeader) || !sameJSON(cur.Namespaces, b.Namespaces):
+		return fmt.Errorf("%w: other headers or namespace proofs at %s/%d", ErrConflict, b.ChainID, b.Height)
 	}
 	for _, t := range b.Txs {
 		i := slices.IndexFunc(cur.Txs, func(c Tx) bool { return c.RailRef == t.RailRef })
@@ -175,7 +180,7 @@ func (d *Dir) PutBlock(_ context.Context, b Block) error {
 			cur.Txs = append(cur.Txs, t)
 			continue
 		}
-		if !sameTx(cur.Txs[i], t) {
+		if !sameJSON(cur.Txs[i], t) {
 			return fmt.Errorf("%w: another capture of %s", ErrConflict, t.RailRef)
 		}
 	}
@@ -191,7 +196,7 @@ func (d *Dir) PutBlock(_ context.Context, b Block) error {
 	return nil
 }
 
-func sameTx(a, b Tx) bool {
+func sameJSON(a, b any) bool {
 	ja, _ := json.Marshal(a)
 	jb, _ := json.Marshal(b)
 	return bytes.Equal(ja, jb)

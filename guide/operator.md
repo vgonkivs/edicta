@@ -250,14 +250,24 @@ retry_every_s = 30                     # default 30
 
 When `POST /v1/record` returns a receipt for a decision of a captured action
 type, the gate tracks its `rail_ref` and, once the block `H_exec + 1`
-exists, stores under `(chain_id, H_exec)`: the protobuf header at
-`H_exec + 1`, the transaction's result, its index in the block and the
-Merkle path from that result to `last_results_hash`. The results are
-checked against the header before anything is stored, and the header must
-carry the gate's chain id: a `comet_rpc` node of another chain fails every
-capture and ends in the alert below. Capture is
+exists, stores under `(chain_id, H_exec)`: the protobuf headers at `H_exec`
+and `H_exec + 1`, complete namespace proofs against `data_hash` of header
+`H_exec` for the transaction namespaces (ordinary txs, blob txs, Fibre txs,
+and the share that closes them), the transaction's result, its index in the
+block and the Merkle path from that result to `last_results_hash`. The
+headers, proofs and namespace proofs are shared by every capture of the
+block. Before anything is stored the capture rebuilds the square of the
+block's transactions and requires its data root to be `data_hash`, derives
+the index from the proofs (ordinary txs come first in block order, then blob
+txs, then Fibre txs, and their unit counts must add up to the block's
+results), checks that the transaction at that index hashes to `rail_ref`,
+that header `H_exec + 1` names header `H_exec` as its last block, and that
+the results hash to its `last_results_hash`. Only blocks of app version 10
+are captured. The headers must carry the gate's chain id. Capture is
 idempotent: a retried Record, a second receipt at the same height and a
-restart share one record per block, and the first header stays.
+restart share one record per block, and the first record stays; a node
+answer that disagrees with it is logged at error level once, and the
+reference stays pending.
 
 The store is a local directory next to the registry, outside the archive
 format: verifiers of this release do not read it, and nothing in it changes
