@@ -39,6 +39,9 @@ type sweeper struct {
 	// revealDone holds the decisions whose reveal this process has seen in
 	// the archive or found not to apply, so a pass does not read it again.
 	revealDone map[commitment.Hash]struct{}
+	// anchors is set in fast mode: every tick also looks for anchors that
+	// missed their deadline.
+	anchors *anchorWatch
 }
 
 // maxRevealDone bounds revealDone; a full set is dropped, which only costs
@@ -320,6 +323,9 @@ func (s *sweeper) loop(ctx context.Context, tick <-chan time.Time, interval time
 			}
 		}
 		immediate = false
+		if s.anchors != nil {
+			s.anchors.pass(ctx)
+		}
 		if s.q.takeDropped() {
 			needFull = true
 		}

@@ -89,6 +89,10 @@ func (a *archiveIO) reveal(ctx context.Context, h commitment.Hash) (*archive.Rev
 	return call(ctx, a, func(ctx context.Context) (*archive.RevealRecord, error) { return rr.Reveal(ctx, h) })
 }
 
+func (a *archiveIO) evidence(ctx context.Context, da commitment.DA, c []byte) (*archive.EvidenceRecord, error) {
+	return call(ctx, a, func(ctx context.Context) (*archive.EvidenceRecord, error) { return a.st.Evidence(ctx, da, c) })
+}
+
 func (a *archiveIO) authorization(ctx context.Context, h commitment.Hash) (*archive.AuthorizationRecord, error) {
 	return call(ctx, a, func(ctx context.Context) (*archive.AuthorizationRecord, error) { return a.st.Authorization(ctx, h) })
 }

@@ -515,6 +515,9 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 	}
 	q := &retryQueue{}
 	sw := &sweeper{lister: reg, io: aio, q: q, log: log, timeout: timeout, pol: pol, reveals: g.RevealsOnExecution}
+	if cfg.Gate.Fast.Enabled {
+		sw.anchors = &anchorWatch{lister: reg, io: aio, head: d.Consensus.LatestHeight, log: log, timeout: timeout}
+	}
 	// The pass before the listener has a time budget; what it does not reach
 	// is finished in the background right away.
 	sctx, scancel := context.WithTimeout(ctx, startupSweepBudget)
