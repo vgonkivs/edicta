@@ -153,11 +153,14 @@ func (u *ctxUploader) Close(ctx context.Context) error {
 	return u.fakeUploader.Close(ctx)
 }
 
+var fastFibreParams = node.FibreParams{RetentionS: 14400, PromiseHeightWindow: 1000, PromiseTimeoutS: 3600, WithdrawalDelayS: 3600}
+
 func fibreFastEnv(t *testing.T) (*policyEnv, *fibreRecFakes, *fakeUploader) {
 	t.Helper()
 	e, _, rf := newFibreRecEnv(t)
 	p := mandateFor(t, e)
 	up := &fakeUploader{log: rf.log}
+	rf.node.SetFibreParams(fastFibreParams)
 	p.deps.RecorderFast = &edictad.RecorderFastDeps{Signer: fixedSigner{recAddr}, Uploader: up}
 	return p, rf, up
 }

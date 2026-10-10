@@ -72,7 +72,7 @@ func newFibreFast(t *testing.T) *fibreFast {
 	f.st = f.openArchive(t.TempDir())
 	f.up = &liveUploader{f: f.fibreFx}
 	f.h0 = f.l.PromiseHeight
-	f.fibreFx.node.SetFibreParams(node.FibreParams{RetentionS: 14400, PromiseHeightWindow: fibreWindow, PromiseTimeoutS: 3600})
+	f.fibreFx.node.SetFibreParams(node.FibreParams{RetentionS: 14400, PromiseHeightWindow: fibreWindow, PromiseTimeoutS: 3600, WithdrawalDelayS: weekS})
 	f.grow(f.h0 + 2)
 	return f
 }

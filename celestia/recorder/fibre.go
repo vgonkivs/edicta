@@ -187,6 +187,9 @@ type FibreDeps struct {
 	// must read from the same consensus node as Chain. Submitter is still
 	// needed for the escrow reads.
 	Fast *FastDeps
+	// Params, when set, is the first x/fibre params snapshot of a fast
+	// Recorder, read before it was built; later reads replace it.
+	Params *node.FibreParams
 }
 
 // FibreRecorder implements sdk.Publisher for da = 1 through the operator's
@@ -209,8 +212,14 @@ type FibreRecorder struct {
 	cancels  map[int]context.CancelFunc
 	nextID   int
 
-	fast      *fastCore
-	delayWarn sync.Once
+	fast *fastCore
+
+	pmu sync.Mutex
+	// params is the last x/fibre params snapshot read; paramsFailing marks
+	// a failure streak that has already been warned about.
+	params        node.FibreParams
+	paramsRead    bool
+	paramsFailing bool
 }
 
 var (
@@ -254,6 +263,14 @@ func NewFibre(cfg FibreConfig, d FibreDeps) (*FibreRecorder, error) {
 			d.Fast.Log = d.Log
 		}
 	}
+	if d.Params != nil {
+		if d.Fast == nil {
+			return nil, fmt.Errorf("%w: x/fibre params are read only in fast mode", errInvalidInput)
+		}
+		if err := CheckFastFibreParams(*d.Params); err != nil {
+			return nil, fmt.Errorf("%w: initial x/fibre params: %v", errInvalidInput, err)
+		}
+	}
 	r := &FibreRecorder{
 		cfg: cfg, d: d,
 		eng:       newEngine(cfg.Archive, cfg.Now, cfg.MaxPending, cfg.ScanBlocks),
@@ -261,6 +278,9 @@ func NewFibre(cfg FibreConfig, d FibreDeps) (*FibreRecorder, error) {
 		confirmer: gatechain.NewFibreAnchors(d.Reader, d.ChainID, gatechain.FibreAnchorOptions{Log: d.Log}),
 		slots:     make(chan struct{}, cfg.MaxDraining),
 		cancels:   map[int]context.CancelFunc{},
+	}
+	if d.Params != nil {
+		r.params, r.paramsRead = *d.Params, true
 	}
 	if d.Fast != nil {
 		var err error

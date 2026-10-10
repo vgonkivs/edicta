@@ -124,7 +124,7 @@ func TestFastFibreRefusedAnchorTxKeepsTheEscrowReserved(t *testing.T) {
 // time, not the Recorder's clock, would otherwise turn into an expiry.
 func TestFastFibreStaleIntentKeepsTheEscrowPastThePromiseTimeout(t *testing.T) {
 	f := newFibreFast(t)
-	f.fibreFx.node.SetFibreParams(node.FibreParams{RetentionS: 14400, PromiseHeightWindow: fibreWindow, PromiseTimeoutS: 10})
+	f.fibreFx.node.SetFibreParams(node.FibreParams{RetentionS: 14400, PromiseHeightWindow: fibreWindow, PromiseTimeoutS: 10, WithdrawalDelayS: weekS})
 	f.sub.EscrowVal = node.Escrow{AvailableUtia: f.cost() + 10}
 	f.node.script(errTransport)
 	r := f.rec()

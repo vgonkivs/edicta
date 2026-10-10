@@ -26,16 +26,41 @@ func (r *FibreRecorder) publishFast(ctx context.Context, comm, blob []byte) (sdk
 	return r.fast.publish(ctx, r, comm, blob)
 }
 
-// fibreParams reads the promise window and timeout the anchor must land in.
+// CheckFastFibreParams refuses an x/fibre params snapshot that lacks a value
+// the fast Recorder needs. A missing withdrawal delay is not replaced by a
+// default: the escrow hold would then rest on a guess.
+func CheckFastFibreParams(p node.FibreParams) error {
+	if p.PromiseHeightWindow == 0 || p.PromiseTimeoutS == 0 || p.WithdrawalDelayS == 0 {
+		return fmt.Errorf("%w: the node reports no promise window, promise timeout or withdrawal delay", ErrNodeUnavailable)
+	}
+	return nil
+}
+
+// fibreParams reads the promise window, timeout and withdrawal delay. When
+// the read fails it keeps going on the last snapshot it read, warning once
+// per failure streak: the gate re-reads the params at the anchor height on
+// its own, so a stale value can only make an anchor late, which the deadline
+// and absence proofs catch. Without any snapshot it refuses.
 func (r *FibreRecorder) fibreParams(ctx context.Context) (node.FibreParams, error) {
 	p, err := r.d.Chain.FibreParams(ctx)
-	if err != nil {
+	if err == nil {
+		err = CheckFastFibreParams(p)
+	}
+	r.pmu.Lock()
+	defer r.pmu.Unlock()
+	if err == nil {
+		r.params, r.paramsRead, r.paramsFailing = p, true, false
+		return p, nil
+	}
+	if !r.paramsRead || ctx.Err() != nil {
 		return node.FibreParams{}, fmt.Errorf("%w: fibre params: %w", ErrNodeUnavailable, err)
 	}
-	if p.PromiseHeightWindow == 0 || p.PromiseTimeoutS == 0 {
-		return node.FibreParams{}, fmt.Errorf("%w: the node reports no promise window or timeout", ErrNodeUnavailable)
+	if !r.paramsFailing {
+		r.paramsFailing = true
+		r.fast.d.Log.Warn("recorder: x/fibre params unreadable; continuing on the last snapshot read",
+			"endpoint", r.d.Chain.Addr(), "err", err)
 	}
-	return p, nil
+	return r.params, nil
 }
 
 // headerTime is the time of the header at h, waited for while the node does
@@ -141,25 +166,11 @@ func (r *FibreRecorder) draft(ctx context.Context, comm, blob []byte, _ uint64, 
 	}, nil
 }
 
-// maxWithdrawalDelay is the largest withdrawal delay x/fibre accepts. A node
-// that does not report the parameter gets this bound: holding a reservation
-// too long only costs capacity, releasing it too early can leave a later
-// anchor without funds.
-const maxWithdrawalDelay = 7 * 24 * time.Hour
-
 // settleBy is when a promise created at created can no longer be charged by
 // a timeout settlement: it must be fresher than the withdrawal delay, in
 // block time, which may run ahead of this clock by the allowed skew.
 func (r *FibreRecorder) settleBy(created time.Time, fp node.FibreParams) time.Time {
-	delay := maxWithdrawalDelay
-	if fp.WithdrawalDelayS != 0 {
-		delay = time.Duration(fp.WithdrawalDelayS) * time.Second
-	} else {
-		r.delayWarn.Do(func() {
-			r.fast.d.Log.Warn("recorder: the node reports no fibre withdrawal delay; escrow reservations are held for the chain maximum", "hold", maxWithdrawalDelay)
-		})
-	}
-	return created.Add(delay + r.cfg.MaxClockSkew)
+	return created.Add(time.Duration(fp.WithdrawalDelayS)*time.Second + r.cfg.MaxClockSkew)
 }
 
 // checkPFF requires the signed tx to carry a promise for exactly this blob at

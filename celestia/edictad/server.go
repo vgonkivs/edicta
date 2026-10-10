@@ -41,6 +41,11 @@ import (
 // implemented yet.
 var ErrDANotSupported = errors.New("edictad: data availability mode not supported yet")
 
+// ErrFibreParams means the fast da = 1 Recorder could not read the x/fibre
+// params it needs from the operator's own consensus node, so the daemon
+// refuses to start.
+var ErrFibreParams = errors.New("edictad: x/fibre params unreadable")
+
 // Deps are the daemon's external systems.
 type Deps struct {
 	Reader    node.Reader
@@ -64,6 +69,9 @@ type Deps struct {
 	// SweepTick paces the background archive sweep; nil means a ticker of
 	// archive.sweep_interval_s. A test sends the ticks.
 	SweepTick <-chan time.Time
+	// RetryWait waits between the start's x/fibre params reads; nil sleeps.
+	// It returns ctx's error when ctx ends first.
+	RetryWait func(ctx context.Context, d time.Duration) error
 }
 
 // FibreDeps are the da = 1 dependencies.
@@ -651,12 +659,18 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 		}
 		// Building the fast Recorder starts its boot recovery, which must not
 		// run under an account that is not the escrow owner.
+		var params *node.FibreParams
 		if cfg.Recorder.Fast {
 			if err := sameAccount(ctx, d.RecorderFast.Signer, addr); err != nil {
 				return fail(err)
 			}
+			p, err := readFastFibreParams(ctx, d.Fibre.RecorderChain, d.RetryWait, log)
+			if err != nil {
+				return fail(err)
+			}
+			params = &p
 		}
-		rec, err := buildFibreRecorder(cfg, d, ns, store, clock, reader, head.ChainID, fibreCommitter, log)
+		rec, err := buildFibreRecorder(cfg, d, ns, store, clock, reader, head.ChainID, fibreCommitter, params, log)
 		if err != nil {
 			return fail(err)
 		}
@@ -767,7 +781,8 @@ func recorderQuota(cfg Config, clock gate.Clock) edictaapi.Quota {
 // buildFibreRecorder builds the da = 1 Recorder. Nothing is submitted or
 // broadcast here.
 func buildFibreRecorder(cfg Config, d Deps, ns []byte, store archive.Store, clock gate.Clock,
-	reader node.FibreAnchorReader, chainID string, committer *fibrecommit.Committer, log *slog.Logger) (FibreRecorder, error) {
+	reader node.FibreAnchorReader, chainID string, committer *fibrecommit.Committer, params *node.FibreParams,
+	log *slog.Logger) (FibreRecorder, error) {
 	fc := cfg.FibreRecorderConfig(ns, store)
 	fc.Now = clock.Now
 	build := d.Fibre.NewFibre
@@ -784,6 +799,7 @@ func buildFibreRecorder(cfg Config, d Deps, ns []byte, store archive.Store, cloc
 	}
 	if cfg.Recorder.Fast {
 		fd.Fast = &recorder.FastDeps{Signer: d.RecorderFast.Signer, Node: d.Consensus, Uploader: d.RecorderFast.Uploader, Log: log}
+		fd.Params = params
 	}
 	rec, err := build(fc, fd)
 	if err != nil {
@@ -793,6 +809,58 @@ func buildFibreRecorder(cfg Config, d Deps, ns []byte, store archive.Store, cloc
 		return nil, errors.New("edictad: fibre recorder: the constructor returned no recorder")
 	}
 	return rec, nil
+}
+
+// fibreParamsAttempts and fibreParamsFirstWait pace the start's x/fibre params
+// reads: waits of 1, 2, 4, 8 and 16 seconds ride out a node restart.
+const (
+	fibreParamsAttempts  = 6
+	fibreParamsFirstWait = time.Second
+)
+
+// readFastFibreParams reads the x/fibre params a fast da = 1 Recorder needs,
+// retrying with a doubling wait. Without them the escrow hold and the anchor
+// window would rest on guesses, so a node that never answers refuses the
+// start.
+func readFastFibreParams(ctx context.Context, chain recorder.FibreChain, wait func(context.Context, time.Duration) error,
+	log *slog.Logger) (node.FibreParams, error) {
+	if wait == nil {
+		wait = sleepCtx
+	}
+	var err error
+	delay := fibreParamsFirstWait
+	for attempt := 1; ; attempt++ {
+		var p node.FibreParams
+		p, err = chain.FibreParams(ctx)
+		if err == nil {
+			err = recorder.CheckFastFibreParams(p)
+		}
+		if err == nil {
+			return p, nil
+		}
+		if attempt == fibreParamsAttempts {
+			break
+		}
+		log.Warn("edictad: reading x/fibre params failed; retrying", "endpoint", chain.Addr(), "attempt", attempt,
+			"wait", delay, "err", err)
+		if werr := wait(ctx, delay); werr != nil {
+			return node.FibreParams{}, fmt.Errorf("%w: from the consensus node %s: %w", ErrFibreParams, chain.Addr(), werr)
+		}
+		delay *= 2
+	}
+	return node.FibreParams{}, fmt.Errorf("%w: the fast fibre recorder needs the promise window, promise timeout and withdrawal delay "+
+		"of x/fibre; the consensus node %s did not report them after %d attempts: %w", ErrFibreParams, chain.Addr(), fibreParamsAttempts, err)
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 type signedHeaderReader interface {

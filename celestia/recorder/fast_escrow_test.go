@@ -97,7 +97,7 @@ func TestFastFibreReservesTheEscrowBeforeTheUpload(t *testing.T) {
 // cost stays reserved after the expiry.
 func TestFastFibreKeepsTheEscrowOfAnExpiredPromiseThroughItsSettlement(t *testing.T) {
 	f := newFibreFast(t)
-	f.fibreFx.node.SetFibreParams(node.FibreParams{RetentionS: 14400, PromiseHeightWindow: fibreWindow, PromiseTimeoutS: 3600})
+	f.fibreFx.node.SetFibreParams(node.FibreParams{RetentionS: 14400, PromiseHeightWindow: fibreWindow, PromiseTimeoutS: 3600, WithdrawalDelayS: weekS})
 	f.sub.EscrowVal = node.Escrow{AvailableUtia: f.cost() + 10}
 	r := f.rec()
 	pub, err := r.Publish(bg, f.blob)

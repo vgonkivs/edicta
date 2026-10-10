@@ -163,6 +163,11 @@ Refused at start (the message names the key):
 - `fibre`: the anchor signer is not the account of the Fibre submitter
   (`recorder.key_name`, whose escrow pays the uploads); checked before the
   boot recovery starts;
+- `fibre`: the own consensus node does not report the x/fibre promise window,
+  promise timeout and withdrawal delay after 6 reads (waits of 1 to 16 s):
+  `edictad: x/fibre params unreadable`, naming the node; once running, the
+  Recorder keeps the last params it read, goes on with them when a later
+  read fails, and warns once per failure streak;
 - the Recorder key is the mandate's principal: `the recorder key is the
   mandate's <scheme> principal`. The secp256k1 key is compared, so a Keplr
   (ADR-036) principal with the same address and a MetaMask (EIP-712)
