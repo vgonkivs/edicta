@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"strconv"
 
 	"github.com/celestiaorg/celestia-app/v10/pkg/da"
@@ -73,8 +75,11 @@ func (f *Fetcher) SignedHeader(ctx context.Context, height uint64) ([]byte, erro
 // whether a height has a candidate that needs its results.
 func (f *Fetcher) Fetch(ctx context.Context, q Query, h uint64) (rec *archive.AbsenceProofRecord, err error) {
 	// The answers are attacker-supplied and pass through upstream encoders.
+	// The height then stays unproven, which is safe, but the stack is logged
+	// so that a bug in our own code does not hide behind it.
 	defer func() {
 		if r := recover(); r != nil {
+			slog.Error("absence: recovered panic while fetching a proof", "height", h, "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
 			rec, err = nil, fmt.Errorf("absence: proof at %d: panic in upstream code: %v", h, r)
 		}
 	}()
