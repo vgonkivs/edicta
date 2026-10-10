@@ -165,3 +165,18 @@ of the 20.9 block).
 Prevention. The informational line and the JSON value are fixed strings that
 the verifier's report test can compare. No vector change; the manifest is
 unchanged.
+
+Addendum (same revision, human answers R3 of 2026-10-10, task 045
+`questions.md`). Clarifications only, no check outcome changes, no vector
+changes:
+- 10.6.3, next to the definition: "v1.0 verifiers additionally require
+  `tx_code == 0` (CV8); this requirement is removed in v1.1."
+- 10.6.3, promise height: the included-reference window is stated as an
+  assumption that follows from inclusion, with the pinned call path
+  (`ProcessProposalHandler` `if isPFF` branch -> `executeTxMsgs` ->
+  `msgServer.PayForFibre` -> `validatePaymentPromiseStatefulInternal`); the
+  window parameter is not archived. Pending references rest on the gate's
+  K-fast rule (13.3 window cap, F5 (2)), covered by `v1/anchor.json`
+  `window_chain_min`, `window_chain_zero` and the gate's fast-mode tests.
+- New section 23.2, re-pin checklist; item PC1 re-verifies that
+  ProcessProposal still enforces the window.

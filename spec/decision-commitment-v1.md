@@ -74,7 +74,7 @@ auditors can see.
 | `v1-draft.6` | 2026-10-09 | Pre-freeze re-audit fixes (task 031, `audit-2.md`). Later note, no new revision: invariant 8 in section 1.1 now states the M0 refusal and the no-record rule, with the rationale in section 8.8; `CLAUDE.md` carries one-line summaries, not a verbatim copy. Later note, fix verification (`audit-2.md` F1, F4, F6 to F8), no new revision: AB4 never gives absent at an app version other than the pinned one, `S` empty included (not proven), and AB3 states that its row selection assumes the pinned layout (F1; outcome change: such a height was absent, now unproven; vector `fibre_s_empty_other_app_version` in `da/absence.json`, other cases byte-identical); section 10.9 threat notes say HR (F4); the `RevealOnExecution` registry check runs in the constructor, the registry being a dependency the integrator's build fills (F6); a mandate version whose `fast_mode_max_delay` is below the slack is refused as a whole, with the reason (F7); 8.8 restates the stored-retry check through the 8.7 retry rule (F8). (1) AB4: a `PFF_NS` unit that does not decode as a PFF tx makes the height not proven, at any app version, and at an app version other than the pinned one units without a candidate prove nothing (section 20.8); NA5 states that the gate may skip such a unit (MJ1). (2) Stage 4m runs at every gate: new rule M0, a gate without a mandate refuses a commitment with `mandate_ref` (`ErrMandateMismatch`); the verifier requires the `policy` check whenever the envelope has `mandate_ref` (sections 8.7, 8.8, 20.5) (MJ2). (3) After an M0 or M2 refusal the gate writes no decision record, no kind 15 record and no marker; `ErrMandateMismatch` is no longer a marker name (sections 8.7, 8.8, 19.2) (MJ3). (4) `RevealOnExecution` admits only types whose compiled profile has `public_execution = true` (cause `reveal_not_public_execution`) (section 8.9). (5) With `FastMode` on, a mandate whose `fast_mode_max_delay < MinFastSlackBlocks + 1` is refused at start and at adoption (cause `fast_delay_below_slack`) (section 8.9). (6) Rule ids: the at-height rules of section 10.9 are HR1 to HR5 (were AH1 to AH5, which collided with the action-hash rules of 5.1), the verifier Authorization rules of 20.5 are AM1 and AM2 (were A1 and A2, which collided with stage A). (7) Editorial: the salt in the inputs of 8.6 and 8.7; section 22 explains the `edicta-vectors/v0` file labels. | `da/absence.json` (new synthetic cases `fibre_unit_undecodable`, `fibre_no_candidate_other_app_version`); new `v1/stage4m.json`; `v1/archive.json` (record `rejection_ErrMandateMismatch` replaced by `rejection_ErrMandateRefMissing`, new reject `rejection_mandate_mismatch_not_a_marker`, `marker_names`); `archive/records.json` (`verdicts`); `api/errors.json` (example `authorize_mandate_ref_without_mandate`, rules `M0, M2`); `policy/verify.json` (`mandate_ref_without_verdict`); `v1/gate.json` (`profile_registry`; `reveal_type_allowlisted` now uses the bank-send type; new `reveal_type_offchain_profile`, `reveal_type_without_profile`, `fast_delay_below_slack`, `fast_delay_at_slack_plus_1`, `fast_delay_low_fast_mode_off`); `v1/verify.json` (`rule` values `AM1`, `AM2`). |
 | `v1.0` | 2026-10-09 | Frozen; identical rules to `v1-draft.6` plus later notes (invariant 8 in section 1.1 with the M0 refusal and the no-record rule; dedup-hit marker rule of policy 12.1). Revision labels of the vector files are `v1.0`. | all core vectors |
 | `v1.0.1` | 2026-10-10 | Type `erratum`. E1 (`spec/ERRATA.md`): the record causes of `policy/archive.json` follow the general record reader of 19.1. Tag `spec-v1.0.1`. | `policy/archive.json` (two `cause` values) |
-| `v1.0.2` | 2026-10-10 | Type `clarification`. E2 (`spec/ERRATA.md`), human decisions of 2026-10-10 (task 045): "anchored" means inclusion proven, never a result code (new section 10.6.3). `da = 2`: the blob's commitment proof against the data root of the trusted header. `da = 1`: the complete `PFF_NS` namespace proof against `data_hash`, the PFF selected by its commitment, CV2, and the certificate CV3 to CV7 offline against the archived `historical_info` with the promise header on the trusted chain. The anchor tx result code is reported as `node-reported, not part of the claim` (20.9, 10.6.1, 20.10); CV8 keeps requiring the archived code 0 (dropping it would be a relaxation). Settled `UNVERIFIED` items: shard retention is independent of the PFF outcome, a PFF can be included with a non-zero code only through an ante failure, and the keeper's height window at the pin (sections 10.4, 10.6.1, 13.1, 23). The 10.7 item on block results for a proven settlement level becomes MAY. No check outcome changes. | none |
+| `v1.0.2` | 2026-10-10 | Type `clarification`. E2 (`spec/ERRATA.md`), human decisions of 2026-10-10 (task 045): "anchored" means inclusion proven, never a result code (new section 10.6.3). `da = 2`: the blob's commitment proof against the data root of the trusted header. `da = 1`: the complete `PFF_NS` namespace proof against `data_hash`, the PFF selected by its commitment, CV2, and the certificate CV3 to CV7 offline against the archived `historical_info` with the promise header on the trusted chain. The anchor tx result code is reported as `node-reported, not part of the claim` (20.9, 10.6.1, 20.10); CV8 keeps requiring the archived code 0 (dropping it would be a relaxation). Settled `UNVERIFIED` items: shard retention is independent of the PFF outcome, a PFF can be included with a non-zero code only through an ante failure, and the keeper's height window at the pin (sections 10.4, 10.6.1, 13.1, 23). The 10.7 item on block results for a proven settlement level becomes MAY. Human answers R3 (task 045): 10.6.3 states that v1.0 verifiers additionally require `tx_code == 0` (CV8) and that v1.1 removes it; the included-reference height window is an explicit assumption with the pinned ProcessProposal call path, and the pending-reference window is the gate's K-fast rule, with its vectors and tests named; new re-pin checklist (section 23.2). No check outcome changes. | none |
 
 Editorial note, no revision: the post-freeze rows of the first table and the
 revision scheme above were amended on 2026-10-10 by the human's decision. The
@@ -2174,6 +2174,8 @@ trusted chain is proven from the archived evidence against the header at `H`
 that passed header trust (section 10.6.2). `H` is `payload_ref.height`, or
 for a pending reference the evidence's `height` (section 20.6). It never
 rests on a node's word, and it never includes the anchor tx's result code.
+v1.0 verifiers additionally require `tx_code == 0` (CV8); this requirement
+is removed in v1.1.
 
 | `da` | Anchored means | Rules |
 |---|---|---|
@@ -2184,20 +2186,54 @@ Promise height (`da = 1`). `promise.height <= H` is CV2 for an included
 reference. For a pending reference CV2 requires `promise.height == h0`
 (section 20.6), and `H < h0` makes the evidence `source_corrupt` (20.6). The
 x/fibre height window, `H - promise.height <= payment_promise_height_window`
-(and `promise.height <= H + 1`), is the keeper's rule
-(`APP/x/fibre/keeper/keeper.go` `validatePaymentPromiseStatefulInternal`).
-ProcessProposal executes the message of every PFF in a proposed block and
-rejects the block if it fails (`APP/app/process_proposal.go`), so inclusion
-implies the window under the assumption of more than 2/3 honest voting
-power, the same assumption the anchor and the certificate rest on. VERIFIED
-(code at the pin, task 045 research). For a pending reference the verifier
-also has `H <= D <= h0 + 1000` (20.6, AM2). For an included reference no
-verifier rule compares `H - promise.height` with the window, and v1.0.2
-adds none: the parameter's value at `H` is chain state that no header binds
-and that format 1 does not archive, and it has no upper bound (the keeper's
-parameter check refuses only 0), so no offline check exists. Such a check
-would need a format addition, and it would close no path that the
-honest-majority assumption leaves open.
+(and `promise.height <= H + 1`), is the keeper's rule.
+
+Assumption (included references, human decision of 2026-10-10). For an
+included reference the window is not checked by any verifier rule; it
+follows from inclusion. Every PFF of a committed block passed the window
+check in ProcessProposal, and a block is committed only if validators
+holding more than 2/3 of the voting power accepted it, the honest-majority
+assumption that header trust (10.6.2), the anchor and the certificate
+already rest on. The call path at the pin (VERIFIED, code at `5187d2f`, task
+045 research and re-read 2026-10-10):
+
+| Step | Pinned code |
+|---|---|
+| ProcessProposal executes the messages of every PFF tx, after its ante handler, on the proposal branch whose block height is the proposed one, and rejects the whole block if they fail | `APP/app/process_proposal.go` `ProcessProposalHandler`, the `if isPFF` branch (lines 162 to 166: `executeTxMsgs`, then `return reject()` on error) |
+| The messages run through the app's message router on a cached branch; an out-of-gas panic becomes an error, so it rejects too | `APP/app/pff_execution.go` `executeTxMsgs` |
+| The `MsgPayForFibre` handler runs the stateful promise check | `APP/x/fibre/keeper/msg_server.go` `msgServer.PayForFibre` (line 139, `ValidatePaymentPromiseStateful`) |
+| The window: `ctx.BlockHeight() - promise.height > PaymentPromiseHeightWindow` is refused, and so is `promise.height > ctx.BlockHeight() + 1` | `APP/x/fibre/keeper/keeper.go` `validatePaymentPromiseStatefulInternal` (lines 418 to 429, non-timeout path) |
+
+The window parameter is not archived (format 1 has no field for it, no
+header binds it, and its only bound is `!= 0`), so no offline check exists;
+one would need a format addition and would close no path that the
+honest-majority assumption leaves open. What inclusion implies is that the
+window held on the proposal branch; whether FinalizeBlock could then still
+fail the message (a parameter change earlier in the same block) does not
+matter here, since the code is not part of the claim. If a later app version moves
+the check out of ProcessProposal (for example to FinalizeBlock only) or
+removes it, inclusion no longer implies the window, and this assumption
+must be revisited before the pins move (section 23.2, PC1).
+
+Pending references are not covered by this argument for the decision the
+gate signs: the gate checks the window at authorization against the
+chain's current parameter. K-fast reads `payment_promise_height_window` at
+the head `h` (F3, F5) and caps the window with it (13.3: `window = min(...,
+payment_promise_height_window(h))`, `anchor_deadline = h0 + window`); a
+parameter of 0 gives `window = 0`, refused with `ErrAnchorWindowClosed` (F5
+(2)). So the gate never signs `anchor_deadline > h0 +
+payment_promise_height_window(h)`. Coverage: vectors `v1/anchor.json`
+`window` cases `window_chain_min` (the chain's window is the smallest bound)
+and `window_chain_zero` (window 0 refused); Go tests `gate/fast_test.go`
+(the `anchor.json` window runner and the case `chain window zero`) and
+`gate/fast_edge_test.go` (`ChainWindow` in the deadline cases). The
+verifier also has `H <= D <= h0 + 1000` (20.6, AM2), and the evidence itself
+is an included PFF, so the assumption above covers its `H`. Threat note
+(parameter change between `h` and `H`): a governance change that lowers the
+window after the gate signed makes the chain refuse a late PFF; the anchor
+then does not land, which is `anchor_absent` (the safe direction for the
+verifier: no false `valid`), and the fast-mode risk the principal accepted
+through `fast_mode_max_delay`.
 
 Result code: not part of the claim.
 
@@ -4999,7 +5035,8 @@ defect. Stage S, T, C and A vectors are correctly signed.
 ## 23. `UNVERIFIED` items
 
 For a Celestia protocol engineer to confirm. Each item is marked in place;
-this list is the index.
+this list is the index. Section 23.2 lists the VERIFIED facts to re-check before any pin
+moves.
 
 | Item | Section | How to settle |
 |---|---|---|
@@ -5077,3 +5114,17 @@ go-square `v4.0.1` (commit `948e812`) and celestia-app `v10.4.0-mocha`
 
 Since the rule holds, kind 14 does not carry `data.txs` and AB5 needs no
 square rebuild.
+
+### 23.2 Re-pin checklist
+
+Facts VERIFIED by code at the pins (section 10.1) on which a check outcome
+or a stated assumption depends. Before any pin moves, each item is
+re-verified at the new commit; an item that no longer holds is a spec
+change (section 0), decided before the re-pin.
+
+| # | Re-verify at the new pin | Depends on it | If it no longer holds |
+|---|---|---|---|
+| PC1 | ProcessProposal still executes the messages of every PFF tx and rejects the block on failure (`app/process_proposal.go` `ProcessProposalHandler`, `if isPFF` branch), and the `MsgPayForFibre` handler still runs the height window check (`x/fibre/keeper/msg_server.go` `PayForFibre` -> `keeper.go` `validatePaymentPromiseStatefulInternal`). | The included-reference window assumption (10.6.3, promise height); the "non-zero code only through an ante failure" fact (10.4) | If the check moves to FinalizeBlock only, or disappears, inclusion no longer implies the window: revisit 10.6.3 before re-pinning. |
+| PC2 | The tail rule of AB5: Fibre txs are the tail of `data.txs`, one `PFF_NS` unit per Fibre tx in block order (section 23.1). | AB5 index binding (20.8) | AB5 gives no "absent" at the new app version until re-verified. |
+| PC3 | Shard retention is fixed at upload by time only and no Fibre server path reads PFF results (`fibre/server_upload.go` `shardPruneAt`, `fibre/server_prune.go`). | "Result code not part of the claim" for `da = 1` (10.6.3) | Revisit 10.6.3 before re-pinning. |
+| PC4 | The keeper's certificate rules CV3 to CV7 (`validateValidatorSignatures`, `payment_promise.go`, `signature_set.go`) and the quorum `floor(2 * total / 3)`. | CV1 to CV7 (10.6.1), the one-threshold rule | Spec change before re-pinning. |
