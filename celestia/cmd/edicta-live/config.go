@@ -64,8 +64,9 @@ type Config struct {
 	PublishWait    time.Duration
 
 	// fast mode
-	Fast       bool
-	ArchiveURL string // where fast mode reads the anchor intent
+	Fast        bool
+	ArchiveURL  string // where fast mode reads the anchor intent
+	MandateHash string // hex mandate_ref; a gate with a mandate refuses a commitment without it
 
 	// agent
 	AgentID         string
@@ -163,6 +164,7 @@ func parseFlags(args []string, usage io.Writer) (Config, error) {
 	fs.DurationVar(&c.PublishWait, "publish-wait", 0, "bound of one publication attempt (0 = SDK default)")
 	fs.BoolVar(&c.Fast, "fast", false, "sign a pending reference edictad's Recorder returns, after checking its anchor intent through --grpc-addr (and --bridge-addr for da=blob); needs --archive-url")
 	fs.StringVar(&c.ArchiveURL, "archive-url", "", "fast mode: base URL of the archive edictad writes, read for the anchor intent")
+	fs.StringVar(&c.MandateHash, "mandate-hash", "", "hash of the gate's mandate, 64 hex, carried as the commitment's mandate_ref; required with --fast")
 
 	fs.StringVar(&c.AgentID, "agent-id", "", "agent id on edictad's allowlist")
 	fs.StringVar(&c.AgentKeyFile, "agent-key-file", "", "agent Ed25519 key: file of exactly 32 raw seed bytes, mode 0600")
@@ -539,6 +541,9 @@ func parseMargin(s string) (*big.Rat, error) {
 // own consensus and bridge nodes, a same-operator check, so it goes only with
 // --inclusion self.
 func (c Config) validateFast() error {
+	if c.MandateHash != "" && !isHexLen(c.MandateHash, 32) {
+		return cfgErr("--mandate-hash must be 64 lowercase hex characters")
+	}
 	if !c.Fast {
 		if c.ArchiveURL != "" {
 			return cfgErr("--archive-url applies to --fast only")
@@ -547,6 +552,11 @@ func (c Config) validateFast() error {
 	}
 	if c.ArchiveURL == "" {
 		return cfgErr("--fast needs --archive-url")
+	}
+	// Fast mode is accepted only by a gate with a mandate, and such a gate
+	// refuses a commitment that does not name it.
+	if c.MandateHash == "" {
+		return cfgErr("--fast needs --mandate-hash")
 	}
 	u, err := url.Parse(c.ArchiveURL)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {

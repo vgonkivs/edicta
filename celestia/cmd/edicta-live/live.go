@@ -263,16 +263,9 @@ func live(ctx context.Context, cfg Config, env runEnv) (err error) {
 		recipients = append(recipients, rc)
 	}
 
-	scfg := sdk.DefaultConfig()
-	scfg.AgentID = cfg.AgentID
-	scfg.Scope = commitment.Scope{GateID: hl.GateID}
-	scfg.Recipients = recipients
-	scfg.SkewS = cfg.SkewS
-	scfg.SubmitterTrust = trust
-	scfg.ExpectNamespace = hl.Namespace
-	scfg.ExpectSigners = [][]byte{hl.RecorderSigner}
-	if cfg.PublishWait > 0 {
-		scfg.MaxPublishWait = cfg.PublishWait
+	scfg, err := sdkConfig(cfg, hl, recipients, trust)
+	if err != nil {
+		return err
 	}
 	signer, err := sdk.NewEd25519Signer(agentKey)
 	if err != nil {
@@ -577,4 +570,27 @@ func resolveFee(ctx context.Context, c Config, src railtx.GasPriceSource) (uint6
 		return 0, fmt.Errorf("%w: derived fee %d, max %d", railtx.ErrFeeAboveMax, fee, c.MaxFee)
 	}
 	return fee, nil
+}
+
+// sdkConfig is the commitment builder's configuration for this run.
+func sdkConfig(cfg Config, hl edictaapi.HealthInfo, recipients []blob.Recipient, trust sdk.SubmitterTrust) (sdk.Config, error) {
+	scfg := sdk.DefaultConfig()
+	scfg.AgentID = cfg.AgentID
+	scfg.Scope = commitment.Scope{GateID: hl.GateID}
+	scfg.Recipients = recipients
+	scfg.SkewS = cfg.SkewS
+	scfg.SubmitterTrust = trust
+	scfg.ExpectNamespace = hl.Namespace
+	scfg.ExpectSigners = [][]byte{hl.RecorderSigner}
+	if cfg.PublishWait > 0 {
+		scfg.MaxPublishWait = cfg.PublishWait
+	}
+	if cfg.MandateHash != "" {
+		h, err := hex.DecodeString(cfg.MandateHash)
+		if err != nil || len(h) != len(scfg.MandateHash) {
+			return sdk.Config{}, cfgErr("--mandate-hash must be 64 hex characters")
+		}
+		copy(scfg.MandateHash[:], h)
+	}
+	return scfg, nil
 }
