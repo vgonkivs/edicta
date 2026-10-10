@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync/atomic"
 
+	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/railtx"
 	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
@@ -14,10 +15,29 @@ type guardedSubmitter struct {
 	consent *railtx.Consent
 }
 
+type keyedGuardedSubmitter struct {
+	guardedSubmitter
+	node.AnchorPublicKey
+}
+
+type unkeyedGuardedSubmitter struct {
+	guardedSubmitter
+	node.AnchorKeyUnavailable
+}
+
 // GuardSubmitter refuses every submission until the Consent is armed. The
-// Recorder's PayForBlob is the only broadcast that path can make.
+// Recorder's PayForBlob is the only broadcast that path can make. The
+// Recorder's public key, or why it cannot be shown, stays visible so the
+// start can still tell the Recorder apart from the mandate principal.
 func GuardSubmitter(s recorder.Submitter, c *railtx.Consent) recorder.Submitter {
-	return guardedSubmitter{inner: s, consent: c}
+	g := guardedSubmitter{inner: s, consent: c}
+	if pk, ok := s.(node.AnchorPublicKey); ok {
+		return keyedGuardedSubmitter{guardedSubmitter: g, AnchorPublicKey: pk}
+	}
+	if u, ok := s.(node.AnchorKeyUnavailable); ok {
+		return unkeyedGuardedSubmitter{guardedSubmitter: g, AnchorKeyUnavailable: u}
+	}
+	return g
 }
 
 func (g guardedSubmitter) Signer(ctx context.Context) ([]byte, error) { return g.inner.Signer(ctx) }
