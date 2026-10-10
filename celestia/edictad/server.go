@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -310,10 +309,11 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 	var (
 		mandateBytes []byte
 		mandate      *policy.SignedMandate
+		mandateHash  commitment.Hash
 		extractors   *policy.Extractors
 	)
 	if cfg.Policy.Enabled() {
-		if mandateBytes, mandate, _, err = loadMandate(cfg.Policy.MandateFile, cfg.Gate.GateID); err != nil {
+		if mandateBytes, mandate, mandateHash, err = loadMandate(cfg.Policy.MandateFile, cfg.Gate.GateID); err != nil {
 			return nil, err
 		}
 		if extractors, err = policyExtractors(); err != nil {
@@ -510,8 +510,7 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 		if err := pol.publishMandate(ctx, aio, mandateBytes, timeout); err != nil {
 			return fail(err)
 		}
-		log.Info("edictad: mandate in force", "mandate_id", hex.EncodeToString(mandate.Mandate.MandateID),
-			"version", mandate.Mandate.Version, "text", policy.Render(&mandate.Mandate))
+		logMandate(log, &mandate.Mandate, mandateHash)
 	}
 	q := &retryQueue{}
 	sw := &sweeper{lister: reg, io: aio, q: q, log: log, timeout: timeout, pol: pol, reveals: g.RevealsOnExecution}

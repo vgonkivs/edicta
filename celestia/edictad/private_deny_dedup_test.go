@@ -1,6 +1,7 @@
 package edictad_test
 
 import (
+	"encoding/hex"
 	"path/filepath"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/policy"
 )
 
 // A policy_deny the store refused is not counted as archived: the next retry
@@ -104,4 +106,24 @@ func (p *policyEnv) storedDenies(d decision) int {
 		}
 	}
 	return n
+}
+
+// The log of a private gate names the mandate by hash, version and auditor
+// fingerprints only: no rules, labels or mandate_id.
+func TestPrivateMandateIsNotRenderedToTheLog(t *testing.T) {
+	p := newPrivateEnv(t)
+	p.startPolicy()
+	_, mh, err := policy.VerifyMandate(readFile(t, p.file))
+	require.NoError(t, err)
+
+	logs := p.logs.String()
+	line := p.logLines("mandate in force")
+	require.Len(t, line, 1)
+	assert.Contains(t, line[0], hex.EncodeToString(mh[:]))
+	assert.Contains(t, line[0], "private")
+	assert.Contains(t, line[0], policy.Fingerprint(p.mandate.Auditors[0].Kid))
+	assert.NotContains(t, logs, "Alice", "an auditor label never leaves the mandate")
+	assert.NotContains(t, logs, hex.EncodeToString(p.mandate.MandateID))
+	assert.NotContains(t, logs, policy.Render(p.mandate))
+	assert.NotContains(t, logs, policyAsset)
 }

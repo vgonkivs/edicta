@@ -3,8 +3,10 @@ package edictad
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -360,4 +362,21 @@ func (a *archivingGate) privateDeny(ctx context.Context, res gate.Result, reason
 	}
 	recs := []archive.Record{part, &archive.PolicyDenyRecord{SignedVerdict: res.PolicyVerdict}, marker}
 	a.w.writeChain(ctx, &chain{recs: recs, deny: &denyHold{x: a.pol.denies, k: k}})
+}
+
+// logMandate logs the mandate in force. A private mandate's rules, labels and
+// mandate_id stay out of the log, which often goes to a shared sink: only its
+// hash, version and the auditor fingerprints, which its envelopes show anyway.
+func logMandate(log *slog.Logger, m *policy.Mandate, h commitment.Hash) {
+	if len(m.Auditors) == 0 {
+		log.Info("edictad: mandate in force", "mode", "public", "mandate_hash", hex.EncodeToString(h[:]),
+			"mandate_id", hex.EncodeToString(m.MandateID), "version", m.Version, "text", policy.Render(m))
+		return
+	}
+	fps := make([]string, len(m.Auditors))
+	for i, a := range m.Auditors {
+		fps[i] = policy.Fingerprint(a.Kid)
+	}
+	log.Info("edictad: mandate in force", "mode", "private", "mandate_hash", hex.EncodeToString(h[:]),
+		"version", m.Version, "auditors", fps)
 }
