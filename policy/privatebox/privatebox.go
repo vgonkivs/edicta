@@ -88,9 +88,11 @@ func (o *Opener) Kids() [][]byte {
 	return out
 }
 
-// Open decrypts with the first key that unwraps an entry. An envelope that
-// does not decode, or whose AEAD fails after an unwrap, is corrupt; one no
-// key unwraps is ErrPrivateUnopened.
+// Open decrypts with the first key that unwraps an entry and returns the
+// derived kid of that key. The kid an entry carries is only a label: anyone
+// holding the plaintext can wrap to one key under another auditor's kid. An
+// envelope that does not decode, or whose AEAD fails after an unwrap, is
+// corrupt; one no key unwraps is ErrPrivateUnopened.
 func (o *Opener) Open(kind policy.PrivateKind, envelope []byte) (plaintext, kid []byte, err error) {
 	if !kind.Valid() {
 		return nil, nil, fmt.Errorf("%w: plaintext kind %d", policy.ErrPrivateCorrupt, kind)
@@ -102,10 +104,10 @@ func (o *Opener) Open(kind policy.PrivateKind, envelope []byte) (plaintext, kid 
 		return nil, nil, fmt.Errorf("%w: envelope: %v", policy.ErrPrivateCorrupt, err)
 	}
 	for _, k := range o.keys {
-		pt, kid, err := blob.OpenWith(Suite(kind), envelope, k)
+		pt, _, err := blob.OpenWith(Suite(kind), envelope, k)
 		switch {
 		case err == nil:
-			return pt, kid, nil
+			return pt, append([]byte(nil), k.KID...), nil
 		case errors.Is(err, blob.ErrUnwrap), errors.Is(err, blob.ErrNoRecipient):
 			continue
 		}

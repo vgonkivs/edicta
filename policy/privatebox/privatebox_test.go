@@ -295,3 +295,22 @@ func FuzzOpen(f *testing.F) {
 		require.Less(t, len(pt), policy.PrivateKind(kind).EnvelopeCap())
 	})
 }
+
+// An entry labelled with auditor B's kid but wrapped to A's key reports A's
+// kid: the key that opened it, not the label.
+func TestOpenReportsTheKidOfTheOpeningKey(t *testing.T) {
+	a := privKey(t, hex.EncodeToString(bytes.Repeat([]byte{7}, 32)))
+	b := privKey(t, hex.EncodeToString(bytes.Repeat([]byte{9}, 32)))
+	kidA, kidB := policy.AuditorKid(a.PublicKey().Bytes()), policy.AuditorKid(b.PublicKey().Bytes())
+	env, err := blob.SealWith(privatebox.Suite(policy.PrivatePartKind), []byte("plaintext"),
+		[]blob.Recipient{{KID: kidB, PublicKey: a.PublicKey()}})
+	require.NoError(t, err)
+
+	o, err := privatebox.NewOpener(a)
+	require.NoError(t, err)
+	pt, kid, err := o.Open(policy.PrivatePartKind, env)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("plaintext"), pt)
+	assert.Equal(t, kidA, kid)
+	assert.NotEqual(t, kidB, kid)
+}

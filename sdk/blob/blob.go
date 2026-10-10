@@ -517,7 +517,8 @@ func Open(raw []byte, k RecipientKey) (salt [SaltSize]byte, plaintext []byte, er
 
 // OpenWith opens an envelope of the suite. It tries the entry whose kid is
 // k.KID first and then every other entry, and returns the plaintext without
-// the envelope salt and the kid of the entry that opened. The binding caveat
+// the envelope salt and the kid of the entry that opened. That kid is the
+// entry's label, not proof of which key it was wrapped to. The binding caveat
 // of Open applies: the caller compares the plaintext's hash.
 func OpenWith(s Suite, raw []byte, k RecipientKey) (plaintext, kid []byte, err error) {
 	if !s.valid() {
