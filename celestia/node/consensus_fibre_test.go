@@ -254,6 +254,32 @@ func TestFibreParamsCarryThePromiseHeightWindow(t *testing.T) {
 	assert.EqualValues(t, 1000, p.PromiseHeightWindow)
 }
 
+// The escrow withdrawal delay and the promise timeout come from the chain's
+// x/fibre params; a node that leaves the delay out reports zero, which the
+// Recorder replaces by the chain maximum.
+func TestFibreParamsCarryTheWithdrawalDelay(t *testing.T) {
+	for name, tc := range map[string]struct {
+		delay time.Duration
+		want  uint64
+	}{
+		"reported": {90 * time.Minute, 5400},
+		"absent":   {0, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			n := &ownNode{params: func() (*fibretypes.QueryParamsResponse, error) {
+				return &fibretypes.QueryParamsResponse{Params: fibretypes.Params{
+					ShardRetention: 4 * time.Hour, PaymentPromiseHeightWindow: 1000,
+					PaymentPromiseTimeout: time.Minute, WithdrawalDelay: tc.delay,
+				}}, nil
+			}}
+			p, err := startOwnNode(t, n).FibreParams(tctx(t))
+			require.NoError(t, err)
+			assert.EqualValues(t, 60, p.PromiseTimeoutS)
+			assert.Equal(t, tc.want, p.WithdrawalDelayS)
+		})
+	}
+}
+
 func TestConsensusAddrIsTheDialedAddress(t *testing.T) {
 	c, err := NewConsensus(GRPCConfig{Addr: "127.0.0.1:9090"})
 	require.NoError(t, err)
