@@ -163,14 +163,17 @@ func recorderIsNotPrincipal(ctx context.Context, s node.AnchorSigner, m *policy.
 	if err != nil {
 		return err
 	}
-	if scheme == principalsig.Ed25519 {
-		return nil
-	}
 	var pub []byte
 	if pk, ok := s.(node.AnchorPublicKey); ok {
 		if pub, err = pk.PublicKey(ctx); err != nil {
 			return fmt.Errorf("edictad: anchor signer public key: %w", err)
 		}
+		if err := shownKeyIsTheAccount(ctx, s, pub); err != nil {
+			return err
+		}
+	}
+	if scheme == principalsig.Ed25519 {
+		return nil
 	}
 	same := false
 	switch scheme {
@@ -208,6 +211,28 @@ func recorderIsNotPrincipal(ctx context.Context, s node.AnchorSigner, m *policy.
 	}
 	if same {
 		return cfgErr("the recorder key is the mandate's %s principal; the Recorder and the principal must hold different keys", scheme)
+	}
+	return nil
+}
+
+// shownKeyIsTheAccount refuses an injected signer whose shown key is not a
+// compressed secp256k1 key of its own account: the principal check compares
+// that key, so it must be the one that signs.
+func shownKeyIsTheAccount(ctx context.Context, s node.AnchorSigner, pub []byte) error {
+	bech, err := principalsig.CosmosAddress(pub, "celestia")
+	if err != nil {
+		return cfgErr("recorder.fast: the anchor signer's public key is not a compressed secp256k1 key: %v", err)
+	}
+	_, own, err := principalsig.ParseCosmosAddress(bech)
+	if err != nil {
+		return fmt.Errorf("edictad: anchor signer public key: %w", err)
+	}
+	addr, err := s.Address(ctx)
+	if err != nil {
+		return fmt.Errorf("edictad: anchor signer: %w", err)
+	}
+	if !bytes.Equal(own[:], addr) {
+		return cfgErr("recorder.fast: the anchor signer's public key is not the key of its account")
 	}
 	return nil
 }

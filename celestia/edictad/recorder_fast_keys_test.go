@@ -152,6 +152,51 @@ func TestRecorderFastSignerWithoutPublicKeyAndEIP712PrincipalIsRefused(t *testin
 	assert.Zero(t, p.listens)
 }
 
+type shownKeySigner struct {
+	fixedSigner
+	pub []byte
+}
+
+func (s shownKeySigner) PublicKey(context.Context) ([]byte, error) { return bytes.Clone(s.pub), nil }
+
+// An injected signer that shows a key is held to it: the key must be a
+// compressed secp256k1 key whose hash160 is the signing account, whatever the
+// mandate's scheme.
+func TestRecorderFastShownKeyMustBeTheAccountsSecp256k1Key(t *testing.T) {
+	own := secp256k1.GenPrivKey().PubKey()
+	other := secp256k1.GenPrivKey().PubKey()
+	for name, tc := range map[string]struct {
+		pub  []byte
+		want string
+	}{
+		"ed25519-sized key":   {bytes.Repeat([]byte{2}, 32), "not a compressed secp256k1 key"},
+		"uncompressed prefix": {append([]byte{4}, own.Bytes()[1:]...), "not a compressed secp256k1 key"},
+		"another account":     {other.Bytes(), "not the key of its account"},
+		"own key":             {own.Bytes(), ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := newPolicyEnv(t)
+			p.mandate.FastModeMaxDelay = fastDelay
+			p.file = p.sign(p.principal, p.mandate)
+			p.deps.Archive = p.real
+			p.deps.RecorderFast = &edictad.RecorderFastDeps{
+				Signer: shownKeySigner{fixedSigner{own.Address()}, tc.pub}}
+
+			srv, err := edictad.Start(bg, p.cfg(p.edits(gateFastFor(), recFast())...), p.deps)
+			if srv != nil {
+				t.Cleanup(func() { _ = srv.Shutdown(bg) })
+			}
+			if tc.want == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, edictad.ErrConfig)
+			assert.Contains(t, err.Error(), tc.want)
+			assert.Zero(t, p.listens)
+		})
+	}
+}
+
 // A successor version adopted at a restart is checked like the first one: a
 // new version whose principal is the Recorder's key is refused before any
 // listener, and nothing more is archived.
