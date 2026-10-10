@@ -687,76 +687,109 @@ func (r *run) headerTrust() error { return r.trustHeaders(r.neededHeaders()) }
 
 // trustHeaders ties every header the anchor check relied on to the chain.
 func (r *run) trustHeaders(headers []headerAt) error {
-	ht := &r.rep.HeaderTrust
 	if r.v.trust == nil {
-		ht.Status = TrustUnchecked
+		r.rep.HeaderTrust.Status = TrustUnchecked
 		r.unchecked(CheckHeaderTrust, ReasonNoTrustedHeader, errors.New("no trusted header supplied"))
 		return nil
 	}
-	ht.Hashes = make(map[uint64][]byte, len(headers))
-	for _, h := range headers {
-		ht.Hashes[h.height] = h.hash
+	t, err := r.tallyTrust(headers)
+	if err != nil {
+		return err
 	}
+	r.applyTrust(headers, t)
+	return nil
+}
 
-	checked := true
-	cross := ""
-	var problem error
+// trustTally is what header trust said about a set of headers, before any
+// of it is written to the report.
+type trustTally struct {
+	cpH       uint64
+	cpHash    []byte
+	lastCross string
+	cross     string
+	checked   bool
+	problem   error
+	// tied holds the heights whose hash header trust tied to the chain;
+	// refused those whose hash the trusted chain does not have.
+	tied    map[uint64]bool
+	refused map[uint64]bool
+}
+
+// tallyTrust asks header trust about every header once. Only a cancelled
+// context is an error.
+func (r *run) tallyTrust(headers []headerAt) (trustTally, error) {
+	t := trustTally{checked: true, tied: map[uint64]bool{}, refused: map[uint64]bool{}}
 	note := func(err error) {
 		// A disagreement between sources outranks the other problems: it is
 		// the one the auditor must look at.
-		if problem == nil || (!isDisagreement(problem) && isDisagreement(err)) {
-			problem = err
+		if t.problem == nil || (!isDisagreement(t.problem) && isDisagreement(err)) {
+			t.problem = err
 		}
 	}
 	for i, h := range headers {
 		height := h.height
 		res, err := r.v.trust.Trusted(r.ctx, height, h.hash)
 		if cerr := r.ctx.Err(); cerr != nil {
-			return fmt.Errorf("verifier: %w", cerr)
+			return trustTally{}, fmt.Errorf("verifier: %w", cerr)
 		}
 		if i == 0 || res.CheckpointH != 0 {
-			ht.CheckpointH, ht.CheckpointHash = res.CheckpointH, bytes.Clone(res.CheckpointHash)
+			t.cpH, t.cpHash = res.CheckpointH, bytes.Clone(res.CheckpointHash)
 		}
 		if res.CrossCheck != "" {
-			ht.CrossCheck = res.CrossCheck
+			t.lastCross = res.CrossCheck
 		}
 		if err != nil {
-			note(trustProblem(height, err))
+			p := trustProblem(height, err)
+			if reason, _, _ := ReasonOf(p); reason == ReasonChainMismatch {
+				t.refused[height] = true
+			}
+			note(p)
 			continue
 		}
 		if !res.Checked {
-			checked = false
+			t.checked = false
 			note(Reasonf(ReasonNoTrustedHeader, nil, "%w: height %d was not checked", ErrHeaderTrust, height))
 			continue
 		}
 		switch res.CrossCheck {
 		case CrossMismatch:
-			ht.CrossCheck = CrossMismatch
+			t.lastCross = CrossMismatch
 			note(Reasonf(ReasonHeaderDisagreement, nil, "%w: height %d: %s", ErrHeaderTrust, height, DisagreementText))
 		case CrossPass, CrossUnavailable, CrossOff:
-			cross = worseCross(cross, res.CrossCheck)
+			t.cross = worseCross(t.cross, res.CrossCheck)
+			t.tied[height] = true
 		default:
 			note(Reasonf(ReasonHeaderSourceUnavailable, nil, "%w: height %d: unknown cross-check result %q", ErrHeaderTrust, height, res.CrossCheck))
 		}
 	}
-	if problem != nil {
-		ht.Status = TrustUnchecked
-		reason, srcs, _ := ReasonOf(problem)
-		r.unchecked(CheckHeaderTrust, reason, problem, srcs...)
-		return nil
+	return t, nil
+}
+
+// applyTrust writes a tally to the header_trust check and report.
+func (r *run) applyTrust(headers []headerAt, t trustTally) {
+	ht := &r.rep.HeaderTrust
+	ht.Hashes = make(map[uint64][]byte, len(headers))
+	for _, h := range headers {
+		ht.Hashes[h.height] = h.hash
 	}
-	ht.CrossCheck = cross
-	if !checked {
+	ht.CheckpointH, ht.CheckpointHash, ht.CrossCheck = t.cpH, t.cpHash, t.lastCross
+	if t.problem != nil {
+		ht.Status = TrustUnchecked
+		reason, srcs, _ := ReasonOf(t.problem)
+		r.unchecked(CheckHeaderTrust, reason, t.problem, srcs...)
+		return
+	}
+	ht.CrossCheck = t.cross
+	if !t.checked {
 		ht.Status = TrustUnchecked
 		r.unchecked(CheckHeaderTrust, ReasonNoTrustedHeader, errors.New("header trust did not check the headers"))
-		return nil
+		return
 	}
-	if cross == CrossUnavailable {
+	if t.cross == CrossUnavailable {
 		r.warn("header trust: cross-check not done, no endpoint answered")
 	}
 	ht.Status = TrustValid
 	r.pass(CheckHeaderTrust)
-	return nil
 }
 
 func isDisagreement(err error) bool {

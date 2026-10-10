@@ -156,6 +156,10 @@ func (r *run) pendingAnchor() error {
 		evProblem error
 	)
 	switch {
+	case err == nil && ev.Height < h0:
+		r.corrupt(CheckAnchor, ErrAnchorInvalid, fmt.Errorf("evidence at height %d, below h0 %d: a PFF cannot precede its reference height", ev.Height, h0))
+		blocked(CheckAnchor)
+		return nil
 	case err == nil:
 		at := ref
 		at.Height = ev.Height
@@ -184,12 +188,7 @@ func (r *run) pendingAnchor() error {
 
 	if facts != nil {
 		H := ev.Height
-		switch {
-		case H < h0:
-			r.corrupt(CheckAnchor, ErrAnchorInvalid, fmt.Errorf("evidence at height %d, below h0 %d: a PFF cannot precede its reference height", H, h0))
-			blocked(CheckAnchor)
-			return nil
-		case H <= deadline:
+		if H <= deadline {
 			return r.pendingInWindow(H, *facts)
 		}
 		// Late evidence counts for the report only once its header is the
@@ -206,17 +205,40 @@ func (r *run) pendingAnchor() error {
 	return r.pendingWindow(fast)
 }
 
-// pendingInWindow passes the anchor on evidence at h0 <= H <= deadline and
-// ties its header, and the header at h0 that gives T_ref, to the chain.
+// pendingInWindow passes the anchor on evidence at h0 <= H <= deadline once
+// header trust, reaching the deadline, ties the evidence headers to the
+// chain. Evidence whose header the trusted chain does not have does not
+// verify, and the absence proofs decide.
 func (r *run) pendingInWindow(H uint64, facts AnchorFacts) error {
 	ref := r.c.PayloadRef
 	h0 := ref.Height
-	headers := []headerAt{{H, facts.AnchorHeaderHash}}
-	refMissing := error(nil)
+	fast := r.rep.Fast
+	evidence := []headerAt{{H, facts.AnchorHeaderHash}}
 	if ref.DA == commitment.DAFibre {
 		facts.BlockTime = facts.PromiseBlockTime
-		headers = append(headers, headerAt{h0, facts.PromiseHeaderHash})
-	} else {
+		evidence = append(evidence, headerAt{h0, facts.PromiseHeaderHash})
+	}
+	if r.v.trust == nil {
+		r.adoptFacts(facts)
+		fast.AnchorHeight = H
+		r.pass(CheckAnchor)
+		if err := r.trustHeaders(evidence); err != nil {
+			return err
+		}
+		r.anchorTime()
+		return nil
+	}
+	if err := r.askCheckpoint(); err != nil {
+		return err
+	}
+	if r.checkpointH != 0 && r.checkpointH < fast.AnchorDeadline {
+		r.evidencePending(H)
+		return nil
+	}
+
+	headers := evidence
+	refMissing := error(nil)
+	if ref.DA != commitment.DAFibre {
 		hd, err := r.refHeader(h0)
 		if err != nil {
 			if cerr := r.alive(); cerr != nil {
@@ -228,8 +250,27 @@ func (r *run) pendingInWindow(H uint64, facts AnchorFacts) error {
 			headers = append(headers, headerAt{h0, hd.Hash})
 		}
 	}
+	t, err := r.tallyTrust(headers)
+	if err != nil {
+		return err
+	}
+	for _, h := range evidence {
+		if t.refused[h.height] {
+			r.warn("anchor: the evidence header at height %d is not the trusted chain's (source_corrupt), so the absence proofs decide: %v", h.height, t.problem)
+			return r.pendingWindow(fast)
+		}
+	}
+	for _, h := range evidence {
+		if !t.tied[h.height] {
+			r.unchecked(CheckAnchor, ReasonBlocked, fmt.Errorf("header trust did not tie the evidence header at height %d", h.height), string(CheckHeaderTrust))
+			r.applyTrust(headers, t)
+			r.unchecked(CheckAnchorTime, ReasonBlocked, errors.New("the anchor check did not pass"), string(CheckAnchor))
+			return nil
+		}
+	}
+
 	r.adoptFacts(facts)
-	r.rep.Fast.AnchorHeight = H
+	fast.AnchorHeight = H
 	r.pass(CheckAnchor)
 	if refMissing != nil {
 		r.rep.HeaderTrust.Status = TrustUnchecked
@@ -237,12 +278,39 @@ func (r *run) pendingInWindow(H uint64, facts AnchorFacts) error {
 		r.anchorTime()
 		return nil
 	}
-	if err := r.trustHeaders(headers); err != nil {
-		return err
-	}
+	r.applyTrust(headers, t)
 	r.anchorTime()
 	if c, ok := r.rep.Check(CheckHeaderTrust); ok && c.Status == StatusPass {
-		r.rep.Fast.Publication = PublicationAnchored
+		fast.Publication = PublicationAnchored
+	}
+	return nil
+}
+
+// evidencePending: header trust must reach the deadline before evidence in
+// the window counts, so that every height of the window hangs from one
+// trusted chain.
+func (r *run) evidencePending(H uint64) {
+	why := errors.New("the anchor check did not pass")
+	r.unchecked(CheckAnchor, ReasonAnchorPending, fmt.Errorf("%w: evidence at height %d, and the trusted header %d is below the deadline %d",
+		ErrAnchorInvalid, H, r.checkpointH, r.rep.Fast.AnchorDeadline))
+	r.unchecked(CheckAnchorTime, ReasonBlocked, why, string(CheckAnchor))
+	r.unchecked(CheckHeaderTrust, ReasonBlocked, why, string(CheckAnchor))
+	r.rep.HeaderTrust.Status = TrustUnchecked
+}
+
+// askCheckpoint learns the trusted header height from a header trust that
+// can name it.
+func (r *run) askCheckpoint() error {
+	cp, ok := r.v.trust.(Checkpointer)
+	if !ok {
+		return nil
+	}
+	t, err := cp.CheckpointHeight(r.ctx)
+	if cerr := r.alive(); cerr != nil {
+		return cerr
+	}
+	if err == nil {
+		r.noteCheckpoint(t)
 	}
 	return nil
 }
@@ -283,14 +351,8 @@ func (r *run) pendingWindow(fast *FastInfo) error {
 		r.unchecked(CheckHeaderTrust, ReasonNoTrustedHeader, errors.New("no trusted header supplied"))
 		return nil
 	}
-	if cp, ok := r.v.trust.(Checkpointer); ok {
-		t, err := cp.CheckpointHeight(r.ctx)
-		if cerr := r.alive(); cerr != nil {
-			return cerr
-		}
-		if err == nil {
-			r.noteCheckpoint(t)
-		}
+	if err := r.askCheckpoint(); err != nil {
+		return err
 	}
 	if r.checkpointH != 0 && r.checkpointH < deadline {
 		pending(deadline)
