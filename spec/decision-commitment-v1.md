@@ -2,7 +2,8 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v1.0` (2026-10-09). Frozen. Wire version: `version = 1`.
+Status: revision `v1.0` (2026-10-09), spec revision `v1.0.1` (2026-10-10,
+section 0). Frozen. Wire version: `version = 1`.
 Domain tags: `edicta/v1/...`. This document is the whole core specification;
 the policy layer is `spec/policy-v1.md` (revision `policy-v1.0`,
 "policy"). The earlier `v0` drafts are superseded and unsupported; they are
@@ -30,11 +31,41 @@ normative.
 |---|---|
 | Editorial (wording, examples, sources) | No version change. |
 | Any change to wire bytes, a hash or signature preimage, a limit, or the outcome of any check, while in draft | Bump `v1-draft.N`, regenerate every vector the change touches, record it below. |
-| Defining a reserved value (section 4.6) after the freeze | Minor revision `v1.M` with the human's approval. It only turns a refusal into an acceptance; no byte string accepted before changes meaning (rule V6). |
-| Any other such change after the freeze | New wire `version` (2) and new tags `edicta/v2/...`. A v1 verifier refuses `version != 1` (`ErrUnsupportedVersion`). The archive record `format`, the payload plaintext and blob versions and the receipt version follow the same rule, each independently. |
+| After the freeze: any change to wire bytes, a hash or signature preimage, a domain tag, a limit, an archive record layout or the meaning of a byte string | Never in v1. The v1 wire format is frozen for good. Such a change is a new wire `version` (2) with new tags `edicta/v2/...`. A v1 verifier refuses `version != 1` (`ErrUnsupportedVersion`). The archive record `format`, the payload plaintext and blob versions and the receipt version follow the same rule, each independently. |
+| After the freeze: a spec change that leaves the wire format alone | Patch revision `v1.0.N` (below), one typed changelog entry. |
+| After the freeze: a check outcome made stricter | Patch revision, only to close a path to a false `valid` or a false `invalid`, with the human's explicit approval and a changelog entry of type `security`. A stricter outcome turns a pass into a refusal or `unchecked`, never the reverse. |
+| After the freeze: any relaxation (a refusal, `fail` or `unchecked` that becomes a pass) | Never in a patch revision. Minor revision `v1.M` (`v1.1`, ...), with its own amendment of this section and the human's approval. Defining a reserved value (section 4.6) is such a minor revision: it only turns a refusal into an acceptance, and no byte string accepted before changes meaning (rule V6). |
 
 The domain tags carry the version, so a signature never verifies across
 versions even if a byte layout were identical.
+
+Post-freeze revisions (amended 2026-10-10, human decision). The spec has one
+revision counter after the freeze: `v1.0.1`, `v1.0.2`, ... Each revision
+has exactly one changelog entry in the table below, of one type:
+
+| Type | Scope |
+|---|---|
+| `erratum` | A conformance expectation (a vector) or wording that contradicts other frozen text; the frozen text wins (`spec/ERRATA.md`). |
+| `security` | A stricter check outcome that closes a path to a false `valid` or `invalid`, as in the table above. |
+| `clarification` | Wording that states what the frozen rules already do, a definition, a report label, an `UNVERIFIED` item settled, or a writer rule that no reader depends on. No check outcome changes. |
+
+Every revision gets the annotated tag `spec-v1.0.N` (the human creates it;
+`spec-v1.0.1` is on commit `0ac2689`). Frozen vector files keep their bytes
+and their meaning: a new case goes into a new file, and
+`spec/vectors/MANIFEST.sha256` changes in the same commit; the `revision`
+field of a frozen file stays `v1.0`. Software releases are tagged with
+semantic versions (`v1.0.0`, `v1.0.1`, ...), a separate sequence: their
+release notes state which spec revision they implement. The software tag and
+the spec tag may sit on one commit (`v1.0.1` and `spec-v1.0.1`), and their
+numbers need not agree. No freeze tag ever moves.
+
+Threat note (versioning). A patch revision that relaxed a check would let an
+implementation of an older revision and one of a newer revision give opposite
+verdicts on the same archive, with nothing on the wire to tell them apart;
+a stricter patch revision can only make the older implementation look
+permissive, and is allowed only where that permissiveness was a false
+verdict. A relaxation therefore needs a minor revision that readers and
+auditors can see.
 
 | Revision | Date | Change | Vectors |
 |---|---|---|---|
@@ -42,6 +73,11 @@ versions even if a byte layout were identical.
 | `v1-draft.5` | 2026-10-09 | One self-contained v1 document (human decisions of 2026-10-09, Rounds 4 to 6: `v0` dropped before the v1 freeze). (1) Every core rule the `v0` drafts held is restated here for version 1; the version dispatch, `AcceptV0`, `ErrVersionNotAccepted`, the `/v0/` routes and alias, the Authorization of version 0, the unsalted action hash and the payload schema chosen by the commitment version are gone. (2) Receipt, record request, publish request and the payload AEAD and HPKE tags move to `edicta/v1/*`; receipt `version = 1`; payload blob `version = 1`; payload plaintext `version = 1` with the action salt (sections 9, 14, 17). (3) Archive records `format = 1`: kinds 17 (decision) and 18 (reveal) keep their numbers, kind 3 is unassigned, the evidence record drops `promise_valset` (key 18) and the legacy anchor-proof form 0 (section 19). (4) Verifier: the Authorization rules are A1 (mode) and A2 (deadline range); the reason `replay_unconfirmed` is gone with form 0; new reason `gate_signed_inconsistent_private_part` and the matching policy rule (policy 13); O8 runs before the payload-versus-archive salt comparison (section 20.11). (5) HTTP paths `/v1/*` only; the authorize request requires its key 3. | Core vectors under `spec/vectors/v1/` carry the coverage of the `v0` sets as v1 cases (`v1-draft.5`); the `v0` sets moved unchanged to `spec/vectors/historical/v0/` and are not checked. Archive, policy, absence, reasons, API and profile files regenerated (section 22). |
 | `v1-draft.6` | 2026-10-09 | Pre-freeze re-audit fixes (task 031, `audit-2.md`). Later note, no new revision: invariant 8 in section 1.1 now states the M0 refusal and the no-record rule, with the rationale in section 8.8; `CLAUDE.md` carries one-line summaries, not a verbatim copy. Later note, fix verification (`audit-2.md` F1, F4, F6 to F8), no new revision: AB4 never gives absent at an app version other than the pinned one, `S` empty included (not proven), and AB3 states that its row selection assumes the pinned layout (F1; outcome change: such a height was absent, now unproven; vector `fibre_s_empty_other_app_version` in `da/absence.json`, other cases byte-identical); section 10.9 threat notes say HR (F4); the `RevealOnExecution` registry check runs in the constructor, the registry being a dependency the integrator's build fills (F6); a mandate version whose `fast_mode_max_delay` is below the slack is refused as a whole, with the reason (F7); 8.8 restates the stored-retry check through the 8.7 retry rule (F8). (1) AB4: a `PFF_NS` unit that does not decode as a PFF tx makes the height not proven, at any app version, and at an app version other than the pinned one units without a candidate prove nothing (section 20.8); NA5 states that the gate may skip such a unit (MJ1). (2) Stage 4m runs at every gate: new rule M0, a gate without a mandate refuses a commitment with `mandate_ref` (`ErrMandateMismatch`); the verifier requires the `policy` check whenever the envelope has `mandate_ref` (sections 8.7, 8.8, 20.5) (MJ2). (3) After an M0 or M2 refusal the gate writes no decision record, no kind 15 record and no marker; `ErrMandateMismatch` is no longer a marker name (sections 8.7, 8.8, 19.2) (MJ3). (4) `RevealOnExecution` admits only types whose compiled profile has `public_execution = true` (cause `reveal_not_public_execution`) (section 8.9). (5) With `FastMode` on, a mandate whose `fast_mode_max_delay < MinFastSlackBlocks + 1` is refused at start and at adoption (cause `fast_delay_below_slack`) (section 8.9). (6) Rule ids: the at-height rules of section 10.9 are HR1 to HR5 (were AH1 to AH5, which collided with the action-hash rules of 5.1), the verifier Authorization rules of 20.5 are AM1 and AM2 (were A1 and A2, which collided with stage A). (7) Editorial: the salt in the inputs of 8.6 and 8.7; section 22 explains the `edicta-vectors/v0` file labels. | `da/absence.json` (new synthetic cases `fibre_unit_undecodable`, `fibre_no_candidate_other_app_version`); new `v1/stage4m.json`; `v1/archive.json` (record `rejection_ErrMandateMismatch` replaced by `rejection_ErrMandateRefMissing`, new reject `rejection_mandate_mismatch_not_a_marker`, `marker_names`); `archive/records.json` (`verdicts`); `api/errors.json` (example `authorize_mandate_ref_without_mandate`, rules `M0, M2`); `policy/verify.json` (`mandate_ref_without_verdict`); `v1/gate.json` (`profile_registry`; `reveal_type_allowlisted` now uses the bank-send type; new `reveal_type_offchain_profile`, `reveal_type_without_profile`, `fast_delay_below_slack`, `fast_delay_at_slack_plus_1`, `fast_delay_low_fast_mode_off`); `v1/verify.json` (`rule` values `AM1`, `AM2`). |
 | `v1.0` | 2026-10-09 | Frozen; identical rules to `v1-draft.6` plus later notes (invariant 8 in section 1.1 with the M0 refusal and the no-record rule; dedup-hit marker rule of policy 12.1). Revision labels of the vector files are `v1.0`. | all core vectors |
+| `v1.0.1` | 2026-10-10 | Type `erratum`. E1 (`spec/ERRATA.md`): the record causes of `policy/archive.json` follow the general record reader of 19.1. Tag `spec-v1.0.1`. | `policy/archive.json` (two `cause` values) |
+
+Editorial note, no revision: the post-freeze rows of the first table and the
+revision scheme above were amended on 2026-10-10 by the human's decision. The
+amendment changes no wire byte, check outcome or vector.
 
 ## 1. Threat model in one table
 

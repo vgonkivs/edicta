@@ -7,14 +7,30 @@ contradicts other frozen text. It never changes wire bytes, hashes, domain
 tags or invariants: such a change needs a new format version and the human's
 decision.
 
-Versioning: an erratum keeps the revision labels (`v1.0`, `policy-v1.0`), in
-the spec texts and in the `revision` field of the vector files, because no
-byte string that a v1.0 implementation produces or accepts changes meaning.
-The fix commit carries the annotated patch tag `v1.0.N` (E1 = `v1.0.1`), whose message lists
-the erratum ids and the new hashes of `spec/vectors/MANIFEST.sha256`.
-`v1.0.0` never moves. Patch tags `v1.0.N` are shared with code-only fixes
-that change no wire byte; such tags carry no erratum and are not listed here
-(`v1.0.2`: code-only).
+Versioning (core section 0, amended 2026-10-10). The wire format is frozen
+for good. After the freeze the spec has one revision counter, `v1.0.1`,
+`v1.0.2`, ..., and each revision has one typed changelog entry in core
+section 0: `erratum`, `security` or `clarification`. This file holds the
+detailed record of the `erratum` and `clarification` entries (ids E1, E2,
+... across both types); a `security` entry is recorded in the core changelog
+and the section it changes. Every revision gets the annotated tag
+`spec-v1.0.N`, whose message lists the entry ids and, when vectors changed,
+the new hashes of `spec/vectors/MANIFEST.sha256`. The revision labels in the
+spec texts (`v1.0`, `policy-v1.0`) and the `revision` field of the frozen
+vector files stay unchanged, because no byte string that a v1.0
+implementation produces or accepts changes meaning.
+
+Software releases are a separate, semantic-version sequence (`v1.0.0`,
+`v1.0.1`, ...); their release notes state the spec revision they implement.
+The two sequences may share a commit and need not share a number:
+`spec-v1.0.1` (E1) and the software tag `v1.0.1` are both on `0ac2689`,
+while the software tags `v1.0.2` and `v1.0.3` are code-only releases of spec
+revision `v1.0.1`. No freeze tag ever moves.
+
+An erratum or clarification never changes a check outcome. A stricter
+outcome is a `security` revision (only to close a path to a false `valid` or
+`invalid`, with the human's approval); a relaxation needs a minor revision
+`v1.1` (core section 0).
 
 Threat note: a frozen vector that contradicts the frozen text pushes
 implementations to invent a rule that no text defines. Here that rule would
@@ -23,6 +39,7 @@ disagree on the cause of a corrupt record. The fix is always to the vector.
 
 ## E1. Record causes in `policy/archive.json` follow the general record reader
 
+- Type: erratum. Spec revision `v1.0.1`, tag `spec-v1.0.1`.
 - Date: 2026-10-10.
 - Author: protocol-engineer (task 040), approved by the human.
 - File: `spec/vectors/policy/archive.json`, array `reject`. Record bytes,
