@@ -267,6 +267,7 @@ func NewFibre(cfg FibreConfig, d FibreDeps) (*FibreRecorder, error) {
 		if r.fast, err = newFastCore(r.eng, *d.Fast, cfg.PollInterval); err != nil {
 			return nil, err
 		}
+		r.fast.start(func(context.Context) (fastDA, error) { return r, nil })
 	}
 	return r, nil
 }

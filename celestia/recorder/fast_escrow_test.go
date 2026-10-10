@@ -210,7 +210,11 @@ func TestFastFibreRestartRebroadcastsTheArchivedTxOnly(t *testing.T) {
 	assert.Equal(t, f.h0, pub.Ref.Height)
 	assert.EqualValues(t, 1, f.up.calls.Load(), "the restart does not upload again")
 	assert.Equal(t, 1, st.count(archive.KindAnchorIntent))
+	// The recovery at construction follows the intent too, and may send it
+	// again before or after this Publish: only the archived bytes go out.
 	sent := f.node.sends()
-	require.Len(t, sent, 1)
-	assert.Equal(t, f.l.PFFTx, sent[0])
+	require.NotEmpty(t, sent)
+	for _, raw := range sent {
+		assert.Equal(t, f.l.PFFTx, raw)
+	}
 }

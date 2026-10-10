@@ -57,6 +57,10 @@ const (
 	// loopCallPolls and minLoopCallTimeout bound one confirmation step.
 	loopCallPolls      = 20
 	minLoopCallTimeout = 10 * time.Second
+	// maxRecoverWait bounds the backoff between failed recoveries, and
+	// recoverTimeout one attempt, which walks the archive.
+	maxRecoverWait = time.Minute
+	recoverTimeout = 5 * time.Minute
 )
 
 // AnchorNode is the operator's own consensus node the fast path signs for
@@ -175,10 +179,18 @@ type fastCore struct {
 	poll      time.Duration
 	retryWait time.Duration
 
-	// recovered is set once the intents of an earlier process that may still
-	// land are followed again.
-	recMu     sync.Mutex
-	recovered bool
+	// The recovery follows again the intents of an earlier process that may
+	// still land. It starts at construction, so that they are followed whether
+	// or not anything is published; nothing is signed before it is done.
+	recDA func(ctx context.Context) (fastDA, error)
+	// recDone is closed once the recovery succeeded.
+	recDone chan struct{}
+	// recNudge starts the next attempt without waiting out the backoff.
+	recNudge chan struct{}
+	recMu    sync.Mutex
+	recErr   error
+	// recAttempt is closed when the running or next attempt ends.
+	recAttempt chan struct{}
 
 	seqMu sync.Mutex
 	// floor is the sequence the node last named in a refusal: the account
@@ -225,7 +237,83 @@ func newFastCore(eng *engine, d FastDeps, poll time.Duration) (*fastCore, error)
 	return &fastCore{
 		eng: eng, intents: ir, lister: il, d: d, poll: poll, retryWait: min(defaultRetryWait, poll),
 		entries: map[pendingKey]*fastEntry{}, retry: map[pendingKey]uint64{}, ctx: ctx, cancel: cancel,
+		recDone: make(chan struct{}), recNudge: make(chan struct{}, 1), recAttempt: make(chan struct{}),
 	}, nil
+}
+
+// start runs the recovery in the background, retrying it with a bounded
+// backoff until it succeeds or the Recorder closes. mk returns the da side
+// the recovery reads through.
+func (f *fastCore) start(mk func(ctx context.Context) (fastDA, error)) {
+	f.recDA = mk
+	f.loops.Add(1)
+	go func() {
+		defer f.loops.Done()
+		wait := f.poll
+		for {
+			ctx, cancel := context.WithTimeout(f.ctx, recoverTimeout)
+			err := f.recover(ctx)
+			cancel()
+			f.recMu.Lock()
+			f.recErr = err
+			close(f.recAttempt)
+			f.recAttempt = make(chan struct{})
+			f.recMu.Unlock()
+			if err == nil {
+				close(f.recDone)
+				return
+			}
+			if f.ctx.Err() != nil {
+				return
+			}
+			f.d.Log.Warn("recorder: following the intents of an earlier process failed; new intents wait", "retry_in", wait, "err", err)
+			t := time.NewTimer(wait)
+			select {
+			case <-f.ctx.Done():
+				t.Stop()
+				return
+			case <-f.recNudge:
+				t.Stop()
+			case <-t.C:
+			}
+			wait = min(2*wait, max(maxRecoverWait, f.poll))
+		}
+	}()
+}
+
+// awaitRecovery returns once the recovery is done. Otherwise it asks for an
+// attempt at once and returns that attempt's error if it fails.
+func (f *fastCore) awaitRecovery(ctx context.Context) error {
+	select {
+	case <-f.recDone:
+		return nil
+	default:
+	}
+	f.recMu.Lock()
+	attempt := f.recAttempt
+	f.recMu.Unlock()
+	select {
+	case f.recNudge <- struct{}{}:
+	default:
+	}
+	select {
+	case <-f.recDone:
+		return nil
+	case <-attempt:
+	case <-f.ctx.Done():
+		return errClosed
+	case <-ctx.Done():
+		return fmt.Errorf("%w: waiting for the intents of an earlier process: %w", ErrNodeUnavailable, ctx.Err())
+	}
+	select {
+	case <-f.recDone:
+		return nil
+	default:
+	}
+	f.recMu.Lock()
+	err := f.recErr
+	f.recMu.Unlock()
+	return fmt.Errorf("recorder: following the intents of an earlier process: %w", err)
 }
 
 // close stops the confirmation loops and waits for them until ctx ends.
@@ -375,7 +463,7 @@ func (f *fastCore) sweep() {
 // its evidence is archived.
 func (f *fastCore) publish(ctx context.Context, d fastDA, comm, blob []byte) (sdk.Published, error) {
 	f.sweep()
-	if err := f.recover(ctx, d); err != nil {
+	if err := f.awaitRecovery(ctx); err != nil {
 		return sdk.Published{}, err
 	}
 	e, err := f.claim(pendingKey(comm))
@@ -406,12 +494,11 @@ func (f *fastCore) publish(ctx context.Context, d fastDA, comm, blob []byte) (sd
 // recover follows again, before this process signs anything, every intent of
 // this account an earlier process archived whose anchor may still land: such
 // an intent holds its sequence, and its pending reference may already be
-// authorized. A failure is retried at the next Publish.
-func (f *fastCore) recover(ctx context.Context, d fastDA) error {
-	f.recMu.Lock()
-	defer f.recMu.Unlock()
-	if f.recovered {
-		return nil
+// authorized.
+func (f *fastCore) recover(ctx context.Context) error {
+	d, err := f.recDA(ctx)
+	if err != nil {
+		return err
 	}
 	addr, err := f.d.Signer.Address(ctx)
 	if err != nil {
@@ -465,7 +552,6 @@ func (f *fastCore) recover(ctx context.Context, d fastDA) error {
 			return err
 		}
 	}
-	f.recovered = true
 	return nil
 }
 

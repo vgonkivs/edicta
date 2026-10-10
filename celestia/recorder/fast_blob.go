@@ -47,6 +47,7 @@ func NewFast(cfg Config, d FastDeps, rd node.Reader) (*Recorder, error) {
 	if r.fast, err = newFastCore(r.eng, d, r.cfg.PollInterval); err != nil {
 		return nil, err
 	}
+	r.fast.start(func(ctx context.Context) (fastDA, error) { return r.fastBlob(ctx) })
 	return r, nil
 }
 
@@ -72,19 +73,27 @@ func (r *Recorder) Close(ctx context.Context) error {
 	return r.fast.close(ctx)
 }
 
-func (r *Recorder) publishFast(ctx context.Context, blob []byte) (sdk.Published, error) {
+func (r *Recorder) fastBlob(ctx context.Context) (fastBlob, error) {
 	signer, err := r.fast.d.Signer.Address(ctx)
 	if err != nil {
-		return sdk.Published{}, fmt.Errorf("recorder: signer: %w", err)
+		return fastBlob{}, fmt.Errorf("recorder: signer: %w", err)
 	}
 	if len(signer) != signerLen {
-		return sdk.Published{}, fmt.Errorf("%w: signer of %d bytes", errInvalidInput, len(signer))
+		return fastBlob{}, fmt.Errorf("%w: signer of %d bytes", errInvalidInput, len(signer))
 	}
-	comm, err := sharev1.Commitment(r.cfg.Namespace, signer, blob)
+	return fastBlob{blobBackend{r: r, signer: signer}}, nil
+}
+
+func (r *Recorder) publishFast(ctx context.Context, blob []byte) (sdk.Published, error) {
+	b, err := r.fastBlob(ctx)
+	if err != nil {
+		return sdk.Published{}, err
+	}
+	comm, err := sharev1.Commitment(r.cfg.Namespace, b.signer, blob)
 	if err != nil {
 		return sdk.Published{}, fmt.Errorf("recorder: commitment: %w", err)
 	}
-	return r.fast.publish(ctx, fastBlob{blobBackend{r: r, signer: signer}}, comm, bytes.Clone(blob))
+	return r.fast.publish(ctx, b, comm, bytes.Clone(blob))
 }
 
 // fastBlob is the da = 2 side of the fast path.
