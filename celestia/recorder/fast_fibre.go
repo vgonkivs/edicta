@@ -63,7 +63,7 @@ func (r *FibreRecorder) headerTime(ctx context.Context, h uint64) (uint64, error
 
 // draft takes an upload slot and reserves the escrow cost, which the raw
 // upload does not track, and uploads. The reservation lasts until the anchor
-// lands or can no longer land: the escrow is charged only then.
+// lands, or else until a timeout settlement can no longer charge the promise.
 func (r *FibreRecorder) draft(ctx context.Context, comm, blob []byte, _ uint64, headTime time.Time) (*intentDraft, error) {
 	fp, err := r.fibreParams(ctx)
 	if err != nil {
@@ -105,12 +105,13 @@ func (r *FibreRecorder) draft(ctx context.Context, comm, blob []byte, _ uint64, 
 
 	h0, created := up.PromiseHeight, unixFloor(up.Created)
 	if h0 == 0 || created == 0 {
-		release()
+		r.fast.hold(r.settleBy(r.cfg.Now(), fp), release)
 		return nil, fmt.Errorf("%w: upload returned promise height %d, creation %v", ErrSubmitMismatch, h0, up.Created)
 	}
+	settleBy := r.settleBy(up.Created, fp)
 	refTime, err := r.headerTime(ctx, h0)
 	if err != nil {
-		release()
+		r.fast.hold(settleBy, release)
 		return nil, err
 	}
 	rec := &archive.AnchorIntentRecord{
@@ -132,9 +133,23 @@ func (r *FibreRecorder) draft(ctx context.Context, comm, blob []byte, _ uint64, 
 	return &intentDraft{
 		rec: rec, sign: sign, timeout: landBy, landBy: landBy,
 		expiry:  up.Created.Add(time.Duration(fp.PromiseTimeoutS) * time.Second),
-		refTime: refTime, retStart: created, release: release,
-		settleWait: time.Duration(fp.PromiseTimeoutS) * time.Second,
+		refTime: refTime, retStart: created, release: release, settleBy: settleBy,
 	}, nil
+}
+
+// defaultWithdrawalDelay is the x/fibre default, for a node that does not
+// report the parameter.
+const defaultWithdrawalDelay = 24 * time.Hour
+
+// settleBy is when a promise created at created can no longer be charged by
+// a timeout settlement: it must be fresher than the withdrawal delay, in
+// block time, which may run ahead of this clock by the allowed skew.
+func (r *FibreRecorder) settleBy(created time.Time, fp node.FibreParams) time.Time {
+	delay := defaultWithdrawalDelay
+	if fp.WithdrawalDelayS != 0 {
+		delay = time.Duration(fp.WithdrawalDelayS) * time.Second
+	}
+	return created.Add(delay + r.cfg.MaxClockSkew)
 }
 
 // checkPFF requires the signed tx to carry a promise for exactly this blob at

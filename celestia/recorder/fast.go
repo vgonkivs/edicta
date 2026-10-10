@@ -104,9 +104,11 @@ type intentDraft struct {
 	retStart uint64
 	// release ends the escrow reservation of the upload.
 	release func()
-	// settleWait is how long after the expiry the reservation is kept: an
-	// expired Fibre promise can still be charged by a timeout settlement.
-	settleWait time.Duration
+	// settleBy, when set, is when a timeout settlement can no longer charge
+	// the uploaded promise. Until the anchor lands the promise is unpaid, and
+	// anyone holding it can settle it from the escrow, whether or not its
+	// anchor tx was refused, went stale or expired.
+	settleBy time.Time
 }
 
 // fastDA is the da-specific side of the fast path.
@@ -159,9 +161,12 @@ type fastCore struct {
 
 	mu      sync.Mutex
 	entries map[pendingKey]*fastEntry
-	ctx     context.Context
-	cancel  context.CancelFunc
-	loops   sync.WaitGroup
+	// holds are escrow reservations of promises that will not be anchored by
+	// this Recorder but can still be charged.
+	holds  []heldRelease
+	ctx    context.Context
+	cancel context.CancelFunc
+	loops  sync.WaitGroup
 }
 
 func newFastCore(eng *engine, d FastDeps, poll time.Duration) (*fastCore, error) {
@@ -246,9 +251,53 @@ func (f *fastCore) stick(e *fastEntry, err error) error {
 	return err
 }
 
+type heldRelease struct {
+	until   time.Time
+	release func()
+}
+
+// giveUp ends the reservation of an upload whose anchor will not land
+// through this Recorder: at once when nothing can charge it, else once its
+// promise can no longer be settled.
+func (f *fastCore) giveUp(dr *intentDraft) {
+	f.hold(dr.settleBy, dr.release)
+}
+
+func (f *fastCore) hold(until time.Time, release func()) {
+	if until.IsZero() || !f.eng.now().Before(until) {
+		release()
+		return
+	}
+	f.mu.Lock()
+	f.holds = append(f.holds, heldRelease{until: until, release: release})
+	f.mu.Unlock()
+}
+
+// sweep ends the held reservations whose promises can no longer be charged.
+func (f *fastCore) sweep() {
+	now := f.eng.now()
+	var due []func()
+	f.mu.Lock()
+	kept := f.holds[:0]
+	for _, h := range f.holds {
+		if now.Before(h.until) {
+			kept = append(kept, h)
+		} else {
+			due = append(due, h.release)
+		}
+	}
+	clear(f.holds[len(kept):])
+	f.holds = kept
+	f.mu.Unlock()
+	for _, release := range due {
+		release()
+	}
+}
+
 // publish returns the pending reference of blob, or the included one when
 // its evidence is archived.
 func (f *fastCore) publish(ctx context.Context, d fastDA, comm, blob []byte) (sdk.Published, error) {
+	f.sweep()
 	e, err := f.claim(pendingKey(comm))
 	if err != nil {
 		return sdk.Published{}, err
@@ -434,12 +483,12 @@ func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentD
 	defer f.seqMu.Unlock()
 	p, err := f.params(ctx, dr.timeout)
 	if err != nil {
-		dr.release()
+		f.giveUp(dr)
 		return false, err
 	}
 	tx, err := dr.sign(ctx, p)
 	if err != nil {
-		dr.release()
+		f.giveUp(dr)
 		if errors.Is(err, ErrSubmitMismatch) {
 			return false, f.stick(e, err)
 		}
@@ -452,13 +501,13 @@ func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentD
 		// Another intent of this process holds the key: follow that one.
 		stored, rerr := f.intents.Intent(ctx, d.da(), dr.rec.Commitment, dr.rec.RefHeight)
 		if rerr != nil {
-			dr.release()
+			f.giveUp(dr)
 			return false, archiveFault("read anchor intent", rerr)
 		}
 		dr.rec = stored
 		return false, f.adopt(d, e, dr, blob)
 	default:
-		dr.release()
+		f.giveUp(dr)
 		return false, archiveFault("write anchor intent", err)
 	}
 	if err := f.adopt(d, e, dr, blob); err != nil {
@@ -486,13 +535,13 @@ func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentD
 			return false, fmt.Errorf("%w: the node expects another sequence than %d: %w", ErrOutcomeUnknown, p.Sequence, err)
 		}
 		f.floor = max(f.floor, n)
-		time.AfterFunc(dr.settleWait, dr.release)
+		f.giveUp(dr)
 		return false, f.stick(e, fmt.Errorf("%w: %w", ErrIntentStale, err))
 	case errors.Is(err, errProcessed):
 		f.markScan(e)
 		return true, nil
 	case errors.Is(err, node.ErrRejected):
-		dr.release()
+		f.giveUp(dr)
 		return false, f.stick(e, fmt.Errorf("%w: %w", ErrAnchorTxRejected, err))
 	}
 	// Whether the node kept the tx is unknown: the intent stays live and holds
@@ -583,7 +632,7 @@ func (f *fastCore) resume(ctx context.Context, d fastDA, e *fastEntry, comm, blo
 	}
 	if !scan {
 		if f.expired(dr, head) {
-			time.AfterFunc(dr.settleWait, dr.release)
+			f.giveUp(dr)
 			return sdk.Published{}, f.stick(e, ErrAnchorExpired)
 		}
 		st, err := f.resend(ctx, d, e, dr, blob)
@@ -612,12 +661,14 @@ func (f *fastCore) expired(dr *intentDraft, head uint64) bool {
 // landed answers from an anchor tx the node reports as committed.
 func (f *fastCore) landed(ctx context.Context, d fastDA, e *fastEntry, comm, blob []byte, st node.TxStatus) (sdk.Published, error) {
 	if st.Code != 0 {
-		e.draft.release()
+		// A failed tx leaves the promise unpaid.
+		f.giveUp(e.draft)
 		return sdk.Published{}, f.stick(e, fmt.Errorf("%w: executed with code %d at height %d", ErrAnchorTxRejected, st.Code, st.Height))
 	}
 	pub, err := d.confirm(ctx, comm, blob, st.Height, true)
 	if err != nil {
 		if errors.Is(err, ErrAnchorRejected) || errors.Is(err, ErrSignerMismatch) {
+			// Executed with code 0: the escrow paid, and shows it.
 			e.draft.release()
 			return sdk.Published{}, f.stick(e, err)
 		}
@@ -657,7 +708,7 @@ func (f *fastCore) resend(ctx context.Context, d fastDA, e *fastEntry, dr *inten
 	case errors.Is(err, node.ErrSequenceMismatch):
 		return f.mismatched(ctx, e, dr, err)
 	case errors.Is(err, node.ErrRejected):
-		dr.release()
+		f.giveUp(dr)
 		return node.TxStatus{}, f.stick(e, fmt.Errorf("%w: %w", ErrAnchorTxRejected, err))
 	}
 	return node.TxStatus{}, fmt.Errorf("%w: broadcast: %w", ErrNodeUnavailable, err)
@@ -689,9 +740,7 @@ func (f *fastCore) mismatched(ctx context.Context, e *fastEntry, dr *intentDraft
 		return node.TxStatus{}, fmt.Errorf("%w: the node expects another sequence than the archived tx's %d: %w", ErrNodeUnavailable, signed, mismatch)
 	}
 	f.floor = max(f.floor, expected)
-	// A Fibre promise that will never be paid can still be charged by its
-	// timeout settlement, so the escrow stays reserved until then.
-	time.AfterFunc(dr.settleWait, dr.release)
+	f.giveUp(dr)
 	return node.TxStatus{}, f.stick(e, fmt.Errorf("%w: the archived anchor tx at sequence %d can never land; the pending reference is dead and its deadline will prove the anchor absent: %w",
 		ErrIntentStale, signed, mismatch))
 }
@@ -763,7 +812,7 @@ func (f *fastCore) tick(d fastDA, e *fastEntry, comm []byte) bool {
 		}
 	}
 	if f.expired(dr, head) {
-		time.AfterFunc(dr.settleWait, dr.release)
+		f.giveUp(dr)
 		_ = f.stick(e, ErrAnchorExpired)
 		f.d.Log.Error("recorder: the anchor of a pending reference did not land in its window", "da", d.da(),
 			"ref_height", dr.rec.RefHeight, "land_by", dr.landBy)

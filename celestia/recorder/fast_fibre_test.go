@@ -152,16 +152,18 @@ func TestFastFibreReservesTheEscrowUntilTheAnchorLands(t *testing.T) {
 	assert.EqualValues(t, 1, f.up.calls.Load(), "the second blob is not uploaded")
 }
 
-func TestFastFibreStaleArchivedTxReleasesTheEscrowAfterTheSettleWait(t *testing.T) {
+// A stale intent's promise can be charged by a timeout settlement until it
+// is older than the withdrawal delay, so its cost stays reserved past the
+// promise timeout and is given back only after that.
+func TestFastFibreStaleArchivedTxKeepsTheEscrowUntilTheSettlementWindowEnds(t *testing.T) {
 	f := newFibreFast(t)
-	f.fibreFx.node.SetFibreParams(node.FibreParams{RetentionS: 14400, PromiseHeightWindow: fibreWindow, PromiseTimeoutS: 1})
+	f.fibreFx.node.SetFibreParams(node.FibreParams{RetentionS: 14400, PromiseHeightWindow: fibreWindow, PromiseTimeoutS: 60, WithdrawalDelayS: 120})
 	f.sub.EscrowVal = node.Escrow{AvailableUtia: recorder.FibreCostUtia(f.us) + 10}
 	f.node.script(errTransport)
 	r := f.rec()
 	_, err := r.Publish(bg, f.blob)
 	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
 
-	f.skew.Store(int64(-time.Hour))
 	seq, err := node.TxSequence(f.l.PFFTx)
 	require.NoError(t, err)
 	f.node.script(mismatch(seq + 1))
@@ -169,18 +171,19 @@ func TestFastFibreStaleArchivedTxReleasesTheEscrowAfterTheSettleWait(t *testing.
 	require.ErrorIs(t, err, recorder.ErrIntentStale)
 	_, err = r.Publish(bg, f.blob)
 	require.ErrorIs(t, err, recorder.ErrIntentStale, "sticky")
-	sent := f.node.sends()
-	require.Len(t, sent, 2)
-	assert.Equal(t, sent[0], sent[1], "the archived tx is never re-signed")
+	for _, raw := range f.node.sends() {
+		assert.Equal(t, f.l.PFFTx, raw, "the archived tx is never re-signed")
+	}
 
-	f.skew.Store(0)
-	_, err = r.Publish(bg, []byte{0x66})
 	var short *recorder.EscrowShortfall
+	_, err = r.Publish(bg, []byte{0x66})
 	require.ErrorAs(t, err, &short, "the promise can still be charged by its timeout settlement")
-	require.Eventually(t, func() bool {
-		_, err := r.Publish(bg, []byte{0x66})
-		return !errors.As(err, &short)
-	}, 5*time.Second, 50*time.Millisecond, "the escrow is released after the settle wait")
+	f.grow(f.h0 + 100)
+	_, err = r.Publish(bg, []byte{0x66})
+	require.ErrorAs(t, err, &short, "past the promise timeout, a settlement can charge it")
+	f.grow(f.h0 + 200)
+	_, err = r.Publish(bg, []byte{0x66})
+	require.False(t, errors.As(err, &short), "released once the promise is older than the withdrawal delay: %v", err)
 }
 
 func TestFastFibreRefusesAnUploaderOnAnotherNode(t *testing.T) {

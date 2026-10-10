@@ -253,6 +253,9 @@ func fibreParams(r *fibretypes.QueryParamsResponse) (FibreParams, error) {
 	if t := r.Params.PaymentPromiseTimeout; t > 0 {
 		fp.PromiseTimeoutS = uint64(t.Seconds())
 	}
+	if t := r.Params.WithdrawalDelay; t > 0 {
+		fp.WithdrawalDelayS = uint64(t.Seconds())
+	}
 	return fp, nil
 }
 

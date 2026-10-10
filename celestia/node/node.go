@@ -92,6 +92,10 @@ type FibreParams struct {
 	// PromiseTimeoutS is how long after its creation a payment promise can
 	// still be settled, in seconds.
 	PromiseTimeoutS uint64
+	// WithdrawalDelayS is how long a payment promise stays fresh after its
+	// creation, in seconds: until then a timeout settlement can still charge
+	// it. Zero when the node does not report it.
+	WithdrawalDelayS uint64
 }
 
 // TxStatus is the on-chain state of a broadcast transaction.
