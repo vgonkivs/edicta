@@ -28,7 +28,9 @@ type anchorWatch struct {
 	timeout time.Duration
 	// lastHead is the head of the last complete pass: an entry whose
 	// deadline plus grace is below it was looked at then, so each entry is
-	// alerted at most once per process.
+	// alerted at most once per process. After a restart old entries are
+	// alerted again: the alert is at-least-once, which is safe because it
+	// changes no answer and no record.
 	lastHead uint64
 	// retry holds entries a pass could not decide.
 	retry map[commitment.Hash]struct{}

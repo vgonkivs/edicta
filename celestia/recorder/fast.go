@@ -119,8 +119,8 @@ type fastEntry struct {
 	inflight bool
 	// ours is set once this process wrote or found the payload record in
 	// this call chain; a record of an earlier process needs its intent found.
-	ours    bool
-	draft   *intentDraft
+	ours  bool
+	draft *intentDraft
 	// hash is the hash of the archived anchor tx, the only one ever sent.
 	hash    [32]byte
 	scan    bool
@@ -300,6 +300,9 @@ func (f *fastCore) prepare(ctx context.Context, d fastDA, e *fastEntry, comm, bl
 			return sdk.Published{}, false, false, err
 		}
 		if rec == nil {
+			// A crash between the upload and the intent write leaves no
+			// intent and no returned reference for the promise: refusing the
+			// blob costs at most that one blob, never a dangling reference.
 			return sdk.Published{}, false, false, f.stick(e, fmt.Errorf("%w: an earlier process archived this blob without an intent in reach; publish a new blob", ErrOutcomeUnknown))
 		}
 		dr, err := d.restore(ctx, comm, blob, rec)

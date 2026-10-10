@@ -160,7 +160,9 @@ func (r *FibreRecorder) checkPFF(tx []byte, rec *archive.AnchorIntentRecord, us 
 }
 
 // restore follows an intent an earlier process archived. Its escrow cost is
-// not reserved again: that process's reservation died with it.
+// not reserved again: reservations live in memory and died with that
+// process, so until its promise settles a new upload can count on escrow
+// this promise may still be charged.
 func (r *FibreRecorder) restore(ctx context.Context, comm, blob []byte, rec *archive.AnchorIntentRecord) (*intentDraft, error) {
 	us, err := uploadSize(blob)
 	if err != nil {
