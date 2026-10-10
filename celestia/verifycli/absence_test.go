@@ -28,8 +28,8 @@ import (
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
 
-// absenceCase is the window of da/absence.json#window_three_heights_proven:
-// its records, and the checkpoint the next header of its last record gives.
+// absenceCase is the window of a da/absence.json case: its records, and the
+// checkpoint the header after its last height gives.
 type absenceCase struct {
 	ref      commitment.PayloadRef
 	deadline uint64
@@ -78,6 +78,17 @@ func loadAbsenceCase(t *testing.T, id string) absenceCase {
 	return absenceCase{}
 }
 
+// loadAbsentWindow is the window of window_three_heights_proven without its
+// deadline height, whose candidate has a non-zero result code and so is
+// present unpaid: [h0, h0 + 1] is proven absent at every height. The record
+// of the cut height stays, for its header.
+func loadAbsentWindow(t *testing.T) absenceCase {
+	t.Helper()
+	ac := loadAbsenceCase(t, "window_three_heights_proven")
+	ac.deadline--
+	return ac
+}
+
 // trustedAt writes a trusted header file whose checkpoint is the next
 // header of the last record; the headers below it come from the records.
 func (ac absenceCase) trustedAt(t *testing.T) string { return ac.trusted(t, false) }
@@ -91,9 +102,12 @@ func (ac absenceCase) trusted(t *testing.T, bundle bool) string {
 		require.NoError(t, err)
 		bundled = append(bundled, hex.EncodeToString(inner))
 	}
-	last := ac.recs[ac.deadline]
-	require.NotNil(t, last.NextHeader)
-	inner, err := headertrust.HeaderOfSigned(last.NextHeader)
+	next := ac.recs[ac.deadline].NextHeader
+	if next == nil {
+		require.NotNil(t, ac.recs[ac.deadline+1], "no header after the deadline")
+		next = ac.recs[ac.deadline+1].Header
+	}
+	inner, err := headertrust.HeaderOfSigned(next)
 	require.NoError(t, err)
 	hash, err := headertrust.HashOfHeader(inner)
 	require.NoError(t, err)
@@ -151,6 +165,7 @@ type fastJSON struct {
 		Heights       int    `json:"heights"`
 		Bytes         uint64 `json:"bytes"`
 		FirstUnproven uint64 `json:"first_unproven"`
+		UnpaidHeight  uint64 `json:"unpaid_height"`
 	} `json:"absence"`
 	Checks []checkView `json:"checks"`
 }
@@ -173,11 +188,11 @@ func runFast(t *testing.T, args ...string) (int, fastJSON) {
 }
 
 func TestVerifyPendingAbsenceFromTheArchive(t *testing.T) {
-	ac := loadAbsenceCase(t, "window_three_heights_proven")
+	ac := loadAbsentWindow(t)
 	trusted := ac.trustedAt(t)
 	gk := gatePubHex(t)
 
-	dir, h := ac.pendingArchive(t, ac.ref.Height, ac.ref.Height+1, ac.deadline)
+	dir, h := ac.pendingArchive(t, ac.ref.Height, ac.deadline)
 	code, v := runFast(t, "verify", hex.EncodeToString(h[:]), "--archive", dir, "--gate-key", gk, "--trusted", trusted)
 	assert.Equal(t, codeInvalid, code)
 	assert.Equal(t, "invalid", v.Verdict)
@@ -188,15 +203,15 @@ func TestVerifyPendingAbsenceFromTheArchive(t *testing.T) {
 	assert.Equal(t, "unknown", v.IntentSigner)
 	require.NotNil(t, v.Absence)
 	assert.Equal(t, "absent", v.Absence.Result)
-	assert.Equal(t, 3, v.Absence.Heights)
+	assert.Equal(t, 2, v.Absence.Heights)
 	assert.Equal(t, "fail", v.check("anchor").Status)
 
 	_, text := exec(t, []string{"verify", hex.EncodeToString(h[:]), "--archive", dir, "--gate-key", gk, "--trusted", trusted})
-	assert.Contains(t, text, "absence proof: absent at 4200201..4200203, 3 heights")
+	assert.Contains(t, text, "absence proof: absent at 4200201..4200202, 2 heights")
 	assert.Contains(t, text, "intent signer: unknown")
 
 	t.Run("a height missing", func(t *testing.T) {
-		dir, h := ac.pendingArchive(t, ac.ref.Height, ac.deadline)
+		dir, h := ac.pendingArchive(t, ac.ref.Height)
 		code, v := runFast(t, "verify", hex.EncodeToString(h[:]), "--archive", dir, "--gate-key", gk, "--trusted", ac.trusted(t, true))
 		assert.Equal(t, codeUnchecked, code)
 		c := v.check("anchor")
@@ -205,6 +220,7 @@ func TestVerifyPendingAbsenceFromTheArchive(t *testing.T) {
 		assert.Equal(t, "unknown", v.Publication)
 	})
 	t.Run("checkpoint below the deadline", func(t *testing.T) {
+		ac := loadAbsenceCase(t, "window_three_heights_proven")
 		dir, h := ac.pendingArchive(t, ac.ref.Height, ac.ref.Height+1, ac.deadline)
 		low := ac.recs[ac.deadline]
 		inner, err := headertrust.HeaderOfSigned(low.Header)
@@ -300,7 +316,7 @@ func serveProofs(t *testing.T, ac absenceCase) {
 }
 
 func TestAbsenceCommandWritesRecordsThatVerifyOffline(t *testing.T) {
-	ac := loadAbsenceCase(t, "window_three_heights_proven")
+	ac := loadAbsentWindow(t)
 	serveProofs(t, ac)
 	trusted := ac.trustedAt(t)
 	gk := gatePubHex(t)
@@ -310,8 +326,8 @@ func TestAbsenceCommandWritesRecordsThatVerifyOffline(t *testing.T) {
 	code, out := exec(t, []string{"absence", ref, "--archive", dir, "--gate-key", gk, "--trusted", trusted,
 		"--absence-source", "http://bridge.test:26658"})
 	require.Equal(t, codeValid, code, out)
-	assert.Contains(t, out, "absence: absent at 4200201..4200203, 3 heights")
-	assert.Contains(t, out, "3 records written")
+	assert.Contains(t, out, "absence: absent at 4200201..4200202, 2 heights")
+	assert.Contains(t, out, "2 records written")
 
 	s, err := fsarchive.OpenReadOnly(dir, nil)
 	require.NoError(t, err)
@@ -332,12 +348,12 @@ func TestAbsenceCommandWritesRecordsThatVerifyOffline(t *testing.T) {
 		var av absenceView
 		require.NoError(t, json.Unmarshal([]byte(out), &av))
 		assert.Equal(t, "absent", av.Result)
-		assert.Equal(t, 3, av.Heights)
+		assert.Equal(t, 2, av.Heights)
 	})
 }
 
 func TestAbsenceCommandKeepsUnprovenHeightsOut(t *testing.T) {
-	ac := loadAbsenceCase(t, "window_three_heights_proven")
+	ac := loadAbsentWindow(t)
 	served := ac
 	served.recs = map[uint64]*archive.AbsenceProofRecord{}
 	for h, r := range ac.recs {
@@ -361,7 +377,7 @@ func TestAbsenceCommandKeepsUnprovenHeightsOut(t *testing.T) {
 }
 
 func TestVerifyWithAbsenceSource(t *testing.T) {
-	ac := loadAbsenceCase(t, "window_three_heights_proven")
+	ac := loadAbsentWindow(t)
 	serveProofs(t, ac)
 	dir, h := ac.pendingArchive(t)
 	code, v := runFast(t, "verify", hex.EncodeToString(h[:]), "--archive", dir, "--gate-key", gatePubHex(t),
@@ -394,14 +410,14 @@ func TestAbsenceCommandUsage(t *testing.T) {
 // record under the wrong key, and a record re-keyed to the height fails the
 // header check.
 func TestForgedPresentProofFromAnotherHeight(t *testing.T) {
-	ac := loadAbsenceCase(t, "window_three_heights_proven")
+	ac := loadAbsentWindow(t)
 	present := loadAbsenceCase(t, "fibre_present")
 	from := present.recs[present.deadline]
 	gk := gatePubHex(t)
 	at := ac.ref.Height + 1
 
 	t.Run("under the wrong key", func(t *testing.T) {
-		dir, h := ac.pendingArchive(t, ac.ref.Height, ac.deadline)
+		dir, h := ac.pendingArchive(t, ac.ref.Height)
 		rel, err := archive.AbsencePath(ac.ref.DA, ac.ref.Commitment, at)
 		require.NoError(t, err)
 		b, err := archive.Encode(from)
@@ -423,7 +439,7 @@ func TestForgedPresentProofFromAnotherHeight(t *testing.T) {
 			ac2.recs[k] = r
 		}
 		ac2.recs[at] = &rekeyed
-		dir, h := ac2.pendingArchive(t, ac.ref.Height, at, ac.deadline)
+		dir, h := ac2.pendingArchive(t, ac.ref.Height, at)
 		code, v := runFast(t, "verify", hex.EncodeToString(h[:]), "--archive", dir, "--gate-key", gk, "--trusted", ac.trusted(t, true))
 		assert.Equal(t, codeUnchecked, code)
 		assert.Equal(t, "absence_unproven", v.check("anchor").Reason)

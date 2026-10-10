@@ -17,7 +17,7 @@ import (
 // its header is not the trusted one, so the height stays not proven, and a
 // later offline verify cannot be swayed by it.
 func TestAbsenceCommandRefusesAProofFromAnotherHeight(t *testing.T) {
-	ac := loadAbsenceCase(t, "window_three_heights_proven")
+	ac := loadAbsentWindow(t)
 	present := loadAbsenceCase(t, "fibre_present")
 	at := ac.ref.Height + 1
 	served := ac
@@ -46,4 +46,55 @@ func TestAbsenceCommandRefusesAProofFromAnotherHeight(t *testing.T) {
 	assert.Equal(t, codeUnchecked, code)
 	assert.Equal(t, "absence_unproven", v.check("anchor").Reason)
 	assert.Equal(t, "unknown", v.Publication)
+}
+
+// An included anchor whose PFF ran with a non-zero result code published the
+// payload inside the window. However the proofs reach the verifier, that
+// height is never read as absence: the anchor is unchecked anchor_unpaid,
+// never a fail, and no one is attributed.
+func TestUnpaidCandidateInWindowIsNeverInvalid(t *testing.T) {
+	ac := loadAbsenceCase(t, "window_three_heights_proven")
+	gk := gatePubHex(t)
+	for name, run := range map[string]func(t *testing.T) (int, fastJSON){
+		"every height archived": func(t *testing.T) (int, fastJSON) {
+			dir, h := ac.pendingArchive(t, ac.ref.Height, ac.ref.Height+1, ac.deadline)
+			return runFast(t, "verify", hex.EncodeToString(h[:]), "--archive", dir, "--gate-key", gk, "--trusted", ac.trustedAt(t))
+		},
+		"a height not proven": func(t *testing.T) (int, fastJSON) {
+			dir, h := ac.pendingArchive(t, ac.ref.Height, ac.deadline)
+			return runFast(t, "verify", hex.EncodeToString(h[:]), "--archive", dir, "--gate-key", gk, "--trusted", ac.trusted(t, true))
+		},
+		"from an absence source": func(t *testing.T) (int, fastJSON) {
+			serveProofs(t, ac)
+			dir, h := ac.pendingArchive(t)
+			return runFast(t, "verify", hex.EncodeToString(h[:]), "--archive", dir, "--gate-key", gk, "--trusted", ac.trustedAt(t),
+				"--absence-source", "http://bridge.test:26658")
+		},
+		"after the absence command": func(t *testing.T) (int, fastJSON) {
+			serveProofs(t, ac)
+			dir, h := ac.pendingArchive(t)
+			code, av, out := runAbsenceJSON(t, "absence", hex.EncodeToString(h[:]), "--archive", dir, "--gate-key", gk,
+				"--trusted", ac.trustedAt(t), "--absence-source", "http://bridge.test:26658")
+			require.Equal(t, codeValid, code, out)
+			assert.Equal(t, "present_unpaid", av.Result)
+			assert.Equal(t, ac.deadline, av.UnpaidHeight)
+			return runFast(t, "verify", hex.EncodeToString(h[:]), "--archive", dir, "--gate-key", gk, "--trusted", ac.trustedAt(t))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			code, v := run(t)
+			require.NotEqual(t, codeInvalid, code)
+			assert.Equal(t, codeUnchecked, code)
+			assert.Equal(t, "unchecked", v.Verdict)
+			c := v.check("anchor")
+			assert.Equal(t, "unchecked", c.Status, c.Error)
+			assert.Equal(t, "anchor_unpaid", c.Reason)
+			assert.Equal(t, ac.deadline, c.UnpaidHeight)
+			assert.Equal(t, "unknown", v.Publication)
+			assert.Empty(t, v.IntentSigner)
+			require.NotNil(t, v.Absence)
+			assert.Equal(t, "present_unpaid", v.Absence.Result)
+			assert.Equal(t, ac.deadline, v.Absence.UnpaidHeight)
+		})
+	}
 }

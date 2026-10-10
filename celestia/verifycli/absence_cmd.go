@@ -37,6 +37,7 @@ type absenceView struct {
 	AnchorDeadline uint64              `json:"anchor_deadline"`
 	Result         string              `json:"result"`
 	AnchorHeight   uint64              `json:"anchor_height,omitempty"`
+	UnpaidHeight   uint64              `json:"unpaid_height,omitempty"`
 	FirstUnproven  uint64              `json:"first_unproven,omitempty"`
 	Heights        int                 `json:"heights"`
 	Bytes          int                 `json:"bytes"`
@@ -137,6 +138,14 @@ func runAbsence(ctx context.Context, f flags, out io.Writer) (int, error) {
 		if hv.Result == absence.Present.String() {
 			view.Result, view.AnchorHeight = string(verifier.AbsencePresent), hv.Height
 			break
+		}
+	}
+	if view.Result == string(verifier.AbsenceAbsent) {
+		for _, hv := range view.PerHeight {
+			if hv.Result == absence.PresentUnpaid.String() {
+				view.Result, view.UnpaidHeight = string(verifier.AbsencePresentUnpaid), hv.Height
+				break
+			}
 		}
 	}
 	if view.Result == string(verifier.AbsenceAbsent) {
@@ -268,6 +277,9 @@ func writeAbsenceText(out io.Writer, v absenceView) {
 		p("absence: absent at %d..%d, %d heights, %d bytes; %d records written%s", v.H0, v.AnchorDeadline, v.Heights, v.Bytes, v.Written, kept(v))
 	case string(verifier.AbsencePresent):
 		p("absence: the anchor is present at %d; %d records written%s", v.AnchorHeight, v.Written, kept(v))
+	case string(verifier.AbsencePresentUnpaid):
+		p("absence: the anchor is included with a non-zero result code at %d (unpaid), never absent; %d records written%s",
+			v.UnpaidHeight, v.Written, kept(v))
 	default:
 		p("absence: not proven, first height %d; %d of %d records written%s", v.FirstUnproven, v.Written, v.Heights, kept(v))
 	}

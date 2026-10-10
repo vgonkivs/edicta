@@ -50,7 +50,7 @@ func runAbsenceJSON(t *testing.T, args ...string) (int, absenceView, string) {
 // keeps one that does: write-once by key would otherwise leave a bad copy
 // in place for good.
 func TestAbsenceCommandRepairsTheArchive(t *testing.T) {
-	ac := loadAbsenceCase(t, "window_three_heights_proven")
+	ac := loadAbsentWindow(t)
 	serveProofs(t, ac)
 	gk := gatePubHex(t)
 	trusted := ac.trustedAt(t)
@@ -61,12 +61,12 @@ func TestAbsenceCommandRepairsTheArchive(t *testing.T) {
 	}
 
 	t.Run("a bad archived proof is replaced, good ones kept", func(t *testing.T) {
-		dir, h := ac.withRecord(mid, ac.badDAH(mid)).pendingArchive(t, ac.ref.Height, mid, ac.deadline)
+		dir, h := ac.withRecord(mid, ac.badDAH(mid)).pendingArchive(t, ac.ref.Height, mid)
 		code, v, out := runAbsenceJSON(t, args(dir, h)...)
 		require.Equal(t, codeValid, code, out)
 		assert.Equal(t, "absent", v.Result)
 		assert.Equal(t, 1, v.Written)
-		assert.Equal(t, 2, v.Kept)
+		assert.Equal(t, 1, v.Kept)
 		for _, hv := range v.PerHeight {
 			assert.Equal(t, hv.Height == mid, hv.Replaced, "height %d", hv.Height)
 			assert.Equal(t, hv.Height != mid, hv.Kept, "height %d", hv.Height)
@@ -84,7 +84,7 @@ func TestAbsenceCommandRepairsTheArchive(t *testing.T) {
 
 		_, text := exec(t, args(dir, h))
 		assert.Contains(t, text, "a verifying proof is already archived")
-		assert.Contains(t, text, "3 already archived")
+		assert.Contains(t, text, "2 already archived")
 	})
 	t.Run("an archived proof without a header is replaced", func(t *testing.T) {
 		headerless, err := (&cmtproto.SignedHeader{Commit: &cmtproto.Commit{Height: int64(mid)}}).Marshal()
@@ -125,7 +125,7 @@ func TestAbsenceCommandRepairsTheArchive(t *testing.T) {
 		code, v, out := runAbsenceJSON(t, args(dir, h)...)
 		require.Equal(t, codeUnchecked, code, out)
 		assert.Equal(t, "absent", v.Result, "every height verified")
-		assert.Equal(t, 2, v.Written)
+		assert.Equal(t, 1, v.Written)
 		for _, hv := range v.PerHeight {
 			if hv.Height == mid {
 				assert.False(t, hv.Written)
@@ -156,7 +156,7 @@ func (c *countingProofs) SignedHeader(ctx context.Context, h uint64) ([]byte, er
 // or block the height: --absence-source is asked first, and one walk from
 // the checkpoint serves every height of the window.
 func TestVerifyBadArchivedHeaderWithAbsenceSource(t *testing.T) {
-	ac := loadAbsenceCase(t, "window_three_heights_proven")
+	ac := loadAbsentWindow(t)
 	src := &countingProofs{vectorProofs: vectorProofs{ac}, reads: map[uint64]int{}}
 	prev := newProofSource
 	newProofSource = func(context.Context, string) (absence.ProofSource, string, func(), error) {
@@ -167,7 +167,7 @@ func TestVerifyBadArchivedHeaderWithAbsenceSource(t *testing.T) {
 	mid := ac.ref.Height + 1
 	forged := *ac.recs[mid]
 	forged.Header = ac.recs[ac.ref.Height].Header
-	dir, h := ac.withRecord(mid, &forged).pendingArchive(t, ac.ref.Height, mid, ac.deadline)
+	dir, h := ac.withRecord(mid, &forged).pendingArchive(t, ac.ref.Height, mid)
 	code, v := runFast(t, "verify", hex.EncodeToString(h[:]), "--archive", dir, "--gate-key", gatePubHex(t),
 		"--trusted", ac.trustedAt(t), "--absence-source", "http://bridge.test:26658")
 	assert.Equal(t, codeInvalid, code)

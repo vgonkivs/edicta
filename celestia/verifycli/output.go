@@ -24,6 +24,8 @@ type checkView struct {
 	Sources []string `json:"sources,omitempty"`
 	Advice  string   `json:"advice,omitempty"`
 	Error   string   `json:"error,omitempty"`
+	// UnpaidHeight is set on the anchor check with anchor_unpaid.
+	UnpaidHeight uint64 `json:"unpaid_height,omitempty"`
 }
 
 type trustView struct {
@@ -225,6 +227,7 @@ type absenceInfo struct {
 	Bytes         uint64   `json:"bytes"`
 	FirstUnproven uint64   `json:"first_unproven,omitempty"`
 	AnchorHeight  uint64   `json:"anchor_height,omitempty"`
+	UnpaidHeight  uint64   `json:"unpaid_height,omitempty"`
 	Sources       []string `json:"sources,omitempty"`
 }
 
@@ -325,10 +328,14 @@ func viewOf(r verifier.Report) reportView {
 		}
 	}
 	for _, c := range r.Checks {
-		v.Checks = append(v.Checks, checkView{
+		cv := checkView{
 			Name: string(c.Name), Status: string(c.Status), Reason: string(c.Reason), Sources: c.Sources,
 			Advice: c.Reason.Advice(), Error: errText(c.Err),
-		})
+		}
+		if c.Name == verifier.CheckAnchor && c.Reason == verifier.ReasonAnchorUnpaid && r.Fast != nil && r.Fast.Absence != nil {
+			cv.UnpaidHeight = r.Fast.Absence.UnpaidHeight
+		}
+		v.Checks = append(v.Checks, cv)
 	}
 	if a := r.Authorization; a != nil {
 		v.Authorization = &authView{Path: pathName(a.Path), Expires: a.Expires, AuthorizedAt: a.AuthorizedAt, Mode: modeName(a.Mode)}
@@ -339,7 +346,7 @@ func viewOf(r verifier.Report) reportView {
 		v.Publication, v.IntentSigner = string(fi.Publication), fi.IntentSigner
 		if w := fi.Absence; w != nil {
 			v.Absence = &absenceInfo{Result: string(w.Result), Heights: w.Heights, Bytes: w.Bytes,
-				FirstUnproven: w.FirstUnproven, AnchorHeight: w.AnchorHeight, Sources: w.Sources}
+				FirstUnproven: w.FirstUnproven, AnchorHeight: w.AnchorHeight, UnpaidHeight: w.UnpaidHeight, Sources: w.Sources}
 		}
 		if r.Verdict == verifier.VerdictValid {
 			v.Assumptions = append([]string(nil), verifier.FastAssumptions...)
@@ -532,6 +539,8 @@ func writeText(out io.Writer, v reportView, colour bool) {
 				p("absence proof: absent at %d..%d, %d heights, %d bytes", v.H0, v.AnchorDeadline, a.Heights, a.Bytes)
 			case string(verifier.AbsencePresent):
 				p("absence proof: the anchor is present at %d", a.AnchorHeight)
+			case string(verifier.AbsencePresentUnpaid):
+				p("absence proof: the anchor is included with a non-zero result code at %d (unpaid)", a.UnpaidHeight)
 			default:
 				p("absence proof: not proven, first height %d", a.FirstUnproven)
 			}
