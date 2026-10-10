@@ -1,0 +1,37 @@
+{
+  "format": "edicta-vectors/v1",
+  "revision": "v1.0.3",
+  "generator": "spec/vectors/check/gen_v1_0_3.py",
+  "description": "Reasons added by spec revision v1.0.3, in the layout of verifier/reasons.json. The enum of v1.0.3 is the reasons of extends plus these; the cases of extends stay as they are.",
+  "extends": "verifier/reasons.json",
+  "reasons": [
+    {
+      "name": "anchor_unpaid",
+      "group": "configuration",
+      "checks": [
+        "anchor"
+      ],
+      "meaning": "Anchor included, non-zero result code; not confirmable by v1.0 verifiers. Pending reference, no evidence inside the window, and an absence proof shows a PFF candidate at a height of [h0, anchor_deadline] whose result code is proven non-zero, with no height showing one with code 0. Names the first such height.",
+      "advice": "none in v1.0 (a v1.1 verifier confirms inclusion without the code); another archive copy or --absence-source if a paid anchor may sit at a height not proven"
+    }
+  ],
+  "cases": [
+    {
+      "id": "anchor_unpaid",
+      "description": "Fast mode: no evidence, and an in-window candidate whose result code is proven non-zero.",
+      "setup": {},
+      "refs": [
+        "v1/verify_v1.0.3.json#fast_unpaid_in_window"
+      ],
+      "expect": {
+        "check": "anchor",
+        "status": "unchecked",
+        "reason": "anchor_unpaid",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    }
+  ],
+  "boundary": []
+}

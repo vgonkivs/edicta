@@ -27,10 +27,27 @@ The two sequences may share a commit and need not share a number:
 while the software tags `v1.0.2` and `v1.0.3` are code-only releases of spec
 revision `v1.0.1`. No freeze tag ever moves.
 
-An erratum or clarification never changes a check outcome. A stricter
-outcome is a `security` revision (only to close a path to a false `valid` or
-`invalid`, with the human's approval); a relaxation needs a minor revision
-`v1.1` (core section 0).
+An erratum or clarification never changes a check outcome. An outcome moved
+toward INCONCLUSIVE (a verifier `pass` or `fail` that becomes `unchecked`;
+for the gate, decoders and executor an acceptance that becomes a refusal) is
+a `security` revision, only to close a path to a false `valid` or `invalid`,
+with the human's approval; any move away from INCONCLUSIVE, or between
+`pass` and `fail`, needs a minor revision `v1.1` (core section 0).
+
+Erratum versus security revision (human decision of 2026-10-10), for the
+vectors:
+
+| | Erratum | Security revision |
+|---|---|---|
+| What was wrong | The frozen vector contradicted frozen spec text: it was never correct (E1: `kind_13`). | Nothing: the old vector was correct for its spec revision; the spec changed behavior. |
+| Vector file | Fixed in place; `MANIFEST.sha256` updated. | Kept byte-identical. The changed cases are listed in `spec/vectors/SUPERSEDED.json` (file, case, changelog entry, replacing case); the new expectations on the same inputs go into a new file; `MANIFEST.sha256` gains the new files. |
+| Checkers and tests | Run the fixed case. | Run the frozen file except the listed cases, and the replacing cases; never skip a case outside the list. |
+| Recorded in | This file (an id `E<n>`) and core section 0. | Core section 0 (type `security`) and the section it changes. |
+
+Security revisions so far: `v1.0.3` (core 20.8, AB5: an in-window PFF
+candidate is never absence; new reason `anchor_unpaid`; superseded
+`da/absence.json` cases `fibre_candidate_nonzero_code` and
+`window_three_heights_proven`).
 
 Threat note: a frozen vector that contradicts the frozen text pushes
 implementations to invent a rule that no text defines. Here that rule would

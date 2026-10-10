@@ -1,0 +1,21 @@
+{
+  "format": "edicta-vectors/v1",
+  "revision": "v1.0.3",
+  "description": "Frozen vector cases whose expectation a security revision changed (core section 0). The listed file stays byte-identical and its case stays correct for the revision the file names; a checker or test of a later revision skips the case only through this list and runs replaced_by instead, on the same inputs. revision names the changelog entry of core section 0. An erratum is not listed here: it fixes a vector in place.",
+  "entries": [
+    {
+      "file": "da/absence.json",
+      "case": "fibre_candidate_nonzero_code",
+      "revision": "v1.0.3",
+      "type": "security",
+      "replaced_by": "da/absence_v1.0.3.json#fibre_candidate_nonzero_code"
+    },
+    {
+      "file": "da/absence.json",
+      "case": "window_three_heights_proven",
+      "revision": "v1.0.3",
+      "type": "security",
+      "replaced_by": "da/absence_v1.0.3.json#window_three_heights_proven"
+    }
+  ]
+}

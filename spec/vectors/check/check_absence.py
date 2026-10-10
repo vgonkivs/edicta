@@ -51,6 +51,9 @@ import check_fibre_cert as FC
 HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
 FORMAT, REVISION = "edicta-vectors/v1", "v1.0"
+# Rule sets: the frozen file is checked under the rules of its own revision; the current revision's run
+# (check_v1_0_3.py) uses V1_0_3, under which a candidate height is never absent.
+V1_0, V1_0_3 = "v1.0", "v1.0.3"
 APP_VERSION = 10
 SYNTHETIC = ("fibre_candidate_nonzero_code", "fibre_present", "window_three_heights_proven",
              "window_one_height_missing", "tampered_row_root", "cut_namespace_entry", "candidate_other_app_version",
@@ -189,7 +192,7 @@ def check_commitment_code() -> int:
     return len(d["cases"])
 
 
-def classify(rec: dict, q: dict, h: int, trusted: dict) -> dict:
+def classify(rec: dict, q: dict, h: int, trusted: dict, rules: str = V1_0) -> dict:
     """One height: absent, present or unproven, with the rule that decides."""
     need(rec["da"] == q["da"] and rec["commitment"] == q["commitment"] and rec["namespace"] == q["namespace"]
          and rec["height"] == h, "record", "the record is not about this query and height")
@@ -278,19 +281,25 @@ def classify(rec: dict, q: dict, h: int, trusted: dict) -> dict:
         i = n - p + j
         found.append({"position": str(j), "result_index": str(i), "code": res[i]["code"]})
     out["candidates"] = found
-    present = any(c["code"] == "0" for c in found)
-    return {**out, "result": "present" if present else "absent", "rule": "AB5"}
+    if any(c["code"] == "0" for c in found):
+        return {**out, "result": "present", "rule": "AB5"}
+    # An included PFF publishes the payload whatever its code; only v1.0 read a proven nonzero code as absence.
+    return {**out, "result": "present_unpaid" if rules == V1_0_3 else "absent", "rule": "AB5"}
 
 
-def window(heights: list) -> dict:
+def window(heights: list, rules: str = V1_0) -> dict:
     present = next((x["height"] for x in heights if x["result"] == "present"), None)
     if present:
         return {"result": "present", "anchor_height": present}
+    unpaid = next((x["height"] for x in heights if x["result"] == "present_unpaid"), None)
+    if unpaid:
+        expect(rules == V1_0_3, "present_unpaid under the v1.0 rules")
+        return {"result": "present_unpaid", "unpaid_height": unpaid}
     miss = next((x["height"] for x in heights if x["result"] != "absent"), None)
     return {"result": "absent"} if miss is None else {"result": "unproven", "first_unproven": miss}
 
 
-def check_case(c: dict, chain_id: str) -> set:
+def check_case(c: dict, chain_id: str, rules: str = V1_0) -> set:
     cid = c["id"]
     expect(set(c) - {"app_versions", "results_counts", "chain_variant"} == {"id", "description", "query", "trusted_headers", "records",
                                                           "expect"},
@@ -321,10 +330,10 @@ def check_case(c: dict, chain_id: str) -> set:
             got.append({"height": str(h), "result": "unproven", "rule": "none"})
             continue
         try:
-            got.append({"height": str(h), **classify(recs[str(h)], q, h, c["trusted_headers"])})
+            got.append({"height": str(h), **classify(recs[str(h)], q, h, c["trusted_headers"], rules)})
         except Unproven as u:
             got.append({"height": str(h), "result": "unproven", "rule": u.rule})
-    exp = c["expect"]["heights"]
+    exp = [dict(x) for x in c["expect"]["heights"]]
     expect(len(exp) == len(got), f"{cid}: heights")
     for e, g in zip(exp, got):
         where = f"{cid} at {g['height']}"
@@ -333,7 +342,7 @@ def check_case(c: dict, chain_id: str) -> set:
             for k in ("rows", "pff_txs", "candidates", "blobs"):
                 g.pop(k, None)
         expect(e == g, f"{where}: vector {e}, checker {g}")
-    expect(c["expect"]["window"] == window(got), f"{cid}: window")
+    expect(c["expect"]["window"] == window(got, rules), f"{cid}: window")
     return {g["rule"] for g in got}
 
 

@@ -836,7 +836,7 @@ OTHER_CHECKERS = [
     "check_api_vectors.py", "check_api_errors.py", "check_fibre_commit.py", "check_archive.py",
     "check_fibre_cert.py", "check_fibre_anchor.py", "check_execution_outcomes.py", "check_verifier_reasons.py",
     "check_policy.py", "check_private_cap.py", "check_archive_v1.py", "check_principal.py", "check_absence.py",
-    "check_records.py",
+    "check_records.py", "check_v1_0_3.py",
 ]
 
 

@@ -70,7 +70,12 @@ def check(path: Path) -> str:
     f = json.loads(raw)
     if path == FILE:
         expect(raw == json.dumps(gen.build(), indent=2, ensure_ascii=True) + "\n", "generator output differs")
-    expect(f["format"] == "edicta-vectors/v1" and f["revision"] == "v1.0", "format or revision")
+    return check_data(f)
+
+
+def check_data(f: dict, revision: str = "v1.0") -> str:
+    """One enum with its cases; a later revision passes the merged enum of the frozen file and its additions."""
+    expect(f["format"] == "edicta-vectors/v1" and f["revision"] == revision, "format or revision")
     expect(set(f) == {"format", "revision", "generator", "description", "reasons", "cases", "boundary"}, "keys")
     enum = {}
     for r in f["reasons"]:

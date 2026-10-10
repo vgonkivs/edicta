@@ -227,7 +227,8 @@ def check_archive(f: dict, verify: dict) -> str:
     return f"{len(f['cases'])} records, {len(f['reject'])} reject, {len(f['reads'])} reads"
 
 
-def outcome(c: dict, records: dict, window: int) -> dict:
+def outcome(c: dict, records: dict, window: int, rules: str = REVISION) -> dict:
+    """The anchor and authorization outcomes; rules "v1.0.3" adds the present_unpaid height (anchor_unpaid)."""
     dec = A.decode_record(bytes.fromhex(records[c["decision"]]["record_cbor_hex"]))
     au = A.decode_record(bytes.fromhex(records[c["authorization"]]["record_cbor_hex"]))
     cm = commitment_ref(commitment_bytes(dec["envelope"]))
@@ -258,6 +259,9 @@ def outcome(c: dict, records: dict, window: int) -> dict:
             window_ = range(h0, dl + 1)
             all_absent = all(ab.get(h) == "absent" for h in window_)
             gap = next((h for h in window_ if ab.get(h) != "absent"), None)
+            present = any(ab.get(h) == "present" for h in window_)
+            unpaid = next((h for h in window_ if ab.get(h) == "present_unpaid"), None)
+            expect(unpaid is None or rules == "v1.0.3", "present_unpaid under the v1.0 rules")
             ev = c.get("evidence")
             if ev and ev["verifies"] and int(ev["height"]) < h0:
                 out["anchor"] = {"status": "unchecked", "reason": "source_corrupt"}
@@ -270,7 +274,10 @@ def outcome(c: dict, records: dict, window: int) -> dict:
                 rep |= {"anchor_height": ev["height"], "publication": "anchored"}
             elif ev and ev["verifies"]:
                 rep["anchor_height"] = ev["height"]
-                if all_absent:
+                if unpaid is not None and not present:
+                    out["anchor"] = {"status": "unchecked", "reason": "anchor_unpaid", "unpaid_height": str(unpaid)}
+                    rep["publication"] = "unknown"
+                elif all_absent:
                     out["anchor"] = {"status": "fail", "rule": "anchor_absent"}
                     rep["publication"] = "failed"
                 else:
@@ -279,10 +286,13 @@ def outcome(c: dict, records: dict, window: int) -> dict:
             elif head_ < dl + (1 if c.get("needs_results") else 0):
                 out["anchor"] = {"status": "unchecked", "reason": "anchor_pending"}
                 rep["publication"] = "unknown"
-            elif any(ab.get(h) == "present" for h in window_):
+            elif present:
                 out["anchor"] = {"status": "unchecked", "reason": "evidence_unavailable"}
                 rep |= {"anchor_height": str(min(h for h in window_ if ab.get(h) == "present")),
                         "publication": "unknown"}
+            elif unpaid is not None:
+                out["anchor"] = {"status": "unchecked", "reason": "anchor_unpaid", "unpaid_height": str(unpaid)}
+                rep["publication"] = "unknown"
             elif all_absent:
                 out["anchor"] = {"status": "fail", "rule": "anchor_absent"}
                 rep["publication"] = "failed"

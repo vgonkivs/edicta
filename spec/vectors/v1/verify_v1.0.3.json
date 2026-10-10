@@ -1,0 +1,240 @@
+{
+  "format": "edicta-vectors/v1",
+  "revision": "v1.0.3",
+  "generator": "spec/vectors/check/gen_v1_0_3.py",
+  "description": "Verifier outcomes of the authorization and anchor checks under spec revision v1.0.3 (core 20.6), in the layout of the cases of v1/verify.json; decision and authorization name records of records_from. absence gives the per-height results, with the new value present_unpaid (core 20.8, AB5); a height of [h0, deadline] not listed has no proof. The anchor check of an anchor_unpaid outcome carries unpaid_height.",
+  "records_from": "v1/verify.json",
+  "window": "3",
+  "cases": [
+    {
+      "id": "fast_unpaid_in_window",
+      "description": "No evidence; the absence proofs show every height absent except h0 + 2, where a candidate with a proven nonzero code is present unpaid. Up to v1.0.2 that height read absent and the verdict was invalid (anchor_absent); since v1.0.3 it is unchecked, anchor_unpaid.",
+      "decision": "decision_pending_fibre",
+      "authorization": "authorization_fast_fibre",
+      "trusted_head": "4200127",
+      "absence": [
+        {
+          "height": "4200123",
+          "result": "absent"
+        },
+        {
+          "height": "4200124",
+          "result": "absent"
+        },
+        {
+          "height": "4200125",
+          "result": "present_unpaid"
+        },
+        {
+          "height": "4200126",
+          "result": "absent"
+        }
+      ],
+      "refs": [
+        "da/absence_v1.0.3.json#window_three_heights_proven"
+      ],
+      "expect": {
+        "authorization": {
+          "status": "pass"
+        },
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_unpaid",
+          "unpaid_height": "4200125"
+        },
+        "report": {
+          "version": "1",
+          "mode": "fast",
+          "h0": "4200123",
+          "anchor_deadline": "4200126",
+          "publication": "unknown"
+        },
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "fast_unpaid_with_unproven_height",
+      "description": "No evidence; no proof for h0 + 1; present unpaid at the deadline. anchor_unpaid names the unpaid height ahead of the height not proven.",
+      "decision": "decision_pending_fibre",
+      "authorization": "authorization_fast_fibre",
+      "trusted_head": "4200127",
+      "absence": [
+        {
+          "height": "4200123",
+          "result": "absent"
+        },
+        {
+          "height": "4200125",
+          "result": "absent"
+        },
+        {
+          "height": "4200126",
+          "result": "present_unpaid"
+        }
+      ],
+      "refs": [
+        "da/absence_v1.0.3.json#window_unpaid_with_unproven_height"
+      ],
+      "expect": {
+        "authorization": {
+          "status": "pass"
+        },
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_unpaid",
+          "unpaid_height": "4200126"
+        },
+        "report": {
+          "version": "1",
+          "mode": "fast",
+          "h0": "4200123",
+          "anchor_deadline": "4200126",
+          "publication": "unknown"
+        },
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "fast_paid_after_unpaid",
+      "description": "No evidence; present unpaid at h0 + 1 and present with code 0 at h0 + 2: the paid anchor decides, used as evidence, which the verifier cannot build in full here.",
+      "decision": "decision_pending_fibre",
+      "authorization": "authorization_fast_fibre",
+      "trusted_head": "4200127",
+      "absence": [
+        {
+          "height": "4200123",
+          "result": "absent"
+        },
+        {
+          "height": "4200124",
+          "result": "present_unpaid"
+        },
+        {
+          "height": "4200125",
+          "result": "present"
+        },
+        {
+          "height": "4200126",
+          "result": "absent"
+        }
+      ],
+      "refs": [
+        "da/absence_v1.0.3.json#window_paid_after_unpaid"
+      ],
+      "expect": {
+        "authorization": {
+          "status": "pass"
+        },
+        "anchor": {
+          "status": "unchecked",
+          "reason": "evidence_unavailable"
+        },
+        "report": {
+          "version": "1",
+          "mode": "fast",
+          "h0": "4200123",
+          "anchor_deadline": "4200126",
+          "anchor_height": "4200125",
+          "publication": "unknown"
+        },
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "fast_late_evidence_unpaid_in_window",
+      "description": "Evidence at H = deadline + 1 verifies; inside the window h0 + 1 is present unpaid. The payload was included inside the window, so absence is not proven: anchor_unpaid, never anchor_absent.",
+      "decision": "decision_pending_fibre",
+      "authorization": "authorization_fast_fibre",
+      "trusted_head": "4200127",
+      "evidence": {
+        "height": "4200127",
+        "verifies": true
+      },
+      "absence": [
+        {
+          "height": "4200123",
+          "result": "absent"
+        },
+        {
+          "height": "4200124",
+          "result": "present_unpaid"
+        },
+        {
+          "height": "4200125",
+          "result": "absent"
+        },
+        {
+          "height": "4200126",
+          "result": "absent"
+        }
+      ],
+      "refs": [
+        "da/absence_v1.0.3.json#fibre_candidate_nonzero_code"
+      ],
+      "expect": {
+        "authorization": {
+          "status": "pass"
+        },
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_unpaid",
+          "unpaid_height": "4200124"
+        },
+        "report": {
+          "version": "1",
+          "mode": "fast",
+          "h0": "4200123",
+          "anchor_deadline": "4200126",
+          "anchor_height": "4200127",
+          "publication": "unknown"
+        },
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    },
+    {
+      "id": "fast_unpaid_results_wait",
+      "description": "No evidence; present unpaid at h0 + 1, and the deadline height's results proof waits for the header at deadline + 1, which header trust does not reach yet: anchor_pending decides first.",
+      "decision": "decision_pending_fibre",
+      "authorization": "authorization_fast_fibre",
+      "trusted_head": "4200126",
+      "needs_results": true,
+      "absence": [
+        {
+          "height": "4200123",
+          "result": "absent"
+        },
+        {
+          "height": "4200124",
+          "result": "present_unpaid"
+        },
+        {
+          "height": "4200125",
+          "result": "absent"
+        }
+      ],
+      "refs": [],
+      "expect": {
+        "authorization": {
+          "status": "pass"
+        },
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_pending"
+        },
+        "report": {
+          "version": "1",
+          "mode": "fast",
+          "h0": "4200123",
+          "anchor_deadline": "4200126",
+          "publication": "unknown"
+        },
+        "verdict": "unchecked",
+        "exit": "2"
+      }
+    }
+  ]
+}
