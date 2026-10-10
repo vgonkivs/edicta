@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
+	"sort"
 
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 
@@ -141,7 +143,8 @@ func headerInfo(raw []byte, height uint64) (verifier.ChainHeader, error) {
 
 // Absence checks [ref.Height, deadline]: the archived proof of each height,
 // or a fetched one where the archive has none that decodes. A header hash
-// confirm refuses leaves its height unproven.
+// confirm refuses leaves its height unproven. Heights are checked one at a
+// time, so at most one proof is held in memory.
 func (c *Chain) Absence(ctx context.Context, ref commitment.PayloadRef, deadline uint64, confirm verifier.Confirm) (verifier.AbsenceWindow, error) {
 	h0 := ref.Height
 	q := Query{DA: ref.DA, Namespace: ref.Namespace, Commitment: ref.Commitment}
@@ -154,96 +157,84 @@ func (c *Chain) Absence(ctx context.Context, ref commitment.PayloadRef, deadline
 	if err := q.validateTarget(); err != nil {
 		return unprovenAt(h0, err), nil
 	}
-	if h0 == 0 || deadline < h0 || deadline-h0 > MaxWindow {
+	if h0 == 0 || deadline < h0 || deadline-h0 > MaxWindow || deadline > math.MaxInt64 {
 		return unprovenAt(h0, fmt.Errorf("%w: [%d, %d]", ErrWindow, h0, deadline)), nil
 	}
 
-	recs := make(map[uint64]*archive.AbsenceProofRecord, deadline-h0+1)
-	causes := map[uint64]error{}
+	out := verifier.AbsenceWindow{Heights: int(deadline - h0 + 1)}
 	srcs := map[string]bool{}
-	var size uint64
+	outcomes := make([]Outcome, 0, deadline-h0+1)
 	for h := h0; h <= deadline; h++ {
 		rec, src, err := c.record(ctx, q, h)
 		if cerr := ctx.Err(); cerr != nil {
 			return verifier.AbsenceWindow{}, cerr
 		}
 		if err != nil {
-			causes[h] = err
+			outcomes = append(outcomes, unproven(h, RuleNoProof, ErrNoProof, "%w", err))
 			continue
 		}
-		recs[h], srcs[src] = rec, true
-		size += uint64(Size(rec))
-	}
-
-	trusted := TrustedHashes{}
-	chainID := ""
-	tie := func(h uint64, raw []byte) {
-		if _, done := trusted[h]; done || raw == nil {
-			return
-		}
-		var pb cmtproto.SignedHeader
-		if pb.Unmarshal(raw) != nil {
-			return
-		}
-		sh, err := core.SignedHeaderFromProto(&pb)
-		if err != nil || sh.Height < 0 || uint64(sh.Height) != h {
-			return
-		}
-		hash := sh.Header.Hash()
-		if confirm(ctx, h, hash) {
-			trusted[h] = hash
-			if chainID == "" {
-				chainID = sh.ChainID
+		srcs[src] = true
+		out.Bytes += uint64(Size(rec))
+		trusted := TrustedHashes{}
+		for _, part := range []struct {
+			at  uint64
+			raw []byte
+		}{{h, rec.Header}, {h + 1, rec.NextHeader}} {
+			hash, chainID, ok := headerHash(part.raw, part.at)
+			if ok && confirm(ctx, part.at, hash) {
+				trusted[part.at] = hash
+				if out.ChainID == "" {
+					out.ChainID = chainID
+				}
 			}
 		}
-	}
-	for h := h0; h <= deadline; h++ {
-		if rec := recs[h]; rec != nil {
-			tie(h, rec.Header)
-			tie(h+1, rec.NextHeader)
+		if cerr := ctx.Err(); cerr != nil {
+			return verifier.AbsenceWindow{}, cerr
 		}
+		hq := q
+		hq.ChainID = out.ChainID
+		if q.DA == commitment.DAFibre && hq.ChainID == "" {
+			outcomes = append(outcomes, unproven(h, RuleHeader, ErrHeader, "the header at %d does not tie to the trusted chain", h))
+			continue
+		}
+		outcomes = append(outcomes, VerifyHeight(rec, hq, h, trusted))
 	}
-	if cerr := ctx.Err(); cerr != nil {
-		return verifier.AbsenceWindow{}, cerr
-	}
-	q.ChainID = chainID
-	out := verifier.AbsenceWindow{Bytes: size, ChainID: chainID, Heights: int(deadline - h0 + 1)}
 	for s := range srcs {
 		out.Sources = append(out.Sources, s)
 	}
-	if q.DA == commitment.DAFibre && chainID == "" {
-		// No header of the window is the chain's, so nothing is proven.
-		out.Result, out.FirstUnproven = verifier.AbsenceUnproven, h0
-		out.Cause = firstCause(causes, h0, fmt.Errorf("%w: no header of the window ties to the trusted chain", ErrHeader))
-		return out, nil
+	sort.Strings(out.Sources)
+	out.ResultsAtDeadline = outcomes[len(outcomes)-1].Rule == RuleResults
+	out.Result = verifier.AbsenceAbsent
+	for _, o := range outcomes {
+		if o.Result == Present {
+			out.Result, out.AnchorHeight = verifier.AbsencePresent, o.Height
+			return out, nil
+		}
 	}
-	w, err := VerifyWindow(q, h0, deadline, recs, trusted)
-	if err != nil {
-		return unprovenAt(h0, err), nil
-	}
-	if o := w.Heights[len(w.Heights)-1]; o.Rule == RuleResults {
-		out.ResultsAtDeadline = true
-	}
-	switch w.Result {
-	case Absent:
-		out.Result = verifier.AbsenceAbsent
-	case Present:
-		out.Result, out.AnchorHeight = verifier.AbsencePresent, w.AnchorHeight
-	default:
-		out.Result, out.FirstUnproven = verifier.AbsenceUnproven, w.FirstUnproven
-		out.Cause = w.Heights[w.FirstUnproven-h0].Err
-		if cause, ok := causes[w.FirstUnproven]; ok {
-			out.Cause = fmt.Errorf("%w: %w", out.Cause, cause)
+	for _, o := range outcomes {
+		if o.Result != Absent {
+			out.Result, out.FirstUnproven, out.Cause = verifier.AbsenceUnproven, o.Height, o.Err
+			return out, nil
 		}
 	}
 	return out, nil
 }
 
-func firstCause(causes map[uint64]error, h uint64, fallback error) error {
-	if err, ok := causes[h]; ok {
-		return fmt.Errorf("%w: %w", fallback, err)
+// headerHash decodes a protobuf SignedHeader at height h and returns its
+// hash and chain id.
+func headerHash(raw []byte, h uint64) ([]byte, string, bool) {
+	if raw == nil {
+		return nil, "", false
 	}
-	return fallback
+	var pb cmtproto.SignedHeader
+	if pb.Unmarshal(raw) != nil {
+		return nil, "", false
+	}
+	sh, err := core.SignedHeaderFromProto(&pb)
+	if err != nil || sh.Height < 0 || uint64(sh.Height) != h {
+		return nil, "", false
+	}
+	return sh.Header.Hash(), sh.ChainID, true
 }
 
 // record reads the proof of h from the archive, or fetches it.

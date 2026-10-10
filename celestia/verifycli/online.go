@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/cometrpc"
 	"github.com/vgonkivs/edicta/celestia/headertrust"
@@ -579,4 +581,39 @@ func (b *bankChecker) CheckExecution(ctx context.Context, in verifier.ExecutionI
 		return verifier.ExecutionFacts{}, err
 	}
 	return c.CheckExecution(ctx, in)
+}
+
+// PublicExecution: a bank send is a public transaction, so the gate's reveal
+// of a private action can be checked against it.
+func (b *bankChecker) PublicExecution() bool { return true }
+
+// ActionFromTx rebuilds the action of the transaction the receipt names. The
+// action of a private decision is not known, so its chain id is that of the
+// trusted header at the reference height: a transaction on another chain
+// gives another action, which the action hash then refuses.
+func (b *bankChecker) ActionFromTx(ctx context.Context, in verifier.ExecutionInput) ([]byte, error) {
+	headers := trustedChain{b.headers, b.trust}
+	raw, err := headers.Header(ctx, in.AnchorHeight)
+	if err != nil {
+		return nil, err
+	}
+	var ph cmtproto.Header
+	if err := ph.Unmarshal(raw); err != nil || ph.ChainID == "" {
+		return nil, fmt.Errorf("the trusted header at %d names no chain", in.AnchorHeight)
+	}
+	primary := b.txs[0]
+	var alts []railverify.TxSource
+	for _, s := range distinctNodes(ctx, b.info, []*cometrpc.Source{primary, b.headers}, b.txs[1:]) {
+		alts = append(alts, s)
+	}
+	c, err := railverify.NewBankSend(railverify.Config{ChainID: ph.ChainID, HRP: bankHRP}, primary, headers, nil,
+		railverify.WithAlternates(alts...))
+	if err != nil {
+		return nil, err
+	}
+	ar, ok := c.(verifier.ActionRevealer)
+	if !ok {
+		return nil, errors.New("the bank-send checker offers no reveal")
+	}
+	return ar.ActionFromTx(ctx, in)
 }
