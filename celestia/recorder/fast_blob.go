@@ -159,14 +159,6 @@ func (b fastBlob) wire(tx, blob []byte) ([]byte, error) {
 	return raw, nil
 }
 
-func (b fastBlob) resign(ctx context.Context, rec *archive.AnchorIntentRecord, blob []byte, p node.TxParams) ([]byte, error) {
-	tx, err := b.r.fast.d.Signer.SignPFB(ctx, b.r.cfg.Namespace, blob, p)
-	if err != nil {
-		return nil, fmt.Errorf("recorder: sign: %w", err)
-	}
-	return tx, nil
-}
-
 func unixFloor(t time.Time) uint64 {
 	if s := t.Unix(); s > 0 {
 		return uint64(s)

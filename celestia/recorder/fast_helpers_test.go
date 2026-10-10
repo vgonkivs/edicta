@@ -123,15 +123,6 @@ func txSequence(t testing.TB, tx []byte) uint64 {
 	return ai.SignerInfos[0].Sequence
 }
 
-func txTimeout(t testing.TB, tx []byte) uint64 {
-	t.Helper()
-	var raw cosmostx.TxRaw
-	require.NoError(t, raw.Unmarshal(tx))
-	var body cosmostx.TxBody
-	require.NoError(t, body.Unmarshal(raw.BodyBytes))
-	return body.TimeoutHeight
-}
-
 func mismatch(expected uint64) error {
 	return fmt.Errorf("%w: account sequence mismatch, expected %d, got 3: incorrect account sequence", node.ErrSequenceMismatch, expected)
 }

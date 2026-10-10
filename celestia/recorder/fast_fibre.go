@@ -189,24 +189,3 @@ func (r *FibreRecorder) restore(ctx context.Context, comm, blob []byte, rec *arc
 }
 
 func (r *FibreRecorder) wire(tx, _ []byte) ([]byte, error) { return tx, nil }
-
-// resign signs the archived certificate again: the promise and the
-// validator signatures do not depend on the tx signer or its sequence.
-func (r *FibreRecorder) resign(ctx context.Context, rec *archive.AnchorIntentRecord, blob []byte, p node.TxParams) ([]byte, error) {
-	msg, err := node.PFFMessage(rec.Tx)
-	if err != nil {
-		return nil, archiveFault("anchor intent", err)
-	}
-	tx, err := r.d.Fast.Signer.SignPFF(ctx, msg, p)
-	if err != nil {
-		return nil, fmt.Errorf("recorder: sign: %w", err)
-	}
-	us, err := uploadSize(blob)
-	if err != nil {
-		return nil, err
-	}
-	if err := r.checkPFF(tx, rec, us); err != nil {
-		return nil, err
-	}
-	return tx, nil
-}

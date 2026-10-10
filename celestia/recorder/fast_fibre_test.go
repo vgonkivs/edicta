@@ -3,6 +3,7 @@ package recorder_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -149,6 +150,37 @@ func TestFastFibreReservesTheEscrowUntilTheAnchorLands(t *testing.T) {
 	var short *recorder.EscrowShortfall
 	require.ErrorAs(t, err, &short, "the first upload's cost is still reserved")
 	assert.EqualValues(t, 1, f.up.calls.Load(), "the second blob is not uploaded")
+}
+
+func TestFastFibreStaleArchivedTxReleasesTheEscrowAfterTheSettleWait(t *testing.T) {
+	f := newFibreFast(t)
+	f.fibreFx.node.SetFibreParams(node.FibreParams{RetentionS: 14400, PromiseHeightWindow: fibreWindow, PromiseTimeoutS: 1})
+	f.sub.EscrowVal = node.Escrow{AvailableUtia: recorder.FibreCostUtia(f.us) + 10}
+	f.node.script(errTransport)
+	r := f.rec()
+	_, err := r.Publish(bg, f.blob)
+	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
+
+	f.skew.Store(int64(-time.Hour))
+	seq, err := node.TxSequence(f.l.PFFTx)
+	require.NoError(t, err)
+	f.node.script(mismatch(seq + 1))
+	_, err = r.Publish(bg, f.blob)
+	require.ErrorIs(t, err, recorder.ErrIntentStale)
+	_, err = r.Publish(bg, f.blob)
+	require.ErrorIs(t, err, recorder.ErrIntentStale, "sticky")
+	sent := f.node.sends()
+	require.Len(t, sent, 2)
+	assert.Equal(t, sent[0], sent[1], "the archived tx is never re-signed")
+
+	f.skew.Store(0)
+	_, err = r.Publish(bg, []byte{0x66})
+	var short *recorder.EscrowShortfall
+	require.ErrorAs(t, err, &short, "the promise can still be charged by its timeout settlement")
+	require.Eventually(t, func() bool {
+		_, err := r.Publish(bg, []byte{0x66})
+		return !errors.As(err, &short)
+	}, 5*time.Second, 50*time.Millisecond, "the escrow is released after the settle wait")
 }
 
 func TestFastFibreRefusesAnUploaderOnAnotherNode(t *testing.T) {

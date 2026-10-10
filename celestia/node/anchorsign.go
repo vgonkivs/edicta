@@ -184,7 +184,7 @@ func feeFor(gas uint64, price *big.Rat) (uint64, error) {
 }
 
 // PFFMessage returns the MsgPayForFibre of a signed PayForFibre tx in
-// protobuf, the certificate a re-signed tx carries again.
+// protobuf: the certificate and the promise it carries.
 func PFFMessage(tx []byte) ([]byte, error) {
 	var raw cosmostx.TxRaw
 	if err := raw.Unmarshal(tx); err != nil {
@@ -198,4 +198,21 @@ func PFFMessage(tx []byte) ([]byte, error) {
 		return nil, errors.New("node: tx does not hold exactly one MsgPayForFibre")
 	}
 	return append([]byte(nil), body.Messages[0].Value...), nil
+}
+
+// TxSequence returns the account sequence a signed single-signer tx was
+// signed at.
+func TxSequence(tx []byte) (uint64, error) {
+	var raw cosmostx.TxRaw
+	if err := raw.Unmarshal(tx); err != nil {
+		return 0, fmt.Errorf("node: tx: %w", err)
+	}
+	var ai cosmostx.AuthInfo
+	if err := ai.Unmarshal(raw.AuthInfoBytes); err != nil {
+		return 0, fmt.Errorf("node: tx auth info: %w", err)
+	}
+	if len(ai.SignerInfos) != 1 {
+		return 0, fmt.Errorf("node: tx has %d signers, want 1", len(ai.SignerInfos))
+	}
+	return ai.SignerInfos[0].Sequence, nil
 }

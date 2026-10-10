@@ -21,9 +21,10 @@ import (
 )
 
 var (
-	// ErrIntentStale means the node refused the anchor tx of a new intent for
-	// its account sequence. The intent stays archived and unused; this blob is
-	// not published again by this Recorder.
+	// ErrIntentStale means the anchor tx of an intent was signed for an
+	// account sequence the chain has passed, so it can never land. The intent
+	// stays archived and is never re-signed: the anchor tx is bound by its
+	// exact bytes. This blob is not published again by this Recorder.
 	ErrIntentStale = errors.New("recorder: anchor tx signed for a stale account sequence; publish a new blob")
 	// ErrAnchorTxRejected means the node refused the anchor tx, or the chain
 	// executed it with a nonzero code. It is sticky per blob.
@@ -112,8 +113,6 @@ type fastDA interface {
 	restore(ctx context.Context, comm, blob []byte, rec *archive.AnchorIntentRecord) (*intentDraft, error)
 	// wire is what goes to the node for an anchor tx.
 	wire(tx, blob []byte) ([]byte, error)
-	// resign signs the anchor tx of rec again at p.
-	resign(ctx context.Context, rec *archive.AnchorIntentRecord, blob []byte, p node.TxParams) ([]byte, error)
 }
 
 type fastEntry struct {
@@ -122,7 +121,8 @@ type fastEntry struct {
 	// this call chain; a record of an earlier process needs its intent found.
 	ours    bool
 	draft   *intentDraft
-	hashes  [][32]byte
+	// hash is the hash of the archived anchor tx, the only one ever sent.
+	hash    [32]byte
 	scan    bool
 	scanned uint64
 	pending *sdk.Published
@@ -344,7 +344,7 @@ func (f *fastCore) adopt(d fastDA, e *fastEntry, dr *intentDraft, blob []byte) {
 	e.draft = dr
 	e.blob = blob
 	e.scanned = dr.rec.RefHeight - 1
-	e.hashes = append(e.hashes, sha256.Sum256(dr.rec.Tx))
+	e.hash = sha256.Sum256(dr.rec.Tx)
 	e.pending = &sdk.Published{Ref: ref, BlockTime: dr.refTime, RetentionStart: dr.retStart}
 	f.mu.Unlock()
 }
@@ -488,32 +488,41 @@ func (f *fastCore) broadcast(ctx context.Context, raw []byte) error {
 	return err
 }
 
-// resume answers from an intent this entry follows: it looks the anchor up,
-// sends the archived tx again when the node does not know it, and re-signs
-// it for the current sequence when the archived one is stale.
+// resume answers from an intent this entry follows: it looks the anchor up
+// and sends the archived tx again when the node does not know it.
 func (f *fastCore) resume(ctx context.Context, d fastDA, e *fastEntry, comm, blob []byte, head uint64) (sdk.Published, error) {
 	f.mu.Lock()
-	dr, hashes, scan := e.draft, append([][32]byte(nil), e.hashes...), e.scan
+	dr, hash, scan := e.draft, e.hash, e.scan
 	f.mu.Unlock()
-	for _, h := range hashes {
-		st, err := f.d.Node.Tx(ctx, h)
-		if err != nil {
-			return sdk.Published{}, fmt.Errorf("%w: tx lookup: %w", ErrNodeUnavailable, err)
-		}
-		if st.Found {
-			return f.landed(ctx, d, e, comm, blob, st)
-		}
+	st, err := f.lookup(ctx, hash)
+	if err != nil {
+		return sdk.Published{}, err
+	}
+	if st.Found {
+		return f.landed(ctx, d, e, comm, blob, st)
 	}
 	if !scan {
 		if f.expired(dr, head) {
 			time.AfterFunc(dr.settleWait, dr.release)
 			return sdk.Published{}, f.stick(e, ErrAnchorExpired)
 		}
-		if err := f.resend(ctx, d, e, dr, blob); err != nil {
+		st, err := f.resend(ctx, d, e, dr, blob)
+		if err != nil {
 			return sdk.Published{}, err
+		}
+		if st.Found {
+			return f.landed(ctx, d, e, comm, blob, st)
 		}
 	}
 	return f.pendingOf(d, e, comm), nil
+}
+
+func (f *fastCore) lookup(ctx context.Context, hash [32]byte) (node.TxStatus, error) {
+	st, err := f.d.Node.Tx(ctx, hash)
+	if err != nil {
+		return node.TxStatus{}, fmt.Errorf("%w: tx lookup: %w", ErrNodeUnavailable, err)
+	}
+	return st, nil
 }
 
 func (f *fastCore) expired(dr *intentDraft, head uint64) bool {
@@ -546,66 +555,63 @@ func (f *fastCore) finish(e *fastEntry, pub sdk.Published) {
 	f.mu.Unlock()
 }
 
-// resend broadcasts the archived tx again; a stale sequence gets the same
-// anchor signed for the current one.
-func (f *fastCore) resend(ctx context.Context, d fastDA, e *fastEntry, dr *intentDraft, blob []byte) error {
+// resend broadcasts the archived tx again. It never signs the anchor anew:
+// the intent is bound by its exact tx bytes, and the gate looks it up and
+// rebroadcasts it by their hash. A found status means the archived tx landed
+// while it was being sent.
+func (f *fastCore) resend(ctx context.Context, d fastDA, e *fastEntry, dr *intentDraft, blob []byte) (node.TxStatus, error) {
 	f.seqMu.Lock()
 	defer f.seqMu.Unlock()
 	raw, err := d.wire(dr.rec.Tx, blob)
 	if err != nil {
-		return err
+		return node.TxStatus{}, err
 	}
 	err = f.broadcast(ctx, raw)
 	switch {
 	case err == nil:
 		// The archived tx's sequence is not tracked here: read it again.
 		f.seqKnown = false
-		return nil
+		return node.TxStatus{}, nil
 	case errors.Is(err, errProcessed):
 		f.markScan(e)
-		return nil
+		return node.TxStatus{}, nil
 	case errors.Is(err, node.ErrSequenceMismatch):
-		f.learn(err)
+		return f.mismatched(ctx, e, dr, err)
 	case errors.Is(err, node.ErrRejected):
 		dr.release()
-		return f.stick(e, fmt.Errorf("%w: %w", ErrAnchorTxRejected, err))
-	default:
-		return fmt.Errorf("%w: broadcast: %w", ErrNodeUnavailable, err)
+		return node.TxStatus{}, f.stick(e, fmt.Errorf("%w: %w", ErrAnchorTxRejected, err))
 	}
+	return node.TxStatus{}, fmt.Errorf("%w: broadcast: %w", ErrNodeUnavailable, err)
+}
 
-	p, err := f.params(ctx, dr.timeout)
+// mismatched handles the node refusing the archived tx for its sequence.
+// The tx may have landed since it was looked up, which also moves the
+// sequence past it. Otherwise only a sequence the account has already passed
+// proves it can never land; a lower expected sequence means an earlier tx of
+// this account is missing from the mempool, and once that gap fills the
+// archived tx is valid again.
+func (f *fastCore) mismatched(ctx context.Context, e *fastEntry, dr *intentDraft, mismatch error) (node.TxStatus, error) {
+	st, err := f.lookup(ctx, sha256.Sum256(dr.rec.Tx))
 	if err != nil {
-		return err
+		return node.TxStatus{}, err
 	}
-	tx, err := d.resign(ctx, dr.rec, blob, p)
+	if st.Found {
+		return st, nil
+	}
+	signed, err := node.TxSequence(dr.rec.Tx)
 	if err != nil {
-		return err
+		return node.TxStatus{}, archiveFault("anchor intent", err)
 	}
-	if raw, err = d.wire(tx, blob); err != nil {
-		return err
+	expected, ok := node.ExpectedSequence(mismatch)
+	if !ok || expected <= signed {
+		return node.TxStatus{}, fmt.Errorf("%w: the node expects another sequence than the archived tx's %d: %w", ErrNodeUnavailable, signed, mismatch)
 	}
-	f.mu.Lock()
-	e.hashes = append(e.hashes, sha256.Sum256(tx))
-	f.mu.Unlock()
-	f.d.Log.Warn("recorder: the archived anchor tx was signed for a stale sequence and is sent re-signed; a gate that looks the intent up by its tx hash will not find it",
-		"da", d.da(), "ref_height", dr.rec.RefHeight)
-	err = f.broadcast(ctx, raw)
-	switch {
-	case err == nil:
-		f.nextSeq = p.Sequence + 1
-		return nil
-	case errors.Is(err, errProcessed):
-		f.markScan(e)
-		return nil
-	case errors.Is(err, node.ErrSequenceMismatch):
-		f.learn(err)
-		return fmt.Errorf("%w: broadcast: %w", ErrNodeUnavailable, err)
-	case errors.Is(err, node.ErrRejected):
-		dr.release()
-		return f.stick(e, fmt.Errorf("%w: %w", ErrAnchorTxRejected, err))
-	}
-	f.seqKnown = false
-	return fmt.Errorf("%w: broadcast: %w", ErrOutcomeUnknown, err)
+	f.learn(mismatch)
+	// A Fibre promise that will never be paid can still be charged by its
+	// timeout settlement, so the escrow stays reserved until then.
+	time.AfterFunc(dr.settleWait, dr.release)
+	return node.TxStatus{}, f.stick(e, fmt.Errorf("%w: the archived anchor tx at sequence %d can never land; the pending reference is dead and its deadline will prove the anchor absent: %w",
+		ErrIntentStale, signed, mismatch))
 }
 
 // loop starts the confirmation loop of e once.
@@ -653,18 +659,16 @@ func (f *fastCore) tick(d fastDA, e *fastEntry, comm []byte) bool {
 		f.mu.Unlock()
 		return false
 	}
-	dr, hashes, scan, blob := e.draft, append([][32]byte(nil), e.hashes...), e.scan, e.blob
+	dr, hash, scan, blob := e.draft, e.hash, e.scan, e.blob
 	f.mu.Unlock()
 
-	for _, h := range hashes {
-		st, err := f.d.Node.Tx(ctx, h)
-		if err != nil {
-			f.d.Log.Warn("recorder: anchor tx lookup failed", "err", err)
-			return false
-		}
-		if st.Found {
-			return f.settle(ctx, d, e, comm, blob, st)
-		}
+	st, err := f.d.Node.Tx(ctx, hash)
+	if err != nil {
+		f.d.Log.Warn("recorder: anchor tx lookup failed", "err", err)
+		return false
+	}
+	if st.Found {
+		return f.settle(ctx, d, e, comm, blob, st)
 	}
 	head, _, err := d.head(ctx)
 	if err != nil {

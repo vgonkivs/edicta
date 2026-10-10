@@ -176,26 +176,85 @@ func TestFastBlobCrashAfterTheIntentResumesWithTheArchivedTx(t *testing.T) {
 	}
 }
 
-func TestFastBlobStaleArchivedTxIsReSignedForTheCurrentSequence(t *testing.T) {
+func TestFastBlobStaleArchivedTxIsNeverReSigned(t *testing.T) {
 	f := newBlobFast(t)
 	f.node.script(errTransport)
-	_, err := f.rec().Publish(bg, f.blob)
+	r := f.rec()
+	_, err := r.Publish(bg, f.blob)
 	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
 	rec := f.intent(genesis)
 
 	f.node.script(mismatch(9))
-	pub, err := f.rec().Publish(bg, f.blob)
-	require.NoError(t, err)
+	_, err = r.Publish(bg, f.blob)
+	require.ErrorIs(t, err, recorder.ErrIntentStale, "the node expects a sequence past the archived tx")
+	_, err = r.Publish(bg, f.blob)
+	require.ErrorIs(t, err, recorder.ErrIntentStale, "sticky")
+	sent := f.node.sends()
+	require.Len(t, sent, 2, "no further broadcast")
+	for _, raw := range sent {
+		assert.Equal(t, rec.Tx, innerTx(raw), "only the archived tx is ever sent")
+	}
+	assert.Equal(t, rec, f.intent(genesis), "the intent record is untouched")
+
+	f.node.script(mismatch(9))
+	_, err = f.rec().Publish(bg, f.blob)
+	require.ErrorIs(t, err, recorder.ErrIntentStale, "a new process finds the intent stale too")
+	sent = f.node.sends()
+	require.Len(t, sent, 3)
+	assert.Equal(t, rec.Tx, innerTx(sent[2]))
+}
+
+func TestFastBlobArchivedTxBehindAGapIsRetried(t *testing.T) {
+	f := newBlobFast(t)
+	f.node.script(errTransport)
+	r := f.rec()
+	_, err := r.Publish(bg, f.blob)
+	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
+	rec := f.intent(genesis)
+
+	f.node.script(mismatch(2))
+	_, err = r.Publish(bg, f.blob)
+	require.ErrorIs(t, err, recorder.ErrNodeUnavailable, "an earlier tx is missing: transient")
+	require.NotErrorIs(t, err, recorder.ErrIntentStale)
+
+	pub, err := r.Publish(bg, f.blob)
+	require.NoError(t, err, "not sticky: the retry sends the archived tx again")
 	assert.True(t, pub.Ref.Pending())
 	sent := f.node.sends()
 	require.Len(t, sent, 3)
-	resigned := innerTx(sent[2])
-	assert.NotEqual(t, rec.Tx, resigned)
-	assert.EqualValues(t, 9, txSequence(t, resigned), "re-signed at the sequence the node expects")
-	assert.Equal(t, txTimeout(t, rec.Tx), txTimeout(t, resigned), "the same timeout height")
-	_, err = gatechain.CheckPFB(resigned, pub.Ref)
-	require.NoError(t, err, "the re-signed tx pays for the same blob")
-	assert.Equal(t, rec, f.intent(genesis), "the intent record is untouched")
+	for _, raw := range sent {
+		assert.Equal(t, rec.Tx, innerTx(raw), "only the archived tx is ever sent")
+	}
+}
+
+func TestFastBlobArchivedTxThatLandsDuringTheResendIsConfirmed(t *testing.T) {
+	f := newBlobFast(t)
+	f.node.script(errTransport)
+	r := f.rec()
+	_, err := r.Publish(bg, f.blob)
+	require.ErrorIs(t, err, recorder.ErrOutcomeUnknown)
+	rec := f.intent(genesis)
+
+	h := genesis + 1
+	f.node.before = func(raw []byte) {
+		if len(f.node.sends()) < 2 {
+			return
+		}
+		f.ch.AddHeader(blockAt(h))
+		f.ch.AddBlob(h, node.Blob{Namespace: bytes.Clone(ns), Data: bytes.Clone(f.blob), ShareVersion: 1,
+			Signer: bytes.Clone(f.addr), Commitment: bytes.Clone(f.comm)}, nil)
+		f.node.setTx(innerTx(raw), node.TxStatus{Found: true, Height: h})
+	}
+	f.node.script(mismatch(4))
+	pub, err := r.Publish(bg, f.blob)
+	require.NoError(t, err, "the tx is looked up again after the mismatch and found")
+	assert.False(t, pub.Ref.Pending())
+	assert.Equal(t, h, pub.Ref.Height)
+	_, err = f.st.Evidence(bg, commitment.DACelestiaBlob, f.comm)
+	require.NoError(t, err)
+	sent := f.node.sends()
+	require.Len(t, sent, 2)
+	assert.Equal(t, rec.Tx, innerTx(sent[1]))
 }
 
 func TestFastBlobNewIntentWithAStaleSequenceIsSticky(t *testing.T) {
