@@ -49,6 +49,11 @@ const (
 	// scanPerTick bounds the heights one confirmation tick reads when the
 	// anchor tx hash is not known.
 	scanPerTick = 64
+	// rebroadcastPolls is how many poll intervals the confirmation loop waits
+	// after the last send of an anchor tx it cannot find before sending the
+	// archived bytes again: a node drops txs from its mempool on restart,
+	// eviction or a full pool, and nobody else sends them again.
+	rebroadcastPolls = 30
 )
 
 // AnchorNode is the operator's own consensus node the fast path signs for
@@ -124,7 +129,9 @@ type fastEntry struct {
 	// hash is the hash of the archived anchor tx, the only one ever sent.
 	hash [32]byte
 	// seq is the account sequence the archived anchor tx is signed for.
-	seq     uint64
+	seq uint64
+	// sentAt is when the archived anchor tx was last sent.
+	sentAt  time.Time
 	scan    bool
 	scanned uint64
 	pending *sdk.Published
@@ -261,15 +268,13 @@ func (f *fastCore) publish(ctx context.Context, d fastDA, comm, blob []byte) (sd
 			return pub, err
 		}
 		if sent {
-			return f.pendingOf(d, e, comm), nil
+			return f.pendingOf(e), nil
 		}
 	}
 	return f.resume(ctx, d, e, comm, blob, head)
 }
 
-// pendingOf starts the confirmation loop and returns the pending reference.
-func (f *fastCore) pendingOf(d fastDA, e *fastEntry, comm []byte) sdk.Published {
-	f.loop(d, e, comm)
+func (f *fastCore) pendingOf(e *fastEntry) sdk.Published {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return clonePublished(*e.pending)
@@ -357,9 +362,19 @@ func (f *fastCore) adopt(d fastDA, e *fastEntry, dr *intentDraft, blob []byte) e
 	e.scanned = dr.rec.RefHeight - 1
 	e.hash = sha256.Sum256(dr.rec.Tx)
 	e.seq = seq
+	e.sentAt = time.Now()
 	e.pending = &sdk.Published{Ref: ref, BlockTime: dr.refTime, RetentionStart: dr.retStart}
 	f.mu.Unlock()
+	// Every archived intent is followed to its end, whatever its first
+	// broadcast answered: it may land, or need sending again.
+	f.loop(d, e, dr.rec.Commitment)
 	return nil
+}
+
+func (f *fastCore) sent(e *fastEntry) {
+	f.mu.Lock()
+	e.sentAt = time.Now()
+	f.mu.Unlock()
 }
 
 // live reports whether e follows an intent whose anchor tx may still take
@@ -456,6 +471,7 @@ func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentD
 		return false, err
 	}
 	err = f.broadcast(ctx, raw)
+	f.sent(e)
 	switch {
 	case err == nil:
 		return true, nil
@@ -578,7 +594,7 @@ func (f *fastCore) resume(ctx context.Context, d fastDA, e *fastEntry, comm, blo
 			return f.landed(ctx, d, e, comm, blob, st)
 		}
 	}
-	return f.pendingOf(d, e, comm), nil
+	return f.pendingOf(e), nil
 }
 
 func (f *fastCore) lookup(ctx context.Context, hash [32]byte) (node.TxStatus, error) {
@@ -631,6 +647,7 @@ func (f *fastCore) resend(ctx context.Context, d fastDA, e *fastEntry, dr *inten
 		return node.TxStatus{}, err
 	}
 	err = f.broadcast(ctx, raw)
+	f.sent(e)
 	switch {
 	case err == nil:
 		return node.TxStatus{}, nil
@@ -724,7 +741,7 @@ func (f *fastCore) tick(d fastDA, e *fastEntry, comm []byte) bool {
 		f.mu.Unlock()
 		return false
 	}
-	dr, hash, scan, blob := e.draft, e.hash, e.scan, e.blob
+	dr, hash, scan, blob, sentAt := e.draft, e.hash, e.scan, e.blob, e.sentAt
 	f.mu.Unlock()
 
 	st, err := f.d.Node.Tx(ctx, hash)
@@ -751,6 +768,24 @@ func (f *fastCore) tick(d fastDA, e *fastEntry, comm []byte) bool {
 		f.d.Log.Error("recorder: the anchor of a pending reference did not land in its window", "da", d.da(),
 			"ref_height", dr.rec.RefHeight, "land_by", dr.landBy)
 		return true
+	}
+	if scan || time.Since(sentAt) < rebroadcastPolls*f.poll {
+		return false
+	}
+	st, err = f.resend(ctx, d, e, dr, blob)
+	switch {
+	case err != nil:
+		f.mu.Lock()
+		over := e.sticky != nil
+		f.mu.Unlock()
+		if over {
+			f.d.Log.Error("recorder: the anchor tx of a pending reference was refused when sent again", "da", d.da(),
+				"ref_height", dr.rec.RefHeight, "err", err)
+			return true
+		}
+		f.d.Log.Warn("recorder: sending the anchor tx again failed", "err", err)
+	case st.Found:
+		return f.settle(ctx, d, e, comm, blob, st)
 	}
 	return false
 }
