@@ -53,4 +53,16 @@ func TestRecorderFastSkippedIntentDegradesHealth(t *testing.T) {
 			assert.Len(t, lines, 1, "logged once, by its path")
 		})
 	}
+	t.Run("da = fibre", func(t *testing.T) {
+		p, rf, _ := fibreFastEnv(t)
+		p.start(p.fibreFastEdits()...)
+		h, err := p.client("").Health(bg)
+		require.NoError(t, err)
+		assert.EqualValues(t, 1, h.Status)
+
+		rf.rec.skipped.Store(1)
+		h, err = p.client("").Health(bg)
+		require.NoError(t, err)
+		assert.EqualValues(t, 2, h.Status, "health is degraded while an intent is skipped")
+	})
 }

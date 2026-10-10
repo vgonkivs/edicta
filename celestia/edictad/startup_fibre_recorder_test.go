@@ -45,7 +45,10 @@ type fakeFibreRec struct {
 	deadline atomic.Pointer[time.Time]
 	ctxDone  atomic.Bool
 	hook     func()
+	skipped  atomic.Uint64
 }
+
+func (f *fakeFibreRec) SkippedIntents() uint64 { return f.skipped.Load() }
 
 func (f *fakeFibreRec) Publish(context.Context, []byte) (sdk.Published, error) {
 	return sdk.Published{}, errSeam

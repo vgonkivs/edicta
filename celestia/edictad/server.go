@@ -118,6 +118,9 @@ type FibreRecorder interface {
 	sdk.Publisher
 	// Close waits for draining uploads until ctx ends, then cancels them.
 	Close(ctx context.Context) error
+	// SkippedIntents counts the archived anchor intents a fast Recorder
+	// could not follow; health is degraded while it is not zero.
+	SkippedIntents() uint64
 }
 
 func newFibreRecorder(cfg recorder.FibreConfig, d recorder.FibreDeps) (FibreRecorder, error) {
@@ -660,11 +663,7 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 		s.rec = rec
 		if cfg.Recorder.Fast {
 			logRecorderFast(log, cfg, addr)
-			if sk, ok := rec.(skippedIntents); ok {
-				hl.skipped = sk
-			} else {
-				log.Warn("edictad: the fibre recorder cannot count skipped anchor intents; health will not report them")
-			}
+			hl.skipped = rec
 		}
 		pub, hl.signer, hl.namespace = rec, addr, ns
 		quota = recorderQuota(cfg, clock)
@@ -1097,10 +1096,6 @@ func loadSecrets(cfg Config) (*secrets, error) {
 type skippedIntents interface {
 	SkippedIntents() uint64
 }
-
-// The default fibre Recorder must keep counting skipped intents, or health
-// would lose the alert without any error.
-var _ skippedIntents = (*recorder.FibreRecorder)(nil)
 
 // health serves GET /v1/health from a copy refreshed at most once a minute, so
 // the open endpoint cannot be used to hammer the node.
