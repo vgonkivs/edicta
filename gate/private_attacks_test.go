@@ -176,9 +176,7 @@ func TestPrivateMandateWithAForeignKidIsRefused(t *testing.T) {
 	opts := policyOpts(t, baseMandate(t), gatefix.WithConfig(func(c *gate.Config) { c.Mandate = signed }))
 	_, err = gatefix.TryNew(t, opts...)
 	require.ErrorIs(t, err, gate.ErrInvalidConfig)
-	// The config check formats the mandate error with %v, so only its text
-	// survives.
-	require.ErrorContains(t, err, policy.ErrAuditorKidMismatch.Error())
+	require.ErrorIs(t, err, policy.ErrAuditorKidMismatch)
 
 	// A producer cannot sign one either.
 	m := privateMandate(t)

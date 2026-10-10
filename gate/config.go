@@ -162,19 +162,19 @@ func (c Config) ValidateBasic() error {
 		return bad("fibre_max_data_bytes %d above %d", c.FibreMaxDataBytes, uint64(maxFibreDataBytes))
 	}
 	if err := checkScope(c.Scope); err != nil {
-		return bad("%v", err)
+		return fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 	if len(c.Mandate) > 0 {
 		sm, _, err := policy.VerifyMandate(c.Mandate)
 		if err != nil {
-			return bad("mandate: %v", err)
+			return fmt.Errorf("%w: mandate: %w", ErrInvalidConfig, err)
 		}
 		if sm.Mandate.GateID != c.Scope.GateID {
 			return bad("mandate is bound to gate %q, not %q", sm.Mandate.GateID, c.Scope.GateID)
 		}
 	}
 	if _, err := normalizeDA(c.AllowedDA); err != nil {
-		return bad("%v", err)
+		return fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 	return c.validateFast()
 }

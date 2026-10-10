@@ -1,6 +1,9 @@
 package gate_test
 
 import (
+	"encoding/hex"
+	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
@@ -9,6 +12,7 @@ import (
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
 
@@ -119,4 +123,39 @@ func TestNewRefusesFibreCommitterMismatches(t *testing.T) {
 		_, err := gatefix.TryNew(t, gatefix.WithConfig(func(c *gate.Config) { c.FibreMaxDataBytes = 1<<27 - 4 }))
 		require.ErrorIs(t, err, gate.ErrInvalidConfig)
 	})
+}
+
+// TestConfigValidateBasicWrapsMandateErrors: the cause of a refused mandate
+// stays reachable through errors.Is, next to ErrInvalidConfig.
+func TestConfigValidateBasicWrapsMandateErrors(t *testing.T) {
+	raw, err := os.ReadFile("../spec/vectors/policy/mandate.json")
+	require.NoError(t, err)
+	var f struct {
+		Reject []struct {
+			ID     string `json:"id"`
+			Signed string `json:"signed_mandate_hex"`
+		} `json:"reject"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &f))
+	var signed []byte
+	for _, r := range f.Reject {
+		if r.ID == "auditor_kid_mismatch" {
+			signed, err = hex.DecodeString(r.Signed)
+			require.NoError(t, err)
+		}
+	}
+	require.NotEmpty(t, signed)
+
+	c := validConfig()
+	c.Mandate = signed
+	err = c.ValidateBasic()
+	require.ErrorIs(t, err, gate.ErrInvalidConfig)
+	require.ErrorIs(t, err, policy.ErrAuditorKidMismatch)
+	require.ErrorIs(t, err, policy.ErrMandateInvalid)
+
+	c = validConfig()
+	c.Mandate = []byte{0xa0}
+	err = c.ValidateBasic()
+	require.ErrorIs(t, err, gate.ErrInvalidConfig)
+	require.ErrorIs(t, err, policy.ErrMandateInvalid)
 }
