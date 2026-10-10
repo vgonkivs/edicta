@@ -328,6 +328,9 @@ func (f *fastCore) awaitRecovery(ctx context.Context) error {
 	f.recMu.Lock()
 	err := f.recErr
 	f.recMu.Unlock()
+	if err == nil {
+		return nil
+	}
 	return fmt.Errorf("recorder: following the intents of an earlier process: %w", err)
 }
 
