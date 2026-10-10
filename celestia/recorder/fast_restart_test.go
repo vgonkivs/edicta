@@ -1,6 +1,7 @@
 package recorder_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"testing"
@@ -65,7 +66,10 @@ func TestFastFibreRestartFollowsAnArchivedIntentWithoutAPublish(t *testing.T) {
 
 // The sequence a refusal named stays the floor after a later intent is
 // adopted, until the committed sequence reaches it: that later intent may
-// still fail, and the committed sequence lags the node's mempool.
+// still fail, and the committed sequence lags the node's mempool. An intent
+// the node took keeps its sequence when a later send of it is refused for
+// another reason than its sequence: it may still be in a mempool, and its
+// pending reference was returned.
 func TestFastBlobRefusalFloorOutlivesTheNextIntent(t *testing.T) {
 	f := newBlobFast(t)
 	r := f.rec()
@@ -76,13 +80,39 @@ func TestFastBlobRefusalFloorOutlivesTheNextIntent(t *testing.T) {
 	_, err = r.Publish(bg, []byte("blob B"))
 	require.NoError(t, err)
 	sent := f.node.sends()
-	require.EqualValues(t, 9, txSequence(t, innerTx(sent[len(sent)-1])))
+	b := innerTx(sent[len(sent)-1])
+	require.EqualValues(t, 9, txSequence(t, b))
 	f.node.script(fmt.Errorf("%w: insufficient fee", node.ErrRejected))
 	_, err = r.Publish(bg, []byte("blob B"))
-	require.ErrorIs(t, err, recorder.ErrAnchorTxRejected)
+	require.ErrorIs(t, err, recorder.ErrNodeUnavailable)
+	require.NotErrorIs(t, err, recorder.ErrAnchorTxRejected, "B was taken: the refusal does not end it")
 
 	_, err = r.Publish(bg, []byte("blob C"))
 	require.NoError(t, err)
 	sent = f.node.sends()
-	assert.EqualValues(t, 9, txSequence(t, innerTx(sent[len(sent)-1])), "not the lagging committed sequence 3")
+	assert.EqualValues(t, 10, txSequence(t, innerTx(sent[len(sent)-1])), "C is never signed at the sequence of B")
+
+	n := len(sent)
+	assert.Eventually(t, func() bool {
+		for _, raw := range f.node.sends()[n:] {
+			if bytes.Equal(innerTx(raw), b) {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 5*time.Millisecond, "B is still followed and sent again")
+}
+
+// A tx refused at its first send was never taken: its sequence is free.
+func TestFastBlobFirstRefusalFreesTheSequence(t *testing.T) {
+	f := newBlobFast(t)
+	r := f.rec()
+	f.node.script(fmt.Errorf("%w: insufficient fee", node.ErrRejected))
+	_, err := r.Publish(bg, f.blob)
+	require.ErrorIs(t, err, recorder.ErrAnchorTxRejected)
+
+	_, err = r.Publish(bg, []byte("blob B"))
+	require.NoError(t, err)
+	sent := f.node.sends()
+	assert.EqualValues(t, 3, txSequence(t, innerTx(sent[len(sent)-1])))
 }

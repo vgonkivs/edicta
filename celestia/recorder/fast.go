@@ -143,7 +143,13 @@ type fastEntry struct {
 	seq uint64
 	// sentAt is when the archived anchor tx was last sent.
 	sentAt time.Time
-	scan   bool
+	// taken is set once the node may hold the archived anchor tx: a broadcast
+	// was accepted or had an unknown outcome, or an earlier process archived
+	// it and may have returned its pending reference. A refusal of a later
+	// send does not prove the tx gone from every mempool, so such an intent
+	// keeps its sequence until it lands, goes stale or expires.
+	taken bool
+	scan  bool
 	// scanned is the highest height read for the anchor without finding it.
 	// Blocks up to the head are final, so no height is read twice.
 	scanned uint64
@@ -455,7 +461,7 @@ func (f *fastCore) recover(ctx context.Context, d fastDA) error {
 		f.mu.Lock()
 		f.entries[key] = e
 		f.mu.Unlock()
-		if err := f.adopt(d, e, dr, p.Blob); err != nil {
+		if err := f.adopt(d, e, dr, p.Blob, true); err != nil {
 			return err
 		}
 	}
@@ -517,7 +523,7 @@ func (f *fastCore) prepare(ctx context.Context, d fastDA, e *fastEntry, comm, bl
 		if err != nil {
 			return sdk.Published{}, false, false, err
 		}
-		if err := f.adopt(d, e, dr, blob); err != nil {
+		if err := f.adopt(d, e, dr, blob, true); err != nil {
 			return sdk.Published{}, false, false, err
 		}
 		return sdk.Published{}, false, false, nil
@@ -575,7 +581,7 @@ func (f *fastCore) findIntent(ctx context.Context, da commitment.DA, comm []byte
 	return nil, nil
 }
 
-func (f *fastCore) adopt(d fastDA, e *fastEntry, dr *intentDraft, blob []byte) error {
+func (f *fastCore) adopt(d fastDA, e *fastEntry, dr *intentDraft, blob []byte, taken bool) error {
 	seq, err := node.TxSequence(dr.rec.Tx)
 	if err != nil {
 		return archiveFault("anchor intent", err)
@@ -593,6 +599,7 @@ func (f *fastCore) adopt(d fastDA, e *fastEntry, dr *intentDraft, blob []byte) e
 	e.hash = sha256.Sum256(dr.rec.Tx)
 	e.seq = seq
 	e.sentAt = time.Now()
+	e.taken = taken
 	e.pending = &sdk.Published{Ref: ref, BlockTime: dr.refTime, RetentionStart: dr.retStart}
 	f.mu.Unlock()
 	// Every archived intent is followed to its end, whatever its first
@@ -693,6 +700,7 @@ func (f *fastCore) kick(ctx context.Context, seq uint64) {
 	}
 	switch _, err := f.d.Node.Broadcast(ctx, raw); {
 	case err == nil, errors.Is(err, node.ErrAlreadyInMempool):
+		f.take(k)
 		f.accepted()
 	default:
 		f.d.Log.Warn("recorder: resending the anchor tx of a missing sequence failed", "sequence", seq, "err", err)
@@ -733,12 +741,12 @@ func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentD
 		if err != nil {
 			return false, err
 		}
-		return false, f.adopt(d, e, sdr, blob)
+		return false, f.adopt(d, e, sdr, blob, true)
 	default:
 		f.giveUp(dr)
 		return false, archiveFault("write anchor intent", err)
 	}
-	if err := f.adopt(d, e, dr, blob); err != nil {
+	if err := f.adopt(d, e, dr, blob, false); err != nil {
 		f.giveUp(dr)
 		return false, err
 	}
@@ -751,6 +759,7 @@ func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentD
 	f.sent(e)
 	switch {
 	case err == nil:
+		f.take(e)
 		f.accepted()
 		return true, nil
 	case errors.Is(err, node.ErrSequenceMismatch):
@@ -779,7 +788,14 @@ func (f *fastCore) send(ctx context.Context, d fastDA, e *fastEntry, dr *intentD
 	}
 	// Whether the node kept the tx is unknown: the intent stays live and holds
 	// its sequence.
+	f.take(e)
 	return false, fmt.Errorf("%w: broadcast: %w", ErrOutcomeUnknown, err)
+}
+
+func (f *fastCore) take(e *fastEntry) {
+	f.mu.Lock()
+	e.taken = true
+	f.mu.Unlock()
 }
 
 func (f *fastCore) markScan(e *fastEntry) {
@@ -986,6 +1002,7 @@ func (f *fastCore) resend(ctx context.Context, d fastDA, e *fastEntry, dr *inten
 	f.sent(e)
 	switch {
 	case err == nil:
+		f.take(e)
 		f.accepted()
 		return node.TxStatus{}, nil
 	case errors.Is(err, errProcessed):
@@ -994,9 +1011,21 @@ func (f *fastCore) resend(ctx context.Context, d fastDA, e *fastEntry, dr *inten
 	case errors.Is(err, node.ErrSequenceMismatch):
 		return f.mismatched(ctx, e, dr, err)
 	case errors.Is(err, node.ErrRejected):
+		f.mu.Lock()
+		taken, seq := e.taken, e.seq
+		f.mu.Unlock()
+		if taken {
+			// A node that once took this tx, or may have, can still hold it, as
+			// can its peers; its pending reference may be authorized. The
+			// intent stays live and keeps its sequence, and is sent again later.
+			f.d.Log.Warn("recorder: the node refused an anchor tx it may hold; sending it again later", "da", d.da(),
+				"ref_height", dr.rec.RefHeight, "sequence", seq, "err", err)
+			return node.TxStatus{}, fmt.Errorf("%w: the node refused the archived anchor tx it may still hold: %w", ErrNodeUnavailable, err)
+		}
 		f.giveUp(dr)
 		return node.TxStatus{}, f.stick(e, fmt.Errorf("%w: %w", ErrAnchorTxRejected, err))
 	}
+	f.take(e)
 	return node.TxStatus{}, fmt.Errorf("%w: broadcast: %w", ErrNodeUnavailable, err)
 }
 
