@@ -15,7 +15,6 @@ import (
 	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/recorder"
-	"github.com/vgonkivs/edicta/celestia/secret"
 	"github.com/vgonkivs/edicta/fibre/fibrecommit"
 )
 
@@ -173,17 +172,7 @@ func bridgeCompat(cfg edictad.Config, cons node.Consensus, chain node.FibreChain
 // hands the closer to the daemon, which closes it after the Recorder.
 func dialFibreSigning(ctx context.Context, cfg edictad.Config, b node.BridgeConfig, g node.GRPCConfig,
 	cons node.Consensus, log *slog.Logger) (io.Closer, node.FibreSubmitter, error) {
-	pass, err := secret.FromFile(cfg.Recorder.PassphraseFile)
-	if err != nil {
-		return nil, nil, fmt.Errorf("passphrase file: %w", err)
-	}
-	pb := pass.Reveal()
-	kr, err := openKeyringFn(node.KeyringConfig{
-		Dir: cfg.Recorder.KeyringDir, Name: cfg.Recorder.KeyName, Backend: cfg.Recorder.KeyringBackend,
-		AllowTest: cfg.Recorder.AllowTestKeyring, Passphrase: pb, Logger: log,
-	})
-	clear(pb)
-	pass.Zero()
+	kr, err := openRecorderKeyring(cfg, log)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -33,9 +33,32 @@ func Adapters(ctx context.Context, cfg edictad.Config, log *slog.Logger) (edicta
 			return edictad.Deps{}, func() {}, err
 		}
 		deps.Fibre = fd
-		return deps, func() { closeFibre(); closeAll() }, nil
+		prev := closeAll
+		closeAll = func() { closeFibre(); prev() }
+	}
+	if cfg.Recorder.Enabled && cfg.Recorder.Fast {
+		fast, err := recorderFast(ctx, cfg, cons, log)
+		if err != nil {
+			if deps.Fibre != nil {
+				closeSigning(deps.Fibre, log)
+			}
+			closeAll()
+			return edictad.Deps{}, func() {}, err
+		}
+		deps.RecorderFast = fast
 	}
 	return deps, closeAll, nil
+}
+
+// closeSigning closes the da = 1 signing client of a start that never
+// reached edictad.Start, which would otherwise own it.
+func closeSigning(fd *edictad.FibreDeps, log *slog.Logger) {
+	if fd.SigningCloser == nil {
+		return
+	}
+	if err := fd.SigningCloser.Close(); err != nil {
+		log.Warn("edictad: closing the signing client", "err", err)
+	}
 }
 
 // consensusConn is the consensus client adapters needs.
@@ -105,18 +128,12 @@ func adapters(ctx context.Context, cfg edictad.Config, log *slog.Logger) (node.R
 		closeAll()
 		return nil, nil, nil, noop, fmt.Errorf("compatibility check: %w", err)
 	}
-	pass, err := secret.FromFile(cfg.Recorder.PassphraseFile)
-	if err != nil {
-		closeAll()
-		return nil, nil, nil, noop, fmt.Errorf("passphrase file: %w", err)
+	if cfg.Recorder.Fast {
+		// The fast Recorder signs its anchor txs itself and never submits: no
+		// signing client exists on its account.
+		return rd, cons, nil, closeAll, nil
 	}
-	pb := pass.Reveal()
-	kr, err := openKeyringFn(node.KeyringConfig{
-		Dir: cfg.Recorder.KeyringDir, Name: cfg.Recorder.KeyName, Backend: cfg.Recorder.KeyringBackend,
-		AllowTest: cfg.Recorder.AllowTestKeyring, Passphrase: pb, Logger: log,
-	})
-	clear(pb)
-	pass.Zero()
+	kr, err := openRecorderKeyring(cfg, log)
 	if err != nil {
 		closeAll()
 		return nil, nil, nil, noop, err

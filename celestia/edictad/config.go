@@ -121,6 +121,27 @@ type RecorderConfig struct {
 	UploadDrainS uint64 `toml:"upload_drain_s"`
 	// CloseTimeoutS bounds the wait for draining uploads at shutdown.
 	CloseTimeoutS uint64 `toml:"close_timeout_s"`
+
+	// Fast makes Publish return a pending reference once the payload and the
+	// anchor intent are archived and the node accepted the anchor tx; a
+	// background loop archives the evidence when the anchor lands. Off by
+	// default; it needs gate.fast.enabled.
+	Fast bool `toml:"fast"`
+	// FastTimeoutBlocks is how many blocks above h0 the anchor tx stays
+	// valid; celestia_blob only, default 100.
+	FastTimeoutBlocks uint64 `toml:"fast_timeout_blocks"`
+	// FastDedicatedAccount attests that the account of KeyName signs only
+	// this Recorder's anchor txs. A tx from anywhere else moves the account
+	// sequence and makes a signed, archived anchor tx stale, and an archived
+	// anchor tx is never signed again.
+	FastDedicatedAccount bool `toml:"fast_dedicated_account"`
+	// FastUploadAddr is the consensus gRPC address of the da = fibre
+	// uploader; it must be network.consensus_grpc.addr.
+	FastUploadAddr string `toml:"fast_upload_addr"`
+	// FastEscrowHeadroomUtia is kept in the da = fibre escrow on top of the
+	// margin. Reservations of uploaded promises live in memory and are lost
+	// on restart, while those promises can still be charged.
+	FastEscrowHeadroomUtia uint64 `toml:"fast_escrow_headroom_utia"`
 }
 
 func (r RecorderConfig) hasFibreKeys() bool {
@@ -250,6 +271,7 @@ func (c Config) WithDefaults() Config {
 	c.Archive = c.Archive.withDefaults()
 	c.Policy = c.Policy.WithDefaults()
 	c.Gate.Fast = c.Gate.Fast.WithDefaults()
+	c.Recorder = c.Recorder.withFastDefaults(c.Network.DA)
 	if c.Network.DA == DAConfigFibre {
 		c.Fibre = c.Fibre.withDefaults()
 		if c.Recorder.Enabled {
@@ -331,7 +353,7 @@ func (c Config) FibreRecorderConfig(ns []byte, st archive.Store) recorder.FibreC
 		MaxDataBytes:     min(c.Fibre.MaxDataBytes, c.Recorder.maxBlob()),
 		SubmitTimeout:    time.Duration(c.Recorder.SubmitTimeoutS) * time.Second,
 		UploadDrain:      time.Duration(c.Recorder.UploadDrainS) * time.Second,
-		EscrowMarginUtia: c.Recorder.EscrowMarginUtia,
+		EscrowMarginUtia: c.Recorder.escrowMargin(),
 		OwnNode:          c.Recorder.OwnNode,
 		Archive:          st,
 	}
@@ -422,6 +444,9 @@ func (c Config) ValidateBasic() error {
 	}
 
 	if err := c.Recorder.validate(); err != nil {
+		return err
+	}
+	if err := c.validateRecorderFast(); err != nil {
 		return err
 	}
 	return c.HTTP.validate()
@@ -610,13 +635,25 @@ func (c Config) publishDeadline() time.Duration {
 	return d
 }
 
+// recorderCloseTimeout bounds the Recorder's close at shutdown: the draining
+// uploads of da = fibre, or the confirmation loops of a celestia_blob fast
+// Recorder. Zero when there is nothing to wait for.
+func (c Config) recorderCloseTimeout() time.Duration {
+	switch {
+	case !c.Recorder.Enabled:
+		return 0
+	case c.Network.DA == DAConfigFibre:
+		return time.Duration(c.Recorder.CloseTimeoutS) * time.Second
+	case c.Recorder.Fast:
+		return fastBlobCloseTimeoutS * time.Second
+	}
+	return 0
+}
+
 // ShutdownBudget is a context length for Shutdown that fits what it waits
 // for: the longest request, the archive drain and the Recorder's close.
 func (c Config) ShutdownBudget() time.Duration {
 	c = c.WithDefaults()
 	d := c.publishDeadline() + time.Duration(c.Archive.WriteTimeoutS)*time.Second
-	if c.Network.DA == DAConfigFibre && c.Recorder.Enabled {
-		d += time.Duration(c.Recorder.CloseTimeoutS) * time.Second
-	}
-	return d + 10*time.Second
+	return d + c.recorderCloseTimeout() + 10*time.Second
 }

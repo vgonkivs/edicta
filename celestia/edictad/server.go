@@ -50,6 +50,8 @@ type Deps struct {
 	Submitter recorder.Submitter
 	// Fibre is required with da = "fibre" and ignored otherwise.
 	Fibre *FibreDeps
+	// RecorderFast is required with recorder.fast and ignored otherwise.
+	RecorderFast *RecorderFastDeps
 	// Archive is where decisions, Authorizations and refusals are kept; nil
 	// opens the filesystem archive of the configured directory.
 	Archive archive.Store
@@ -98,6 +100,19 @@ type FibreDeps struct {
 	SelfTest, CheckBuild, CheckNMT func() error
 }
 
+// RecorderFastDeps are the dependencies of a fast-mode Recorder. The anchor
+// txs are sent and looked up through Deps.Consensus, the operator's own node.
+type RecorderFastDeps struct {
+	// Signer signs the anchor txs with the account of recorder.key_name. With
+	// da = "fibre" it must be the account of the Fibre submitter, whose escrow
+	// pays for the promises.
+	Signer node.AnchorSigner
+	// Uploader uploads da = 1 blobs without paying, signing promises with the
+	// same key. Required with da = "fibre". Start owns it: it closes it once,
+	// on a refused start or at Shutdown after the Recorder.
+	Uploader node.FibreUploader
+}
+
 // FibreRecorder is the da = 1 Recorder the daemon publishes through.
 type FibreRecorder interface {
 	sdk.Publisher
@@ -138,11 +153,13 @@ type Server struct {
 	http *http.Server
 	gate *gate.Gate
 	reg  interface{ Close() error }
-	// rec and signing are the da = 1 Recorder and the signing client it uses;
-	// both are nil for the other modes.
+	// rec is the Recorder that has background work to close: the da = 1
+	// Recorder or a fast one. signing is the da = 1 signing client and
+	// uploader the fast da = 1 uploader; each is empty when not used.
 	rec          FibreRecorder
 	closeTimeout time.Duration
 	signing      *onceCloser
+	uploader     *ctxCloser
 	log          *slog.Logger
 
 	// stop ends the background goroutines; they are waited for on shutdown.
@@ -190,6 +207,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if err := s.closeRecorder(ctx); err != nil {
 		errs = append(errs, err)
 	}
+	if err := s.closeUploader(ctx); err != nil {
+		errs = append(errs, err)
+	}
 	if err := s.signing.Close(); err != nil {
 		s.log.Error("edictad: closing the signing client", "err", err)
 		errs = append(errs, fmt.Errorf("edictad: closing the signing client: %w", err))
@@ -201,8 +221,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// closeRecorder closes the da = 1 Recorder within recorder.close_timeout_s and
-// ctx, whichever ends first.
+// closeRecorder closes the Recorder within its close timeout and ctx,
+// whichever ends first.
 func (s *Server) closeRecorder(ctx context.Context) error {
 	if s.rec == nil {
 		return nil
@@ -210,8 +230,48 @@ func (s *Server) closeRecorder(ctx context.Context) error {
 	cctx, cancel := context.WithTimeout(ctx, s.closeTimeout)
 	defer cancel()
 	if err := s.rec.Close(cctx); err != nil {
-		s.log.Error("edictad: closing the fibre recorder", "err", err)
-		return fmt.Errorf("edictad: closing the fibre recorder: %w", err)
+		s.log.Error("edictad: closing the recorder", "err", err)
+		return fmt.Errorf("edictad: closing the recorder: %w", err)
+	}
+	return nil
+}
+
+// closeUploader closes the fast da = 1 uploader after the Recorder, bounded
+// like the Recorder.
+func (s *Server) closeUploader(ctx context.Context) error {
+	cctx, cancel := context.WithTimeout(ctx, s.closeTimeout)
+	defer cancel()
+	if err := s.uploader.Close(cctx); err != nil {
+		s.log.Error("edictad: closing the fibre uploader", "err", err)
+		return fmt.Errorf("edictad: closing the fibre uploader: %w", err)
+	}
+	return nil
+}
+
+// ctxCloser closes a dependency that takes a context, once.
+type ctxCloser struct {
+	once sync.Once
+	c    interface{ Close(context.Context) error }
+	err  error
+}
+
+func (o *ctxCloser) Close(ctx context.Context) error {
+	if o == nil || o.c == nil {
+		return nil
+	}
+	o.once.Do(func() { o.err = o.c.Close(ctx) })
+	return o.err
+}
+
+// checkRecorderFastDeps refuses a fast Recorder without its signer, or a
+// da = 1 one without its uploader.
+func checkRecorderFastDeps(cfg Config, d Deps) error {
+	f := d.RecorderFast
+	if f == nil || isNil(f.Signer) {
+		return cfgErr("recorder.fast needs an anchor signer")
+	}
+	if cfg.DA() == commitment.DAFibre && isNil(f.Uploader) {
+		return cfgErr(`recorder.fast with da = "fibre" needs an uploader`)
 	}
 	return nil
 }
@@ -253,8 +313,17 @@ func Start(ctx context.Context, cfg Config, d Deps) (*Server, error) {
 	if d.Fibre != nil && !isNil(d.Fibre.SigningCloser) {
 		signing.c = d.Fibre.SigningCloser
 	}
-	srv, err := start(ctx, cfg, d, signing)
+	uploader := &ctxCloser{}
+	if d.RecorderFast != nil && !isNil(d.RecorderFast.Uploader) {
+		uploader.c = d.RecorderFast.Uploader
+	}
+	srv, err := start(ctx, cfg, d, signing, uploader)
 	if err != nil {
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.WithDefaults().recorderCloseTimeout())
+		defer cancel()
+		if cerr := uploader.Close(cctx); cerr != nil {
+			startLogger(d).Error("edictad: closing the fibre uploader", "err", cerr)
+		}
 		if cerr := signing.Close(); cerr != nil {
 			startLogger(d).Error("edictad: closing the signing client", "err", cerr)
 		}
@@ -270,7 +339,7 @@ func startLogger(d Deps) *slog.Logger {
 	return slog.Default()
 }
 
-func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Server, error) {
+func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploader *ctxCloser) (*Server, error) {
 	cfg = cfg.WithDefaults()
 	if err := cfg.ValidateBasic(); err != nil {
 		return nil, err
@@ -281,6 +350,11 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 	fibre := cfg.DA() == commitment.DAFibre
 	if fibre {
 		if err := checkFibreDeps(cfg, d); err != nil {
+			return nil, err
+		}
+	}
+	if cfg.Recorder.Fast {
+		if err := checkRecorderFastDeps(cfg, d); err != nil {
 			return nil, err
 		}
 	}
@@ -423,12 +497,13 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 	}
 
 	runCtx, stop := context.WithCancel(context.Background())
-	s := &Server{stop: stop, reg: reg, served: make(chan struct{}), signing: signing, log: log,
-		closeTimeout: time.Duration(cfg.Recorder.CloseTimeoutS) * time.Second}
+	s := &Server{stop: stop, reg: reg, served: make(chan struct{}), signing: signing, uploader: uploader, log: log,
+		closeTimeout: cfg.recorderCloseTimeout()}
 	fail := func(err error) (*Server, error) {
 		stop()
 		s.bg.Wait()
 		_ = s.closeRecorder(context.Background())
+		_ = s.closeUploader(context.Background())
 		_ = signing.Close()
 		if s.gate != nil {
 			_ = s.gate.Close()
@@ -564,6 +639,30 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser) (*Serve
 		if err != nil {
 			return fail(fmt.Errorf("edictad: recorder signer: %w", err))
 		}
+		if cfg.Recorder.Fast {
+			if err := sameAccount(ctx, d.RecorderFast.Signer, addr); err != nil {
+				return fail(err)
+			}
+			logRecorderFast(log, cfg, addr)
+		}
+		pub, hl.signer, hl.namespace = rec, addr, ns
+		quota = recorderQuota(cfg, clock)
+	case cfg.Recorder.Enabled && cfg.Recorder.Fast:
+		if _, ok := d.Reader.(signedHeaderReader); !ok {
+			return fail(cfgErr("the recorder needs a node reader that can return signed headers"))
+		}
+		rcfg := recorder.Config{Namespace: ns, MaxBlobBytes: cfg.Recorder.maxBlob(), Archive: store, Now: clock.Now,
+			FastTimeoutBlocks: cfg.Recorder.FastTimeoutBlocks}
+		rec, err := recorder.NewFast(rcfg, recorder.FastDeps{Signer: d.RecorderFast.Signer, Node: d.Consensus, Log: log}, d.Reader)
+		if err != nil {
+			return fail(fmt.Errorf("edictad: fast recorder: %w", err))
+		}
+		s.rec = rec
+		addr, err := d.RecorderFast.Signer.Address(ctx)
+		if err != nil {
+			return fail(fmt.Errorf("edictad: recorder signer: %w", err))
+		}
+		logRecorderFast(log, cfg, addr)
 		pub, hl.signer, hl.namespace = rec, addr, ns
 		quota = recorderQuota(cfg, clock)
 	case cfg.Recorder.Enabled:
@@ -654,14 +753,18 @@ func buildFibreRecorder(cfg Config, d Deps, ns []byte, store archive.Store, cloc
 	if build == nil {
 		build = newFibreRecorder
 	}
-	rec, err := build(fc, recorder.FibreDeps{
+	fd := recorder.FibreDeps{
 		Submitter: d.Fibre.Submitter,
 		Reader:    reader,
 		Chain:     d.Fibre.RecorderChain,
 		ChainID:   chainID,
 		Committer: committer,
 		Log:       log,
-	})
+	}
+	if cfg.Recorder.Fast {
+		fd.Fast = &recorder.FastDeps{Signer: d.RecorderFast.Signer, Node: d.Consensus, Uploader: d.RecorderFast.Uploader, Log: log}
+	}
+	rec, err := build(fc, fd)
 	if err != nil {
 		return nil, fmt.Errorf("edictad: fibre recorder: %w", err)
 	}
@@ -810,6 +913,10 @@ var recorderErrors = []edictaapi.ErrorRule{
 	{Code: "recorder.ErrSubmitMismatch", Err: recorder.ErrSubmitMismatch, Status: 502},
 	{Code: "recorder.ErrArchiveUnavailable", Err: recorder.ErrArchiveUnavailable, Status: 503, Retryable: true},
 	{Code: "recorder.ErrEscrowInsufficient", Err: recorder.ErrEscrowInsufficient, Status: 503, Retryable: true},
+	// The fast-mode refusals are final for this blob: only a new blob helps.
+	{Code: "recorder.ErrIntentStale", Err: recorder.ErrIntentStale, Status: 409},
+	{Code: "recorder.ErrAnchorExpired", Err: recorder.ErrAnchorExpired, Status: 409},
+	{Code: "recorder.ErrAnchorTxRejected", Err: recorder.ErrAnchorTxRejected, Status: 502},
 }
 
 // archivingGate adapts *gate.Gate to the API's interface, which takes the
