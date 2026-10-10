@@ -16,7 +16,7 @@ go build -o edicta-principal ./cmd/edicta-principal
 ```
 edicta-principal render     --mandate FILE [--book FILE] [--accept-new-key]
 edicta-principal typed-data --mandate FILE
-edicta-principal signdoc    --mandate FILE
+edicta-principal signdoc    --mandate FILE [--text]
 edicta-principal private    --mandate FILE --auditor LABEL:PUBKEY... [--new-id] [--out FILE]
 edicta-principal sign       --mandate FILE --scheme ed25519|cosmos|eth (--key FILE | --signature SIG)
                             [--replaces FILE] [--book FILE] [--accept-new-key] [--out FILE]
@@ -100,15 +100,19 @@ edicta-principal sign --mandate mandate.hex --scheme ed25519 --key principal.key
 The wallet signs the text `D`: the rendered mandate, an empty line and
 `mandate hash: <hex>`. Keplr shows `D`, so you read the rules in the wallet.
 
-1. Print the sign document and extract `D` from it:
+1. Print `D` and the sign document:
    ```sh
+   edicta-principal signdoc --text --mandate mandate.hex > D.txt
    edicta-principal signdoc --mandate mandate.hex
-   edicta-principal signdoc --mandate mandate.hex | jq -r '.msgs[0].value.data' | base64 --decode > D.txt
    ```
-   The `signer` field is your `celestia1...` address; it must be the Keplr
-   account whose public key is the mandate's `principal`.
+   `D.txt` holds exactly the bytes you sign, UTF-8 with no newline after the
+   hash. The `signer` field of the sign document is your `celestia1...`
+   address; it must be the Keplr account whose public key is the mandate's
+   `principal`.
 2. In a browser page with Keplr, sign `D` as arbitrary data for that
    address: `window.keplr.signArbitrary(<chain id>, <celestia1... address>, <contents of D.txt>)`.
+   Pass the contents unchanged: an added or missing byte (a trailing
+   newline, changed line endings) makes the signature fail to verify.
    Keplr returns the signature in base64.
 3. Attach it:
    ```sh

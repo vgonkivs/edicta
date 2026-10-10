@@ -4,7 +4,7 @@
 //
 //	edicta-principal render     --mandate FILE [--book FILE] [--accept-new-key]
 //	edicta-principal typed-data --mandate FILE
-//	edicta-principal signdoc    --mandate FILE
+//	edicta-principal signdoc    --mandate FILE [--text]
 //	edicta-principal private    --mandate FILE --auditor LABEL:PUBKEY... [--new-id] [--out FILE]
 //	edicta-principal sign       --mandate FILE --scheme ed25519|cosmos|eth (--key FILE | --signature SIG)
 //	                            [--replaces FILE] [--book FILE] [--accept-new-key] [--out FILE]
@@ -14,6 +14,12 @@
 // A mandate file holds a canonical Mandate or SignedMandate, as binary CBOR or
 // hex text. A key file holds the 32-byte Ed25519 seed or secp256k1 scalar in
 // hex. SIG is hex (0x optional) or standard base64, as wallets return it.
+//
+// signdoc prints the amino JSON sign document of an ADR-036 mandate; with
+// --text it prints only the data D inside it, the rendered mandate ending in
+// the mandate hash line, as UTF-8 with no newline after the hash. D is the
+// exact text the wallet signs: paste it unchanged as the data argument of
+// Keplr signArbitrary.
 //
 // private makes a mandate private: it sets the auditors from LABEL:PUBKEY
 // (an X25519 key in hex; the kid is derived, never typed) and draws the
@@ -59,12 +65,19 @@ const (
 const usage = `usage:
   edicta-principal render     --mandate FILE [--book FILE] [--accept-new-key]
   edicta-principal typed-data --mandate FILE
-  edicta-principal signdoc    --mandate FILE
+  edicta-principal signdoc    --mandate FILE [--text]
   edicta-principal private    --mandate FILE --auditor LABEL:PUBKEY... [--new-id] [--out FILE]
   edicta-principal sign       --mandate FILE --scheme ed25519|cosmos|eth (--key FILE | --signature SIG)
                               [--replaces FILE] [--book FILE] [--accept-new-key] [--out FILE]
   edicta-principal verify     --signed FILE
-  edicta-principal publish    --signed FILE --archive DIR`
+  edicta-principal publish    --signed FILE --archive DIR
+
+signdoc --text prints the data D of the ADR-036 document: the rendered
+mandate, an empty line and "mandate hash: <hex>", with no newline after the
+hash. D is the exact data the principal signs. Paste it unchanged, without
+adding a newline, as the data argument of Keplr signArbitrary(chainId,
+address, data), then pass the returned signature to sign --scheme cosmos
+--signature.`
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
@@ -91,7 +104,7 @@ func run(args []string, out, errOut io.Writer) int {
 
 type opts struct {
 	mandate, signed, scheme, key, signature, out, archive, book, replaces string
-	acceptNewKey, newID                                                   bool
+	acceptNewKey, newID, text                                             bool
 	auditors                                                              multi
 }
 
@@ -116,12 +129,16 @@ func parse(name string, args []string, need ...string) (opts, error) {
 	fs.StringVar(&o.replaces, "replaces", "", "signed mandate this version replaces")
 	fs.BoolVar(&o.acceptNewKey, "accept-new-key", false, "accept a known auditor label with another key")
 	fs.BoolVar(&o.newID, "new-id", false, "draw a fresh mandate_id")
+	fs.BoolVar(&o.text, "text", false, "signdoc: print only the signed data D")
 	fs.Var(&o.auditors, "auditor", "auditor as LABEL:PUBKEY, repeatable")
 	if err := fs.Parse(args); err != nil {
 		return o, usageError{err}
 	}
 	if fs.NArg() > 0 {
 		return o, usageError{fmt.Errorf("unexpected argument %q", fs.Arg(0))}
+	}
+	if o.text && name != "signdoc" {
+		return o, usageError{errors.New("--text applies only to signdoc")}
 	}
 	set := map[string]string{"mandate": o.mandate, "signed": o.signed, "scheme": o.scheme, "archive": o.archive}
 	for _, n := range need {
@@ -143,7 +160,7 @@ func dispatch(cmd string, args []string, out, errOut io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if err := show(cmd, m, h, out); err != nil {
+		if err := show(cmd, m, h, o.text, out); err != nil {
 			return err
 		}
 		if cmd == "render" {
@@ -183,7 +200,7 @@ func dispatch(cmd string, args []string, out, errOut io.Writer) error {
 	return usageError{fmt.Errorf("unknown command %q", cmd)}
 }
 
-func show(cmd string, m *policy.Mandate, h commitment.Hash, out io.Writer) error {
+func show(cmd string, m *policy.Mandate, h commitment.Hash, text bool, out io.Writer) error {
 	switch cmd {
 	case "render":
 		_, err := io.WriteString(out, policy.Render(m))
@@ -202,7 +219,12 @@ func show(cmd string, m *policy.Mandate, h commitment.Hash, out io.Writer) error
 		if m.SigType != policy.SigTypeADR036 {
 			return usageError{errors.New("signdoc needs a mandate with sig_type 2 (adr-036)")}
 		}
-		doc, err := principalsig.ADR036SignDoc(m.Principal, m.PrincipalHRP, policy.SignedText(m, h))
+		d := policy.SignedText(m, h)
+		if text {
+			_, err := out.Write(d)
+			return err
+		}
+		doc, err := principalsig.ADR036SignDoc(m.Principal, m.PrincipalHRP, d)
 		if err != nil {
 			return err
 		}
