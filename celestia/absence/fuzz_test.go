@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -47,13 +46,11 @@ func FuzzVerifyHeight(f *testing.F) {
 func FuzzUntrustedHeader(f *testing.F) {
 	f.Add([]byte{0x0a, 0x00}, false)
 	f.Add([]byte{0xff, 0x01}, true)
+	f.Add([]byte{}, true)
+	f.Add([]byte{0x4b, 0x3c}, true)
 	f.Fuzz(func(t *testing.T, raw []byte, signed bool) {
 		ref, d, m, _ := caseOf(t, "window_three_heights_proven")
 		if signed {
-			var pb cmtproto.SignedHeader
-			if pb.Unmarshal(raw) == nil && pb.Header == nil {
-				t.Skip("a SignedHeader without a header is TestHeaderlessSignedHeaderIsNotProven")
-			}
 			b := &badSource{recordSource: &recordSource{recs: m.recs}, from: d,
 				header: func(uint64) ([]byte, error) { return raw, nil }}
 			fe, err := absence.NewFetcher(b, nil, "fuzz")
