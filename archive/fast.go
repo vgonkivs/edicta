@@ -188,7 +188,8 @@ func fastKeyPath(r Record) (string, bool, error) {
 	return "", false, nil
 }
 
-// hasNamespace reports the kinds whose key 5 is a namespace under rule S8.
+// hasNamespace reports the kinds whose key 5 is a namespace, which must be
+// a valid user blob namespace.
 func hasNamespace(k Kind) bool {
 	return k == KindPayload || k == KindEvidence || k == KindAnchorIntent || k == KindAbsenceProof
 }
