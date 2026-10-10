@@ -3,11 +3,14 @@ package edictad
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
+
+	"golang.org/x/crypto/ripemd160" //nolint:staticcheck // Cosmos addresses are RIPEMD-160 by definition.
 
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/recorder"
@@ -219,19 +222,20 @@ func recorderIsNotPrincipal(ctx context.Context, s node.AnchorSigner, m *policy.
 // compressed secp256k1 key of its own account: the principal check compares
 // that key, so it must be the one that signs.
 func shownKeyIsTheAccount(ctx context.Context, s node.AnchorSigner, pub []byte) error {
-	bech, err := principalsig.CosmosAddress(pub, "celestia")
-	if err != nil {
-		return cfgErr("recorder.fast: the anchor signer's public key is not a compressed secp256k1 key: %v", err)
+	if len(pub) != 33 {
+		return cfgErr("recorder.fast: the anchor signer's public key is not a compressed secp256k1 key: %d bytes", len(pub))
 	}
-	_, own, err := principalsig.ParseCosmosAddress(bech)
-	if err != nil {
-		return fmt.Errorf("edictad: anchor signer public key: %w", err)
+	if _, err := principalsig.EthereumAddress(pub); err != nil {
+		return cfgErr("recorder.fast: the anchor signer's public key is not a compressed secp256k1 key: %v", err)
 	}
 	addr, err := s.Address(ctx)
 	if err != nil {
 		return fmt.Errorf("edictad: anchor signer: %w", err)
 	}
-	if !bytes.Equal(own[:], addr) {
+	sh := sha256.Sum256(pub)
+	r := ripemd160.New()
+	r.Write(sh[:])
+	if !bytes.Equal(r.Sum(nil), addr) {
 		return cfgErr("recorder.fast: the anchor signer's public key is not the key of its account")
 	}
 	return nil
