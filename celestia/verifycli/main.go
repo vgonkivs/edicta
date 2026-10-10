@@ -167,12 +167,13 @@ type flags struct {
 	evidencePaths []string
 	auditorKeys   []string
 	absenceSource string
+	execChainID   string
 }
 
 func parseFlags(args []string, out io.Writer) (flags, error) {
 	const usage = "usage: verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) " +
 		"[--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)] [--cross-check URL]... [--exclude-host HOST]... " +
-		"[--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution] " +
+		"[--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution [--exec-chain-id ID]] " +
 		"[--principal-key HEX]... [--principal ed25519:HEX|cosmos:BECH32|eth:0xHEX]... [--require-policy] [--policy-full] [--max-walk-steps N] [--policy-evidence FILE]... [--auditor-key FILE]... [--absence-source URL] [--json]\n" +
 		"       absence <commitment_hash> --gate-key HEX --archive DIR --absence-source URL (--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)) [--json]"
 	var f flags
@@ -199,6 +200,7 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	fs.StringVar(&f.receiptPath, "receipt", "", "signed receipt file")
 	fs.StringVar(&f.absenceSource, "absence-source", "", "bridge node JSON-RPC URL that serves absence proofs of a pending reference; block results come from --headers-rpc")
 	fs.BoolVar(&f.checkExec, "check-execution", false, "check the transaction the receipt names")
+	fs.StringVar(&f.execChainID, "exec-chain-id", "", "chain id the bank-send profile rebuilds a revealed private action for; default the chain id of the trusted header at the reference height")
 	fs.DurationVar(&f.timeout, "timeout", defaultTimeout, "overall time limit of the run")
 	fs.BoolVar(&f.asJSON, "json", false, "print one JSON document")
 	fs.BoolVar(&f.requirePolicy, "require-policy", false, "the gate had a mandate: a missing policy record is unchecked, not skipped")
@@ -305,6 +307,8 @@ func (f flags) validate() error {
 		return usagef("replay takes no receipt and no execution check")
 	case len(f.txRPC) > 0 && !f.checkExec:
 		return usagef("--tx-rpc is used only with --check-execution")
+	case f.execChainID != "" && !f.checkExec:
+		return usagef("--exec-chain-id is used only with --check-execution")
 	case f.checkExec && (len(f.txRPC) == 0 || f.receiptPath == ""):
 		return usagef("--check-execution needs --receipt and --tx-rpc, or the execution is never checked")
 	case f.cmd == "absence" && (f.archiveDir == "" || f.absenceSource == ""):
@@ -455,7 +459,7 @@ func execute(ctx context.Context, args []string, out io.Writer) (int, error) {
 	if f.checkExec {
 		opts = append(opts, verifier.WithExecutionCheck())
 		if len(f.txRPC) > 0 {
-			chk, err := newBankChecker(f.txRPC, f.headersRPC, f.crossRPC, deps.Trust, info)
+			chk, err := newBankChecker(f.txRPC, f.headersRPC, f.crossRPC, deps.Trust, info, f.execChainID)
 			if err != nil {
 				return codeUsage, usageError{err}
 			}

@@ -502,12 +502,16 @@ type bankChecker struct {
 	trust   verifier.HeaderTrust
 	cross   []*cometrpc.Source
 	info    *trustInfo
+	// chainID is the chain a revealed private action is rebuilt for; empty
+	// takes the DA chain.
+	chainID string
 }
 
 // newBankChecker takes the tx sources in order, the first the primary and the
 // rest alternates, and the cross sources. Every source must be on a host of
 // its own.
-func newBankChecker(txURLs []string, headersURL string, crossURLs []string, trust verifier.HeaderTrust, info *trustInfo) (verifier.ExecutionChecker, error) {
+func newBankChecker(txURLs []string, headersURL string, crossURLs []string, trust verifier.HeaderTrust, info *trustInfo,
+	chainID string) (verifier.ExecutionChecker, error) {
 	if len(txURLs) == 0 {
 		return nil, errors.New("no --tx-rpc")
 	}
@@ -518,7 +522,7 @@ func newBankChecker(txURLs []string, headersURL string, crossURLs []string, trus
 	if err != nil {
 		return nil, err
 	}
-	b := &bankChecker{headers: hs, trust: trust, info: info}
+	b := &bankChecker{headers: hs, trust: trust, info: info, chainID: chainID}
 	taken := map[string]string{hs.Name(): "--headers-rpc"}
 	for i, u := range txURLs {
 		s, err := cometrpc.New(u, nil)
@@ -577,25 +581,30 @@ func (b *bankChecker) CheckExecution(ctx context.Context, in verifier.ExecutionI
 func (b *bankChecker) PublicExecution() bool { return true }
 
 // ActionFromTx rebuilds the action of the transaction the receipt names. The
-// action of a private decision is not known, so its chain id is that of the
-// trusted header at the reference height: a transaction on another chain
-// gives another action, which the action hash then refuses.
+// action of a private decision is not known, so its chain id is the one the
+// profile is configured for (--exec-chain-id), else that of the trusted
+// header at the reference height: a transaction on another chain gives
+// another action, which the action hash then refuses.
 func (b *bankChecker) ActionFromTx(ctx context.Context, in verifier.ExecutionInput) ([]byte, error) {
 	headers := trustedChain{b.headers, b.trust}
-	raw, err := headers.Header(ctx, in.AnchorHeight)
-	if err != nil {
-		return nil, err
-	}
-	var ph cmtproto.Header
-	if err := ph.Unmarshal(raw); err != nil || ph.ChainID == "" {
-		return nil, fmt.Errorf("the trusted header at %d names no chain", in.AnchorHeight)
+	chainID := b.chainID
+	if chainID == "" {
+		raw, err := headers.Header(ctx, in.AnchorHeight)
+		if err != nil {
+			return nil, err
+		}
+		var ph cmtproto.Header
+		if err := ph.Unmarshal(raw); err != nil || ph.ChainID == "" {
+			return nil, fmt.Errorf("the trusted header at %d names no chain", in.AnchorHeight)
+		}
+		chainID = ph.ChainID
 	}
 	primary := b.txs[0]
 	var alts []railverify.TxSource
 	for _, s := range distinctNodes(ctx, b.info, []*cometrpc.Source{primary, b.headers}, b.txs[1:]) {
 		alts = append(alts, s)
 	}
-	c, err := railverify.NewBankSend(railverify.Config{ChainID: ph.ChainID, HRP: bankHRP}, primary, headers, nil,
+	c, err := railverify.NewBankSend(railverify.Config{ChainID: chainID, HRP: bankHRP}, primary, headers, nil,
 		railverify.WithAlternates(alts...))
 	if err != nil {
 		return nil, err

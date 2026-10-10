@@ -93,7 +93,8 @@ func (r *run) reveal(chk ExecutionChecker) error {
 	if h, herr := commitment.ActionHash(r.c.Action.Type, rec.ActionSalt, a); herr != nil || !bytes.Equal(h[:], r.c.Action.Hash) {
 		r.replaceCheck(Check{Name: CheckAction, Status: StatusUnchecked, Reason: ReasonSourceCorrupt,
 			Sources: []string{archive.HashPath(archive.KindReveal, r.h)},
-			Err:     fmt.Errorf("%w: the revealed salt and the executed transaction do not give the action hash", ErrActionInvalid)})
+			Err: fmt.Errorf("%w: the revealed salt and the executed transaction do not give the action hash "+
+				"(a wrong salt, or the checker rebuilds the action for another chain than the agent's)", ErrActionInvalid)})
 		return nil
 	}
 	r.action, r.salt = bytes.Clone(a), bytes.Clone(rec.ActionSalt)
