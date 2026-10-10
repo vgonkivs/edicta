@@ -125,7 +125,7 @@ type policyRun struct {
 	// Private mode. signed holds every held verdict as signed, for the fork
 	// search that works without the key; ppViol is the target or walked
 	// verdict whose PrivatePart breaks the presence rule.
-	logicals map[commitment.Hash]logicalVerdict
+	parts    map[commitment.Hash]partRead
 	kids     map[commitment.Hash][]byte
 	private  bool
 	noKey    bool
@@ -144,7 +144,7 @@ func (v *Verifier) checkPolicy(ctx context.Context, in policyInput) (policyOutco
 	p := &policyRun{
 		v: v, ctx: ctx, in: in,
 		mandates: map[commitment.Hash]*policy.Mandate{}, badMand: map[commitment.Hash]srcStatus{},
-		heldRaw: map[commitment.Hash][]byte{}, logicals: map[commitment.Hash]logicalVerdict{},
+		heldRaw: map[commitment.Hash][]byte{}, parts: map[commitment.Hash]partRead{},
 		kids: map[commitment.Hash][]byte{},
 	}
 	p.rd, _ = v.archive.(archive.PolicyReader)
@@ -524,6 +524,11 @@ func (p *policyRun) fast(allow *allowRec) (*policy.Mandate, error) {
 		}
 	} else {
 		p.setFast(p.unchecked(ReasonBlocked, errors.New("the anchor time is not verified"), string(CheckHeaderTrust)))
+		if v.AnchorTime == 0 {
+			// A self-inconsistent PrivatePart without anchor_time: the
+			// evaluation on the state has no time to run on.
+			return m, nil
+		}
 	}
 
 	if v.PrevState == nil {

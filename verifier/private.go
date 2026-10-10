@@ -85,51 +85,70 @@ type logicalVerdict struct {
 	v   *policy.Verdict
 }
 
+// partRead is a PrivatePart as read from the archive: decoded, or the
+// status of a read that failed.
+type partRead struct {
+	part *policy.PrivatePart
+	src  srcStatus
+}
+
+// readPart reads and decodes the PrivatePart under its private_hash, once per
+// run.
+func (p *policyRun) readPart(key commitment.Hash) (partRead, error) {
+	if r, ok := p.parts[key]; ok {
+		return r, nil
+	}
+	pt, _, st, err := p.v.readPrivate(p.ctx, policy.PrivatePartKind, key, key, "")
+	if err != nil {
+		return partRead{}, err
+	}
+	r := partRead{src: st}
+	if st == srcOK {
+		part, derr := policy.DecodePrivatePart(pt)
+		if derr != nil {
+			r = partRead{src: srcCorrupt}
+		} else {
+			r.part = part
+		}
+	}
+	p.parts[key] = r
+	return r, nil
+}
+
 // logical is the public-form verdict a private-form one stands for: the
-// merge with its opened PrivatePart. A public-form verdict is itself.
+// merge with its opened PrivatePart. A public-form verdict is itself. Only
+// the decoded part is shared between verdicts naming one private_hash: the
+// merge and the state check belong to each signed verdict.
 func (p *policyRun) logical(v *policy.Verdict, m *policy.Mandate) (logicalVerdict, error) {
 	if !v.Private() {
 		return logicalVerdict{v: v}, nil
 	}
-	key := commitment.Hash(v.PrivateHash)
-	if l, ok := p.logicals[key]; ok {
-		return l, nil
-	}
-	pt, _, st, err := p.v.readPrivate(p.ctx, policy.PrivatePartKind, key, key, "")
+	r, err := p.readPart(commitment.Hash(v.PrivateHash))
 	if err != nil {
 		return logicalVerdict{}, err
 	}
-	var l logicalVerdict
-	switch {
-	case st != srcOK:
-		l = logicalVerdict{st: logicalSource, src: st}
-	default:
-		part, derr := policy.DecodePrivatePart(pt)
-		if derr != nil {
-			l = logicalVerdict{st: logicalSource, src: srcCorrupt}
-			break
-		}
-		merged := policy.MergeUnchecked(v, part)
-		l = logicalVerdict{v: merged}
-		if v.Outcome == policy.OutcomeAllow && part.PrevState != nil {
-			h, herr := policy.NewStateHasher(m).StateHash(part.PrevState)
-			if herr != nil || !bytes.Equal(h[:], v.BlindPrevStateHash) {
-				l.st = logicalInconsistent
-				break
-			}
-		}
-		if merged.Validate() != nil {
-			l.st = logicalSelfInconsistent
+	if r.part == nil {
+		return logicalVerdict{st: logicalSource, src: r.src}, nil
+	}
+	merged := policy.MergeUnchecked(v, r.part)
+	l := logicalVerdict{v: merged}
+	if v.Outcome == policy.OutcomeAllow && r.part.PrevState != nil {
+		h, herr := policy.NewStateHasher(m).StateHash(r.part.PrevState)
+		if herr != nil || !bytes.Equal(h[:], v.BlindPrevStateHash) {
+			l.st = logicalInconsistent
+			return l, nil
 		}
 	}
-	p.logicals[key] = l
+	if merged.Validate() != nil {
+		l.st = logicalSelfInconsistent
+	}
 	return l, nil
 }
 
 // derive fills what a self-inconsistent PrivatePart left out with what the
 // verifier knows on its own: the facts of its extractor, the verified
-// reference time, and eval_time from them. ok is false, with the check to
-// report, when an input has no derivation.
+// reference time, and eval_time from them. The check to report is returned
+// when the facts have no derivation.
 func (p *policyRun) derive(v *policy.Verdict) (*policy.Verdict, *Check) {
 	d := *v
 	x := p.v.extractors
@@ -150,13 +169,13 @@ func (p *policyRun) derive(v *policy.Verdict) (*policy.Verdict, *Check) {
 		}
 		d.Extractor = id
 	}
-	if d.AnchorTime == 0 {
-		if !p.in.THVerified {
-			return nil, p.unchecked(ReasonBlocked, errors.New("the anchor time is not verified"), string(CheckHeaderTrust))
-		}
+	// Without a verified reference time anchor_time stays 0: the facts and
+	// the per-action rules still run and can fail, only the evaluation on
+	// the state is blocked.
+	if d.AnchorTime == 0 && p.in.THVerified {
 		d.AnchorTime = p.in.TH
 	}
-	if d.PrevState != nil && d.EvalTime == 0 {
+	if d.PrevState != nil && d.EvalTime == 0 && d.AnchorTime != 0 {
 		d.EvalTime = policy.EvalTime(*d.PrevState, d.AnchorTime)
 	}
 	return &d, nil
