@@ -1,0 +1,136 @@
+// Package doctor checks a configured Edicta stack and says, for every check,
+// what is wrong and how to fix it. Each check reads the network and the disk
+// only through the interfaces of Env, so unit tests use fakes.
+package doctor
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"time"
+
+	"github.com/vgonkivs/edicta/celestia/config"
+)
+
+// Status is the outcome of one check.
+type Status string
+
+// The three outcomes. Only Fail makes a run fail.
+const (
+	OK   Status = "ok"
+	Warn Status = "warn"
+	Fail Status = "fail"
+)
+
+// Result is what a check found. Cause says what was seen (or what is wrong),
+// Fix what to do about it; Fix is empty for ok.
+type Result struct {
+	Status Status `json:"status"`
+	Cause  string `json:"cause,omitempty"`
+	Fix    string `json:"fix,omitempty"`
+}
+
+// Check is one named check of the stack.
+type Check interface {
+	Name() string
+	Run(ctx context.Context, c config.Config) Result
+}
+
+func ok(format string, a ...any) Result {
+	return Result{Status: OK, Cause: fmt.Sprintf(format, a...)}
+}
+
+func warn(cause, fix string) Result { return Result{Status: Warn, Cause: cause, Fix: fix} }
+
+func fail(cause, fix string) Result { return Result{Status: Fail, Cause: cause, Fix: fix} }
+
+// Item is one check's name and result.
+type Item struct {
+	Name string `json:"name"`
+	Result
+}
+
+// Report is the result of a run, in check order.
+type Report struct {
+	Items []Item `json:"checks"`
+}
+
+// Failed reports whether any check failed.
+func (r Report) Failed() bool {
+	for _, it := range r.Items {
+		if it.Status == Fail {
+			return true
+		}
+	}
+	return false
+}
+
+// Count returns how many items have the given status.
+func (r Report) Count(s Status) int {
+	n := 0
+	for _, it := range r.Items {
+		if it.Status == s {
+			n++
+		}
+	}
+	return n
+}
+
+// CheckTimeout bounds one check; a check that outlasts it fails.
+const CheckTimeout = 30 * time.Second
+
+// Run runs every check in order. A check that panics or outlasts its time
+// limit is a failure, not a crash of the run.
+func Run(ctx context.Context, c config.Config, checks []Check) Report {
+	var rep Report
+	for _, ch := range checks {
+		rep.Items = append(rep.Items, Item{Name: ch.Name(), Result: runOne(ctx, c, ch)})
+	}
+	return rep
+}
+
+func runOne(ctx context.Context, c config.Config, ch Check) (res Result) {
+	cctx, cancel := context.WithTimeout(ctx, CheckTimeout)
+	defer cancel()
+	defer func() {
+		if p := recover(); p != nil {
+			res = fail(fmt.Sprintf("check %s stopped unexpectedly: %v", ch.Name(), p), "report this as a bug")
+		}
+	}()
+	res = ch.Run(cctx, c)
+	if res.Status != OK && res.Status != Warn && res.Status != Fail {
+		return fail(fmt.Sprintf("check %s returned no status", ch.Name()), "report this as a bug")
+	}
+	return res
+}
+
+// WriteText prints one line per check, with the fix on the next line.
+func (r Report) WriteText(w io.Writer) error {
+	for _, it := range r.Items {
+		if _, err := fmt.Fprintf(w, "%-4s  %-11s %s\n", it.Status, it.Name, it.Cause); err != nil {
+			return err
+		}
+		if it.Fix != "" {
+			if _, err := fmt.Fprintf(w, "      %-11s fix: %s\n", "", it.Fix); err != nil {
+				return err
+			}
+		}
+	}
+	_, err := fmt.Fprintf(w, "%d ok, %d warn, %d fail\n", r.Count(OK), r.Count(Warn), r.Count(Fail))
+	return err
+}
+
+// WriteJSON prints the report as one JSON document.
+func (r Report) WriteJSON(w io.Writer) error {
+	doc := struct {
+		OK     bool   `json:"ok"`
+		Checks []Item `json:"checks"`
+	}{OK: !r.Failed(), Checks: r.Items}
+	if doc.Checks == nil {
+		doc.Checks = []Item{}
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(doc)
+}

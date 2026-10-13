@@ -104,6 +104,11 @@ func dirsOverlap(a, b string, resolve func(string) (string, error)) bool {
 	return within(ra, rb) || within(rb, ra)
 }
 
+// DirsOverlap reports whether a and b are one directory or one lies inside
+// the other, comparing absolute, clean paths with symlinks resolved. A path
+// that cannot be resolved counts as overlapping.
+func DirsOverlap(a, b string) bool { return dirsOverlap(a, b, realDir) }
+
 // within reports whether dir is root or below it; both are absolute and
 // clean.
 func within(dir, root string) bool {

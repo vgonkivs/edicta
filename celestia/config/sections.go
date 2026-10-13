@@ -92,6 +92,9 @@ type Recorder struct {
 	OwnNode bool `toml:"own_node"`
 	// EscrowHeadroomUtia is kept in the Fibre escrow on top of one upload.
 	EscrowHeadroomUtia uint64 `toml:"escrow_headroom_utia"`
+	// BlobsPerDay is the expected publishing rate; doctor sizes the account
+	// balance for one day of it.
+	BlobsPerDay uint64 `toml:"blobs_per_day"`
 }
 
 // Publisher is the second Celestia account, with its own namespace.
@@ -100,6 +103,8 @@ type Publisher struct {
 	KeyName        string `toml:"key_name"`
 	PassphraseFile string `toml:"passphrase_file"`
 	Namespace      string `toml:"namespace"`
+	// BlobsPerDay is the expected publishing rate, as in Recorder.
+	BlobsPerDay uint64 `toml:"blobs_per_day"`
 }
 
 // Archive is where payloads are kept: a directory, or a URL for readers.
@@ -154,6 +159,7 @@ type Verify struct {
 // Defaults of the keys above.
 const (
 	DefaultMaxBlobBytes          = 1 << 20
+	DefaultBlobsPerDay           = 100
 	DefaultSignerListen          = "127.0.0.1:8402"
 	DefaultGateListen            = "127.0.0.1:8080"
 	DefaultCaptureRetryS         = 30
@@ -175,6 +181,9 @@ func (c *Config) ApplyDefaults(p Presets) error {
 	}
 	if c.Recorder != nil {
 		c.Recorder.ApplyDefaults()
+	}
+	if c.Publisher != nil {
+		c.Publisher.ApplyDefaults()
 	}
 	if c.Signer != nil {
 		c.Signer.applyDefaults(c.Network)
@@ -255,6 +264,16 @@ func (r *Recorder) ApplyDefaults() {
 	}
 	if r.MaxBlobBytes == 0 {
 		r.MaxBlobBytes = DefaultMaxBlobBytes
+	}
+	if r.BlobsPerDay == 0 {
+		r.BlobsPerDay = DefaultBlobsPerDay
+	}
+}
+
+// ApplyDefaults fills the zero fields that have defaults.
+func (p *Publisher) ApplyDefaults() {
+	if p.BlobsPerDay == 0 {
+		p.BlobsPerDay = DefaultBlobsPerDay
 	}
 }
 
@@ -503,6 +522,8 @@ func (r Recorder) ValidateBasic() error {
 		return cfgErr(`recorder.da must be "celestia_blob" or "fibre"`)
 	case r.MaxBlobBytes == 0:
 		return cfgErr("recorder.max_blob_bytes must be above zero")
+	case r.BlobsPerDay == 0:
+		return cfgErr("recorder.blobs_per_day must be above zero")
 	case r.DA == DABlob && (r.OwnNode || r.EscrowHeadroomUtia != 0):
 		return cfgErr(`recorder.own_node and escrow_headroom_utia need recorder.da = "fibre"`)
 	}
@@ -518,6 +539,8 @@ func (p Publisher) ValidateBasic() error {
 		return cfgErr("publisher.key_name is required")
 	case p.PassphraseFile == "":
 		return cfgErr("publisher.passphrase_file is required")
+	case p.BlobsPerDay == 0:
+		return cfgErr("publisher.blobs_per_day must be above zero")
 	}
 	return checkNamespace("publisher.namespace", p.Namespace)
 }
