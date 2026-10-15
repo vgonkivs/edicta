@@ -96,10 +96,28 @@ type Capturer struct {
 	// conflicted holds the references whose conflict was logged.
 	conflicted map[string]bool
 	kick       chan struct{}
+
+	// arch receives the captures as execution result records; nil keeps
+	// them in the capture store only.
+	arch Archive
+	// conflicts counts the captures another archived record keeps out.
+	conflicts atomic.Uint64
+	// migrationLogged holds the references whose refusal or conflict was
+	// logged.
+	migrationLogged map[string]bool
+}
+
+// Option changes how New builds the Capturer.
+type Option func(*Capturer)
+
+// WithArchive moves captures into the archive as execution result records,
+// and drops each capture once the archive holds an equivalent record.
+func WithArchive(a Archive) Option {
+	return func(c *Capturer) { c.arch = a }
 }
 
 // New returns a Capturer.
-func New(cfg Config, chain Chain, store Store, log *slog.Logger) (*Capturer, error) {
+func New(cfg Config, chain Chain, store Store, log *slog.Logger, opts ...Option) (*Capturer, error) {
 	if err := cfg.ValidateBasic(); err != nil {
 		return nil, err
 	}
@@ -109,7 +127,14 @@ func New(cfg Config, chain Chain, store Store, log *slog.Logger) (*Capturer, err
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Capturer{cfg: cfg, chain: chain, store: store, log: log, alerted: map[string]bool{}, conflicted: map[string]bool{}, kick: make(chan struct{}, 1)}, nil
+	c := &Capturer{
+		cfg: cfg, chain: chain, store: store, log: log, alerted: map[string]bool{}, conflicted: map[string]bool{},
+		kick: make(chan struct{}, 1), migrationLogged: map[string]bool{},
+	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c, nil
 }
 
 // Config is the configuration the Capturer runs with.
@@ -300,6 +325,14 @@ func (c *Capturer) attempt(ctx context.Context, p *Pending) error {
 	}
 	if err := c.store.PutBlock(ctx, b); err != nil {
 		return err
+	}
+	// The capture is durable first; a record that does not land now is
+	// moved by a later run.
+	if c.arch != nil {
+		if m := c.migrateTx(ctx, b, b.Txs[0]); m.Result == MigrationKept {
+			// Health sees the conflict now; the next run recounts.
+			c.conflicts.Add(1)
+		}
 	}
 	return c.store.DeletePending(ctx, p.RailRef)
 }

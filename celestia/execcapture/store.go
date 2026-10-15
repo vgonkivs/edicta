@@ -103,6 +103,13 @@ type Store interface {
 	MarkLost(ctx context.Context, p Pending) error
 	// Lost reports whether the rail reference was given up as lost.
 	Lost(ctx context.Context, railRef string) (bool, error)
+	// Blocks returns every block file with its captured transactions. A
+	// file that does not decode is left out and named in the error.
+	Blocks(ctx context.Context) ([]Block, error)
+	// MarkArchived drops the capture of railRef from the block at
+	// (chainID, height), and the block once it holds none, after the archive
+	// holds an equivalent record. The reference stays captured.
+	MarkArchived(ctx context.Context, chainID string, height uint64, railRef string) error
 }
 
 // Dir is a Store in a local directory:
@@ -112,6 +119,8 @@ type Store interface {
 //	pending/<rail_ref>.json           one Pending
 //	lost/<rail_ref>.json              one Pending given up as lost
 //	quarantine/<file>                 a pending file that did not decode
+//	archived/<rail_ref>               "<chain_id>/<height>" of a capture
+//	                                  moved into the archive
 //
 // Files are written to a temporary name, synced and renamed.
 type Dir struct {
@@ -124,7 +133,7 @@ func OpenDir(root string) (*Dir, error) {
 	if strings.TrimSpace(root) == "" {
 		return nil, fmt.Errorf("%w: no directory", ErrInvalid)
 	}
-	for _, sub := range []string{"blocks", "refs", "pending", "lost", "quarantine"} {
+	for _, sub := range []string{"blocks", "refs", "pending", "lost", "quarantine", "archived"} {
 		if err := os.MkdirAll(filepath.Join(root, sub), 0o700); err != nil {
 			return nil, fmt.Errorf("execcapture: %w", err)
 		}
@@ -213,19 +222,98 @@ func sameJSON(a, b any) bool {
 	return bytes.Equal(ja, jb)
 }
 
-// Captured reports whether railRef has a capture.
+// Captured reports whether railRef has a capture, here or moved into the
+// archive.
 func (d *Dir) Captured(_ context.Context, railRef string) (bool, error) {
 	if !ValidRailRef(railRef) {
 		return false, fmt.Errorf("%w: rail_ref", ErrInvalid)
 	}
-	_, err := os.Stat(filepath.Join(d.root, "refs", railRef))
-	switch {
-	case err == nil:
-		return true, nil
-	case errors.Is(err, os.ErrNotExist):
-		return false, nil
+	for _, dir := range []string{"refs", "archived"} {
+		_, err := os.Stat(filepath.Join(d.root, dir, railRef))
+		switch {
+		case err == nil:
+			return true, nil
+		case !errors.Is(err, os.ErrNotExist):
+			return false, fmt.Errorf("execcapture: %w", err)
+		}
 	}
-	return false, fmt.Errorf("execcapture: %w", err)
+	return false, nil
+}
+
+// Blocks reads every block file. Names that are not a block key, such as
+// temp files of a write in progress, are skipped.
+func (d *Dir) Blocks(_ context.Context) ([]Block, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	chains, err := os.ReadDir(filepath.Join(d.root, "blocks"))
+	if err != nil {
+		return nil, fmt.Errorf("execcapture: %w", err)
+	}
+	var (
+		out  []Block
+		errs []error
+	)
+	for _, ch := range chains {
+		if !ch.IsDir() || !validChainID(ch.Name()) {
+			continue
+		}
+		files, err := os.ReadDir(filepath.Join(d.root, "blocks", ch.Name()))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("execcapture: %w", err))
+			continue
+		}
+		for _, f := range files {
+			name, ok := strings.CutSuffix(f.Name(), ".json")
+			h, err := strconv.ParseUint(name, 10, 64)
+			if !ok || err != nil || h == 0 || strconv.FormatUint(h, 10) != name {
+				continue
+			}
+			b, err := d.readBlock(ch.Name(), h)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if b.ChainID != ch.Name() || b.Height != h {
+				errs = append(errs, fmt.Errorf("execcapture: block file %s/%d holds %s/%d", ch.Name(), h, b.ChainID, b.Height))
+				continue
+			}
+			out = append(out, b)
+		}
+	}
+	return out, errors.Join(errs...)
+}
+
+// MarkArchived records the reference as archived before it drops the
+// capture, so a crash in between leaves it captured either way.
+func (d *Dir) MarkArchived(_ context.Context, chainID string, height uint64, railRef string) error {
+	if !validChainID(chainID) || height == 0 || !ValidRailRef(railRef) {
+		return fmt.Errorf("%w: block key or rail_ref", ErrInvalid)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	where := chainID + "/" + strconv.FormatUint(height, 10)
+	if err := d.writeFile(filepath.Join(d.root, "archived", railRef), []byte(where)); err != nil {
+		return err
+	}
+	b, err := d.readBlock(chainID, height)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
+		return err
+	default:
+		b.Txs = slices.DeleteFunc(b.Txs, func(t Tx) bool { return t.RailRef == railRef })
+		if len(b.Txs) == 0 {
+			if err := os.Remove(d.blockPath(chainID, height)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("execcapture: %w", err)
+			}
+		} else if err := d.writeJSON(d.blockPath(chainID, height), b); err != nil {
+			return err
+		}
+	}
+	if err := os.Remove(filepath.Join(d.root, "refs", railRef)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("execcapture: %w", err)
+	}
+	return nil
 }
 
 // Block reads the block at (chainID, height); a missing one wraps

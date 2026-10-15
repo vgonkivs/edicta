@@ -1194,6 +1194,12 @@ type overdueCaptures interface {
 	Overdue() uint64
 }
 
+// conflictedCaptures is implemented by a capturer that moves captures into
+// the archive: the captures another archived record keeps out.
+type conflictedCaptures interface {
+	Conflicts() uint64
+}
+
 // skippedIntents is implemented by a fast Recorder.
 type skippedIntents interface {
 	SkippedIntents() uint64
@@ -1250,6 +1256,11 @@ func (h *health) Health(ctx context.Context) (edictaapi.HealthInfo, error) {
 	status := uint64(1)
 	if !h.lastOK || h.degraded.Load() || (h.skipped != nil && h.skipped.SkippedIntents() > 0) ||
 		(h.captures != nil && h.captures.Overdue() > 0) {
+		status = 2
+	}
+	// A capture kept out of the archive by another record stays degraded
+	// until an operator resolves it.
+	if cc, ok := h.captures.(conflictedCaptures); ok && cc.Conflicts() > 0 {
 		status = 2
 	}
 	return edictaapi.HealthInfo{

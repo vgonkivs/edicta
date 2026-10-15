@@ -167,6 +167,9 @@ type captureSweep struct {
 const maxCaptureSettled = 1 << 16
 
 func (s *captureSweep) pass(ctx context.Context) {
+	// Captures move into the archive at start and on every sweep, in the
+	// background; the capturer keeps what does not move.
+	s.cap.Migrate(ctx)
 	var after *registry.Key
 	for ctx.Err() == nil {
 		page, err := s.lister.List(ctx, after, sweepPage)
@@ -279,7 +282,13 @@ func startCapture(ctx context.Context, cfg Config, d Deps, chainID string, reg r
 	if err != nil {
 		return nil, fmt.Errorf("edictad: capture store: %w", err)
 	}
-	c, err := execcapture.New(execcapture.Config{ChainID: chainID, PruneWindowBlocks: p.NodePruneWindowBlocks}, chain, st, log)
+	var opts []execcapture.Option
+	if a, ok := aio.st.(execcapture.Archive); ok {
+		opts = append(opts, execcapture.WithArchive(a))
+	} else {
+		log.Warn("edictad: the archive store cannot hold execution result records; captures stay in the capture store")
+	}
+	c, err := execcapture.New(execcapture.Config{ChainID: chainID, PruneWindowBlocks: p.NodePruneWindowBlocks}, chain, st, log, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("edictad: capture: %w", err)
 	}

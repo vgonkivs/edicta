@@ -252,6 +252,16 @@ func (r *recordingReader) PrivateBlob(ctx context.Context, kind policy.PrivateKi
 	return pr.PrivateBlob(ctx, kind, h)
 }
 
+var _ archive.ExecResultReader = (*recordingReader)(nil)
+
+func (r *recordingReader) ExecutionResult(ctx context.Context, chainID string, railRef []byte) (*archive.ExecutionResultRecord, error) {
+	er, ok := r.Reader.(archive.ExecResultReader)
+	if !ok {
+		return nil, archive.ErrNotFound
+	}
+	return er.ExecutionResult(ctx, chainID, railRef)
+}
+
 func (r *recordingReader) Reveal(ctx context.Context, h commitment.Hash) (*archive.RevealRecord, error) {
 	rr, ok := r.Reader.(archive.RevealReader)
 	if !ok {

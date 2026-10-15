@@ -209,6 +209,7 @@ func violation(err error) error {
 // word is judged by: the bytes hash to rail_ref, the header at its height is
 // on the trusted chain, and a proof, if any, verifies against that header.
 type answer struct {
+	// src is the tx source of an online answer; nil for an archived one.
 	src           TxSource
 	tx            RawTx
 	hdr           core.Header
@@ -334,6 +335,42 @@ func (c *bankSend) try(ctx context.Context, src TxSource, ref [32]byte, act bank
 	return tried{ans: a}
 }
 
+// tryArchived takes an archived execution result as a candidate: the XR
+// rules stand for the lookup, the hash, the inclusion proof and the result
+// proof, and the body rules apply to the transaction bytes they bind.
+func (c *bankSend) tryArchived(ctx context.Context, ar verifier.ArchivedResult, ref [32]byte, act bankaction.Action, in verifier.ExecutionInput) tried {
+	set := func(reason verifier.Reason, err error) tried {
+		return tried{aside: &aside{name: ar.Copy, reason: reason, names: []string{ar.Copy}, err: err}}
+	}
+	if ar.Err != nil || ar.Record == nil {
+		err := ar.Err
+		if err == nil {
+			err = errors.New("no record")
+		}
+		return set(verifier.ReasonTxProofInvalid, fmt.Errorf("%w: the archived execution result does not decode: %w", verifier.ErrExecutionUnchecked, err))
+	}
+	f, err := CheckArchived(ctx, ar.Record, act.ChainID, ref, in.Trust)
+	var sa *ArchivedSetAside
+	switch {
+	case errors.As(err, &sa):
+		return set(sa.Reason, sa)
+	case err != nil:
+		return tried{fatal: err}
+	}
+	body, err := bodyOfTxRaw(f.Tx)
+	if err != nil {
+		return tried{fatal: err}
+	}
+	if _, err := bankaction.CheckBody(act, in.CommitmentHash, body); err != nil {
+		return tried{fatal: violation(err)}
+	}
+	return tried{ans: &answer{
+		tx: RawTx{Bytes: f.Tx, Height: f.Height, Code: f.Code}, hdr: f.Header,
+		inclusion: verifier.InclusionProven, chainMismatch: f.Header.ChainID != act.ChainID,
+		rp: &resultProof{proven: true, code: f.Code, results: int(f.ResultsTotal)},
+	}}
+}
+
 // CheckExecution runs the profile's rules in order: chain configuration,
 // lookup, then for each candidate hash, TxRaw, body, the header at the
 // answer's height and inclusion; then the cross sources and the result proof.
@@ -361,7 +398,35 @@ func (c *bankSend) CheckExecution(ctx context.Context, in verifier.ExecutionInpu
 		used        *answer
 	)
 	rowOf := map[*answer]int{}
+	if in.Archived != nil && in.Trust != nil {
+		recs, err := in.Archived.ExecutionResults(ctx, act.ChainID, ref)
+		if err != nil {
+			return verifier.ExecutionFacts{}, err
+		}
+		for _, ar := range recs {
+			t := c.tryArchived(ctx, ar, ref, act, in)
+			switch {
+			case t.fatal != nil:
+				if reason, _, _ := verifier.ReasonOf(t.fatal); reason != verifier.ReasonTimeout {
+					sources = append(sources, verifier.ExecutionSource{Name: ar.Copy, Role: verifier.RoleArchive, Result: verifier.SourceUsed})
+				}
+				return verifier.ExecutionFacts{Sources: sources}, t.fatal
+			case t.aside != nil:
+				asides = append(asides, *t.aside)
+				sources = append(sources, verifier.ExecutionSource{
+					Name: ar.Copy, Role: verifier.RoleArchive, Result: verifier.SourceSetAside, Reason: t.aside.reason, Detail: t.aside.err.Error(),
+				})
+				continue
+			}
+			sources = append(sources, verifier.ExecutionSource{Name: ar.Copy, Role: verifier.RoleArchive, Result: verifier.SourceUsed})
+			used = t.ans
+			break
+		}
+	}
 	for i, src := range c.candidates {
+		if used != nil {
+			break
+		}
 		role := verifier.RoleAlternate
 		if i == 0 {
 			role = verifier.RolePrimary
