@@ -424,9 +424,26 @@ answer that disagrees with it is logged at error level once, and the
 reference stays pending.
 
 The store is a local directory next to the registry, outside the archive
-format: verifiers of this release do not read it, and nothing in it changes
-an answer or an archive record. A later release moves its entries into the
-archive.
+format: verifiers do not read it, and nothing in it changes an answer.
+
+Migration into the archive. When the archive store can hold execution
+results, the gate moves every capture into the archive: at start, on every
+archive sweep, and right after a capture. For each captured transaction it
+builds one archive record (kind 19) under `exec/<chain_id>/<rail_ref hex>`,
+checks it with the same rules a verifier applies (a record that fails is
+refused and alerted, never written), writes it, reads it back, and only then
+drops the capture. If the key already holds a record that is not equivalent
+(someone else's bytes, or a corrupt one), the capture is kept, the conflict is
+logged at error level once per reference and `/v1/health` reports degraded
+while any conflict remains. Remedy: get another archive copy that holds the
+right record and give it to verifiers with `--result-archive`. The gate does not overwrite the conflicting key. A
+transaction whose record is already in the archive is not stored twice.
+
+The store keeps a small `archived/` done-index of moved references so a
+restart does not track them again as missing; verifiers never read it. Each
+archive call of the move has its own timeout, `archive.write_timeout_s`; a
+slow or hung archive delays only the move, never new captures, and the
+capture stays in the store and is retried at the next sweep.
 
 Retries and fallback. Pending captures are retried every `retry_every_s`.
 The sweep (every `archive.sweep_interval_s`, and at start) reads the
@@ -505,3 +522,14 @@ gate's record of what the executor reported); and, in fast mode, guarantee
 that the anchor lands (it makes a missing anchor provable afterwards). Your
 own consensus node is trusted for header time and, in fast mode, for mempool
 acceptance.
+
+## API error codes added in v1.1
+
+`POST /v1/record` answers two cases with their own codes; before, they came
+out as `edictaapi.ErrInternal` (500) and, for a rejected anchor, as a
+retryable 425 `ErrAnchorNotFound`.
+
+| Code | Status | Retry |
+|---|---|---|
+| `recorder.ErrAnchorRejected` | 502 | no: the node refused the anchor tx, the same input will be refused again |
+| `recorder.ErrClockSkew` | 503 | yes: the gate's clock and the chain's disagree; check the gate's clock, then retry |

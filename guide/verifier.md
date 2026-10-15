@@ -71,6 +71,11 @@ Other: `--skew SECONDS` (default 30) and `--blob-retention SECONDS` (default
 14400) must equal the gate's; `--timeout DURATION` (default 5m) bounds the
 run; `--json` prints one JSON document (errors too, as `{"error": "..."}`).
 
+`--result-archive DIR|URL` (repeatable, only with `--check-execution`): a
+further archive copy, a directory or an `http(s)` URL, that the execution
+check reads for archived execution results after the main archive (below).
+A value given twice is a usage error.
+
 Flags that would have no effect are refused, for example `--tx-rpc` without
 `--check-execution`, or `--check-execution` without `--receipt` and
 `--tx-rpc`.
@@ -156,9 +161,9 @@ ones you will meet most:
 | `policy_private` | A private record no configured `--auditor-key` opens. |
 | `policy_walk_truncated` | Raise `--max-walk-steps` above the target's seq. |
 | `gate_equivocation`, `gate_signed_inconsistent_private_part` | The gate is at fault; the report attaches the signed evidence. Exit 5. |
-| `anchor_pending` | Fast mode, deadline not reached by your trusted header yet. Retry later or with a newer checkpoint. With a checkpoint in `[H, D)` the report says `evidence ties at H; verdict needs a checkpoint >= D (height D)`: the anchor is already tied to your chain, and only a checkpoint at or above the deadline is missing. A header trust that cannot name its checkpoint height leaves `header_trust` unchecked (`no_trusted_header`). |
+| `anchor_pending` | Fast mode, your trusted header is too low for the evidence. Retry later or with a newer checkpoint. If the anchor evidence is in the archive and verifies at height `H`, a trusted header at or above `H` is enough for a pass (see "Presence and absence need different headers"); below `H` the report says `evidence ties at H; verdict needs a checkpoint >= H`. A header trust that cannot name its checkpoint height leaves `header_trust` unchecked (`no_trusted_header`). |
 | `absence_unproven` | Fast mode, no anchor in the window and absence not proven. Run `edicta-verify absence` or pass `--absence-source`. |
-| `anchor_unpaid` | Fast mode: the anchor PFF was included in the window with a non-zero result code, so the payload was published but the escrow did not pay; a v1.0 verifier cannot confirm it (the report names `unpaid_height`), and it is never `invalid`. |
+| `anchor_unpaid` | The anchor PFF was included with a non-zero result code: the payload was published, but `valid` requires a paid anchor (result code 0). An unpaid anchor is an operator funding failure, surfaced by the escrow alert; nothing to fix on the verifier side. The report names `unpaid_height`. It stays `unchecked` for good and is never `invalid`. Another archive copy or `--absence-source` only helps if a paid anchor may sit at a height not proven. |
 
 ## Fast-mode decisions
 
@@ -195,6 +200,17 @@ proven for every height of the window. The report then names the intent
 signer, the account that signed the anchor tx, taken from chain data (for
 `da = 2` it equals the agent-signed `payload_ref.signer`).
 
+### Presence and absence need different headers
+
+For a fast-mode decision whose archived anchor evidence verifies at height
+`H` inside the window (`h0 <= H <= D`, `D` the `anchor_deadline`), the trusted
+header file (or checkpoint) only has to reach `H` for `anchor` to pass. The
+deadline `D` does not matter: the anchor is there. For any verdict that rests
+on the anchor being absent (`absence`, `anchor_absent`, a missing or untied
+evidence record) the trust must reach `D`, and `D + 1` when a Fibre result
+code has to be proven from block results. A trusted header below `H` leaves
+`anchor` at `anchor_pending`.
+
 ### Absence proofs
 
 ```sh
@@ -223,6 +239,36 @@ proven against the block results). A source can withhold proofs
 (`absence_unproven`), but cannot forge absence without breaking SHA-256 or
 the NMT. Cost: a few MB for the default window of 100 blocks on Mocha.
 
+## Archived execution results
+
+The execution check needs the transaction's result proof, which nodes prune.
+The gate keeps it for ordinary rail transactions as an archive record
+(kind 19), stored under `exec/<chain_id>/<rail_ref hex>`: the headers at the
+execution height and the next one, complete proofs of the transaction
+namespaces, the result and its Merkle path to `last_results_hash`. With
+`--check-execution` the verifier reads that key from the main archive first,
+then from each `--result-archive` copy in order, and checks the record
+against your trusted chain (the header trust must reach the execution height
+plus one). A record that proves the transaction and its result is used
+instead of a node; a forged or incomplete record is set aside and the next
+copy, then the `--tx-rpc` nodes, are tried. An archived record can prove a
+result, and a proven bad result or body gives `fail`; a record that cannot be
+checked never causes `invalid`.
+
+A decision with no record, for example one executed before the gate moved
+its captures into the archive, falls back to the nodes. If they have pruned
+the block the check is `unchecked`; point `--result-archive` at another copy
+that holds the record.
+
+An archive must answer a missing `exec/` key as absent: HTTP 404, or a
+missing file. Any other answer is an archive fault and stops the run with
+exit 4 and no verdict. The execution check reads an `exec/` key even for old
+decisions that have none, so a store that answers 403 for missing keys (S3
+without list permission on the bucket) now stops every `--check-execution`
+run. Grant `s3:ListBucket` to the reading identity, or put a front end in
+front of the bucket that maps a missing object to 404. Check with
+`curl -I <archive url>/<any absent key>`: it must say 404.
+
 ## Assumptions
 
 - Header trust is as good as your trust root. With `agreed` and quorum 1, one
@@ -232,8 +278,9 @@ the NMT. Cost: a few MB for the default window of 100 blocks on Mocha.
   an independent source. Distinct host names are not distinct operators; the
   verifier counts a node id once.
 - The archive is trusted for availability only; every record is re-checked.
-  An archive that answers 403 for absent objects makes the run stop without
-  a verdict; configure it to answer 404.
+  An archive that answers anything but 404 or a missing file for an absent
+  object makes the run stop without a verdict (exit 4); configure it to
+  answer 404.
 - Ed25519, SHA-256 and more than 2/3 honest Celestia voting power.
 
 ## What is verified, what is not
