@@ -3,7 +3,8 @@
 Edicta profile for a bank transfer on a Cosmos SDK chain, used by the demo in
 `examples/tia-transfer`.
 
-Status: revision `bank-send-v0-draft.11` (2026-10-09), frozen with core v1.0.
+Status: revision `bank-send-v0-draft.11` (2026-10-09), frozen with core v1.0;
+with the core `v1.1` note of 2026-10-15 (section 0, section 3.4).
 Built on the core spec `spec/decision-commitment-v1.md`, revision `v1.0`. Section
 2.4 needs `spec/policy-v1.md` (`policy-v1.0`). Section numbers
 prefixed "core" refer to the core spec. The `v0` in this profile's name and
@@ -40,6 +41,7 @@ Changes:
 | `bank-send-v0-draft.8` | New section 2.4: the policy extractor `celestia/tia-transfer/v1` (policy v1, task 028). It maps a bank-send action whose MsgSend decodes with HRP `celestia` and denom `utia` to facts; everything else is `policy.ErrFactsInvalid`. Encodings, executor rules and every existing outcome unchanged. | New: `tia_transfer_facts.json` (5 cases, 15 must-deny), written by `spec/vectors/check/gen_policy.py` from the existing action and msg vectors, checked by `check_policy.py`. Every other file byte-identical. |
 | `bank-send-v0-draft.9`, `bank-send-v0-draft.10` | Additions for the `v1` drafts written beside the `v0` core (fast-mode refusal T1a, salt input, `ActionFromTx` of 3.5); superseded by draft.11, history in git. | |
 | `bank-send-v0-draft.11` | Core `v1-draft.5` only (the `v0` core drafts are superseded). (1) The executor verifies the one Authorization the core defines (core 15.3); the configuration `accept_versions` and every branch for a version 0 Authorization or commitment are removed. (2) `action_salt` is always required. (3) Section references are to the one core document. Action, context and transaction encodings unchanged. Outcome change: an Authorization of the superseded drafts is refused at decoding (`commitment.ErrUnsupportedVersion`), as is any Authorization without the salt. | `action.json` and `e2e.json` regenerated: every action carries `action_salt_hex` and its salted `action_hash_hex`; the end-to-end commitment, envelope and hashes follow the core vectors. Every other file byte-identical. |
+| `bank-send-v0-draft.11`, core `v1.1` note (2026-10-15) | Under the core's minor revision `v1.1` (core section 0, its amendment): section 3.4 takes an archived execution result (core kind 19, rules XR1 to XR8 of core 20.2.2) as its first candidate (new paragraph "Archived answer" in 3.4). Action, context and transaction encodings, executor rules, the action type and every outcome of an online source are unchanged; the only outcome move is `unchecked` to `pass` or `fail` for a transaction whose block the nodes have pruned and whose archived record proves it. The profile keeps its name and types: the post-freeze rule above ("new types") covers encodings and executor rules, and a verifier-side relaxation follows the core's minor revision instead (provisional, task 047; the human confirms). | Every profile file byte-identical. The cases are core `archive/execution_result_v1.1.json`. |
 
 Editorial clarification of `bank-send-v0-draft.4` (2026-10-05, no bump): T10
 names the loop height as the status node's latest committed height and the
@@ -300,6 +302,21 @@ transaction whose ante handler fails (signature, sequence,
 signature. Even then, a message that fails after
 the ante handler gives a nonzero code in an included transaction, so
 inclusion never implies `outcome = success`; RP decides it.
+
+Archived answer (core `v1.1`). When a checked archive copy holds a core kind
+19 record under `exec/<chain_id>/<rail_ref hex>` (`chain_id` of the action
+after BX0), the checker tries it first, as the candidate with role
+`archive` (core EX10). For it, BX1 and BX2 are XR1 and XR7 of core 20.2.2
+(the bytes are the unit of the transaction namespace that hashes to
+`rail_ref`), BX6 is XR4 to XR7 (`inclusion = proven`), and RP1 to RP6 are
+XR6 to XR8 (`result = proven`, the proven code replaces any other). BX3,
+BX5, BX4 (against the record's `header`, which XR2 tied to the trusted
+chain), BX8 and BX9 apply unchanged. A record that fails an XR rule is set
+aside with the reason core 20.2.2 names, and the online candidates follow
+as before. Threat note: the record is unsigned archive data; every fact it
+gives rests on the trusted header and SHA-256, as for an online answer with
+an inclusion proof and a results proof, so a hostile archive can only make
+the checker fall back to its online sources.
 
 ### 3.5 Public execution and `ActionFromTx` (since `bank-send-v0-draft.10`)
 

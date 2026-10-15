@@ -1,0 +1,412 @@
+{
+  "format": "edicta-vectors/v1",
+  "revision": "v1.1",
+  "generator": "spec/vectors/check/gen_v1_1.py",
+  "description": "API error codes added by spec revision v1.1 (core 18.3, 21), additive to api/errors.json, which stays byte-identical. additions: the new codes; match tells where each is matched (first: before every row of the 18.3 table). order: the whole match order of v1.1, the codes of api/errors.json with the additions in place. bodies: example error bodies (message is not normative). A v1.0 client maps an unknown code to edictaapi.ErrInternal (18.3) and keeps the status and retryable the server sent.",
+  "base": "api/errors.json",
+  "additions": [
+    {
+      "code": "recorder.ErrAnchorRejected",
+      "status": "502",
+      "retryable": "0",
+      "stored": "none",
+      "endpoints": [
+        "/v1/publish"
+      ],
+      "rules": "18.3, 10.6.1",
+      "match": "first",
+      "why": "A pay-for-fibre tx of the blob succeeded on chain but its certificate fails the one threshold rule; the fee was paid and the Recorder never submits the blob again. The Recorder's error also matches ErrAnchorNotFound (425, retryable), so it is matched before every row."
+    },
+    {
+      "code": "recorder.ErrClockSkew",
+      "status": "503",
+      "retryable": "1",
+      "stored": "none",
+      "endpoints": [
+        "/v1/publish"
+      ],
+      "rules": "18.3",
+      "match": "after ErrAnchorIntentRejected",
+      "why": "The Recorder's clock, which dates the payment promise, is off the chain head time by more than the allowed skew; nothing was submitted. The same request succeeds once the operator fixes the clock."
+    }
+  ],
+  "order": [
+    {
+      "code": "recorder.ErrAnchorRejected",
+      "status": "502"
+    },
+    {
+      "code": "ErrAnchorTooOld",
+      "status": "410"
+    },
+    {
+      "code": "ErrExpired",
+      "status": "410"
+    },
+    {
+      "code": "edictaapi.ErrPublishStale",
+      "status": "410"
+    },
+    {
+      "code": "ErrH0TooOld",
+      "status": "410"
+    },
+    {
+      "code": "ErrAnchorWindowClosed",
+      "status": "410"
+    },
+    {
+      "code": "ErrMalformed",
+      "status": "400"
+    },
+    {
+      "code": "ErrTrailingData",
+      "status": "400"
+    },
+    {
+      "code": "ErrFloat",
+      "status": "400"
+    },
+    {
+      "code": "ErrSimpleValue",
+      "status": "400"
+    },
+    {
+      "code": "ErrTag",
+      "status": "400"
+    },
+    {
+      "code": "ErrIndefiniteLength",
+      "status": "400"
+    },
+    {
+      "code": "ErrNonMinimalInt",
+      "status": "400"
+    },
+    {
+      "code": "ErrNestingTooDeep",
+      "status": "400"
+    },
+    {
+      "code": "ErrUnsortedMap",
+      "status": "400"
+    },
+    {
+      "code": "ErrDuplicateKey",
+      "status": "400"
+    },
+    {
+      "code": "ErrKeyType",
+      "status": "400"
+    },
+    {
+      "code": "ErrInvalidString",
+      "status": "400"
+    },
+    {
+      "code": "ErrUnknownKey",
+      "status": "400"
+    },
+    {
+      "code": "ErrWrongType",
+      "status": "400"
+    },
+    {
+      "code": "ErrMissingField",
+      "status": "400"
+    },
+    {
+      "code": "ErrFieldSize",
+      "status": "400"
+    },
+    {
+      "code": "ErrNonCanonical",
+      "status": "400"
+    },
+    {
+      "code": "ErrUnsupportedVersion",
+      "status": "400"
+    },
+    {
+      "code": "ErrIntRange",
+      "status": "400"
+    },
+    {
+      "code": "ErrInvalidEnum",
+      "status": "400"
+    },
+    {
+      "code": "ErrZeroValue",
+      "status": "400"
+    },
+    {
+      "code": "ErrPayloadTooLarge",
+      "status": "400"
+    },
+    {
+      "code": "ErrInvalidNamespace",
+      "status": "400"
+    },
+    {
+      "code": "ErrTimeOrder",
+      "status": "400"
+    },
+    {
+      "code": "ErrActionSize",
+      "status": "400"
+    },
+    {
+      "code": "edictaapi.ErrTokenInvalid",
+      "status": "401"
+    },
+    {
+      "code": "edictaapi.ErrPublishSignature",
+      "status": "401"
+    },
+    {
+      "code": "ErrInvalidPublicKey",
+      "status": "403"
+    },
+    {
+      "code": "ErrSignatureInvalid",
+      "status": "403"
+    },
+    {
+      "code": "ErrScopeMismatch",
+      "status": "403"
+    },
+    {
+      "code": "ErrActionTypeNotAllowed",
+      "status": "403"
+    },
+    {
+      "code": "ErrDANotAllowed",
+      "status": "403"
+    },
+    {
+      "code": "ErrAgentKeyIsGateKey",
+      "status": "403"
+    },
+    {
+      "code": "ErrAgentNotAllowed",
+      "status": "403"
+    },
+    {
+      "code": "ErrAgentKeyMismatch",
+      "status": "403"
+    },
+    {
+      "code": "ErrExecutorNotAllowed",
+      "status": "403"
+    },
+    {
+      "code": "ErrKeyRole",
+      "status": "403"
+    },
+    {
+      "code": "ErrAnchorPending",
+      "status": "403"
+    },
+    {
+      "code": "ErrNamespaceNotAllowed",
+      "status": "403"
+    },
+    {
+      "code": "ErrMandateRefMissing",
+      "status": "403"
+    },
+    {
+      "code": "ErrMandateMismatch",
+      "status": "403"
+    },
+    {
+      "code": "edictaapi.ErrRouteNotFound",
+      "status": "404"
+    },
+    {
+      "code": "edictaapi.ErrPublishDisabled",
+      "status": "404"
+    },
+    {
+      "code": "edictaapi.ErrMethodNotAllowed",
+      "status": "405"
+    },
+    {
+      "code": "ErrNonceUsed",
+      "status": "409"
+    },
+    {
+      "code": "ErrReceiptExists",
+      "status": "409"
+    },
+    {
+      "code": "ErrBeforeRegistryEpoch",
+      "status": "409"
+    },
+    {
+      "code": "ErrTooLarge",
+      "status": "413"
+    },
+    {
+      "code": "recorder.ErrTooLarge",
+      "status": "413"
+    },
+    {
+      "code": "ErrPayloadAboveCap",
+      "status": "413"
+    },
+    {
+      "code": "edictaapi.ErrMediaType",
+      "status": "415"
+    },
+    {
+      "code": "ErrActionMismatch",
+      "status": "422"
+    },
+    {
+      "code": "ErrPayloadSizeMismatch",
+      "status": "422"
+    },
+    {
+      "code": "ErrPayloadHashMismatch",
+      "status": "422"
+    },
+    {
+      "code": "ErrDACommitmentMismatch",
+      "status": "422"
+    },
+    {
+      "code": "ErrArchiveRecomputeUnsupported",
+      "status": "422"
+    },
+    {
+      "code": "ErrIssuedBeforeAnchor",
+      "status": "422"
+    },
+    {
+      "code": "ErrTTLTooLong",
+      "status": "422"
+    },
+    {
+      "code": "ErrNotAuthorized",
+      "status": "422"
+    },
+    {
+      "code": "ErrAnchorIntentInvalid",
+      "status": "422"
+    },
+    {
+      "code": "ErrCertInvalid",
+      "status": "422"
+    },
+    {
+      "code": "ErrNotYetValid",
+      "status": "425"
+    },
+    {
+      "code": "ErrAnchorNotFound",
+      "status": "425"
+    },
+    {
+      "code": "edictaapi.ErrQuotaExceeded",
+      "status": "429"
+    },
+    {
+      "code": "recorder.ErrSignerMismatch",
+      "status": "502"
+    },
+    {
+      "code": "recorder.ErrSubmitMismatch",
+      "status": "502"
+    },
+    {
+      "code": "ErrPayloadUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "ErrRetentionUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "ErrChainUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "ErrAllowlistUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "ErrRegistryUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "ErrClockRegression",
+      "status": "503"
+    },
+    {
+      "code": "ErrClosed",
+      "status": "503"
+    },
+    {
+      "code": "recorder.ErrOutcomeUnknown",
+      "status": "503"
+    },
+    {
+      "code": "recorder.ErrNodeUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "recorder.ErrTooManyPending",
+      "status": "503"
+    },
+    {
+      "code": "recorder.ErrNotVisible",
+      "status": "503"
+    },
+    {
+      "code": "ErrArchiveUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "recorder.ErrArchiveUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "recorder.ErrEscrowInsufficient",
+      "status": "503"
+    },
+    {
+      "code": "ErrAnchorIntentUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "ErrAnchorIntentRejected",
+      "status": "503"
+    },
+    {
+      "code": "recorder.ErrClockSkew",
+      "status": "503"
+    },
+    {
+      "code": "edictaapi.ErrDeadline",
+      "status": "504"
+    },
+    {
+      "code": "edictaapi.ErrInternal",
+      "status": "500"
+    }
+  ],
+  "bodies": [
+    {
+      "code": "recorder.ErrAnchorRejected",
+      "status": "502",
+      "body_cbor_hex": "a301781a7265636f726465722e457272416e63686f7252656a656374656402782a616e63686f72206f6e20636861696e206661696c73207468652063657274696669636174652072756c650300"
+    },
+    {
+      "code": "recorder.ErrClockSkew",
+      "status": "503",
+      "retry_after": "optional",
+      "body_cbor_hex": "a301757265636f726465722e457272436c6f636b536b65770278246c6f63616c20636c6f636b20736b6577656420616761696e73742074686520636861696e0301"
+    }
+  ]
+}

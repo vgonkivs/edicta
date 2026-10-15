@@ -2,6 +2,10 @@
 """Verifies spec/vectors/api/errors.json against spec/decision-commitment-v1.md (v1.0,
 sections 18 and 21) and the v1 core vectors.
 
+Since spec revision v1.1 the spec text holds the codes of api/errors_v1.1.json too: the mapping checks below run
+on api/errors.json with those additions in the match order the additions file gives (errors.json stays
+byte-identical); the examples are those of errors.json.
+
 - Every sentinel named in section 21 is either mapped (errors) or listed in
   not_api_visible, never both; codes are unique.
 - The mapping equals the section 18.3 table, status by status and in match
@@ -90,6 +94,22 @@ def decode(b: bytes, schema: dict, where: str) -> dict:
 def spec_section(text: str, start: str, end: str | None) -> str:
     a = text.index(start)
     return text[a:text.index(end, a)] if end else text[a:]
+
+
+def with_additions(f: dict, add: dict | None) -> dict:
+    """errors.json with the codes of a later revision's additions file, in that file's match order."""
+    if add is None:
+        return f
+    expect(add["base"] == "api/errors.json", "additions file base")
+    by_code = {e["code"]: e for e in f["errors"]} | {a["code"]: a for a in add["additions"]}
+    expect([o["code"] for o in add["order"] if o["code"] in {e["code"] for e in f["errors"]}]
+           == [e["code"] for e in f["errors"]], "the additions file reorders the codes of errors.json")
+    errs = []
+    for o in add["order"]:
+        e = {k: v for k, v in by_code[o["code"]].items() if k not in ("match", "why")}
+        expect(e["status"] == o["status"], f"{o['code']}: status in order")
+        errs.append(e)
+    return {**f, "errors": errs}
 
 
 def check_mapping(f: dict, spec: str) -> dict:
@@ -237,14 +257,17 @@ def main() -> int:
         expect(f["format"] == "edicta-vectors/v1" and f["revision"] == "v1.0", "header")
         expect(f["content_type"] == "application/cbor", "content type")
         spec = SPEC.read_text()
-        by_code = check_mapping(f, spec)
+        add_path = DIR / "errors_v1.1.json"
+        add = json.loads(add_path.read_text()) if add_path.exists() else None
+        by_code = check_mapping(with_additions(f, add), spec)
         check_examples(f, by_code)
         ids = [x["id"] for x in f["examples"]]
         expect(len(ids) == len(set(ids)), "duplicate example ids")
     except (Failure, Reject, CBORError) as e:
         print(f"FAIL (api errors): {e}", file=sys.stderr)
         return 1
-    print(f"OK (api errors, v1.0): {len(f['errors'])} codes, {len(f['not_api_visible'])} not API-visible, "
+    added = f" + {len(add['additions'])} of {add['revision']}" if add else ""
+    print(f"OK (api errors, v1.0{added}): {len(f['errors'])}{added} codes, {len(f['not_api_visible'])} not API-visible, "
           f"{len(f['examples'])} examples; section 21 covered, section 18.3 matches")
     return 0
 

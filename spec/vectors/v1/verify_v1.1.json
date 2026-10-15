@@ -1,0 +1,312 @@
+{
+  "format": "edicta-vectors/v1",
+  "revision": "v1.1",
+  "generator": "spec/vectors/check/gen_v1_1.py",
+  "description": "Verifier outcomes of the anchor check of a pending reference under spec revision v1.1 (core 20.6.1: presence needs header trust up to the anchor height H; every other row still needs the deadline D, or D + 1 with an AB5 results proof), in the layout of the cases of v1/verify.json; decision and authorization name records of records_from. header_trust_needs is the height header trust must reach for the row that decides. v1_0 gives the anchor outcome of the frozen text on the same inputs, which a v1.0.N verifier keeps.",
+  "records_from": "v1/verify.json",
+  "window": "3",
+  "cases": [
+    {
+      "id": "fast_pass_trust_at_h",
+      "description": "Evidence at H = h0 + 1 verifies; header trust reaches exactly H, below the deadline. v1.0.N: anchor_pending until a checkpoint >= D; v1.1: pass.",
+      "decision": "decision_pending_fibre",
+      "authorization": "authorization_fast_fibre",
+      "trusted_head": "4200124",
+      "evidence": {
+        "height": "4200124",
+        "verifies": true
+      },
+      "refs": [],
+      "expect": {
+        "authorization": {
+          "status": "pass"
+        },
+        "anchor": {
+          "status": "pass"
+        },
+        "header_trust_needs": "4200124",
+        "report": {
+          "version": "1",
+          "mode": "fast",
+          "h0": "4200123",
+          "anchor_deadline": "4200126",
+          "anchor_height": "4200124",
+          "publication": "anchored"
+        },
+        "verdict": "valid",
+        "exit": "0"
+      },
+      "v1_0": {
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_pending"
+        }
+      }
+    },
+    {
+      "id": "fast_pass_trust_between",
+      "description": "Evidence at H = h0 + 1; header trust at D - 1.",
+      "decision": "decision_pending_fibre",
+      "authorization": "authorization_fast_fibre",
+      "trusted_head": "4200125",
+      "evidence": {
+        "height": "4200124",
+        "verifies": true
+      },
+      "refs": [],
+      "expect": {
+        "authorization": {
+          "status": "pass"
+        },
+        "anchor": {
+          "status": "pass"
+        },
+        "header_trust_needs": "4200124",
+        "report": {
+          "version": "1",
+          "mode": "fast",
+          "h0": "4200123",
+          "anchor_deadline": "4200126",
+          "anchor_height": "4200124",
+          "publication": "anchored"
+        },
+        "verdict": "valid",
+        "exit": "0"
+      },
+      "v1_0": {
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_pending"
+        }
+      }
+    },
+    {
+      "id": "fast_pass_at_deadline_trust_at_d",
+      "description": "Evidence at H = D; header trust at D: pass in both revisions.",
+      "decision": "decision_pending_fibre",
+      "authorization": "authorization_fast_fibre",
+      "trusted_head": "4200126",
+      "evidence": {
+        "height": "4200126",
+        "verifies": true
+      },
+      "refs": [],
+      "expect": {
+        "authorization": {
+          "status": "pass"
+        },
+        "anchor": {
+          "status": "pass"
+        },
+        "header_trust_needs": "4200126",
+        "report": {
+          "version": "1",
+          "mode": "fast",
+          "h0": "4200123",
+          "anchor_deadline": "4200126",
+          "anchor_height": "4200126",
+          "publication": "anchored"
+        },
+        "verdict": "valid",
+        "exit": "0"
+      },
+      "v1_0": {
+        "anchor": {
+          "status": "pass"
+        }
+      }
+    },
+    {
+      "id": "fast_trust_below_h",
+      "description": "Evidence at H = h0 + 2 verifies once trusted, but header trust stops at h0 + 1: the header at H is not reached.",
+      "decision": "decision_pending_fibre",
+      "authorization": "authorization_fast_fibre",
+      "trusted_head": "4200124",
+      "evidence": {
+        "height": "4200125",
+        "verifies": true
+      },
+      "refs": [],
+      "expect": {
+        "authorization": {
+          "status": "pass"
+        },
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_pending"
+        },
+        "header_trust_needs": "4200125",
+        "report": {
+          "version": "1",
+          "mode": "fast",
+          "h0": "4200123",
+          "anchor_deadline": "4200126",
+          "publication": "unknown"
+        },
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "v1_0": {
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_pending"
+        }
+      }
+    },
+    {
+      "id": "fast_evidence_not_verifying_trust_below_d",
+      "description": "Evidence that does not verify, header trust at D - 1: no usable evidence, so the deadline bound applies.",
+      "decision": "decision_pending_fibre",
+      "authorization": "authorization_fast_fibre",
+      "trusted_head": "4200125",
+      "evidence": {
+        "height": "4200124",
+        "verifies": false
+      },
+      "refs": [],
+      "expect": {
+        "authorization": {
+          "status": "pass"
+        },
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_pending"
+        },
+        "header_trust_needs": "4200126",
+        "report": {
+          "version": "1",
+          "mode": "fast",
+          "h0": "4200123",
+          "anchor_deadline": "4200126",
+          "publication": "unknown"
+        },
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "v1_0": {
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_pending"
+        }
+      }
+    },
+    {
+      "id": "fast_absence_needs_deadline",
+      "description": "No evidence; heights h0 to D - 1 proven absent and header trust at D - 1: absence still needs header trust up to D.",
+      "decision": "decision_pending_fibre",
+      "authorization": "authorization_fast_fibre",
+      "trusted_head": "4200125",
+      "absence": [
+        {
+          "height": "4200123",
+          "result": "absent"
+        },
+        {
+          "height": "4200124",
+          "result": "absent"
+        },
+        {
+          "height": "4200125",
+          "result": "absent"
+        }
+      ],
+      "refs": [],
+      "expect": {
+        "authorization": {
+          "status": "pass"
+        },
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_pending"
+        },
+        "header_trust_needs": "4200126",
+        "report": {
+          "version": "1",
+          "mode": "fast",
+          "h0": "4200123",
+          "anchor_deadline": "4200126",
+          "publication": "unknown"
+        },
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "v1_0": {
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_pending"
+        }
+      }
+    },
+    {
+      "id": "fast_results_proof_needs_deadline_plus_1",
+      "description": "No evidence; header trust at D while an AB5 results proof needs D + 1: unchanged by v1.1.",
+      "decision": "decision_pending_fibre",
+      "authorization": "authorization_fast_fibre",
+      "trusted_head": "4200126",
+      "needs_results": true,
+      "refs": [],
+      "expect": {
+        "authorization": {
+          "status": "pass"
+        },
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_pending"
+        },
+        "header_trust_needs": "4200127",
+        "report": {
+          "version": "1",
+          "mode": "fast",
+          "h0": "4200123",
+          "anchor_deadline": "4200126",
+          "publication": "unknown"
+        },
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "v1_0": {
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_pending"
+        }
+      }
+    },
+    {
+      "id": "fast_blob_pass_trust_at_h",
+      "description": "da = 2: evidence at H = h0 verifies, header trust reaches H only.",
+      "decision": "decision_pending_blob",
+      "authorization": "authorization_fast_blob",
+      "trusted_head": "4200000",
+      "evidence": {
+        "height": "4200000",
+        "verifies": true
+      },
+      "refs": [],
+      "expect": {
+        "authorization": {
+          "status": "pass"
+        },
+        "anchor": {
+          "status": "pass"
+        },
+        "header_trust_needs": "4200000",
+        "report": {
+          "version": "1",
+          "mode": "fast",
+          "h0": "4200000",
+          "anchor_deadline": "4200003",
+          "anchor_height": "4200000",
+          "publication": "anchored"
+        },
+        "verdict": "valid",
+        "exit": "0"
+      },
+      "v1_0": {
+        "anchor": {
+          "status": "unchecked",
+          "reason": "anchor_pending"
+        }
+      }
+    }
+  ]
+}
