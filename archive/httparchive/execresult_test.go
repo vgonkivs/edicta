@@ -9,6 +9,8 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/archive/httparchive"
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/test/archivefix"
 	"github.com/vgonkivs/edicta/test/execresultfix"
 )
 
@@ -56,4 +58,41 @@ func TestExecutionResultAnswersOverHTTP(t *testing.T) {
 			require.ErrorIs(t, err, tc.want)
 		})
 	}
+}
+
+func TestExecutionResultReaderPathsOverHTTP(t *testing.T) {
+	f := execresultfix.Load(t)
+	w := newWorld(t, fullSet...)
+	r := f.Records[0]
+	var h commitment.Hash
+	h[0] = 0x42
+	var other []byte
+	for _, c := range archivefix.Load(t).Cases {
+		if c.CBOR != nil {
+			other = c.CBOR
+			break
+		}
+	}
+	require.NotNil(t, other)
+
+	c, _ := w.client(t, override(map[string]func(http.ResponseWriter){
+		"/" + archive.HashPath(archive.KindDecision, h): body(execresultfix.Hex(t, r.CBORHex)),
+		"/" + r.Path: body(other),
+	}))
+	_, err := c.Decision(bg, h)
+	require.ErrorIs(t, err, archive.ErrCorrupt)
+	require.ErrorIs(t, err, commitment.ErrInvalidEnum)
+	_, err = c.ExecutionResult(bg, r.Key.ChainID, execresultfix.Hex(t, r.Key.RailRef))
+	require.ErrorIs(t, err, archive.ErrCorrupt)
+	require.ErrorIs(t, err, commitment.ErrInvalidEnum)
+}
+
+// An archive that answers 403 for a missing key is a fault, never absent.
+func TestExecutionResult403IsAFault(t *testing.T) {
+	r := execresultfix.Load(t).Records[0]
+	w := newWorld(t, fullSet...)
+	c, _ := w.client(t, override(map[string]func(http.ResponseWriter){"/" + r.Path: status(http.StatusForbidden)}))
+	_, err := c.ExecutionResult(bg, r.Key.ChainID, execresultfix.Hex(t, r.Key.RailRef))
+	require.ErrorIs(t, err, httparchive.ErrFault)
+	require.NotErrorIs(t, err, archive.ErrNotFound)
 }

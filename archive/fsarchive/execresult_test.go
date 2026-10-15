@@ -13,6 +13,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/archive/fsarchive"
+	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/test/archivefix"
 	"github.com/vgonkivs/edicta/test/execresultfix"
 )
@@ -108,4 +109,41 @@ func TestExecutionResultOnAReadOnlyStore(t *testing.T) {
 	assert.Equal(t, r.Build(t), got)
 	_, err = ro.Put(ctx, r.Build(t))
 	require.ErrorIs(t, err, fsarchive.ErrReadOnly)
+}
+
+func TestExecutionResultReaderPaths(t *testing.T) {
+	ctx := context.Background()
+	f := execresultfix.Load(t)
+	fx := archivefix.Load(t)
+	dir := t.TempDir()
+	s, err := fsarchiveOpen(dir, fx)
+	require.NoError(t, err)
+	r := f.Records[0]
+	put := func(rel string, b []byte) {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, b, 0o644))
+	}
+
+	// Kind 19 bytes under a decision path are refused by the general reader.
+	var h commitment.Hash
+	h[0] = 0x42
+	put("decision/"+archive.HashPath(archive.KindDecision, h)[len("decision/"):], execresultfix.Hex(t, r.CBORHex))
+	_, err = s.Decision(ctx, h)
+	require.ErrorIs(t, err, archive.ErrCorrupt)
+	require.ErrorIs(t, err, commitment.ErrInvalidEnum)
+
+	// A record of another kind under exec/ is refused by the kind 19 reader.
+	var other []byte
+	for _, c := range fx.Cases {
+		if c.CBOR != nil {
+			other = c.CBOR
+			break
+		}
+	}
+	require.NotNil(t, other)
+	put(r.Path, other)
+	_, err = s.ExecutionResult(ctx, r.Key.ChainID, execresultfix.Hex(t, r.Key.RailRef))
+	require.ErrorIs(t, err, archive.ErrCorrupt)
+	require.ErrorIs(t, err, commitment.ErrInvalidEnum)
 }
