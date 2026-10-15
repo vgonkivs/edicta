@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -88,6 +89,21 @@ func loadErrVectors(t testing.TB) errVectors {
 	var v errVectors
 	loadJSON(t, "errors.json", &v)
 	return v
+}
+
+type errVectorsV11 struct {
+	Additions []errRow `json:"additions"`
+	Order     []struct {
+		Code   string `json:"code"`
+		Status string `json:"status"`
+	} `json:"order"`
+}
+
+// loadMergedErrRows is errors.json with the rows of errors_v1.1.json appended.
+func loadMergedErrRows(t testing.TB) []errRow {
+	var add errVectorsV11
+	loadJSON(t, "errors_v1.1.json", &add)
+	return append(loadErrVectors(t).Errors, add.Additions...)
 }
 
 type pubServer struct {
@@ -301,16 +317,19 @@ type env struct {
 }
 
 var (
-	errRecTooLarge     = errors.New("recorder: too large")
-	errRecSignerMis    = errors.New("recorder: signer mismatch")
-	errRecOutcomeUnk   = errors.New("recorder: outcome unknown")
-	errRecNotVisible   = errors.New("recorder: not visible")
-	errRecNodeUnavail  = errors.New("recorder: node unavailable")
-	errRecTooManyPend  = errors.New("recorder: too many pending")
-	errRecSubmitMis    = errors.New("recorder: submit mismatch")
-	errRecArchiveUnav  = errors.New("recorder: archive unavailable")
-	errRecEscrow       = errors.New("recorder: escrow insufficient")
-	recorderRuleStatus = map[string]int{
+	errRecTooLarge      = errors.New("recorder: too large")
+	errRecSignerMis     = errors.New("recorder: signer mismatch")
+	errRecOutcomeUnk    = errors.New("recorder: outcome unknown")
+	errRecNotVisible    = errors.New("recorder: not visible")
+	errRecNodeUnavail   = errors.New("recorder: node unavailable")
+	errRecTooManyPend   = errors.New("recorder: too many pending")
+	errRecSubmitMis     = errors.New("recorder: submit mismatch")
+	errRecArchiveUnav   = errors.New("recorder: archive unavailable")
+	errRecEscrow        = errors.New("recorder: escrow insufficient")
+	errRecAnchorRejRoot = errors.New("recorder: anchor rejected")
+	errRecClockSkew     = errors.New("recorder: local clock skewed against the chain")
+	errRecAnchorRej     = fmt.Errorf("%w: %w", errRecAnchorRejRoot, gate.ErrAnchorNotFound)
+	recorderRuleStatus  = map[string]int{
 		"recorder.ErrTooLarge": 413, "recorder.ErrSignerMismatch": 502,
 		"recorder.ErrOutcomeUnknown": 503, "recorder.ErrNotVisible": 503,
 		"recorder.ErrNodeUnavailable": 503, "recorder.ErrTooManyPending": 503,
@@ -323,6 +342,7 @@ var (
 		"recorder.ErrNodeUnavailable": errRecNodeUnavail, "recorder.ErrTooManyPending": errRecTooManyPend,
 		"recorder.ErrSubmitMismatch": errRecSubmitMis, "recorder.ErrArchiveUnavailable": errRecArchiveUnav,
 		"recorder.ErrEscrowInsufficient": errRecEscrow,
+		"recorder.ErrClockSkew":          errRecClockSkew, "recorder.ErrAnchorRejected": errRecAnchorRej,
 	}
 )
 
@@ -337,7 +357,12 @@ func extraRules() []edictaapi.ErrorRule {
 		{Code: "recorder.ErrSubmitMismatch", Err: errRecSubmitMis, Status: 502},
 		{Code: "recorder.ErrArchiveUnavailable", Err: errRecArchiveUnav, Status: 503, Retryable: true},
 		{Code: "recorder.ErrEscrowInsufficient", Err: errRecEscrow, Status: 503, Retryable: true},
+		{Code: "recorder.ErrClockSkew", Err: errRecClockSkew, Status: 503, Retryable: true},
 	}
+}
+
+func firstRules() []edictaapi.ErrorRule {
+	return []edictaapi.ErrorRule{{Code: "recorder.ErrAnchorRejected", Err: errRecAnchorRejRoot, Status: 502}}
 }
 
 type option func(*env)
@@ -365,7 +390,7 @@ func newEnv(t testing.TB, allow map[string]string, opts ...option) *env {
 		o(e)
 	}
 	e.cfg = edictaapi.HandlerConfig{GateID: gateIDVec, Clock: e.clock, Skew: skewVec,
-		MaxBlobBytes: maxBlobVec, GateKeys: gateKeys, ExtraErrors: extraRules()}
+		MaxBlobBytes: maxBlobVec, GateKeys: gateKeys, FirstErrors: firstRules(), ExtraErrors: extraRules()}
 	var p sdk.Publisher
 	if e.pub != nil {
 		p = e.pub

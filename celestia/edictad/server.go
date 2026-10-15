@@ -655,6 +655,7 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 		Skew:           time.Duration(gcfg.SkewS) * time.Second,
 		MaxBlobBytes:   cfg.Recorder.maxBlob(),
 		GateKeys:       [][]byte{signer.PublicKey()},
+		FirstErrors:    recorderFirstErrors,
 		ExtraErrors:    recorderErrors,
 		RequestTimeout: requestDeadline,
 		PublishTimeout: cfg.publishDeadline(),
@@ -1016,6 +1017,12 @@ func bridgeFallback(cfg Config, f *FibreDeps, log *slog.Logger) (node.FibreDownl
 	}
 }
 
+// recorderFirstErrors are matched before the built-in table: the anchor
+// rejection wraps ErrAnchorNotFound, which would answer 425 retryable.
+var recorderFirstErrors = []edictaapi.ErrorRule{
+	{Code: "recorder.ErrAnchorRejected", Err: recorder.ErrAnchorRejected, Status: 502},
+}
+
 var recorderErrors = []edictaapi.ErrorRule{
 	{Code: "recorder.ErrTooLarge", Err: recorder.ErrTooLarge, Status: 413},
 	{Code: "recorder.ErrOutcomeUnknown", Err: recorder.ErrOutcomeUnknown, Status: 503, Retryable: true},
@@ -1030,6 +1037,7 @@ var recorderErrors = []edictaapi.ErrorRule{
 	{Code: "recorder.ErrIntentStale", Err: recorder.ErrIntentStale, Status: 409},
 	{Code: "recorder.ErrAnchorExpired", Err: recorder.ErrAnchorExpired, Status: 409},
 	{Code: "recorder.ErrAnchorTxRejected", Err: recorder.ErrAnchorTxRejected, Status: 502},
+	{Code: "recorder.ErrClockSkew", Err: recorder.ErrClockSkew, Status: 503, Retryable: true},
 }
 
 // archivingGate adapts *gate.Gate to the API's interface, which takes the

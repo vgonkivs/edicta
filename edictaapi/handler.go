@@ -54,6 +54,10 @@ type HandlerConfig struct {
 	MaxBlobBytes uint64
 	// GateKeys are the gate public keys (rule L0 / PR4).
 	GateKeys [][]byte
+	// FirstErrors are consulted before the built-in table, for a code whose
+	// error also matches a built-in row (recorder.ErrAnchorRejected wraps
+	// ErrAnchorNotFound).
+	FirstErrors []ErrorRule
 	// ExtraErrors are consulted after the built-in table of section 18.3, for
 	// codes defined outside this module (for example recorder.*).
 	ExtraErrors []ErrorRule
@@ -88,6 +92,7 @@ func NewHandler(g Gate, p sdk.Publisher, al gate.Allowlist, q Quota, h Health, c
 		clock = systemClock{}
 	}
 	cfg.GateKeys = cloneKeys(cfg.GateKeys)
+	cfg.FirstErrors = append([]ErrorRule(nil), cfg.FirstErrors...)
 	cfg.ExtraErrors = append([]ErrorRule(nil), cfg.ExtraErrors...)
 	window := cfg.Skew + 300*time.Second
 	return &handler{g: g, p: p, al: al, q: q, h: h, cfg: cfg, log: log, clock: clock,
@@ -228,7 +233,7 @@ func (h *handler) fail(r *http.Request, err error, stored []byte) response {
 // handler's own deadline.
 func (h *handler) failIn(ctx context.Context, r *http.Request, err error, stored, verdict []byte) response {
 	own := r.Context().Err() == nil && errors.Is(ctx.Err(), context.DeadlineExceeded)
-	rule, ok := classify(err, h.cfg.ExtraErrors, own)
+	rule, ok := classify(err, h.cfg.FirstErrors, h.cfg.ExtraErrors, own)
 	var pd privateDeny
 	private := errors.As(err, &pd)
 	if !ok {

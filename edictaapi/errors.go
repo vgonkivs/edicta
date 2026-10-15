@@ -173,12 +173,17 @@ func builtinSentinel(code string) (error, bool) {
 	return nil, false
 }
 
-// classify returns the first rule err matches: the built-in table in order,
-// with extra just before the deadline rule. A bare context deadline counts as
+// classify returns the first rule err matches: first, then the built-in table
+// in order, with extra just before the deadline rule. A bare context deadline counts as
 // ErrDeadline only when ownDeadline says the handler's own deadline fired: a
 // deadline inside an operation's error belongs to that operation's rule. The
 // bool is false when nothing matches (the caller reports ErrInternal).
-func classify(err error, extra []ErrorRule, ownDeadline bool) (ErrorRule, bool) {
+func classify(err error, first, extra []ErrorRule, ownDeadline bool) (ErrorRule, bool) {
+	for _, r := range first {
+		if r.Err != nil && errors.Is(err, r.Err) {
+			return r, true
+		}
+	}
 	extras := func() (ErrorRule, bool) {
 		for _, r := range extra {
 			if r.Err != nil && errors.Is(err, r.Err) {

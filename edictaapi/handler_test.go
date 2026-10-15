@@ -165,11 +165,11 @@ func TestHealth(t *testing.T) {
 
 // TestErrorTable drives every row of errors.json through the handler on every endpoint it lists.
 func TestErrorTable(t *testing.T) {
-	v := loadErrVectors(t)
+	rows := loadMergedErrRows(t)
 	sk, pubHex := testKey(1)
-	require.NotEmpty(t, v.Errors)
+	require.NotEmpty(t, rows)
 	seen := map[string]bool{}
-	for _, row := range v.Errors {
+	for _, row := range rows {
 		sent, ok := sentinelFor(row.Code)
 		require.True(t, ok, "errors.json code %s has no sentinel in the test table", row.Code)
 		require.False(t, seen[row.Code], "duplicate code %s", row.Code)
@@ -450,4 +450,47 @@ func TestVectorExamples(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestErrorsV11Order checks the merged match order of errors_v1.1.json: the
+// whole table in that order, ErrAnchorRejected first, ErrClockSkew right after
+// ErrAnchorIntentRejected.
+func TestErrorsV11Order(t *testing.T) {
+	var add errVectorsV11
+	loadJSON(t, "errors_v1.1.json", &add)
+	base := loadErrVectors(t).Errors
+	require.Len(t, add.Order, len(base)+len(add.Additions))
+	require.Equal(t, "recorder.ErrAnchorRejected", add.Order[0].Code)
+	idx := map[string]int{}
+	for i, o := range add.Order {
+		idx[o.Code] = i
+	}
+	require.Equal(t, idx["ErrAnchorIntentRejected"]+1, idx["recorder.ErrClockSkew"])
+	for _, b := range base {
+		_, ok := idx[b.Code]
+		require.True(t, ok, "order lacks %s", b.Code)
+	}
+}
+
+// TestAnchorRejectedBeatsAnchorNotFound: the Recorder's rejection also matches
+// ErrAnchorNotFound (425, retryable), so it must be matched first.
+func TestAnchorRejectedBeatsAnchorNotFound(t *testing.T) {
+	sk, pubHex := testKey(1)
+	e := newEnv(t, map[string]string{"agent-a": pubHex})
+	require.ErrorIs(t, errRecAnchorRej, gate.ErrAnchorNotFound)
+	e.pub.err = fmt.Errorf("publish: %w", errRecAnchorRej)
+	r := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("blob-x")))
+	requireErr(t, r, 502, "recorder.ErrAnchorRejected", false)
+
+	e.pub.err = fmt.Errorf("publish: %w", gate.ErrAnchorNotFound)
+	r = e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("blob-y")))
+	requireErr(t, r, 425, "ErrAnchorNotFound", true)
+}
+
+func TestClockSkewRetryable(t *testing.T) {
+	sk, pubHex := testKey(1)
+	e := newEnv(t, map[string]string{"agent-a": pubHex})
+	e.pub.err = fmt.Errorf("publish: %w", errRecClockSkew)
+	r := e.post("/v1/publish", signedPublish(t, gateIDVec, "agent-a", sk, nowVec, []byte("blob-z")))
+	requireErr(t, r, 503, "recorder.ErrClockSkew", true)
 }
