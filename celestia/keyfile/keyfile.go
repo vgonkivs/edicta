@@ -105,41 +105,63 @@ func ReadSecp256k1(path, what string) ([]byte, error) {
 	return nil, fmt.Errorf("%w: %s key file must hold %d raw bytes or %d hex characters", ErrBadKeyFile, what, Secp256k1Len, 2*Secp256k1Len)
 }
 
+// TempPrefix starts the name of every temporary file or directory the key
+// writers create next to their target. A leftover one is the remains of an
+// interrupted write and holds no key anybody has seen.
+const TempPrefix = ".edicta-tmp-"
+
 // WriteNew creates path (and its parent directories, mode 0700) with mode
-// 0600, writes data and syncs the file and its directory, so a key whose
-// public half was already shown survives a crash. It fails with ErrExists if
-// path exists, and removes the file again if anything after the create
-// fails.
+// 0600 holding data. The data is written and synced in a temporary file that
+// is then hard-linked to path, so path either does not exist or holds all of
+// data, also after a crash; a key whose public half was already shown
+// survives one. It fails with ErrExists if path exists.
 func WriteNew(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
+		return fmt.Errorf("keyfile: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, os.ErrExist) {
+	if _, err := os.Lstat(path); err == nil {
 		return fmt.Errorf("%w: %s", ErrExists, path)
 	}
+	f, err := os.CreateTemp(dir, TempPrefix)
 	if err != nil {
-		return err
+		return fmt.Errorf("keyfile: write %s: %w", path, err)
 	}
-	_, werr := f.Write(data)
+	tmp := f.Name()
+	defer func() { _ = os.Remove(tmp) }()
+	werr := f.Chmod(0o600)
+	if werr == nil {
+		_, werr = f.Write(data)
+	}
 	if werr == nil {
 		werr = f.Sync()
 	}
 	if cerr := f.Close(); werr == nil {
 		werr = cerr
 	}
-	if werr == nil {
-		werr = syncDir(dir)
-	}
 	if werr != nil {
-		_ = os.Remove(path)
 		return fmt.Errorf("keyfile: write %s: %w", path, werr)
+	}
+	// A link, unlike a rename, refuses an existing target.
+	if err := os.Link(tmp, path); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("%w: %s", ErrExists, path)
+		}
+		return fmt.Errorf("keyfile: write %s: %w", path, err)
+	}
+	if err := os.Remove(tmp); err != nil {
+		_ = os.Remove(path)
+		return fmt.Errorf("keyfile: write %s: %w", path, err)
+	}
+	if err := SyncDir(dir); err != nil {
+		_ = os.Remove(path)
+		return fmt.Errorf("keyfile: write %s: %w", path, err)
 	}
 	return nil
 }
 
-func syncDir(dir string) error {
+// SyncDir syncs a directory, so the names created in it survive a crash.
+func SyncDir(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {
 		return err

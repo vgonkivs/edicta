@@ -744,6 +744,10 @@ func validEVMAddress(s string) bool {
 	return err == nil
 }
 
+// CheckNamespace applies the user-namespace rule to a hex namespace; key
+// names it in the error.
+func CheckNamespace(key, s string) error { return checkNamespace(key, s) }
+
 // checkNamespace applies the user-namespace rule: version 0, 18 zero bytes,
 // and an id whose first nine bytes are not all zero.
 func checkNamespace(key, s string) error {

@@ -37,6 +37,13 @@ func Checks(env *Env, cfgCheck Check) []Check {
 	}
 }
 
+// PreflightChecks are the checks that need only the [network] section: the
+// endpoints answer, and the Celestia and settlement chains are the ones the
+// presets name. They run before anything is written.
+func PreflightChecks(env *Env) []Check {
+	return []Check{endpointsCheck{env}, chainCheck{env}, settlementCheck{env}}
+}
+
 // ConfigCheck reports the outcome of loading and validating the config file.
 type ConfigCheck struct {
 	// Err is the load or validation error; nil when the config is valid.

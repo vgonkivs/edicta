@@ -62,6 +62,24 @@ func TestWriteNewNeverOverwrites(t *testing.T) {
 	require.ErrorIs(t, err, keyfile.ErrExists)
 }
 
+func TestWriteNewLeavesNoTemporaryFile(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "payer.secp256k1")
+	require.NoError(t, keyfile.WriteNew(p, []byte("key")))
+	require.ErrorIs(t, keyfile.WriteNew(p, []byte("other")), keyfile.ErrExists)
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "only the key file, no temporary file")
+	assert.Equal(t, "payer.secp256k1", entries[0].Name())
+	got, err := os.ReadFile(p)
+	require.NoError(t, err)
+	assert.Equal(t, "key", string(got))
+	fi, err := os.Stat(p)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
+}
+
 func TestWriteNewRefusesASymlink(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target")
