@@ -33,12 +33,12 @@ func status(t *testing.T, got map[string]doctor.Item, name string) doctor.Item {
 func TestHealthyStackIsAllOK(t *testing.T) {
 	s := newStack(t)
 	got := s.run()
-	require.Len(t, got, 13, "every check of the design runs")
+	require.Len(t, got, 14, "every check of the design runs")
 	for name, it := range got {
 		assert.Equal(t, doctor.OK, it.Status, "%s: %s | fix: %s", name, it.Cause, it.Fix)
 		assert.Empty(t, it.Fix, name)
 	}
-	for _, name := range []string{"config", "endpoints", "chain", "fibre", "fees", "keyring", "clock", "archive", "gate", "signer", "settlement", "facilitator", "balances"} {
+	for _, name := range []string{"config", "endpoints", "chain", "fibre", "fees", "keyring", "keydirs", "clock", "archive", "gate", "signer", "settlement", "facilitator", "balances"} {
 		assert.Contains(t, got, name)
 	}
 }
@@ -50,7 +50,7 @@ func TestChecksRunInTheDesignOrder(t *testing.T) {
 	for _, it := range rep.Items {
 		names = append(names, it.Name)
 	}
-	assert.Equal(t, []string{"config", "endpoints", "chain", "fibre", "fees", "keyring", "clock", "archive", "gate", "signer", "settlement", "facilitator", "balances"}, names)
+	assert.Equal(t, []string{"config", "endpoints", "chain", "fibre", "fees", "keyring", "keydirs", "clock", "archive", "gate", "signer", "settlement", "facilitator", "balances"}, names)
 }
 
 func TestConfigCheck(t *testing.T) {
@@ -306,6 +306,49 @@ func TestKeyring(t *testing.T) {
 		s := newStack(t)
 		s.cfg.Recorder, s.cfg.Publisher = nil, nil
 		assert.Equal(t, doctor.OK, status(t, s.run(), "keyring").Status)
+	})
+}
+
+func TestKeyDirs(t *testing.T) {
+	t.Run("healthy", func(t *testing.T) {
+		s := newStack(t)
+		it := status(t, s.run(), "keydirs")
+		assert.Equal(t, doctor.OK, it.Status, it.Cause)
+	})
+	t.Run("keys directory writable by the group", func(t *testing.T) {
+		s := newStack(t)
+		keys := filepath.Dir(s.cfg.Gate.KeyFile)
+		require.NoError(t, os.Chmod(keys, 0o770))
+		t.Cleanup(func() { _ = os.Chmod(keys, 0o700) })
+		it := status(t, s.run(), "keydirs")
+		assert.Equal(t, doctor.Fail, it.Status)
+		assert.Contains(t, it.Cause, keys)
+		assert.Contains(t, it.Cause, "chmod 700")
+		assert.Contains(t, it.Fix, "chmod 700")
+	})
+	t.Run("keyring parent writable by others", func(t *testing.T) {
+		s := newStack(t)
+		require.NoError(t, os.MkdirAll(s.cfg.Recorder.KeyringDir, 0o700))
+		parent := filepath.Dir(s.cfg.Recorder.KeyringDir)
+		require.NoError(t, os.Chmod(parent, 0o707))
+		t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
+		it := status(t, s.run(), "keydirs")
+		assert.Equal(t, doctor.Fail, it.Status)
+		assert.Contains(t, it.Cause, parent)
+	})
+	t.Run("missing directories are left to the key checks", func(t *testing.T) {
+		s := newStack(t)
+		s.cfg.Agent.KeyFile = filepath.Join(s.dir, "nowhere", "agent.ed25519")
+		assert.Equal(t, doctor.OK, status(t, s.run(), "keydirs").Status)
+	})
+	t.Run("no keys", func(t *testing.T) {
+		var c config.Config
+		r := doctor.Run(context.Background(), c, doctor.Checks(&doctor.Env{}, doctor.ConfigCheck{}))
+		for _, it := range r.Items {
+			if it.Name == "keydirs" {
+				assert.Equal(t, doctor.OK, it.Status)
+			}
+		}
 	})
 }
 
@@ -671,7 +714,7 @@ func TestReportOutput(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(js.Bytes(), &doc))
 	assert.False(t, doc.OK)
-	require.Len(t, doc.Checks, 13)
+	require.Len(t, doc.Checks, 14)
 	assert.Equal(t, "config", doc.Checks[0].Name)
 	assert.Equal(t, "ok", doc.Checks[0].Status)
 	var sawFail bool

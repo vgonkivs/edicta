@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/vgonkivs/edicta/celestia/clearerr"
 	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/edictad"
+	"github.com/vgonkivs/edicta/celestia/keyfile"
 	"github.com/vgonkivs/edicta/celestia/secret"
 )
 
@@ -50,6 +52,77 @@ func (k keyringCheck) Run(ctx context.Context, c config.Config) Result {
 		return fail(strings.Join(bad, "; "), strings.Join(uniq(fixes), "; "))
 	}
 	return ok("opens without a prompt: %s", strings.Join(good, ", "))
+}
+
+type keyDirsCheck struct{}
+
+func (keyDirsCheck) Name() string { return "keydirs" }
+
+// Run applies init's rule to every directory that holds key material: a
+// directory another user can write lets them delete or swap a key whose
+// address was already funded, whatever the mode of the key file.
+func (keyDirsCheck) Run(_ context.Context, c config.Config) Result {
+	var dirs []string
+	add := func(d string) {
+		if d == "" || d == "." {
+			return
+		}
+		d = filepath.Clean(d)
+		if !slices.Contains(dirs, d) {
+			dirs = append(dirs, d)
+		}
+	}
+	keyFile := func(p string) {
+		if p != "" {
+			add(filepath.Dir(p))
+		}
+	}
+	keyring := func(dir, pass string) {
+		if dir != "" {
+			add(dir)
+			add(filepath.Dir(dir))
+		}
+		keyFile(pass)
+	}
+	if c.Agent != nil {
+		keyFile(c.Agent.KeyFile)
+	}
+	if c.Gate != nil {
+		keyFile(c.Gate.KeyFile)
+	}
+	if c.Signer != nil {
+		keyFile(c.Signer.PayerKeyFile)
+	}
+	if r := c.Recorder; r != nil {
+		keyring(r.KeyringDir, r.PassphraseFile)
+	}
+	if p := c.Publisher; p != nil {
+		keyring(p.KeyringDir, p.PassphraseFile)
+	}
+	if len(dirs) == 0 {
+		return ok("no key directory configured")
+	}
+	var bad []string
+	checked := 0
+	for _, d := range dirs {
+		// A missing directory is reported by the check of the key in it.
+		resolved, err := filepath.EvalSymlinks(d)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err == nil {
+			err = keyfile.CheckDir(resolved)
+		}
+		if err != nil {
+			bad = append(bad, err.Error())
+			continue
+		}
+		checked++
+	}
+	if len(bad) > 0 {
+		return fail(strings.Join(bad, "; "), "make every directory that holds keys yours and mode 0700 (chmod 700 DIR); a directory others can write lets them delete or replace a key")
+	}
+	return ok("%d key directories are yours and closed to others", checked)
 }
 
 // MaxClockOffset is the largest offset doctor accepts.

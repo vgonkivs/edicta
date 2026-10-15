@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -26,6 +27,13 @@ const Secp256k1Len = 32
 
 // ErrExists means the file is already there; files are never overwritten.
 var ErrExists = errors.New("keyfile: file exists")
+
+// ErrUnsafeDir means a directory that holds keys can be changed by another
+// local user, or is not a plain directory.
+var ErrUnsafeDir = errors.New("keyfile: unsafe directory")
+
+// ErrLocked means another run holds the lock of a directory.
+var ErrLocked = errors.New("keyfile: directory is locked")
 
 // ErrBadKeyFile means a key file is not a regular file or does not hold a key
 // of the expected form.
@@ -114,11 +122,12 @@ const TempPrefix = ".edicta-tmp-"
 // 0600 holding data. The data is written and synced in a temporary file that
 // is then hard-linked to path, so path either does not exist or holds all of
 // data, also after a crash; a key whose public half was already shown
-// survives one. It fails with ErrExists if path exists.
+// survives one. It fails with ErrExists if path exists. Once the link is
+// made, path is never removed: a later error leaves a complete file.
 func WriteNew(path string, data []byte) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("keyfile: %w", err)
+	if err := MkdirSync(dir); err != nil {
+		return err
 	}
 	if _, err := os.Lstat(path); err == nil {
 		return fmt.Errorf("%w: %s", ErrExists, path)
@@ -149,16 +158,56 @@ func WriteNew(path string, data []byte) error {
 		}
 		return fmt.Errorf("keyfile: write %s: %w", path, err)
 	}
-	if err := os.Remove(tmp); err != nil {
-		_ = os.Remove(path)
+	if err := removeFile(tmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("keyfile: write %s: %w", path, err)
 	}
-	if err := SyncDir(dir); err != nil {
-		_ = os.Remove(path)
+	if err := syncDir(dir); err != nil {
 		return fmt.Errorf("keyfile: write %s: %w", path, err)
 	}
 	return nil
 }
+
+// MkdirSync creates dir and its missing parents with mode 0700, and syncs
+// the parent of each directory it creates, so the new names survive a crash
+// as the files written into them do.
+func MkdirSync(dir string) error {
+	var missing []string
+	for d := filepath.Clean(dir); ; {
+		fi, err := os.Stat(d)
+		if err == nil {
+			if !fi.IsDir() {
+				return fmt.Errorf("keyfile: %s is not a directory", d)
+			}
+			break
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("keyfile: %w", err)
+		}
+		missing = append(missing, d)
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+		d = parent
+	}
+	for i := len(missing) - 1; i >= 0; i-- {
+		d := missing[i]
+		// A directory another process made in the meantime is as good.
+		if err := os.Mkdir(d, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("keyfile: %w", err)
+		}
+		if err := syncDir(filepath.Dir(d)); err != nil {
+			return fmt.Errorf("keyfile: sync %s: %w", filepath.Dir(d), err)
+		}
+	}
+	return nil
+}
+
+// removeFile and syncDir are replaced by tests to fail on purpose.
+var (
+	removeFile = os.Remove
+	syncDir    = SyncDir
+)
 
 // SyncDir syncs a directory, so the names created in it survive a crash.
 func SyncDir(dir string) error {

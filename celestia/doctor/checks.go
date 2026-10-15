@@ -27,6 +27,7 @@ func Checks(env *Env, cfgCheck Check) []Check {
 		fibreCheck{env},
 		feesCheck{env},
 		keyringCheck{env},
+		keyDirsCheck{},
 		clockCheck{env},
 		archiveCheck{env},
 		gateCheck{env},

@@ -30,6 +30,9 @@ var (
 	ErrExisting = errors.New("init: existing key is unusable")
 )
 
+// LockFile is the file in the home that a run holds an exclusive lock on.
+const LockFile = ".edicta-init.lock"
+
 // DefaultPreset is the Celestia network and the settlement chain init sets up
 // when no preset is given.
 const DefaultPreset = config.CelestiaMocha + "+" + config.SettlementBaseSepolia
@@ -184,10 +187,32 @@ func Run(ctx context.Context, c Config, env *doctor.Env, presets config.Presets)
 		return res, err
 	}
 
-	if err := os.MkdirAll(home, 0o700); err != nil {
+	if err := keyfile.MkdirSync(home); err != nil {
 		return res, fmt.Errorf("init: home directory: %w", err)
 	}
+	// A symlinked home is the user's choice; the directory it names is
+	// what others must not be able to change.
+	resolved, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return res, fmt.Errorf("init: home directory: %w", err)
+	}
+	if err := keyfile.CheckDir(resolved); err != nil {
+		return res, fmt.Errorf("init: home directory: %w", err)
+	}
+	// Two runs on one home would delete each other's temporary files and
+	// race for the same names.
+	unlock, err := keyfile.LockDir(home, LockFile)
+	if err != nil {
+		return res, fmt.Errorf("init: %w", err)
+	}
+	defer unlock()
 	keys := filepath.Join(home, "keys")
+	if err := keyfile.MkdirSync(keys); err != nil {
+		return res, fmt.Errorf("init: keys directory: %w", err)
+	}
+	if err := keyfile.CheckDir(keys); err != nil {
+		return res, fmt.Errorf("init: keys directory: %w", err)
+	}
 	if err := removeLeftovers(home, keys); err != nil {
 		return res, err
 	}

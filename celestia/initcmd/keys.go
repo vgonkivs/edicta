@@ -71,11 +71,7 @@ func ensureAccount(home, role string) (Account, error) {
 		return a, err
 	}
 	if found {
-		if a.Address, err = accountAddress(dir, role, a.PassphraseFile); err != nil {
-			return a, fmt.Errorf("%w: %s keyring %s: %w", ErrExisting, role, dir, err)
-		}
-		a.Status = Exists
-		return a, nil
+		return existingAccount(a)
 	}
 
 	tmp, err := os.MkdirTemp(home, keyfile.TempPrefix)
@@ -91,7 +87,18 @@ func ensureAccount(home, role string) (Account, error) {
 	if err := syncTree(tmp); err != nil {
 		return a, fmt.Errorf("init: %s keyring: %w", role, err)
 	}
-	if err := os.Rename(tmp, dir); err != nil {
+	// rename(2) replaces an empty directory without a word, so a keyring
+	// directory that appeared meanwhile is looked at, not replaced.
+	if found, err := exists(dir); err != nil || found {
+		if err != nil {
+			return a, err
+		}
+		return existingAccount(a)
+	}
+	if err := renameDir(tmp, dir); err != nil {
+		if found, _ := exists(dir); found {
+			return existingAccount(a)
+		}
 		return a, fmt.Errorf("init: %s keyring: %w", role, err)
 	}
 	if err := keyfile.SyncDir(home); err != nil {
@@ -105,6 +112,21 @@ func ensureAccount(home, role string) (Account, error) {
 		return a, fmt.Errorf("init: %s keyring holds another key after the move", role)
 	}
 	a.Address, a.Status = addr, Created
+	return a, nil
+}
+
+// renameDir is replaced by tests to lose the race for the keyring name.
+var renameDir = os.Rename
+
+func existingAccount(a Account) (Account, error) {
+	if err := keyfile.CheckDir(a.KeyringDir); err != nil {
+		return a, fmt.Errorf("init: %s keyring: %w", a.Role, err)
+	}
+	addr, err := accountAddress(a.KeyringDir, a.KeyName, a.PassphraseFile)
+	if err != nil {
+		return a, fmt.Errorf("%w: %s keyring %s: %w", ErrExisting, a.Role, a.KeyringDir, err)
+	}
+	a.Address, a.Status = addr, Exists
 	return a, nil
 }
 

@@ -367,3 +367,66 @@ func TestUnavailablePresetWritesNothing(t *testing.T) {
 	require.ErrorIs(t, err, config.ErrPreset)
 	assert.NoDirExists(t, home)
 }
+
+func TestUnsafeHomeIsRefusedAndLeftAlone(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "edicta")
+	require.NoError(t, os.Mkdir(home, 0o700))
+	require.NoError(t, os.Chmod(home, 0o777))
+	_, err := run(t, home, healthyEnv("mocha-5"))
+	require.ErrorIs(t, err, keyfile.ErrUnsafeDir)
+	assert.Contains(t, err.Error(), "chmod 700")
+	entries, err := os.ReadDir(home)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestUnsafeKeysDirIsRefused(t *testing.T) {
+	home := t.TempDir()
+	keys := filepath.Join(home, "keys")
+	require.NoError(t, os.Mkdir(keys, 0o700))
+	require.NoError(t, os.Chmod(keys, 0o770))
+	_, err := run(t, home, healthyEnv("mocha-5"))
+	require.ErrorIs(t, err, keyfile.ErrUnsafeDir)
+	entries, err := os.ReadDir(keys)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestKeysSymlinkIsRefused(t *testing.T) {
+	home := t.TempDir()
+	elsewhere := t.TempDir()
+	require.NoError(t, os.Symlink(elsewhere, filepath.Join(home, "keys")))
+	_, err := run(t, home, healthyEnv("mocha-5"))
+	require.ErrorIs(t, err, keyfile.ErrUnsafeDir)
+	entries, err := os.ReadDir(elsewhere)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestSymlinkedHomeIsAccepted(t *testing.T) {
+	realDir := t.TempDir()
+	home := filepath.Join(t.TempDir(), "edicta")
+	require.NoError(t, os.Symlink(realDir, home))
+	_, err := initcmd.Run(context.Background(), initcmd.Config{Home: home, Preset: "mocha+none"}, healthyEnv("mocha-5"), nil)
+	require.NoError(t, err)
+	assert.FileExists(t, filepath.Join(realDir, "keys", "agent.ed25519"))
+}
+
+func TestUnsafeKeyringDirIsRefused(t *testing.T) {
+	home := t.TempDir()
+	first, err := initcmd.Run(context.Background(), initcmd.Config{Home: home, Preset: "mocha+none"}, healthyEnv("mocha-5"), nil)
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(first.Publisher.KeyringDir, 0o770))
+	_, err = initcmd.Run(context.Background(), initcmd.Config{Home: home, Preset: "mocha+none"}, healthyEnv("mocha-5"), nil)
+	require.ErrorIs(t, err, keyfile.ErrUnsafeDir)
+}
+
+func TestSecondRunOnOneHomeIsRefused(t *testing.T) {
+	home := t.TempDir()
+	unlock, err := keyfile.LockDir(home, initcmd.LockFile)
+	require.NoError(t, err)
+	defer unlock()
+	_, err = run(t, home, healthyEnv("mocha-5"))
+	require.ErrorIs(t, err, keyfile.ErrLocked)
+	assert.NoDirExists(t, filepath.Join(home, "keys"))
+}
