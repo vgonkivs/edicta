@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,19 +22,29 @@ import (
 const (
 	reasonsPath     = "../spec/vectors/verifier/reasons.json"
 	reasonsV103Path = "../spec/vectors/verifier/reasons_v1.0.3.json"
+	reasonsV11Path  = "../spec/vectors/verifier/reasons_v1.1.json"
 )
 
 type reasonsDoc struct {
-	Revision string `json:"revision"`
-	Extends  string `json:"extends"`
-	Reasons  []struct {
-		Name    string   `json:"name"`
-		Checks  []string `json:"checks"`
-		Meaning string   `json:"meaning"`
-		Advice  string   `json:"advice"`
-	} `json:"reasons"`
-	Cases    []reasonCase `json:"cases"`
-	Boundary []reasonCase `json:"boundary"`
+	Revision string        `json:"revision"`
+	Extends  string        `json:"extends"`
+	Base     string        `json:"base"`
+	Reasons  []reasonEntry `json:"reasons"`
+	Cases    []reasonCase  `json:"cases"`
+	Boundary []reasonCase  `json:"boundary"`
+}
+
+type reasonEntry struct {
+	Name     string   `json:"name"`
+	Group    string   `json:"group"`
+	Checks   []string `json:"checks"`
+	Meaning  string   `json:"meaning"`
+	Advice   string   `json:"advice"`
+	Replaces *struct {
+		File    string `json:"file"`
+		Meaning string `json:"meaning"`
+		Advice  string `json:"advice"`
+	} `json:"replaces"`
 }
 
 type reasonCase struct {
@@ -50,7 +61,8 @@ type reasonCase struct {
 }
 
 // loadReasons returns the enum of the current revision: the frozen file
-// plus the reasons and cases that later revisions add to it.
+// plus the reasons and cases that later revisions add to it, with the
+// wording that later revisions give a reason in place of the frozen one.
 func loadReasons(t testing.TB) reasonsDoc {
 	t.Helper()
 	d := readReasons(t, reasonsPath)
@@ -61,6 +73,22 @@ func loadReasons(t testing.TB) reasonsDoc {
 	d.Reasons = append(d.Reasons, add.Reasons...)
 	d.Cases = append(d.Cases, add.Cases...)
 	d.Boundary = append(d.Boundary, add.Boundary...)
+
+	words := readReasons(t, reasonsV11Path)
+	require.Equal(t, "v1.1", words.Revision)
+	require.NotEmpty(t, words.Reasons)
+	for _, w := range words.Reasons {
+		require.NotNil(t, w.Replaces, w.Name)
+		require.Equal(t, words.Base, w.Replaces.File, w.Name)
+		i := slices.IndexFunc(d.Reasons, func(r reasonEntry) bool { return r.Name == w.Name })
+		require.GreaterOrEqual(t, i, 0, "%s replaces the wording of a reason of the enum", w.Name)
+		base := d.Reasons[i]
+		require.Equal(t, w.Replaces.Meaning, base.Meaning, "%s: the frozen meaning is the one replaced", w.Name)
+		require.Equal(t, w.Replaces.Advice, base.Advice, "%s: the frozen advice is the one replaced", w.Name)
+		require.Equal(t, base.Checks, w.Checks, "%s: only the wording changes", w.Name)
+		require.Equal(t, base.Group, w.Group, "%s: only the wording changes", w.Name)
+		d.Reasons[i].Meaning, d.Reasons[i].Advice = w.Meaning, w.Advice
+	}
 	return d
 }
 

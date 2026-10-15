@@ -219,9 +219,11 @@ func (r *run) pendingAnchor() error {
 }
 
 // pendingInWindow passes the anchor on evidence at h0 <= H <= deadline once
-// header trust, reaching the deadline, ties the evidence headers to the
-// chain. Evidence whose header the trusted chain does not have does not
-// verify, and the absence proofs decide.
+// header trust, reaching H, ties the evidence headers to the chain. Presence
+// needs only the block that holds the anchor: no later block of the window
+// can undo it, since absence needs every height of the window absent.
+// Evidence whose header the trusted chain does not have does not verify, and
+// the absence proofs decide.
 func (r *run) pendingInWindow(H uint64, facts AnchorFacts) error {
 	ref := r.c.PayloadRef
 	h0 := ref.Height
@@ -286,9 +288,10 @@ func (r *run) pendingInWindow(H uint64, facts AnchorFacts) error {
 	}
 	for _, h := range evidence {
 		if !t.tied[h.height] {
-			// A checkpoint the trust named below the deadline makes the
-			// reference not decidable yet whatever the tie shows, so a tie
-			// problem must not turn anchor_pending into blocked.
+			// Untied evidence is not usable, and without usable evidence a
+			// checkpoint below the deadline makes the reference not
+			// decidable yet, so a tie problem must not turn anchor_pending
+			// into blocked.
 			if r.checkpointH != 0 && r.checkpointH < fast.AnchorDeadline {
 				r.warn("anchor: header trust did not tie the evidence header at height %d: %v", h.height, t.problem)
 				r.evidencePending(H)
@@ -300,16 +303,16 @@ func (r *run) pendingInWindow(H uint64, facts AnchorFacts) error {
 			return nil
 		}
 	}
-	// Every header trust kind is held to the deadline, including one that
-	// names its checkpoint only in its results: evidence tied below D cannot
-	// pass, since the window must hang from one chain that reaches D. When
-	// the two answers differ, the lower one counts.
+	// Every header trust kind is held to H, including one that names its
+	// checkpoint only in its results: the headers at H and h0 must hang from
+	// one chain that reaches H, and a trust that cannot name its checkpoint
+	// cannot show that. When the two answers differ, the lower one counts.
 	cp := t.cpH
 	if r.checkpointH != 0 && (cp == 0 || r.checkpointH < cp) {
 		cp = r.checkpointH
 	}
-	if cp < fast.AnchorDeadline {
-		r.evidenceTiedBelowDeadline(H, cp, headers, t)
+	if cp < H {
+		r.evidenceTiedBelowAnchor(H, cp, headers, t)
 		return nil
 	}
 
@@ -330,9 +333,9 @@ func (r *run) pendingInWindow(H uint64, facts AnchorFacts) error {
 	return nil
 }
 
-// evidencePending: header trust must reach the deadline before evidence in
-// the window counts, so that every height of the window hangs from one
-// trusted chain.
+// evidencePending: evidence in the window that header trust cannot tie yet
+// is not usable, and without usable evidence the window waits for a
+// checkpoint at the deadline.
 func (r *run) evidencePending(H uint64) {
 	why := errors.New("the anchor check did not pass")
 	r.unchecked(CheckAnchor, ReasonAnchorPending, fmt.Errorf("%w: evidence at height %d, and the trusted header %d is below the deadline %d",
@@ -342,11 +345,11 @@ func (r *run) evidencePending(H uint64) {
 	r.rep.HeaderTrust.Status = TrustUnchecked
 }
 
-// evidenceTiedBelowDeadline: the evidence headers are the chain's, but the
-// checkpoint is below the deadline (or unknown), so the verdict waits for a
-// checkpoint that reaches it. The report keeps the checkpoint and the tied
-// hashes, so the auditor sees that only the checkpoint is missing.
-func (r *run) evidenceTiedBelowDeadline(H, cp uint64, headers []headerAt, t trustTally) {
+// evidenceTiedBelowAnchor: the trust tied the evidence headers but names a
+// checkpoint below H (or none), so the evidence is not usable and the
+// deadline bound of the window decides. The report keeps the checkpoint and
+// the tied hashes, so the auditor sees that only the checkpoint is missing.
+func (r *run) evidenceTiedBelowAnchor(H, cp uint64, headers []headerAt, t trustTally) {
 	deadline := r.rep.Fast.AnchorDeadline
 	why := errors.New("the anchor check did not pass")
 	ht := &r.rep.HeaderTrust
@@ -359,9 +362,9 @@ func (r *run) evidenceTiedBelowDeadline(H, cp uint64, headers []headerAt, t trus
 	ht.CheckpointH, ht.CheckpointHash, ht.CrossCheck = t.cpH, t.cpHash, t.cross
 	ht.Status = TrustUnchecked
 	if cp == 0 {
-		r.unchecked(CheckAnchor, ReasonBlocked, fmt.Errorf("evidence ties at %d; header trust did not name its checkpoint height, and the verdict needs a checkpoint >= D (height %d)", H, deadline),
+		r.unchecked(CheckAnchor, ReasonBlocked, fmt.Errorf("evidence ties at %d; header trust did not name its checkpoint height, and the verdict needs a checkpoint >= H (height %d)", H, H),
 			string(CheckHeaderTrust))
-		r.unchecked(CheckHeaderTrust, ReasonNoTrustedHeader, fmt.Errorf("%w: the checkpoint height is unknown, so it is not shown to reach the anchor deadline %d", ErrHeaderTrust, deadline))
+		r.unchecked(CheckHeaderTrust, ReasonNoTrustedHeader, fmt.Errorf("%w: the checkpoint height is unknown, so it is not shown to reach the anchor height %d", ErrHeaderTrust, H))
 		r.unchecked(CheckAnchorTime, ReasonBlocked, why, string(CheckAnchor))
 		return
 	}
@@ -470,7 +473,8 @@ func (r *run) pendingWindow(fast *FastInfo) error {
 			fmt.Errorf("%w: an absence proof shows the anchor at height %d, and its full evidence is not archived", ErrArchiveIncomplete, w.AnchorHeight))
 	case AbsencePresentUnpaid:
 		// The included PFF published the payload, so the window is not
-		// absent; v1.0 still needs code 0 for presence, so it cannot pass.
+		// absent; a valid verdict needs a paid anchor (code 0), so it cannot
+		// pass either.
 		r.unchecked(CheckAnchor, ReasonAnchorUnpaid,
 			fmt.Errorf("%w: unpaid_height %d: the anchor is included with a non-zero result code", ErrAnchorUnpaid, w.UnpaidHeight))
 	default:

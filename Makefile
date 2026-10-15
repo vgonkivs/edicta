@@ -19,6 +19,7 @@ test:
 
 vectors:
 	python3 spec/vectors/check/check_vectors.py
+	env -u GOROOT go -C spec/vectors/tools/execresult-gen run . -check
 
 clean:
 	rm -rf $(BIN)

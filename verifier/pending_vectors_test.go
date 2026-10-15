@@ -33,13 +33,7 @@ type fastCase struct {
 		Result string `json:"result"`
 	} `json:"absence"`
 	Expect struct {
-		Anchor *struct {
-			Status        string `json:"status"`
-			Reason        string `json:"reason"`
-			Rule          string `json:"rule"`
-			FirstUnproven string `json:"first_unproven"`
-			UnpaidHeight  string `json:"unpaid_height"`
-		} `json:"anchor"`
+		Anchor *fastAnchor `json:"anchor"`
 		Replay *struct {
 			Status string `json:"status"`
 			Reason string `json:"reason"`
@@ -53,12 +47,31 @@ type fastCase struct {
 			IntentSigner   string `json:"intent_signer"`
 		} `json:"report"`
 		Verdict string `json:"verdict"`
+		// HeaderTrustNeeds is the lowest checkpoint at which the anchor
+		// check becomes decidable on the case's inputs.
+		HeaderTrustNeeds string `json:"header_trust_needs"`
 	} `json:"expect"`
+	// V10 is the anchor outcome of the frozen v1.0 text on the same inputs.
+	V10 *struct {
+		Anchor struct {
+			Status string `json:"status"`
+			Reason string `json:"reason"`
+		} `json:"anchor"`
+	} `json:"v1_0"`
+}
+
+type fastAnchor struct {
+	Status        string `json:"status"`
+	Reason        string `json:"reason"`
+	Rule          string `json:"rule"`
+	FirstUnproven string `json:"first_unproven"`
+	UnpaidHeight  string `json:"unpaid_height"`
 }
 
 const (
 	verifyVectorsPath     = "../spec/vectors/v1/verify.json"
 	verifyV103VectorsPath = "../spec/vectors/v1/verify_v1.0.3.json"
+	verifyV11VectorsPath  = "../spec/vectors/v1/verify_v1.1.json"
 )
 
 func loadFastCases(t *testing.T) (uint64, []fastCase) {
@@ -196,6 +209,10 @@ func runFastCases(t *testing.T, cases []fastCase) int {
 			}
 			if p.da == commitment.DACelestiaBlob {
 				ref := sha256.Sum256([]byte("header at h0"))
+				if c.Evidence != nil && p.ev.Height == h0 {
+					// One block: the header at h0 is the evidence header.
+					ref = sha256.Sum256(goodHeader())
+				}
 				r.trust.hashes[h0] = ref[:]
 				wp.header = verifier.ChainHeader{Hash: ref[:], Time: blockTime}
 			}

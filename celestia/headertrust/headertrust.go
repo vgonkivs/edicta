@@ -196,7 +196,7 @@ func New(cp Checkpoint, chain HeaderChain, cross []HeaderChain) verifier.HeaderT
 }
 
 // CheckpointHeight names the trusted header height, so that a pending
-// reference can be held to its anchor deadline before any header is tied.
+// reference can be held to the height it needs before any header is tied.
 func (t *trust) CheckpointHeight(context.Context) (uint64, error) { return t.cp.Height, nil }
 
 // Trusted reports the checkpoint in the result on every path, so the report

@@ -83,25 +83,42 @@ func TestPendingInWindowEvidenceBlockedOnTrust(t *testing.T) {
 	}
 }
 
-// In-window evidence counts only once header trust reaches the deadline,
-// so that every height of the window hangs from one trusted chain.
-func TestPendingInWindowEvidenceNeedsCheckpointAtDeadline(t *testing.T) {
+// In-window evidence counts once header trust reaches its height H: the
+// headers at H and h0 hang from one trusted chain, and no later block of the
+// window can undo an anchor that is included.
+func TestPendingInWindowEvidenceNeedsCheckpointAtH(t *testing.T) {
 	for _, k := range pendingKinds {
-		t.Run(k.name+", checkpoint below the deadline", func(t *testing.T) {
+		t.Run(k.name+", checkpoint in [H, D) passes", func(t *testing.T) {
 			r, fp := pendingRig(t, k.parts(t), verifier.AbsenceWindow{Result: verifier.AbsenceAbsent})
 			d := r.p.c.PayloadRef.Height + fastWindow
 			r.deps.Trust = cpTrust{r.trust, d - 1}
+			withRefHeader(r, fp)
+			rep := r.verify(t)
+			passed(t, rep, verifier.CheckAnchor)
+			passed(t, rep, verifier.CheckHeaderTrust)
+			passed(t, rep, verifier.CheckAnchorTime)
+			assert.Equal(t, verifier.TrustValid, rep.HeaderTrust.Status)
+			assert.Equal(t, r.p.ev.Height, rep.Fast.AnchorHeight)
+			assert.Equal(t, verifier.PublicationAnchored, rep.Fast.Publication)
+			assert.Zero(t, fp.asked, "presence does not read the absence proofs")
+			assert.Contains(t, r.trust.asked, r.p.ev.Height)
+			assert.Contains(t, rep.HeaderTrust.Hashes, r.p.c.PayloadRef.Height, "T_ref comes from the header at h0 on the same chain")
+		})
+		t.Run(k.name+", checkpoint below H", func(t *testing.T) {
+			r, fp := pendingRig(t, k.parts(t), verifier.AbsenceWindow{Result: verifier.AbsenceAbsent})
+			d := r.p.c.PayloadRef.Height + fastWindow
+			r.deps.Trust = cpTrust{r.trust, r.p.ev.Height - 1}
 			rep := r.verify(t)
 			c := unchecked(t, rep, verifier.CheckAnchor, verifier.ReasonAnchorPending)
 			require.ErrorIs(t, c.Err, verifier.ErrAnchorInvalid)
-			assert.Contains(t, c.Err.Error(), fmt.Sprintf("evidence ties at %d; verdict needs a checkpoint >= D (height %d)", r.p.ev.Height, d))
+			assert.Contains(t, c.Err.Error(), fmt.Sprintf("below the deadline %d", d))
 			unchecked(t, rep, verifier.CheckAnchorTime, verifier.ReasonBlocked)
 			unchecked(t, rep, verifier.CheckHeaderTrust, verifier.ReasonBlocked)
 			assert.Equal(t, verifier.TrustUnchecked, rep.HeaderTrust.Status)
 			assert.Zero(t, rep.Fast.AnchorHeight)
 			assert.Equal(t, verifier.PublicationUnknown, rep.Fast.Publication)
-			assert.Zero(t, fp.asked)
-			assert.Contains(t, r.trust.asked, r.p.ev.Height, "a checkpoint in [H, D) ties the evidence header")
+			assert.Zero(t, fp.asked, "the window is open, so the absence proofs are not read")
+			assert.Empty(t, r.trust.asked, "a header above the checkpoint is not tied")
 			assert.Equal(t, verifier.VerdictUnchecked, rep.Verdict)
 		})
 	}
