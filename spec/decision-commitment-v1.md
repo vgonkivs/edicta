@@ -98,7 +98,10 @@ its meaning (rule V6), and never a check from `pass` to `fail` or from
 - A new kind number in archive format 1 is a minor change, not a new
   `format` value. A `v1.0` reader refuses an unknown kind
   (`ErrInvalidEnum`, section 19.1 step 3), so no record it accepted changes
-  meaning; the `format` value stays 1. A new key in an existing kind is still
+  meaning; the `format` value stays 1. A `v1.1` implementation reads the new
+  kind only under its own path and keeps the `v1.0` kind set in its general
+  reader (19.1 step 3), so the frozen rejects of an unknown kind keep their
+  cause. A new key in an existing kind is still
   a new `format` value (section 19.8).
 - A new HTTP API error code is additive: a client of an older revision maps
   an unknown code to `edictaapi.ErrInternal` and keeps the status and
@@ -136,7 +139,7 @@ revision each verifier implements (its release notes); the report's
 | `v1.0.2` | 2026-10-10 | Type `clarification`. E2 (`spec/ERRATA.md`), human decisions of 2026-10-10 (task 045): "anchored" means inclusion proven, never a result code (new section 10.6.3). `da = 2`: the blob's commitment proof against the data root of the trusted header. `da = 1`: the complete `PFF_NS` namespace proof against `data_hash`, the PFF selected by its commitment, CV2, and the certificate CV3 to CV7 offline against the archived `historical_info` with the promise header on the trusted chain. The anchor tx result code is reported as `node-reported, not part of the claim` (20.9, 10.6.1, 20.10); CV8 keeps requiring the archived code 0 (dropping it would be a relaxation). Settled `UNVERIFIED` items: shard retention is independent of the PFF outcome, a PFF can be included with a non-zero code only through an ante failure, and the keeper's height window at the pin (sections 10.4, 10.6.1, 13.1, 23). The 10.7 item on block results for a proven settlement level becomes MAY. Human answers R3 (task 045): 10.6.3 states that v1.0 verifiers additionally require `tx_code == 0` (CV8) and that v1.1 removes it; the included-reference height window is an explicit assumption with the pinned ProcessProposal call path, and the pending-reference window is the gate's K-fast rule, with its vectors and tests named; new re-pin checklist (section 23.2). No check outcome changes. | none |
 | `v1.0.3` | 2026-10-10 | Type `security` (human decision of 2026-10-10, task 045, "AB5 security fix"; closes a path to a false `invalid`). `da = 1` absence: a PFF candidate for the reference inside `[h0, anchor_deadline]` counts as present whatever its result code, so absence is never proven at its height. Up to `v1.0.2` a candidate whose code AB5 proved non-zero made the height absent, and an honest anchor whose PFF was included with a non-zero code (an ante failure in FinalizeBlock, section 10.4 facts) gave `anchor_absent`, a false `invalid`. AB5 now classifies a candidate height as present (a proven code 0), present unpaid (every code proven, none 0) or not proven (section 20.8). Presence still needs code 0 in v1.0 (CV8), so a present-unpaid height gives `anchor` `unchecked` with the new reason `anchor_unpaid` ("anchor included, non-zero result code; not confirmable by v1.0 verifiers"), never `fail` (sections 20.1.1, 20.6, 20.10, 10.6.3). Outcome moves: `fail` `anchor_absent` to `unchecked` `anchor_unpaid` only. Section 0 states the patch-level rule (toward INCONCLUSIVE only) and the handling of superseded vector cases; `spec/ERRATA.md` and the errata procedure record the erratum versus security distinction. The reason enum has 44 reasons. | `da/absence.json` and `verifier/reasons.json` byte-identical; superseded cases listed in the new `SUPERSEDED.json`: `da/absence.json` `fibre_candidate_nonzero_code` and `window_three_heights_proven`. New files: `da/absence_v1.0.3.json` (the two cases on the same inputs, `window_unpaid_with_unproven_height`, `window_paid_after_unpaid`), `v1/verify_v1.0.3.json` (pending decisions with an in-window unpaid candidate, end to end), `verifier/reasons_v1.0.3.json` (the reason `anchor_unpaid`, additive to `reasons.json`). |
 | `v1.0.4` | 2026-10-11 | Type `clarification`. E3 (`spec/ERRATA.md`), human decision Q2 of 2026-10-10 (task 044): the header-trust bound of a pending reference, `max(D, H)` (and `D + 1` for an AB5 results proof, section 20.6; HT1), holds for every kind of header trust, a trusted header file, an explicit or agreed checkpoint (20.4) or any other trust an implementation adds. A trust that cannot name its checkpoint height `T` cannot show that bound, so `header_trust` stays `unchecked` (HT1, HT7), never `pass`. The frozen rules already said this; no check outcome of the spec changes. Conformance note: an implementation whose header-trust kind accepted a checkpoint below the bound, or an unknown one, gave a `pass` the frozen text never allowed; its fix moves that outcome only toward INCONCLUSIVE (`pass` to `unchecked`) and is a conformance bug fix of the implementation, recorded here, not a `security` revision of the spec. No frozen vector expects a `pass` with a checkpoint below the bound (every `pass` case of `v1/verify.json` has `trusted_head` 4200127 with `anchor_deadline` 4200126). | none |
-| `v1.1` | 2026-10-15 | Type `minor` (task 047; amendment above). (1) Presence trust up to `H` (human decision Q1 of 2026-10-10, task 044): for a pending reference whose evidence verifies at `h0 <= H <= D`, header trust needs to reach `H` only, not `D`; every other row of 20.6 still needs `max(D, H)`, and `D + 1` with an AB5 results proof (sections 10.6.2 HT1, 20.6, new 20.6.1). Outcome move: `anchor` `unchecked` `anchor_pending` to `pass` only. (2) The paid-anchor requirement stays (human decision H1 of 2026-10-15, task 047; it withdraws the removal of CV8's code clause that `v1.0.2` announced for `v1.1`, task 045 R3-1). Clarification only, no check outcome changes: "Inclusion proves publication; a VALID verdict additionally requires a paid anchor (`tx_code == 0`). Unpaid anchors are an operator funding failure, surfaced by the escrow alert." CV8 keeps its code clause; evidence key 12 keeps admitting only 0; `anchor_unpaid` stays `unchecked` for good, never `fail` (sections 1, 10.6.1, 10.6.3, 20.1.1, 20.6.1, 20.9). "Not part of the claim" in the frozen text means not part of the publication claim ("anchored"); the `valid` verdict needs CV8 as well (10.6.3). Superseded wording in frozen files, which keep their bytes: the `anchor_unpaid` meaning ("not confirmable by v1.0 verifiers") and advice ("a v1.1 verifier confirms inclusion without the code") of `verifier/reasons_v1.0.3.json`, and the quote "this requirement is removed in v1.1" in the E2 addendum of `spec/ERRATA.md`. No `v1.N` removes the requirement; the wording of `verifier/reasons_v1.1.json` replaces those strings for a `v1.1` verifier's text output. This is not an erratum: no frozen expectation is wrong, only an announcement that the human withdrew. (3) Archive kind 19 `execution_result` (task 045 R3-3): one record per captured ordinary rail tx, key `(chain_id, rail_ref)`, with the headers at the execution height and the next one, complete proofs of the transaction namespaces, the result and its RFC 6962 path; the verifier's rules XR1 to XR8 (new 20.2.2) and its place among the execution sources (EX10); the migration of the gate's capture store, MG1 to MG7 (sections 19.1 to 19.4, 19.7, 20.3; bank-send profile 3.4). Outcome move: `execution` `unchecked` to `pass` or `fail` once nodes have pruned the block, where the archived record proves what an online source with proofs used to (amendment above); the migration drops a capture only when the archive holds an equivalent record (MG5). (4) API codes `recorder.ErrAnchorRejected` (502, matched first) and `recorder.ErrClockSkew` (503, retryable) (task 022d m4; sections 18.3, 21). Before, a server reported `recorder.ErrClockSkew` as 500 `edictaapi.ErrInternal` and `recorder.ErrAnchorRejected`, which wraps `ErrAnchorNotFound`, as 425 `ErrAnchorNotFound` (retryable). Gate checks, signed objects, tags and the invariants of section 1.1 are unchanged. | Frozen files byte-identical. New: `archive/execution_result_v1.1.json` (kind 19 records, rejects, XR cases, migration; built from synthetic blocks of the new tool `tools/execresult-gen`), `api/errors_v1.1.json` (the two codes, the merged match order), `v1/verify_v1.1.json` (presence with header trust in `[H, D)`, with the `v1.0` outcome of each case), `verifier/reasons_v1.1.json` (the `anchor_unpaid` wording under H1; the reason, its checks and every outcome unchanged). |
+| `v1.1` | 2026-10-15 | Type `minor` (task 047; amendment above). (1) Presence trust up to `H` (human decision Q1 of 2026-10-10, task 044): for a pending reference whose evidence verifies at `h0 <= H <= D`, header trust needs to reach `H` only, not `D`; every other row of 20.6 still needs `max(D, H)`, and `D + 1` with an AB5 results proof (sections 10.6.2 HT1, 20.6, new 20.6.1). Outcome move: `anchor` `unchecked` `anchor_pending` to `pass` only. (2) The paid-anchor requirement stays (human decision H1 of 2026-10-15, task 047; it withdraws the removal of CV8's code clause that `v1.0.2` announced for `v1.1`, task 045 R3-1). Clarification only, no check outcome changes: "Inclusion proves publication; a VALID verdict additionally requires a paid anchor (`tx_code == 0`). Unpaid anchors are an operator funding failure, surfaced by the escrow alert." CV8 keeps its code clause; evidence key 12 keeps admitting only 0; `anchor_unpaid` stays `unchecked` for good, never `fail` (sections 1, 10.6.1, 10.6.3, 20.1.1, 20.6.1, 20.9). "Not part of the claim" in the frozen text means not part of the publication claim ("anchored"); the `valid` verdict needs CV8 as well (10.6.3). Superseded wording in frozen files, which keep their bytes: the `anchor_unpaid` meaning ("not confirmable by v1.0 verifiers") and advice ("a v1.1 verifier confirms inclusion without the code") of `verifier/reasons_v1.0.3.json`, and the quote "this requirement is removed in v1.1" in the E2 addendum of `spec/ERRATA.md`. No `v1.N` removes the requirement; the wording of `verifier/reasons_v1.1.json` replaces those strings for a `v1.1` verifier's text output. This is not an erratum: no frozen expectation is wrong, only an announcement that the human withdrew. (3) Archive kind 19 `execution_result` (task 045 R3-3): one record per captured ordinary rail tx, key `(chain_id, rail_ref)`, with the headers at the execution height and the next one, complete proofs of the transaction namespaces, the result and its RFC 6962 path; the verifier's rules XR1 to XR8 (new 20.2.2) and its place among the execution sources (EX10); the migration of the gate's capture store, MG1 to MG7 (sections 19.1 to 19.4, 19.7, 20.3; bank-send profile 3.4). Outcome move: `execution` `unchecked` to `pass` or `fail` once nodes have pruned the block, where the archived record proves what an online source with proofs used to (amendment above); the migration drops a capture only when the archive holds an equivalent record (MG5). Kind 19 is read only under an `exec/` path; the general reader keeps the `v1.0` kind set, so the frozen rejects `rec_kind_19` and `kind_19_undefined` keep `ErrInvalidEnum` and need no `SUPERSEDED.json` entry (19.1 step 3). An archive answers a missing `exec/` key as absent; a fault there stops the verification (20.3). The gate's capture store may keep a done-index of moved references, never read by a verifier (19.7). (4) API codes `recorder.ErrAnchorRejected` (502, matched first) and `recorder.ErrClockSkew` (503, retryable) (task 022d m4; sections 18.3, 21). Before, a server reported `recorder.ErrClockSkew` as 500 `edictaapi.ErrInternal` and `recorder.ErrAnchorRejected`, which wraps `ErrAnchorNotFound`, as 425 `ErrAnchorNotFound` (retryable). Gate checks, signed objects, tags and the invariants of section 1.1 are unchanged. | Frozen files byte-identical. New: `archive/execution_result_v1.1.json` (kind 19 records, rejects, XR cases, migration; built from synthetic blocks of the new tool `tools/execresult-gen`), `api/errors_v1.1.json` (the two codes, the merged match order), `v1/verify_v1.1.json` (presence with header trust in `[H, D)`, with the `v1.0` outcome of each case), `verifier/reasons_v1.1.json` (the `anchor_unpaid` wording under H1; the reason, its checks and every outcome unchanged). |
 
 Editorial note, no revision: the post-freeze rows of the first table and the
 revision scheme above were amended on 2026-10-10 by the human's decision. The
@@ -3760,7 +3763,7 @@ Every record is a map with two common keys:
 | Key | Name | Type | Rule |
 |---|---|---|---|
 | 1 | `format` | uint | `= 1`. Archive record format, independent of the wire `version`. Kind numbers are scoped per archive format: a kind number names a layout only together with the format value, so the kinds of the superseded `v0` drafts' format 0 say nothing about format 1. |
-| 2 | `kind` | uint enum | 1 payload, 2 evidence, 4 Authorization, 5 rejection, 7 to 12 the policy records of `spec/policy-v1.md` section 12, 13 anchor intent, 14 absence proof, 15 private blob, 17 decision, 18 execution reveal; since `v1.1` also the execution result (19). 3 and 6 are not assigned; 16 is reserved (section 4.6). |
+| 2 | `kind` | uint enum | 1 payload, 2 evidence, 4 Authorization, 5 rejection, 7 to 12 the policy records of `spec/policy-v1.md` section 12, 13 anchor intent, 14 absence proof, 15 private blob, 17 decision, 18 execution reveal; since `v1.1` also the execution result (19), read only under an `exec/` path (step 3). 3 and 6 are not assigned; 16 is reserved (section 4.6). |
 
 Strict decoding, in this order; the first failure decides, and a reader
 reports every failure as `archive.ErrCorrupt` wrapping the cause named here
@@ -3776,9 +3779,22 @@ reports every failure as `archive.ErrCorrupt` wrapping the cause named here
    missing (`ErrMissingField`) or not a uint (`ErrWrongType`); then
    `format != 1` (`ErrUnsupportedVersion`: a record of the superseded format 0
    is refused here, never misread); then `kind` outside 1, 2, 4, 5, 7 to 15,
-   17, 18 (`ErrInvalidEnum`). Since `v1.1` a `v1.1` reader also accepts the
-   execution result (19) at this step; a `v1.0.N` reader refuses it here
-   (`ErrInvalidEnum`), so it never misreads one.
+   17, 18 (`ErrInvalidEnum`). Since `v1.1` format 1 has two readers, and the
+   path a record is read under (19.3) picks one, never the record's bytes:
+   the kind 19 reader, for a record read under an `exec/` path, accepts
+   kind 19 and only kind 19 here (any other kind: `ErrInvalidEnum`); the
+   general reader, for every other path and for a record read without a
+   path, keeps the kind set above and refuses kind 19 here
+   (`ErrInvalidEnum`), as a `v1.0.N` reader does, so it never misreads one.
+   Steps 1, 2 and 4 to 9 are the same for both. Every read is keyed (19.3,
+   HA4), so the choice shows only in the cause: kind 19 bytes found under a
+   path outside `exec/` are corrupt for every reader of every revision
+   (`archive.ErrCorrupt`, cause `ErrInvalidEnum`), and a record of another
+   kind found under `exec/` is corrupt with the same cause. Threat note: a
+   kind 19 record never stands in for another record, nor another record for
+   a kind 19 one, and the frozen rejects `archive/records.json#rec_kind_19`
+   and `v1/archive.json#kind_19_undefined`, which are read without a path,
+   keep `ErrInvalidEnum` under `v1.1`.
 4. Size above the cap of the kind: `ErrTooLarge`.
 5. Schema, per key in encoded order: a key the kind does not define, or does
    not define for the record's `da` or `form` (or, for `anchor_tx_index` and
@@ -4075,9 +4091,14 @@ need not be canonical: identity does not cover them, and the verifier
 re-checks every byte through the header hashes, the share proofs and the
 results root (20.2.2).
 
-Kind 19 reader rules, after section 19.1: the key is fields 3 and 4; the
-reader checks no proof at decoding (as for kind 14). A `v1.0.N` reader
-refuses the kind at step 3 (`ErrInvalidEnum`).
+Kind 19 reader rules, after section 19.1: the kind 19 reader (19.1 step 3)
+reads a record only under its `exec/` path; the key is fields 3 and 4; the
+reader checks no proof at decoding (as for kind 14). The general reader of
+every revision, and every reader of a `v1.0.N` implementation, refuses the
+kind at step 3 (`ErrInvalidEnum`): the frozen cases
+`archive/records.json#rec_kind_19` and `v1/archive.json#kind_19_undefined`
+are read by the general reader and keep that expectation in `v1.1` (no
+`SUPERSEDED.json` entry).
 
 Why the key is `(chain_id, rail_ref)` and not the block. The verifier knows
 `rail_ref` from the receipt and `chain_id` from the action; once the nodes
@@ -4275,7 +4296,20 @@ the archive and writes new captures there directly:
 | MG4 Write | A kind 19 write under AW1 and AW2 (identity is the key, so a second write of the same key succeeds without writing). |
 | MG5 Read back | The gate reads the stored record back under its key. The capture store may drop the transaction (its entry in the block file and its reference index, and the block file once no transaction remains) only if the stored record is equivalent to the record MG2 built: byte-equal to it, or passing MG3 on the stored bytes with the same `height`, `tx_index`, `results_total` and `result` and the same recomputed CometBFT hashes of `header` and of `next_header`. Equal header hashes fix `data_hash` and `last_results_hash`, so an equivalent record proves the same facts with proofs against the same roots; protobuf bytes may differ (19.2: identity is the key). Otherwise another record holds the key (broken, or self-consistent against fabricated headers, which MG3 alone cannot tell because it has no trust root): the gate raises an error-level alert naming the key and both record hashes, keeps the capture entry, and reports the conflict in its health output on every later run (MG6) until an operator resolves it. The remedy is operational: write the built record into another archive copy, which a verifier also reads (20.2.2); the capture entry stays the gate's copy of the proof. |
 | MG6 Schedule | At start, in the background (never before serving), and on every archive sweep until the capture store holds no block file other than the entries MG5 kept. Idempotent: a crash between MG4 and MG5 leaves a record that the next run finds equal (AW2) and then drops the capture entry. |
-| MG7 New captures | A `v1.1` gate builds the kind 19 record from a new capture (MG2), checks it (MG3), writes it (MG4) and reads it back (MG5, with the same equivalence rule: a non-equivalent stored record keeps the capture entry and raises the alert); the capture store then holds only its queues and the entries MG5 kept. The capture's own rules (when to capture, retries, the prune-window alerts, the lost state) are unchanged. |
+| MG7 New captures | A `v1.1` gate builds the kind 19 record from a new capture (MG2), checks it (MG3), writes it (MG4) and reads it back (MG5, with the same equivalence rule: a non-equivalent stored record keeps the capture entry and raises the alert); the capture store then holds only its queues, the entries MG5 kept and, optionally, its done-index (below). The capture's own rules (when to capture, retries, the prune-window alerts, the lost state) are unchanged. |
+
+Done-index. The capture store MAY keep a marker per reference that MG5
+dropped (for example `archived/<rail_ref hex>`), holding the reference only,
+so that after a restart the gate does not track a moved reference again:
+the sweep re-reads every receipt, and a reference tracked again after the
+nodes pruned its block would end as a false lost alert. The marker is
+written only after MG5 found the stored record equivalent, and is durable
+before the capture entry and its reference index are removed. It holds no
+proof data, is not evidence, is never written to the archive and is never
+read by a verifier. Threat note: a party that can write the capture store
+can already delete captures, so a forged marker adds no power; a lost marker
+only makes the gate track the reference again (a write that MG5 finds
+already stored, or a false lost alert), never loses a proof.
 
 Threat note (migration). The capture store is as untrusted as the archive,
 so the migration adds no trust: every byte of the record is re-checked by a
@@ -4647,7 +4681,9 @@ from each checked archive copy (20.3). The record of each copy that has
 one is a candidate of its own, in the order of the copies, and records with
 the same bytes count once; so a squatted key in one copy does not hide an
 honest record in another (19.7, MG5). A record absent everywhere is no
-candidate; the online sources run as before. A record that fails strict
+candidate; the online sources run as before. Absent means the archive
+answered not found (`404` or `410` over HTTP, HA2); a fault on this read is
+an archive fault that stops the verification (HA5, the pitfall of 20.3). A record that fails strict
 decoding or the key check (19.1, 19.3) is a candidate set aside with reason
 `tx_proof_invalid` (rule label `decode` in the vectors). A record that decodes is checked as follows, against the
 same trusted header as the anchor (EX5); the first failure sets the
@@ -4657,7 +4693,7 @@ next candidate (EX10).
 | Rule | Check | Reason when it fails |
 |---|---|---|
 | XR1 Key | `chain_id` is the action's chain id and `rail_ref` is the receipt's (19.3). | `tx_proof_invalid` |
-| XR2 Headers | `header` decodes as a CometBFT header with `height` and `chain_id` of the record; `next_header` decodes with `height + 1` and the same chain id; the recomputed hash of each equals the hash HT3 reached at its height from the trusted header (so `T >= height + 1`, as RP4). | `tx_proof_invalid` (does not decode or names another height or chain); `result_header_unreachable` (`T` below the height); `header_not_linking` (not on the trusted chain) |
+| XR2 Headers | `header` decodes as a CometBFT header with `height` and `chain_id` of the record; `next_header` decodes with `height + 1` and the same chain id; the recomputed hash of each equals the hash HT3 reached at its height from the trusted header (so `T >= height + 1`, as RP4). In this order, the first failure deciding: `tx_proof_invalid` if `header` does not decode or names another height or chain, then the same for `next_header`; then for `header` and after it for `next_header`, first `result_header_unreachable` (header trust does not reach its height; for `next_header`, `T` below `height + 1`), then `header_not_linking` (not on the trusted chain at that height). Decoding and naming come before reachability: a record that names `height + 1` and holds the header at `height` is `tx_proof_invalid` even when trust reaches only `height + 1` (vector `xr2_header_of_another_height`). |
 | XR3 App version | `version.app` of `header` equals the pinned `appconsts.Version` (10): the ordering rule of XR5 to XR7 holds for the pinned square rules only. | `result_index_unbound` |
 | XR4 Proofs | Each present proof of keys 9 to 12 decodes as a `ShareProof` whose namespace (`namespace_version`, `namespace_id`) is `TX_NS` for key 9, `PFB_NS` for key 10, `PFF_NS` for key 11, and for key 12 any namespace above `PFF_NS` (bytewise over the 29 bytes). It proves consecutive shares `[s, e)` of the original square as BX6 (b) to (d) of the bank-send profile require: every row proof has `total = 4k` with `k` a power of two and the same `k` for every proof of the record, row indexes `start_row, start_row + 1, ...` below `k`, every row but the first starting at 0 and every row but the last ending at `k`; `s = start_row * k + start` of the first row, `e = end_row * k + end` of the last; the proof holds `e - s` shares; `ShareProof.Validate(data_hash of header)` succeeds (each row root reaches `data_hash` by its RFC 6962 path, the NMT range proofs reach the row roots); every share carries the proof's namespace. | `tx_proof_invalid` |
 | XR5 Completeness | The ranges of the present keys, in key order 9, 10, 11, 12, are contiguous from share 0: key 9 starts at share 0 and each next range starts where the previous ended. Key 12 covers exactly one share; without key 12 the last range ends at `k * k`, the end of the square. Each of keys 9 to 11 holds exactly one whole compact sequence: its first share starts a sequence, the number of shares is the one the sequence length gives (go-square `FirstCompactShareContentSize`, `ContinuationCompactShareContentSize`), and no other share starts one; its units (length-delimited, go-square `ParseTxs`) parse. | `tx_proof_invalid` |
@@ -4714,7 +4750,7 @@ tree conforms, if it meets HA2.
 | HA1 URL | A record is at `<base>/<path>`. `<base>` is an `http` or `https` URL without query, fragment or user info, with trailing slashes removed. `<path>` is the canonical path of 19.3, byte for byte: `payload/<da>/<commitment hex>`, `evidence/<da>/<commitment hex>`, `decision/<commitment_hash hex>`, `authorization/<commitment_hash hex>`, `rejection/<commitment_hash hex>/<error>`, `intent/...`, `absence/...`, `private/...`, `reveal/<commitment_hash hex>`, since `v1.1` `exec/<chain_id>/<rail_ref hex>`, and the policy paths of 19.3. A server of an older revision answers `404` for a path it does not know (HA6), which a verifier reads as absent: for `exec/...` it then uses its online sources. `da` is decimal without leading zeros, hex is lower case, and `<error>` is one of the marker verdicts of 19.2. No escaping is needed. |
 | HA2 Status | `GET`. `200`: the body is the record bytes, verbatim. `404` and `410`: the record is absent (`archive.ErrNotFound`). Anything else is an archive fault, never absent: another status (including `403` and `429`), a redirect (redirects are not followed), a transport error, a timeout, a body cut short. A client MAY retry a fault and SHOULD honour `Retry-After`. It ignores `Content-Type`. |
 | HA3 Size | The client reads at most the cap of the kind it asked for, plus one byte (section 19.1). A longer body is corrupt (`archive.ErrCorrupt` with cause `ErrTooLarge`). |
-| HA4 Reader checks | Every body passes strict decoding (19.1) and the key check (19.3: the record carries the key it was asked under), exactly as a local read does. A body that fails is corrupt, never absent and never another record. The client does no DA recompute; the verifier does (P3, section 10.7). |
+| HA4 Reader checks | Every body passes strict decoding (19.1, with the reader of its path, step 3) and the key check (19.3: the record carries the key it was asked under), exactly as a local read does. A body that fails is corrupt, never absent and never another record. The client does no DA recompute; the verifier does (P3, section 10.7). |
 | HA5 State | The record state (19.5) is derived from reads only: decision, then Authorization, then, if the Authorization is absent, one read per marker verdict of 19.2. The state is known only if each read the derivation needs answered `200` or `404`. A fault on any of these reads, or on any later record read, is an archive I/O error: the verification stops without a verdict (exit 4), and it is never reported as `pending`, `rejected` or absent. |
 | HA6 Server | A conforming server is read-only. It answers `GET` and `HEAD` only (`405` otherwise). It serves only paths that parse as a canonical key (HA1) and answers `404` for anything else: other kinds, upper-case hex, `..`, dot files, empty segments, trailing slashes. It lists no directories and follows no link out of the tree. It returns the stored bytes verbatim. It SHOULD send `Content-Type: application/cbor`. It MAY mark a `200` as immutable (records are write-once, AW1). It MUST NOT let a `404` be cached (`Cache-Control: no-store`), because an absent Authorization or marker can appear later. |
 
@@ -4733,6 +4769,16 @@ decides who may read them. The demo binds its server to `127.0.0.1`.
 Pitfall: object stores that hide whether a key exists answer `403` for an
 absent object. Under HA2 that is a fault, so `verify` stops without a verdict. Configure the store to answer `404` for absent objects
 (for S3, grant list permission or serve through a CDN that maps the error).
+Since `v1.1` this concerns every verification with the execution check:
+the verifier reads `exec/<chain_id>/<rail_ref hex>` (20.2.2), which is
+absent for every transaction no `v1.1` gate captured, all earlier decisions
+among them. Any archive (HTTP, object store, file tree) MUST answer a
+missing key as absent (`404`, `archive.ErrNotFound`); one that answers a
+missing `exec/` key with an access error stops the verification without a
+verdict (exit 4), where a `v1.0.N` verifier, which never reads that key,
+gave one. Remedy: the operator fixes the store's answer for absent keys as
+above. A verifier MUST NOT read such a fault as absent: a fault can hide a
+record that exists.
 
 ### 20.4 Online header sources and checkpoint
 
@@ -5437,9 +5483,13 @@ How an implementation uses them:
   code non-zero, and the verifier maps that to `anchor` `unchecked`
   `anchor_unpaid` with `unpaid_height`.
 - `v1.1` (minor): an implementation of `v1.1` passes every case a `v1.0.4`
-  implementation passes, and the new files: kind 19 records decode to
-  `input` under `path`, rejects fail with `archive.ErrCorrupt` and `cause`,
-  a `v1.0.N` reader refuses every kind 19 record with `ErrInvalidEnum`; each
+  implementation passes, and the new files: kind 19 records, read under
+  `path` by the kind 19 reader (19.1 step 3), decode to `input`; rejects,
+  read by the kind 19 reader, fail with `archive.ErrCorrupt` and `cause`;
+  the general reader, as a `v1.0.N` reader, refuses every kind 19 record
+  with `ErrInvalidEnum` (`v1_0_reader_cause`), and the frozen cases
+  `archive/records.json#rec_kind_19` and `v1/archive.json#kind_19_undefined`
+  are read by the general reader and keep `ErrInvalidEnum`; each
   XR case gives `expect` (the facts, or `set_aside` with the rule and the
   reason; rule `decode` for a record that fails strict decoding); each
   migration case, with the records its `stored` names already in the
