@@ -160,3 +160,25 @@ func TestDoctorJSONParses(t *testing.T) {
 	require.Len(t, doc.Checks, 2)
 	assert.Equal(t, "warn", doc.Checks[1].Status)
 }
+
+func TestDoctorSetValueWithEquals(t *testing.T) {
+	useFakeChecks(t, doctor.Result{Status: doctor.OK})
+	code, out := edicta(t, "doctor", "--config", doctorConfig(t, ""), "--set", "agent.key_file=/x/a=b")
+	assert.Equal(t, exitValid, code, out)
+}
+
+func TestDoctorJSONEveryCheckFailing(t *testing.T) {
+	useFakeChecks(t, doctor.Result{Status: doctor.Fail, Cause: "down", Fix: "fix it"})
+	code, out := edicta(t, "doctor", "--json", "--config", doctorConfig(t, ""))
+	assert.Equal(t, exitInvalid, code)
+	var doc struct {
+		OK     bool `json:"ok"`
+		Checks []struct{ Name, Status string }
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &doc), out)
+	assert.False(t, doc.OK)
+	require.NotEmpty(t, doc.Checks)
+	for _, c := range doc.Checks[1:] {
+		assert.Equal(t, "fail", c.Status, c.Name)
+	}
+}

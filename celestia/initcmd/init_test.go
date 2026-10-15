@@ -467,3 +467,31 @@ func TestSecondRunOnOneHomeIsRefused(t *testing.T) {
 	require.ErrorIs(t, err, keyfile.ErrLocked)
 	assert.NoDirExists(t, filepath.Join(home, "keys"))
 }
+
+func TestCanceledContextWritesNothing(t *testing.T) {
+	parent := t.TempDir()
+	home := filepath.Join(parent, "edicta")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := initcmd.Run(ctx, initcmd.Config{Home: home}, healthyEnv("mocha-5"), nil)
+	require.Error(t, err)
+	if _, statErr := os.Stat(home); statErr == nil {
+		entries, rerr := os.ReadDir(home)
+		require.NoError(t, rerr)
+		assert.Empty(t, entries)
+	}
+}
+
+func TestReadOnlyHomeIsAnErrorAndLeavesNothing(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory modes")
+	}
+	home := filepath.Join(t.TempDir(), "edicta")
+	require.NoError(t, os.Mkdir(home, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(home, 0o700) })
+	_, err := run(t, home, healthyEnv("mocha-5"))
+	require.Error(t, err)
+	entries, rerr := os.ReadDir(home)
+	require.NoError(t, rerr)
+	assert.Empty(t, entries)
+}

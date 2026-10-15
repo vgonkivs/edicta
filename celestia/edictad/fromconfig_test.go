@@ -165,3 +165,12 @@ func TestFromEdictaFibreNeedsOwnNode(t *testing.T) {
 	_, err = edictad.FromEdicta(in)
 	require.ErrorIs(t, err, edictad.ErrConfig)
 }
+
+func TestFromEdictaFibreWithoutOwnNodeNamesTheKey(t *testing.T) {
+	in := load(t, starterTOML(t, t.TempDir(), ""))
+	in.Recorder.DA = config.DAFibre
+	in.Recorder.OwnNode = false
+	_, err := edictad.FromEdicta(in)
+	require.ErrorIs(t, err, edictad.ErrConfig)
+	assert.Contains(t, err.Error(), "own_node")
+}
