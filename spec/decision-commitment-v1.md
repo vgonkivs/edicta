@@ -85,10 +85,15 @@ correct, and is fixed in place (`spec/ERRATA.md`).
 
 Minor revision `v1.1` (amendment of this section; human decisions of
 2026-10-10, 2026-10-13 and 2026-10-15, task 047). A minor revision may
-relax a verifier check (`unchecked` to `pass`) and may add what a `v1.0`
-reader refuses; it never changes a byte string that a `v1.0` reader
-accepts, nor its meaning (rule V6), and never a check from `pass` to `fail`
-or from `fail` to `pass`. In particular:
+move a verifier check from `unchecked` to a definite outcome (`pass` or
+`fail`) only where that outcome rests on facts a `v1.0.N` verifier would
+also accept as proven from another source (for example an online source
+with inclusion and results proofs, where a `v1.1` verifier reads an
+archived execution result, section 20.2.2), or where the human relaxes a
+bound (presence trust, section 20.6.1). It may add what a `v1.0` reader
+refuses. It never changes a byte string that a `v1.0` reader accepts, nor
+its meaning (rule V6), and never a check from `pass` to `fail` or from
+`fail` to `pass`. In particular:
 
 - A new kind number in archive format 1 is a minor change, not a new
   `format` value. A `v1.0` reader refuses an unknown kind
@@ -110,11 +115,14 @@ or from `fail` to `pass`. In particular:
 
 Threat note (minor revision). A `v1.0.N` verifier and a `v1.1` verifier
 read the same archive. Where they differ, the older one says `unchecked`
-and the newer one says `valid` (presence with header trust below the
-deadline, section 20.6.1; an execution check that a `v1.1` verifier proves
-from an archived execution result, section 20.2.2); they never give
-opposite definite verdicts. An auditor who sees `unchecked` from an older
-verifier and `valid` from a newer one reads the difference from the spec
+and the newer one says `valid` or `invalid`: `valid` for presence with
+header trust below the deadline (section 20.6.1); `valid` or `invalid` for
+an execution check that a `v1.1` verifier proves from an archived execution
+result (section 20.2.2: a proven success passes, a proven failed
+transaction fails, as with an online source that serves the proofs). They
+never give opposite definite verdicts. An auditor who sees `unchecked` from
+an older verifier and a definite verdict from a newer one reads the
+difference from the spec
 revision each verifier implements (its release notes); the report's
 `version` is the wire version and is 1 for both.
 
@@ -128,7 +136,7 @@ revision each verifier implements (its release notes); the report's
 | `v1.0.2` | 2026-10-10 | Type `clarification`. E2 (`spec/ERRATA.md`), human decisions of 2026-10-10 (task 045): "anchored" means inclusion proven, never a result code (new section 10.6.3). `da = 2`: the blob's commitment proof against the data root of the trusted header. `da = 1`: the complete `PFF_NS` namespace proof against `data_hash`, the PFF selected by its commitment, CV2, and the certificate CV3 to CV7 offline against the archived `historical_info` with the promise header on the trusted chain. The anchor tx result code is reported as `node-reported, not part of the claim` (20.9, 10.6.1, 20.10); CV8 keeps requiring the archived code 0 (dropping it would be a relaxation). Settled `UNVERIFIED` items: shard retention is independent of the PFF outcome, a PFF can be included with a non-zero code only through an ante failure, and the keeper's height window at the pin (sections 10.4, 10.6.1, 13.1, 23). The 10.7 item on block results for a proven settlement level becomes MAY. Human answers R3 (task 045): 10.6.3 states that v1.0 verifiers additionally require `tx_code == 0` (CV8) and that v1.1 removes it; the included-reference height window is an explicit assumption with the pinned ProcessProposal call path, and the pending-reference window is the gate's K-fast rule, with its vectors and tests named; new re-pin checklist (section 23.2). No check outcome changes. | none |
 | `v1.0.3` | 2026-10-10 | Type `security` (human decision of 2026-10-10, task 045, "AB5 security fix"; closes a path to a false `invalid`). `da = 1` absence: a PFF candidate for the reference inside `[h0, anchor_deadline]` counts as present whatever its result code, so absence is never proven at its height. Up to `v1.0.2` a candidate whose code AB5 proved non-zero made the height absent, and an honest anchor whose PFF was included with a non-zero code (an ante failure in FinalizeBlock, section 10.4 facts) gave `anchor_absent`, a false `invalid`. AB5 now classifies a candidate height as present (a proven code 0), present unpaid (every code proven, none 0) or not proven (section 20.8). Presence still needs code 0 in v1.0 (CV8), so a present-unpaid height gives `anchor` `unchecked` with the new reason `anchor_unpaid` ("anchor included, non-zero result code; not confirmable by v1.0 verifiers"), never `fail` (sections 20.1.1, 20.6, 20.10, 10.6.3). Outcome moves: `fail` `anchor_absent` to `unchecked` `anchor_unpaid` only. Section 0 states the patch-level rule (toward INCONCLUSIVE only) and the handling of superseded vector cases; `spec/ERRATA.md` and the errata procedure record the erratum versus security distinction. The reason enum has 44 reasons. | `da/absence.json` and `verifier/reasons.json` byte-identical; superseded cases listed in the new `SUPERSEDED.json`: `da/absence.json` `fibre_candidate_nonzero_code` and `window_three_heights_proven`. New files: `da/absence_v1.0.3.json` (the two cases on the same inputs, `window_unpaid_with_unproven_height`, `window_paid_after_unpaid`), `v1/verify_v1.0.3.json` (pending decisions with an in-window unpaid candidate, end to end), `verifier/reasons_v1.0.3.json` (the reason `anchor_unpaid`, additive to `reasons.json`). |
 | `v1.0.4` | 2026-10-11 | Type `clarification`. E3 (`spec/ERRATA.md`), human decision Q2 of 2026-10-10 (task 044): the header-trust bound of a pending reference, `max(D, H)` (and `D + 1` for an AB5 results proof, section 20.6; HT1), holds for every kind of header trust, a trusted header file, an explicit or agreed checkpoint (20.4) or any other trust an implementation adds. A trust that cannot name its checkpoint height `T` cannot show that bound, so `header_trust` stays `unchecked` (HT1, HT7), never `pass`. The frozen rules already said this; no check outcome of the spec changes. Conformance note: an implementation whose header-trust kind accepted a checkpoint below the bound, or an unknown one, gave a `pass` the frozen text never allowed; its fix moves that outcome only toward INCONCLUSIVE (`pass` to `unchecked`) and is a conformance bug fix of the implementation, recorded here, not a `security` revision of the spec. No frozen vector expects a `pass` with a checkpoint below the bound (every `pass` case of `v1/verify.json` has `trusted_head` 4200127 with `anchor_deadline` 4200126). | none |
-| `v1.1` | 2026-10-15 | Type `minor` (task 047; amendment above). (1) Presence trust up to `H` (human decision Q1 of 2026-10-10, task 044): for a pending reference whose evidence verifies at `h0 <= H <= D`, header trust needs to reach `H` only, not `D`; every other row of 20.6 still needs `max(D, H)`, and `D + 1` with an AB5 results proof (sections 10.6.2 HT1, 20.6, new 20.6.1). Outcome move: `anchor` `unchecked` `anchor_pending` to `pass` only. (2) CV8 no longer requires the archived `tx_code == 0` (task 045 R3-1, announced in 10.6.3): "anchored" is inclusion. With format 1 no outcome changes, because evidence key 12 admits only 0 (19.1, 19.2); an unpaid anchor still has no evidence record and stays `anchor_unpaid` (sections 10.6.1, 10.6.3, 20.1.1). (3) Archive kind 19 `execution_result` (task 045 R3-3): one record per captured ordinary rail tx, key `(chain_id, rail_ref)`, with the headers at the execution height and the next one, complete proofs of the transaction namespaces, the result and its RFC 6962 path; the verifier's rules XR1 to XR8 (new 20.2.2) and its place among the execution sources (EX10); the migration of the gate's capture store, MG1 to MG7 (sections 19.1 to 19.4, 19.7, 20.3; bank-send profile 3.4). Outcome move: `execution` `unchecked` to `pass` or `fail` once nodes have pruned the block, where the archived record proves what an online source used to. (4) API codes `recorder.ErrAnchorRejected` (502, matched first) and `recorder.ErrClockSkew` (503, retryable), reported as 500 `edictaapi.ErrInternal` before (task 022d m4; sections 18.3, 21). Gate checks, signed objects, tags and the invariants of section 1.1 are unchanged. | Frozen files byte-identical. New: `archive/execution_result_v1.1.json` (kind 19 records, rejects, XR cases, migration; built from synthetic blocks of the new tool `tools/execresult-gen`), `api/errors_v1.1.json` (the two codes, the merged match order), `v1/verify_v1.1.json` (presence with header trust in `[H, D)`, with the `v1.0` outcome of each case). |
+| `v1.1` | 2026-10-15 | Type `minor` (task 047; amendment above). (1) Presence trust up to `H` (human decision Q1 of 2026-10-10, task 044): for a pending reference whose evidence verifies at `h0 <= H <= D`, header trust needs to reach `H` only, not `D`; every other row of 20.6 still needs `max(D, H)`, and `D + 1` with an AB5 results proof (sections 10.6.2 HT1, 20.6, new 20.6.1). Outcome move: `anchor` `unchecked` `anchor_pending` to `pass` only. (2) The paid-anchor requirement stays (human decision H1 of 2026-10-15, task 047; it withdraws the removal of CV8's code clause that `v1.0.2` announced for `v1.1`, task 045 R3-1). Clarification only, no check outcome changes: "Inclusion proves publication; a VALID verdict additionally requires a paid anchor (`tx_code == 0`). Unpaid anchors are an operator funding failure, surfaced by the escrow alert." CV8 keeps its code clause; evidence key 12 keeps admitting only 0; `anchor_unpaid` stays `unchecked` for good, never `fail` (sections 1, 10.6.1, 10.6.3, 20.1.1, 20.6.1, 20.9). "Not part of the claim" in the frozen text means not part of the publication claim ("anchored"); the `valid` verdict needs CV8 as well (10.6.3). Superseded wording in frozen files, which keep their bytes: the `anchor_unpaid` meaning ("not confirmable by v1.0 verifiers") and advice ("a v1.1 verifier confirms inclusion without the code") of `verifier/reasons_v1.0.3.json`, and the quote "this requirement is removed in v1.1" in the E2 addendum of `spec/ERRATA.md`. No `v1.N` removes the requirement; the wording of `verifier/reasons_v1.1.json` replaces those strings for a `v1.1` verifier's text output. This is not an erratum: no frozen expectation is wrong, only an announcement that the human withdrew. (3) Archive kind 19 `execution_result` (task 045 R3-3): one record per captured ordinary rail tx, key `(chain_id, rail_ref)`, with the headers at the execution height and the next one, complete proofs of the transaction namespaces, the result and its RFC 6962 path; the verifier's rules XR1 to XR8 (new 20.2.2) and its place among the execution sources (EX10); the migration of the gate's capture store, MG1 to MG7 (sections 19.1 to 19.4, 19.7, 20.3; bank-send profile 3.4). Outcome move: `execution` `unchecked` to `pass` or `fail` once nodes have pruned the block, where the archived record proves what an online source with proofs used to (amendment above); the migration drops a capture only when the archive holds an equivalent record (MG5). (4) API codes `recorder.ErrAnchorRejected` (502, matched first) and `recorder.ErrClockSkew` (503, retryable) (task 022d m4; sections 18.3, 21). Before, a server reported `recorder.ErrClockSkew` as 500 `edictaapi.ErrInternal` and `recorder.ErrAnchorRejected`, which wraps `ErrAnchorNotFound`, as 425 `ErrAnchorNotFound` (retryable). Gate checks, signed objects, tags and the invariants of section 1.1 are unchanged. | Frozen files byte-identical. New: `archive/execution_result_v1.1.json` (kind 19 records, rejects, XR cases, migration; built from synthetic blocks of the new tool `tools/execresult-gen`), `api/errors_v1.1.json` (the two codes, the merged match order), `v1/verify_v1.1.json` (presence with header trust in `[H, D)`, with the `v1.0` outcome of each case), `verifier/reasons_v1.1.json` (the `anchor_unpaid` wording under H1; the reason, its checks and every outcome unchanged). |
 
 Editorial note, no revision: the post-freeze rows of the first table and the
 revision scheme above were amended on 2026-10-10 by the human's decision. The
@@ -171,7 +179,7 @@ Policy section 1 adds the mandate layer.
 | Reference time `T_ref` and rules K1, K2 (section 12.2) | A commitment signed before its payload was public; a commitment whose validity outlives the DA retention window being executed as if the DA layer still served the payload | The gate reads true header time from a node it trusts (the operator's own node is recommended; a public endpoint is allowed). Every read at a past height, on every module and on both `da` paths, is used only if the response echoes the requested height and, where the content allows, is bound to the header at that height (HR1 to HR5, section 10.9). At-height retention comes from such a read on an endpoint that passed the canary, or from the gate's own persisted observations (observations-only mode when the endpoint ignores heights); a non-monotone pair of changes between two observations (for example a change and its revert) is missed (RS1 to RS6, section 12.2) |
 | PFF certificate check, one rule for gate, Recorder and verifiers (section 10.6.1) | A forged or under-signed availability certificate presented after the chain pruned the state that could re-check it | More than 2/3 of voting power honest at `PaymentPromise.height`; the archived validator set is the one the chain used, tied by `next_validators_hash` to the header at `PaymentPromise.height` and that header to the chain by the hash chain of section 10.6.2; Ed25519 |
 | Fibre anchor proof from namespace data, rules NA1 to NA7 (section 10.4) | A bridge or an archive presenting a PFF that was not in block `height`, hiding one that was (a false `ErrAnchorNotFound`, or an earlier promise that would move K2's `start`), or a cut or padded tx | The header at `height` is the chain's: the gate's trusted node or the W5 verifier (section 10.9), and for verifiers the header trust of section 10.6.2; SHA-256; NMT completeness as in nmt `v0.24.3` or later; more than 2/3 of voting power honest, so the square follows the protocol. Result code 0 stays `node-attested` |
-| "Anchored" means inclusion proven, never a result code (section 10.6.3) | A verifier calling a payload published on a node's word. Adversary: one party that writes the archive and also controls the node the anchor's result code was read from | `da = 2`: the commitment proof against the data root of the trusted header. `da = 1`: the complete `PFF_NS` namespace proof against `data_hash`, CV2, and the certificate (CV3 to CV7) against the archived `HistoricalInfo` tied to the trusted chain. The archived `tx_code` is the only node-attested field of the evidence and is not part of the claim, so that adversary can hide an unpaid escrow, not fake a publication. Validators keep their shards whatever the PFF's result (time-only pruning); more than 2/3 of voting power honest, so every included PFF passed its message, height window included, in ProcessProposal |
+| "Anchored" means inclusion proven, never a result code (section 10.6.3) | A verifier calling a payload published on a node's word. Adversary: one party that writes the archive and also controls the node the anchor's result code was read from | `da = 2`: the commitment proof against the data root of the trusted header. `da = 1`: the complete `PFF_NS` namespace proof against `data_hash`, CV2, and the certificate (CV3 to CV7) against the archived `HistoricalInfo` tied to the trusted chain. The archived `tx_code` is the only node-attested field of the evidence and is not part of the publication claim; a `valid` verdict additionally requires it to be 0 (CV8, the paid-anchor requirement), so that adversary can hide an unpaid escrow by writing 0, not fake a publication. Validators keep their shards whatever the PFF's result (time-only pruning); more than 2/3 of voting power honest, so every included PFF passed its message, height window included, in ProcessProposal |
 | Startup compatibility check (section 10.8) | Silent divergence after an upstream change: another Fibre encoding, another sign-bytes layout, another chain or a node that answers in another format | The pinned versions and the known-answer vectors describe the network; the check runs before the gate serves |
 | Registry epoch, rule E1 (section 8.7) | Replay after the nonce registry was lost or recreated | The gate clock did not step back across the recreation |
 | Signed receipt and record request (section 14) | A fabricated `commitment_hash -> rail_ref` mapping in an archive or report; two different mappings for one decision; a third party who holds the (non-secret) envelope recording a bogus `rail_ref` first and so owning the decision's only receipt | Gate and executor private keys are secret; the gate admits a claim only if it is signed by a key in its executor allowlist, over a message that names this gate, this decision and this `rail_ref`; the receipt carries the executor key and signature, so a verifier needs no trust in the gate for who claimed what; the gate stores at most one receipt per authorized decision. **Not proof of execution**: the receipt attests that a known executor claimed `rail_ref`, and that the gate recorded that claim; whether the rail executed anything is only in the rail's own records. A compromised or malicious allowlisted executor can still claim a false `rail_ref` first |
@@ -2014,7 +2022,7 @@ refuse on any failure.
 | CV5 | `len(validator_signatures) <= len(V)`. |
 | CV6 | Quorum, exactly as the chain: `required = floor(2 * total / 3)` with `total` the sum of `V`'s powers. Walk `i = 0, 1, ...`; skip empty entries; a non-empty entry MUST verify as an Ed25519 signature by `V[i]` over `sign_bytes` (the Go `crypto/ed25519.Verify` equation, as rule G1) or the certificate is rejected; add `V[i]`'s power once; as soon as the sum is `>= required`, accept and stop (entries after that point are not checked, as on chain). If the walk ends below `required`, reject. |
 | CV7 | `V` is the chain's list in the chain's order: the header at `promise.height` has `height == promise.height` and `chain_id == promise.chain_id`; CometBFT `NewValidatorSet` over `V` with power `floor(tokens / 10^6)` for each key succeeds, its `ValidatorSet.Hash()` equals that header's `next_validators_hash`, and for every `i` the key of its `i`-th validator equals the key of `V[i]` (the stored order of CV4). Otherwise CV7 fails. No other header and no archived CometBFT set stands in for it. The header is tied to the chain by the header trust rules of section 10.6.2. |
-| CV8 | Anchor (settlement), level `node-attested` (below). The archived anchor proof (section 19.2): its DAH passes NA2 against `data_hash` of the archived header at the anchor height (trusted by section 10.6.2), its namespace data passes NA3 and NA4 (section 10.4), the archived PFF tx is byte-equal to a tx of `T` and is a candidate for `payload_ref` (NA5), and the archived system blob equals `NewV2Blob(namespace, 0, commitment, pff_signer)` of that tx. The archived result of the PFF tx at that height has code 0 (`v1.0.N` only: since `v1.1` CV8 has no code clause, and a verifier reads `tx_code` for `anchor_tx_result` only, section 10.6.3). The optional `anchor_tx_proof` is not part of CV8 (section 10.4, threat note on `ShareProof`). |
+| CV8 | Anchor (settlement), level `node-attested` (below). The archived anchor proof (section 19.2): its DAH passes NA2 against `data_hash` of the archived header at the anchor height (trusted by section 10.6.2), its namespace data passes NA3 and NA4 (section 10.4), the archived PFF tx is byte-equal to a tx of `T` and is a candidate for `payload_ref` (NA5), and the archived system blob equals `NewV2Blob(namespace, 0, commitment, pff_signer)` of that tx. The archived result of the PFF tx at that height has code 0 (the paid-anchor requirement of a `valid` verdict, in every revision; human decision H1 of 2026-10-15, section 10.6.3). The optional `anchor_tx_proof` is not part of CV8 (section 10.4, threat note on `ShareProof`). |
 
 Sign bytes (byte-exact; `APP/fibre/payment_promise.go` `SignBytes`,
 celestia-core `types.RawBytesMessageSignBytes`):
@@ -2110,8 +2118,8 @@ verdict, `verify` and `replay` report:
 | `cert_quorum_warning` | `WARN` iff `3 * cert_signed_power <= 2 * cert_total_power`: the certificate passed the network rule but not the classic BFT "more than 2/3". The verdict stays valid. |
 | `cert_token_precision` | `robust` iff CV6 gives the same verdict for every assignment of tokens that keeps each validator's consensus power (each `tokens` anywhere in `[10^6 * p, 10^6 * p + 10^6 - 1]`): the walk accepts with the lowest tokens for signers and the highest for the rest, or rejects with the opposite. Otherwise `bucket-dependent` (a warning; the verdict stays the one computed from the archived tokens). |
 | `cert_valset_header` | The header that committed to `V` in CV7: `next_validators_hash` at `promise.height`. |
-| `settlement` | `node-attested` in v1 (below); `failed` if CV8 fails. Not part of "anchored" (section 10.6.3). Since `v1.1` CV8 holds no code, so `failed` means the inclusion part failed. |
-| `anchor_tx_result` | `code 0, node-reported, not part of the claim`, exact text, whenever CV8 passed: the archived `tx_code`, level `node-attested`. Informational; never listed under `assumptions` and never called proven (section 10.6.3). |
+| `settlement` | `node-attested` in v1 (below); `failed` if CV8 fails. Not part of "anchored" (section 10.6.3). |
+| `anchor_tx_result` | `code 0, node-reported, not part of the claim`, exact text, whenever CV8 passed: the archived `tx_code`, level `node-attested`. Informational; never listed under `assumptions` and never called proven (section 10.6.3). "The claim" in this fixed text is the publication claim, "anchored"; the code 0 it reports is the one CV8 required for the verdict. |
 | `anchor_candidates_earlier` | The number of other candidates in `T` (NA5) whose `creation_timestamp` is earlier than the archived anchor's. Their result codes are not archived, so the verifier cannot tell whether the gate's NA7 picked one of them; a non-zero value is a warning that K2 replay rests on the `promise_created` the gate recorded, which replay checks against the creation times of these candidates (section 19.2). It never changes the verdict. |
 | `header_trust` | Section 10.6.2: the trusted header's height and hash, and the cross-check result. |
 
@@ -2229,8 +2237,24 @@ trusted chain is proven from the archived evidence against the header at `H`
 that passed header trust (section 10.6.2). `H` is `payload_ref.height`, or
 for a pending reference the evidence's `height` (section 20.6). It never
 rests on a node's word, and it never includes the anchor tx's result code.
-v1.0 verifiers additionally require `tx_code == 0` (CV8); this requirement
-is removed in v1.1 (done: "Since `v1.1`" below).
+Inclusion proves publication; a VALID verdict additionally requires a paid
+anchor (`tx_code == 0`). Unpaid anchors are an operator funding failure,
+surfaced by the escrow alert.
+
+Wording (clarification, human decision H1 of 2026-10-15, task 047). The two
+sentences above replace "v1.0 verifiers additionally require `tx_code == 0`
+(CV8); this requirement is removed in v1.1" of spec revisions `v1.0.2` to
+`v1.0.4`: no revision removes it. "The claim" in this document ("not part of
+the claim", the `anchor_tx_result` text) is the publication claim,
+"anchored"; the paid-anchor requirement is CV8, a separate condition of the
+`valid` verdict, read from the node-attested `tx_code` (evidence key 12,
+which admits only 0). No check outcome changes. The escrow alert is the
+operator's balance check (the Recorder's `recorder.ErrEscrowInsufficient`
+and the operator's escrow headroom checks), not a verifier rule.
+`UNVERIFIED` (human to confirm): the ante failure that leaves an included
+PFF unpaid drains the PFF tx's fee payer (section 10.4 facts), which can be
+another account than the escrow; if so, the escrow alert has to watch the
+fee payer's balance as well for H1's sentence to hold.
 
 | `da` | Anchored means | Rules |
 |---|---|---|
@@ -2265,7 +2289,10 @@ one would need a format addition and would close no path that the
 honest-majority assumption leaves open. What inclusion implies is that the
 window held on the proposal branch; whether FinalizeBlock could then still
 fail the message (a parameter change earlier in the same block) does not
-matter here, since the code is not part of the claim. If a later app version moves
+matter here, since the code is not part of the publication claim (a
+non-zero code can only make the verdict `unchecked`: evidence carrying one
+fails strict decoding, `source_corrupt`, and an absence proof that shows
+one gives `anchor_unpaid`; never `invalid`). If a later app version moves
 the check out of ProcessProposal (for example to FinalizeBlock only) or
 removes it, inclusion no longer implies the window, and this assumption
 must be revisited before the pins move (section 23.2, PC1).
@@ -2290,7 +2317,8 @@ then does not land, which is `anchor_absent` (the safe direction for the
 verifier: no false `valid`), and the fast-mode risk the principal accepted
 through `fast_mode_max_delay`.
 
-Result code: not part of the claim.
+Result code: not part of the publication claim (the `valid` verdict
+requires code 0 through CV8, below).
 
 - `da = 2`. The blob's shares are in the square whatever the PFB's execution
   result: ProcessProposal checks the blob tx and its ante handler, and the
@@ -2309,12 +2337,12 @@ Result code: not part of the claim.
   on the PFF's result. A non-zero code (possible only through an ante
   failure, section 10.4 facts) means the escrow did not pay, not that the
   blob was unavailable.
-- What v1.0.x still checks. CV8 requires the archived `tx_code = 0`
-  (evidence key 12 admits only 0, section 19.2), as the gate's NA6 and NA7
-  require code 0 before K0 passes. The requirement stays in every `v1.0.N`
-  revision: dropping it would turn an `unchecked` into a pass, a relaxation
-  that needs a minor revision (section 0). It is node-attested and is not
-  part of "anchored". A `da = 1` report prints it as `anchor_tx_result:
+- What a verifier checks besides inclusion. CV8 requires the archived
+  `tx_code = 0` (evidence key 12 admits only 0, section 19.2), as the gate's
+  NA6 and NA7 require code 0 before K0 passes. The requirement stays in
+  every revision, `v1.1` included (human decision H1 of 2026-10-15): a
+  `valid` verdict needs a paid anchor. It is node-attested and is not part
+  of "anchored". A `da = 1` report prints it as `anchor_tx_result:
   code 0, node-reported, not part of the claim` (section 10.6.1), in both
   modes. The evidence of `da = 2` carries no code, and a `da = 2` report has
   no such field.
@@ -2324,36 +2352,32 @@ Result code: not part of the claim.
   when every candidate's code is proven non-zero, and `anchor` is then
   `unchecked` with reason `anchor_unpaid` ("anchor included, non-zero result
   code; not confirmable by v1.0 verifiers"), never `fail` (sections 20.6,
-  20.8). Presence keeps failing on CV8 in v1.0: a format 1 evidence record
-  cannot carry a non-zero code (key 12 is `= 0`; a record with another value
-  fails strict decoding and stays `source_corrupt`), and the gate never
-  authorizes a strict reference on one (NA6, NA7). With CV8's code
-  requirement removed in v1.1, such an anchor can become `valid` there; that
-  is a relaxation and is not part of any `v1.0.N`.
-- Since `v1.1`. CV8 has no code clause: it is the inclusion part of the
-  evidence check, and `tx_code` (evidence key 12) feeds only the
-  informational `anchor_tx_result`. No reachable outcome changes with
-  archive format 1: key 12 admits only 0 (a record with another value stays
-  `source_corrupt` at strict decoding, section 19.1), so every decodable
-  evidence record already met the clause. An anchor included with a
-  non-zero code has no evidence record, because the Recorder archives the
-  evidence of a code-0 PFF only (section 19.2, key 12), and the absence
-  proof that shows it (AB5) carries no certificate (`historical_info`, the
-  promise header). So a `v1.1` verifier still reports such a height as
-  `anchor_unpaid`, never `valid`, until an evidence record can carry a
-  non-zero code. That needs a decision on the archive format (a wider value
-  range for key 12 in format 1, or a new `format` value) that `v1.1` does
-  not make; the drop above is the verifier half of it.
+  20.8). Presence keeps failing on CV8: a format 1 evidence record cannot
+  carry a non-zero code (key 12 is `= 0`; a record with another value fails
+  strict decoding and stays `source_corrupt`), and the gate never authorizes
+  a strict reference on one (NA6, NA7). Since the paid-anchor requirement
+  stays (H1), such an anchor never becomes `valid`, in `v1.1` or later:
+  `anchor_unpaid` is INCONCLUSIVE for good, never `invalid`. The payload was
+  published; the unpaid escrow is the operator's funding failure, and the
+  remedy is operational (the escrow alert), not a verifier rule. (The
+  `v1.0.3` wording "not confirmable by v1.0 verifiers" and its advice that a
+  `v1.1` verifier confirms inclusion without the code are superseded by H1,
+  section 0, `v1.1` row.)
 
 Threat note (anchored). The adversary is a party that writes the archive and
 also controls the node a code was read from. Inclusion, binding and the
 certificate are checked against the trusted chain, so it cannot fake them.
 It can write `tx_code`, the only node-attested field of the evidence, and
-only as 0. Because the code is not part of the claim, a false code cannot
-turn into a false `valid`: a PFF whose fee payment failed still anchors a
-blob that more than 2/3 of the stake attested and whose shards the
-validators keep by the time rule. What that party can hide is an unpaid
-escrow, which `anchor_tx_result` marks as node-reported.
+only as 0. Because the code is not part of the publication claim, a false
+code cannot turn into a false publication: a PFF whose fee payment failed
+still anchors a blob that more than 2/3 of the stake attested and whose
+shards the validators keep by the time rule. What that party can do is hide
+an unpaid escrow: a false 0 meets the paid-anchor requirement of CV8, so
+the verdict can be `valid` for an anchor whose escrow did not pay. That
+requirement is therefore only as strong as the node's word, which
+`anchor_tx_result` states (`node-reported`); the publication the verdict
+rests on is still proven. The honest operator learns of an unpaid escrow
+from the escrow alert, not from a verifier.
 
 ### 10.7 What must be archived for later verification
 
@@ -3633,13 +3657,17 @@ Mapping (normative). The server maps the error returned by the operation to
 the first row below whose sentinel it matches (Go: `errors.Is`, in table
 order). Order matters where one sentinel also matches another:
 `ErrAnchorTooOld` matches `ErrPayloadUnavailable` too (section 8.5), so it is
-listed first. A sentinel that wraps no other sentinel is matched after the
-codes of its status that come before it in the table. Since `v1.1` the
-first row is `recorder.ErrAnchorRejected`: the Recorder's error also matches
-`ErrAnchorNotFound` (425, retryable), and a client must not retry a publish
-whose fee was spent on an anchor that fails the certificate rule. Codes a
-`v1.1` table adds are listed with "since `v1.1`"; a `v1.0.N` server reports
-them as 500 `edictaapi.ErrInternal`.
+listed first within its status (since `v1.1` the row of 502
+`recorder.ErrAnchorRejected` comes before it). A sentinel that wraps no
+other sentinel is matched after the codes of its status that come before it
+in the table. Since `v1.1` the first row is `recorder.ErrAnchorRejected`:
+the Recorder's error also matches `ErrAnchorNotFound` (425, retryable), and
+a client must not retry a publish whose fee was spent on an anchor that
+fails the certificate rule. Codes a `v1.1` table adds are listed with
+"since `v1.1`". A `v1.0.N` server reports `recorder.ErrClockSkew` as 500
+`edictaapi.ErrInternal`, and `recorder.ErrAnchorRejected` as 425
+`ErrAnchorNotFound` (retryable), because it matches that row; the retry is
+harmless: the Recorder refuses the blob stickily and charges no new fee.
 
 | Status | Codes, in match order |
 |---|---|
@@ -4014,8 +4042,9 @@ hash. Kind 17 is the whole record. Kind 18 is the whole record:
 the gate writes it from its stored receipt, so a second, different record
 for one decision would show two receipts, which the gate never issues.
 
-Execution result (kind 19, since `v1.1`). Human decision R3-3 of
-2026-10-10 (task 045). The proof that an ordinary rail transaction is in
+Execution result (kind 19, since `v1.1`). Human decisions R3-3 of
+2026-10-10 (task 045) and H2 of 2026-10-15 (task 047; the key
+`(chain_id, rail_ref)` supersedes the `(chain_id, height)` of R3-3). The proof that an ordinary rail transaction is in
 block `height` at index `tx_index` and has the result `result`, kept so that
 the execution check (20.2) survives the nodes' pruning of blocks and block
 results. One record per captured transaction. It is decision-agnostic: it
@@ -4040,7 +4069,8 @@ on chain `chain_id` reads it. Writers: 19.7.
 
 Logical key `(chain_id, rail_ref)`; path `exec/<chain_id>/<rail_ref hex>`;
 cap `2^25` bytes; identity (AW2): the key, the first write stays; writer:
-the gate (19.7). Nesting depth 1, 13 entries at most. The protobuf parts
+the gate (19.7). Nesting depth 1, 15 entries at most (keys 1 and 2 and the
+13 kind keys 3 to 15). The protobuf parts
 need not be canonical: identity does not cover them, and the verifier
 re-checks every byte through the header hashes, the share proofs and the
 results root (20.2.2).
@@ -4057,6 +4087,22 @@ intact: a block whose second transaction is captured later gets a second
 record, never a rewrite of the first. A transaction is in one block of a
 chain, so the key names one block.
 
+Contents (human decision H2). The record holds what the verifier needs and
+nothing it must trust: the height (key 5), checked against the trusted
+header chain (XR2); the tx index (key 6); the position proof, namespace
+proofs of `TX_NS`, `PFB_NS`, `PFF_NS` and the closing share (keys 9 to 12)
+from which the order of `block.Txs` up to the transaction is rebuilt
+(XR4 to XR7); the results proof, the transaction's result and its Merkle
+path to `LastResultsHash` (keys 13 to 15, XR8); and the header at
+`height + 1` (key 8), which carries `LastResultsHash`. It also holds the
+header at `height` (key 7), which H2 does not list but the position proof
+needs for `data_hash`. Per-block data (both headers, the namespace proofs)
+is repeated in the record of every captured transaction of the same block;
+H2 accepts that for `v1.1`. A shared per-block record keyed
+`(chain_id, height)` and referenced by hash is a possible later optimisation
+(a new kind or format, never a change of kind 19); `v1.1` does not define
+it.
+
 Threat note (kind 19). The record is unsigned archive data, as trusted as
 any other: the header hashes tie both headers to the trusted chain (HT3),
 the share proofs tie the transaction namespaces to `data_hash`, and the
@@ -4067,8 +4113,13 @@ path with a wrong `results_total` can reach another transaction's result
 counting the transactions in the complete transaction namespaces. A forged
 or truncated record makes the execution check fall back to online sources
 or `unchecked`, never `pass` or `fail` on its own. A party with archive
-write access can squat a key with garbage first (AW threat note); the gate
-reads the stored record back after every write (19.7, MG5) and alerts.
+write access can squat a key first (AW threat note), with garbage or with a
+self-consistent forgery (fabricated headers that link to each other, proofs
+and a path against the fabricated roots). Both are set aside by every
+verifier (XR2 against the trusted chain), so a squat is an availability
+attack; the gate reads the stored record back after every write and keeps
+its capture unless the stored record is equivalent to the one it built
+(19.7, MG5), so that a squat never costs the only good proof.
 
 ### 19.3 Keys
 
@@ -4101,7 +4152,12 @@ Policy kinds 7 to 12: keys and paths in `spec/policy-v1.md` section 12.1
 
 `da` is decimal, hex is lower case. Every path component is ASCII from a
 fixed charset, so no escaping is needed. A `chain_id` never starts with a dot
-(19.2, kind 19), so it is never `.`, `..` or a dot file.
+(19.2, kind 19), so it is never `.`, `..` or a dot file. A `chain_id` may
+hold upper-case letters: on a case-insensitive file system
+`exec/A/<hex>` and `exec/a/<hex>` are one file, so a store there can hand
+back the record of the other chain id; the key check of this section then
+refuses it (corrupt), and the verifier sets the candidate aside (20.2.2), a
+fail-closed outcome. A store that must keep both SHOULD be case-sensitive.
 
 `(da, commitment)` and not the full `payload_ref`: the payload is archived
 before the anchor exists, so its height is unknown then. For `da = 2` the key
@@ -4217,16 +4273,25 @@ the archive and writes new captures there directly:
 | MG2 Mapping | Per captured transaction: `chain_id` and `height` of the block file; `rail_ref` decoded from its 64 lower-case hex characters; `tx_index`; `header` and `next_header` as stored; each namespace proof entry by its namespace, `TX_NS` to key 9, `PFB_NS` to key 10, `PFF_NS` to key 11, and the last entry, if its namespace is none of these, to key 12, each entry's proof bytes verbatim; `result` = the leaf of 19.2 key 13 built from the stored `code`, `data`, `gas_wanted`, `gas_used`; `results_total` = the stored proof's `total`; `result_path` = its aunts concatenated in order. The transaction is refused, and stays in the capture store, if: `rail_ref` is not 64 lower-case hex characters; the stored proof's `index` differs from `tx_index`; its `leaf_hash` is not `SHA-256(0x00 \|\| result)`; an aunt is not 32 bytes; a namespace appears twice, or an entry of another namespace is not the last; an entry's `start` and `end` differ from the range its proof covers (20.2.2 XR4). |
 | MG3 Self-check | Before writing, the gate runs XR1 (with the record's own key), XR3 to XR8 of 20.2.2 on the record, and XR2 without a trust root: `header` and `next_header` decode with the record's heights and chain id, and `last_block_id.hash` of `next_header` equals the hash of `header`. A failure refuses the transaction: error-level log, the capture entry stays. |
 | MG4 Write | A kind 19 write under AW1 and AW2 (identity is the key, so a second write of the same key succeeds without writing). |
-| MG5 Read back | The gate reads the stored record back under its key and runs MG3 on the stored bytes. Only if that passes may the capture store drop the transaction (its entry in the block file and its reference index), and the block file once no transaction remains. If the stored record fails MG3 (another, broken record holds the key), the gate raises an error-level alert and keeps the capture entry. |
-| MG6 Schedule | At start, in the background (never before serving), and on every archive sweep until the capture store holds no block file. Idempotent: a crash between MG4 and MG5 leaves a record that the next run finds equal (AW2) and then drops the capture entry. |
-| MG7 New captures | A `v1.1` gate builds the kind 19 record from a new capture (MG2), checks it (MG3), writes it (MG4) and reads it back (MG5); the capture store then holds only its queues. The capture's own rules (when to capture, retries, the prune-window alerts, the lost state) are unchanged. |
+| MG5 Read back | The gate reads the stored record back under its key. The capture store may drop the transaction (its entry in the block file and its reference index, and the block file once no transaction remains) only if the stored record is equivalent to the record MG2 built: byte-equal to it, or passing MG3 on the stored bytes with the same `height`, `tx_index`, `results_total` and `result` and the same recomputed CometBFT hashes of `header` and of `next_header`. Equal header hashes fix `data_hash` and `last_results_hash`, so an equivalent record proves the same facts with proofs against the same roots; protobuf bytes may differ (19.2: identity is the key). Otherwise another record holds the key (broken, or self-consistent against fabricated headers, which MG3 alone cannot tell because it has no trust root): the gate raises an error-level alert naming the key and both record hashes, keeps the capture entry, and reports the conflict in its health output on every later run (MG6) until an operator resolves it. The remedy is operational: write the built record into another archive copy, which a verifier also reads (20.2.2); the capture entry stays the gate's copy of the proof. |
+| MG6 Schedule | At start, in the background (never before serving), and on every archive sweep until the capture store holds no block file other than the entries MG5 kept. Idempotent: a crash between MG4 and MG5 leaves a record that the next run finds equal (AW2) and then drops the capture entry. |
+| MG7 New captures | A `v1.1` gate builds the kind 19 record from a new capture (MG2), checks it (MG3), writes it (MG4) and reads it back (MG5, with the same equivalence rule: a non-equivalent stored record keeps the capture entry and raises the alert); the capture store then holds only its queues and the entries MG5 kept. The capture's own rules (when to capture, retries, the prune-window alerts, the lost state) are unchanged. |
 
 Threat note (migration). The capture store is as untrusted as the archive,
 so the migration adds no trust: every byte of the record is re-checked by a
 verifier (20.2.2), and MG2 and MG3 only keep a broken capture out of the
 archive, where it would hold the key (first write stays). The order of MG4
 and MG5 matters: the nodes may have pruned the block already, so a capture
-dropped before its record is durable is lost for good. Vectors:
+dropped before its record is durable is lost for good. For the same reason
+MG5 compares the stored record with the built one and does not settle for a
+self-check of the stored bytes: a party with archive write access can store
+a self-consistent forgery under the key first (fabricated `header` and
+`next_header` that link to each other, proofs and a path against the
+fabricated roots). It passes MG3, which has no trust root, while every
+verifier sets it aside (XR2); dropping the capture then would lose the
+proof for good, including a proven failure the operator might prefer to
+hide. The comparison needs no trust root: whatever the capture holds, the
+gate gives it up only once the archive holds the same proof. Vectors:
 `spec/vectors/archive/execution_result_v1.1.json` `migration` (the capture
 store's block file layout, with byte strings in base64).
 
@@ -4418,11 +4483,11 @@ added by spec revision `v1.0.3`). A new reason is a revision change.
 | `chain_config` | `execution` | BX0: the checker is configured for another chain. | Configure the action's chain. |
 | `tx_not_found` | `execution` | BX1: no tx source knows the transaction. | Another tx source. |
 | `tx_source_unavailable` | `execution` | BX1: the tx sources failed. | Another tx source. |
-| `tx_hash_mismatch` | `execution` | BX2: the served bytes do not hash to rail_ref; since `v1.1` also XR7 (no transaction of an archived execution result hashes to it, 20.2.2). | Another tx source. |
+| `tx_hash_mismatch` | `execution` | BX2: the served bytes do not hash to rail_ref; since `v1.1` also XR7 (no ordinary transaction of an archived execution result hashes to it, 20.2.2). | Another tx source. |
 | `tx_proof_invalid` | `execution` | BX6: the inclusion proof does not verify; since `v1.1` also an archived execution result that does not decode or fails XR1, XR2 (decoding), XR4 or XR5 (20.2.2). | Another tx source. |
 | `result_unproven` | `execution` | The result code is not proven: no inclusion proof, or no source served block_results (RP1, RP2). It is attested by one source or confirmed only by agreeing sources, and neither gives pass (EX9). | A tx source that serves inclusion proofs and a source that serves block_results. |
 | `results_root_mismatch` | `execution` | RP4: the results do not hash to last_results_hash; since `v1.1` also XR8. | Another results source. |
-| `result_index_unbound` | `execution` | RP5: nothing binds the tx's index in the results; since `v1.1` also XR3, XR6, XR7 (another position). | A source that serves the block's txs (/block). |
+| `result_index_unbound` | `execution` | RP5: nothing binds the tx's index in the results; since `v1.1` also XR3, XR6, XR7 (another position, or more than one ordinary transaction hashes to rail_ref). | A source that serves the block's txs (/block). |
 | `result_header_unreachable` | `execution` | RP4: the header at height + 1 is not trusted; since `v1.1` also XR2. | Retry later or with a newer checkpoint. |
 | `code_unproven` | `execution` | A nonzero code that no result proof verifies (EX9). | A source that serves block_results. |
 | `height_unproven` | `execution` | A height at or below the anchor without a proof (EX4). | A tx source that serves inclusion proofs. |
@@ -4438,7 +4503,7 @@ added by spec revision `v1.0.3`). A new reason is a revision change.
 | `gate_signed_inconsistent_private_part` | `gate_integrity` only | A PrivatePart that hashes to the gate-signed `private_hash` breaks the presence rule of its verdict (`spec/policy-v1.md` section 13.4). The gate signed a hash of contents it could not have produced honestly; the agent is not at fault. Exit code 5, unless the verifier's own facts deny, which is a `policy` fail (exit 1). | Investigate the gate; the PrivatePart and the verdict are the evidence. |
 | `anchor_pending` | `anchor` | Pending reference, no usable evidence, and the trusted header is below `anchor_deadline` (or `anchor_deadline + 1` when a results proof is needed): not decidable yet. | Retry later or with a newer checkpoint. |
 | `absence_unproven` | `anchor` | Pending reference, no evidence inside the window, and the absence proofs for `[h0, anchor_deadline]` are missing, incomplete or fail. Names the first height not proven. | Another archive copy or `--absence-source`. |
-| `anchor_unpaid` | `anchor` | Anchor included, non-zero result code; not confirmable by v1.0 verifiers. Pending reference, no evidence inside the window, and an absence proof (AB5) shows a PFF candidate for the reference at a height of `[h0, anchor_deadline]` whose result code is proven non-zero, with no height showing one with code 0. The payload was published (inclusion); the escrow did not pay; v1.0 requires code 0 for presence (CV8). Names the first such height. Spec revision `v1.0.3`. Since `v1.1` CV8 no longer requires code 0, but the reason stays: a format 1 evidence record cannot carry a non-zero code, so the certificate of an unpaid anchor is never archived (section 10.6.3). | None in v1.0 or `v1.1` with archive format 1. If a paid anchor may sit at a height not proven, another archive copy or `--absence-source`. |
+| `anchor_unpaid` | `anchor` | Anchor included, non-zero result code: published, but a valid verdict requires a paid anchor. Pending reference, no evidence inside the window, and an absence proof (AB5) shows a PFF candidate for the reference at a height of `[h0, anchor_deadline]` whose result code is proven non-zero, with no height showing one with code 0. The payload was published (inclusion); the escrow did not pay; a `valid` verdict requires code 0 (CV8). (`v1.0.3` to `v1.0.4` worded the first sentence "Anchor included, non-zero result code; not confirmable by v1.0 verifiers.") Names the first such height. Spec revision `v1.0.3`. Permanent: a `valid` verdict requires a paid anchor in every revision (human decision H1 of 2026-10-15, section 10.6.3), so this stays `unchecked`, never `fail`. Since `v1.1` the text output prints the wording of `verifier/reasons_v1.1.json` (section 0, `v1.1` row). | None (unpaid anchor: operator funding failure; escrow alert). If a paid anchor may sit at a height not proven, another archive copy or `--absence-source`. |
 | `policy_private` | `policy`, `gate_integrity`, `action`, `execution` | The record needed is a private blob (kind 15) and no configured auditor key opens it. Names the first record. On `action` and `execution`: a form 2 decision record (20.11) without a reveal that applies. | An auditor key of the mandate. |
 | `principal_scheme_unsupported` | `policy` | The verifier build lacks the principal signature scheme the mandate names. | A verifier build with that scheme. |
 
@@ -4537,7 +4602,7 @@ an `unchecked` case there is its reason in the enum of 20.1.1.
 | EX7 Proven | The report sets `proven_execution` only if `inclusion = proven` and EX5 passed. It says that the transaction bytes are in block `height` of the trusted chain. It says nothing about the result, whose binding is reported in `result` and `cross_check`. |
 | EX8 Late | If the block time of `height` is after the Authorization's `expires`, the report carries the warning `execution_after_expires`. The verdict does not change: a rail can include a transaction after the Authorization expired, if it was signed while the Authorization was valid (bank-send profile 4.3, threat note on a halt). |
 | EX9 Result | `outcome = failure`: `fail` if the result is verified (`result = proven`, F7), otherwise `unchecked`. `outcome = success`: `pass` needs `result = proven`, which needs `inclusion = proven`. Otherwise `unchecked` with the reason `result_unproven`, or the profile's result-proof reason, and the hint to configure a tx source that serves inclusion proofs and a source that serves `block_results`. `result = cross-confirmed` (F6) is no exception: agreement is not verified data. A profile defines its result proof (bank-send: RP1 to RP6, from `last_results_hash` of the trusted header at `height + 1`); since `v1.1` an archived execution result proves it by XR8 (20.2.2). |
-| EX10 Sources and alternates | A checker reads its tx sources in configuration order: the primary, then the configured alternates. If a candidate's answer fails for an EO2 reason that rests on that answer (the transaction is not found, the source is unavailable, the bytes do not hash to `rail_ref`, a proof does not verify, the header at its `height` does not reach the trusted chain), the verifier MUST set the candidate aside, record why, and try the next alternate. The first usable answer is used. If an answer's bytes hash to `rail_ref` but fail the profile's byte rules, that is `fail` (EO1), and the check stops. Every source would serve the same bytes (F3). Cross sources are only compared with the used answer (EX6), and their agreement is reported only. They are never promoted to primary, because their independence is counted against the used source. If no candidate is usable, the check is `unchecked`. It names every candidate with its reason, and the reported cause is the last candidate's. Tx sources are distinct by OH3 among themselves and from the headers source. The report lists every source asked: name, role (`primary`, `alternate`, `cross`; since `v1.1` also `archive`), result (`used`, `set_aside`, `agree`, `disagree`, `fault`) and reason. Since `v1.1` an archived execution result (kind 19) for the action's chain and `rail_ref`, when a checked archive copy has one, is the first candidate, before the primary (section 20.2.2); it is never a cross source. |
+| EX10 Sources and alternates | A checker reads its tx sources in configuration order: the primary, then the configured alternates. If a candidate's answer fails for an EO2 reason that rests on that answer (the transaction is not found, the source is unavailable, the bytes do not hash to `rail_ref`, a proof does not verify, the header at its `height` does not reach the trusted chain), the verifier MUST set the candidate aside, record why, and try the next alternate. The first usable answer is used. If an answer's bytes hash to `rail_ref` but fail the profile's byte rules, that is `fail` (EO1), and the check stops. Every source would serve the same bytes (F3). Cross sources are only compared with the used answer (EX6), and their agreement is reported only. They are never promoted to primary, because their independence is counted against the used source. If no candidate is usable, the check is `unchecked`. It names every candidate with its reason, and the reported cause is the last candidate's. Tx sources are distinct by OH3 among themselves and from the headers source. The report lists every source asked: name, role (`primary`, `alternate`, `cross`; since `v1.1` also `archive`), result (`used`, `set_aside`, `agree`, `disagree`, `fault`) and reason. Since `v1.1` the archived execution results (kind 19) for the action's chain and `rail_ref`, one candidate per checked archive copy that has one (section 20.2.2), come first, before the primary; they are never cross sources. |
 
 The report carries `execution` with the facts above, the `rail_ref`, the
 block time of `height` and, for `unchecked`, the named sources. Errors of
@@ -4578,10 +4643,13 @@ online source proved yesterday may be unprovable today. A kind 19 record
 (section 19.2) keeps the proof. When the execution check runs and the
 action's checker names a CometBFT chain (bank-send: the action's
 `chain_id`, after BX0), the verifier reads `exec/<chain_id>/<rail_ref hex>`
-from each checked archive copy (20.3). A record absent everywhere is no
+from each checked archive copy (20.3). The record of each copy that has
+one is a candidate of its own, in the order of the copies, and records with
+the same bytes count once; so a squatted key in one copy does not hide an
+honest record in another (19.7, MG5). A record absent everywhere is no
 candidate; the online sources run as before. A record that fails strict
 decoding or the key check (19.1, 19.3) is a candidate set aside with reason
-`tx_proof_invalid`. A record that decodes is checked as follows, against the
+`tx_proof_invalid` (rule label `decode` in the vectors). A record that decodes is checked as follows, against the
 same trusted header as the anchor (EX5); the first failure sets the
 candidate aside with the reason named, and the verifier goes on with the
 next candidate (EX10).
@@ -4594,7 +4662,7 @@ next candidate (EX10).
 | XR4 Proofs | Each present proof of keys 9 to 12 decodes as a `ShareProof` whose namespace (`namespace_version`, `namespace_id`) is `TX_NS` for key 9, `PFB_NS` for key 10, `PFF_NS` for key 11, and for key 12 any namespace above `PFF_NS` (bytewise over the 29 bytes). It proves consecutive shares `[s, e)` of the original square as BX6 (b) to (d) of the bank-send profile require: every row proof has `total = 4k` with `k` a power of two and the same `k` for every proof of the record, row indexes `start_row, start_row + 1, ...` below `k`, every row but the first starting at 0 and every row but the last ending at `k`; `s = start_row * k + start` of the first row, `e = end_row * k + end` of the last; the proof holds `e - s` shares; `ShareProof.Validate(data_hash of header)` succeeds (each row root reaches `data_hash` by its RFC 6962 path, the NMT range proofs reach the row roots); every share carries the proof's namespace. | `tx_proof_invalid` |
 | XR5 Completeness | The ranges of the present keys, in key order 9, 10, 11, 12, are contiguous from share 0: key 9 starts at share 0 and each next range starts where the previous ended. Key 12 covers exactly one share; without key 12 the last range ends at `k * k`, the end of the square. Each of keys 9 to 11 holds exactly one whole compact sequence: its first share starts a sequence, the number of shares is the one the sequence length gives (go-square `FirstCompactShareContentSize`, `ContinuationCompactShareContentSize`), and no other share starts one; its units (length-delimited, go-square `ParseTxs`) parse. | `tx_proof_invalid` |
 | XR6 Count | With `a`, `b`, `c` the numbers of units of keys 9, 10, 11 (0 for an absent key), `a + b + c = results_total`. | `result_index_unbound` |
-| XR7 Index | Exactly one unit of key 9 has SHA-256 equal to `rail_ref`; its position among the units of key 9 (from 0) equals `tx_index`, and `tx_index < results_total`. Those unit bytes are the transaction bytes (F3). | `tx_hash_mismatch` (no unit, or more than one); `result_index_unbound` (another position) |
+| XR7 Index | Exactly one unit of key 9 has SHA-256 equal to `rail_ref`; its position among the units of key 9 (from 0) equals `tx_index`, and `tx_index < results_total`. Those unit bytes are the transaction bytes (F3). | `tx_hash_mismatch` (no unit); `result_index_unbound` (more than one unit, so the index is not bound, or another position) |
 | XR8 Result | `result` is exactly the leaf of 19.2 key 13 for the fields it holds (decoding it and encoding `code`, `data`, `gas_wanted`, `gas_used` again gives the same bytes), and CometBFT `merkle.Proof{Total: results_total, Index: tx_index, LeafHash: SHA-256(0x00 \|\| result), Aunts: result_path in 32-byte pieces}.Verify(last_results_hash of next_header, result)` succeeds (at the pin: the aunts the shape of `(index, total)` needs, no more and no fewer). | `results_root_mismatch` |
 
 On success the record gives the checker its facts: `height`, `header_hash`
@@ -4631,7 +4699,8 @@ for an online source with an inclusion proof and a results proof (BX6, RP),
 so a hostile archive can only withhold or break the record, which sets the
 candidate aside: the general rule of 20.1 holds (a source never causes
 `valid` or `invalid`). Vectors: `spec/vectors/archive/execution_result_v1.1.json`
-`cases` (one per rule, and the passing records), checked also with upstream
+`cases` (every rule and its branches, the strict-decoding set-aside, and
+the passing records), checked also with upstream
 code by `spec/vectors/tools/execresult-gen`.
 
 ### 20.3 HTTP archive read convention
@@ -4822,7 +4891,7 @@ Human decision Q1 of 2026-10-10 (task 044). For a pending reference with
 |---|---|
 | PT1 Presence | When evidence (kind 2) at height `H` verifies (the rules of 20.6: NA1 to NA7 and CV1 to CV8 with `promise.height == h0` for `da = 1`, the commitment proof of 10.5 for `da = 2`, each against the header at `H`) and `h0 <= H <= D`, `anchor` passes as soon as header trust reaches `H`: `T >= H`. The headers at `H` and at `h0` (`T_ref`, K1; for `da = 1` the promise header at `promise.height = h0`) come from the one backward chain from `T` (HT3). The binding of the anchor to the decision is the existing one: CV2 (or the share commitment of 10.5) against the agent-signed `payload_ref`, and `D` from the gate-signed Authorization (AM1, AM2). |
 | PT2 Every other row | Unchanged: no usable evidence, late evidence (`H > D`), `anchor_absent`, `absence_unproven`, `anchor_unpaid` and `anchor_pending` need `T >= max(D, H)`, and `T >= D + 1` when an AB5 results proof is needed. Evidence inside the window with `T < H` cannot be checked, so the verifier goes on with the rows for no usable evidence (`anchor_pending` while `T < D`). |
-| PT3 `header_trust` | Judged against the heights the deciding row needs: `H` and `h0` for PT1, the window up to `max(D, H)` (or `D + 1`) otherwise. With `T` in `[H, D)` and evidence that verifies, `header_trust` passes. The bound holds for every kind of header trust (spec revision `v1.0.4`): a trust that cannot name `T` cannot show `T >= H` either. |
+| PT3 `header_trust` | Judged against the heights the deciding row needs: `H` and `h0` for PT1, the window up to `max(D, H)` (or `D + 1`) otherwise (the execution check keeps its own bound, EX5: `T` at least the execution height, and `height + 1` for a results proof). With `T` in `[H, D)` and evidence that verifies, `header_trust` passes. The bound holds for every kind of header trust (spec revision `v1.0.4`): a trust that cannot name `T` cannot show `T >= H` either. |
 | PT4 Report | As for the pass row of 20.6 (`anchor_height: H`, `publication: anchored`, the assumptions of 20.9). The `v1.0.4` diagnostic for a checkpoint in `[H, D)` ("evidence ties at `H`; verdict needs a checkpoint `>= D`") is not printed when PT1 passes; it stays when the evidence ties at `H` but does not verify, because the deadline bound then decides. |
 
 Monotonic relaxation. PT1 turns `anchor` `unchecked` (`anchor_pending`) into
@@ -4848,8 +4917,9 @@ whole window final; presence needs only the block that holds the anchor.
   as at `H` (no signatures in header trust, HT4).
 - `T_ref`, K1, K2, the policy clock and the deadline use `h0` and the signed
   `D` only, all below or at `H`, or signed.
-- The anchor tx result code is not part of the claim (10.6.3) and needs no
-  header at `H + 1`.
+- The anchor tx result code is read from the archived evidence (key 12 =
+  0, CV8: the paid-anchor requirement, 10.6.3) and needs no header at
+  `H + 1`.
 Vectors: `spec/vectors/v1/verify_v1.1.json`.
 
 ### 20.7 `retention_replay`
@@ -4916,7 +4986,9 @@ Attested by the gate (not proven): the availability evidence was verified before
 "Anchored" is defined in section 10.6.3: inclusion of the anchor in block
 `H` of the trusted chain, proven from the evidence against the header at
 `H` (for `da = 1` with the binding and the certificate). The anchor tx's
-result code is not part of the claim. For `da = 1` the report prints the
+result code is not part of the publication claim; the verdict requires
+code 0 through CV8 (10.6.3), which rests on the node-attested `tx_code`, so
+it is printed as information, not as proven. For `da = 1` the report prints the
 archived `tx_code` as the informational line above and as the JSON field
 `anchor_tx_result` with the exact text `code 0, node-reported, not part of
 the claim` (section 10.6.1); it is not an assumption of the verdict and is
@@ -5223,7 +5295,7 @@ hand-written strict CBOR in `cbor_strict.py`), all in `spec/vectors/check/`:
 | `gen_archive_v1.py` / `check_archive_v1.py` | `v1/archive.json`, `v1/verify.json`, `v1/stage4m.json`. |
 | `gen_absence.py` / `check_absence.py` | `da/absence.json`. |
 | `gen_v1_0_3.py` / `check_v1_0_3.py` | The files of spec revision `v1.0.3`: `da/absence_v1.0.3.json`, `v1/verify_v1.0.3.json`, `verifier/reasons_v1.0.3.json`. The checker also validates `SUPERSEDED.json` and runs `da/absence.json`, `v1/verify.json` and the merged reason enum under the `v1.0.3` rules, skipping a frozen case only through `SUPERSEDED.json` and asserting that every listed case no longer holds under those rules. |
-| `gen_v1_1.py` / `check_v1_1.py` | The files of spec revision `v1.1`: `archive/execution_result_v1.1.json` (kind 19; reader and XR rules in `exec_result.py`; its `upstream` section comes from the Go tool `tools/execresult-gen`, whose `-check` rebuilds the blocks and runs the XR rules, NMT included, with upstream code), `api/errors_v1.1.json`, `v1/verify_v1.1.json`. |
+| `gen_v1_1.py` / `check_v1_1.py` | The files of spec revision `v1.1`: `archive/execution_result_v1.1.json` (kind 19; reader and XR rules in `exec_result.py`; its `upstream` section comes from the Go tool `tools/execresult-gen`, whose `-check` rebuilds the blocks and runs the XR rules, NMT included, with upstream code), `api/errors_v1.1.json`, `v1/verify_v1.1.json`, `verifier/reasons_v1.1.json`. The Python checker does not verify the NMT range proofs of kind 19; `go run . -check` in `tools/execresult-gen` does, so the vector checklist of a change to these files is `check_vectors.py` and that command, both. |
 | `gen_api_vectors.py` / `check_api_vectors.py` | `api/publish_request.json`. |
 | `gen_api_errors.py` / `check_api_errors.py` | `api/errors.json`; the checker also parses sections 21 and 18.3 of this document, against `api/errors.json` with the additions of `api/errors_v1.1.json` in their match order. |
 | `gen_verifier_reasons.py` / `check_verifier_reasons.py` | `verifier/reasons.json`. |
@@ -5369,12 +5441,17 @@ How an implementation uses them:
   `input` under `path`, rejects fail with `archive.ErrCorrupt` and `cause`,
   a `v1.0.N` reader refuses every kind 19 record with `ErrInvalidEnum`; each
   XR case gives `expect` (the facts, or `set_aside` with the rule and the
-  reason); each migration case gives its records byte for byte or the
-  refusal with its rule; the API server maps the two new codes in the order
-  of `api/errors_v1.1.json`; the pending-reference cases of
+  reason; rule `decode` for a record that fails strict decoding); each
+  migration case, with the records its `stored` names already in the
+  archive, gives its records byte for byte, `already_stored`, or the
+  refusal or keep with its rule (MG5 keeps the capture against a squatted
+  key); the API server maps the two new codes in the order of
+  `api/errors_v1.1.json`; the pending-reference cases of
   `v1/verify_v1.1.json` give `expect` (a `v1.0.N` verifier gives `v1_0`
-  instead). `cd spec/vectors/tools/execresult-gen && go run . -check`
-  rebuilds the blocks and runs the XR cases with upstream code.
+  instead); the text output of `anchor_unpaid` uses the meaning and advice
+  of `verifier/reasons_v1.1.json`. `cd spec/vectors/tools/execresult-gen &&
+  go run . -check` rebuilds the blocks and runs the XR cases with upstream
+  code.
 
 Stage D vectors whose defect is inside the commitment are signed over
 `tag || <malformed commitment bytes>`, so the encoding defect is the only
@@ -5476,6 +5553,6 @@ change (section 0), decided before the re-pin.
 |---|---|---|---|
 | PC1 | ProcessProposal still executes the messages of every PFF tx and rejects the block on failure (`app/process_proposal.go` `ProcessProposalHandler`, `if isPFF` branch), and the `MsgPayForFibre` handler still runs the height window check (`x/fibre/keeper/msg_server.go` `PayForFibre` -> `keeper.go` `validatePaymentPromiseStatefulInternal`). | The included-reference window assumption (10.6.3, promise height); the "non-zero code only through an ante failure" fact (10.4) | If the check moves to FinalizeBlock only, or disappears, inclusion no longer implies the window: revisit 10.6.3 before re-pinning. |
 | PC2 | The tail rule of AB5: Fibre txs are the tail of `data.txs`, one `PFF_NS` unit per Fibre tx in block order (section 23.1). | AB5 index binding (20.8) | AB5 gives no "absent" at the new app version until re-verified. |
-| PC3 | Shard retention is fixed at upload by time only and no Fibre server path reads PFF results (`fibre/server_upload.go` `shardPruneAt`, `fibre/server_prune.go`). | "Result code not part of the claim" for `da = 1` (10.6.3) | Revisit 10.6.3 before re-pinning. |
+| PC3 | Shard retention is fixed at upload by time only and no Fibre server path reads PFF results (`fibre/server_upload.go` `shardPruneAt`, `fibre/server_prune.go`). | "Result code not part of the publication claim" for `da = 1` (10.6.3) | Revisit 10.6.3 before re-pinning. |
 | PC4 | The keeper's certificate rules CV3 to CV7 (`validateValidatorSignatures`, `payment_promise.go`, `signature_set.go`) and the quorum `floor(2 * total / 3)`. | CV1 to CV7 (10.6.1), the one-threshold rule | Spec change before re-pinning. |
 | PC5 | The square layout behind XR5 to XR7 (since `v1.1`): go-square `Construct` orders ordinary, blob, Fibre txs (`validateTxOrdering`) and `WriteSquare` lays out `TX_NS`, `PFB_NS`, `PFF_NS` from share 0, one compact sequence each; one block result per tx. | Kind 19 index binding (20.2.2); the capture of the gate | XR3 pins the app version, so blocks of a new app version fall back to online sources until re-verified. |

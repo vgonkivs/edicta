@@ -2,7 +2,7 @@
   "format": "edicta-vectors/v1",
   "revision": "v1.1",
   "generator": "spec/vectors/check/gen_v1_1.py",
-  "description": "Verifier outcomes of the anchor check of a pending reference under spec revision v1.1 (core 20.6.1: presence needs header trust up to the anchor height H; every other row still needs the deadline D, or D + 1 with an AB5 results proof), in the layout of the cases of v1/verify.json; decision and authorization name records of records_from. header_trust_needs is the height header trust must reach for the row that decides. v1_0 gives the anchor outcome of the frozen text on the same inputs, which a v1.0.N verifier keeps.",
+  "description": "Verifier outcomes of the anchor check of a pending reference under spec revision v1.1 (core 20.6.1: presence needs header trust up to the anchor height H; every other row still needs the deadline D, or D + 1 with an AB5 results proof), in the layout of the cases of v1/verify.json; decision and authorization name records of records_from. header_trust_needs is the lowest height header trust must reach for the anchor check to become decidable on these inputs. v1_0 gives the anchor outcome of the frozen text on the same inputs, which a v1.0.N verifier keeps.",
   "records_from": "v1/verify.json",
   "window": "3",
   "cases": [

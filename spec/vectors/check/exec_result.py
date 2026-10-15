@@ -349,8 +349,10 @@ def xr(rec: dict, query: dict, trusted: dict) -> dict:
     if sum(counts.values()) != total:
         raise SetAside("XR6", "result_index_unbound", f"{sum(counts.values())} txs, results_total {total}")
     hits = [j for j, u in enumerate(tx_units) if _sha(u) == rec["rail_ref"]]
-    if len(hits) != 1:
-        raise SetAside("XR7", "tx_hash_mismatch", f"{len(hits)} ordinary txs hash to rail_ref")
+    if not hits:
+        raise SetAside("XR7", "tx_hash_mismatch", "no ordinary tx hashes to rail_ref")
+    if len(hits) > 1:
+        raise SetAside("XR7", "result_index_unbound", f"{len(hits)} ordinary txs hash to rail_ref")
     if hits[0] != idx or idx >= total:
         raise SetAside("XR7", "result_index_unbound", f"the tx is unit {hits[0]}, tx_index {idx}")
     leaf = rec["result"]

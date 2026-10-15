@@ -62,6 +62,18 @@ type proofDoc struct {
 	ProofHex     string `json:"proof_hex"`
 }
 
+// variantDoc is a share proof of the block that is not part of its record:
+// a sub-range of a namespace or a range across two shares, so the XR cases
+// can swap it in and exercise a branch that a record built from a whole
+// block never reaches.
+type variantDoc struct {
+	ID           string `json:"id"`
+	NamespaceHex string `json:"namespace_hex"`
+	Start        string `json:"start"`
+	End          string `json:"end"`
+	ProofHex     string `json:"proof_hex"`
+}
+
 type captureDoc struct {
 	TxIndex       string `json:"tx_index"`
 	RailRef       string `json:"rail_ref"`
@@ -84,7 +96,15 @@ type blockDoc struct {
 	NextHeaderHex     string       `json:"next_header_hex"`
 	NextHeaderHashHex string       `json:"next_header_hash_hex"`
 	Proofs            []proofDoc   `json:"proofs"`
+	Variants          []variantDoc `json:"variants,omitempty"`
 	Captures          []captureDoc `json:"captures"`
+	Negative          bool         `json:"negative,omitempty"`
+}
+
+type variantSpec struct {
+	id         string
+	ns         libshare.Namespace
+	start, end int
 }
 
 type blockSpec struct {
@@ -93,6 +113,13 @@ type blockSpec struct {
 	txs             [][]byte
 	results         []abci.ExecTxResult
 	captures        []int
+	variants        []variantSpec
+	// negative blocks feed failing XR cases and the migration conflict only;
+	// their captures are not records of the vector file.
+	negative bool
+	// mutate changes the square after Construct, before it is extended, to
+	// build a layout go-square never produces.
+	mutate func([]libshare.Share) error
 }
 
 func hx(b []byte) string { return hex.EncodeToString(b) }
@@ -211,6 +238,10 @@ func specs(in inputs) ([]blockSpec, error) {
 			txs:      [][]byte{in.liveTx, fixed("ordinary B", 300), b1, in.pffTx},
 			results:  []abci.ExecTxResult{in.liveResult, {Code: 5, GasWanted: 100000, GasUsed: 52000}, {GasWanted: 80000, GasUsed: 65000}, {GasWanted: 90000, GasUsed: 70000}},
 			captures: []int{0, 1},
+			variants: []variantSpec{
+				{"tx_from_share_1", libshare.TxNamespace, 1, 2},
+				{"tx_first_share_only", libshare.TxNamespace, 0, 1},
+			},
 		},
 		{
 			id:          "single_share_square",
@@ -227,6 +258,53 @@ func specs(in inputs) ([]blockSpec, error) {
 			txs:         [][]byte{fixed("ordinary D", 260), b3},
 			results:     []abci.ExecTxResult{{GasWanted: 70000, GasUsed: 60000}, {Code: 11, GasWanted: 90000, GasUsed: 90001}},
 			captures:    []int{0},
+			variants:    []variantSpec{{"closing_two_shares", libshare.Namespace{}, 2, 4}},
+		},
+		{
+			id: "duplicate_ordinary",
+			description: "The same ordinary tx twice: two units of TX_NS hash to its rail_ref, so the record cannot bind " +
+				"the index (negative block).",
+			height:   4300030,
+			txs:      [][]byte{fixed("ordinary E", 200), fixed("ordinary E", 200)},
+			results:  []abci.ExecTxResult{{GasWanted: 60000, GasUsed: 50000}, {Code: 32, GasWanted: 60000, GasUsed: 30000}},
+			captures: []int{0},
+			negative: true,
+		},
+		{
+			id: "second_sequence_start",
+			description: "Two ordinary txs in two TX_NS shares, with the sequence-start bit set on the second share " +
+				"after Construct: the namespace holds a second sequence start (negative block, a layout go-square " +
+				"never builds).",
+			height:   4300040,
+			txs:      [][]byte{fixed("ordinary F", 300), fixed("ordinary G", 300)},
+			results:  []abci.ExecTxResult{{GasWanted: 70000, GasUsed: 61000}, {GasWanted: 70000, GasUsed: 62000}},
+			captures: []int{0},
+			negative: true,
+			mutate: func(sq []libshare.Share) error {
+				if len(sq) < 2 || !sq[1].Namespace().Equals(libshare.TxNamespace) {
+					return fmt.Errorf("second_sequence_start: share 1 is not in TX_NS")
+				}
+				b := append([]byte(nil), sq[1].ToBytes()...)
+				b[libshare.NamespaceSize] |= 1
+				sh, err := libshare.NewShare(b)
+				if err != nil {
+					return err
+				}
+				sq[1] = sh
+				return nil
+			},
+		},
+		{
+			id: "squat_three_namespaces",
+			description: "A forgery of block three_namespaces: same chain id and height, the live bank-send tx alone " +
+				"with result code 13, fabricated headers that link to each other. Self-consistent, so it passes the " +
+				"gate's self-check without a trust root (MG3), but not the trusted chain (negative block; the " +
+				"migration's squatted key).",
+			height:   4300000,
+			txs:      [][]byte{in.liveTx},
+			results:  []abci.ExecTxResult{{Code: 13, GasWanted: 100000, GasUsed: 40000}},
+			captures: []int{0},
+			negative: true,
 		},
 	}, nil
 }
@@ -273,6 +351,11 @@ func buildBlock(s blockSpec) (blockDoc, error) {
 	if err != nil {
 		return blockDoc{}, err
 	}
+	if s.mutate != nil {
+		if err := s.mutate(sq); err != nil {
+			return blockDoc{}, err
+		}
+	}
 	eds, err := da.ExtendShares(libshare.ToBytes(sq))
 	if err != nil {
 		return blockDoc{}, err
@@ -286,7 +369,7 @@ func buildBlock(s blockSpec) (blockDoc, error) {
 		return blockDoc{}, err
 	}
 
-	d := blockDoc{ID: s.id, Description: s.description, ChainID: chainID, Height: itoa(s.height), SquareSize: itoa(int64(k)), DataHashHex: hx(dah.Hash())}
+	d := blockDoc{ID: s.id, Description: s.description, ChainID: chainID, Height: itoa(s.height), SquareSize: itoa(int64(k)), DataHashHex: hx(dah.Hash()), Negative: s.negative}
 	for i, c := range classified {
 		class := "ordinary"
 		if c.FibreTx != nil {
@@ -356,6 +439,31 @@ func buildBlock(s blockSpec) (blockDoc, error) {
 		if err := add("12", sq[end].Namespace(), libshare.NewRange(end, end+1)); err != nil {
 			return blockDoc{}, err
 		}
+	}
+
+	for _, v := range s.variants {
+		ns := v.ns
+		if ns.Equals(libshare.Namespace{}) {
+			ns = sq[v.start].Namespace()
+		}
+		r := libshare.NewRange(v.start, v.end)
+		for i := v.start; i < v.end; i++ {
+			if i >= len(sq) || !sq[i].Namespace().Equals(ns) {
+				return blockDoc{}, fmt.Errorf("%s: variant %s: share %d is not in namespace %x", s.id, v.id, i, ns.Bytes())
+			}
+		}
+		sp, err := proof.NewShareInclusionProofFromEDS(eds, ns, r)
+		if err != nil {
+			return blockDoc{}, fmt.Errorf("%s: variant %s: %w", s.id, v.id, err)
+		}
+		if err := sp.Validate(dah.Hash()); err != nil {
+			return blockDoc{}, fmt.Errorf("%s: variant %s: %w", s.id, v.id, err)
+		}
+		raw, err := sp.Marshal()
+		if err != nil {
+			return blockDoc{}, err
+		}
+		d.Variants = append(d.Variants, variantDoc{ID: v.id, NamespaceHex: hx(ns.Bytes()), Start: itoa(int64(v.start)), End: itoa(int64(v.end)), ProofHex: hx(raw)})
 	}
 
 	for _, i := range s.captures {

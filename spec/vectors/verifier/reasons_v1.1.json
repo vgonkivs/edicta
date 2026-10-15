@@ -1,0 +1,23 @@
+{
+  "format": "edicta-vectors/v1",
+  "revision": "v1.1",
+  "generator": "spec/vectors/check/gen_v1_1.py",
+  "description": "Wording of spec revision v1.1 for the text output of a verifier (core 20.1.1, section 0 v1.1 row), human decision H1 of 2026-10-15: inclusion proves publication; a valid verdict additionally requires a paid anchor (tx_code == 0); unpaid anchors are an operator funding failure, surfaced by the escrow alert. Each entry gives the meaning and advice a v1.1 verifier prints instead of the strings in replaces, which stay byte-identical in their frozen file. Name, group, checks, cases and every outcome are those of the frozen file.",
+  "base": "verifier/reasons_v1.0.3.json",
+  "reasons": [
+    {
+      "name": "anchor_unpaid",
+      "group": "configuration",
+      "checks": [
+        "anchor"
+      ],
+      "meaning": "Anchor included, non-zero result code: published, but a valid verdict requires a paid anchor (tx_code == 0). Pending reference, no evidence inside the window, and an absence proof shows a PFF candidate at a height of [h0, anchor_deadline] whose result code is proven non-zero, with no height showing one with code 0. Names the first such height. Permanent: never invalid.",
+      "advice": "none (unpaid anchor: operator funding failure, surfaced by the escrow alert); another archive copy or --absence-source if a paid anchor may sit at a height not proven",
+      "replaces": {
+        "file": "verifier/reasons_v1.0.3.json",
+        "meaning": "Anchor included, non-zero result code; not confirmable by v1.0 verifiers. Pending reference, no evidence inside the window, and an absence proof shows a PFF candidate at a height of [h0, anchor_deadline] whose result code is proven non-zero, with no height showing one with code 0. Names the first such height.",
+        "advice": "none in v1.0 (a v1.1 verifier confirms inclusion without the code); another archive copy or --absence-source if a paid anchor may sit at a height not proven"
+      }
+    }
+  ]
+}

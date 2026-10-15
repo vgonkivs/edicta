@@ -10,6 +10,8 @@
   the additions in place (the spec table itself is compared by check_api_errors.py);
 - v1/verify_v1.1.json: every case under the v1.1 rules of core 20.6.1, its v1_0 outcome under the frozen text, and
   references into v1/verify.json;
+- verifier/reasons_v1.1.json: every entry names a reason of verifier/reasons_v1.0.3.json with the same group and
+  checks, and replaces exactly its frozen meaning and advice;
 - the generator (gen_v1_1.py) reproduces the three files byte for byte.
 
 Usage: python3 spec/vectors/check/check_v1_1.py
@@ -71,12 +73,13 @@ def check_upstream(up: dict) -> int:
         expect(classes == sorted(classes, key=["ordinary", "blob", "fibre"].index), f"{b['id']}: tx order")
         keys = [p["key"] for p in b["proofs"]]
         expect(keys == sorted(keys, key=int) and keys[0] == "9", f"{b['id']}: proof keys")
-        for p in b["proofs"]:
+        for p in b["proofs"] + b.get("variants", []):
             sp = X._share_proof(bytes.fromhex(p["proof_hex"]))
-            expect(X._span(sp, X._width(sp)) == (int(p["start"]), int(p["end"])), f"{b['id']}: proof {p['key']} range")
-            expect(X._rows_reach(sp, h["data_hash"]), f"{b['id']}: proof {p['key']} row proofs")
+            name = p.get("key", p.get("id"))
+            expect(X._span(sp, X._width(sp)) == (int(p["start"]), int(p["end"])), f"{b['id']}: proof {name} range")
+            expect(X._rows_reach(sp, h["data_hash"]), f"{b['id']}: proof {name} row proofs")
             expect(bytes([sp["namespace_version"]]) + sp["namespace_id"] == bytes.fromhex(p["namespace_hex"]),
-                   f"{b['id']}: proof {p['key']} namespace")
+                   f"{b['id']}: proof {name} namespace")
         for c in b["captures"]:
             tx = bytes.fromhex(b["txs"][int(c["tx_index"])]["hex"])
             expect(hashlib.sha256(tx).hexdigest() == c["rail_ref"], f"{b['id']}: rail_ref")
@@ -93,6 +96,8 @@ def check_exec(f: dict) -> str:
     nb = check_upstream(f["upstream"])
     expect(RD.UNASSIGNED == frozenset({3, 6, 16}) and 19 not in RD.ASSIGNED,
            "the v1.0 kind table of core 19.1 changed")
+    negative = {b["id"] for b in f["upstream"]["blocks"] if b.get("negative")}
+    expect(not any(r["block"] in negative for r in f["records"]), "a negative block's capture is in records")
     for r in f["records"]:
         raw = bytes.fromhex(r["record_cbor_hex"])
         rec = X.decode_record(raw)
@@ -110,13 +115,19 @@ def check_exec(f: dict) -> str:
         expect(got == r["cause"] and r["expect_error"] == "archive.ErrCorrupt", f"reject {r['id']}: {got}")
     rules = set()
     for c in f["cases"]:
-        rec = X.decode_record(bytes.fromhex(c["record_cbor_hex"]))
+        raw = bytes.fromhex(c["record_cbor_hex"])
         q = {"chain_id": c["query"]["chain_id"], "rail_ref": bytes.fromhex(c["query"]["rail_ref"])}
         t = {int(h): bytes.fromhex(x) for h, x in c["trusted"].items()}
         try:
-            got = {"result": "pass", "rule": "none", "reason": "none", "facts": X.xr(rec, q, t)}
-        except X.SetAside as e:
-            got = {"result": "set_aside", "rule": e.rule, "reason": e.reason}
+            rec = X.decode_record(raw)
+        except Reject:
+            rec = None
+            got = {"result": "set_aside", "rule": "decode", "reason": "tx_proof_invalid"}
+        if rec is not None:
+            try:
+                got = {"result": "pass", "rule": "none", "reason": "none", "facts": X.xr(rec, q, t)}
+            except X.SetAside as e:
+                got = {"result": "set_aside", "rule": e.rule, "reason": e.reason}
         expect(got == c["expect"], f"case {c['id']}: {got}")
         if c.get("note") == "path_verifies_alone":
             p = rec["result_path"]
@@ -125,21 +136,30 @@ def check_exec(f: dict) -> str:
                                      [p[i:i + 32] for i in range(0, len(p), 32)]) == nh["last_results_hash"],
                    f"case {c['id']}: the path must verify on its own")
         rules.add(got["rule"])
-    expect(rules == {"none", "XR1", "XR2", "XR3", "XR4", "XR5", "XR6", "XR7", "XR8"}, f"XR coverage {sorted(rules)}")
+    expect(rules == {"none", "decode", "XR1", "XR2", "XR3", "XR4", "XR5", "XR6", "XR7", "XR8"}, f"XR coverage {sorted(rules)}")
+    pairs = {(c["expect"]["rule"], c["expect"]["reason"]) for c in f["cases"]}
+    for pair in (("XR2", "tx_proof_invalid"), ("XR2", "result_header_unreachable"), ("XR2", "header_not_linking"),
+                 ("XR7", "tx_hash_mismatch"), ("XR7", "result_index_unbound")):
+        expect(pair in pairs, f"XR coverage: no case for {pair}")
     by_block = {}
     for r in f["records"]:
         by_block.setdefault(r["block"], []).append(r["record_cbor_hex"])
     outcomes = set()
     for m in f["migration"]:
-        got = gen.migrate(m["capture"])
+        stored = {p: bytes.fromhex(h) for p, h in m.get("stored", {}).items()}
+        got = gen.migrate(m["capture"], stored)
         expect(got == m["expect"], f"migration {m['id']}")
         for x in got:
             outcomes.add(x.get("rule", x["result"]))
+            if x["result"] == "kept":
+                st = X.decode_record(stored[x["path"]])
+                expect(gen.self_check(st) is None, f"migration {m['id']}: the squatting record must pass MG3, so only "
+                                                   f"the comparison of MG5 keeps the capture")
             if x["result"] == "written":
                 expect(X.decode_record(bytes.fromhex(x["record_cbor_hex"])) is not None, f"migration {m['id']}: decodes")
     written = [x["record_cbor_hex"] for m in f["migration"] if m["id"] == "capture_three_namespaces" for x in m["expect"]]
     expect(written == by_block["three_namespaces"], "migration of a block gives the records byte for byte")
-    expect(outcomes == {"written", "MG2", "MG3"}, f"migration coverage {sorted(outcomes)}")
+    expect(outcomes == {"written", "already_stored", "MG2", "MG3", "MG5"}, f"migration coverage {sorted(outcomes)}")
     return (f"{nb} blocks, {len(f['records'])} records, {len(f['reject'])} reject, {len(f['cases'])} XR cases, "
             f"{len(f['migration'])} migration cases")
 
@@ -174,12 +194,27 @@ def check_verify(f: dict) -> str:
     return f"{len(f['cases'])} cases, {len(relaxed)} relaxed from anchor_pending to pass"
 
 
+def check_reasons(f: dict) -> str:
+    base = {r["name"]: r for r in load("verifier/reasons_v1.0.3.json")["reasons"]}
+    expect(f["base"] == "verifier/reasons_v1.0.3.json" and f["revision"] == "v1.1", "reasons_v1.1 header")
+    for r in f["reasons"]:
+        old = base.get(r["name"])
+        expect(old is not None, f"{r['name']}: not a reason of the frozen file")
+        expect(r["group"] == old["group"] and r["checks"] == old["checks"], f"{r['name']}: group or checks changed")
+        expect(r["replaces"] == {"file": f["base"], "meaning": old["meaning"], "advice": old["advice"]},
+               f"{r['name']}: replaces must quote the frozen strings")
+        expect("v1.1 verifier confirms" not in r["advice"] and "valid verdict requires a paid anchor" in r["meaning"],
+               f"{r['name']}: H1 wording")
+    return f"{len(f['reasons'])} reason wording"
+
+
 def main() -> int:
     try:
-        parts = [check_exec(load(gen.EXEC_FILE)), check_errors(load(gen.ERRORS_FILE)), check_verify(load(gen.VERIFY_FILE))]
+        parts = [check_exec(load(gen.EXEC_FILE)), check_errors(load(gen.ERRORS_FILE)), check_verify(load(gen.VERIFY_FILE)),
+                 check_reasons(load(gen.REASONS_FILE))]
         expect(gen.main.__name__ == "main", "generator")
         for rel, d in ((gen.EXEC_FILE, gen.exec_file(load(gen.EXEC_FILE)["upstream"])), (gen.ERRORS_FILE, gen.errors_file()),
-                       (gen.VERIFY_FILE, gen.verify_file())):
+                       (gen.VERIFY_FILE, gen.verify_file()), (gen.REASONS_FILE, gen.reasons_file())):
             expect((VECTORS / rel).read_text() == gen.dump(d), f"{rel} differs from the generator output")
     except (Failure, Reject, KeyError, ValueError) as e:
         print(f"FAIL (v1.1): {e}", file=sys.stderr)

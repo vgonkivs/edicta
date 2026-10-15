@@ -306,7 +306,8 @@ inclusion never implies `outcome = success`; RP decides it.
 Archived answer (core `v1.1`). When a checked archive copy holds a core kind
 19 record under `exec/<chain_id>/<rail_ref hex>` (`chain_id` of the action
 after BX0), the checker tries it first, as the candidate with role
-`archive` (core EX10). For it, BX1 and BX2 are XR1 and XR7 of core 20.2.2
+`archive` (core EX10; one candidate per checked copy that holds one, core
+20.2.2). For it, BX1 and BX2 are XR1 and XR7 of core 20.2.2
 (the bytes are the unit of the transaction namespace that hashes to
 `rail_ref`), BX6 is XR4 to XR7 (`inclusion = proven`), and RP1 to RP6 are
 XR6 to XR8 (`result = proven`, the proven code replaces any other). BX3,

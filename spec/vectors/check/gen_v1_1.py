@@ -8,7 +8,10 @@
 - api/errors_v1.1.json: the API codes recorder.ErrAnchorRejected and recorder.ErrClockSkew, additive to
   api/errors.json, with the merged match order of core 18.3;
 - v1/verify_v1.1.json: the anchor check of a pending reference when header trust reaches the anchor height H but not
-  the deadline D (core 20.6.1), on the records of v1/verify.json.
+  the deadline D (core 20.6.1), on the records of v1/verify.json;
+- verifier/reasons_v1.1.json: the wording of the reason anchor_unpaid under human decision H1 (the paid-anchor
+  requirement stays), replacing the meaning and advice strings of the frozen verifier/reasons_v1.0.3.json for the
+  text output of a v1.1 verifier; no reason, check or outcome changes.
 
 The frozen files are read, never written. The upstream section comes from the Go tool once
 (--exec FILE, from `go run . -out FILE` in spec/vectors/tools/execresult-gen) and is carried over afterwards.
@@ -40,6 +43,7 @@ GENERATOR = "spec/vectors/check/gen_v1_1.py"
 EXEC_FILE = "archive/execution_result_v1.1.json"
 ERRORS_FILE = "api/errors_v1.1.json"
 VERIFY_FILE = "v1/verify_v1.1.json"
+REASONS_FILE = "verifier/reasons_v1.1.json"
 
 
 def load(rel: str) -> dict:
@@ -118,12 +122,32 @@ def tamper_row_root(proof: bytes) -> bytes:
     return out
 
 
-def xr_expect(rec: dict, query: dict, trusted: dict) -> dict:
+def xr_expect(raw: bytes, query: dict, trusted: dict) -> dict:
+    """A candidate record as the verifier reads it (core 20.2.2): strict decoding, then XR1 to XR8."""
+    try:
+        rec = X.decode_record(raw)
+    except Reject:
+        return {"result": "set_aside", "rule": "decode", "reason": "tx_proof_invalid"}
     try:
         facts = X.xr(rec, query, {int(h): bytes.fromhex(x) for h, x in trusted.items()})
     except X.SetAside as e:
         return {"result": "set_aside", "rule": e.rule, "reason": e.reason}
     return {"result": "pass", "rule": "none", "reason": "none", "facts": facts}
+
+
+def reorder_header(hb: bytes) -> bytes:
+    """The same header with field 2 (chain_id) written after field 3 (height): other bytes, the same hash."""
+    fs = fields(hb)
+    two = [f for f in fs if f[0] == 2]
+    out = b""
+    for num, wt, v in fs:
+        if num == 2:
+            continue
+        out += pb_field(num, wt, v)
+        if num == 3:
+            out += b"".join(pb_field(*f) for f in two)
+    assert out != hb and header_hash(out) == header_hash(hb)
+    return out
 
 
 def exec_file(up: dict) -> dict:
@@ -137,12 +161,14 @@ def exec_file(up: dict) -> dict:
             raw = X.encode_record(rec)
             assert X.decode_record(raw) == rec
             recs[rid] = (b, rec)
+            if b.get("negative"):
+                continue
             records.append({"id": rid, "block": b["id"], "path": X.path_of(X.key_of(rec)),
                             "key": {"chain_id": rec["chain_id"], "rail_ref": rec["rail_ref"].hex()},
                             "input": plain(rec), "record_cbor_hex": raw.hex(), "record_sha256_hex": sha(raw),
                             "v1_0_reader_cause": RD.cause(raw)})
 
-    def case(cid: str, desc: str, rid: str, change=None, query=None, trusted=None, note=None) -> dict:
+    def case(cid: str, desc: str, rid: str, change=None, query=None, trusted=None, note=None, raw_change=None) -> dict:
         b, rec = recs[rid]
         rec = copy.deepcopy(rec)
         if change:
@@ -150,8 +176,11 @@ def exec_file(up: dict) -> dict:
         q = query or {"chain_id": rec["chain_id"], "rail_ref": rec["rail_ref"].hex()}
         t = trusted if trusted is not None else trusted_of(b)
         qd = {"chain_id": q["chain_id"], "rail_ref": bytes.fromhex(q["rail_ref"])}
-        c = {"id": cid, "description": desc, "base_record": rid, "record_cbor_hex": X.encode_record(rec).hex(),
-             "query": q, "trusted": t, "expect": xr_expect(rec, qd, t)}
+        raw = X.encode_record(rec)
+        if raw_change:
+            raw = raw_change(raw)
+        c = {"id": cid, "description": desc, "base_record": rid, "record_cbor_hex": raw.hex(),
+             "query": q, "trusted": t, "expect": xr_expect(raw, qd, t)}
         if note:
             c["note"] = note
         return c
@@ -173,6 +202,20 @@ def exec_file(up: dict) -> dict:
     pfb_as_closing = proof_of(t3, "10")
     tx1_leaf = recs["three_namespaces_tx1"][1]["result"]
     forged_success = X.results_leaf(0, b"", 100000, 52000)
+    tb = blocks["tx_then_blob"]
+
+    def variant(block: dict, vid: str) -> bytes:
+        return next(bytes.fromhex(v["proof_hex"]) for v in block["variants"] if v["id"] == vid)
+
+    def other_chain(r):
+        r["chain_id"] = "arabica-11"
+
+    def with_unknown_key(raw: bytes) -> bytes:
+        m = {1: 1, 2: X.KIND_EXEC}
+        for name, v in X.decode_record(raw).items():
+            m[X.NAMES[name]] = v
+        m[16] = 0
+        return encode(m)
     cases = [
         case("pass_live_tx", "The live bank-send tx at index 0 of a block with all three transaction namespaces and the "
              "closing share: inclusion and result proven, code 0 (outcome success).", "three_namespaces_tx0"),
@@ -187,16 +230,36 @@ def exec_file(up: dict) -> dict:
              trusted={t3["height"]: t3["header_hash_hex"]}),
         case("xr2_header_not_on_chain", "The trusted chain has another header at the height.", "three_namespaces_tx0",
              trusted={t3["height"]: "00" * 32, str(int(t3["height"]) + 1): t3["next_header_hash_hex"]}),
+        case("xr2_headers_of_another_chain", "Cross-chain substitution: the record's key names chain arabica-11 (and the "
+             "verifier asks for it), but both headers are of mocha-5.", "three_namespaces_tx0", change=other_chain,
+             query={"chain_id": "arabica-11", "rail_ref": t3["captures"][0]["rail_ref"]}),
+        case("xr2_header_of_another_height", "The record names height + 1; its header is the header at height.",
+             "three_namespaces_tx0", change=setf("height", int(t3["height"]) + 1)),
         case("xr3_other_app_version", "The trusted header at the height has app version 9: the ordering rule is pinned "
              "to app version 10.", "three_namespaces_tx0", change=app9, trusted=trusted_app9),
         case("xr4_closing_below_fibre", "The closing proof is the PFB_NS proof: its namespace does not follow PFF_NS.",
              "three_namespaces_tx0", change=setf("closing_proof", pfb_as_closing)),
+        case("xr4_key10_wrong_namespace", "Key 10 holds the PFF_NS proof: its namespace is not PFB_NS.",
+             "three_namespaces_tx0", change=setf("pfb_proof", proof_of(t3, "11"))),
+        case("xr4_proof_of_another_square", "Key 10 holds the PFB_NS proof of block tx_then_blob (square width 2, the "
+             "record's square is 8 wide): it does not reach data_hash. The check that every proof has the same width is "
+             "a second line behind this one, because a row proof of another width cannot reach the same data_hash.",
+             "three_namespaces_tx0", change=setf("pfb_proof", proof_of(tb, "10"))),
         case("xr4_row_root_tampered", "One byte of a row root of the TX_NS proof changed: the row proof does not reach "
              "data_hash.", "three_namespaces_tx0", change=lambda r: r.__setitem__("tx_proof", tamper_row_root(r["tx_proof"]))),
         case("xr5_pfb_range_missing", "The PFB_NS proof is missing: the PFF_NS range does not start where TX_NS ends.",
              "three_namespaces_tx0", change=drop("pfb_proof")),
         case("xr5_no_closing_share", "The closing proof is missing and the transaction namespaces do not end the square.",
              "three_namespaces_tx0", change=drop("closing_proof")),
+        case("xr5_tx_not_from_share_0", "Key 9 proves TX_NS share 1 only (a valid proof of a sub-range): it does not "
+             "start at share 0.", "three_namespaces_tx0", change=setf("tx_proof", variant(t3, "tx_from_share_1"))),
+        case("xr5_sequence_cut", "Key 9 proves TX_NS share 0 only: the sequence length needs two shares, so the key "
+             "does not hold one whole compact sequence.", "three_namespaces_tx0",
+             change=setf("tx_proof", variant(t3, "tx_first_share_only"))),
+        case("xr5_closing_two_shares", "The closing proof covers two shares of the blob after PFB_NS.", "tx_then_blob_tx0",
+             change=setf("closing_proof", variant(tb, "closing_two_shares"))),
+        case("xr5_second_sequence_start", "TX_NS holds a second sequence start inside key 9 (a square go-square never "
+             "builds; the block is on its own trusted chain here).", "second_sequence_start_tx0"),
         case("xr6_total_three", "results_total 3 instead of 4. The RFC 6962 path alone still verifies (index 0 of 3 and "
              "of 4 have the same shape), so only the count of the complete transaction namespaces catches it.",
              "three_namespaces_tx0", change=setf("results_total", 3), note="path_verifies_alone"),
@@ -204,12 +267,16 @@ def exec_file(up: dict) -> dict:
              change=setf("tx_index", 1)),
         case("xr7_tx_not_in_block", "A rail_ref that no ordinary tx of the block hashes to, read under that key.",
              "three_namespaces_tx0", change=setf("rail_ref", bytes.fromhex(other_ref))),
+        case("xr7_duplicate_tx", "Two units of TX_NS hash to rail_ref: the index is not bound (which of the two results "
+             "is the receipt's transaction is unknown).", "duplicate_ordinary_tx0"),
         case("xr8_result_with_log", "The result leaf carries field 3 (log), which the results hash does not cover.",
              "three_namespaces_tx0", change=lambda r: r.__setitem__("result", r["result"] + pb_field(3, 2, b"x"))),
         case("xr8_path_tampered", "One byte of the result path changed.", "three_namespaces_tx0",
              change=lambda r: r.__setitem__("result_path", flip(r["result_path"], 0))),
         case("xr8_forged_success", "The failed tx at index 1 presented with code 0: the root does not match.",
              "three_namespaces_tx1", change=setf("result", forged_success)),
+        case("decode_unknown_key", "The record read through the verifier path fails strict decoding (key 16): set aside "
+             "before any XR rule.", "three_namespaces_tx0", raw_change=with_unknown_key),
     ]
     assert tx1_leaf != forged_success
 
@@ -273,13 +340,24 @@ def exec_file(up: dict) -> dict:
                                       "proof": b64(p["proof_hex"])} for p in block["proofs"]],
                 "txs": txs}
 
-    def mcase(mid: str, desc: str, block: dict, change=None) -> dict:
+    def mcase(mid: str, desc: str, block: dict, change=None, stored=None) -> dict:
         cap = capture_of(block)
         if change:
             change(cap)
-        return {"id": mid, "description": desc, "capture": cap, "expect": migrate(cap)}
+        c = {"id": mid, "description": desc, "capture": cap}
+        if stored:
+            c["stored"] = {path: raw.hex() for path, raw in stored.items()}
+        c["expect"] = migrate(cap, stored)
+        return c
 
     t2 = blocks["tx_then_blob"]
+    squat = recs["squat_three_namespaces_tx0"][1]
+    squat_raw = X.encode_record(squat)
+    squat_path = X.path_of(X.key_of(squat))
+    assert squat_path == X.path_of(X.key_of(recs["three_namespaces_tx0"][1]))
+    equiv = copy.deepcopy(recs["three_namespaces_tx0"][1])
+    equiv["header"] = reorder_header(equiv["header"])
+    equiv_raw, equiv_path = X.encode_record(equiv), X.path_of(X.key_of(equiv))
 
     def tx0(f):
         return lambda c: f(c["txs"][0])
@@ -301,6 +379,13 @@ def exec_file(up: dict) -> dict:
               lambda c: c["namespace_proofs"].pop(1)),
         mcase("capture_next_header_other_block", "next_header of another block: it does not name header in "
               "last_block_id (MG3).", t3, other_next),
+        mcase("capture_key_squatted", "The archive already holds a self-consistent forgery under the key of tx 0 (block "
+              "squat_three_namespaces: fabricated headers that link, result code 13). It passes MG3, which has no trust "
+              "root, but is not equivalent to the built record: the capture entry stays and the gate alerts (MG5). Tx 1 "
+              "is written.", t3, stored={squat_path: squat_raw}),
+        mcase("capture_stored_equivalent", "The archive already holds an equivalent record under the key of tx 0: the "
+              "same facts, header bytes in another field order (same hash). The capture entry is dropped (MG5).", t3,
+              stored={equiv_path: equiv_raw}),
     ]
     for m in migration:
         if m["id"] == "capture_three_namespaces":
@@ -317,9 +402,14 @@ def exec_file(up: dict) -> dict:
                        "with the query (chain_id of the action, rail_ref of the receipt) and the hashes header trust "
                        "reached (trusted, height -> hash); expect gives pass with the facts, or set_aside with the first "
                        "failing rule and the reason of core 20.1.1. migration: a block file of the gate's capture store "
-                       "(the v1.0.4 JSON layout, byte strings in base64) and what MG1 to MG7 (core 19.7) make of each "
-                       "captured tx. upstream: the synthetic blocks, built and checked with upstream code by "
-                       "spec/vectors/tools/execresult-gen.",
+                       "(the v1.0.4 JSON layout, byte strings in base64), the records the archive already holds under "
+                       "their paths (stored, optional), and what MG1 to MG7 (core 19.7) make of each captured tx: "
+                       "written (archived, capture entry dropped), already_stored (an equivalent record holds the key, "
+                       "by bytes or by facts; capture entry dropped) or refused/kept with the rule (capture entry "
+                       "stays). A case's rule decode is strict decoding through the verifier path (core 20.2.2). "
+                       "upstream: the synthetic blocks, built and checked with upstream code by "
+                       "spec/vectors/tools/execresult-gen; a block marked negative feeds failing cases only, and its "
+                       "captures are not in records.",
         "kind": "19",
         "upstream": up,
         "records": records,
@@ -329,8 +419,42 @@ def exec_file(up: dict) -> dict:
     }
 
 
-def migrate(cap: dict) -> list:
-    """MG2 and MG3 (core 19.7) on one block file: per captured tx, the record written or the refusal."""
+def self_check(rec: dict) -> str | None:
+    """MG3 (core 19.7): XR1 with the record's own key, XR2 without a trust root, XR3 to XR8. The failure, or None."""
+    hh, nh = X._header(rec["header"]), X._header(rec["next_header"])
+    if header_link(rec["next_header"]) != hh["hash"]:
+        return "next_header does not name header in last_block_id"
+    try:
+        X.xr(rec, {"chain_id": rec["chain_id"], "rail_ref": rec["rail_ref"]}, {hh["height"]: hh["hash"], nh["height"]: nh["hash"]})
+    except X.SetAside as e:
+        return f"self-check {e.rule}: {e}"
+    return None
+
+
+def header_link(nb: bytes) -> bytes:
+    lbid = next((v for num, _, v in fields(nb) if num == 5), b"")
+    return next((v for num, _, v in fields(lbid) if num == 1), b"")
+
+
+def equivalent(built: dict, raw_built: bytes, raw_stored: bytes) -> str | None:
+    """MG5: 'bytes' or 'facts' when the stored record may replace the capture, else None."""
+    if raw_stored == raw_built:
+        return "bytes"
+    try:
+        st = X.decode_record(raw_stored)
+    except Reject:
+        return None
+    if self_check(st) is not None:
+        return None
+    same = all(st[k] == built[k] for k in ("height", "tx_index", "results_total", "result"))
+    same = same and all(header_hash(st[k]) == header_hash(built[k]) for k in ("header", "next_header"))
+    return "facts" if same else None
+
+
+def migrate(cap: dict, stored: dict | None = None) -> list:
+    """MG2 to MG5 (core 19.7) on one block file, with the records the archive already holds (path -> bytes):
+    per captured tx, the record written, an equivalent record already stored, or the refusal or keep with its rule."""
+    stored = stored or {}
     out = []
     b = lambda s: base64.b64decode(s)
     for t in cap["txs"]:
@@ -375,20 +499,21 @@ def migrate(cap: dict) -> list:
         rec["result"], rec["results_total"], rec["result_path"] = leaf, p["total"], b"".join(aunts)
         ordered = {k: rec[k] for k in [f[0] for _, f in sorted(X.SCHEMA.items())] if k in rec}
         raw = X.encode_record(ordered)
-        nh, hh = X._header(ordered["next_header"]), X._header(ordered["header"])
-        nfs = fields(ordered["next_header"])
-        lbid = next((v for num, _, v in nfs if num == 5), b"")
-        link = next((v for num, _, v in fields(lbid) if num == 1), b"")
-        if link != hh["hash"]:
-            refused("MG3", "next_header does not name header in last_block_id")
+        why = self_check(ordered)
+        if why:
+            refused("MG3", why)
             continue
-        try:
-            X.xr(ordered, {"chain_id": cap["chain_id"], "rail_ref": bytes.fromhex(ref)},
-                 {hh["height"]: hh["hash"], nh["height"]: nh["hash"]})
-        except X.SetAside as e:
-            refused("MG3", f"self-check {e.rule}: {e}")
+        path = X.path_of(X.key_of(ordered))
+        if path not in stored:
+            out.append({"rail_ref": ref, "result": "written", "path": path, "record_cbor_hex": raw.hex()})
             continue
-        out.append({"rail_ref": ref, "result": "written", "path": X.path_of(X.key_of(ordered)),
+        eq = equivalent(ordered, raw, stored[path])
+        if eq is None:
+            out.append({"rail_ref": ref, "result": "kept", "rule": "MG5", "path": path,
+                        "why": "another record holds the key and is not equivalent to the built record; alert, the "
+                               "capture entry stays", "record_cbor_hex": raw.hex()})
+            continue
+        out.append({"rail_ref": ref, "result": "already_stored", "equivalence": eq, "path": path,
                     "record_cbor_hex": raw.hex()})
     return out
 
@@ -541,12 +666,38 @@ def verify_file() -> dict:
         "description": "Verifier outcomes of the anchor check of a pending reference under spec revision v1.1 (core "
                        "20.6.1: presence needs header trust up to the anchor height H; every other row still needs the "
                        "deadline D, or D + 1 with an AB5 results proof), in the layout of the cases of v1/verify.json; "
-                       "decision and authorization name records of records_from. header_trust_needs is the height header "
-                       "trust must reach for the row that decides. v1_0 gives the anchor outcome of the frozen text on "
+                       "decision and authorization name records of records_from. header_trust_needs is the lowest height "
+                       "header trust must reach for the anchor check to become decidable on these inputs. v1_0 gives the anchor outcome of the frozen text on "
                        "the same inputs, which a v1.0.N verifier keeps.",
         "records_from": "v1/verify.json",
         "window": old["window"],
         "cases": cases,
+    }
+
+
+# ---------------------------------------------------------------- anchor_unpaid wording (H1)
+
+def reasons_file() -> dict:
+    base = load("verifier/reasons_v1.0.3.json")
+    old = next(r for r in base["reasons"] if r["name"] == "anchor_unpaid")
+    new = {"name": old["name"], "group": old["group"], "checks": old["checks"],
+           "meaning": "Anchor included, non-zero result code: published, but a valid verdict requires a paid anchor "
+                      "(tx_code == 0). Pending reference, no evidence inside the window, and an absence proof shows a "
+                      "PFF candidate at a height of [h0, anchor_deadline] whose result code is proven non-zero, with no "
+                      "height showing one with code 0. Names the first such height. Permanent: never invalid.",
+           "advice": "none (unpaid anchor: operator funding failure, surfaced by the escrow alert); another archive "
+                     "copy or --absence-source if a paid anchor may sit at a height not proven",
+           "replaces": {"file": "verifier/reasons_v1.0.3.json", "meaning": old["meaning"], "advice": old["advice"]}}
+    return {
+        "format": FORMAT, "revision": REVISION, "generator": GENERATOR,
+        "description": "Wording of spec revision v1.1 for the text output of a verifier (core 20.1.1, section 0 v1.1 "
+                       "row), human decision H1 of 2026-10-15: inclusion proves publication; a valid verdict "
+                       "additionally requires a paid anchor (tx_code == 0); unpaid anchors are an operator funding "
+                       "failure, surfaced by the escrow alert. Each entry gives the meaning and advice a v1.1 verifier "
+                       "prints instead of the strings in replaces, which stay byte-identical in their frozen file. "
+                       "Name, group, checks, cases and every outcome are those of the frozen file.",
+        "base": "verifier/reasons_v1.0.3.json",
+        "reasons": [new],
     }
 
 
@@ -569,12 +720,13 @@ def main() -> int:
     check = "--check" in sys.argv
     up = upstream_section()
     ok = True
-    for rel, d in ((EXEC_FILE, exec_file(up)), (ERRORS_FILE, errors_file()), (VERIFY_FILE, verify_file())):
+    for rel, d in ((EXEC_FILE, exec_file(up)), (ERRORS_FILE, errors_file()), (VERIFY_FILE, verify_file()),
+                   (REASONS_FILE, reasons_file())):
         if not write(rel, d, check):
             print(f"FAIL (gen v1.1): {rel} differs from the generator output", file=sys.stderr)
             ok = False
     if ok:
-        print(f"OK (gen v1.1): {'checked' if check else 'wrote'} {EXEC_FILE}, {ERRORS_FILE}, {VERIFY_FILE}")
+        print(f"OK (gen v1.1): {'checked' if check else 'wrote'} {EXEC_FILE}, {ERRORS_FILE}, {VERIFY_FILE}, {REASONS_FILE}")
     return 0 if ok else 1
 
 
