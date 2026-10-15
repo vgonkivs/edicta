@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgonkivs/edicta/celestia/clearerr"
 	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/celestia/secret"
@@ -117,7 +118,7 @@ func (k archiveCheck) Run(ctx context.Context, c config.Config) Result {
 			}
 			resp, err := k.env.Net.HTTPGet(ctx, u)
 			if err != nil || resp.Status >= 500 {
-				notes = append(notes, fmt.Sprintf("%s did not answer", u))
+				notes = append(notes, fmt.Sprintf("%s did not answer", clearerr.RedactURL(u)))
 			}
 		}
 	}

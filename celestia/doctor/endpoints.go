@@ -41,7 +41,7 @@ func (e endpoint) hostPort() string { return net.JoinHostPort(e.host, e.port) }
 func parseURLEndpoint(label, raw string, kind epKind, required bool) (endpoint, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-		return endpoint{}, fmt.Errorf("%s: %q is not an http or https URL", label, raw)
+		return endpoint{}, fmt.Errorf("%s: %q is not an http or https URL", label, clearerr.RedactURL(raw))
 	}
 	port := u.Port()
 	tls := u.Scheme == "https"
@@ -78,7 +78,7 @@ func parseHostPort(label, raw string, tls bool, required bool) (endpoint, error)
 		}
 	}
 	if host == "" {
-		return endpoint{}, fmt.Errorf("%s: %q has no host", label, raw)
+		return endpoint{}, fmt.Errorf("%s: %q has no host", label, clearerr.RedactURL(raw))
 	}
 	return endpoint{label: label, raw: raw, kind: epConnect, host: host, port: port, tls: tls, required: required, scheme: scheme}, nil
 }
@@ -319,7 +319,7 @@ func (k endpointsCheck) nodeLevel(ctx context.Context, c config.Config) (string,
 	}
 	if _, err := ch.BridgeHead(ctx); err != nil {
 		if isAuthError(err) {
-			return fmt.Sprintf("network.bridge: the bridge node rejected the auth token (%v)", err),
+			return fmt.Sprintf("network.bridge: the bridge node rejected the auth token (%v)", clearerr.RedactErr(err, c.Network.Bridge.Addr)),
 				"set network.bridge.token_file to a file with a valid bridge auth token"
 		}
 		return fmt.Sprintf("network.bridge: %v", clearerr.Dial(c.Network.Bridge.Addr, "", c.Network.Bridge.TLS, err)),

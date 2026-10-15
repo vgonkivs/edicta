@@ -45,14 +45,14 @@ func KindOf(err error) string {
 
 // Scheme is an endpoint written with the wrong scheme for what answers there.
 func Scheme(endpoint, got, serverSpeaks, fix string) error {
-	return &Error{Kind: KindScheme, Msg: fmt.Sprintf("endpoint %s: scheme %s but server speaks %s; use %s", endpoint, got, serverSpeaks, fix)}
+	return &Error{Kind: KindScheme, Msg: fmt.Sprintf("endpoint %s: scheme %s but server speaks %s; use %s", RedactURL(endpoint), got, serverSpeaks, RedactText(fix))}
 }
 
 // TLS is a failed TLS handshake.
 func TLS(endpoint string, reason error) error {
 	return &Error{
 		Kind:  KindTLS,
-		Msg:   fmt.Sprintf("endpoint %s: TLS: %s; check the certificate or set tls = false for a local node", endpoint, reasonText(reason)),
+		Msg:   fmt.Sprintf("endpoint %s: TLS: %s; check the certificate or set tls = false for a local node", RedactURL(endpoint), RedactText(reasonText(reason))),
 		Cause: reason,
 	}
 }
@@ -70,7 +70,7 @@ func KeyringPassphrase(file, key string) error {
 
 // WrongChain is a node on another chain than the config expects.
 func WrongChain(endpoint, got, want string) error {
-	return &Error{Kind: KindChain, Msg: fmt.Sprintf("node at %s is chain %s, config expects %s", endpoint, got, want)}
+	return &Error{Kind: KindChain, Msg: fmt.Sprintf("node at %s is chain %s, config expects %s", RedactURL(endpoint), got, want)}
 }
 
 // EscrowLow is a Fibre escrow under the headroom of one upload.
@@ -81,7 +81,7 @@ func EscrowLow(have, headroom uint64) error {
 // Facilitator is a payment the facilitator refused: its invalidReason as it
 // sent it, then the profile check that applies, if there is one.
 func Facilitator(invalidReason, profileCheck string) error {
-	msg := fmt.Sprintf("facilitator refused the payment: %s", invalidReason)
+	msg := fmt.Sprintf("facilitator refused the payment: %s", RedactText(invalidReason))
 	if profileCheck != "" {
 		msg += "; " + profileCheck
 	}
@@ -91,11 +91,14 @@ func Facilitator(invalidReason, profileCheck string) error {
 // Dial turns the error of a connection attempt to endpoint into the matching
 // message. scheme is the one the config used (http, https, or "" for a
 // host:port with tls decided by the flag), and tlsOn what the config
-// expects. An error it does not recognise is returned unchanged.
+// expects. An error it does not recognise is returned with its URLs and
+// endpoint redacted.
 func Dial(endpoint, scheme string, tlsOn bool, err error) error {
 	if err == nil {
 		return nil
 	}
+	raw := endpoint
+	endpoint = RedactURL(endpoint)
 	s := err.Error()
 	var (
 		unknownAuth x509.UnknownAuthorityError
@@ -117,7 +120,7 @@ func Dial(endpoint, scheme string, tlsOn bool, err error) error {
 		strings.Contains(s, "x509:"), strings.Contains(s, "tls:"), strings.Contains(s, "remote error: tls"):
 		return TLS(endpoint, err)
 	}
-	return err
+	return RedactErr(err, raw)
 }
 
 func schemeOrTLS(scheme string, tlsOn bool) string {

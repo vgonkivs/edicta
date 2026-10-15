@@ -98,3 +98,26 @@ func TestSNTPOffsetSign(t *testing.T) {
 	require.NoError(t, err)
 	assert.Less(t, off.Abs(), 200*time.Millisecond)
 }
+
+func TestSystemProbesDoNotEchoTheURLKey(t *testing.T) {
+	// Port 1 on loopback refuses, so both probes fail without the network.
+	const u = "http://user:SECRET@127.0.0.1:1/v2/SECRET?key=SECRET"
+	_, err := doctor.SystemNet{}.HTTPGet(context.Background(), u)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "SECRET")
+	assert.Contains(t, err.Error(), "127.0.0.1:1")
+
+	_, err = doctor.SystemEVM{}.ChainID(context.Background(), u)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "SECRET")
+}
+
+func TestSystemEVMRedactsAURLInARemoteError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"error":{"message":"key invalid for https://rpc.example/v2/SECRET"}}`))
+	}))
+	defer srv.Close()
+	_, err := doctor.SystemEVM{}.ChainID(context.Background(), srv.URL)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "SECRET")
+}

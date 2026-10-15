@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -708,4 +710,78 @@ func TestNoSecretInAnyOutput(t *testing.T) {
 	seed, err := os.ReadFile(s.cfg.Gate.KeyFile)
 	require.NoError(t, err)
 	assert.NotContains(t, js.String(), hex.EncodeToString(seed))
+}
+
+// echo is the error net/http returns: it carries the whole URL.
+func echo(u string) error { return &url.Error{Op: "Get", URL: u, Err: errBoom} }
+
+func TestNoURLKeyInAnyOutput(t *testing.T) {
+	s := newStack(t)
+	const (
+		rpcA     = "https://rpc-a.example/v2/SECRET?key=SECRET"
+		rpcB     = "https://user:SECRET@rpc-b.example/SECRET"
+		fac      = "https://fac.example/SECRET?key=SECRET"
+		archive  = "https://archive.example/SECRET?key=SECRET"
+		mirror   = "https://u:SECRET@mirror.example/SECRET"
+		comet    = "https://comet.example/v2/SECRET"
+		capture  = "https://capture.example/SECRET?key=SECRET"
+		headers  = "https://headers.example/SECRET"
+		bridge   = "bridge.example/SECRET"
+		checkRPC = "https://checkpoint.example?apikey=SECRET"
+	)
+	c := &s.cfg
+	c.Network.EVM.RPC = []string{rpcA, rpcB}
+	c.Network.EVM.FacilitatorURL = fac
+	c.Network.CometRPC = []string{comet}
+	c.Network.Bridge.Addr = bridge
+	c.Archive.URL = archive
+	c.Archive.MirrorURLs = []string{mirror}
+	c.Capture = &config.Capture{Dir: filepath.Join(s.dir, "capture"), CometRPC: capture}
+	c.Verify = &config.Verify{HeadersRPC: headers, CheckpointRPC: []string{checkRPC}, Quorum: 1}
+
+	s.evm.errs[rpcA] = &url.Error{Op: "Post", URL: rpcA, Err: errBoom}
+	s.evm.ids[rpcB] = 84532
+	s.evm.balErr = &url.Error{Op: "Post", URL: rpcB, Err: errBoom}
+	s.net.httpErr[fac+"/supported"] = echo(fac + "/supported")
+	s.net.httpErr[archive] = echo(archive)
+	s.net.httpErr[mirror] = echo(mirror)
+	s.net.httpErr[comet+"/status"] = echo(comet + "/status")
+	s.net.httpErr[capture+"/status"] = echo(capture + "/status")
+	s.net.http[headers+"/status"] = doctor.Response{Status: 200, Body: []byte(cometStatus("other-chain", 1, true))}
+	s.net.httpErr[checkRPC+"/status"] = echo(checkRPC + "/status")
+	s.chain.headErr = fmt.Errorf("dial %s: refused", bridge)
+
+	rep := doctor.Run(context.Background(), s.cfg, doctor.Checks(s.env, doctor.ConfigCheck{Err: errors.New("bad value " + rpcA)}))
+	require.True(t, rep.Failed())
+	var text, js bytes.Buffer
+	require.NoError(t, rep.WriteText(&text))
+	require.NoError(t, rep.WriteJSON(&js))
+	for name, out := range map[string]string{"text": text.String(), "json": js.String()} {
+		assert.NotContains(t, out, "SECRET", name)
+		assert.NotContains(t, out, "user", name)
+		for _, h := range []string{"rpc-a.example", "rpc-b.example", "fac.example", "archive.example", "comet.example", "bridge.example"} {
+			assert.Contains(t, out, h, "%s names the endpoint by its host", name)
+		}
+	}
+}
+
+func TestPayerAddressReadsARawKeyWhole(t *testing.T) {
+	// About 1 in 128 random keys ends in a newline or carriage return byte; a
+	// trimming reader would refuse them as 31 bytes.
+	for _, last := range []byte{0x0a, 0x0d} {
+		p := filepath.Join(t.TempDir(), "k")
+		scalar := make([]byte, 32)
+		scalar[0] = 1
+		scalar[31] = last
+		mustWrite(t, p, scalar, 0o600)
+		a, err := doctor.PayerAddress(p)
+		require.NoError(t, err)
+		want, err := doctor.PayerAddressOf(scalar)
+		require.NoError(t, err)
+		assert.Equal(t, want, a)
+	}
+	p := filepath.Join(t.TempDir(), "k")
+	mustWrite(t, p, make([]byte, 32), 0o644)
+	_, err := doctor.PayerAddress(p)
+	require.Error(t, err, "a key readable by others is refused")
 }

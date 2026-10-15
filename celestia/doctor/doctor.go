@@ -10,6 +10,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/vgonkivs/edicta/celestia/clearerr"
 	"github.com/vgonkivs/edicta/celestia/config"
 )
 
@@ -85,9 +86,39 @@ const CheckTimeout = 30 * time.Second
 func Run(ctx context.Context, c config.Config, checks []Check) Report {
 	var rep Report
 	for _, ch := range checks {
-		rep.Items = append(rep.Items, Item{Name: ch.Name(), Result: runOne(ctx, c, ch)})
+		rep.Items = append(rep.Items, Item{Name: ch.Name(), Result: redactResult(runOne(ctx, c, ch), c)})
 	}
 	return rep
+}
+
+// redactResult keeps API keys that providers put in endpoint URLs out of the
+// report, also when a probe or a remote answer echoes the URL back. The fix
+// keeps the URLs doctor itself suggests, such as a faucet page.
+func redactResult(r Result, c config.Config) Result {
+	eps := endpointStrings(c)
+	r.Cause = clearerr.RedactText(clearerr.RedactEndpoints(r.Cause, eps...))
+	r.Fix = clearerr.RedactEndpoints(r.Fix, eps...)
+	return r
+}
+
+func endpointStrings(c config.Config) []string {
+	n := c.Network
+	out := []string{n.Bridge.Addr, n.ConsensusGRPC.Addr, n.EVM.FacilitatorURL, c.Archive.URL}
+	out = append(out, n.CometRPC...)
+	out = append(out, n.EVM.RPC...)
+	out = append(out, c.Archive.MirrorURLs...)
+	if c.Agent != nil {
+		out = append(out, c.Agent.RecorderURL, c.Agent.GateURL)
+	}
+	if c.Capture != nil {
+		out = append(out, c.Capture.CometRPC)
+	}
+	if v := c.Verify; v != nil {
+		out = append(out, v.HeadersRPC, v.TxRPC)
+		out = append(out, v.CheckpointRPC...)
+		out = append(out, v.CrossCheckRPC...)
+	}
+	return out
 }
 
 func runOne(ctx context.Context, c config.Config, ch Check) (res Result) {

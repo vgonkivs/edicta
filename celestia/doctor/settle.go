@@ -11,37 +11,31 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/vgonkivs/edicta/celestia/clearerr"
 	"github.com/vgonkivs/edicta/celestia/config"
-	"github.com/vgonkivs/edicta/celestia/secret"
+	"github.com/vgonkivs/edicta/celestia/keyfile"
 	"github.com/vgonkivs/edicta/principalsig"
 )
 
-// PayerAddress derives the 0x address of the secp256k1 payer key in a raw
-// 32-byte file (mode 0600). It reuses the signer of principalsig, so the
-// address rule is the one the principal keys already use.
+// PayerAddress derives the 0x address of the secp256k1 payer key file (mode
+// 0600, 32 raw bytes or 64 hex characters). It reuses the signer of
+// principalsig, so the address rule is the one the principal keys already
+// use.
 func PayerAddress(path string) (string, error) {
-	s, err := secret.FromFile(path)
+	k, err := keyfile.ReadSecp256k1(path, "payer")
 	if err != nil {
 		return "", err
 	}
-	defer s.Zero()
-	return PayerAddressOf(s)
+	defer clear(k)
+	return PayerAddressOf(k)
 }
 
-// PayerAddressOf derives the 0x address from a payer scalar. A key file of
-// hex text is accepted as well as 32 raw bytes.
-func PayerAddressOf(s secret.Secret) (string, error) {
-	raw := s.Reveal()
-	defer clear(raw)
-	if len(raw) != 32 {
-		h, err := hex.DecodeString(strings.TrimSpace(string(raw)))
-		clear(raw)
-		if err != nil || len(h) != 32 {
-			return "", errors.New("the payer key must be 32 bytes, raw or as 64 hex characters")
-		}
-		raw = h
+// PayerAddressOf derives the 0x address from a 32-byte payer scalar.
+func PayerAddressOf(scalar []byte) (string, error) {
+	if len(scalar) != keyfile.Secp256k1Len {
+		return "", errors.New("the payer key must be 32 bytes")
 	}
-	sg, err := principalsig.NewSecp256k1Signer(principalsig.EIP712, raw, "")
+	sg, err := principalsig.NewSecp256k1Signer(principalsig.EIP712, scalar, "")
 	if err != nil {
 		return "", err
 	}
@@ -143,7 +137,7 @@ func (e *Env) evmProviders(ctx context.Context, c config.Config) (good []string,
 		id, err := e.EVM.ChainID(ctx, u)
 		switch {
 		case err != nil:
-			bad = append(bad, fmt.Sprintf("%s: %v", host(u), err))
+			bad = append(bad, fmt.Sprintf("%s: %v", host(u), clearerr.RedactErr(err, u)))
 		case id != c.Network.EVM.ChainID:
 			wrong = append(wrong, fmt.Sprintf("%s answers chain %d, config expects %d", host(u), id, c.Network.EVM.ChainID))
 		default:
@@ -156,7 +150,7 @@ func (e *Env) evmProviders(ctx context.Context, c config.Config) (good []string,
 func host(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
-		return raw
+		return clearerr.RedactURL(raw)
 	}
 	return u.Host
 }
@@ -205,12 +199,13 @@ func (k facilitatorCheck) Run(ctx context.Context, c config.Config) Result {
 	if k.env.Net == nil {
 		return fail("no network probe in this run", "report this as a bug")
 	}
-	resp, err := k.env.Net.HTTPGet(ctx, strings.TrimSuffix(e.FacilitatorURL, "/")+"/supported")
+	supported := strings.TrimSuffix(e.FacilitatorURL, "/") + "/supported"
+	resp, err := k.env.Net.HTTPGet(ctx, supported)
 	if err != nil {
-		return fail(fmt.Sprintf("%s/supported: %v", e.FacilitatorURL, err), "check network.evm.facilitator_url")
+		return fail(fmt.Sprintf("facilitator at %s: /supported: %v", clearerr.RedactURL(e.FacilitatorURL), clearerr.RedactErr(err, supported, e.FacilitatorURL)), "check network.evm.facilitator_url")
 	}
 	if resp.Status != 200 {
-		return fail(fmt.Sprintf("%s/supported answered HTTP %d", e.FacilitatorURL, resp.Status), "check network.evm.facilitator_url; the facilitator may be down")
+		return fail(fmt.Sprintf("facilitator at %s: /supported answered HTTP %d", clearerr.RedactURL(e.FacilitatorURL), resp.Status), "check network.evm.facilitator_url; the facilitator may be down")
 	}
 	var doc struct {
 		Kinds []struct {
@@ -271,7 +266,7 @@ func (k balancesCheck) Run(ctx context.Context, c config.Config) Result {
 		return ok("payer %s holds %s USDC base units", payer, formatInt(bal))
 	}
 	if lastErr != nil {
-		return warn("payer USDC balance unreadable: "+lastErr.Error(), "check network.evm.rpc")
+		return warn("payer USDC balance unreadable: "+clearerr.RedactErr(lastErr, good...).Error(), "check network.evm.rpc")
 	}
 	return warn("no settlement RPC answered: the payer balance was not read", "see the settlement check")
 }

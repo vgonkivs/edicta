@@ -18,6 +18,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 
+	"github.com/vgonkivs/edicta/celestia/clearerr"
 	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/secret"
@@ -79,13 +80,13 @@ func (n SystemNet) DialTLS(ctx context.Context, hostPort, serverName string) err
 func (n SystemNet) HTTPGet(ctx context.Context, url string) (Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return Response{}, err
+		return Response{}, clearerr.RedactErr(err, url)
 	}
 	tr := &http.Transport{TLSClientConfig: n.TLS, DisableKeepAlives: true, Proxy: http.ProxyFromEnvironment}
 	defer tr.CloseIdleConnections()
 	resp, err := (&http.Client{Timeout: 15 * time.Second, Transport: tr}).Do(req)
 	if err != nil {
-		return Response{}, err
+		return Response{}, clearerr.RedactErr(err, url)
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
@@ -105,7 +106,7 @@ func (e SystemEVM) call(ctx context.Context, rpcURL, method string, params ...an
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, clearerr.RedactErr(err, rpcURL)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	c := e.Client
@@ -114,7 +115,7 @@ func (e SystemEVM) call(ctx context.Context, rpcURL, method string, params ...an
 	}
 	resp, err := c.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, clearerr.RedactErr(err, rpcURL)
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
@@ -134,7 +135,7 @@ func (e SystemEVM) call(ctx context.Context, rpcURL, method string, params ...an
 		return nil, errors.New("not a JSON-RPC answer")
 	}
 	if out.Error != nil {
-		return nil, fmt.Errorf("JSON-RPC error: %s", out.Error.Message)
+		return nil, fmt.Errorf("JSON-RPC error: %s", clearerr.RedactText(out.Error.Message))
 	}
 	return out.Result, nil
 }

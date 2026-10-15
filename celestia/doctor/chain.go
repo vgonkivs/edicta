@@ -99,7 +99,7 @@ func (k chainCheck) cometChainIDs(ctx context.Context, c config.Config) string {
 			return fmt.Sprintf("network.comet_rpc[%d]: %s", i, clearerr.WrongChain(u, info.Network, c.Network.ChainID))
 		}
 		if info.CatchingUp {
-			return fmt.Sprintf("network.comet_rpc[%d] at %s is still catching up", i, u)
+			return fmt.Sprintf("network.comet_rpc[%d] at %s is still catching up", i, clearerr.RedactURL(u))
 		}
 	}
 	return ""
