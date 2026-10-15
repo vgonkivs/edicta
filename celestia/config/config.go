@@ -81,10 +81,8 @@ func Parse(data []byte, overrides map[string]string) (Config, error) {
 	if tree == nil {
 		tree = map[string]any{}
 	}
-	for k, v := range overrides {
-		if err := setPath(tree, strings.Split(k, "."), parseValue(v)); err != nil {
-			return Config{}, cfgErr("override %q: %v", k, err)
-		}
+	if err := ApplyOverrides(tree, overrides); err != nil {
+		return Config{}, err
 	}
 	raw, err := toml.Marshal(tree)
 	if err != nil {
@@ -96,6 +94,18 @@ func Parse(data []byte, overrides map[string]string) (Config, error) {
 		return Config{}, tomlErr(err)
 	}
 	return c, nil
+}
+
+// ApplyOverrides sets each "section.key" of overrides in a decoded TOML tree,
+// reading the value as Parse does. It checks no key: decoding the tree into
+// a Config does.
+func ApplyOverrides(tree map[string]any, overrides map[string]string) error {
+	for k, v := range overrides {
+		if err := setPath(tree, strings.Split(k, "."), parseValue(v)); err != nil {
+			return cfgErr("override %q: %v", k, err)
+		}
+	}
+	return nil
 }
 
 // Load reads path and parses it like Parse.

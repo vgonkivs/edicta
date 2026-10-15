@@ -27,8 +27,28 @@ func (r Result) WriteText(w io.Writer) error {
 	if r.Payer != nil {
 		fmt.Fprintf(&b, "%-8s %-9s key %s  %s\n", r.Payer.Status, "payer", r.Payer.Path, r.Payer.Address)
 	}
+	if k := r.Principal; k.Status != "" {
+		fmt.Fprintf(&b, "%-8s %-9s key %s  ed25519 %s\n", k.Status, k.Role, k.Path, hex.EncodeToString(k.Public))
+		b.WriteString("         the principal key signs mandates only: once the mandate is signed, move it off this machine\n")
+	}
+	if m := r.Mandate; m != nil && m.Status != "" {
+		fmt.Fprintf(&b, "%-8s %-9s %s  hash %s\n", m.Status, "mandate", m.Path, m.Hash)
+	}
+	for _, f := range []struct {
+		role string
+		File
+	}{{"allowlist", r.Allowlist}, {"config", r.Config}} {
+		if f.Status != "" {
+			fmt.Fprintf(&b, "%-8s %-9s %s\n", f.Status, f.role, f.Path)
+		}
+	}
 	if r.RecorderNamespace != "" {
-		fmt.Fprintf(&b, "namespaces (new on every run until the config file records them): recorder %s, publisher %s\n", r.RecorderNamespace, r.PublisherNamespace)
+		fmt.Fprintf(&b, "namespaces: recorder %s, publisher %s\n", r.RecorderNamespace, r.PublisherNamespace)
+	}
+	if m := r.Mandate; m != nil && m.Text != "" {
+		b.WriteString("\nthe mandate the gate enforces, signed with the principal key:\n\n")
+		b.WriteString(m.Text)
+		b.WriteString("\n")
 	}
 
 	var fund []string
@@ -52,6 +72,9 @@ func (r Result) WriteText(w io.Writer) error {
 		b.WriteString("fund these addresses:\n")
 		b.WriteString(strings.Join(fund, "\n"))
 		b.WriteString("\n")
+	}
+	if r.NextCommand != "" {
+		fmt.Fprintf(&b, "next: %s\n", r.NextCommand)
 	}
 	_, err := io.WriteString(w, b.String())
 	return err

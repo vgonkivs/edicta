@@ -319,3 +319,18 @@ func TestSecretsAreNeverValues(t *testing.T) {
 		require.ErrorIs(t, err, config.ErrConfig, k)
 	}
 }
+
+func TestApplyOverridesOnATree(t *testing.T) {
+	tree := map[string]any{"network": map[string]any{"celestia": "mocha"}}
+	require.NoError(t, config.ApplyOverrides(tree, map[string]string{
+		"network.consensus_grpc.addr": "localhost:9090",
+		"network.consensus_grpc.tls":  "true",
+	}))
+	assert.Equal(t, map[string]any{"network": map[string]any{
+		"celestia":       "mocha",
+		"consensus_grpc": map[string]any{"addr": "localhost:9090", "tls": true},
+	}}, tree)
+
+	err := config.ApplyOverrides(tree, map[string]string{"network.celestia.x": "1"})
+	require.ErrorIs(t, err, config.ErrConfig)
+}

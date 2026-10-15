@@ -85,3 +85,36 @@ func TestInitUsageErrors(t *testing.T) {
 	_, err := os.Stat(home)
 	assert.True(t, os.IsNotExist(err))
 }
+
+func TestParseUSDC(t *testing.T) {
+	for in, want := range map[string]uint64{
+		"1": 1_000_000, "0.10": 100_000, ".5": 500_000, "0.000001": 1, "12.345678": 12_345_678, "007": 7_000_000, "1.": 1_000_000,
+	} {
+		got, err := parseUSDC(in)
+		require.NoError(t, err, in)
+		assert.Equal(t, want, got, in)
+	}
+	for _, in := range []string{"", ".", "0", "0.0", "0.0000001", "-1", "1e3", "1,5", " 1", "99999999999999999999"} {
+		_, err := parseUSDC(in)
+		assert.Error(t, err, in)
+	}
+}
+
+func TestInitPassesTheLimits(t *testing.T) {
+	useInitEnv(t)
+	old := initRun
+	t.Cleanup(func() { initRun = old })
+	var got initcmd.Config
+	initRun = func(_ context.Context, c initcmd.Config, _ *doctor.Env, _ config.Presets) (initcmd.Result, error) {
+		got = c
+		return initcmd.Result{Home: c.Home}, nil
+	}
+	code, out := edicta(t, "init", "--home", "/h", "--max-per-payment", "0.25", "--max-per-hour", "3")
+	require.Equal(t, 0, code, out)
+	assert.Equal(t, uint64(250_000), got.MaxPerPayment)
+	assert.Equal(t, uint64(3_000_000), got.MaxPerHour)
+
+	code, out = edicta(t, "init", "--home", "/h", "--max-per-payment", "lots")
+	assert.Equal(t, exitUsage, code, out)
+	assert.Contains(t, out, "--max-per-payment")
+}

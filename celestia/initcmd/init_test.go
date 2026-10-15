@@ -54,7 +54,7 @@ func (fakeChain) FibreParams(context.Context) (node.FibreParams, error) {
 	return node.FibreParams{}, node.ErrNotFound
 }
 func (fakeChain) Escrow(context.Context, string) (node.Escrow, error) { return node.Escrow{}, nil }
-func (fakeChain) MinGasPrice(context.Context) (*big.Rat, error)      { return big.NewRat(1, 1000), nil }
+func (fakeChain) MinGasPrice(context.Context) (*big.Rat, error)       { return big.NewRat(1, 1000), nil }
 func (fakeChain) Balance(context.Context, string, string) (uint64, error) {
 	return 0, nil
 }
@@ -181,6 +181,17 @@ func TestRerunOverwritesNothing(t *testing.T) {
 	assert.Equal(t, first.Recorder.Address, second.Recorder.Address)
 	assert.Equal(t, first.Publisher.Address, second.Publisher.Address)
 	assert.Equal(t, first.Payer.Address, second.Payer.Address)
+	assert.Equal(t, first.Principal.Public, second.Principal.Public)
+	assert.Equal(t, initcmd.Exists, second.Principal.Status)
+	require.NotNil(t, second.Mandate)
+	assert.Equal(t, initcmd.Exists, second.Mandate.Status)
+	assert.Equal(t, first.Mandate.Hash, second.Mandate.Hash)
+	assert.Equal(t, first.Mandate.Text, second.Mandate.Text)
+	assert.Equal(t, initcmd.Exists, second.Allowlist.Status)
+	assert.Equal(t, initcmd.Exists, second.Config.Status)
+	assert.Equal(t, first.GateID, second.GateID)
+	assert.Equal(t, first.RecorderNamespace, second.RecorderNamespace, "namespaces are stable across runs")
+	assert.Equal(t, first.PublisherNamespace, second.PublisherNamespace)
 
 	var out bytes.Buffer
 	require.NoError(t, second.WriteText(&out))
@@ -296,7 +307,7 @@ func TestNoSecretInOutput(t *testing.T) {
 	printed := out.String() + string(js) + fmt.Sprintf("%+v %#v", res, res)
 
 	var secrets [][]byte
-	for _, p := range []string{res.Agent.Path, res.Gate.Path, res.Executor.Path, res.Payer.Path} {
+	for _, p := range []string{res.Agent.Path, res.Gate.Path, res.Executor.Path, res.Payer.Path, res.Principal.Path} {
 		b, err := os.ReadFile(p)
 		require.NoError(t, err)
 		secrets = append(secrets, b)
@@ -339,6 +350,32 @@ func TestOverridesReachThePreflight(t *testing.T) {
 	}, env, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "localhost:9090", seen.ConsensusGRPC.Addr)
+}
+
+func TestOverridesAreWrittenToTheConfig(t *testing.T) {
+	home := t.TempDir()
+	res, err := initcmd.Run(context.Background(), initcmd.Config{
+		Home:      home,
+		Overrides: map[string]string{"network.consensus_grpc.addr": "localhost:9090", "network.consensus_grpc.tls": "true"},
+	}, healthyEnv("mocha-5"), nil)
+	require.NoError(t, err)
+	cfg, err := config.LoadValid(res.Config.Path, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, config.Endpoint{Addr: "localhost:9090", TLS: true}, cfg.Network.ConsensusGRPC)
+	assert.Equal(t, res.Network.Bridge, cfg.Network.Bridge, "keys not overridden still come from the preset")
+}
+
+func TestConfigValidateBasicLimits(t *testing.T) {
+	c := initcmd.Config{Home: "/h", MaxPerPayment: 2, MaxPerHour: 1}
+	c.ApplyDefaults()
+	require.ErrorIs(t, c.ValidateBasic(), initcmd.ErrConfig)
+
+	c = initcmd.Config{Home: "/h"}
+	c.ApplyDefaults()
+	assert.Equal(t, initcmd.DefaultMaxPerPayment, c.MaxPerPayment)
+	assert.Equal(t, initcmd.DefaultMaxPerHour, c.MaxPerHour)
+	c.MaxPerHour = 0
+	require.ErrorIs(t, c.ValidateBasic(), initcmd.ErrConfig)
 }
 
 func TestConfigValidateBasic(t *testing.T) {
