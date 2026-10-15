@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/celestia/doctor"
+	"github.com/vgonkivs/edicta/celestia/node"
 )
 
 func TestSystemEVM(t *testing.T) {
@@ -120,4 +123,22 @@ func TestSystemEVMRedactsAURLInARemoteError(t *testing.T) {
 	_, err := doctor.SystemEVM{}.ChainID(context.Background(), srv.URL)
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "SECRET")
+}
+
+func TestSystemKeyring(t *testing.T) {
+	dir := t.TempDir()
+	pass := filepath.Join(dir, "pass")
+	require.NoError(t, os.WriteFile(pass, []byte("fixture-passphrase\n"), 0o600))
+	fixture, err := filepath.Abs("../node/testdata/file-keyring")
+	require.NoError(t, err)
+	kr := filepath.Join(dir, "kr")
+	require.NoError(t, os.CopyFS(kr, os.DirFS(fixture)))
+
+	addr, err := doctor.SystemKeyring{}.Address(context.Background(), kr, "executor", pass)
+	require.NoError(t, err)
+	assert.Equal(t, "celestia13hzxpm30m23tfp90sv767u0fhc9xj0qk82ytnd", addr)
+
+	require.NoError(t, os.WriteFile(pass, []byte("wrong-passphrase\n"), 0o600))
+	_, err = doctor.SystemKeyring{}.Address(context.Background(), kr, "executor", pass)
+	require.ErrorIs(t, err, node.ErrBadPassphrase)
 }

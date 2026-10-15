@@ -1,6 +1,7 @@
 // Command edicta is the Edicta command line.
 //
 //	edicta verify|replay <commitment_hash> --gate-key HEX ...
+//	edicta doctor [--config PATH] [--set key=value]... [--json]
 //	edicta demo [fast-mode | fast-live] [flags]
 package main
 
@@ -14,7 +15,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/verifycli"
 )
 
-const usage = "usage: edicta demo [fast-mode | fast-live [--restart]] | verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) [flags]"
+const usage = "usage: edicta doctor [--config PATH] [--set key=value]... [--json] | demo [fast-mode | fast-live [--restart]] | verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) [flags]"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout)) }
 
@@ -28,6 +29,10 @@ func run(args []string, out io.Writer) int {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
 		return runDemo(ctx, args[1:], out, os.Stdin)
+	case "doctor":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stop()
+		return runDoctor(ctx, args[1:], out)
 	case "verify", "replay":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
