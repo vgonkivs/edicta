@@ -79,6 +79,9 @@ func runInit(ctx context.Context, args []string, out io.Writer) int {
 			return doctorFailed
 		}
 	}
+	if limited := *perPayment != "" || *perHour != ""; limited && (res.Mandate != nil && res.Mandate.Status == initcmd.Exists || res.Config.Status == initcmd.Exists) {
+		fmt.Fprintln(out, "the mandate or edicta.toml exists: --max-per-* is not applied to it; sign a new mandate version to change the limits")
+	}
 	if err != nil {
 		fmt.Fprintf(out, "edicta init: %v\n", err)
 		if errors.Is(err, initcmd.ErrConfig) || errors.Is(err, config.ErrConfig) || errors.Is(err, config.ErrPreset) {
@@ -98,7 +101,10 @@ func parseUSDC(s string) (uint64, error) {
 	}
 	frac += strings.Repeat("0", initcmd.USDCScale-len(frac))
 	v, err := strconv.ParseUint(whole+frac, 10, 64)
-	if err != nil || v == 0 {
+	if err != nil {
+		return 0, fmt.Errorf("%q is too large an amount", s)
+	}
+	if v == 0 {
 		return 0, fmt.Errorf("%q is not a positive USDC amount", s)
 	}
 	return v, nil

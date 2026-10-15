@@ -19,5 +19,14 @@ func CheckDir(dir string) error {
 	return errPlatform
 }
 
+// ResolveDir cannot check ownership on this platform; it refuses instead of
+// passing a path it did not check.
+func ResolveDir(dir string) (string, error) {
+	if _, err := os.Lstat(dir); err != nil {
+		return "", fmt.Errorf("keyfile: %w", err)
+	}
+	return "", errPlatform
+}
+
 // LockDir is not available on this platform.
 func LockDir(string, string) (func(), error) { return nil, errPlatform }

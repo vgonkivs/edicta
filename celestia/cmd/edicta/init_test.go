@@ -118,3 +118,34 @@ func TestInitPassesTheLimits(t *testing.T) {
 	assert.Equal(t, exitUsage, code, out)
 	assert.Contains(t, out, "--max-per-payment")
 }
+
+func TestParseUSDCTooLarge(t *testing.T) {
+	_, err := parseUSDC("99999999999999999999")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too large")
+}
+
+func TestInitRefusesLimitsAboveTheCap(t *testing.T) {
+	useInitEnv(t)
+	home := filepath.Join(t.TempDir(), "edicta")
+	code, out := edicta(t, "init", "--home", home, "--max-per-payment", "1", "--max-per-hour", "1000000.000001")
+	assert.Equal(t, exitUsage, code, out)
+	assert.Contains(t, out, "at most 1000000 USDC")
+	assert.NoDirExists(t, home)
+}
+
+func TestInitSaysLimitsDoNotChangeAnExistingMandate(t *testing.T) {
+	useInitEnv(t)
+	old := initRun
+	t.Cleanup(func() { initRun = old })
+	initRun = func(_ context.Context, c initcmd.Config, _ *doctor.Env, _ config.Presets) (initcmd.Result, error) {
+		return initcmd.Result{Home: c.Home, Mandate: &initcmd.Mandate{Path: "/h/mandate.cbor", Status: initcmd.Exists}}, nil
+	}
+	code, out := edicta(t, "init", "--home", "/h", "--max-per-hour", "3")
+	require.Equal(t, 0, code, out)
+	assert.Contains(t, out, "--max-per-* is not applied")
+
+	code, out = edicta(t, "init", "--home", "/h")
+	require.Equal(t, 0, code, out)
+	assert.NotContains(t, out, "not applied")
+}

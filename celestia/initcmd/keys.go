@@ -47,6 +47,22 @@ func ensureSeed(path, role string) (Ed25519Key, error) {
 			return k, fmt.Errorf("init: %s key: %w", role, err)
 		}
 	}
+	return readSeedKey(k)
+}
+
+// loadSeed reads the seed at path when there is one; a missing file gives a
+// key with no public half and no status.
+func loadSeed(path, role string) (Ed25519Key, error) {
+	k := Ed25519Key{Role: role, Path: path}
+	found, err := exists(path)
+	if err != nil || !found {
+		return k, err
+	}
+	return readSeedKey(k)
+}
+
+func readSeedKey(k Ed25519Key) (Ed25519Key, error) {
+	path, role := k.Path, k.Role
 	priv, err := keyfile.ReadSeed(path, role)
 	if err != nil {
 		return k, fmt.Errorf("%w: %s key %s: %w", ErrExisting, role, path, err)
@@ -64,8 +80,8 @@ func ensureSeed(path, role string) (Ed25519Key, error) {
 // built and checked in a temporary directory and renamed into place, so the
 // keyring directory is either absent or complete.
 func ensureAccount(home, role string) (Account, error) {
-	dir := filepath.Join(home, "keyring-"+role)
-	a := Account{Role: role, KeyringDir: dir, KeyName: role, PassphraseFile: filepath.Join(dir, role+".pass")}
+	a := accountIn(home, role)
+	dir := a.KeyringDir
 	found, err := exists(dir)
 	if err != nil {
 		return a, err
@@ -113,6 +129,29 @@ func ensureAccount(home, role string) (Account, error) {
 	}
 	a.Address, a.Status = addr, Created
 	return a, nil
+}
+
+// accountIn is where the keyring of role lives in home.
+func accountIn(home, role string) Account {
+	dir := filepath.Join(home, "keyring-"+role)
+	return Account{Role: role, KeyringDir: dir, KeyName: role, PassphraseFile: filepath.Join(dir, role+".pass")}
+}
+
+// checkRoles refuses two signing roles that hold one key. Generated keys never
+// collide; a copied key file would otherwise be found only when the gate
+// refuses to start, far from the cause.
+func checkRoles(keys ...Ed25519Key) error {
+	for i, a := range keys {
+		if a.Public == nil {
+			continue
+		}
+		for _, b := range keys[i+1:] {
+			if b.Public != nil && a.Public.Equal(b.Public) {
+				return fmt.Errorf("%w: %s and %s hold the same public key: the agent, gate, executor and principal keys must all differ; move one of them away", ErrKeyRole, a.Path, b.Path)
+			}
+		}
+	}
+	return nil
 }
 
 // renameDir is replaced by tests to lose the race for the keyring name.

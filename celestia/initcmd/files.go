@@ -51,8 +51,12 @@ const (
 	mandateLifetime = 30 * 24 * time.Hour
 )
 
-// maxMandateBytes bounds the read of an existing mandate file.
-const maxMandateBytes = 1 << 20
+// maxMandateBytes and maxConfigBytes bound the read of an existing mandate
+// and config file.
+const (
+	maxMandateBytes = 1 << 20
+	maxConfigBytes  = 1 << 20
+)
 
 // File is a file init writes once and then leaves alone.
 type File struct {
@@ -72,15 +76,33 @@ type Mandate struct {
 }
 
 // existingConfig loads the config file of the home when there is one. A file
-// that does not load and validate is unusable and left alone.
-func existingConfig(path string, p config.Presets) (*config.Config, error) {
+// that does not load and validate is unusable and left alone, and so is one
+// written for another network or mode than the run sets up.
+func existingConfig(home string, n config.Network, p config.Presets) (*config.Config, error) {
+	path := filepath.Join(home, config.FileName)
 	found, err := exists(path)
 	if err != nil || !found {
 		return nil, err
 	}
-	c, err := config.LoadValid(path, nil, p)
+	b, err := readBounded(path, maxConfigBytes)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %w", ErrExisting, path, err)
+	}
+	c, err := config.Parse(b, nil)
+	if err == nil {
+		err = c.ApplyDefaults(p)
+	}
+	if err == nil {
+		err = c.ValidateBasic()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s: %w", ErrExisting, path, err)
+	}
+	switch old := c.Network; {
+	case old.Celestia != n.Celestia || old.Settlement != n.Settlement:
+		return nil, fmt.Errorf("%w: %s is for %s+%s: run init with that preset, or move the file away", ErrConfig, path, old.Celestia, old.Settlement)
+	case old.Mode != n.Mode:
+		return nil, fmt.Errorf("%w: %s is for a %s stack and init sets up a %s one: move the file away", ErrConfig, path, old.Mode, n.Mode)
 	}
 	return &c, nil
 }
@@ -126,49 +148,81 @@ func usdcAsset(chainID uint64, contract string) string {
 	return fmt.Sprintf("eip155:%d/erc20:%s", chainID, strings.ToLower(contract))
 }
 
-// ensureMandate finds the mandate file or signs a new starter mandate with
-// the principal key and writes it.
-func ensureMandate(path string, p mandateParams) (Mandate, error) {
+// readMandate loads the mandate file when there is one; sm is nil when there
+// is none.
+func readMandate(path string) (Mandate, *policy.SignedMandate, error) {
 	found, err := exists(path)
-	if err != nil {
-		return Mandate{Path: path}, err
-	}
-	if !found {
-		b, err := signStarterMandate(p)
-		if err != nil {
-			return Mandate{Path: path}, err
-		}
-		err = keyfile.WriteNew(path, b)
-		if err == nil {
-			m, err := mandateOf(path, b)
-			if err != nil {
-				return m, fmt.Errorf("init: the new mandate does not verify: %w", err)
-			}
-			m.Status = Created
-			return m, nil
-		}
-		if !errors.Is(err, keyfile.ErrExists) {
-			return Mandate{Path: path}, fmt.Errorf("init: mandate: %w", err)
-		}
+	if err != nil || !found {
+		return Mandate{Path: path}, nil, err
 	}
 	b, err := readBounded(path, maxMandateBytes)
 	if err != nil {
-		return Mandate{Path: path}, fmt.Errorf("%w: mandate %s: %w", ErrExisting, path, err)
+		return Mandate{Path: path}, nil, fmt.Errorf("%w: mandate %s: %w", ErrExisting, path, err)
 	}
-	m, err := mandateOf(path, b)
+	m, sm, err := mandateOf(path, b)
 	if err != nil {
-		return m, fmt.Errorf("%w: mandate %s: %w", ErrExisting, path, err)
+		return m, nil, fmt.Errorf("%w: mandate %s: %w", ErrExisting, path, err)
 	}
 	m.Status = Exists
-	return m, nil
+	return m, sm, nil
 }
 
-func mandateOf(path string, b []byte) (Mandate, error) {
+// ensureMandate signs a new starter mandate with the principal key and
+// writes it, or reads the one another writer put there first.
+func ensureMandate(path string, p mandateParams) (Mandate, *policy.SignedMandate, error) {
+	b, err := signStarterMandate(p)
+	if err != nil {
+		return Mandate{Path: path}, nil, err
+	}
+	err = keyfile.WriteNew(path, b)
+	if errors.Is(err, keyfile.ErrExists) {
+		return readMandate(path)
+	}
+	if err != nil {
+		return Mandate{Path: path}, nil, fmt.Errorf("init: mandate: %w", err)
+	}
+	m, sm, err := mandateOf(path, b)
+	if err != nil {
+		return m, nil, fmt.Errorf("init: the new mandate does not verify: %w", err)
+	}
+	m.Status = Created
+	return m, sm, nil
+}
+
+func mandateOf(path string, b []byte) (Mandate, *policy.SignedMandate, error) {
 	sm, h, err := policy.VerifyMandate(b)
 	if err != nil {
-		return Mandate{Path: path}, err
+		return Mandate{Path: path}, nil, err
 	}
-	return Mandate{Path: path, Hash: hex.EncodeToString(h[:]), GateID: sm.Mandate.GateID, Text: policy.Render(&sm.Mandate)}, nil
+	return Mandate{Path: path, Hash: hex.EncodeToString(h[:]), GateID: sm.Mandate.GateID, Text: policy.Render(&sm.Mandate)}, sm, nil
+}
+
+// mandatePrincipal is the principal that signed sm, as a key to compare with
+// the other roles; a wallet principal has no Ed25519 key.
+func mandatePrincipal(sm *policy.SignedMandate, path string) Ed25519Key {
+	k := Ed25519Key{Role: "principal", Path: path + " (its principal)"}
+	if sm.Mandate.SigType == 0 {
+		k.Public = ed25519.PublicKey(sm.Mandate.Principal)
+	}
+	return k
+}
+
+// principalOf reports the principal that signed sm next to the local key
+// file: the file is the principal's key, holds another key, or is absent
+// because the key was moved off the machine.
+func principalOf(sm *policy.SignedMandate, file Ed25519Key) (Ed25519Key, string) {
+	id := sm.Mandate.PrincipalID()
+	k := mandatePrincipal(sm, "")
+	k.Path = file.Path
+	switch {
+	case file.Status == "":
+		k.Path, k.Status = "", Offline
+	case k.Public != nil && k.Public.Equal(file.Public):
+		k.Status = file.Status
+	default:
+		k.Status = Mismatch
+	}
+	return k, id.String()
 }
 
 func signStarterMandate(p mandateParams) ([]byte, error) {
@@ -285,8 +339,8 @@ type starterRisk struct {
 	MaxPerHour    uint64 `toml:"max_per_hour"`
 }
 
-const configHeader = `# Written by edicta init. Secrets are never in this file, only the paths of
-# the files that hold them. Endpoints come from the presets named in
+const configHeader = `# Written by edicta init. No key material is in this file, only the paths of
+# the files that hold it. Endpoints come from the presets named in
 # [network]; a key written here wins over the preset.
 
 `

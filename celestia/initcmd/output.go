@@ -27,7 +27,13 @@ func (r Result) WriteText(w io.Writer) error {
 	if r.Payer != nil {
 		fmt.Fprintf(&b, "%-8s %-9s key %s  %s\n", r.Payer.Status, "payer", r.Payer.Path, r.Payer.Address)
 	}
-	if k := r.Principal; k.Status != "" {
+	switch k := r.Principal; k.Status {
+	case "":
+	case Offline:
+		fmt.Fprintf(&b, "%-8s %-9s %s  signed the mandate; its key is not on this machine\n", k.Status, k.Role, r.PrincipalID)
+	case Mismatch:
+		fmt.Fprintf(&b, "%-8s %-9s key %s is not the key of %s, the principal that signed the mandate; both are left as they are\n", k.Status, k.Role, k.Path, r.PrincipalID)
+	default:
 		fmt.Fprintf(&b, "%-8s %-9s key %s  ed25519 %s\n", k.Status, k.Role, k.Path, hex.EncodeToString(k.Public))
 		b.WriteString("         the principal key signs mandates only: once the mandate is signed, move it off this machine\n")
 	}
@@ -46,7 +52,7 @@ func (r Result) WriteText(w io.Writer) error {
 		fmt.Fprintf(&b, "namespaces: recorder %s, publisher %s\n", r.RecorderNamespace, r.PublisherNamespace)
 	}
 	if m := r.Mandate; m != nil && m.Text != "" {
-		b.WriteString("\nthe mandate the gate enforces, signed with the principal key:\n\n")
+		fmt.Fprintf(&b, "\nthe mandate the gate enforces, signed by principal %s:\n\n", r.PrincipalID)
 		b.WriteString(m.Text)
 		b.WriteString("\n")
 	}
