@@ -97,7 +97,14 @@ func usagef(format string, a ...any) error { return usageError{fmt.Errorf(format
 // Run executes verify or replay; args start with the subcommand. It prints
 // the report, or the error, to out and returns the exit code.
 func Run(ctx context.Context, args []string, out io.Writer) int {
-	code, err := execute(ctx, args, out)
+	return RunWith(ctx, args, out, nil)
+}
+
+// RunWith is Run with a loader of defaults. A non-nil load adds --config PATH;
+// load is called with the path (empty when the flag is absent) and returns the
+// defaults of the flags the user did not pass.
+func RunWith(ctx context.Context, args []string, out io.Writer, load DefaultsLoader) int {
+	code, err := execute(ctx, args, out, load)
 	if err != nil {
 		if wantsJSON(args) {
 			b, merr := json.Marshal(struct {
@@ -170,7 +177,9 @@ type flags struct {
 	execChainID   string
 }
 
-func parseFlags(args []string, out io.Writer) (flags, error) {
+func parseFlags(args []string, out io.Writer) (flags, error) { return parseFlagsWith(args, out, nil) }
+
+func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, error) {
 	const usage = "usage: verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) " +
 		"[--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)] [--cross-check URL]... [--exclude-host HOST]... " +
 		"[--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution [--exec-chain-id ID]] " +
@@ -215,6 +224,10 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	fs.Var(&evidence, "policy-evidence", "file with a signed policy verdict held by the auditor, for fork detection (repeatable)")
 	var auditorKeys multiFlag
 	fs.Var(&auditorKeys, "auditor-key", "file with an X25519 auditor private key, hex, mode 0600, that opens private mandates (repeatable)")
+	var cfgPath *string
+	if load != nil {
+		cfgPath = fs.String("config", "", "path of edicta.toml; its values stand in for the flags not given (default: the Edicta home, skipped when absent)")
+	}
 	var ckpt, cross, exclude, txRPC multiFlag
 	fs.Var(&txRPC, "tx-rpc", "CometBFT RPC that serves the transaction the receipt names; the first is the primary, more are alternates tried in order")
 	fs.Var(&ckpt, "checkpoint-rpc", "CometBFT RPC of an independent checkpoint operator (repeatable)")
@@ -246,6 +259,17 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	if f.hash, err = parseHash(positional[0]); err != nil {
 		return f, usageError{err}
 	}
+	given := map[string]bool{}
+	fs.Visit(func(fl *flag.Flag) { given[fl.Name] = true })
+	var d Defaults
+	if load != nil {
+		if d, err = load(*cfgPath); err != nil {
+			return f, usageError{err}
+		}
+		if !given["gate-key"] {
+			*gateKeys = d.GateKeys
+		}
+	}
 	if f.gateKeys, err = parseKeys(*gateKeys); err != nil {
 		return f, usageError{err}
 	}
@@ -276,6 +300,7 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	f.checkpointRPC, f.crossRPC, f.excludeHosts, f.txRPC = ckpt, cross, exclude, txRPC
 	f.params = def
 	f.params.SkewS, f.params.BlobRetentionS = *skew, *blobRetention
+	f.applyDefaults(d, given)
 	return f, f.validate()
 }
 
@@ -365,8 +390,8 @@ func (f flags) checkExcluded() error {
 	return nil
 }
 
-func execute(ctx context.Context, args []string, out io.Writer) (int, error) {
-	f, err := parseFlags(args, out)
+func execute(ctx context.Context, args []string, out io.Writer, load DefaultsLoader) (int, error) {
+	f, err := parseFlagsWith(args, out, load)
 	if err != nil {
 		return codeUsage, err
 	}

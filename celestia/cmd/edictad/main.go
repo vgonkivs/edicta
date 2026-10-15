@@ -13,6 +13,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/celestia/edictad/wire"
 )
@@ -24,8 +25,27 @@ func main() {
 	}
 }
 
+// loadConfig reads edicta.toml when the file names a Celestia network and the
+// legacy edictad.toml otherwise.
+func loadConfig(data []byte) (edictad.Config, error) {
+	if !config.IsEdictaConfig(data) {
+		return edictad.ParseConfig(data)
+	}
+	c, err := config.Parse(data, nil)
+	if err == nil {
+		err = c.ApplyDefaults(config.Builtin{})
+	}
+	if err == nil {
+		err = c.ValidateBasic()
+	}
+	if err != nil {
+		return edictad.Config{}, err
+	}
+	return edictad.FromEdicta(c)
+}
+
 func run() error {
-	path := flag.String("config", "", "path of the TOML configuration")
+	path := flag.String("config", "", "path of edicta.toml or of the legacy edictad.toml")
 	printCfg := flag.Bool("print-config", false, "print the parsed configuration (paths only, no secrets) and exit")
 	flag.Parse()
 	if *path == "" {
@@ -35,7 +55,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("reading config: %w", err)
 	}
-	cfg, err := edictad.ParseConfig(data)
+	cfg, err := loadConfig(data)
 	if err != nil {
 		return err
 	}

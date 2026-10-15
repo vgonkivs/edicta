@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -15,6 +16,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/archive/httparchive"
+	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/test/fibrefix"
 	"github.com/vgonkivs/edicta/celestia/verifycli"
 )
@@ -29,6 +31,9 @@ const (
 
 func edicta(t *testing.T, args ...string) (int, string) {
 	t.Helper()
+	if os.Getenv(config.EnvHome) == "" {
+		t.Setenv(config.EnvHome, t.TempDir())
+	}
 	var out bytes.Buffer
 	code := run(args, &out)
 	return code, out.String()

@@ -16,7 +16,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/verifycli"
 )
 
-const usage = "usage: edicta init [--home DIR] [--preset CELESTIA+SETTLEMENT] [--set network.key=value]... [--max-per-payment USDC] [--max-per-hour USDC] | doctor [--config PATH] [--set key=value]... [--json] | demo [fast-mode | fast-live [--restart]] | verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) [flags]"
+const usage = "usage: edicta init [--home DIR] [--preset CELESTIA+SETTLEMENT] [--set network.key=value]... [--max-per-payment USDC] [--max-per-hour USDC] | doctor [--config PATH] [--set key=value]... [--json] | demo [fast-mode | fast-live [--restart]] | verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) [--config PATH] [flags]"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout)) }
 
@@ -41,7 +41,7 @@ func run(args []string, out io.Writer) int {
 	case "verify", "replay":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
-		return verifycli.Run(ctx, args, out)
+		return verifycli.RunWith(ctx, args, out, verifyDefaults)
 	}
 	fmt.Fprintf(out, "edicta: unknown subcommand %q\n%s\n", args[0], usage)
 	return 4
