@@ -18,6 +18,12 @@ celestia/bin/edictad -config /etc/edictad/edictad.toml -print-config      # pars
 celestia/bin/edictad -config /etc/edictad/edictad.toml
 ```
 
+`-config` takes either file format: the shared `edicta.toml` (next section)
+or the legacy `edictad.toml` of the example above. `edictad` tells them apart
+by the `[network]` table: `edicta.toml` names a Celestia network there
+(`celestia = "mocha"`), the legacy file does not. Everything below describes
+the legacy keys unless it says `edicta.toml`.
+
 Unknown keys are refused (that is also what refuses an inline secret).
 Secrets live in files named by `*_file` keys; key files must not be readable
 by group or others.
@@ -40,6 +46,151 @@ address unless `http.allow_insecure` or TLS is set.
 | `[policy]` | `mandate_file` |
 | `[capture]` | execution result capture for bank-send receipts (below) |
 | `[http]` | listener, TLS, token files |
+
+## The shared configuration: `edicta.toml`
+
+One file describes a self-hosted stack for every tool: `edicta init` writes
+it, `edicta doctor` checks it, `edictad -config` serves it and
+`edicta verify|replay --config` take their defaults from it. It lives in the
+Edicta home, `$EDICTA_HOME` or else `~/.edicta`. Loading is strict: an
+unknown key is an error (so an inline secret is too), and every secret is a
+path to a file.
+
+Print what `edictad` makes of it, without starting anything:
+
+```sh
+celestia/bin/edictad -config ~/.edicta/edicta.toml -print-config
+```
+
+### Sections
+
+| Table | Keys (defaults in brackets) |
+|---|---|
+| `[network]` | `celestia` (preset name, required), `settlement` (preset or `"none"`, [`none`]), `mode` [`self-hosted`], `celestia_preset_version`, `settlement_preset_version` (written by `init`, used to report preset drift), `chain_id`, `bridge` and `consensus_grpc` (`addr`, `tls`), `comet_rpc` (list), `[network.evm]`: `chain_id`, `rpc` (list), `facilitator_url`, `facilitator_network`, `[network.evm.usdc]`: `address`, `name`, `version`. Every endpoint key the preset knows is filled from the preset when absent |
+| `[agent]` | `id`, `key_file`, `recorder_url`, `gate_url` |
+| `[gate]` | `gate_id`, `key_backend` [`file`], `key_file`, `registry_path`, `allowlist_file`, `mandate_file`, `action_types`, `executor_keys`, `listen` [`127.0.0.1:8080`], `fast_mode`, `sessions` |
+| `[recorder]` | `keyring_dir`, `key_name`, `passphrase_file`, `namespace` (hex), `da` [`celestia_blob`], `max_blob_bytes` [1048576], `own_node`, `escrow_headroom_utia`, `blobs_per_day` [100] |
+| `[publisher]` | a second Celestia account with its own `keyring_dir`, `key_name`, `passphrase_file`, `namespace`, `blobs_per_day` [100] |
+| `[archive]` | `dir`, `url`, `mirror_urls` |
+| `[signer]` | `listen` [`127.0.0.1:8402`], `pinned_gate_keys`, `payer_backend` [`file`], `payer_key_file`, `payer_address`, `pinned_chain_id` and `pinned_usdc` [the settlement preset's], `[signer.risk]`: `max_per_payment`, `max_per_hour` (USDC base units) |
+| `[capture]` | `dir`, `comet_rpc`, `node_prune_window_blocks` [100000], `retry_every_s` [30] |
+| `[verify]` | `headers_rpc`, `tx_rpc`, `checkpoint_rpc`, `cross_check_rpc`, `exclude_host` (lists where marked), `quorum` [1] |
+
+Only the tables a tool needs have to be present. `gate.key_backend` and
+`signer.payer_backend` accept only `file` in this build (`kms` and `cdp` are
+refused as not available). `recorder.da = "fibre"` needs `recorder.own_node`
+and the Fibre keys described under Recorder below. Paths are not resolved
+against the home: `init` writes absolute paths.
+
+### Presets
+
+A preset fills the endpoints and constants of a network, so the file holds
+only what you choose or change. This build has two:
+
+| Key | Value | Fills |
+|---|---|---|
+| `network.celestia` | `mocha` | chain id `mocha-5`, a public bridge and consensus gRPC endpoint, CometBFT RPC list |
+| `network.settlement` | `base-sepolia` | EVM chain id 84532, public RPC list, USDC token, facilitator URL and network |
+
+`custom` takes no values from a preset (give every endpoint yourself);
+`settlement = "none"` leaves out the EVM side. `celestia-mainnet` and `base`
+are refused as not available in this build. The public endpoints of a preset
+are rate-limited and shared: fine for a test, not for a gate you depend on.
+When this binary carries a newer version of a preset than the one the file
+was written against, `edicta doctor` reports the drift; the file itself is
+never rewritten.
+
+### Overriding a key: `--set`
+
+`edicta doctor` and `edicta init` take `--set key=value` (repeatable) to
+replace a single key without editing the file: `section.key` with a TOML
+value on the right, a bare word being a string.
+
+```sh
+celestia/bin/edicta doctor --set network.bridge.tls=true \
+  --set 'network.comet_rpc=["https://rpc.example.org"]'
+```
+
+`init` accepts only `network.*` keys, writes them into the new `edicta.toml`,
+and refuses the keys that `--preset` or its own bookkeeping decide
+(`network.celestia`, `network.settlement`, `network.mode`, the preset
+versions, the EVM chain id and the USDC token). `doctor` accepts any key and
+checks the result.
+
+### `edictad -config edicta.toml`
+
+`edictad` projects the file onto its own configuration: the gate keys and
+paths, the archive directory, the mandate, the Recorder (blob or Fibre), the
+capture table and the listener. The publish quota is not in the file; it is
+derived from `recorder.blobs_per_day` (one 24th per hour, rounded up) and
+`recorder.max_blob_bytes`. Not served by this build: `gate.fast_mode = true`
+and `gate.sessions = true` are refused at start with "not available in this
+build", and the `[agent]`, `[publisher]`, `[signer]` and `[verify]` tables are
+not read by the daemon. The HTTP token files are not part of `edicta.toml`;
+for the endpoints that need them, use the legacy file.
+
+### `edicta verify|replay --config`
+
+`verify` and `replay` read `edicta.toml` (`--config PATH`, else the one in the
+home when it exists) and use it only for flags you did not pass: the archive
+directory or URL, the gate key (from `signer.pinned_gate_keys`), excluded
+hosts, and the `[verify]` sources. A flag on the command line always wins.
+Checkpoint sources are used only when you chose neither `--trusted` nor
+`--checkpoint`, so the file never overrides how you decided to trust the
+chain. See [verifier.md](verifier.md).
+
+## Checking the setup: `edicta doctor`
+
+```sh
+celestia/bin/edicta doctor [--config PATH] [--set key=value]... [--json]
+```
+
+`doctor` loads `edicta.toml` (default: the Edicta home), applies the presets,
+and runs the checks below in this order. Each result is `ok`, `warn` or
+`fail`, with the cause and, for the last two, the fix. `--json` prints the
+same report as JSON. No secret and no endpoint path, token or query appears
+in the output.
+
+| Check | What it looks at |
+|---|---|
+| `config` | the file loads, has no unknown keys and passes the stateless checks; preset version drift |
+| `endpoints` | every configured endpoint resolves and answers (DNS, TCP, TLS, HTTP) |
+| `chain` | the bridge and consensus node are on the chain the preset names, the app version is in the pinned range, the head is moving and close to the local clock |
+| `fibre` | with `recorder.da = "fibre"`: the chain has `x/fibre` and the escrow covers an upload |
+| `fees` | the node's minimum gas price, and balances of the Recorder and publisher accounts that cover a day of `blobs_per_day` |
+| `keyring` | each keyring opens with its passphrase file and holds the named key |
+| `keydirs` | every directory holding a key or passphrase is yours and closed to others |
+| `clock` | the local clock is within one second of the network time sources |
+| `archive` | `archive.dir` is writable and does not overlap `capture.dir`; the archive URL and mirrors answer (a warning when not) |
+| `gate` | the gate key (0600, 32 bytes), executor keys distinct from the gate and agent, the agent in the allowlist, the mandate verifies, is bound to this `gate_id`, covers the agent and is in force |
+| `signer` | the payer key and address agree, the pins match the settlement preset, the pinned gate key is the local one; the signer service itself is reported as a warning because this build has none |
+| `settlement` | the EVM RPC providers answer with the preset's chain id; one provider alone is a warning |
+| `facilitator` | the facilitator lists the `exact` scheme on the configured network |
+| `balances` | the payer holds USDC on the settlement chain (a warning when it holds none) |
+
+A check for a part that is not configured passes with "not configured".
+
+Exit codes: `0` no check failed (warnings allowed), `1` at least one check
+failed (or the report could not be written), `4` misuse: bad flags, a
+malformed `--set`, no home. A config that does not load runs only the
+`config` check and exits `1`.
+
+## Keys and home: permission rules
+
+`edicta init` and `edicta doctor` enforce the same rules; a file or directory
+that breaks one is refused, never silently fixed.
+
+- Key and passphrase files are regular files, mode `0600`,
+  never symlinks. A seed file is exactly 32 raw bytes. The payer key is 32 raw
+  bytes or 64 hex characters.
+- The home and every directory that holds a key (`keys/`, the keyring
+  directories) are owned by you and not writable by group or others (`chmod
+  700 DIR`). Symlinked components are followed only when owned by you or
+  root; directories above the home must not be writable by others unless
+  sticky.
+- Files are created with exclusive create: an existing key is never
+  overwritten. Platforms other than macOS and Linux are refused ("platform not
+  supported") because ownership cannot be checked there.
 
 ## Keys
 

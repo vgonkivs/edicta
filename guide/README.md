@@ -7,8 +7,8 @@ earlier v0 drafts are superseded and unsupported.
 
 | Guide | For | Covers |
 |---|---|---|
-| [quickstart.md](quickstart.md) | everyone | The v1 flow, the one-command demo, strict and fast mode |
-| [operator.md](operator.md) | gate operators | `edictad`: gate, archive, mandate, fast mode, Recorder, startup refusals |
+| [quickstart.md](quickstart.md) | everyone | The v1 flow, `init` and `doctor`, the one-command demo, strict and fast mode |
+| [operator.md](operator.md) | gate operators | `edictad`: gate, archive, mandate, fast mode, Recorder, startup refusals; `edicta.toml`, `doctor`, key and home permissions |
 | [principal.md](principal.md) | principals | Mandates: Ed25519, Keplr (ADR-036), MetaMask (EIP-712), auditors, versions |
 | [profiles.md](profiles.md) | integrators | Executor side: Authorization check, salt, fast-mode policy, public execution |
 | [private-mode.md](private-mode.md) | principals, auditors | What a private mandate hides and what it does not |

@@ -39,6 +39,50 @@ What changed from the v0 drafts, for anyone who read them:
 - A gate may enforce a principal-signed mandate (spending limits, recipients,
   fast-mode consent). Policy spec, `spec/policy-v1.md`.
 
+## Set up a self-hosted stack: init, fund, doctor
+
+`edicta init` prepares a Mocha + Base Sepolia stack in one directory (the
+Edicta home, `$EDICTA_HOME` or else `~/.edicta`), and `edicta doctor` checks
+it:
+
+```sh
+make build
+celestia/bin/edicta init                         # flags: --home, --preset, --set, --max-per-payment, --max-per-hour
+# fund the addresses it prints, then:
+celestia/bin/edicta doctor
+```
+
+`init` first checks that the preset's endpoints answer and are on the
+right chains; if not, it writes nothing. Then it creates, with mode `0600`
+and never over an existing file: separate Ed25519 keys for the agent, gate,
+executor and principal, Celestia keyrings for the Recorder and publisher
+accounts with their passphrase files, a payer key for the settlement chain,
+a starter mandate signed by the principal key (default limits 0.10 USDC per
+payment and 1 USDC per hour; change them with `--max-per-payment` and
+`--max-per-hour`, in USDC), the agent allowlist `agents.toml`, an empty
+`archive/` and `edicta.toml`. It prints the public keys, the mandate as the
+gate will enforce it, and the addresses to fund: TIA on Mocha for the
+Recorder and publisher, USDC on Base Sepolia for the payer (no ETH needed,
+the facilitator pays gas), each with its faucet link.
+
+Re-running `init` is safe: it reports what exists and creates only what is
+missing. A second `init` at the same time is refused while one holds the
+home's lock. The home and key directories must belong to you and be closed
+to others; see [operator.md](operator.md), "Keys and home: permission
+rules". The principal key signs mandates only: once the mandate is signed,
+move that key off the machine.
+
+`doctor` then reports `ok`, `warn` or `fail` for each part, with the fix for
+the last two, and exits `0` when nothing failed. A zero USDC or TIA balance
+is the usual first finding until the faucets have paid. The checks, the
+exit codes and `--json`: [operator.md](operator.md), "Checking the setup".
+
+What this stack does not do yet: the starter gate is set up for x402
+payments, and the x402 extractor that lets a gate read such an action against
+the mandate is not in this build. Today the `init` stack is for `doctor` and
+for the configuration; it cannot authorize a decision end to end. To run one
+end to end, use the demo or the manual path below.
+
 ## Run the demo (strict mode, Mocha testnet)
 
 ```sh
@@ -56,7 +100,8 @@ ways to cheat. Details, flags, exit codes and offline re-verification:
 
 ## Run your own gate and agent (strict mode)
 
-1. Write an `edictad` configuration from
+1. Write an `edictad` configuration (or an `edicta.toml`, which `edictad -config`
+   also accepts, see [operator.md](operator.md)) from
    `celestia/cmd/edictad/edictad.example.toml` and start it:
    ```sh
    go -C celestia run ./cmd/edictad -config ~/edicta-live/edictad.toml -print-config

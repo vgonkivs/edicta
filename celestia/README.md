@@ -2,6 +2,8 @@
 
 Looking for the one-command demo? See [demo/README.md](demo/README.md) (`edicta demo`). This page covers the older, manual `edicta-live` runner and is the full `edictad` configuration reference. The user guides, including fast mode and mandates, are in [../guide/](../guide/README.md).
 
+Setting up a stack from scratch: `edicta init` creates the keys, a starter mandate and `edicta.toml` in the Edicta home, and `edicta doctor` checks it. `edictad -config` accepts that `edicta.toml` as well as the `edictad.toml` described below. See [../guide/quickstart.md](../guide/quickstart.md) and the "The shared configuration" and "Checking the setup" parts of [../guide/operator.md](../guide/operator.md).
+
 Everything here is Edicta wire version 1 (spec revision `v1.0`, tags `v1.0.0` and `v1.0.1`): `/v1/*` HTTP paths, `edicta/v1/*` tags, and a salted action hash whose 32-byte salt `edicta-live` carries from the agent to the gate and the executor.
 
 This module holds the Celestia side of Edicta: the Recorder, the chain client
