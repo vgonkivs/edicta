@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -380,7 +381,7 @@ func (c Config) ValidateBasic() error {
 func (c Config) crossCheck() error {
 	if c.Recorder != nil && c.Publisher != nil {
 		r, p := c.Recorder, c.Publisher
-		if r.Namespace == p.Namespace {
+		if strings.EqualFold(r.Namespace, p.Namespace) {
 			return cfgErr("publisher.namespace equals recorder.namespace")
 		}
 		if r.KeyringDir == p.KeyringDir && r.KeyName == p.KeyName {
@@ -415,8 +416,14 @@ func (n Network) ValidateBasic() error {
 	if n.Bridge.Addr == "" {
 		return cfgErr("network.bridge.addr is required")
 	}
+	if err := checkBridgeAddr(n.Bridge.Addr, n.Bridge.TLS); err != nil {
+		return cfgErr("network.bridge.addr: %v", err)
+	}
 	if n.ConsensusGRPC.Addr == "" {
 		return cfgErr("network.consensus_grpc.addr is required")
+	}
+	if err := checkGRPCAddr(n.ConsensusGRPC.Addr); err != nil {
+		return cfgErr("network.consensus_grpc.addr: %v", err)
 	}
 	for i, u := range n.CometRPC {
 		if err := checkURL(u); err != nil {
@@ -601,12 +608,13 @@ func (c Capture) ValidateBasic() error {
 	switch {
 	case strings.TrimSpace(c.Dir) == "":
 		return cfgErr("capture.dir is required")
-	case !strings.HasPrefix(c.CometRPC, "http://") && !strings.HasPrefix(c.CometRPC, "https://"):
-		return cfgErr("capture.comet_rpc must be an http or https URL")
 	case c.NodePruneWindowBlocks < 100 || c.NodePruneWindowBlocks > 6_000_000:
 		return cfgErr("capture.node_prune_window_blocks must be 100..6000000")
 	case c.RetryEveryS < 1 || c.RetryEveryS > 3600:
 		return cfgErr("capture.retry_every_s must be 1..3600")
+	}
+	if err := checkURL(c.CometRPC); err != nil {
+		return cfgErr("capture.comet_rpc: %v", err)
 	}
 	return nil
 }
@@ -649,16 +657,68 @@ func validID(s string, max int) bool {
 	return true
 }
 
+// Errors of the endpoint shape checks. They never quote the value: an
+// endpoint may carry an API key.
+var (
+	errNotURL      = errors.New("not an absolute URL with a host")
+	errURLScheme   = errors.New("scheme must be http or https")
+	errCredentials = errors.New("credentials in a URL are refused")
+)
+
 func checkURL(s string) error {
 	u, err := url.Parse(s)
-	if err != nil || u.Host == "" {
-		return fmt.Errorf("not an absolute URL")
+	if err != nil || u.Hostname() == "" {
+		return errNotURL
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("scheme must be http or https")
+		return errURLScheme
 	}
 	if u.User != nil {
-		return fmt.Errorf("credentials in a URL are refused")
+		return errCredentials
+	}
+	return nil
+}
+
+// checkBridgeAddr applies the rule the bridge client applies: a bare
+// host[:port] gets its scheme from tls, a URL must carry the scheme tls
+// implies. A path stays allowed, some providers put the token there.
+func checkBridgeAddr(addr string, tls bool) error {
+	want := "http"
+	if tls {
+		want = "https"
+	}
+	if !strings.Contains(addr, "://") {
+		if ip := net.ParseIP(addr); ip != nil && strings.Contains(addr, ":") {
+			addr = "[" + addr + "]"
+		}
+		addr = want + "://" + addr
+	}
+	if err := checkURL(addr); err != nil {
+		return err
+	}
+	if u, _ := url.Parse(addr); u.Scheme != want {
+		return fmt.Errorf("scheme disagrees with tls = %t", tls)
+	}
+	return nil
+}
+
+// checkGRPCAddr accepts the host:port target the gRPC client dials; tls, not
+// a scheme, picks the transport.
+func checkGRPCAddr(addr string) error {
+	if strings.Contains(addr, "://") {
+		return errors.New("write host:port without a scheme; tls picks the transport")
+	}
+	if strings.ContainsAny(addr, "@/?#") {
+		return errors.New("write host:port, with no credentials, path or query")
+	}
+	host := addr
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		host = h
+	} else if strings.Contains(addr, ":") {
+		return errors.New("not host:port")
+	}
+	if host == "" {
+		return errors.New("has no host")
 	}
 	return nil
 }
@@ -669,7 +729,7 @@ func checkHexKeys(key string, keys []string) error {
 		if err != nil || len(b) != 32 {
 			return cfgErr("%s[%d] must be 64 hex characters", key, i)
 		}
-		if slices.Contains(keys[:i], s) {
+		if slices.ContainsFunc(keys[:i], func(k string) bool { return strings.EqualFold(k, s) }) {
 			return cfgErr("%s[%d] is a duplicate", key, i)
 		}
 	}
