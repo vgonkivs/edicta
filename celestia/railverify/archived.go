@@ -65,8 +65,8 @@ type ArchivedFacts struct {
 	Code           uint32
 }
 
-// CheckArchived runs the rules of an archived execution result (XR1 to XR8)
-// for the transaction railRef of chain chainID. Both headers must reach the
+// CheckArchived checks an archived execution result for the transaction
+// railRef of chain chainID. Both headers must reach the
 // trusted chain through trust. An *ArchivedSetAside error sets the record
 // aside; any other error ends the execution check (a timeout, or a header
 // that sources disagree on).
@@ -85,9 +85,9 @@ func CheckArchived(ctx context.Context, rec *archive.ExecutionResultRecord, chai
 }
 
 // SelfCheckArchived is the writer's check of a record it built, which has no
-// trust root: XR1 with the record's own key; for XR2, both headers decode at
-// the record's heights with its chain id, and the next header names the
-// header in last_block_id; then XR3 to XR8.
+// trust root: the record is checked against its own key, and instead of
+// reaching the trusted chain the next header must name the header in
+// last_block_id; every other check is the verifier's.
 func SelfCheckArchived(rec *archive.ExecutionResultRecord) (ArchivedFacts, error) {
 	if rec == nil || len(rec.RailRef) != 32 {
 		return ArchivedFacts{}, setAside(RuleXR1, verifier.ReasonTxProofInvalid, "the record has no rail_ref")
@@ -156,22 +156,27 @@ func proofOf(rec *archive.ExecutionResultRecord, key uint64) []byte {
 func checkArchived(ctx context.Context, rec *archive.ExecutionResultRecord, chainID string, railRef [32]byte,
 	link func(context.Context, headerAt, headerAt) error) (facts ArchivedFacts, err error) {
 	// The proofs are archive data, and the share and tree code is not
-	// written for hostile input.
+	// written for hostile input. A panic is reported under the rule that was
+	// running, so that a fault in the trust callback is not blamed on the
+	// proofs.
+	rule := RuleXR1
 	defer func() {
 		if r := recover(); r != nil {
-			facts, err = ArchivedFacts{}, setAside(RuleXR4, verifier.ReasonTxProofInvalid, "the record's proofs do not parse: %v", r)
+			facts, err = ArchivedFacts{}, setAside(rule, verifier.ReasonTxProofInvalid, "checking the record panicked: %v", r)
 		}
 	}()
 	if rec == nil {
 		return ArchivedFacts{}, setAside(RuleXR1, verifier.ReasonTxProofInvalid, "no record")
 	}
 
-	// XR1
+	// The record is the one of the key asked for.
 	if rec.ChainID != chainID || !bytes.Equal(rec.RailRef, railRef[:]) {
 		return ArchivedFacts{}, setAside(RuleXR1, verifier.ReasonTxProofInvalid, "the record carries another key")
 	}
 
-	// XR2
+	// Both headers decode at the record's height and the next one, of its
+	// chain, and hang from the trusted chain.
+	rule = RuleXR2
 	if rec.Height == 0 || rec.Height >= 1<<63-1 {
 		return ArchivedFacts{}, setAside(RuleXR2, verifier.ReasonTxProofInvalid, "height %d", rec.Height)
 	}
@@ -187,13 +192,18 @@ func checkArchived(ctx context.Context, rec *archive.ExecutionResultRecord, chai
 		return ArchivedFacts{}, err
 	}
 
-	// XR3
+	// The index rule below holds only for the app version it was written
+	// for.
+	rule = RuleXR3
 	if hdr.h.Version.App != appconsts.Version {
 		return ArchivedFacts{}, setAside(RuleXR3, verifier.ReasonResultIndexUnbound,
 			"block %d is of app version %d; the index rule holds for %d only", rec.Height, hdr.h.Version.App, appconsts.Version)
 	}
 
-	// XR4 and XR5, key by key.
+	// Each share proof proves its namespace against data_hash, and the
+	// ranges follow each other from share 0 up to a closing share or the
+	// square's end, so no transaction of the namespaces is left out.
+	rule = RuleXR4
 	var (
 		end, k  int
 		closed  bool
@@ -238,7 +248,9 @@ func checkArchived(ctx context.Context, rec *archive.ExecutionResultRecord, chai
 			"the transaction namespaces end at share %d, neither at a closing share nor at the square's end %d", end, k*k)
 	}
 
-	// XR6
+	// The namespaces hold exactly as many transactions as the block has
+	// results.
+	rule = RuleXR6
 	sum := uint64(0)
 	for _, n := range counts {
 		sum += uint64(n)
@@ -248,7 +260,8 @@ func checkArchived(ctx context.Context, rec *archive.ExecutionResultRecord, chai
 			"%d transactions in the transaction namespaces, results_total %d", sum, rec.ResultsTotal)
 	}
 
-	// XR7
+	// Exactly one ordinary transaction hashes to rail_ref, at tx_index.
+	rule = RuleXR7
 	at, found := -1, 0
 	for j, u := range txUnits {
 		if sha256.Sum256(u) == railRef {
@@ -264,7 +277,8 @@ func checkArchived(ctx context.Context, rec *archive.ExecutionResultRecord, chai
 		return ArchivedFacts{}, setAside(RuleXR7, verifier.ReasonResultIndexUnbound, "the transaction is unit %d, tx_index %d", at, rec.TxIndex)
 	}
 
-	// XR8
+	// The result and its path reach last_results_hash of the next header.
+	rule = RuleXR8
 	code, err := provenResult(rec, next.h.LastResultsHash)
 	if err != nil {
 		return ArchivedFacts{}, err
@@ -300,7 +314,7 @@ func archivedHeader(raw []byte, height uint64, chainID string) (headerAt, error)
 	return headerAt{h: h, hash: hash}, nil
 }
 
-// provenRange checks one share proof of the record (XR4): its namespace is
+// provenRange checks one share proof of the record: its namespace is
 // the key's, it proves consecutive shares [s, e) of the original square
 // against dataHash, and every share is of its namespace. It returns the
 // shares, the range and the square width.
@@ -347,7 +361,7 @@ func provenRange(raw []byte, key uint64, want share.Namespace, dataHash []byte) 
 }
 
 // wholeSequence requires the shares of a transaction namespace to be one
-// whole compact sequence (XR5) and returns its units.
+// whole compact sequence and returns its units.
 func wholeSequence(shares []share.Share, key uint64) ([][]byte, error) {
 	if !shares[0].IsSequenceStart() || compactShareCount(int(shares[0].SequenceLen())) != len(shares) {
 		return nil, setAside(RuleXR5, verifier.ReasonTxProofInvalid, "key %d is not one whole compact sequence", key)
@@ -364,8 +378,8 @@ func wholeSequence(shares []share.Share, key uint64) ([][]byte, error) {
 	return units, nil
 }
 
-// provenResult checks the result leaf and its path to the results root
-// (XR8) and returns the result code.
+// provenResult checks the result leaf and its path to the results root and
+// returns the result code.
 func provenResult(rec *archive.ExecutionResultRecord, root []byte) (uint32, error) {
 	var res abci.ExecTxResult
 	if err := res.Unmarshal(rec.Result); err != nil {

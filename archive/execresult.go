@@ -10,7 +10,7 @@ import (
 )
 
 // KindExecutionResult is the archived execution result of one ordinary rail
-// transaction (since spec revision v1.1).
+// transaction.
 const KindExecutionResult Kind = 19
 
 const (

@@ -83,7 +83,7 @@ type Pending struct {
 }
 
 // Store keeps captures and the references still to capture. Every write is
-// idempotent.
+// idempotent, and the methods are safe for concurrent use.
 type Store interface {
 	// PutBlock merges b into the block at (b.ChainID, b.Height). A different
 	// next header, or another capture of the same rail reference, is
@@ -122,7 +122,9 @@ type Store interface {
 //	archived/<rail_ref>               "<chain_id>/<height>" of a capture
 //	                                  moved into the archive
 //
-// Files are written to a temporary name, synced and renamed.
+// Files are written to a temporary name, synced and renamed, and the
+// directory is synced after every rename and every removal, so that a crash
+// keeps the order the writes were made in.
 type Dir struct {
 	root string
 	mu   sync.Mutex
@@ -303,17 +305,25 @@ func (d *Dir) MarkArchived(_ context.Context, chainID string, height uint64, rai
 	default:
 		b.Txs = slices.DeleteFunc(b.Txs, func(t Tx) bool { return t.RailRef == railRef })
 		if len(b.Txs) == 0 {
-			if err := os.Remove(d.blockPath(chainID, height)); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("execcapture: %w", err)
+			if err := removeSynced(d.blockPath(chainID, height)); err != nil {
+				return err
 			}
 		} else if err := d.writeJSON(d.blockPath(chainID, height), b); err != nil {
 			return err
 		}
 	}
-	if err := os.Remove(filepath.Join(d.root, "refs", railRef)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	return removeSynced(filepath.Join(d.root, "refs", railRef))
+}
+
+// removeSynced removes path, if it exists, and syncs its directory.
+func removeSynced(path string) error {
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		return fmt.Errorf("execcapture: %w", err)
 	}
-	return nil
+	return syncDir(filepath.Dir(path))
 }
 
 // Block reads the block at (chainID, height); a missing one wraps
@@ -377,6 +387,9 @@ func (d *Dir) ListPending(_ context.Context) ([]Pending, error) {
 		var p Pending
 		if err := json.Unmarshal(raw, &p); err != nil || p.RailRef != ref {
 			qerr := os.Rename(filepath.Join(d.root, "pending", name), filepath.Join(d.root, "quarantine", name))
+			if qerr == nil {
+				qerr = errors.Join(syncDir(filepath.Join(d.root, "quarantine")), syncDir(filepath.Join(d.root, "pending")))
+			}
 			if qerr != nil {
 				errs = append(errs, fmt.Errorf("execcapture: pending %s does not decode and was not quarantined: %w", ref, qerr))
 				continue
@@ -444,8 +457,16 @@ func (d *Dir) writeJSON(path string, v any) error {
 }
 
 func (d *Dir) writeFile(path string, raw []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	_, serr := os.Stat(dir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("execcapture: %w", err)
+	}
+	if errors.Is(serr, os.ErrNotExist) {
+		// A new chain directory under blocks/ must itself be durable.
+		if err := syncDir(filepath.Dir(dir)); err != nil {
+			return err
+		}
 	}
 	f, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
 	if err != nil {
@@ -465,6 +486,22 @@ func (d *Dir) writeFile(path string, raw []byte) error {
 	if werr != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("execcapture: %w", werr)
+	}
+	return syncDir(dir)
+}
+
+// syncDir is a variable so that tests can see the order of the syncs.
+var syncDir = func(dir string) error {
+	f, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("execcapture: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("execcapture: sync dir: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("execcapture: %w", err)
 	}
 	return nil
 }

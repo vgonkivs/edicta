@@ -4,7 +4,7 @@
 //	verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL)
 //	    [--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)]
 //	    [--checkpoint-quorum N] [--cross-check URL]...
-//	    [--receipt FILE [--tx-rpc URL... --check-execution]]
+//	    [--receipt FILE [--tx-rpc URL... --check-execution [--result-archive DIR|URL]...]]
 //	    [--absence-source URL] [--skew SECONDS] [--blob-retention SECONDS] [--json]
 //	absence <commitment_hash> --gate-key HEX --archive DIR --absence-source URL
 //	    (--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)) [--json]
@@ -14,7 +14,9 @@
 // verify to the archive as kind 14 records. It exits 0 when every height is
 // proven, 2 otherwise.
 //
-// The archive is only read, never created, locked or cleaned.
+// The archive is only read, never created, locked or cleaned. So are the
+// further copies of --result-archive, which the execution check reads for
+// archived execution results after the archive, in the order given.
 //
 // Exit codes: 0 valid, 1 invalid, 2 unchecked (inconclusive: a source or an
 // input did not let a check run to a result, and the report names the reason
@@ -37,6 +39,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -175,6 +178,9 @@ type flags struct {
 	auditorKeys   []string
 	absenceSource string
 	execChainID   string
+	// resultArchives are further archive copies, directories or URLs,
+	// read for archived execution results only.
+	resultArchives []string
 }
 
 func parseFlags(args []string, out io.Writer) (flags, error) { return parseFlagsWith(args, out, nil) }
@@ -182,7 +188,7 @@ func parseFlags(args []string, out io.Writer) (flags, error) { return parseFlags
 func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, error) {
 	const usage = "usage: verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) " +
 		"[--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)] [--cross-check URL]... [--exclude-host HOST]... " +
-		"[--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution [--exec-chain-id ID]] " +
+		"[--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution [--exec-chain-id ID] [--result-archive DIR|URL]...] " +
 		"[--principal-key HEX]... [--principal ed25519:HEX|cosmos:BECH32|eth:0xHEX]... [--require-policy] [--policy-full] [--max-walk-steps N] [--policy-evidence FILE]... [--auditor-key FILE]... [--absence-source URL] [--json]\n" +
 		"       absence <commitment_hash> --gate-key HEX --archive DIR --absence-source URL (--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)) [--json]"
 	var f flags
@@ -228,7 +234,8 @@ func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, e
 	if load != nil {
 		cfgPath = fs.String("config", "", "path of edicta.toml; its values stand in for the flags not given (default: the Edicta home, skipped when absent)")
 	}
-	var ckpt, cross, exclude, txRPC multiFlag
+	var ckpt, cross, exclude, txRPC, resultArchives multiFlag
+	fs.Var(&resultArchives, "result-archive", "further archive copy, a directory or an http(s) URL, that the execution check reads for archived execution results after the archive (repeatable)")
 	fs.Var(&txRPC, "tx-rpc", "CometBFT RPC that serves the transaction the receipt names; the first is the primary, more are alternates tried in order")
 	fs.Var(&ckpt, "checkpoint-rpc", "CometBFT RPC of an independent checkpoint operator (repeatable)")
 	fs.Var(&cross, "cross-check", "CometBFT RPC to cross-check headers and the transaction (repeatable)")
@@ -298,6 +305,7 @@ func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, e
 	}
 	fs.Visit(func(fl *flag.Flag) { f.quorumSet = f.quorumSet || fl.Name == "checkpoint-quorum" })
 	f.checkpointRPC, f.crossRPC, f.excludeHosts, f.txRPC = ckpt, cross, exclude, txRPC
+	f.resultArchives = resultArchives
 	f.params = def
 	f.params.SkewS, f.params.BlobRetentionS = *skew, *blobRetention
 	f.applyDefaults(d, given)
@@ -334,6 +342,8 @@ func (f flags) validate() error {
 		return usagef("--tx-rpc is used only with --check-execution")
 	case f.execChainID != "" && !f.checkExec:
 		return usagef("--exec-chain-id is used only with --check-execution")
+	case len(f.resultArchives) > 0 && !f.checkExec:
+		return usagef("--result-archive is used only with --check-execution")
 	case f.checkExec && (len(f.txRPC) == 0 || f.receiptPath == ""):
 		return usagef("--check-execution needs --receipt and --tx-rpc, or the execution is never checked")
 	case f.cmd == "absence" && (f.archiveDir == "" || f.absenceSource == ""):
@@ -422,6 +432,9 @@ func execute(ctx context.Context, args []string, out io.Writer, load DefaultsLoa
 	}
 	deps, err := buildDeps(reader, f.gateKeys, f.params)
 	if err != nil {
+		return codeUsage, usageError{err}
+	}
+	if deps.ResultCopies, err = openResultCopies(f.resultArchives); err != nil {
 		return codeUsage, usageError{err}
 	}
 	deps.Config.PrincipalKeys = f.principalKeys
@@ -619,6 +632,32 @@ func openArchive(dir, url string) (verifier.Reader, error) {
 		return nil, fmt.Errorf("open archive: %w", err)
 	}
 	return store, nil
+}
+
+// openResultCopies opens each --result-archive value as the main archive
+// flags would: a value with a scheme is a URL, any other a directory. The
+// value names the copy in the report.
+func openResultCopies(values []string) ([]verifier.ResultCopy, error) {
+	var out []verifier.ResultCopy
+	for i, v := range values {
+		if slices.Contains(values[:i], v) {
+			return nil, fmt.Errorf("--result-archive %q is given twice", v)
+		}
+		dir, url := v, ""
+		if strings.Contains(v, "://") {
+			dir, url = "", v
+		}
+		r, err := openArchive(dir, url)
+		if err != nil {
+			return nil, fmt.Errorf("--result-archive: %w", err)
+		}
+		er, ok := r.(archive.ExecResultReader)
+		if !ok {
+			return nil, fmt.Errorf("--result-archive %q cannot hold execution results", v)
+		}
+		out = append(out, verifier.ResultCopy{Name: v, Reader: er})
+	}
+	return out, nil
 }
 
 // loadAuditorKey reads an X25519 private key in hex from a file that only

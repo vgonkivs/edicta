@@ -98,14 +98,28 @@ type Capturer struct {
 	kick       chan struct{}
 
 	// arch receives the captures as execution result records; nil keeps
-	// them in the capture store only.
-	arch Archive
+	// them in the capture store only. Moving captures into it never holds
+	// mu: a slow archive must not hold up new captures, which race the
+	// node's prune window. Every archive call is bounded by archTimeout.
+	arch        Archive
+	archTimeout time.Duration
+	// migrating keeps two runs of Migrate from overlapping.
+	migrating atomic.Bool
 	// conflicts counts the captures another archived record keeps out.
 	conflicts atomic.Uint64
+	// logMu guards the log dedupe state of the moves into the archive.
+	logMu sync.Mutex
 	// migrationLogged holds the references whose refusal or conflict was
-	// logged.
+	// logged, retryLogged those whose retry was.
 	migrationLogged map[string]bool
+	retryLogged     map[string]bool
+	// blocksErr is the last capture store read error logged by Migrate.
+	blocksErr string
 }
+
+// DefaultArchiveTimeout bounds one archive call of a move into the archive
+// when WithArchiveTimeout is not given.
+const DefaultArchiveTimeout = time.Minute
 
 // Option changes how New builds the Capturer.
 type Option func(*Capturer)
@@ -114,6 +128,11 @@ type Option func(*Capturer)
 // and drops each capture once the archive holds an equivalent record.
 func WithArchive(a Archive) Option {
 	return func(c *Capturer) { c.arch = a }
+}
+
+// WithArchiveTimeout bounds each archive call of a move into the archive.
+func WithArchiveTimeout(d time.Duration) Option {
+	return func(c *Capturer) { c.archTimeout = d }
 }
 
 // New returns a Capturer.
@@ -129,10 +148,14 @@ func New(cfg Config, chain Chain, store Store, log *slog.Logger, opts ...Option)
 	}
 	c := &Capturer{
 		cfg: cfg, chain: chain, store: store, log: log, alerted: map[string]bool{}, conflicted: map[string]bool{},
-		kick: make(chan struct{}, 1), migrationLogged: map[string]bool{},
+		kick: make(chan struct{}, 1), migrationLogged: map[string]bool{}, retryLogged: map[string]bool{},
+		archTimeout: DefaultArchiveTimeout,
 	}
 	for _, o := range opts {
 		o(c)
+	}
+	if c.archTimeout <= 0 {
+		return nil, fmt.Errorf("%w: archive timeout %v", ErrInvalid, c.archTimeout)
 	}
 	return c, nil
 }
@@ -209,10 +232,28 @@ func (c *Capturer) Track(ctx context.Context, railRef string, h commitment.Hash,
 	return true, nil
 }
 
-// Pass tries every pending capture once and recounts the overdue ones.
+// Pass tries every pending capture once and recounts the overdue ones, then
+// moves the captures it made into the archive.
 func (c *Capturer) Pass(ctx context.Context) {
+	for _, b := range c.capturePass(ctx) {
+		if ctx.Err() != nil {
+			return
+		}
+		// The capture is durable already; one that does not move now is
+		// moved by a later run.
+		if m := c.migrateTx(ctx, b, b.Txs[0]); m.Result == MigrationKept {
+			// Health sees the conflict now; the next run recounts.
+			c.conflicts.Add(1)
+		}
+	}
+}
+
+// capturePass is the capture part of Pass, under mu. It returns the blocks
+// captured that still have to move into the archive.
+func (c *Capturer) capturePass(ctx context.Context) []Block {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	var fresh []Block
 	pend, err := c.store.ListPending(ctx)
 	if err != nil {
 		c.log.Error("execcapture: pending captures not all read", "err", err)
@@ -221,7 +262,7 @@ func (c *Capturer) Pass(ctx context.Context) {
 	var overdue uint64
 	for _, p := range pend {
 		if ctx.Err() != nil {
-			return
+			return fresh
 		}
 		if p.SeenHead == 0 && herr == nil {
 			p.SeenHead = head
@@ -229,8 +270,11 @@ func (c *Capturer) Pass(ctx context.Context) {
 				c.log.Warn("execcapture: pending capture not updated", "rail_ref", p.RailRef, "err", err)
 			}
 		}
-		err := c.attempt(ctx, &p)
+		b, err := c.attempt(ctx, &p)
 		if err == nil {
+			if b != nil && c.arch != nil {
+				fresh = append(fresh, *b)
+			}
 			delete(c.alerted, p.RailRef)
 			delete(c.conflicted, p.RailRef)
 			continue
@@ -262,6 +306,7 @@ func (c *Capturer) Pass(ctx context.Context) {
 	if herr == nil {
 		c.overdue.Store(overdue)
 	}
+	return fresh
 }
 
 func (c *Capturer) isAged(p Pending, head, blocks uint64) bool {
@@ -289,52 +334,45 @@ func (c *Capturer) markLost(ctx context.Context, p Pending, head uint64, cause e
 }
 
 // attempt captures one pending reference. It keeps what it learned (the
-// execution height) in the store, and removes the entry once captured.
-func (c *Capturer) attempt(ctx context.Context, p *Pending) error {
+// execution height) in the store, and removes the entry once captured. It
+// returns the block of a capture it made.
+func (c *Capturer) attempt(ctx context.Context, p *Pending) (*Block, error) {
 	done, err := c.store.Captured(ctx, p.RailRef)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if done {
-		return c.store.DeletePending(ctx, p.RailRef)
+		return nil, c.store.DeletePending(ctx, p.RailRef)
 	}
 	var hash [32]byte
 	if _, err := hex.Decode(hash[:], []byte(p.RailRef)); err != nil {
-		return fmt.Errorf("%w: rail_ref", ErrInvalid)
+		return nil, fmt.Errorf("%w: rail_ref", ErrInvalid)
 	}
 	if p.ExecHeight == 0 {
 		tx, err := c.chain.Tx(ctx, hash, false)
 		if err != nil {
 			if errors.Is(err, railverify.ErrTxNotFound) {
-				return fmt.Errorf("%w: %w", ErrNotYet, err)
+				return nil, fmt.Errorf("%w: %w", ErrNotYet, err)
 			}
-			return err
+			return nil, err
 		}
 		if tx.Height == 0 {
-			return fmt.Errorf("%w: no height", ErrNotYet)
+			return nil, fmt.Errorf("%w: no height", ErrNotYet)
 		}
 		p.ExecHeight = tx.Height
 		if err := c.store.PutPending(ctx, *p); err != nil {
-			return err
+			return nil, err
 		}
 		c.warnLate(ctx, *p)
 	}
 	b, err := c.Capture(ctx, p.RailRef, p.ExecHeight)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := c.store.PutBlock(ctx, b); err != nil {
-		return err
+		return nil, err
 	}
-	// The capture is durable first; a record that does not land now is
-	// moved by a later run.
-	if c.arch != nil {
-		if m := c.migrateTx(ctx, b, b.Txs[0]); m.Result == MigrationKept {
-			// Health sees the conflict now; the next run recounts.
-			c.conflicts.Add(1)
-		}
-	}
-	return c.store.DeletePending(ctx, p.RailRef)
+	return &b, c.store.DeletePending(ctx, p.RailRef)
 }
 
 // warnLate warns when the reference reached the gate with a quarter of the

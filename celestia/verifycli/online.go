@@ -519,8 +519,9 @@ type bankChecker struct {
 
 // newBankChecker takes the tx sources in order, the first the primary and the
 // rest alternates, and the cross sources. Every source must be on a host of
-// its own.
-func newBankChecker(txURLs []string, headersURL string, crossURLs []string, trust verifier.HeaderTrust, info *trustInfo,
+// its own. It is a variable so that tests can see what the checker is
+// given.
+var newBankChecker = func(txURLs []string, headersURL string, crossURLs []string, trust verifier.HeaderTrust, info *trustInfo,
 	chainID string) (verifier.ExecutionChecker, error) {
 	if len(txURLs) == 0 {
 		return nil, errors.New("no --tx-rpc")

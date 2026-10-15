@@ -335,8 +335,8 @@ func (c *bankSend) try(ctx context.Context, src TxSource, ref [32]byte, act bank
 	return tried{ans: a}
 }
 
-// tryArchived takes an archived execution result as a candidate: the XR
-// rules stand for the lookup, the hash, the inclusion proof and the result
+// tryArchived takes an archived execution result as a candidate: the
+// record's checks stand for the lookup, the hash, the inclusion proof and the result
 // proof, and the body rules apply to the transaction bytes they bind.
 func (c *bankSend) tryArchived(ctx context.Context, ar verifier.ArchivedResult, ref [32]byte, act bankaction.Action, in verifier.ExecutionInput) tried {
 	set := func(reason verifier.Reason, err error) tried {

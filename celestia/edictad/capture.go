@@ -284,7 +284,7 @@ func startCapture(ctx context.Context, cfg Config, d Deps, chainID string, reg r
 	}
 	var opts []execcapture.Option
 	if a, ok := aio.st.(execcapture.Archive); ok {
-		opts = append(opts, execcapture.WithArchive(a))
+		opts = append(opts, execcapture.WithArchive(a), execcapture.WithArchiveTimeout(timeout))
 	} else {
 		log.Warn("edictad: the archive store cannot hold execution result records; captures stay in the capture store")
 	}

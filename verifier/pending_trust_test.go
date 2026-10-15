@@ -111,7 +111,7 @@ func TestPendingInWindowEvidenceNeedsCheckpointAtH(t *testing.T) {
 			rep := r.verify(t)
 			c := unchecked(t, rep, verifier.CheckAnchor, verifier.ReasonAnchorPending)
 			require.ErrorIs(t, c.Err, verifier.ErrAnchorInvalid)
-			assert.Contains(t, c.Err.Error(), fmt.Sprintf("below the deadline %d", d))
+			assert.Contains(t, c.Err.Error(), fmt.Sprintf("is below the anchor height %d; without usable evidence the window needs %d", r.p.ev.Height, d))
 			unchecked(t, rep, verifier.CheckAnchorTime, verifier.ReasonBlocked)
 			unchecked(t, rep, verifier.CheckHeaderTrust, verifier.ReasonBlocked)
 			assert.Equal(t, verifier.TrustUnchecked, rep.HeaderTrust.Status)

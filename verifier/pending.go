@@ -335,11 +335,18 @@ func (r *run) pendingInWindow(H uint64, facts AnchorFacts) error {
 
 // evidencePending: evidence in the window that header trust cannot tie yet
 // is not usable, and without usable evidence the window waits for a
-// checkpoint at the deadline.
+// checkpoint at the deadline. A checkpoint below H is named as such: reaching
+// H is enough once the evidence verifies.
 func (r *run) evidencePending(H uint64) {
 	why := errors.New("the anchor check did not pass")
-	r.unchecked(CheckAnchor, ReasonAnchorPending, fmt.Errorf("%w: evidence at height %d, and the trusted header %d is below the deadline %d",
-		ErrAnchorInvalid, H, r.checkpointH, r.rep.Fast.AnchorDeadline))
+	deadline := r.rep.Fast.AnchorDeadline
+	err := fmt.Errorf("%w: evidence at height %d is not tied to the trusted chain, and the trusted header %d is below the deadline %d",
+		ErrAnchorInvalid, H, r.checkpointH, deadline)
+	if r.checkpointH < H {
+		err = fmt.Errorf("%w: evidence at height %d, and the trusted header %d is below the anchor height %d; without usable evidence the window needs %d",
+			ErrAnchorInvalid, H, r.checkpointH, H, deadline)
+	}
+	r.unchecked(CheckAnchor, ReasonAnchorPending, err)
 	r.unchecked(CheckAnchorTime, ReasonBlocked, why, string(CheckAnchor))
 	r.unchecked(CheckHeaderTrust, ReasonBlocked, why, string(CheckAnchor))
 	r.rep.HeaderTrust.Status = TrustUnchecked
@@ -350,7 +357,6 @@ func (r *run) evidencePending(H uint64) {
 // deadline bound of the window decides. The report keeps the checkpoint and
 // the tied hashes, so the auditor sees that only the checkpoint is missing.
 func (r *run) evidenceTiedBelowAnchor(H, cp uint64, headers []headerAt, t trustTally) {
-	deadline := r.rep.Fast.AnchorDeadline
 	why := errors.New("the anchor check did not pass")
 	ht := &r.rep.HeaderTrust
 	ht.Hashes = make(map[uint64][]byte, len(headers))
@@ -368,8 +374,8 @@ func (r *run) evidenceTiedBelowAnchor(H, cp uint64, headers []headerAt, t trustT
 		r.unchecked(CheckAnchorTime, ReasonBlocked, why, string(CheckAnchor))
 		return
 	}
-	r.unchecked(CheckAnchor, ReasonAnchorPending, fmt.Errorf("%w: evidence ties at %d; verdict needs a checkpoint >= D (height %d), the trusted header is %d",
-		ErrAnchorInvalid, H, deadline, cp))
+	r.unchecked(CheckAnchor, ReasonAnchorPending, fmt.Errorf("%w: evidence ties at %d; verdict needs a checkpoint >= H (height %d), the trusted header is %d",
+		ErrAnchorInvalid, H, H, cp))
 	r.unchecked(CheckAnchorTime, ReasonBlocked, why, string(CheckAnchor))
 	r.unchecked(CheckHeaderTrust, ReasonBlocked, why, string(CheckAnchor))
 }

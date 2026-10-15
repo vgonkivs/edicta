@@ -1,5 +1,5 @@
-// Package execresultfix loads the archived execution result vectors
-// (spec/vectors/archive/execution_result_v1.1.json). It is for tests only.
+// Package execresultfix loads the archived execution result vectors. It is
+// for tests only.
 package execresultfix
 
 import (

@@ -172,18 +172,19 @@ func (c *Capturer) Conflicts() uint64 { return c.conflicts.Load() }
 
 // Migrate moves every captured transaction of the capture store into the
 // archive and drops the captures the archive now proves. It is idempotent;
-// a capture that stays is tried again on the next run. Without an archive
-// it does nothing.
+// a capture that stays is tried again on the next run. Without an archive,
+// or while another Migrate runs, it does nothing.
+//
+// It runs beside Pass: moving a capture twice at once is harmless, since
+// the write is idempotent and a capture is dropped only once the archive
+// holds an equivalent record.
 func (c *Capturer) Migrate(ctx context.Context) []Migrated {
-	if c.arch == nil {
+	if c.arch == nil || !c.migrating.CompareAndSwap(false, true) {
 		return nil
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.migrating.Store(false)
 	blocks, err := c.store.Blocks(ctx)
-	if err != nil {
-		c.log.Error("execcapture: capture store block files not all read", "err", err)
-	}
+	c.logBlocksErr(err)
 	var (
 		out  []Migrated
 		kept uint64
@@ -224,11 +225,15 @@ func (c *Capturer) migrateTx(ctx context.Context, b Block, t Tx) Migrated {
 		return c.refused(m, "MG3", fmt.Errorf("%w: MG3: self-check %w", ErrRefused, err))
 	}
 
-	written, err := c.arch.Put(ctx, rec)
+	wctx, cancel := context.WithTimeout(ctx, c.archTimeout)
+	written, err := c.arch.Put(wctx, rec)
+	cancel()
 	if err != nil && !errors.Is(err, archive.ErrCorrupt) && !errors.Is(err, archive.ErrConflict) {
 		return c.retry(m, fmt.Errorf("execcapture: archive write: %w", err))
 	}
-	stored, err := c.arch.ExecutionResult(ctx, b.ChainID, rec.RailRef)
+	rctx, cancel := context.WithTimeout(ctx, c.archTimeout)
+	stored, err := c.arch.ExecutionResult(rctx, b.ChainID, rec.RailRef)
+	cancel()
 	switch {
 	case errors.Is(err, archive.ErrCorrupt):
 		m.StoredHash = c.rawHash(ctx, m.Path)
@@ -256,7 +261,10 @@ func (c *Capturer) migrateTx(ctx context.Context, b Block, t Tx) Migrated {
 	if err := c.store.MarkArchived(ctx, b.ChainID, b.Height, t.RailRef); err != nil {
 		return c.retry(m, fmt.Errorf("execcapture: the record is archived, the capture is not dropped yet: %w", err))
 	}
+	c.logMu.Lock()
 	delete(c.migrationLogged, t.RailRef)
+	delete(c.retryLogged, t.RailRef)
+	c.logMu.Unlock()
 	return m
 }
 
@@ -275,6 +283,8 @@ func (c *Capturer) rawHash(ctx context.Context, path string) []byte {
 	if !ok {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, c.archTimeout)
+	defer cancel()
 	rc, err := rr.Raw(ctx, path)
 	if err != nil {
 		return nil
@@ -287,8 +297,28 @@ func (c *Capturer) rawHash(ctx context.Context, path string) []byte {
 	return h.Sum(nil)
 }
 
+// logBlocksErr logs a capture store read error once until it changes, so a
+// block file that does not decode is not reported on every sweep.
+func (c *Capturer) logBlocksErr(err error) {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	c.logMu.Lock()
+	defer c.logMu.Unlock()
+	if msg == c.blocksErr {
+		return
+	}
+	c.blocksErr = msg
+	if err != nil {
+		c.log.Error("execcapture: capture store block files not all read", "err", err)
+	}
+}
+
 func (c *Capturer) refused(m Migrated, rule string, err error) Migrated {
 	m.Result, m.Rule, m.Err = MigrationRefused, rule, err
+	c.logMu.Lock()
+	defer c.logMu.Unlock()
 	if !c.migrationLogged[m.RailRef] {
 		c.migrationLogged[m.RailRef] = true
 		c.log.Error("execcapture: a capture does not give an execution result record that checks; it stays in the capture store",
@@ -299,6 +329,8 @@ func (c *Capturer) refused(m Migrated, rule string, err error) Migrated {
 
 func (c *Capturer) kept(m Migrated, err error) Migrated {
 	m.Result, m.Rule, m.Err = MigrationKept, "MG5", err
+	c.logMu.Lock()
+	defer c.logMu.Unlock()
 	if !c.migrationLogged[m.RailRef] {
 		c.migrationLogged[m.RailRef] = true
 		built := sha256.Sum256(m.Record)
@@ -309,8 +341,15 @@ func (c *Capturer) kept(m Migrated, err error) Migrated {
 	return m
 }
 
+// retry warns once per reference until it moves, so a persistent archive
+// fault does not flood the log on every run.
 func (c *Capturer) retry(m Migrated, err error) Migrated {
 	m.Result, m.Err = MigrationRetry, err
-	c.log.Warn("execcapture: capture not moved into the archive yet, retried on the next run", "rail_ref", m.RailRef, "err", err)
+	c.logMu.Lock()
+	defer c.logMu.Unlock()
+	if !c.retryLogged[m.RailRef] {
+		c.retryLogged[m.RailRef] = true
+		c.log.Warn("execcapture: capture not moved into the archive yet, retried on the next run", "rail_ref", m.RailRef, "err", err)
+	}
 	return m
 }
