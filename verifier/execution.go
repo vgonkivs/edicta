@@ -2,6 +2,7 @@ package verifier
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 
@@ -118,8 +119,14 @@ func factsProblem(f ExecutionFacts) string {
 // execution asks the rail checker registered for the action type about the
 // transaction in the receipt, and holds its facts to the outcome rule. It
 // never passes unless the receipt, the header trust and the checker all did,
-// and a source can make it unchecked but never failed.
-func (r *run) execution() {
+// and a source can make it unchecked but never failed. The error is an
+// archive fault on an archived execution result read.
+func (r *run) execution() error {
+	r.checkExecution()
+	return r.resultFault
+}
+
+func (r *run) checkExecution() {
 	blocked := func(on, msg string) { r.unchecked(CheckExecution, ReasonBlocked, errors.New(msg), on) }
 
 	if c, ok := r.rep.Check(CheckReceipt); !ok || c.Status != StatusPass || r.rep.Receipt == nil {
@@ -163,10 +170,17 @@ func (r *run) execution() {
 		blocked(string(CheckAction), fmt.Sprintf("the action bytes are not the committed ones: %v", err))
 		return
 	}
-	facts, err := chk.CheckExecution(r.ctx, ExecutionInput{
+	in := ExecutionInput{
 		CommitmentHash: r.h, ActionType: r.c.Action.Type, Action: bytes.Clone(r.action),
 		RailRef: r.rep.Receipt.RailRef, AnchorHeight: r.c.PayloadRef.Height,
-	})
+	}
+	if len(r.v.results) > 0 {
+		in.Archived, in.Trust = archivedResults{r}, r.v.trust
+	}
+	facts, err := chk.CheckExecution(r.ctx, in)
+	if r.resultFault != nil {
+		return
+	}
 	if facts.Height != 0 || len(facts.Sources) > 0 {
 		r.rep.Execution = &ExecutionInfo{
 			RailRef: r.rep.Receipt.RailRef, Height: facts.Height, HeaderHash: bytes.Clone(facts.HeaderHash),
@@ -249,4 +263,44 @@ func (r *run) apply(j ExecutionJudgement) {
 			})
 		}
 	}
+}
+
+// archivedResults reads the archived execution results of the run's copies.
+// A fault is kept on the run, so the verification stops whatever the
+// checker makes of it.
+type archivedResults struct{ r *run }
+
+func (a archivedResults) ExecutionResults(ctx context.Context, chainID string, railRef [32]byte) ([]ArchivedResult, error) {
+	var (
+		out  []ArchivedResult
+		seen = map[string]bool{}
+	)
+	for _, c := range a.r.v.results {
+		rec, err := c.Reader.ExecutionResult(ctx, chainID, railRef[:])
+		switch {
+		case errors.Is(err, archive.ErrNotFound):
+			continue
+		case errors.Is(err, archive.ErrCorrupt):
+			out = append(out, ArchivedResult{Copy: c.Name, Err: err})
+			continue
+		case err != nil && ctx.Err() != nil:
+			return nil, WithReason(ReasonTimeout, nil, ctx.Err())
+		case err != nil:
+			if a.r.resultFault == nil {
+				a.r.resultFault = fmt.Errorf("verifier: archive copy %s, execution result: %w", c.Name, err)
+			}
+			return nil, a.r.resultFault
+		}
+		b, err := archive.Encode(rec)
+		if err != nil {
+			out = append(out, ArchivedResult{Copy: c.Name, Err: fmt.Errorf("%w: %w", archive.ErrCorrupt, err)})
+			continue
+		}
+		if seen[string(b)] {
+			continue
+		}
+		seen[string(b)] = true
+		out = append(out, ArchivedResult{Copy: c.Name, Record: rec})
+	}
+	return out, nil
 }

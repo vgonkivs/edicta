@@ -16,10 +16,19 @@ import (
 )
 
 var (
-	_ archive.IntentReader  = (*Store)(nil)
-	_ archive.IntentLister  = (*Store)(nil)
-	_ archive.AbsenceReader = (*Store)(nil)
+	_ archive.IntentReader     = (*Store)(nil)
+	_ archive.IntentLister     = (*Store)(nil)
+	_ archive.AbsenceReader    = (*Store)(nil)
+	_ archive.ExecResultReader = (*Store)(nil)
 )
+
+func (s *Store) ExecutionResult(_ context.Context, chainID string, railRef []byte) (*archive.ExecutionResultRecord, error) {
+	rel, err := archive.ExecResultPath(chainID, railRef)
+	if err != nil {
+		return nil, notFound(err)
+	}
+	return readAs[*archive.ExecutionResultRecord](s, rel)
+}
 
 func (s *Store) Intent(_ context.Context, da commitment.DA, commit []byte, refHeight uint64) (*archive.AnchorIntentRecord, error) {
 	rel, err := archive.IntentPath(da, commit, refHeight)

@@ -72,6 +72,11 @@ func ParseKey(path string) (Kind, error) {
 			return 0, errBadKey
 		}
 		return KindPolicyDeny, nil
+	case execDir:
+		if !parseExecKey(parts) {
+			return 0, errBadKey
+		}
+		return KindExecutionResult, nil
 	case "private":
 		if len(parts) != 3 || len(parts[1]) != 1 || parts[1][0] < '1' || parts[1][0] > '5' || !isLowerHex32(parts[2]) {
 			return 0, errBadKey

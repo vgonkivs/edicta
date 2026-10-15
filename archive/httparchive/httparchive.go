@@ -42,6 +42,7 @@ const (
 	maxPolicyClosed    = 36864 + 64
 	maxPolicySuccessor = 256
 	maxPrivateBlob     = 69760
+	maxExecResult      = 1 << 25
 )
 
 // defaultTimeout bounds a read when the caller gives no client of its own.
@@ -146,6 +147,8 @@ func capOf(k archive.Kind) int64 {
 		return maxAbsence
 	case archive.KindPrivateBlob:
 		return maxPrivateBlob
+	case archive.KindExecutionResult:
+		return maxExecResult
 	}
 	return maxRejection
 }
@@ -202,7 +205,7 @@ func (c *Client) record(ctx context.Context, key string) (archive.Record, error)
 	if err != nil {
 		return nil, err
 	}
-	rec, err := archive.Decode(b)
+	rec, err := archive.DecodeAt(key, b)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", key, err)
 	}

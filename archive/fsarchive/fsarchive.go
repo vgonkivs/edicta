@@ -481,7 +481,7 @@ func (s *Store) read(rel string) (archive.Record, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fsarchive: read %s: %w", rel, err)
 	}
-	rec, err := archive.Decode(b)
+	rec, err := archive.DecodeAt(rel, b)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", rel, err)
 	}

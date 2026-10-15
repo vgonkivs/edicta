@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
@@ -82,6 +83,8 @@ const (
 	RolePrimary   = "primary"
 	RoleAlternate = "alternate"
 	RoleCross     = "cross"
+	// RoleArchive is an archived execution result of one archive copy.
+	RoleArchive = "archive"
 
 	SourceUsed     = "used"
 	SourceSetAside = "set_aside"
@@ -100,6 +103,37 @@ type ExecutionInput struct {
 	// AnchorHeight is payload_ref.height, so that a checker can classify the
 	// order of the anchor and the transaction.
 	AnchorHeight uint64
+	// Archived serves the archived execution results of the transaction, and
+	// Trust the header trust they are tied to the chain with. A checker
+	// tries them before its tx sources once it knows the chain. Both are nil
+	// when the verifier has no copy that can hold them.
+	Archived ArchivedResults
+	Trust    HeaderTrust
+}
+
+// ArchivedResult is the archived execution result one archive copy holds for
+// the key asked. Err is set, and Record nil, for a record that fails strict
+// decoding or the key check.
+type ArchivedResult struct {
+	Copy   string
+	Record *archive.ExecutionResultRecord
+	Err    error
+}
+
+// ArchivedResults reads the archived execution results of a transaction from
+// every archive copy the verifier checks, in copy order: one entry per copy
+// that holds a record, and records with equal bytes once. An error is an
+// archive fault: the verification stops without a verdict, so a checker
+// returns it as it is.
+type ArchivedResults interface {
+	ExecutionResults(ctx context.Context, chainID string, railRef [32]byte) ([]ArchivedResult, error)
+}
+
+// ResultCopy is a further archive copy that the execution check reads
+// archived execution results from, after the verifier's archive.
+type ResultCopy struct {
+	Name   string
+	Reader archive.ExecResultReader
 }
 
 // ExecutionSource is one tx source a checker asked: its role, what became of
@@ -333,7 +367,13 @@ type Deps struct {
 	// h0 for da = 2, the absence proofs and the intent signer. Without it a
 	// pending reference without evidence in its window is never decided.
 	Pending PendingChain
+	// ResultCopies are archive copies read for archived execution results
+	// besides Archive, which is read first when it can hold them.
+	ResultCopies []ResultCopy
 }
+
+// archiveCopyName names the verifier's own archive among the result copies.
+const archiveCopyName = "archive"
 
 type Verifier struct {
 	cfg        Config
@@ -344,6 +384,7 @@ type Verifier struct {
 	executions map[string]ExecutionChecker
 	extractors *policy.Extractors
 	pending    PendingChain
+	results    []ResultCopy
 }
 
 func New(d Deps) (*Verifier, error) {
@@ -382,6 +423,20 @@ func New(d Deps) (*Verifier, error) {
 			return nil, fmt.Errorf("%w: nil anchor verifier for da %d", ErrInvalidConfig, da)
 		}
 		v.anchors[da] = a
+	}
+	if r, ok := d.Archive.(archive.ExecResultReader); ok {
+		v.results = append(v.results, ResultCopy{Name: archiveCopyName, Reader: r})
+	}
+	for i, c := range d.ResultCopies {
+		switch {
+		case c.Reader == nil:
+			return nil, fmt.Errorf("%w: result copy %d has no reader", ErrInvalidConfig, i)
+		case strings.TrimSpace(c.Name) == "" || c.Name == archiveCopyName:
+			return nil, fmt.Errorf("%w: result copy %d needs a name of its own", ErrInvalidConfig, i)
+		case slices.ContainsFunc(d.ResultCopies[:i], func(o ResultCopy) bool { return o.Name == c.Name }):
+			return nil, fmt.Errorf("%w: result copy %d repeats the name %q", ErrInvalidConfig, i, c.Name)
+		}
+		v.results = append(v.results, c)
 	}
 	v.executions = make(map[string]ExecutionChecker, len(d.Executions))
 	for t, c := range d.Executions {

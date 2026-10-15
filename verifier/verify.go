@@ -67,6 +67,8 @@ type run struct {
 	// checkpointH is the trusted header height a pending reference's
 	// absence check learned; 0 when unknown.
 	checkpointH uint64
+	// resultFault is an archive fault on an archived execution result read.
+	resultFault error
 }
 
 // Verify checks the archived decision under h. The error is for operational
@@ -213,7 +215,9 @@ func (v *Verifier) verify(ctx context.Context, h commitment.Hash, opts []Option)
 		if err := r.alive(); err != nil {
 			return nil, err
 		}
-		r.execution()
+		if err := r.execution(); err != nil {
+			return nil, err
+		}
 	}
 	r.finish()
 	return r, nil

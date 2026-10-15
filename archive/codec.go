@@ -33,7 +33,11 @@ func Encode(r Record) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := decode(b, false); err != nil {
+	accept := Kind.valid
+	if _, ok := r.(*ExecutionResultRecord); ok {
+		accept = execKinds
+	}
+	if _, err := decodeKinds(b, false, accept); err != nil {
 		return nil, fmt.Errorf("archive: invalid %s record: %w", r.Kind(), err)
 	}
 	return b, nil
@@ -49,7 +53,14 @@ type pmap struct {
 	hasForm bool
 }
 
-func decode(data []byte, clone bool) (Record, error) {
+// decode is the general reader of format 1. It refuses the execution result
+// (kind 19) at the kind, as a v1.0 reader does: that record is read only
+// under its own path, by DecodeExecutionResult.
+func decode(data []byte, clone bool) (Record, error) { return decodeKinds(data, clone, Kind.valid) }
+
+// decodeKinds runs strict decoding and accepts at the kind step only the
+// kinds accept admits.
+func decodeKinds(data []byte, clone bool, accept func(Kind) bool) (Record, error) {
 	if len(data) > MaxRecordSize {
 		return nil, fmt.Errorf("%w: %d bytes", commitment.ErrTooLarge, len(data))
 	}
@@ -77,7 +88,7 @@ func decode(data []byte, clone bool) (Record, error) {
 		return nil, fmt.Errorf("%w: format %d", commitment.ErrUnsupportedVersion, top[1].u)
 	}
 	kind := Kind(top[2].u)
-	if !kind.valid() {
+	if !accept(kind) {
 		return nil, fmt.Errorf("%w: kind %d", commitment.ErrInvalidEnum, top[2].u)
 	}
 	if len(data) > maxSizeOf(kind) {
@@ -119,7 +130,7 @@ func parseMap(it *gitem, defs []fdef, where string) (*pmap, error) {
 			return nil, err
 		}
 		v := p.val
-		want := [...]byte{majUint, majBstr, majTstr, majTstr, majMap}[d.typ]
+		want := [...]byte{majUint, majBstr, majTstr, majTstr, majMap, majTstr, majBstr}[d.typ]
 		if v.major != want {
 			return nil, fmt.Errorf("%w: %s has major type %d", commitment.ErrWrongType, path, v.major)
 		}
@@ -127,6 +138,17 @@ func parseMap(it *gitem, defs []fdef, where string) (*pmap, error) {
 		case tBstr:
 			if len(v.b) < d.lo || len(v.b) > d.hi {
 				return nil, fmt.Errorf("%w: %s of %d bytes", commitment.ErrFieldSize, path, len(v.b))
+			}
+		case tAunts:
+			if len(v.b) < d.lo || len(v.b) > d.hi || len(v.b)%32 != 0 {
+				return nil, fmt.Errorf("%w: %s of %d bytes, not whole 32-byte hashes", commitment.ErrFieldSize, path, len(v.b))
+			}
+		case tChainID:
+			if len(v.b) < d.lo || len(v.b) > d.hi {
+				return nil, fmt.Errorf("%w: %s of %d bytes", commitment.ErrFieldSize, path, len(v.b))
+			}
+			if !ValidChainID(string(v.b)) {
+				return nil, fmt.Errorf("%w: %s outside its grammar", commitment.ErrInvalidString, path)
 			}
 		case tTstr, tErrName:
 			if len(v.b) < d.lo || len(v.b) > d.hi {
@@ -236,7 +258,7 @@ var nonZero = map[string]bool{
 	"intent_height": true, "height": true, "promise_height": true, "authorized_at": true,
 	"rejected_at": true, "checked_at": true, "block_time": true, "blob_retention_s": true,
 	"retention_latest_s": true, "retention_at_height_s": true, "promise_created": true,
-	"fast_window": true, "ref_height": true, "created_at": true,
+	"fast_window": true, "ref_height": true, "created_at": true, "results_total": true,
 }
 
 func checkValues(pm *pmap, defs []fdef, kind Kind) error {
@@ -458,6 +480,8 @@ func build(pm *pmap, kind Kind, clone bool) Record {
 		return &PolicyClosedRecord{ClosedSet: bs(pm, 3)}
 	case KindAnchorIntent, KindAbsenceProof:
 		return buildFast(pm, kind, bs, u)
+	case KindExecutionResult:
+		return buildExecResult(pm, bs, u)
 	case KindPrivateBlob:
 		return &PrivateBlobRecord{PlaintextKind: policy.PrivateKind(u(pm, 3)), Hash: bs(pm, 4), Envelope: bs(pm, 5)}
 	case KindPolicySuccessor:
@@ -672,6 +696,11 @@ func encodeRaw(r Record) ([]byte, error) {
 			return nil, errNilRecord
 		}
 		encodeAbsence(w, r)
+	case *ExecutionResultRecord:
+		if r == nil {
+			return nil, errNilRecord
+		}
+		encodeExecResult(w, r)
 	default:
 		return nil, errNilRecord
 	}
@@ -722,6 +751,10 @@ func KeyPath(r Record) (string, error) {
 	case *RejectionRecord:
 		if r != nil {
 			return RejectionPath(r.CommitmentHash, r.Error)
+		}
+	case *ExecutionResultRecord:
+		if r != nil {
+			return ExecResultPath(r.ChainID, r.RailRef)
 		}
 	default:
 		if p, ok, err := policyKeyPath(r); ok {
@@ -933,6 +966,11 @@ func SameIdentity(a, b Record) bool {
 		// The key: two envelopes of one plaintext differ in their randomness.
 		b, ok := b.(*PrivateBlobRecord)
 		return ok && a.PlaintextKind == b.PlaintextKind && bytes.Equal(a.Hash, b.Hash)
+	case *ExecutionResultRecord:
+		// The key: the protobuf parts need not be canonical, and every reader
+		// re-checks them, so the first write stays.
+		b, ok := b.(*ExecutionResultRecord)
+		return ok && a.ChainID == b.ChainID && bytes.Equal(a.RailRef, b.RailRef)
 	case *PolicySuccessorRecord:
 		// Whole record, so a second commitment under one key is a conflict.
 		b, ok := b.(*PolicySuccessorRecord)

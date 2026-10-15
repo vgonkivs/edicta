@@ -14,6 +14,10 @@ const (
 	tTstr
 	tErrName
 	tMap
+	// tChainID is a text chain id (ValidChainID); tAunts a byte string of
+	// whole 32-byte hashes.
+	tChainID
+	tAunts
 )
 
 type presence uint8
@@ -160,6 +164,8 @@ func schemaOf(k Kind) []fdef {
 			{4, "hash", tBstr, pReq, 32, 32, nil},
 			{5, "envelope", tBstr, pReq, 1, policy.MaxPrivateActionEnvelope, nil},
 		}
+	case KindExecutionResult:
+		rest = execResultSchema()
 	case KindPolicySuccessor:
 		rest = []fdef{
 			{3, "gate_id", tTstr, pReq, 1, 64, nil},
@@ -195,6 +201,8 @@ func maxSizeOf(k Kind) int {
 		return maxAbsenceSize
 	case KindPrivateBlob:
 		return maxPrivateBlobSize
+	case KindExecutionResult:
+		return maxExecResultSize
 	}
 	return MaxRecordSize
 }

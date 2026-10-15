@@ -80,11 +80,14 @@ func (k Kind) String() string {
 		return "absence_proof"
 	case KindPrivateBlob:
 		return "private_blob"
+	case KindExecutionResult:
+		return "execution_result"
 	}
 	return "unknown"
 }
 
-// valid reports whether k is a kind this codec reads.
+// valid reports whether k is a kind the general reader reads. The execution
+// result is not among them: it has a reader of its own.
 func (k Kind) valid() bool {
 	switch k {
 	case KindPayload, KindEvidence, KindAuthorization, KindRejection, KindMandate, KindPolicyAllow,
