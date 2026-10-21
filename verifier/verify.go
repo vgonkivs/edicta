@@ -24,8 +24,9 @@ const (
 )
 
 type options struct {
-	receipt   []byte
-	execution bool
+	receipt    []byte
+	execution  bool
+	settlement bool
 }
 
 // Option changes one Verify call.
@@ -64,6 +65,9 @@ type run struct {
 	sig []byte
 
 	execRequested bool
+	// settlementRequested asks for the profile's settlement report once the
+	// verdict is final.
+	settlementRequested bool
 	// checkpointH is the trusted header height a pending reference's
 	// absence check learned; 0 when unknown.
 	checkpointH uint64
@@ -78,6 +82,9 @@ func (v *Verifier) Verify(ctx context.Context, h commitment.Hash, opts ...Option
 	r, err := v.verify(ctx, h, opts)
 	if err != nil {
 		return Report{}, err
+	}
+	if r.settlementRequested {
+		r.settlement()
 	}
 	return r.rep, nil
 }
@@ -139,7 +146,7 @@ func (v *Verifier) verify(ctx context.Context, h commitment.Hash, opts []Option)
 	for _, opt := range opts {
 		opt(&o)
 	}
-	r := &run{v: v, ctx: ctx, h: h, execRequested: o.execution}
+	r := &run{v: v, ctx: ctx, h: h, execRequested: o.execution, settlementRequested: o.settlement}
 	r.rep.CommitmentHash = h
 	r.rep.Params = v.cfg.Params
 	if err := r.alive(); err != nil {

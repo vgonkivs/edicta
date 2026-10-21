@@ -199,13 +199,16 @@ type reportView struct {
 	CandidatesEarlier *int           `json:"anchor_candidates_earlier,omitempty"`
 	Receipt           *receiptView   `json:"receipt,omitempty"`
 	Execution         *executionView `json:"execution,omitempty"`
-	Policy            *policyView    `json:"policy,omitempty"`
-	GateIntegrity     integrityView  `json:"gate_integrity"`
-	HeaderTrust       trustView      `json:"header_trust"`
-	TrustModel        string         `json:"trust_model,omitempty"`
-	Checks            []checkView    `json:"checks"`
-	Warnings          []string       `json:"warnings,omitempty"`
-	K2                *k2View        `json:"retention_replay,omitempty"`
+	// RailSettlement is the profile's settlement report; the key differs
+	// from "settlement", the core's anchor settlement level.
+	RailSettlement any           `json:"rail_settlement,omitempty"`
+	Policy         *policyView   `json:"policy,omitempty"`
+	GateIntegrity  integrityView `json:"gate_integrity"`
+	HeaderTrust    trustView     `json:"header_trust"`
+	TrustModel     string        `json:"trust_model,omitempty"`
+	Checks         []checkView   `json:"checks"`
+	Warnings       []string      `json:"warnings,omitempty"`
+	K2             *k2View       `json:"retention_replay,omitempty"`
 	// The fast-mode fields, for a pending reference whose Authorization
 	// verified.
 	Version        uint64       `json:"version,omitempty"`
@@ -365,6 +368,7 @@ func viewOf(r verifier.Report) reportView {
 	if rc := r.Receipt; rc != nil {
 		v.Receipt = &receiptView{RailRef: rc.RailRef, RecordedAt: rc.RecordedAt, GateAttested: rc.GateAttested, ProvenExecution: rc.ProvenExecution}
 	}
+	v.RailSettlement = viewOfSettlement(r.RailSettlement)
 	if ex := r.Execution; ex != nil {
 		v.Execution = &executionView{
 			RailRef: ex.RailRef, Height: ex.Height, BlockTime: ex.BlockTime, Inclusion: ex.Inclusion,
@@ -627,6 +631,9 @@ func writeText(out io.Writer, v reportView, colour bool) {
 			}
 			p("%s", line)
 		}
+	}
+	if v.RailSettlement != nil {
+		writeSettlementText(out, v.RailSettlement)
 	}
 	for _, w := range v.Warnings {
 		p("warning: %s", w)

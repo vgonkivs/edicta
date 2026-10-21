@@ -248,8 +248,11 @@ type Report struct {
 	Cert                    *CertReport
 	Receipt                 *ReceiptInfo
 	Execution               *ExecutionInfo
-	Policy                  *PolicyInfo
-	GateIntegrity           GateIntegrity
+	// RailSettlement is the profile's settlement report when one was
+	// requested. It is not a check and never moves the verdict.
+	RailSettlement *SettlementInfo
+	Policy         *PolicyInfo
+	GateIntegrity  GateIntegrity
 	// Fast is set for a pending reference whose Authorization verified.
 	Fast        *FastInfo
 	HeaderTrust HeaderTrustReport

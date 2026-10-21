@@ -21,6 +21,7 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/gate/dacommit/blobv1"
@@ -164,6 +165,9 @@ type scenarioOpts struct {
 	forgedHeader bool
 	// bank commits to the bank-send vector action.
 	bank bool
+	// edenAction, when set, is the committed action, of the Eden escrow
+	// type.
+	edenAction []byte
 	// chainMod changes the headers of the chain before they are linked.
 	chainMod func(h uint64, hd *core.Header)
 	// outlivingAuth archives an Authorization that the gate signed with an
@@ -191,6 +195,10 @@ func newScenario(t *testing.T, o scenarioOpts) *scenario {
 		require.NotEmpty(t, ac.ID)
 		action, msg = bankvec.Hex(t, ac.CBORHex), bankvec.Hex(t, ac.Input.MsgHex)
 		c = gatefix.WithAction(t, c, bankaction.ActionType, action)
+	}
+	if o.edenAction != nil {
+		action = o.edenAction
+		c = gatefix.WithAction(t, c, edenescrow.ActionType, action)
 	}
 	env, h := gatefix.Sign(t, "agent1", c)
 	blob := gatefix.Blob(t)

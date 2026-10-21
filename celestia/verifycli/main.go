@@ -6,6 +6,9 @@
 //	    [--checkpoint-quorum N] [--cross-check URL]...
 //	    [--receipt FILE [--tx-rpc URL... --check-execution [--result-archive DIR|URL]...]]
 //	    [--absence-source URL] [--skew SECONDS] [--blob-retention SECONDS] [--json]
+//	    [--settlement --receipt FILE (--settlement-rpc URL | --settlement-own-rpc URL)...
+//	     [--settlement-da URL] [--settlement-level L0|L1|L2] [--settlement-min-sources N]
+//	     [--settlement-confirm-depth N]]
 //	absence <commitment_hash> --gate-key HEX --archive DIR --absence-source URL
 //	    (--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)) [--json]
 //
@@ -25,6 +28,11 @@
 // gate's integrity violated (signed verdicts of the gate contradict each
 // other). The precedence is 4, 1, 5, 3, 2, 0. With --json an error is printed
 // as {"error": "..."}.
+//
+// --settlement adds the Eden profile's settlement report (rail_settlement):
+// whether the transaction the receipt names is the authorized deposit and
+// landed. It is printed beside the core report and never changes the verdict
+// or the exit code.
 package verifycli
 
 import (
@@ -182,6 +190,7 @@ type flags struct {
 	// resultArchives are further archive copies, directories or URLs,
 	// read for archived execution results only.
 	resultArchives []string
+	settle         settlementFlags
 }
 
 func parseFlags(args []string, out io.Writer) (flags, error) { return parseFlagsWith(args, out, nil) }
@@ -190,7 +199,8 @@ func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, e
 	const usage = "usage: verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) " +
 		"[--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)] [--cross-check URL]... [--exclude-host HOST]... " +
 		"[--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution [--exec-chain-id ID] [--result-archive DIR|URL]...] " +
-		"[--principal-key HEX]... [--principal ed25519:HEX|cosmos:BECH32|eth:0xHEX]... [--require-policy] [--policy-full] [--max-walk-steps N] [--policy-evidence FILE]... [--auditor-key FILE]... [--absence-source URL] [--json]\n" +
+		"[--principal-key HEX]... [--principal ed25519:HEX|cosmos:BECH32|eth:0xHEX]... [--require-policy] [--policy-full] [--max-walk-steps N] [--policy-evidence FILE]... [--auditor-key FILE]... [--absence-source URL] [--json] " +
+		"[--settlement (--settlement-rpc URL | --settlement-own-rpc URL)... [--settlement-da URL] [--settlement-level L0|L1|L2] [--settlement-min-sources N] [--settlement-confirm-depth N]]\n" +
 		"       absence <commitment_hash> --gate-key HEX --archive DIR --absence-source URL (--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)) [--json]"
 	var f flags
 	if len(args) == 0 || (args[0] != "verify" && args[0] != "replay" && args[0] != "absence") {
@@ -235,6 +245,14 @@ func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, e
 	if load != nil {
 		cfgPath = fs.String("config", "", "path of edicta.toml; its values stand in for the flags not given (default: the Edicta home, skipped when absent)")
 	}
+	fs.BoolVar(&f.settle.on, "settlement", false, "add the Eden settlement report of the transaction the receipt names; it never changes the verdict")
+	var settleRPC, settleOwn multiFlag
+	fs.Var(&settleRPC, "settlement-rpc", "Eden JSON-RPC of a public operator for --settlement (repeatable, one per host)")
+	fs.Var(&settleOwn, "settlement-own-rpc", "Eden JSON-RPC of the operator's own node for --settlement, asked first (repeatable)")
+	fs.StringVar(&f.settle.da, "settlement-da", "", "the operator's own ev-node RPC, for whether the block's data is in Celestia (report only)")
+	fs.StringVar(&f.settle.level, "settlement-level", "", "level a settlement pass needs: L0, L1 or L2 (default L0)")
+	fs.IntVar(&f.settle.sources, "settlement-min-sources", 0, "agreeing operators that make L1 (default 2)")
+	fs.Uint64Var(&f.settle.depth, "settlement-confirm-depth", 0, "Eden blocks that must follow the transaction's (default 20)")
 	var ckpt, cross, exclude, txRPC, resultArchives multiFlag
 	fs.Var(&resultArchives, "result-archive", "further archive copy, a directory or an http(s) URL, that the execution check reads for archived execution results after the archive (repeatable)")
 	fs.Var(&txRPC, "tx-rpc", "CometBFT RPC that serves the transaction the receipt names; the first is the primary, more are alternates tried in order")
@@ -307,6 +325,7 @@ func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, e
 	fs.Visit(func(fl *flag.Flag) { f.quorumSet = f.quorumSet || fl.Name == "checkpoint-quorum" })
 	f.checkpointRPC, f.crossRPC, f.excludeHosts, f.txRPC = ckpt, cross, exclude, txRPC
 	f.resultArchives = resultArchives
+	f.settle.rpc, f.settle.ownRPC = settleRPC, settleOwn
 	f.params = def
 	f.params.SkewS, f.params.BlobRetentionS = *skew, *blobRetention
 	f.applyDefaults(d, given)
@@ -362,6 +381,9 @@ func (f flags) validate() error {
 		if _, _, err := parseCheckpoint(f.checkpoint); err != nil {
 			return usageError{err}
 		}
+	}
+	if err := f.settle.validate(f.cmd, f.receiptPath); err != nil {
+		return err
 	}
 	return f.checkExcluded()
 }
@@ -504,6 +526,12 @@ func execute(ctx context.Context, args []string, out io.Writer, load DefaultsLoa
 			}
 			deps.Executions = map[string]verifier.ExecutionChecker{bankaction.ActionType: chk}
 		}
+	}
+	if f.settle.on {
+		if deps.Settlements, err = newSettlements(f.settle); err != nil {
+			return codeUsage, usageError{err}
+		}
+		opts = append(opts, verifier.WithSettlement())
 	}
 	v, err := verifier.New(deps)
 	if err != nil {

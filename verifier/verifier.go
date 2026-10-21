@@ -370,21 +370,24 @@ type Deps struct {
 	// ResultCopies are archive copies read for archived execution results
 	// besides Archive, which is read first when it can hold them.
 	ResultCopies []ResultCopy
+	// Settlements are the profiles' settlement reports by action type.
+	Settlements map[string]SettlementChecker
 }
 
 // archiveCopyName names the verifier's own archive among the result copies.
 const archiveCopyName = "archive"
 
 type Verifier struct {
-	cfg        Config
-	archive    Reader
-	committers map[commitment.DA]gate.DACommitter
-	anchors    map[commitment.DA]AnchorVerifier
-	trust      HeaderTrust
-	executions map[string]ExecutionChecker
-	extractors *policy.Extractors
-	pending    PendingChain
-	results    []ResultCopy
+	cfg         Config
+	archive     Reader
+	committers  map[commitment.DA]gate.DACommitter
+	anchors     map[commitment.DA]AnchorVerifier
+	trust       HeaderTrust
+	executions  map[string]ExecutionChecker
+	extractors  *policy.Extractors
+	pending     PendingChain
+	results     []ResultCopy
+	settlements map[string]SettlementChecker
 }
 
 func New(d Deps) (*Verifier, error) {
@@ -437,6 +440,13 @@ func New(d Deps) (*Verifier, error) {
 			return nil, fmt.Errorf("%w: result copy %d repeats the name %q", ErrInvalidConfig, i, c.Name)
 		}
 		v.results = append(v.results, c)
+	}
+	v.settlements = make(map[string]SettlementChecker, len(d.Settlements))
+	for t, c := range d.Settlements {
+		if c == nil {
+			return nil, fmt.Errorf("%w: nil settlement checker for %q", ErrInvalidConfig, t)
+		}
+		v.settlements[t] = c
 	}
 	v.executions = make(map[string]ExecutionChecker, len(d.Executions))
 	for t, c := range d.Executions {
