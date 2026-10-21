@@ -124,6 +124,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	hd := w.Header()
 	hd.Set("Content-Type", ctype)
+	hd.Set("Vary", "Accept, Content-Type")
 	hd.Set("X-Content-Type-Options", "nosniff")
 	if res.allow != "" {
 		hd.Set("Allow", res.allow)
@@ -137,19 +138,31 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // renderJSON converts a CBOR response body to JSON. The body is the server's
 // own, so a failure is a bug and is answered as an internal error.
-func (h *handler) renderJSON(res response) response {
+func (h *handler) renderJSON(res response) (out response) {
+	defer func() {
+		if p := recover(); p != nil {
+			h.log.Error("edictaapi: render json panic", "panic", fmt.Sprint(p))
+			out = errorJSON(500)
+		}
+	}()
 	schema := res.schema
 	if res.status != 200 {
 		schema = jsonErrorBody
 	}
-	out, err := cborToJSON(res.body, schema)
+	body, err := cborToJSON(res.body, schema)
 	if err != nil {
 		h.log.Error("edictaapi: render json response", "err", err)
-		res.status, res.retryAfter = 500, 0
-		out, _ = cborToJSON(errorResponse(500, codeInternal, "internal error", false, nil, nil, 0).body, jsonErrorBody)
+		return errorJSON(500)
 	}
-	res.body = out
+	res.body = body
 	return res
+}
+
+// errorJSON is the fixed internal-error answer in JSON.
+func errorJSON(status int) response {
+	body := errorResponse(status, codeInternal, "internal error", false, nil, nil, 0).body
+	js, _ := cborToJSON(body, jsonErrorBody)
+	return response{status: status, body: js}
 }
 
 func (h *handler) serve(r *http.Request) (res response) {

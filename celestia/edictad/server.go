@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"mime"
 	"net"
 	"net/http"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1304,17 +1304,26 @@ func guardTokens(next http.Handler, authorize, record secret.Secret) http.Handle
 			next.ServeHTTP(w, r)
 			return
 		}
-		if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/cbor" {
+		// The API answers an unsupported type 415 before anything runs, so
+		// only the types it would act on need the token. The classifier is
+		// the API's own, so the two cannot disagree.
+		isJSON, accepted := edictaapi.MediaType(r.Header.Get("Content-Type"))
+		if !accepted {
 			next.ServeHTTP(w, r)
 			return
 		}
 		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !ok || !equalSecret(got, bearer) {
-			w.Header().Set("Content-Type", "application/cbor")
+			body, ctype := tokenRefusal, "application/cbor"
+			if isJSON {
+				body, ctype = tokenRefusalJSON, "application/json"
+			}
+			w.Header().Set("Content-Type", ctype)
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("WWW-Authenticate", "Bearer")
+			w.Header().Set("Vary", "Accept, Content-Type")
 			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write(tokenRefusal)
+			_, _ = w.Write(body)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -1330,6 +1339,9 @@ func equalSecret(got string, want secret.Secret) bool {
 	b := sha256.Sum256(w)
 	return subtle.ConstantTimeCompare(a[:], b[:]) == 1
 }
+
+// tokenRefusalJSON is tokenRefusal for a JSON request.
+var tokenRefusalJSON = []byte(`{"code":"edictaapi.ErrTokenInvalid","message":` + strconv.Quote(edictaapi.ErrTokenInvalid.Error()) + `,"retryable":0}`)
 
 // tokenRefusal is the error body of the API for a missing or wrong token.
 var tokenRefusal = func() []byte {

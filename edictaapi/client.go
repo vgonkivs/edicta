@@ -319,17 +319,25 @@ func (c *Client) once(ctx context.Context, method, path string, body []byte, rt 
 		return nil, 0, fmt.Errorf("edictaapi: read response: %w", err)
 	}
 	if uint64(len(data)) > limit {
-		return nil, 0, fmt.Errorf("edictaapi: response above %d bytes: %w", maxResponse, commitment.ErrTooLarge)
+		return nil, 0, fmt.Errorf("edictaapi: response above %d bytes: %w", limit, commitment.ErrTooLarge)
 	}
 	if c.json {
-		schema := rt.resp
-		if resp.StatusCode != http.StatusOK {
-			schema = jsonErrorBody
-		}
-		if conv, cerr := jsonToCBOR(data, schema); cerr == nil {
-			data = conv
-		} else if resp.StatusCode == http.StatusOK {
-			return nil, 0, fmt.Errorf("edictaapi: %s response: %w", path, cerr)
+		// The decoder follows the response's own type: an older server or a
+		// proxy may answer CBOR.
+		respJSON, known := requestMedia(resp.Header.Get("Content-Type"))
+		switch {
+		case respJSON:
+			schema := rt.resp
+			if resp.StatusCode != http.StatusOK {
+				schema = jsonErrorBody
+			}
+			if conv, cerr := jsonToCBOR(data, schema); cerr == nil {
+				data = conv
+			} else if resp.StatusCode == http.StatusOK {
+				return nil, 0, fmt.Errorf("edictaapi: %s response: %w", path, cerr)
+			}
+		case !known && resp.StatusCode == http.StatusOK:
+			return nil, 0, fmt.Errorf("edictaapi: %s response: unexpected content type %q", path, resp.Header.Get("Content-Type"))
 		}
 	}
 	if resp.StatusCode == http.StatusOK {

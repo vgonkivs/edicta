@@ -570,3 +570,46 @@ func TestClientJSONRejectsBadResponse(t *testing.T) {
 	_, err = c.Authorize(context.Background(), []byte("e"), []byte("a"), testSalt)
 	require.ErrorIs(t, err, edictaapi.ErrInternal)
 }
+
+func TestJSONVaryAndMediaTypeClassifier(t *testing.T) {
+	e := newEnv(t, nil)
+	for _, rec := range []*httptest.ResponseRecorder{
+		e.doH(http.MethodGet, "/v1/health", nil, nil),
+		e.postJSON("/v1/authorize", toJSON(t, authReq(t), authNames)),
+		e.post("/v1/authorize", authReq(t)),
+	} {
+		require.Equal(t, "Accept, Content-Type", rec.Header().Get("Vary"))
+	}
+	for ct, want := range map[string][2]bool{
+		"application/json":                 {true, true},
+		"application/json; foo=bar":        {true, true},
+		"application/cbor":                 {false, true},
+		"application/problem+json":         {false, false},
+		"application/json; charset=latin1": {false, false},
+		"":                                 {false, false},
+	} {
+		isJSON, ok := edictaapi.MediaType(ct)
+		require.Equal(t, want, [2]bool{isJSON, ok}, ct)
+	}
+}
+
+func TestClientJSONFollowsResponseMediaType(t *testing.T) {
+	var ctype string
+	var body []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", ctype)
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	c, err := edictaapi.NewClient(srv.URL, edictaapi.Secret{}, nil, srv.Client(), edictaapi.WithJSON())
+	require.NoError(t, err)
+
+	ctype, body = cborType, encMap(t, map[uint64]any{1: []byte("auth")})
+	got, err := c.Authorize(context.Background(), []byte("e"), []byte("a"), testSalt)
+	require.NoError(t, err)
+	require.Equal(t, []byte("auth"), got)
+
+	ctype, body = "text/html", []byte(`{"signed_authorization":"YQ=="}`)
+	_, err = c.Authorize(context.Background(), []byte("e"), []byte("a"), testSalt)
+	require.ErrorContains(t, err, "unexpected content type")
+}

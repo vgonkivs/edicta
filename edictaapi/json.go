@@ -66,6 +66,12 @@ func routeSchemas(path string) (jsonRoute, bool) {
 	return jsonRoute{}, false
 }
 
+// MediaType classifies a Content-Type header the way the handler does: ok is
+// false for a type the API refuses with ErrMediaType, isJSON tells the two
+// accepted ones apart. A wrapper that must act before the handler (for
+// example a token check) uses it so both agree on what is accepted.
+func MediaType(h string) (isJSON, ok bool) { return requestMedia(h) }
+
 // requestMedia classifies a Content-Type header: the media type and whether it
 // is one this server accepts.
 func requestMedia(h string) (isJSON, ok bool) {
@@ -138,7 +144,7 @@ const (
 
 type jvalue struct {
 	kind jkind
-	s    string
+	s    []byte // aliases the input when the string has no escapes
 	u    uint64
 	arr  []uint64
 }
@@ -189,7 +195,7 @@ func jsonToCBOR(in []byte, schema []fspec) ([]byte, error) {
 			if v.kind != jStr {
 				return nil, fmt.Errorf("%w: %s", commitment.ErrWrongType, f.name)
 			}
-			it.s = v.s
+			it.s = string(v.s)
 		case fUint:
 			if v.kind != jNum {
 				return nil, fmt.Errorf("%w: %s", commitment.ErrWrongType, f.name)
@@ -208,15 +214,18 @@ func jsonToCBOR(in []byte, schema []fspec) ([]byte, error) {
 
 // decodeBase64 accepts exactly the padded RFC 4648 section 4 alphabet in its
 // canonical form: no line breaks, no missing padding, no stray trailing bits.
-func decodeBase64(s string) ([]byte, error) {
-	b, err := base64.StdEncoding.Strict().DecodeString(s)
+func decodeBase64(s []byte) ([]byte, error) {
+	// The decoder skips CR and LF; padded input of the standard alphabet in
+	// strict mode is otherwise exactly the canonical form.
+	if len(s)%4 != 0 || bytes.IndexAny(s, "\r\n") >= 0 {
+		return nil, jsonFail("base64 is not canonical")
+	}
+	dst := make([]byte, base64.StdEncoding.DecodedLen(len(s)))
+	n, err := base64.StdEncoding.Strict().Decode(dst, s)
 	if err != nil {
 		return nil, jsonFail("base64")
 	}
-	if base64.StdEncoding.EncodeToString(b) != s {
-		return nil, jsonFail("base64 is not canonical")
-	}
-	return b, nil
+	return dst[:n], nil
 }
 
 func (p *jparser) space() {
@@ -244,19 +253,19 @@ func (p *jparser) object(schema []fspec) (map[string]jvalue, error) {
 	}
 	for {
 		p.space()
-		key, err := p.str()
+		raw, err := p.str()
 		if err != nil {
 			return nil, err
 		}
-		known := false
+		key := ""
 		for _, f := range schema {
-			if f.name == key {
-				known = true
+			if f.name == string(raw) {
+				key = f.name
 				break
 			}
 		}
-		if !known {
-			return nil, jsonFail("unknown key %q", truncate(key))
+		if key == "" {
+			return nil, jsonFail("unknown key %q", truncate(string(raw)))
 		}
 		if _, dup := vals[key]; dup {
 			return nil, jsonFail("duplicate key %q", key)
@@ -377,26 +386,42 @@ func (p *jparser) num() (uint64, error) {
 	return u, nil
 }
 
-func (p *jparser) str() (string, error) {
+// str returns the unescaped bytes of a string. Without escapes the result
+// aliases the input, so a large base64 value is not copied before decoding.
+func (p *jparser) str() ([]byte, error) {
 	if p.pos >= len(p.in) || p.in[p.pos] != '"' {
-		return "", jsonFail("expected a string at offset %d", p.pos)
+		return nil, jsonFail("expected a string at offset %d", p.pos)
 	}
 	p.pos++
-	var out []byte
+	start := p.pos
+	i := start
+	for i < len(p.in) && p.in[i] != '"' && p.in[i] != '\\' && p.in[i] >= 0x20 {
+		i++
+	}
+	if i < len(p.in) && p.in[i] == '"' {
+		p.pos = i + 1
+		if !utf8.Valid(p.in[start:i]) {
+			return nil, jsonFail("invalid UTF-8")
+		}
+		return p.in[start:i], nil
+	}
+	out := make([]byte, 0, i-start+16)
+	out = append(out, p.in[start:i]...)
+	p.pos = i
 	for {
 		if p.pos >= len(p.in) {
-			return "", jsonFail("unterminated string")
+			return nil, jsonFail("unterminated string")
 		}
 		c := p.in[p.pos]
 		switch {
 		case c == '"':
 			p.pos++
 			if !utf8.Valid(out) {
-				return "", jsonFail("invalid UTF-8")
+				return nil, jsonFail("invalid UTF-8")
 			}
-			return string(out), nil
+			return out, nil
 		case c < 0x20:
-			return "", jsonFail("control character in string")
+			return nil, jsonFail("control character in string")
 		case c != '\\':
 			out = append(out, c)
 			p.pos++
@@ -404,7 +429,7 @@ func (p *jparser) str() (string, error) {
 		}
 		p.pos++
 		if p.pos >= len(p.in) {
-			return "", jsonFail("unterminated escape")
+			return nil, jsonFail("unterminated escape")
 		}
 		e := p.in[p.pos]
 		p.pos++
@@ -424,25 +449,25 @@ func (p *jparser) str() (string, error) {
 		case 'u':
 			r, err := p.hex4()
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			if utf16.IsSurrogate(r) {
 				if r >= 0xdc00 || p.pos+1 >= len(p.in) || p.in[p.pos] != '\\' || p.in[p.pos+1] != 'u' {
-					return "", jsonFail("unpaired surrogate")
+					return nil, jsonFail("unpaired surrogate")
 				}
 				p.pos += 2
 				lo, err := p.hex4()
 				if err != nil {
-					return "", err
+					return nil, err
 				}
 				if lo < 0xdc00 || lo > 0xdfff {
-					return "", jsonFail("unpaired surrogate")
+					return nil, jsonFail("unpaired surrogate")
 				}
 				r = utf16.DecodeRune(r, lo)
 			}
 			out = utf8.AppendRune(out, r)
 		default:
-			return "", jsonFail("invalid escape")
+			return nil, jsonFail("invalid escape")
 		}
 	}
 }
