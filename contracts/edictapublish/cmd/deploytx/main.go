@@ -7,11 +7,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/vgonkivs/edicta/contracts/edictapublish"
 )
 
 func main() {
+	if err := edictapublish.Check(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	addr := edictapublish.Create2Address()
 	salt := edictapublish.Salt()
 	out := struct {
@@ -21,7 +26,7 @@ func main() {
 		Address string `json:"create2_address"`
 		Salt    string `json:"salt"`
 	}{
-		To:      "0x" + edictapublish.DeterministicDeployer,
+		To:      "0x" + strings.ToLower(edictapublish.DeterministicDeployer),
 		Value:   "0x0",
 		Data:    fmt.Sprintf("0x%x", edictapublish.DeployCalldata()),
 		Address: fmt.Sprintf("0x%x", addr[:]),

@@ -3,7 +3,7 @@
 # compares the fresh output with the checked-in files.
 set -eu
 
-SOLC_IMAGE="ethereum/solc:0.8.28"
+SOLC_IMAGE="ethereum/solc:0.8.28@sha256:b3b83d65e1eae916b58e0c19b9051afa7ffc93e00f8210196639dee794a2a98a"
 OPTIMIZE_RUNS=200
 EVM_VERSION=paris
 

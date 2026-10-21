@@ -13,6 +13,7 @@ import (
 )
 
 type buildInfo struct {
+	SolcImage     string `json:"solc_image"`
 	SolcVersion   string `json:"solc_version"`
 	Optimizer     bool   `json:"optimizer"`
 	OptimizerRuns int    `json:"optimizer_runs"`
@@ -41,6 +42,8 @@ func TestArtifactsMatchBuildMetadata(t *testing.T) {
 	assert.True(t, bi.Optimizer)
 	assert.Equal(t, 200, bi.OptimizerRuns)
 	assert.Equal(t, "none", bi.MetadataHash)
+	assert.Equal(t, "paris", bi.EVMVersion)
+	assert.Regexp(t, `@sha256:[0-9a-f]{64}$`, bi.SolcImage)
 
 	assert.Equal(t, bi.SourceSHA256, fileSHA(t, "EdictaPublish.sol"))
 	assert.Equal(t, bi.RuntimeSHA256, fileSHA(t, "runtime.hex"))
@@ -58,13 +61,15 @@ func TestRuntimeCodeContainsInterface(t *testing.T) {
 	rt := RuntimeCode()
 	topic := EventTopic()
 	assert.Contains(t, hex.EncodeToString(topic[:]), "3872ab07")
-	assert.True(t, bytes.Contains(rt, PublishSelector[:]), "publish(bytes) selector")
+	sel := PublishSelector()
+	assert.True(t, bytes.Contains(rt, sel[:]), "publish(bytes) selector")
 	assert.True(t, bytes.Contains(rt, topic[:]), "event topic 0")
 }
 
 func TestPublishSelectorMatchesSignature(t *testing.T) {
 	sum := keccak([]byte("publish(bytes)"))
-	assert.Equal(t, PublishSelector[:], sum[:4])
+	sel := PublishSelector()
+	assert.Equal(t, sel[:], sum[:4])
 }
 
 func TestEventTopicKnownAnswer(t *testing.T) {
@@ -122,4 +127,30 @@ func TestDeployCalldataLayout(t *testing.T) {
 func TestCreate2AddressKnownAnswer(t *testing.T) {
 	addr := Create2Address()
 	assert.Equal(t, "dedc2b65d07a4c3506dbe6fe50a04373addcdb18", hex.EncodeToString(addr[:]))
+}
+
+func TestPinnedAddressMatchesCreate2(t *testing.T) {
+	assert.Equal(t, Address(), Create2Address())
+}
+
+func TestCheckPasses(t *testing.T) {
+	require.NoError(t, Check())
+}
+
+func TestCheckRejectsCorruptArtifacts(t *testing.T) {
+	origInit, origRuntime := initHex, runtimeHex
+	t.Cleanup(func() { initHex, runtimeHex = origInit, origRuntime })
+
+	initHex = "zz"
+	require.ErrorIs(t, Check(), ErrArtifact)
+
+	initHex = ""
+	require.ErrorIs(t, Check(), ErrArtifact)
+
+	initHex = origInit[:len(origInit)-3] + "00\n"
+	require.ErrorIs(t, Check(), ErrArtifact)
+
+	initHex = origInit
+	runtimeHex = "00"
+	require.ErrorIs(t, Check(), ErrArtifact)
 }
