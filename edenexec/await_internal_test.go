@@ -182,12 +182,23 @@ func TestAwaitUnconfirmedBlocksNotExecuted(t *testing.T) {
 func TestAwaitL1(t *testing.T) {
 	s := newScenario(t)
 	t.Run("two operators agree", func(t *testing.T) {
-		chk, clk := awaitCheckerAt(t, LevelMultiSource, s.source("a"), s.source("b"))
+		a := &operated{FakeSource: s.source("a"), op: "one"}
+		b := &operated{FakeSource: s.source("b"), op: "two"}
+		chk, clk := awaitCheckerAt(t, LevelMultiSource, a, b)
 		rep, err := chk.Await(context.Background(), s.target, clk.now.Add(time.Minute))
 		require.NoError(t, err)
 		assert.Equal(t, AwaitExecuted, rep.State)
 		assert.Equal(t, LevelMultiSource, rep.Level)
 		assert.True(t, rep.PaymentSignatureAllowed())
+	})
+	t.Run("hosts standing in as labels give no payment proof", func(t *testing.T) {
+		b := &operated{FakeSource: s.source("b"), op: "two"}
+		chk, clk := awaitCheckerAt(t, LevelMultiSource, s.source("a"), b)
+		rep, err := chk.Await(context.Background(), s.target, clk.now.Add(time.Minute))
+		require.NoError(t, err)
+		assert.Equal(t, LevelMultiSource, rep.Level)
+		assert.True(t, rep.RecordAllowed())
+		assert.False(t, rep.PaymentSignatureAllowed())
 	})
 	t.Run("one operator keeps it pending until the deadline", func(t *testing.T) {
 		b := s.source("b")

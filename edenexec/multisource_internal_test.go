@@ -23,12 +23,13 @@ type multiSourceFile struct {
 		MinSources string `json:"min_sources"`
 		Phase      string `json:"phase"`
 		Sources    []struct {
-			Host     string `json:"host"`
-			Operator string `json:"operator"`
-			Result   string `json:"result"`
-			Outcome  string `json:"outcome"`
-			Binding  string `json:"binding"`
-			Reason   string `json:"reason"`
+			Host          string `json:"host"`
+			Operator      string `json:"operator"`
+			OperatorLabel string `json:"operator_label"`
+			Result        string `json:"result"`
+			Outcome       string `json:"outcome"`
+			Binding       string `json:"binding"`
+			Reason        string `json:"reason"`
 		} `json:"sources"`
 		Verify struct {
 			Status  string `json:"status"`
@@ -52,6 +53,14 @@ var setAsideBy = map[string]func(s *scenario, f *FakeSource){
 		tx.Hash[0] ^= 1
 		f.Txs[s.R] = tx
 	},
+	"settlement_log_mismatch": func(s *scenario, f *FakeSource) {
+		rc := f.Receipts[s.R]
+		rc.Logs = []LogView{rc.Logs[0]}
+		rc.Logs[0].Address[0] ^= 1
+		f.Receipts[s.R] = rc
+	},
+	// The transaction was served; the receipt call fails afterwards.
+	"settlement_source_unavailable": func(_ *scenario, f *FakeSource) { f.ReceiptErr = errors.New("timeout") },
 }
 
 // otherBlock serves the transaction in another block, consistently.
@@ -88,7 +97,7 @@ func TestMultiSourceVectors(t *testing.T) {
 	require.Equal(t, profileRevision(t), f.Revision)
 	require.Equal(t, []string{string(StatePass), string(StateNotFound), string(StateUnconfirmed),
 		string(StateUnavailable), string(StateSetAside)}, f.SourceResults)
-	require.Len(t, f.Cases, 21)
+	require.Len(t, f.Cases, 26)
 	for _, c := range f.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			require.NotEqual(t, "violated", c.Verify.Status, "a source never makes a violation")
@@ -122,7 +131,15 @@ func TestMultiSourceVectors(t *testing.T) {
 				default:
 					t.Fatalf("result %q", v.Result)
 				}
-				srcs = append(srcs, &operated{FakeSource: src, op: v.Operator})
+				switch v.OperatorLabel {
+				case LabelExplicit:
+					srcs = append(srcs, &operated{FakeSource: src, op: v.Operator})
+				case LabelDefault:
+					require.Equal(t, v.Host, v.Operator)
+					srcs = append(srcs, src)
+				default:
+					t.Fatalf("operator_label %q", v.OperatorLabel)
+				}
 			}
 			level, err := ParseLevel(c.MinLevel)
 			require.NoError(t, err)
@@ -140,6 +157,13 @@ func TestMultiSourceVectors(t *testing.T) {
 			}
 			for i, sr := range rep.JSON().Sources {
 				assert.Equal(t, c.Sources[i].Operator, sr.Operator)
+				assert.Equal(t, c.Sources[i].OperatorLabel, sr.OperatorLabel)
+				if c.Sources[i].Result != "pass" {
+					assert.Equal(t, c.Sources[i].Result, sr.Result)
+					if c.Sources[i].Reason != "" {
+						assert.Equal(t, c.Sources[i].Reason, sr.Reason)
+					}
+				}
 			}
 
 			chk := newTestChecker(t, cfg, srcs...)

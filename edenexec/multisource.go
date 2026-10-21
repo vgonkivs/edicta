@@ -45,13 +45,16 @@ type observation struct {
 	// binding is the block hash, the index and the receipt's consensus
 	// encoding: equal bindings are byte-equal claims.
 	binding []byte
-	// served: the source served bytes that hash to the rail_ref, whatever
+	// seen: the source served a transaction for the rail_ref, whatever
 	// rule set it aside afterwards.
-	served bool
+	seen bool
+	// explicit: the operator label was configured, not the host standing in.
+	explicit bool
 }
 
 func observe(p probe) observation {
-	o := observation{operator: OperatorOf(p.src), served: p.seen}
+	label, explicit := OperatorLabel(p.src)
+	o := observation{operator: label, seen: p.seen, explicit: explicit}
 	switch {
 	case p.passed:
 		o.state, o.outcome = StatePass, p.outcome
@@ -60,7 +63,9 @@ func observe(p probe) observation {
 		o.state = StateNotFound
 	case p.depthOnly:
 		o.state = StateUnconfirmed
-	case p.reason == ReasonSourceUnavailable:
+	case p.reason == ReasonSourceUnavailable && !p.seen:
+		// A call that failed after the transaction was served leaves the
+		// source set aside, and seen.
 		o.state = StateUnavailable
 	default:
 		o.state = StateSetAside
@@ -77,16 +82,9 @@ type combined struct {
 	outcome    Outcome
 	// notFoundOps counts the distinct operators that answered not found.
 	notFoundOps int
-	// showsDeposit: some source's answer rules out not executed.
-	showsDeposit bool
-}
-
-// showsDeposit says whether one source's answer rules out calling the
-// transaction not executed. A passing or an unconfirmed source does; a set
-// aside one counts for neither side, even when it served the bytes
-// (served).
-func showsDeposit(o observation) bool {
-	return o.state == StatePass || o.state == StateUnconfirmed
+	// seen: some source served the transaction, which rules out not
+	// executed.
+	seen bool
 }
 
 func combine(obs []observation) combined {
@@ -97,7 +95,9 @@ func combine(obs []observation) combined {
 		notFound = map[string]bool{}
 	)
 	for _, o := range obs {
-		c.showsDeposit = c.showsDeposit || showsDeposit(o)
+		// A source set aside after it served the transaction is evidence
+		// that it may exist; only a failure before the lookup is not.
+		c.seen = c.seen || o.seen
 		switch o.state {
 		case StatePass:
 			if first == nil {
@@ -117,9 +117,10 @@ func combine(obs []observation) combined {
 // awaitState applies the multi-source rule in order: a disagreement is
 // disputed; enough agreeing operators give the outcome at L1, and one is
 // enough only when L0 was configured; before the deadline anything else is
-// pending; after it, not executed needs no source showing the deposit and
-// at least minSources operators answering not found, and anything else is
-// unknown. A disagreement is never not executed.
+// pending; after it, not executed needs no source that served the
+// transaction in this poll and at least minSources operators answering not
+// found, and anything else is unknown. A disagreement is never not
+// executed.
 func awaitState(c combined, awaitLevel Level, minSources int, untilPassed bool) (AwaitState, Level) {
 	outcome := AwaitExecuted
 	if c.outcome == OutcomeReverted {
@@ -134,7 +135,7 @@ func awaitState(c combined, awaitLevel Level, minSources int, untilPassed bool) 
 		return outcome, LevelNodeAttested
 	case !untilPassed:
 		return AwaitPending, 0
-	case c.passingOps == 0 && !c.showsDeposit && c.notFoundOps >= minSources:
+	case !c.seen && c.notFoundOps >= minSources:
 		return AwaitNotExecuted, 0
 	}
 	return AwaitUnknown, 0
@@ -147,9 +148,19 @@ func (r Report) RecordAllowed() bool {
 }
 
 // PaymentSignatureAllowed says whether the deposit is executed on the word
-// of at least two operators, the floor for signing a payment proof.
+// of at least two operators, the floor for signing a payment proof, and
+// every source's operator label was configured: a host standing in as the
+// label cannot tell two hosts in front of one node apart.
 func (r Report) PaymentSignatureAllowed() bool {
-	return r.State == AwaitExecuted && r.Level >= LevelMultiSource
+	if r.State != AwaitExecuted || r.Level < LevelMultiSource || len(r.Sources) == 0 {
+		return false
+	}
+	for _, s := range r.Sources {
+		if !s.OperatorExplicit {
+			return false
+		}
+	}
+	return true
 }
 
 // NonceReleaseAllowed says whether the operator may release the nonce.

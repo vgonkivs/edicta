@@ -16,8 +16,9 @@ import (
 //
 // The error says what the executor may do:
 //   - nil: executed or reverted at Report.Level. Record the rail_ref.
-//   - ErrNotFound: not executed. Past until, no source shows the
-//     transaction and at least MinSources operators answered not found.
+//   - ErrNotFound: not executed. Past until, no source served the
+//     transaction in the last poll, not even one set aside afterwards, and
+//     at least MinSources operators answered not found.
 //     Never sign other bytes; only the operator may release the nonce.
 //   - ErrWrongTx, ErrMalformedRailRef, ErrActionRefused: returned at once;
 //     the claim itself is wrong.

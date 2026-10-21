@@ -53,7 +53,7 @@ func TestEndToEnd(t *testing.T) {
 	assert.Equal(t, 1, e.gate.Calls(), "one record request")
 
 	// What the receipt claims checks out against the chain.
-	cfg := edenexec.Config{}
+	cfg := edenexec.Config{MinLevel: edenexec.LevelNodeAttested}
 	cfg.ApplyDefaults()
 	checker, err := edenexec.NewChecker(cfg, []edenexec.Source{e.chain}, nil)
 	require.NoError(t, err)

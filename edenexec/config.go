@@ -94,21 +94,29 @@ type Source interface {
 	CodeHash(ctx context.Context, addr [20]byte) ([32]byte, error)
 }
 
-// Operated is a Source that names its operator. Two sources with one
-// operator count once toward L1. The label is the configuration's
-// statement; nothing here can check that two operators are independent.
+// Operated is a Source that may carry a configured operator label; empty
+// is none. Two sources with one operator count once toward L1. The label is
+// the configuration's statement; nothing here can check that two operators
+// are independent.
 type Operated interface {
 	Operator() string
 }
 
-// OperatorOf is the source's operator label, or its host when it has none.
-func OperatorOf(s Source) string {
+// OperatorLabel is the source's operator and whether it was configured;
+// without a configured label the host stands in.
+func OperatorLabel(s Source) (string, bool) {
 	if o, ok := s.(Operated); ok {
 		if op := o.Operator(); op != "" {
-			return op
+			return op, true
 		}
 	}
-	return s.Name()
+	return s.Name(), false
+}
+
+// OperatorOf is the source's operator label, or its host when it has none.
+func OperatorOf(s Source) string {
+	op, _ := OperatorLabel(s)
+	return op
 }
 
 // DAStatus is the operator's own ev-node: whether a block's data is in

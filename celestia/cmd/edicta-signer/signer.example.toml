@@ -33,6 +33,9 @@ resend_every_s = 5
 
 [[chain]]
 chain_id = 714
+# rpc and settlement_rpc take a URL or OPERATOR=URL, e.g.
+# "gateway=https://rpc.eden.gateway.fm/". Sources with one operator count
+# once toward L1; without a label the host stands in.
 rpc = "http://127.0.0.1:8545"
 own_node = true
 settlement_rpc = ["https://rpc.eden.gateway.fm/"]

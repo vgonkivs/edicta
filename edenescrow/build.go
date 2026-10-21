@@ -8,6 +8,10 @@ import (
 	"slices"
 )
 
+// MaxBuildBodySize bounds a /deposit/build answer. A producer reads at most
+// one byte more and refuses a longer answer before parsing it.
+const MaxBuildBodySize = 16384
+
 // txData members of a /deposit/build answer; type and accessList are
 // optional.
 var (
@@ -23,6 +27,9 @@ var (
 // from the decoder. The transaction is taken as the server built it;
 // nothing is filled in or defaulted, so two producers build the same bytes.
 func ActionFromDepositBuild(body []byte, resource string, requirementsHash [32]byte) ([]byte, TxAction, error) {
+	if len(body) < 1 || len(body) > MaxBuildBodySize {
+		return nil, TxAction{}, malformed("BJ0", "answer of %d bytes", len(body))
+	}
 	doc, err := parseJSON(body)
 	if err != nil {
 		return nil, TxAction{}, malformed("BJ1", "%v", err)

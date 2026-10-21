@@ -313,8 +313,11 @@ Levels, and what you trust at each:
   `own-node`: your node, which re-executes the blocks, and the sequencer's
   ordering). Read the class on the `sources` lines.
 - `L1`: at least `--settlement-min-sources` sources of different operators
-  (each source's operator is its host) agree on the block, the index and the
-  receipt. You trust that they do not collude.
+  agree on the block, the index and the receipt. A source given as
+  `OPERATOR=URL` (for example `gateway=https://rpc.eden.gateway.fm/`) names
+  its operator; without a label its host stands in (`operator_label`
+  `default` in the report), which cannot tell two hosts in front of one node
+  apart. You trust that the operators do not collude.
 - `L2`: in addition the block's transactions and receipts rebuild the roots
   of a header whose fields hash to the block hash. The header itself is
   attested by the `L1` sources. `block_number` and `block_time` come from

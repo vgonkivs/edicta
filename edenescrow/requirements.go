@@ -53,8 +53,6 @@ func DecodePaymentRequired(value string) ([]byte, error) {
 type Quote struct {
 	paymentID        [32]byte
 	requirementsHash [32]byte
-	nonce            [32]byte
-	hasNonce         bool
 }
 
 // PaymentID is the quote's paymentId, the action's w0.
@@ -62,9 +60,6 @@ func (q Quote) PaymentID() [32]byte { return q.paymentID }
 
 // RequirementsHash is the requirements_hash of the R the quote came from.
 func (q Quote) RequirementsHash() [32]byte { return q.requirementsHash }
-
-// Nonce is the entry's extra.nonce, when it has one.
-func (q Quote) Nonce() ([32]byte, bool) { return q.nonce, q.hasNonce }
 
 // CheckRequirements runs the requirements checks on R against a decoded
 // action, in order: size, binding to the action's requirements_hash,
@@ -124,14 +119,14 @@ func CheckRequirements(a TxAction, r []byte, checkServerSignature bool) (Quote, 
 	if err := checkEntry(a, entry, extra); err != nil {
 		return Quote{}, err
 	}
-	q := Quote{paymentID: d.PaymentID, requirementsHash: a.RequirementsHash}
+	// extra.nonce is checked for its form only: no server signature covers
+	// it, so nothing here ever signs or returns it.
 	if n := extra.member("nonce"); n != nil {
-		b, ok := hexString(n, 32)
-		if !ok {
+		if _, ok := hexString(n, 32); !ok {
 			return Quote{}, requirements("S4e", "extra.nonce is not 0x and 64 hex digits")
 		}
-		q.nonce, q.hasNonce = [32]byte(b), true
 	}
+	q := Quote{paymentID: d.PaymentID, requirementsHash: a.RequirementsHash}
 	if checkServerSignature {
 		b, ok := hexString(extra.member("serverSignature"), 65)
 		if !ok {

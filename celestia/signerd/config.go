@@ -18,6 +18,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/vgonkivs/edicta/edenexec"
+	"github.com/vgonkivs/edicta/edenexec/edenrpc"
 	"github.com/vgonkivs/edicta/signer"
 	"github.com/vgonkivs/edicta/signer/eden"
 )
@@ -84,7 +85,8 @@ type Settlement struct {
 type Chain struct {
 	ChainID uint64 `toml:"chain_id"`
 	// RPC is the signer's own Eden JSON-RPC: code checks, nonce, sends,
-	// and the first settlement source.
+	// and the first settlement source. RPC and SettlementRPC take a URL or
+	// OPERATOR=URL; without a label the host stands in for the operator.
 	RPC     string `toml:"rpc"`
 	OwnNode bool   `toml:"own_node"`
 	// SettlementRPC are more settlement sources, distinct hosts.
@@ -192,8 +194,14 @@ func (c Config) ValidateBasic() error {
 			return fmt.Errorf("signerd: chains %d and %d share one payer key file: use one payer key per chain", other, ch.ChainID)
 		}
 		seen[ch.PayerKeyFile] = ch.ChainID
-		for _, u := range append([]string{ch.RPC}, ch.SettlementRPC...) {
+		for _, src := range append([]string{ch.RPC}, ch.SettlementRPC...) {
+			op, u := edenrpc.SplitSource(src)
 			if err := checkURL(u); err != nil {
+				return fmt.Errorf("signerd: chain %d: rpc: %w", ch.ChainID, err)
+			}
+			rc := edenrpc.Config{URL: u, Class: edenexec.ClassPublicRPC, Operator: op}
+			rc.ApplyDefaults()
+			if err := rc.ValidateBasic(); err != nil {
 				return fmt.Errorf("signerd: chain %d: rpc: %w", ch.ChainID, err)
 			}
 		}

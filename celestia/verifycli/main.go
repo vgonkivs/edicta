@@ -247,8 +247,8 @@ func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, e
 	}
 	fs.BoolVar(&f.settle.on, "settlement", false, "add the Eden settlement report of the transaction the receipt names; it never changes the verdict")
 	var settleRPC, settleOwn multiFlag
-	fs.Var(&settleRPC, "settlement-rpc", "Eden JSON-RPC of a public operator for --settlement (repeatable, one per host)")
-	fs.Var(&settleOwn, "settlement-own-rpc", "Eden JSON-RPC of the operator's own node for --settlement, asked first (repeatable)")
+	fs.Var(&settleRPC, "settlement-rpc", "Eden JSON-RPC of a public operator for --settlement, as URL or OPERATOR=URL (repeatable, one per host)")
+	fs.Var(&settleOwn, "settlement-own-rpc", "Eden JSON-RPC of the operator's own node for --settlement, as URL or OPERATOR=URL, asked first (repeatable)")
 	fs.StringVar(&f.settle.da, "settlement-da", "", "the operator's own ev-node RPC, for whether the block's data is in Celestia (report only)")
 	fs.StringVar(&f.settle.level, "settlement-level", "", "level a settlement pass needs: L0, L1 or L2 (default L1: two operators agree)")
 	fs.IntVar(&f.settle.sources, "settlement-min-sources", 0, "agreeing operators that make L1 (default 2)")
@@ -412,7 +412,8 @@ func (f flags) checkExcluded() error {
 		urls []string
 	}{
 		{"--checkpoint-rpc", f.checkpointRPC}, {"--cross-check", f.crossRPC},
-		{"--settlement-rpc", f.settle.rpc}, {"--settlement-own-rpc", f.settle.ownRPC}, {"--settlement-da", nonEmpty(f.settle.da)},
+		{"--settlement-rpc", sourceURLs(f.settle.rpc)}, {"--settlement-own-rpc", sourceURLs(f.settle.ownRPC)},
+		{"--settlement-da", nonEmpty(f.settle.da)},
 	} {
 		for _, u := range g.urls {
 			name, err := inclusion.SourceHost(u)

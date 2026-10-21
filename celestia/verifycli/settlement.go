@@ -14,7 +14,9 @@ import (
 )
 
 // settlementFlags select the Eden settlement report. Own nodes are asked
-// before public RPCs, each group in the order given. Without
+// before public RPCs, each group in the order given. A source is a URL, or
+// OPERATOR=URL to name who runs it; without a label its host stands in, and
+// two sources with one label count once toward L1. Without
 // --settlement-level the report needs L1, so one source alone reports at
 // most that the level was not reached, or a wrong transaction; asking for
 // a level that the given sources can never reach is a usage error.
@@ -60,7 +62,8 @@ func (s settlementFlags) checker() (*edenexec.Checker, error) {
 	var srcs []edenexec.Source
 	add := func(urls []string, class edenexec.SourceClass, flag string) error {
 		for _, u := range urls {
-			c := edenrpc.Config{URL: u, Class: class}
+			op, raw := edenrpc.SplitSource(u)
+			c := edenrpc.Config{URL: raw, Class: class, Operator: op}
 			c.ApplyDefaults()
 			src, err := edenrpc.New(c, nil)
 			if err != nil {
@@ -95,6 +98,15 @@ func (s settlementFlags) checker() (*edenexec.Checker, error) {
 		return nil, usagef("settlement: %v", err)
 	}
 	return chk, nil
+}
+
+// sourceURLs strips the operator labels of OPERATOR=URL sources.
+func sourceURLs(srcs []string) []string {
+	out := make([]string, len(srcs))
+	for i, s := range srcs {
+		_, out[i] = edenrpc.SplitSource(s)
+	}
+	return out
 }
 
 // newSettlements is a variable so tests can serve the sources without a

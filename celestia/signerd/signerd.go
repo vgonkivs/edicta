@@ -155,8 +155,9 @@ func Build(ctx context.Context, cfg Config, log *slog.Logger) (_ *Daemon, err er
 	return &Daemon{cfg: cfg, svc: svc, api: api, store: store, log: log}, nil
 }
 
-func rpcClient(u string, class edenexec.SourceClass, chainID uint64) (*edenrpc.Client, error) {
-	rc := edenrpc.Config{URL: u, Class: class, ExpectChainID: chainID}
+func rpcClient(src string, class edenexec.SourceClass, chainID uint64) (*edenrpc.Client, error) {
+	op, u := edenrpc.SplitSource(src)
+	rc := edenrpc.Config{URL: u, Class: class, ExpectChainID: chainID, Operator: op}
 	rc.ApplyDefaults()
 	return edenrpc.New(rc, nil)
 }

@@ -454,17 +454,35 @@ func TestOperatorLabel(t *testing.T) {
 	c.ApplyDefaults()
 	cl, err := New(c, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "rpc.eden.gateway.fm", cl.Operator(), "no label is the host")
-	assert.Equal(t, "rpc.eden.gateway.fm", edenexec.OperatorOf(cl))
+	assert.Empty(t, cl.Operator())
+	label, explicit := edenexec.OperatorLabel(cl)
+	assert.Equal(t, "rpc.eden.gateway.fm", label, "no label: the host stands in")
+	assert.False(t, explicit)
 
 	c.Operator = "gateway"
 	cl, err = New(c, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "gateway", edenexec.OperatorOf(cl))
+	label, explicit = edenexec.OperatorLabel(cl)
+	assert.Equal(t, "gateway", label)
+	assert.True(t, explicit)
 
 	for _, bad := range []string{"two words", "tab\t", strings.Repeat("x", maxLabel+1), "caf\xc3\xa9"} {
 		c.Operator = bad
 		_, err := New(c, nil)
 		assert.Error(t, err, "%q", bad)
+	}
+}
+
+func TestSplitSource(t *testing.T) {
+	for in, want := range map[string][2]string{
+		"https://rpc.eden.gateway.fm/":         {"", "https://rpc.eden.gateway.fm/"},
+		"HTTP://a.example/?x=1":                {"", "HTTP://a.example/?x=1"},
+		"gateway=https://rpc.eden.gateway.fm/": {"gateway", "https://rpc.eden.gateway.fm/"},
+		"own=http://127.0.0.1:8545/?a=b":       {"own", "http://127.0.0.1:8545/?a=b"},
+		"=https://a.example":                   {"", "https://a.example"},
+		"a.example":                            {"", "a.example"},
+	} {
+		op, u := SplitSource(in)
+		assert.Equal(t, want, [2]string{op, u}, in)
 	}
 }

@@ -158,7 +158,7 @@ func (e *env) open() {
 	}
 	hcfg := eden.Config{Chains: []eden.ChainPins{pins}, ResendEvery: 20 * time.Millisecond}
 	hcfg.ApplyDefaults()
-	ccfg := edenexec.Config{PollInterval: 5 * time.Millisecond}
+	ccfg := edenexec.Config{MinLevel: edenexec.LevelNodeAttested, PollInterval: 5 * time.Millisecond}
 	ccfg.ApplyDefaults()
 	checker, err := edenexec.NewChecker(ccfg, []edenexec.Source{e.chain}, nil)
 	require.NoError(t, err)

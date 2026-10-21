@@ -34,7 +34,10 @@ type SourceResult struct {
 	Name     string
 	Class    SourceClass
 	Operator string
-	Result   string // used, agree or set_aside
+	// OperatorExplicit: the label was configured; otherwise the host
+	// stands in.
+	OperatorExplicit bool
+	Result           string // used, agree or set_aside
 	// State tells a set-aside source's answer apart: not found,
 	// unconfirmed, unavailable or another rule.
 	State  SourceState
@@ -90,7 +93,8 @@ type probe struct {
 	depthOnly bool
 	// notFound: the source answered that it does not know the transaction.
 	notFound bool
-	// seen: the source served a transaction that hashes to the rail_ref.
+	// seen: the source served a transaction for the rail_ref, whatever
+	// rule set it aside afterwards.
 	seen bool
 
 	passed    bool
@@ -229,6 +233,7 @@ func (r *run) probe(ctx context.Context, src Source) (p probe) {
 	if err != nil {
 		return unavailable("eth_getTransactionByHash", err)
 	}
+	p.seen = true
 	if tx.Hash != r.R {
 		return fail(wrapf(ErrHashMismatch, "served transaction names hash %x", tx.Hash))
 	}
@@ -239,7 +244,6 @@ func (r *run) probe(ctx context.Context, src Source) (p probe) {
 	if got := keccak256(signed); got != r.R {
 		return fail(wrapf(ErrHashMismatch, "rebuilt bytes hash to %x", got))
 	}
-	p.seen = true
 	if r.signed == nil {
 		r.signed = signed
 		payer, err := CheckExactTx(signed, r.t.Action)
@@ -417,7 +421,8 @@ func sourceResults(probes []probe, used int) []SourceResult {
 	out := make([]SourceResult, 0, len(probes))
 	for i, p := range probes {
 		o := observe(p)
-		sr := SourceResult{Name: p.src.Name(), Class: p.src.Class(), Operator: o.operator, State: o.state}
+		sr := SourceResult{Name: p.src.Name(), Class: p.src.Class(), Operator: o.operator,
+			OperatorExplicit: o.explicit, State: o.state}
 		switch {
 		case i == used:
 			sr.Result = SourceUsed

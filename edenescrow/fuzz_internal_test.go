@@ -148,7 +148,7 @@ func FuzzParseSigned(f *testing.F) {
 func FuzzActionFromDepositBuild(f *testing.F) {
 	v := loadJSON[x402File](f, "x402.json")
 	for _, c := range append(v.BuildAccept, v.BuildReject...) {
-		f.Add([]byte(c.JSON))
+		f.Add(c.body(f))
 	}
 	rh := RequirementsHash(readVectorFile(f, v.Build.RequirementsFromFile))
 	f.Fuzz(func(t *testing.T, body []byte) {
@@ -229,4 +229,46 @@ func mustStdDecode(t testing.TB, s string) []byte {
 	b, err := base64.StdEncoding.DecodeString(s)
 	require.NoError(t, err)
 	return b
+}
+
+// The strict reader accepts only what encoding/json accepts, never nests
+// deeper than its limit, and keeps member names unique.
+func FuzzStrictJSON(f *testing.F) {
+	v := loadJSON[x402File](f, "x402.json")
+	for _, c := range append(v.BuildAccept, v.BuildReject...) {
+		f.Add(c.body(f))
+	}
+	for _, c := range append(v.Requirements.Accept, v.Requirements.Reject...) {
+		f.Add(unhex(f, c.RHex))
+	}
+	f.Fuzz(func(t *testing.T, b []byte) {
+		doc, err := parseJSON(b)
+		if err != nil {
+			require.ErrorIs(t, err, errJSON)
+			return
+		}
+		require.True(t, json.Valid(b), "%q", b)
+		type item struct {
+			v     *jsonValue
+			depth int
+		}
+		stack := []item{{doc, 1}}
+		for len(stack) > 0 {
+			it := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if it.v.kind != jsonObject && it.v.kind != jsonArray {
+				continue
+			}
+			require.LessOrEqual(t, it.depth, maxJSONDepth)
+			names := map[string]bool{}
+			for _, m := range it.v.members {
+				require.False(t, names[m.name], "member %q twice", m.name)
+				names[m.name] = true
+				stack = append(stack, item{m.value, it.depth + 1})
+			}
+			for _, e := range it.v.elems {
+				stack = append(stack, item{e, it.depth + 1})
+			}
+		}
+	})
 }

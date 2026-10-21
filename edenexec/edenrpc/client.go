@@ -105,6 +105,21 @@ func validLabel(s string) bool {
 	return true
 }
 
+// SplitSource reads a configured source, "operator=URL" or a plain URL,
+// into its operator label (empty for a plain URL) and URL. A string that
+// starts with an http or https scheme is a plain URL, so a query that
+// holds "=" stays in the URL.
+func SplitSource(s string) (operator, rawURL string) {
+	lower := strings.ToLower(s)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return "", s
+	}
+	if op, u, ok := strings.Cut(s, "="); ok {
+		return op, u
+	}
+	return "", s
+}
+
 // hostOf is the normalized host of an http or https URL: lower case, without
 // a trailing dot. Two sources on one host are one operator.
 func hostOf(raw string) (string, error) {
@@ -163,13 +178,8 @@ func newHTTPClient(timeout time.Duration) *http.Client {
 func (c *Client) Name() string                { return c.name }
 func (c *Client) Class() edenexec.SourceClass { return c.cfg.Class }
 
-// Operator is the configured label, or the host.
-func (c *Client) Operator() string {
-	if c.cfg.Operator != "" {
-		return c.cfg.Operator
-	}
-	return c.name
-}
+// Operator is the configured label; empty lets the host stand in.
+func (c *Client) Operator() string { return c.cfg.Operator }
 
 // rpcError is an error answer of the endpoint.
 type rpcError struct {

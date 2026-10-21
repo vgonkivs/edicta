@@ -20,10 +20,22 @@ import (
 )
 
 type jsonVector struct {
-	ID     string `json:"id"`
-	Expect string `json:"expect"`
-	Cause  string `json:"cause"`
-	JSON   string `json:"json"`
+	ID      string `json:"id"`
+	Expect  string `json:"expect"`
+	Cause   string `json:"cause"`
+	JSON    string `json:"json"`
+	JSONHex string `json:"json_hex"`
+	CBORHex string `json:"cbor_hex"`
+}
+
+// body is the case's answer; a body that is not UTF-8 travels as hex.
+func (c jsonVector) body(t testing.TB) []byte {
+	t.Helper()
+	if c.JSONHex != "" {
+		require.Empty(t, c.JSON)
+		return unhex(t, c.JSONHex)
+	}
+	return []byte(c.JSON)
 }
 
 type rVector struct {
@@ -56,6 +68,7 @@ type x402File struct {
 		TxLength             string      `json:"tx_length"`
 		SighashHex           string      `json:"sighash_hex"`
 		Resource             string      `json:"resource"`
+		RequirementsURL      string      `json:"requirements_resource_url"`
 		RequirementsFromFile string      `json:"requirements_from_file"`
 		RequirementsHashHex  string      `json:"requirements_hash_hex"`
 		CBORHex              string      `json:"cbor_hex"`
@@ -67,11 +80,16 @@ type x402File struct {
 		FactsCBORHex         string      `json:"facts_cbor_hex"`
 		ProfileFields        DepositView `json:"profile_fields"`
 	} `json:"build"`
+	BuildLimits struct {
+		MaxLength string `json:"max_length"`
+		MaxDepth  string `json:"max_depth"`
+	} `json:"build_limits"`
 	BuildAccept  []jsonVector `json:"build_accept"`
 	BuildReject  []jsonVector `json:"build_reject"`
 	Requirements struct {
 		TxRef                string `json:"tx_ref"`
 		MaxLength            string `json:"max_length"`
+		MaxDepth             string `json:"max_depth"`
 		CheckServerSignature bool   `json:"check_server_signature"`
 		ServerSignature      struct {
 			MessageHex    string `json:"message_hex"`
@@ -93,7 +111,8 @@ type x402File struct {
 			SignatureHex string `json:"signature_hex"`
 			Signer       string `json:"signer"`
 		} `json:"cases"`
-		SameDigest bool `json:"payment_id_digest_equals_server_signature_digest"`
+		RefusedFields []string `json:"refused_fields"`
+		SameDigest    bool     `json:"payment_id_digest_equals_server_signature_digest"`
 	} `json:"payment_signature"`
 }
 
@@ -131,6 +150,12 @@ func TestX402BuildVector(t *testing.T) {
 	r := readVectorFile(t, b.RequirementsFromFile)
 	rh := RequirementsHash(r)
 	assert.Equal(t, b.RequirementsHashHex, hex.EncodeToString(rh[:]))
+	assert.True(t, strings.HasPrefix(b.Resource, "https://"))
+	doc, err := parseJSON(r)
+	require.NoError(t, err)
+	assert.Equal(t, b.RequirementsURL, doc.member("resource").member("url").text)
+	assert.Equal(t, strconv.Itoa(MaxBuildBodySize), v.BuildLimits.MaxLength)
+	assert.Equal(t, strconv.Itoa(maxJSONDepth), v.BuildLimits.MaxDepth)
 	assert.Equal(t, b.CBORHex, hex.EncodeToString(action))
 	assert.Equal(t, b.ActionLength, strconv.Itoa(len(action)))
 	assert.Equal(t, b.TxHex, hex.EncodeToString(a.Unsigned()))
@@ -176,12 +201,16 @@ func TestX402BuildVector(t *testing.T) {
 func TestX402BuildAccept(t *testing.T) {
 	v, want, _ := x402Build(t)
 	rh := RequirementsHash(readVectorFile(t, v.Build.RequirementsFromFile))
-	require.Len(t, v.BuildAccept, 7)
+	require.Len(t, v.BuildAccept, 11)
 	for _, c := range v.BuildAccept {
 		t.Run(c.ID, func(t *testing.T) {
 			require.Equal(t, "pass", c.Expect)
-			action, _, err := ActionFromDepositBuild([]byte(c.JSON), v.Build.Resource, rh)
+			action, _, err := ActionFromDepositBuild(c.body(t), v.Build.Resource, rh)
 			require.NoError(t, err)
+			if c.CBORHex != "" {
+				assert.Equal(t, c.CBORHex, hex.EncodeToString(action))
+				return
+			}
 			assert.Equal(t, want, action)
 		})
 	}
@@ -190,10 +219,10 @@ func TestX402BuildAccept(t *testing.T) {
 func TestX402BuildReject(t *testing.T) {
 	v := loadJSON[x402File](t, "x402.json")
 	rh := RequirementsHash(readVectorFile(t, v.Build.RequirementsFromFile))
-	require.Len(t, v.BuildReject, 44)
+	require.Len(t, v.BuildReject, 54)
 	for _, c := range v.BuildReject {
 		t.Run(c.ID, func(t *testing.T) {
-			_, _, err := ActionFromDepositBuild([]byte(c.JSON), v.Build.Resource, rh)
+			_, _, err := ActionFromDepositBuild(c.body(t), v.Build.Resource, rh)
 			want := ErrMalformed
 			if c.Expect == "ED1" {
 				want = ErrUnknownDomain
@@ -243,9 +272,10 @@ func TestX402Requirements(t *testing.T) {
 	req := v.Requirements
 	require.Equal(t, "build", req.TxRef)
 	require.Equal(t, strconv.Itoa(MaxRequirementsSize), req.MaxLength)
+	require.Equal(t, strconv.Itoa(maxJSONDepth), req.MaxDepth)
 	require.True(t, req.CheckServerSignature)
-	require.Len(t, req.Accept, 5)
-	require.Len(t, req.Reject, 30)
+	require.Len(t, req.Accept, 9)
+	require.Len(t, req.Reject, 40)
 	for _, c := range req.Accept {
 		t.Run(c.ID, func(t *testing.T) {
 			r := unhex(t, c.RHex)
@@ -256,8 +286,6 @@ func TestX402Requirements(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, a.Deposit.PaymentID, q.PaymentID())
 			assert.Equal(t, rh, q.RequirementsHash())
-			_, hasNonce := q.Nonce()
-			assert.Equal(t, c.ID != "r_nonce_absent", hasNonce)
 		})
 	}
 	for _, c := range req.Reject {
@@ -296,21 +324,19 @@ func TestX402ServerSignature(t *testing.T) {
 	assert.Equal(t, a.Deposit.Facilitator, got)
 }
 
-// The vectors' Payment-Signature digests and signatures check against the
-// personal_sign digest, and the messages are the action's paymentId and the
-// nonce of the quote the requirements checks selected.
+// The vectors' Payment-Signature digest and signature check against the
+// personal_sign digest, and the message is the action's paymentId: the
+// only field offered.
 func TestX402PaymentSignatureDigests(t *testing.T) {
 	v, _, a := x402Build(t)
-	q, err := CheckRequirements(a, readVectorFile(t, v.Build.RequirementsFromFile), true)
-	require.NoError(t, err)
-	nonce, ok := q.Nonce()
-	require.True(t, ok)
 	ps := v.PaymentSignature
-	require.Len(t, ps.Cases, 2)
-	want := map[string][32]byte{"paymentId": a.Deposit.PaymentID, "nonce": nonce}
+	require.Len(t, ps.Cases, 1)
+	assert.Equal(t, []string{"nonce"}, ps.RefusedFields)
+	want := map[string][32]byte{"paymentId": a.Deposit.PaymentID}
 	for _, c := range ps.Cases {
 		t.Run(c.Field, func(t *testing.T) {
 			m := [32]byte(unhex(t, c.MessageHex))
+			require.Contains(t, want, c.Field)
 			assert.Equal(t, want[c.Field], m)
 			assert.Equal(t, c.PreimageHex, hex.EncodeToString(append([]byte(personalPrefix), m[:]...)))
 			d := PersonalDigest(m)
@@ -414,10 +440,20 @@ func TestStrictJSON(t *testing.T) {
 		_, err := parseJSON([]byte(s))
 		require.ErrorIs(t, err, errJSON, "%q", s)
 	}
-	// Depth is bounded by the input, not by the goroutine stack.
-	deep := strings.Repeat("[", 1<<20) + strings.Repeat("]", 1<<20)
-	_, err := parseJSON([]byte(deep))
+	nest := func(n int) []byte { return []byte(strings.Repeat("[", n) + strings.Repeat("]", n)) }
+	_, err := parseJSON(nest(maxJSONDepth))
 	require.NoError(t, err)
+	_, err = parseJSON(nest(maxJSONDepth + 1))
+	require.ErrorIs(t, err, errJSON)
+	_, err = parseJSON(nest(1 << 20))
+	require.ErrorIs(t, err, errJSON, "refused before descending")
+	objects := func(n int) []byte {
+		return []byte(strings.Repeat(`{"a":`, n) + "1" + strings.Repeat("}", n))
+	}
+	_, err = parseJSON(objects(maxJSONDepth))
+	require.NoError(t, err)
+	_, err = parseJSON(objects(maxJSONDepth + 1))
+	require.ErrorIs(t, err, errJSON)
 }
 
 func TestJSONValueForms(t *testing.T) {

@@ -29,6 +29,12 @@ type ReportJSON struct {
 	Sources          []SourceJSON            `json:"sources"`
 }
 
+// Origins of an operator label in the report.
+const (
+	LabelExplicit = "explicit"
+	LabelDefault  = "default"
+)
+
 // DAIncludedJSON is the own ev-node's word that the block's data is in
 // Celestia at Height.
 type DAIncludedJSON struct {
@@ -43,9 +49,12 @@ type SourceJSON struct {
 	Name     string `json:"name"`
 	Class    string `json:"class"`
 	Operator string `json:"operator"`
-	Result   string `json:"result"`
-	Reason   string `json:"reason,omitempty"`
-	Error    string `json:"error,omitempty"`
+	// OperatorLabel is explicit for a configured label, default when the
+	// host stands in.
+	OperatorLabel string `json:"operator_label"`
+	Result        string `json:"result"`
+	Reason        string `json:"reason,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
 // JSON returns the report with the profile's field names.
@@ -72,7 +81,11 @@ func (r Report) JSON() ReportJSON {
 		v.DAIncluded = &DAIncludedJSON{Height: d.Height, Source: d.Source}
 	}
 	for _, s := range r.Sources {
-		sj := SourceJSON{Name: s.Name, Class: s.Class.String(), Operator: s.Operator, Result: s.Result, Reason: string(s.Reason)}
+		sj := SourceJSON{Name: s.Name, Class: s.Class.String(), Operator: s.Operator, OperatorLabel: LabelDefault,
+			Result: s.Result, Reason: string(s.Reason)}
+		if s.OperatorExplicit {
+			sj.OperatorLabel = LabelExplicit
+		}
 		if s.Result == SourceSetAside && s.State != "" {
 			sj.Result = string(s.State)
 		}

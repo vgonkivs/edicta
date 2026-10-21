@@ -39,7 +39,7 @@ func pins(k signertest.Keys) eden.ChainPins {
 
 func newChecker(t testing.TB, src edenexec.Source) *edenexec.Checker {
 	t.Helper()
-	cfg := edenexec.Config{PollInterval: 5 * time.Millisecond}
+	cfg := edenexec.Config{MinLevel: edenexec.LevelNodeAttested, PollInterval: 5 * time.Millisecond}
 	cfg.ApplyDefaults()
 	c, err := edenexec.NewChecker(cfg, []edenexec.Source{src}, nil)
 	require.NoError(t, err)
@@ -367,12 +367,13 @@ func TestSettleNotExecutedOnlyPastTheDeadline(t *testing.T) {
 	e := signedEntry(t, w, signertest.NewDeposit(w.now), time.Now().Add(-time.Second))
 	w.now = time.Now()
 	_, err := w.h.Settle(ctx, e, true)
-	require.ErrorIs(t, err, edenexec.ErrBelowLevel, "one source saying not found is not final")
+	require.ErrorIs(t, err, edenexec.ErrSettlementUnknown, "one source saying not found is not final")
+	require.NotErrorIs(t, err, edenexec.ErrNotFound)
 	assert.Zero(t, w.chain.SentCount(), "no send after the deadline")
 
 	second := signertest.NewChain(714)
 	second.Host, second.AutoLand = "second-operator", false
-	cfg := edenexec.Config{PollInterval: 5 * time.Millisecond}
+	cfg := edenexec.Config{MinLevel: edenexec.LevelNodeAttested, PollInterval: 5 * time.Millisecond}
 	cfg.ApplyDefaults()
 	both, err := edenexec.NewChecker(cfg, []edenexec.Source{w.chain, second}, nil)
 	require.NoError(t, err)

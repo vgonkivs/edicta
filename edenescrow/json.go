@@ -14,11 +14,16 @@ import (
 // The payment server's answers (the /deposit/build body and the
 // PAYMENT-REQUIRED document) are read as strict JSON documents: UTF-8
 // without a byte order mark, whitespace only space, tab, LF and CR, nothing
-// after the value, and no member name twice in any object at any depth,
-// compared after unescaping. Two parsers that resolve a repeated name
-// differently would read one answer as two deposits.
+// after the value, no member name twice in any object at any depth,
+// compared after unescaping, and containers nested at most maxJSONDepth
+// deep. Two parsers that resolve a repeated name differently would read one
+// answer as two deposits.
 
 var errJSON = errors.New("json")
+
+// maxJSONDepth bounds the nesting of arrays and objects; the top-level
+// container is depth 1. The observed answers are 4 deep.
+const maxJSONDepth = 16
 
 type jsonKind uint8
 
@@ -71,7 +76,7 @@ type jsonParser struct {
 }
 
 // parseJSON reads exactly one strict JSON document. Nesting is kept on an
-// explicit stack, so no input depth can exhaust the goroutine stack.
+// explicit stack, and the depth is checked before a container is entered.
 func parseJSON(b []byte) (*jsonValue, error) {
 	if !utf8.Valid(b) {
 		return nil, fmt.Errorf("%w: not UTF-8", errJSON)
@@ -91,7 +96,7 @@ func parseJSON(b []byte) (*jsonValue, error) {
 			}
 			name = nm
 		}
-		v, err := p.valueStart()
+		v, err := p.valueStart(len(stack))
 		if err != nil {
 			return nil, err
 		}
@@ -183,10 +188,14 @@ func (p *jsonParser) memberName(f *jsonFrame) (string, error) {
 	return name, nil
 }
 
-// valueStart reads a scalar or the opening of a container.
-func (p *jsonParser) valueStart() (*jsonValue, error) {
+// valueStart reads a scalar or the opening of a container at the given
+// depth of open containers.
+func (p *jsonParser) valueStart(depth int) (*jsonValue, error) {
 	if p.off >= len(p.b) {
 		return nil, fmt.Errorf("%w: value expected at the end", errJSON)
+	}
+	if c := p.b[p.off]; (c == '{' || c == '[') && depth >= maxJSONDepth {
+		return nil, fmt.Errorf("%w: nested deeper than %d", errJSON, maxJSONDepth)
 	}
 	switch c := p.b[p.off]; {
 	case c == '{':
