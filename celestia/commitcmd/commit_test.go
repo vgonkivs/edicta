@@ -595,3 +595,21 @@ func TestAForgedStoredAuthorizationIsNotAccepted(t *testing.T) {
 	assert.Equal(t, "authorization_invalid", f.Code)
 	assert.Equal(t, []byte{1}, f.Authorization)
 }
+
+func TestNonASCIIKeysAreRefused(t *testing.T) {
+	assert.Error(t, commitcmd.CheckJSON([]byte("{\"version\":1,\"ver\u017fion\":2}")))
+	assert.Error(t, commitcmd.CheckJSON([]byte("{\"k\":1,\"\u212a\":2}")))
+	_, err := commitcmd.DecodeRequest(strings.NewReader("{\"action\":\"QUFB\",\"\u212action\":\"QkJC\"}"))
+	require.Error(t, err)
+	assert.NoError(t, commitcmd.CheckJSON([]byte("{\"a\":\"\u017f\"}")), "non-ASCII values are fine")
+}
+
+func TestResumeRefusesOtherFields(t *testing.T) {
+	r := newRig(t)
+	q := request()
+	q.Resume = &commitcmd.Resume{Envelope: []byte{1}, Action: []byte{1}, Salt: []byte{1}}
+	_, err := r.svc.Commit(context.Background(), q)
+	require.Error(t, err)
+	assert.Equal(t, commitcmd.ExitUsage, exitOf(t, err))
+	assert.Zero(t, r.gate.calls)
+}

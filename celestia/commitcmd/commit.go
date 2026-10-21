@@ -157,8 +157,10 @@ func DecodeRequest(r io.Reader) (Request, error) {
 }
 
 // CheckJSON refuses data that is not one well-formed JSON value, nests deeper
-// than MaxJSONDepth, or repeats an object key. Keys are compared with case
-// folded, because encoding/json would merge them into one field.
+// than MaxJSONDepth, repeats an object key, or has a non-ASCII key. Keys are
+// compared with case folded, because encoding/json would merge them into one
+// field; its folding also maps some non-ASCII letters (U+017F, U+212A) onto
+// ASCII ones, so those keys are refused outright.
 func CheckJSON(data []byte) error {
 	if !json.Valid(data) {
 		return errors.New("not valid JSON")
@@ -193,6 +195,11 @@ func CheckJSON(data []byte) error {
 				return err
 			}
 			key, _ := k.(string)
+			for i := 0; i < len(key); i++ {
+				if key[i] >= 0x80 {
+					return fmt.Errorf("key %q is not ASCII", key)
+				}
+			}
 			folded := strings.ToLower(key)
 			if seen[folded] {
 				return fmt.Errorf("duplicate key %q", key)
@@ -236,6 +243,11 @@ func (s *Service) Commit(ctx context.Context, req Request) (Response, error) {
 
 	var envelope, action, salt []byte
 	if r := req.Resume; r != nil {
+		if req.ActionType != "" || len(req.Action) != 0 || len(req.Context) != 0 || req.Model.ID != "" ||
+			req.Model.Version != nil || req.Model.Text != "" || req.Policy.ID != "" || req.Policy.Version != nil ||
+			req.Policy.Text != "" || req.ValidFor != "" {
+			return Response{}, usagef("resume takes no other field than mode")
+		}
 		if len(r.Envelope) == 0 || len(r.Action) == 0 || len(r.Salt) == 0 {
 			return Response{}, usagef("resume needs envelope, action and salt")
 		}
