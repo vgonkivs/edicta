@@ -6,7 +6,7 @@ escrow deposit that a facilitator later settles. Eden is only the payment
 rail. Commitments use any core `da` (the first Eden release uses `da = 2`,
 fast or strict mode), and nothing in this profile touches the anchoring.
 
-Status: revision `eden-escrow-v1-draft.3` (2026-10-21), **draft, not
+Status: revision `eden-escrow-v1-draft.4` (2026-10-21), **draft, not
 frozen**. Built on the core spec `spec/decision-commitment-v1.md`, revision
 `v1.2`, and on `spec/policy-v1.md` (`policy-v1.0`). Section numbers prefixed
 "core" refer to the core spec; "policy" refers to the policy spec. The `v1`
@@ -21,7 +21,7 @@ for this profile.
 
 This profile adds no core rule, no wire byte, no tag of the core or policy
 families, no archive kind and no sentinel to section 21 of the core. The
-core invariants are unchanged. The settlement report of section 7 is a
+core invariants are unchanged. The settlement report of section 7 (report key `rail_settlement`) is a
 profile-defined, verdict-neutral report field.
 
 ## 0. Versioning
@@ -40,6 +40,7 @@ Freeze conditions: the requester answered Q-E2 (which networks) and Q-E3
 | `eden-escrow-v1-draft.1` | First draft: form T action and its strict decoder, escrow table, extractor `eden/escrow-deposit-tx/v1`, signer rules S1 to S10, `rail_ref`, settlement report EE1 to EE9 with levels L0 to L2. Form A is a placeholder (section 8). | Initial set (section 11). |
 | `eden-escrow-v1-draft.2` | Table pinned from read-only records of the deployment (section 3): the runtime code hash; the testnet row at the CREATE2 address, now in every build; the dev row moves to that same address. New signer rule S3c (escrow code hash before signing). RF8, RF19, RF20 settled from the verified source and bytecode. Outcome changes: chain 3735928814 to the CREATE2 address is accepted (was `ErrUnknownDomain`); chain 31337 to the 714 address is refused in `edictadev` builds (was accepted). | All files regenerated (`revision` draft.2). New input `live/escrow-code.json`; new section `escrow_code` and case `tx_f14_testnet` in `action.json`; rejects `tx_testnet_mainnet_address`, `tx_714_copy_address`, `tx_dev_mainnet_address` replace `tx_chain_testnet_pending`. |
 | `eden-escrow-v1-draft.3` | Audit fixes. (1) `edictadev` builds register the type under a separate extractor ID, `eden/escrow-deposit-tx-dev/v1`, which alone holds the dev row; `eden/escrow-deposit-tx/v1` has the same output in every build (policy X1, X2), so a production verifier reports `policy_no_extractor` for a dev decision instead of a false `facts_mismatch`. (2) EE1: a malformed `rail_ref` is `unchecked`, no longer `violated`; the order is 7.2, EE1, then the source rules. (3) S6 and S7 in one durable write. (4) Fee bounds: `MaxFeePerAction` and `MaxFeePerHour` (S7). (5) S3c before every signature is a MUST, failing closed. (6) The nonce release path (5.3), one payer key per served chain (S1), chain-id uniqueness (RF1, RF2), settlement evidence not archived (7.6). | All files regenerated (`revision` draft.3). `action.json`: `extractors` (two IDs, rows per ID), `extractor_ids` per case, `extractor_id` per reject, 9 new rejects (ET2 straddling item and long-form empty list; ET3 leading zeros on `chain_id`, fee and tip, 9-byte `nonce` and `gas_limit`, 33-byte tip, `chain_id` 2^63). `signed.json`: `status` on EE1 cases; EE3 cases `r_equals_n`, `s_zero`, `r_not_on_curve`, `y_parity_zero_byte`, `s_as_list`. `settlement.json`: `event_other_index`. |
+| `eden-escrow-v1-draft.4` | Wording only: the verifier report key of the settlement report is `rail_settlement` (the core report already has `settlement` for da = 1 anchors). No encoding, check, table row or outcome changes. | Vector files regenerated for the `revision` string only. |
 
 ## 1. Threat model
 
@@ -453,7 +454,7 @@ height. So this profile registers **no** checker for core `execution`:
 reason `no_checker`.
 
 Instead the verifier, on request (`--settlement`), adds a report field
-`settlement` defined here. It is not one of the checks of core 20.1. It
+`rail_settlement` defined here. It is not one of the checks of core 20.1. It
 never changes the verdict or the exit code: like `gate_integrity`, it
 reports, and a proven violation reads `violated` while the decision verdict
 stays what the core checks give. Tooling that wants to fail on it reads
@@ -461,7 +462,7 @@ the field.
 
 `UNVERIFIED` for the human (core wording): core 20.10 lists the report
 fields without a hook for profile-defined fields. This profile treats
-`settlement` as an additional field that no core rule reads. A core
+`rail_settlement` as an additional field that no core rule reads. A core
 clarification may want to say so.
 
 ### 7.2 Inputs
@@ -537,7 +538,7 @@ source's reason in configuration order. No source can produce `violated`:
 only EE3 gives it, and EE3 rests on the signed `rail_ref` and its keccak
 preimage.
 
-Report field `settlement` (JSON names):
+Report field `rail_settlement` (JSON names):
 
 | Field | Content |
 |---|---|
@@ -666,7 +667,7 @@ transaction is `wrong_tx` against a form T action with the same deposit
 
 Location `spec/vectors/profiles/eden-escrow/`. Every file has `format`
 `edicta-vectors/v0`, `profile` `eden-escrow`, `revision`
-`eden-escrow-v1-draft.3`; uints are decimal strings, bytes lower-case hex.
+`eden-escrow-v1-draft.4`; uints are decimal strings, bytes lower-case hex.
 Written by `spec/vectors/tools/edenescrow-gen` (go-ethereum v1.17.8, its own
 module, no network: recorded data comes only from `live/`);
 checked independently, without go-ethereum, by
