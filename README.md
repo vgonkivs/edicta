@@ -170,3 +170,8 @@ Not production-ready.
 | `examples/` | Profiles in use: `tia-transfer` (Cosmos `MsgSend` on a price trigger) and `dca-agent` (IBKR order, offline with a fake broker) |
 | `spec/` | Specification, profiles, test vectors and their generators |
 | `guide/` | User guides |
+
+## License
+
+Edicta is licensed under the [Apache License, Version 2.0](LICENSE): the code,
+the specification, the test vectors and the contracts. Copyright 2026 vgonkivs.
