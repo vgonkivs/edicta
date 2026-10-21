@@ -1,5 +1,5 @@
 BIN := celestia/bin
-CMDS := edicta edictad edicta-live edicta-verify
+CMDS := edicta edictad edicta-live edicta-verify edicta-signer
 
 .PHONY: build demo test test-q vet vectors clean contracts contracts-check dev-up dev-down dev-smoke test-dev
 

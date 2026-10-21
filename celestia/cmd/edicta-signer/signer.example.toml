@@ -1,0 +1,43 @@
+# edicta-signer: the executor after the gate. It holds the payer key; the
+# agent and the gate never do. Amounts are decimal strings in wei; keys hex.
+
+listen = "127.0.0.1:8402"      # loopback only unless allow_remote = true
+token_file = "/var/lib/edicta-signer/api.token"   # mode 0600; every request needs it
+store_path = "/var/lib/edicta-signer/signer.db"
+
+gate_id = "gate1"
+gate_pubkey = "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c"
+agent_pubkeys = ["d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"]
+skew_s = 30
+refuse_fast = false
+
+# Operator risk limits over every served chain, counted when reserved.
+[caps]
+max_value_per_action = "100000000000000000"
+max_value_per_hour = "1000000000000000000"
+max_fee_per_hour = "10000000000000000"
+
+# Record the rail_ref at the gate once Eden included the deposit.
+[record]
+gate_url = "http://127.0.0.1:8080"
+gate_token_file = "/var/lib/edicta-signer/gate-record.token"
+executor_key_file = "/var/lib/edicta-signer/executor.key"
+
+[settlement]
+confirm_depth = 20
+poll_interval_ms = 500
+await_grace_s = 300
+resend_every_s = 5
+
+[[chain]]
+chain_id = 714
+rpc = "http://127.0.0.1:8545"
+own_node = true
+settlement_rpc = ["https://rpc.eden.gateway.fm/"]
+payer_key_file = "/var/lib/edicta-signer/payer-714.key"
+payer_address = "0x0000000000000000000000000000000000000001"
+facilitators = ["0x0000000000000000000000000000000000000002"]
+max_refund_delay_s = 7200
+max_fee_per_gas = "100000"
+max_gas = 300000
+max_fee_per_action = "30000000000"
