@@ -38,7 +38,9 @@ const Block = 1_000_000
 type Chain struct {
 	mu sync.Mutex
 
-	ID       uint64
+	ID uint64
+	// Host names the source; two fakes of one chain need two hosts.
+	Host     string
 	Code     map[[20]byte][32]byte
 	Nonce    uint64
 	AutoLand bool
@@ -83,7 +85,12 @@ func (c *Chain) Land(signed []byte) {
 	c.landed[Keccak(signed)] = append([]byte(nil), signed...)
 }
 
-func (c *Chain) Name() string                { return fmt.Sprintf("fake-eden-%d", c.ID) }
+func (c *Chain) Name() string {
+	if c.Host != "" {
+		return c.Host
+	}
+	return fmt.Sprintf("fake-eden-%d", c.ID)
+}
 func (c *Chain) Class() edenexec.SourceClass { return edenexec.ClassOwnNode }
 
 func (c *Chain) ChainID(context.Context) (uint64, error) {

@@ -32,22 +32,34 @@ func (s *Service) Run(ctx context.Context) error {
 		if err != nil {
 			s.log.Warn("signer: listing unfinished decisions", "err", err)
 		}
+	slots:
 		for _, e := range entries {
 			if !s.claim(e.CommitmentHash) {
 				continue
 			}
+			// The loop never waits for a slot: entries left over get one in
+			// a later round, and every round is bounded, so no decision
+			// holds a slot until its deadline.
 			select {
 			case sem <- struct{}{}:
-			case <-ctx.Done():
+			default:
 				s.release(e.CommitmentHash)
-				return ctx.Err()
+				break slots
 			}
 			wg.Add(1)
 			go func(e Entry) {
 				defer wg.Done()
 				defer func() { <-sem }()
 				defer s.release(e.CommitmentHash)
-				s.Advance(ctx, e)
+				defer func() {
+					if p := recover(); p != nil {
+						s.log.Error("signer: panic while advancing a decision",
+							"commitment_hash", hex.EncodeToString(e.CommitmentHash[:]), "panic", fmt.Sprint(p))
+					}
+				}()
+				rctx, cancel := context.WithTimeout(ctx, s.cfg.SettleRound)
+				defer cancel()
+				s.Advance(rctx, e)
 			}(e)
 		}
 		select {
@@ -169,4 +181,31 @@ func (s *Service) requestRecord(ctx context.Context, e Entry) ([]byte, error) {
 		return nil, errors.New("signer: receipt for another claim")
 	}
 	return receipt, nil
+}
+
+// Requeue is the operator's way back from StateWrong, for example after a
+// gate refused record requests because of a configuration mistake: an entry
+// whose transaction was settled goes back to its outcome, so the record
+// request is retried; one that never settled goes back to waiting for the
+// rail. It never signs and never changes the signed bytes.
+func (s *Service) Requeue(ctx context.Context, h commitment.Hash) (State, error) {
+	e, err := s.st.Update(ctx, h, func(x *Entry) error {
+		if x.State != StateWrong || len(x.Signed) == 0 {
+			return fmt.Errorf("%w: state %s", ErrNotRequeueable, x.State)
+		}
+		switch State(x.Outcome) {
+		case StateExecuted, StateReverted:
+			x.State = State(x.Outcome)
+		default:
+			x.State = StateSigned
+		}
+		x.Detail = "requeued by the operator after: " + x.Detail
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	s.log.Warn("signer: requeued by the operator", "commitment_hash", hex.EncodeToString(h[:]), "state", e.State)
+	s.wake()
+	return e.State, nil
 }

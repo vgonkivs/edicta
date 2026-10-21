@@ -4,6 +4,8 @@
 listen = "127.0.0.1:8402"      # loopback only unless allow_remote = true
 token_file = "/var/lib/edicta-signer/api.token"   # mode 0600; every request needs it
 store_path = "/var/lib/edicta-signer/signer.db"
+# admin_token_file = "/var/lib/edicta-signer/admin.token"  # enables POST /v1/admin/requeue
+# allow_remote = true needs tls_cert_file and tls_key_file (or insecure_remote_http = true behind a TLS proxy)
 
 gate_id = "gate1"
 gate_pubkey = "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c"

@@ -33,4 +33,9 @@ var (
 	// the gate) did not answer. Retryable; never a reason to sign other
 	// bytes.
 	ErrUnavailable = errors.New("signer: dependency unavailable")
+	// ErrUnknownDecision: the store holds nothing for this commitment hash.
+	ErrUnknownDecision = errors.New("signer: unknown decision")
+	// ErrNotRequeueable: only a decision in state wrong with signed bytes
+	// can be re-queued.
+	ErrNotRequeueable = errors.New("signer: decision cannot be re-queued")
 )

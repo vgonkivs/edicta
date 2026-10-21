@@ -149,7 +149,7 @@ func TestReservedButUnsignedDecisionIsSignedOnRepeatWithTheSameBytes(t *testing.
 	require.NoError(t, err)
 	// A crash between the reservation and the signature leaves this behind.
 	_, _, err = e.store.Reserve(context.Background(), signer.Entry{
-		CommitmentHash: d.Hash, Digest: a.SigHash(), State: signer.StateReserved, Value: a.Value,
+		CommitmentHash: d.Hash, Digest: a.SigHash(), State: signer.StateReserved, Value: a.Value, Payer: e.keys.PayerAddress(),
 		ReservedAt: e.clk.Now().Unix(),
 	}, 0, func(signer.Totals) error { return nil })
 	require.NoError(t, err)

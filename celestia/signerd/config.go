@@ -29,7 +29,15 @@ type Config struct {
 	AllowRemote bool   `toml:"allow_remote"`
 	// TokenFile holds the bearer token of the signer API (mode 0600).
 	TokenFile string `toml:"token_file"`
-	StorePath string `toml:"store_path"`
+	// AdminTokenFile enables the operator routes (re-queue) under their own
+	// token (mode 0600).
+	AdminTokenFile string `toml:"admin_token_file"`
+	// TLSCertFile and TLSKeyFile serve the API over TLS; allow_remote needs
+	// them unless InsecureRemoteHTTP says a TLS proxy sits in front.
+	TLSCertFile        string `toml:"tls_cert_file"`
+	TLSKeyFile         string `toml:"tls_key_file"`
+	InsecureRemoteHTTP bool   `toml:"insecure_remote_http"`
+	StorePath          string `toml:"store_path"`
 
 	GateID        string   `toml:"gate_id"`
 	GatePubKey    string   `toml:"gate_pubkey"`
@@ -59,6 +67,9 @@ type Record struct {
 	// ExecutorKeyFile is the executor's raw Ed25519 seed (mode 0600); the
 	// key signs record requests and nothing else.
 	ExecutorKeyFile string `toml:"executor_key_file"`
+	// InsecureHTTP allows a plain http gate_url to a host that is not
+	// loopback.
+	InsecureHTTP bool `toml:"insecure_http"`
 }
 
 // Settlement configures the wait for the rail.
@@ -137,19 +148,40 @@ func (c Config) ValidateBasic() error {
 	case c.StorePath == "":
 		return errors.New("signerd: store_path is required")
 	}
+	if (c.TLSCertFile == "") != (c.TLSKeyFile == "") {
+		return errors.New("signerd: tls_cert_file and tls_key_file go together")
+	}
+	// Off the loopback the token and the signed transactions would travel
+	// in clear text; anyone on the path could reuse the token.
+	if c.AllowRemote && c.TLSCertFile == "" && !c.InsecureRemoteHTTP {
+		return errors.New("signerd: allow_remote needs tls_cert_file and tls_key_file (or insecure_remote_http = true behind a TLS proxy)")
+	}
+	if c.AdminTokenFile != "" && c.AdminTokenFile == c.TokenFile {
+		return errors.New("signerd: admin_token_file is token_file: the operator routes need their own token")
+	}
 	if c.Record != nil {
 		if err := checkURL(c.Record.GateURL); err != nil {
 			return fmt.Errorf("signerd: record.gate_url: %w", err)
+		}
+		if u, _ := url.Parse(c.Record.GateURL); u.Scheme == "http" && !signer.IsLoopbackHost(u.Hostname()) && !c.Record.InsecureHTTP {
+			return errors.New("signerd: record.gate_url is plain http to a host that is not loopback; use https (or record.insecure_http = true)")
 		}
 		if c.Record.ExecutorKeyFile == "" {
 			return errors.New("signerd: record.executor_key_file is required")
 		}
 	}
-	if _, err := c.SignerConfig(); err != nil {
+	sc, err := c.SignerConfig()
+	if err != nil {
 		return err
 	}
-	if _, err := c.HandlerConfig(); err != nil {
+	hc, err := c.HandlerConfig()
+	if err != nil {
 		return err
+	}
+	for _, p := range hc.Chains {
+		if p.MaxFeePerAction.Cmp(sc.Caps.MaxFeePerHour) > 0 {
+			return fmt.Errorf("signerd: chain %d: max_fee_per_action above caps.max_fee_per_hour refuses every deposit", p.ChainID)
+		}
 	}
 	seen := map[string]uint64{}
 	for _, ch := range c.Chains {

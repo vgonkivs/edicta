@@ -366,10 +366,28 @@ func TestSettleNotExecutedOnlyPastTheDeadline(t *testing.T) {
 	w.chain.Set(func(c *signertest.Chain) { c.AutoLand = false })
 	e := signedEntry(t, w, signertest.NewDeposit(w.now), time.Now().Add(-time.Second))
 	w.now = time.Now()
-	res, err := w.h.Settle(ctx, e, true)
-	require.NoError(t, err)
-	assert.Equal(t, signer.StateNotExecuted, res.State)
+	_, err := w.h.Settle(ctx, e, true)
+	require.ErrorIs(t, err, edenexec.ErrBelowLevel, "one source saying not found is not final")
 	assert.Zero(t, w.chain.SentCount(), "no send after the deadline")
+
+	second := signertest.NewChain(714)
+	second.Host, second.AutoLand = "second-operator", false
+	cfg := edenexec.Config{PollInterval: 5 * time.Millisecond}
+	cfg.ApplyDefaults()
+	both, err := edenexec.NewChecker(cfg, []edenexec.Source{w.chain, second}, nil)
+	require.NoError(t, err)
+	hcfg := eden.Config{Chains: []eden.ChainPins{w.pins}}
+	hcfg.ApplyDefaults()
+	h, err := eden.New(hcfg, map[uint64]eden.Chain{714: w.chain}, map[uint64]eden.Settler{714: both}, time.Now, nil)
+	require.NoError(t, err)
+	res, err := h.Settle(ctx, e, false)
+	require.NoError(t, err)
+	assert.Equal(t, signer.StateNotExecuted, res.State, "two operators agree it is not there")
+
+	second.Land(e.Signed)
+	second.Set(func(c *signertest.Chain) { c.Depth = 1 })
+	_, err = h.Settle(ctx, e, false)
+	require.Error(t, err, "one operator has it, below depth: unknown, not final")
 
 	w.chain.Set(func(c *signertest.Chain) { c.TxErr = errors.New("rpc down") })
 	_, err = w.h.Settle(ctx, e, false)

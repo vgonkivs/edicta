@@ -57,6 +57,23 @@ type ChainPins struct {
 	MaxFeePerAction *big.Int
 }
 
+// NotExecutedSources is how many sources, distinct by host, must answer
+// that the transaction is not there before a decision is final as not
+// executed.
+const NotExecutedSources = 2
+
+// notFoundSources counts the sources of a final report that answered not
+// found.
+func notFoundSources(rep edenexec.Report) int {
+	names := map[string]bool{}
+	for _, s := range rep.Sources {
+		if s.Result == edenexec.SourceSetAside && s.Reason == edenexec.ReasonNotFound {
+			names[s.Name] = true
+		}
+	}
+	return len(names)
+}
+
 // Defaults and bounds.
 const (
 	DefaultResendEvery = 5 * time.Second
@@ -359,6 +376,14 @@ func (h *Handler) Settle(ctx context.Context, e signer.Entry, resend bool) (sign
 			// A transaction once served and gone now is a rolled-back block,
 			// not one that never landed.
 			if errors.Is(err, edenexec.ErrNotFound) && !seen {
+				// Final only on the word of independent operators: one
+				// lagging or partitioned node must not strand a deposit that
+				// landed. Otherwise the state stays unknown and is looked
+				// up again.
+				if n := notFoundSources(rep); n < NotExecutedSources {
+					return signer.Settlement{}, fmt.Errorf("%w: only %d of the %d sources needed say not found",
+						edenexec.ErrBelowLevel, n, NotExecutedSources)
+				}
 				return signer.Settlement{State: signer.StateNotExecuted, Detail: err.Error()}, nil
 			}
 			return signer.Settlement{}, err

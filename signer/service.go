@@ -219,8 +219,10 @@ func (s *Service) Start(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("signer: wallet of chain %d: %w", k, err)
 		}
+		// One key per chain keeps a mistake or a compromise on one chain
+		// from reaching another; two files may hold one key.
 		if other, dup := seen[a]; dup {
-			s.log.Warn("signer: one payer key serves two chains", "chain", k, "other_chain", other)
+			return fmt.Errorf("signer: one payer key %x serves chains %d and %d", a, other, k)
 		}
 		seen[a] = k
 		payers[k] = a
@@ -289,6 +291,9 @@ func (s *Service) Sign(ctx context.Context, req Request) (Output, error) {
 	if existing {
 		if stored.Digest != plan.Digest {
 			return Output{}, ErrDigestConflict
+		}
+		if stored.Payer != plan.Payer {
+			return Output{}, fmt.Errorf("%w: the decision was reserved for payer %x", ErrPinMismatch, stored.Payer)
 		}
 		if len(stored.Signed) > 0 {
 			s.wake()
@@ -383,6 +388,11 @@ func (s *Service) verify(req Request, now time.Time) (Verified, Handler, error) 
 	if !s.agentPinned(c.AgentPubKey) {
 		return deny(errors.New("agent key is not pinned"))
 	}
+	// The agent scoped the decision to one gate; an Authorization for it
+	// from that gate's key but for another scope is not what the agent asked.
+	if c.Scope.GateID != s.cfg.GateID {
+		return deny(fmt.Errorf("%w: the commitment names gate %q", commitment.ErrScopeMismatch, c.Scope.GateID))
+	}
 	hd := s.handlers[c.Action.Type]
 	if hd == nil {
 		return deny(fmt.Errorf("%w: %q", commitment.ErrActionTypeNotAllowed, c.Action.Type))
@@ -407,6 +417,18 @@ func (s *Service) verify(req Request, now time.Time) (Verified, Handler, error) 
 	}
 	if !bytes.Equal(sa.Authorization.CommitmentHash, h[:]) {
 		return deny(errors.New("the Authorization names another commitment"))
+	}
+	// A compromised gate must not revive an envelope past the agent's own
+	// validity: the decision's window bounds the Authorization too.
+	if err := commitment.CheckTime(c, uint64(unix), p); err != nil {
+		if errors.Is(err, commitment.ErrExpired) {
+			return Verified{}, nil, fmt.Errorf("%w: %w", ErrExpired, err)
+		}
+		return deny(err)
+	}
+	if sa.Authorization.Expires > c.ValidUntil {
+		return deny(fmt.Errorf("the Authorization expires at %d, after the commitment's valid_until %d",
+			sa.Authorization.Expires, c.ValidUntil))
 	}
 	return Verified{
 		CommitmentHash: h, Commitment: *c, Authorization: sa.Authorization,

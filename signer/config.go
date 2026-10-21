@@ -22,6 +22,8 @@ const (
 	DefaultRetryInterval = 30 * time.Second
 	MaxRetryInterval     = time.Hour
 	DefaultMaxSettling   = 16
+	DefaultSettleRound   = 2 * time.Minute
+	MaxSettleRound       = time.Hour
 	MaxAgentKeys         = 1024
 )
 
@@ -53,6 +55,9 @@ type Config struct {
 	RetryInterval time.Duration
 	// MaxSettling bounds the decisions settled at once.
 	MaxSettling int
+	// SettleRound bounds one attempt to settle or record a decision, so a
+	// long wait never keeps a slot from the others.
+	SettleRound time.Duration
 }
 
 // ApplyDefaults fills the zero fields that have defaults.
@@ -65,6 +70,9 @@ func (c *Config) ApplyDefaults() {
 	}
 	if c.MaxSettling == 0 {
 		c.MaxSettling = DefaultMaxSettling
+	}
+	if c.SettleRound == 0 {
+		c.SettleRound = DefaultSettleRound
 	}
 }
 
@@ -108,6 +116,8 @@ func (c Config) ValidateBasic() error {
 		return fmt.Errorf("signer: config: retry interval %v is not in (0, %v]", c.RetryInterval, MaxRetryInterval)
 	case c.MaxSettling < 1 || c.MaxSettling > 1024:
 		return fmt.Errorf("signer: config: max settling %d is not in 1..1024", c.MaxSettling)
+	case c.SettleRound <= 0 || c.SettleRound > MaxSettleRound:
+		return fmt.Errorf("signer: config: settle round %v is not in (0, %v]", c.SettleRound, MaxSettleRound)
 	}
 	return nil
 }

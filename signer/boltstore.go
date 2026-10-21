@@ -23,7 +23,17 @@ var (
 	// bucketWindow indexes the counted amounts by reservation time:
 	// reserved_at (8 bytes, big-endian) || commitment_hash -> value, fee.
 	bucketWindow = []byte("window")
+	// bucketState indexes the entries by state: state || 0x00 ||
+	// commitment_hash -> nothing, so the worker reads the open ones only.
+	bucketState = []byte("state")
 )
+
+func stateKey(st State, h commitment.Hash) []byte {
+	k := make([]byte, 0, len(st)+1+len(h))
+	k = append(k, st...)
+	k = append(k, 0)
+	return append(k, h[:]...)
+}
 
 const lockTimeout = time.Second
 
@@ -40,7 +50,7 @@ func OpenBoltStore(path string) (*BoltStore, error) {
 		return nil, fmt.Errorf("signer: open store: %w", err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketEntries, bucketWindow} {
+		for _, b := range [][]byte{bucketEntries, bucketWindow, bucketState} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -118,6 +128,9 @@ func (s *BoltStore) Reserve(_ context.Context, e Entry, windowStart int64, admit
 			return err
 		}
 		stored = e
+		if err := tx.Bucket(bucketState).Put(stateKey(e.State, e.CommitmentHash), nil); err != nil {
+			return err
+		}
 		return entries.Put(e.CommitmentHash[:], raw)
 	})
 	switch {
@@ -156,7 +169,8 @@ func (s *BoltStore) Update(_ context.Context, h commitment.Hash, fn func(*Entry)
 		b := tx.Bucket(bucketEntries)
 		raw := b.Get(h[:])
 		if raw == nil {
-			return fmt.Errorf("signer: store: no entry %x", h)
+			fnErr = fmt.Errorf("%w: %x", ErrUnknownDecision, h)
+			return fnErr
 		}
 		var before Entry
 		if err := json.Unmarshal(raw, &before); err != nil {
@@ -176,6 +190,15 @@ func (s *BoltStore) Update(_ context.Context, h commitment.Hash, fn func(*Entry)
 			return err
 		}
 		out = e
+		if e.State != before.State {
+			idx := tx.Bucket(bucketState)
+			if err := idx.Delete(stateKey(before.State, h)); err != nil {
+				return err
+			}
+			if err := idx.Put(stateKey(e.State, h), nil); err != nil {
+				return err
+			}
+		}
 		return b.Put(h[:], enc)
 	})
 	switch {
@@ -205,16 +228,22 @@ func checkImmutable(a, b Entry) error {
 func (s *BoltStore) Unfinished(_ context.Context, states ...State) ([]Entry, error) {
 	var out []Entry
 	err := s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketEntries).ForEach(func(_, raw []byte) error {
-			var e Entry
-			if err := json.Unmarshal(raw, &e); err != nil {
-				return err
-			}
-			if slices.Contains(states, e.State) {
+		entries, c := tx.Bucket(bucketEntries), tx.Bucket(bucketState).Cursor()
+		for _, st := range slices.Compact(slices.Sorted(slices.Values(states))) {
+			prefix := stateKey(st, commitment.Hash{})[:len(st)+1]
+			for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+				raw := entries.Get(k[len(prefix):])
+				if raw == nil {
+					return fmt.Errorf("signer: store: state index names a missing entry %x", k[len(prefix):])
+				}
+				var e Entry
+				if err := json.Unmarshal(raw, &e); err != nil {
+					return err
+				}
 				out = append(out, e)
 			}
-			return nil
-		})
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, unavailable("list", err)

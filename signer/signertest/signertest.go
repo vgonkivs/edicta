@@ -198,6 +198,10 @@ type DecisionOpts struct {
 	AuthCommitment *commitment.Hash
 	// ActionType is the committed type, if not the form T type.
 	ActionType string
+	// ValidUntil is the commitment's valid_until, if not now + 900.
+	ValidUntil uint64
+	// ScopeGateID is the gate the commitment names, if not GateID.
+	ScopeGateID string
 }
 
 // NewDecision builds the agent's signed commitment to action and the gate's
@@ -216,10 +220,18 @@ func NewDecision(k Keys, action []byte, now time.Time, o DecisionOpts) (Decision
 	ns := make([]byte, 29)
 	ns[27] = 0x01
 	sum := sha256.Sum256([]byte("payload/" + o.Label))
+	issued, until, scope := t-10, t+900, GateID
+	if o.ValidUntil != 0 {
+		until = o.ValidUntil
+		issued = min(issued, until-1)
+	}
+	if o.ScopeGateID != "" {
+		scope = o.ScopeGateID
+	}
 	c := &commitment.Commitment{
 		Version: 1, AgentID: "agent1", AgentPubKey: k.AgentPub(), Nonce: seed("nonce/" + o.Label)[:16],
-		IssuedAt: t - 10, ValidUntil: t + 900,
-		Scope:  commitment.Scope{GateID: GateID},
+		IssuedAt: issued, ValidUntil: until,
+		Scope:  commitment.Scope{GateID: scope},
 		Action: commitment.Action{Type: typ, Hash: ah[:]},
 		PayloadRef: commitment.PayloadRef{
 			DA: commitment.DACelestiaBlob, Namespace: ns, Commitment: sum[:], Height: 100, Signer: sum[:20],

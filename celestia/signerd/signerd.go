@@ -73,6 +73,10 @@ func Build(ctx context.Context, cfg Config, log *slog.Logger) (_ *Daemon, err er
 		if err != nil {
 			return nil, fmt.Errorf("signerd: chain %d: %w", ch.ChainID, err)
 		}
+		if len(ch.SettlementRPC) == 0 {
+			log.Warn("signerd: one settlement source: a deposit not found is never final as not executed",
+				"chain", ch.ChainID)
+		}
 		srcs := []edenexec.Source{own}
 		for _, u := range ch.SettlementRPC {
 			c, err := rpcClient(u, edenexec.ClassPublicRPC, ch.ChainID)
@@ -135,7 +139,16 @@ func Build(ctx context.Context, cfg Config, log *slog.Logger) (_ *Daemon, err er
 	if err := svc.Start(ctx); err != nil {
 		return nil, err
 	}
-	api, err := signer.NewHandler(svc, signer.HTTPOptions{Token: token.Reveal(), AllowRemote: cfg.AllowRemote}, log)
+	opts := signer.HTTPOptions{Token: token.Reveal(), AllowRemote: cfg.AllowRemote}
+	if cfg.AdminTokenFile != "" {
+		admin, err := secret.FromFile(cfg.AdminTokenFile)
+		if err != nil {
+			return nil, fmt.Errorf("signerd: admin_token_file: %w", err)
+		}
+		opts.AdminToken = admin.Reveal()
+		admin.Zero()
+	}
+	api, err := signer.NewHandler(svc, opts, log)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +187,13 @@ func (d *Daemon) Serve(ctx context.Context, ready func(net.Addr)) error {
 	work := make(chan error, 1)
 	go func() { work <- d.svc.Run(ctx) }()
 	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ln) }()
+	go func() {
+		if d.cfg.TLSCertFile != "" {
+			errc <- srv.ServeTLS(ln, d.cfg.TLSCertFile, d.cfg.TLSKeyFile)
+			return
+		}
+		errc <- srv.Serve(ln)
+	}()
 	d.log.Info("edicta-signer: serving", "listen", ln.Addr().String())
 	select {
 	case err = <-errc:

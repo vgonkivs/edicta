@@ -220,6 +220,19 @@ func TestConfigRefusals(t *testing.T) {
 			return strings.Replace(s, `"0xfac1117a70400000000000000000000000000000"`, `"fac1"`, 1)
 		}},
 		{"chain outside the table", func(s string) string { return strings.Replace(s, "chain_id = 714", "chain_id = 1", 1) }},
+		{"remote without TLS", func(s string) string {
+			return strings.Replace(s, `listen = "127.0.0.1:0"`, "listen = \"0.0.0.0:8402\"\nallow_remote = true", 1)
+		}},
+		{"TLS cert without key", func(s string) string { return "tls_cert_file = \"/c.pem\"\n" + s }},
+		{"plain http gate off the loopback", func(s string) string {
+			return strings.Replace(s, `gate_url = "http://127.0.0.1:1"`, `gate_url = "http://gate.example:8080"`, 1)
+		}},
+		{"fee per action above the hourly fee cap", func(s string) string {
+			return strings.Replace(s, `max_fee_per_action = "3000000000"`, `max_fee_per_action = "1000000000000001"`, 1)
+		}},
+		{"admin token is the API token", func(s string) string {
+			return fmt.Sprintf("admin_token_file = %q\n", f.token) + s
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -231,10 +244,19 @@ func TestConfigRefusals(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
-	cfg, err := signerd.ParseConfig([]byte(base))
-	require.NoError(t, err)
-	cfg.ApplyDefaults()
-	require.NoError(t, cfg.ValidateBasic())
+	accepted := []string{
+		base,
+		strings.Replace(base, `listen = "127.0.0.1:0"`, "listen = \"0.0.0.0:8402\"\nallow_remote = true\ninsecure_remote_http = true", 1),
+		strings.Replace(base, `listen = "127.0.0.1:0"`, "listen = \"0.0.0.0:8402\"\nallow_remote = true\ntls_cert_file = \"/c.pem\"\ntls_key_file = \"/k.pem\"", 1),
+		strings.Replace(base, `gate_url = "http://127.0.0.1:1"`, `gate_url = "https://gate.example"`, 1),
+		strings.Replace(base, `gate_url = "http://127.0.0.1:1"`, "gate_url = \"http://gate.example\"\ninsecure_http = true", 1),
+	}
+	for i, text := range accepted {
+		cfg, err := signerd.ParseConfig([]byte(text))
+		require.NoError(t, err, i)
+		cfg.ApplyDefaults()
+		require.NoError(t, cfg.ValidateBasic(), i)
+	}
 }
 
 func edPub(seed [32]byte) string {

@@ -24,6 +24,8 @@ import (
 const (
 	RouteSign   = "/v1/sign"
 	RouteHealth = "/v1/health"
+	// RouteRequeue is the operator's route back from state wrong.
+	RouteRequeue = "/v1/admin/requeue"
 )
 
 // SignLimit bounds a sign request in CBOR: the envelope, the action, the
@@ -45,6 +47,14 @@ var (
 		edictaapi.Field{Key: 2, Name: "rail_ref", Kind: edictaapi.KindText, Min: 1, Max: 128, Required: true},
 		edictaapi.Field{Key: 3, Name: "commitment_hash", Kind: edictaapi.KindBytes, Min: 32, Max: 32, Required: true},
 		edictaapi.Field{Key: 4, Name: "repeat", Kind: edictaapi.KindUint, Required: true},
+	)
+	// RequeueRequestSchema and RequeueResponseSchema are POST
+	// /v1/admin/requeue.
+	RequeueRequestSchema = edictaapi.NewSchema(
+		edictaapi.Field{Key: 1, Name: "commitment_hash", Kind: edictaapi.KindBytes, Min: 32, Max: 32, Required: true},
+	)
+	RequeueResponseSchema = edictaapi.NewSchema(
+		edictaapi.Field{Key: 1, Name: "state", Kind: edictaapi.KindText, Min: 1, Max: 32, Required: true},
 	)
 	// HealthSchema is the 200 answer of GET /v1/health.
 	HealthSchema = edictaapi.NewSchema(
@@ -103,12 +113,21 @@ type HTTPOptions struct {
 	AllowRemote bool
 	// RequestTimeout bounds one request; zero means 30 s.
 	RequestTimeout time.Duration
+	// AdminToken enables the operator routes and is the only token they
+	// accept; the agents' token never reaches them. Empty disables them.
+	AdminToken []byte
 }
 
 // ValidateBasic checks the stateless fields.
 func (o HTTPOptions) ValidateBasic() error {
 	if len(o.Token) < 16 {
 		return errors.New("signer: the API token must be at least 16 bytes")
+	}
+	if len(o.AdminToken) > 0 && len(o.AdminToken) < 16 {
+		return errors.New("signer: the admin token must be at least 16 bytes")
+	}
+	if len(o.AdminToken) > 0 && subtle.ConstantTimeCompare(o.AdminToken, o.Token) == 1 {
+		return errors.New("signer: the admin token must differ from the API token")
 	}
 	if o.RequestTimeout < 0 {
 		return errors.New("signer: negative request timeout")
@@ -133,6 +152,8 @@ var errTable = []errRule{
 	{"signer.ErrEscrowCode", ErrEscrowCode, 403, false},
 	{"signer.ErrFastModeRefused", ErrFastModeRefused, 403, false},
 	{"signer.ErrDigestConflict", ErrDigestConflict, 409, false},
+	{"signer.ErrNotRequeueable", ErrNotRequeueable, 409, false},
+	{"signer.ErrUnknownDecision", ErrUnknownDecision, 404, false},
 	{"signer.ErrRiskLimit", ErrRiskLimit, 429, true},
 	{"edenescrow.ErrMalformed", edenescrow.ErrMalformed, 422, false},
 	{"edenescrow.ErrUnknownDomain", edenescrow.ErrUnknownDomain, 422, false},
@@ -184,15 +205,21 @@ func NewHandler(s *Service, o HTTPOptions, log *slog.Logger) (http.Handler, erro
 	if o.RequestTimeout == 0 {
 		o.RequestTimeout = 30 * time.Second
 	}
-	want := sha256.Sum256(o.Token)
-	return &apiHandler{s: s, o: o, want: want, log: log}, nil
+	h := &apiHandler{s: s, o: o, want: sha256.Sum256(o.Token), log: log}
+	if len(o.AdminToken) > 0 {
+		h.admin = sha256.Sum256(o.AdminToken)
+		h.adminOn = true
+	}
+	return h, nil
 }
 
 type apiHandler struct {
-	s    *Service
-	o    HTTPOptions
-	want [32]byte
-	log  *slog.Logger
+	s       *Service
+	o       HTTPOptions
+	want    [32]byte
+	admin   [32]byte
+	adminOn bool
+	log     *slog.Logger
 }
 
 type answer struct {
@@ -253,11 +280,16 @@ func (h *apiHandler) serve(r *http.Request) (a answer) {
 			a = answer{status: 500, body: edictaapi.ErrorBody("signer.ErrInternal", "internal error", false)}
 		}
 	}()
-	method := http.MethodPost
+	method, token := http.MethodPost, h.want
 	switch r.URL.Path {
 	case RouteSign:
 	case RouteHealth:
 		method = http.MethodGet
+	case RouteRequeue:
+		if !h.adminOn {
+			return h.fail(edictaapi.ErrRouteNotFound)
+		}
+		token = h.admin
 	default:
 		return h.fail(edictaapi.ErrRouteNotFound)
 	}
@@ -273,11 +305,14 @@ func (h *apiHandler) serve(r *http.Request) (a answer) {
 			return h.fail(edictaapi.ErrMediaType)
 		}
 	}
-	if !h.callerOK(r) {
+	if !h.callerOK(r, token) {
 		return h.fail(edictaapi.ErrTokenInvalid)
 	}
 	if method == http.MethodGet {
 		return answer{status: 200, body: edictaapi.EncodeWrapper(edictaapi.TextItem(1, "ok")), schema: HealthSchema}
+	}
+	if r.URL.Path == RouteRequeue {
+		return h.requeue(r, isJSON)
 	}
 
 	limit := uint64(SignLimit)
@@ -312,9 +347,40 @@ func (h *apiHandler) serve(r *http.Request) (a answer) {
 	return answer{status: 200, body: encodeOutput(out), schema: SignResponseSchema}
 }
 
+const requeueLimit = 64
+
+func (h *apiHandler) requeue(r *http.Request, isJSON bool) answer {
+	limit := uint64(requeueLimit)
+	if isJSON {
+		limit = edictaapi.JSONBodyLimit(limit)
+	}
+	body, err := readBody(r, limit)
+	if err != nil {
+		return h.fail(err)
+	}
+	if isJSON {
+		if body, err = edictaapi.JSONToWrapper(body, RequeueRequestSchema); err != nil {
+			return h.fail(err)
+		}
+	}
+	f, err := edictaapi.DecodeWrapper(body, RequeueRequestSchema)
+	if err != nil {
+		return h.fail(err)
+	}
+	var ch commitment.Hash
+	copy(ch[:], f.Bytes(1))
+	ctx, cancel := context.WithTimeout(r.Context(), h.o.RequestTimeout)
+	defer cancel()
+	st, err := h.s.Requeue(ctx, ch)
+	if err != nil {
+		return h.fail(err)
+	}
+	return answer{status: 200, body: edictaapi.EncodeWrapper(edictaapi.TextItem(1, string(st))), schema: RequeueResponseSchema}
+}
+
 // callerOK checks the bearer token and, unless remote callers are allowed, a
 // loopback Host header.
-func (h *apiHandler) callerOK(r *http.Request) bool {
+func (h *apiHandler) callerOK(r *http.Request, want [32]byte) bool {
 	if !h.o.AllowRemote {
 		host, _, err := net.SplitHostPort(r.Host)
 		if err != nil {
@@ -329,7 +395,7 @@ func (h *apiHandler) callerOK(r *http.Request) bool {
 		return false
 	}
 	g := sha256.Sum256([]byte(got))
-	return subtle.ConstantTimeCompare(g[:], h.want[:]) == 1
+	return subtle.ConstantTimeCompare(g[:], want[:]) == 1
 }
 
 // IsLoopbackHost reports whether host names the loopback interface.
