@@ -309,6 +309,7 @@ var errTable = []errRule{
 	{"signer.ErrDigestConflict", ErrDigestConflict, 409, false},
 	{"signer.ErrNotRequeueable", ErrNotRequeueable, 409, false},
 	{"signer.ErrUnknownDecision", ErrUnknownDecision, 404, false},
+	{"signer.ErrSharedCredential", ErrSharedCredential, 403, false},
 	{"signer.ErrRiskLimit", ErrRiskLimit, 429, true},
 	{"signer.ErrNotExecuted", ErrNotExecuted, 409, true},
 	{"signer.ErrRequirements", ErrRequirements, 422, false},

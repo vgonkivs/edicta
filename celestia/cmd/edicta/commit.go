@@ -158,6 +158,9 @@ func runCommit(ctx context.Context, args []string, out io.Writer, stdin io.Reade
 		if *paymentRequired != "" {
 			v := *paymentRequired
 			if name, ok := strings.CutPrefix(v, "@"); ok {
+				if name == "-" && (*edenBuild == "-" || *requestFile == "-") {
+					return fail(out, usageErr("--payment-required @- and another input both read stdin"))
+				}
 				b, err := readInput(name, stdin, edenescrow.MaxRequirementsSize*2)
 				if err != nil {
 					return fail(out, usageErr("--payment-required: %v", err))

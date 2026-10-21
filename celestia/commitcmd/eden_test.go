@@ -92,7 +92,8 @@ type fakeSigner struct {
 	// blockProof makes the payment-signature call wait for its context.
 	blockProof bool
 
-	finalState signer.State
+	finalState   signer.State
+	statusShared bool
 
 	badTx    bool
 	badRail  bool
@@ -145,6 +146,9 @@ func (f *fakeSigner) Sign(ctx context.Context, req signer.Request) (signer.Outpu
 func (f *fakeSigner) Status(_ context.Context, _ commitment.Hash) (signer.Status, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.statusShared {
+		return signer.Status{}, &commitcmd.SignerError{Status: 403, Code: "signer.ErrSharedCredential", Message: "shared"}
+	}
 	if !f.statusRoute {
 		return signer.Status{}, &commitcmd.SignerError{Status: 404, Code: "edictaapi.ErrRouteNotFound", Message: "no route"}
 	}
@@ -636,6 +640,25 @@ func TestEdenNeverAdvisesCommitAgainWhileTheSignerMayHoldTheDecision(t *testing.
 	require.Error(t, err)
 	assert.Contains(t, failureOf(t, err).Message, "commit again")
 	assert.NotContains(t, failureOf(t, err).Message, "do not commit again")
+}
+
+func TestEdenSharedSignerCredentialIsNeverReadAsUnknown(t *testing.T) {
+	r := newEdenRig(t)
+	req := edenRequest(t)
+	req.Sign, req.Broadcast = true, true
+	first, err := r.svc.Commit(context.Background(), req)
+	require.NoError(t, err)
+	r.loseSigned(first.CommitmentHash)
+	r.signer.statusShared = true
+	r.svc.Clock = func() time.Time { return time.Unix(int64(first.Expires)+3600, 0) }
+	_, err = r.svc.Commit(context.Background(), commitcmd.Request{ResumeHash: first.CommitmentHash, Sign: true, Broadcast: true})
+	require.Error(t, err)
+	assert.Contains(t, failureOf(t, err).Message, "do not commit again")
+	assert.Len(t, r.signer.signReqs, 1)
+
+	_, err = r.svc.Commit(context.Background(), commitcmd.Request{ResumeHash: first.CommitmentHash, Record: true})
+	require.Error(t, err)
+	assert.NotContains(t, failureOf(t, err).Message, "commit again")
 }
 
 func TestEdenResumeObjectKeepsTheStoredAuthorizationAndSignedBytes(t *testing.T) {

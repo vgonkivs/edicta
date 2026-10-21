@@ -35,6 +35,9 @@ var (
 	ErrUnavailable = errors.New("signer: dependency unavailable")
 	// ErrUnknownDecision: the store holds nothing for this commitment hash.
 	ErrUnknownDecision = errors.New("signer: unknown decision")
+	// ErrSharedCredential: the status route needs a credential pinned to one
+	// agent. It is answered before any lookup, so it says nothing about the hash.
+	ErrSharedCredential = errors.New("signer: the status route needs a per-agent credential")
 	// ErrNotRequeueable: only a decision in state wrong with signed bytes
 	// can be re-queued.
 	ErrNotRequeueable = errors.New("signer: decision cannot be re-queued")

@@ -43,7 +43,10 @@ func TestStatusDoesNotLeakAnotherAgentsDecision(t *testing.T) {
 	_, err := e.svc.Status(context.Background(), d.Hash, otherAgent.Public().(ed25519.PublicKey))
 	require.ErrorIs(t, err, signer.ErrUnknownDecision)
 	_, err = e.svc.Status(context.Background(), d.Hash, nil)
-	require.ErrorIs(t, err, signer.ErrUnknownDecision, "a shared credential sees nothing")
+	require.ErrorIs(t, err, signer.ErrSharedCredential, "a shared credential is refused before any lookup")
+	_, err = e.svc.Status(context.Background(), [32]byte{}, nil)
+	require.ErrorIs(t, err, signer.ErrSharedCredential, "and the answer does not depend on the hash")
+	_, err = e.svc.Status(context.Background(), d.Hash, otherAgent.Public().(ed25519.PublicKey))
 	var unknown [32]byte
 	_, err2 := e.svc.Status(context.Background(), unknown, otherAgent.Public().(ed25519.PublicKey))
 	assert.Equal(t, err.Error(), err2.Error(), "an unknown hash reads the same")

@@ -42,15 +42,19 @@ type Status struct {
 }
 
 // Status returns the stored state of a decision to the caller whose API
-// credential is pinned to the decision's agent key. A shared credential, an
-// unknown hash and another agent's decision all answer ErrUnknownDecision,
-// so the route does not tell whether a hash exists.
+// credential is pinned to the decision's agent key. A shared credential gets
+// ErrSharedCredential before any lookup; an unknown hash and another agent's
+// decision both answer ErrUnknownDecision, so the route does not tell whether
+// a hash exists.
 func (s *Service) Status(ctx context.Context, h commitment.Hash, caller []byte) (Status, error) {
+	if caller == nil {
+		return Status{}, ErrSharedCredential
+	}
 	e, found, err := s.st.Get(ctx, h)
 	if err != nil {
 		return Status{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
-	if !found || caller == nil {
+	if !found {
 		return Status{}, ErrUnknownDecision
 	}
 	sc, err := commitment.DecodeSigned(e.Envelope)
