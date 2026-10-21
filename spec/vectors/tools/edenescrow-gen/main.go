@@ -5,7 +5,7 @@
 // signatures, the rebuild of served transactions, the receipt encoding and
 // the header hash of a recorded Eden block. It lives in its own module so
 // the main module never depends on go-ethereum. Recorded chain data comes
-// only from ../../profiles/eden-escrow/live/f14.json; nothing is fetched.
+// only from ../../profiles/eden-escrow/live/; nothing is fetched.
 //
 // Usage (from this directory):
 //
@@ -25,7 +25,7 @@ import (
 const (
 	format    = "edicta-vectors/v0"
 	profile   = "eden-escrow"
-	revision  = "eden-escrow-v1-draft.1"
+	revision  = "eden-escrow-v1-draft.2"
 	generator = "spec/vectors/tools/edenescrow-gen"
 )
 
@@ -69,12 +69,23 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	raw, err = os.ReadFile(filepath.Join(dir, "live", "escrow-code.json"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	var ec escrowCode
+	if err := json.Unmarshal(raw, &ec); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	code := loadEscrowCode(&ec)
 	files := []struct {
 		name string
 		body obj
 	}{
 		{"deposit_call.json", buildDepositCallFile(&lv)},
-		{"action.json", buildActionFile(&lv)},
+		{"action.json", buildActionFile(&lv, code)},
 		{"signed.json", buildSignedFile(&lv)},
 		{"settlement.json", buildSettlementFile(&lv)},
 	}

@@ -28,7 +28,7 @@ from policy_v1 import encode_facts
 
 HERE = Path(__file__).resolve().parent
 DEFAULT = HERE.parent / "profiles" / "eden-escrow"
-REVISION = "eden-escrow-v1-draft.1"
+REVISION = "eden-escrow-v1-draft.2"
 
 fails: list[str] = []
 
@@ -72,11 +72,12 @@ def check_actions(d: dict, calls: dict):
     header(d, "action")
     expect(d["action_type"] == ee.ACTION_TYPE and d["extractor"]["id"] == ee.EXTRACTOR_ID, "action type, extractor")
     expect(d["requirements_tag"].encode() == ee.REQUIREMENTS_TAG, "requirements tag")
-    rows = {r["build"]: {} for r in d["extractor"]["rows"]}
+    rows = {"all": {}, "edictadev": {}}
     for r in d["extractor"]["rows"]:
-        rows[r["build"]][int(r["chain_id"])] = bytes.fromhex(r["escrow"][2:])
-    expect(rows["production"] == ee.ROWS["production"], "production rows")
-    expect({**rows["production"], **rows["edictadev"]} == ee.ROWS["edictadev"], "edictadev rows")
+        rows[r["builds"]][int(r["chain_id"])] = bytes.fromhex(r["escrow"][2:])
+        expect(r["code_hash"] == ee.CODE_HASH.hex(), f"row {r['chain_id']}: code hash")
+    expect(rows["all"] == ee.ROWS["production"], "production rows")
+    expect({**rows["all"], **rows["edictadev"]} == ee.ROWS["edictadev"], "edictadev rows")
     out = {}
     for c in d["cases"]:
         cid, inp = c["id"], c["input"]
@@ -110,6 +111,37 @@ def check_actions(d: dict, calls: dict):
                f"action reject {r['id']}: got {e and (e.sentinel, e.rule, str(e))}")
         expect(r["extractor_expect_error"] == "ErrFactsInvalid", f"action reject {r['id']}: extractor")
     return out
+
+
+def check_escrow_code(d: dict, live: dict):
+    """The table constants from the recorded deployment: code hash, CREATE and CREATE2 addresses."""
+    bs, tx = live["blockscout"], live["creation_tx"]["rpc_tx"]
+    reads = {(r["url"], r["method"], (r["params"] or [""])[0].lower()): r["result"] for r in live["rpc_reads"]}
+    main, test = "https://rpc.eden.gateway.fm/", "https://rpc.testnet.eden.gateway.fm/"
+    runtime = bytes.fromhex(reads[(main, "eth_getCode", "0x" + ee.ESCROW_714.hex())][2:])
+    init = bytes.fromhex(bs["creation_bytecode"][2:])
+    expect(runtime == bytes.fromhex(bs["deployed_bytecode"][2:]), "rpc code equals verified deployed code")
+    expect(pc.keccak256(runtime) == ee.CODE_HASH and d["runtime_code_hash"] == ee.CODE_HASH.hex(), "code hash")
+    prefix = init[:len(init) - len(runtime)]
+    expect(init.endswith(runtime) and prefix.hex() == d["constructor_prefix_hex"] and bs["constructor_args"] is None,
+           "creation code = constructor prefix || runtime")
+    i, sstore = 0, False
+    while i < len(prefix):
+        op = prefix[i]
+        sstore |= op == 0x55
+        i += 1 + (op - 0x5f if 0x60 <= op <= 0x7f else 0)
+    expect(not sstore and d["constructor_writes_storage"] is False, "constructor writes no storage")
+    expect(tx["to"] is None and tx["input"] == bs["creation_bytecode"], "creation tx")
+    creator, nonce = bytes.fromhex(tx["from"][2:]), int(tx["nonce"], 16)
+    expect(pc.keccak256(ee.rlp_enc_list([ee.rlp_enc_bytes(creator), ee.rlp_enc_int(nonce)]))[12:] == ee.ESCROW_714,
+           "CREATE address")
+    ih = pc.keccak256(init)
+    expect(d["init_code_hash"] == ih.hex(), "init code hash")
+    expect(pc.keccak256(b"\xff" + ee.DEPLOYER + bytes(32) + ih)[12:] == ee.ESCROW_COPY
+           and d["create2"]["address"] == "0x" + ee.ESCROW_COPY.hex(), "CREATE2 address")
+    expect(reads[(test, "eth_chainId", "")] == hex(3735928814) and reads[(main, "eth_chainId", "")] == hex(714), "chain ids")
+    expect(d["recorded_code"]["testnet_create2"] == reads[(test, "eth_getCode", "0x" + ee.ESCROW_COPY.hex())],
+           "recorded testnet code")
 
 
 def check_signed(d: dict, actions: dict):
@@ -187,6 +219,7 @@ def main() -> int:
     load = lambda n: json.loads((d / n).read_text())  # noqa: E731
     calls = check_calls(load("deposit_call.json"))
     actions = check_actions(load("action.json"), calls)
+    check_escrow_code(load("action.json")["escrow_code"], load("live/escrow-code.json"))
     check_signed(load("signed.json"), actions)
     check_settlement(load("settlement.json"), actions, load("live/f14.json"))
     if fails:
@@ -194,7 +227,7 @@ def main() -> int:
             print(f"FAIL (eden-escrow): {f}", file=sys.stderr)
         return 1
     print("OK (eden-escrow): deposit calls, actions and rejects, signatures, rail_ref, EE3, EE2 rebuild, "
-          "receipt, EE8, header hash")
+          "receipt, EE8, header hash, escrow code and table")
     return 0
 
 

@@ -35,18 +35,15 @@ var (
 	two256Minus = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
 )
 
-// tableRow is one row of the extractor table as the vectors use it. The
-// testnet row has no pinned address yet, so no vector can accept it.
+// tableRow is one row of the extractor table; builds is "all" or
+// "edictadev". The rows are filled by loadEscrowCode from recorded data.
 type tableRow struct {
 	chainID uint64
 	escrow  common.Address
-	build   string
+	builds  string
 }
 
-var table = []tableRow{
-	{714, escrow714, "production"},
-	{31337, escrow714, "edictadev"},
-}
+var table []tableRow
 
 // --- deposit calldata ---
 
@@ -315,7 +312,9 @@ func actionCases(lv *live) []actionCase {
 		to: escrow714, value: f14Value, data: calls["call_f14"],
 	}
 	dev := base
-	dev.chainID = 31337
+	dev.chainID, dev.to = 31337, escrowCopy
+	testnet := base
+	testnet.chainID, testnet.to = 3735928814, escrowCopy
 	printable := make([]byte, 0, 2048)
 	for len(printable) < 2048 {
 		printable = append(printable, byte(0x21+len(printable)%94))
@@ -329,7 +328,9 @@ func actionCases(lv *live) []actionCase {
 			txIn{714, 127, big.NewInt(127), big.NewInt(128), 100000, escrow714, big.NewInt(127), calls["call_f14"]}, "https://x.example/p", mockRequirements(714, "127")},
 		{"tx_max_714", "Largest values: nonce and gas 2^63-1, fees and value 2^256-1, a 2048-byte resource of every printable character.", "production", "call_max",
 			txIn{714, maxInt63, two256Minus, two256Minus, maxInt63, escrow714, two256Minus, calls["call_max"]}, string(printable), mockRequirements(714, two256Minus.String())},
-		{"tx_f14_dev_31337", "The tx_f14_714 deposit on the dev chain 31337; accepted only by an edictadev build.", "edictadev", "call_f14",
+		{"tx_f14_testnet", "The tx_f14_714 deposit on the testnet 3735928814, to the CREATE2 copy of the escrow.", "production", "call_f14",
+			testnet, "https://api.example.com/v1/quote?symbol=TIA", mockRequirements(3735928814, f14Value.String())},
+		{"tx_f14_dev_31337", "The tx_f14_714 deposit on the dev chain 31337, to the CREATE2 address; accepted only by an edictadev build.", "edictadev", "call_f14",
 			dev, "https://api.example.com/v1/quote?symbol=TIA", mockRequirements(31337, f14Value.String())},
 	}
 }
@@ -452,15 +453,20 @@ func actionRejects(a actionCase) []actionReject {
 	addT("tx_chain_1_and_dirty_data", "ET8", "chain 1 and a dirty payTo: the format rule comes first", errMalformed,
 		txOf(withItem(withItem(it, 0, rlpUint(1)), 7, rlpStr(setWord(f14, 1, dirty)))))
 	addT("tx_chain_1", "ED1", "chain 1 is not a row", errDomain, txOf(withItem(it, 0, rlpUint(1))))
-	addT("tx_chain_testnet_pending", "ED1", "chain 3735928814: its row has no pinned address yet, so no build has it", errDomain, txOf(withItem(it, 0, rlpUint(3735928814))))
+	addT("tx_testnet_mainnet_address", "ED1", "chain 3735928814 with to = the 714 escrow address (no code there on testnet)", errDomain, txOf(withItem(it, 0, rlpUint(3735928814))))
+	addT("tx_714_copy_address", "ED1", "chain 714 with to = the CREATE2 copy address", errDomain, txOf(withItem(it, 5, rlpStr(escrowCopy[:]))))
 	addT("tx_chain_0", "ED1", "chain 0", errDomain, txOf(withItem(it, 0, []byte{0x80})))
 	addT("tx_other_contract", "ED1", "chain 714 with to = the HoustonForwarder", errDomain, txOf(withItem(it, 5, rlpStr(forwarder[:]))))
-	out = append(out, actionReject{id: "tx_dev_row_in_production", rule: "ED1", cause: "chain 31337 in a production build",
-		err: errDomain, build: "production", cbor: wrap(txOf(withItem(it, 0, rlpUint(31337)))), tx: txOf(withItem(it, 0, rlpUint(31337)))})
+	devTx := txOf(withItem(withItem(it, 0, rlpUint(31337)), 5, rlpStr(escrowCopy[:])))
+	out = append(out, actionReject{id: "tx_dev_row_in_production", rule: "ED1", cause: "the dev row (31337, CREATE2 address) in a production build",
+		err: errDomain, build: "production", cbor: wrap(devTx), tx: devTx})
+	devOld := txOf(withItem(it, 0, rlpUint(31337)))
+	out = append(out, actionReject{id: "tx_dev_mainnet_address", rule: "ED1", cause: "chain 31337 with to = the 714 escrow address, in an edictadev build",
+		err: errDomain, build: "edictadev", cbor: wrap(devOld), tx: devOld})
 	return out
 }
 
-func buildActionFile(lv *live) obj {
+func buildActionFile(lv *live, code obj) obj {
 	var cs []any
 	for _, a := range actionCases(lv) {
 		u := a.tx.unsigned()
@@ -501,13 +507,15 @@ func buildActionFile(lv *live) obj {
 	}
 	var rows []any
 	for _, r := range table {
-		rows = append(rows, obj{{"chain_id", dec(r.chainID)}, {"escrow", strings.ToLower(r.escrow.Hex())}, {"build", r.build}})
+		rows = append(rows, obj{{"chain_id", dec(r.chainID)}, {"escrow", strings.ToLower(r.escrow.Hex())},
+			{"code_hash", hx(codeHash)}, {"builds", r.builds}})
 	}
 	return obj{
 		{"format", format}, {"profile", profile}, {"revision", revision}, {"generator", generator},
 		{"upstream", upstream},
 		{"action_type", actionType},
 		{"extractor", obj{{"id", extractorID}, {"kind", "x402-payment"}, {"scale", "18"}, {"rows", rows}}},
+		{"escrow_code", code},
 		{"requirements_tag", requirementsTag},
 		{"limits", obj{{"action_max", "4096"}, {"tx_max", "512"}, {"resource_max", "2048"}}},
 		{"cases", cs},

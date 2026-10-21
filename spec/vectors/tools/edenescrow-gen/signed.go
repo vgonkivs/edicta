@@ -48,10 +48,8 @@ func signGeth(t txIn, key *ecdsa.PrivateKey) ([]byte, sig) {
 	}
 	v, r, s := signed.RawSignatureValues()
 	sg := sig{v.Uint64(), r, s}
-	if t.chainID == 714 || t.chainID == 31337 {
-		if !bytes.Equal(splice(t.items(), sg), bin) {
-			panic("splice rule differs from go-ethereum's signed encoding")
-		}
+	if !bytes.Equal(splice(t.items(), sg), bin) {
+		panic("splice rule differs from go-ethereum's signed encoding")
 	}
 	return bin, sg
 }

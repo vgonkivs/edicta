@@ -30,10 +30,12 @@ TOPIC_DEPOSITED = pc.keccak256(
     b"NativeEscrowDeposited(bytes32,address,address,address,uint256,uint256,uint256,uint256)")
 
 ESCROW_714 = bytes.fromhex("65d77c98e73dfbea91ecb72b27c9753e186a94c8")
-# The testnet row has no pinned address yet, so it is in no build.
+ESCROW_COPY = bytes.fromhex("e851a9b22d949ae005f65e1ba97c9b0c18354e5d")
+CODE_HASH = bytes.fromhex("281a5ec0494b3c25ba7d7e36648a4f00f9f910d3889cc09d706755bd894300e5")
+DEPLOYER = bytes.fromhex("4e59b44847b379578588920ca78fbf26c0b4956c")
 ROWS = {
-    "production": {714: ESCROW_714},
-    "edictadev": {714: ESCROW_714, 31337: ESCROW_714},
+    "production": {714: ESCROW_714, 3735928814: ESCROW_COPY},
+    "edictadev": {714: ESCROW_714, 3735928814: ESCROW_COPY, 31337: ESCROW_COPY},
 }
 
 RAIL_REF_RE = re.compile(r"[0-9a-f]{64}")

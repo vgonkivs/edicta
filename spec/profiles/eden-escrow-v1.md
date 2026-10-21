@@ -6,7 +6,7 @@ escrow deposit that a facilitator later settles. Eden is only the payment
 rail. Commitments use any core `da` (the first Eden release uses `da = 2`,
 fast or strict mode), and nothing in this profile touches the anchoring.
 
-Status: revision `eden-escrow-v1-draft.1` (2026-10-21), **draft, not
+Status: revision `eden-escrow-v1-draft.2` (2026-10-21), **draft, not
 frozen**. Built on the core spec `spec/decision-commitment-v1.md`, revision
 `v1.2`, and on `spec/policy-v1.md` (`policy-v1.0`). Section numbers prefixed
 "core" refer to the core spec; "policy" refers to the policy spec. The `v1`
@@ -15,10 +15,9 @@ the core's.
 
 Keywords MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Items marked
 `UNVERIFIED` are facts about Eden, Evolve or the escrow that the R0 recording
-(2026-10-21, read-only) did not settle; the human confirms them. Items marked
-`PENDING` are table constants that need one read-only lookup or a
-requester's answer before the freeze (section 12). Everything else is
-normative for this profile.
+(2026-10-21, read-only) did not settle; the human confirms them. Open items
+before the freeze are listed in section 12. Everything else is normative
+for this profile.
 
 This profile adds no core rule, no wire byte, no tag of the core or policy
 families, no archive kind and no sentinel to section 21 of the core. The
@@ -33,22 +32,22 @@ profile-defined, verdict-neutral report field.
 | Any change to an encoding, a check, a table row or an outcome, while in draft | Bump `eden-escrow-v1-draft.N`, regenerate the profile vectors, record the change below. |
 | After the freeze, any such change | New media type (`...escrow-deposit-tx.v2+cbor`) and new extractor ID (`eden/escrow-deposit-tx/v2`). The version is in the type name and in the ID. A new table row is such a change (policy X1: any change of the extractor's output for any input is a new ID). |
 
-Freeze conditions: the `PENDING` constants of section 3 are pinned, the
-requester answered Q-E2 (which networks) and Q-E3 (the escrow-upto flow),
-and the human approved.
+Freeze conditions: the requester answered Q-E2 (which networks) and Q-E3
+(the escrow-upto flow), and the human approved.
 
 | Revision | Change | Vectors |
 |---|---|---|
 | `eden-escrow-v1-draft.1` | First draft: form T action and its strict decoder, escrow table, extractor `eden/escrow-deposit-tx/v1`, signer rules S1 to S10, `rail_ref`, settlement report EE1 to EE9 with levels L0 to L2. Form A is a placeholder (section 8). | Initial set (section 11). |
+| `eden-escrow-v1-draft.2` | Table pinned from read-only records of the deployment (section 3): the runtime code hash; the testnet row at the CREATE2 address, now in every build; the dev row moves to that same address. New signer rule S3c (escrow code hash before signing). RF8, RF19, RF20 settled from the verified source and bytecode. Outcome changes: chain 3735928814 to the CREATE2 address is accepted (was `ErrUnknownDomain`); chain 31337 to the 714 address is refused in `edictadev` builds (was accepted). | All files regenerated (`revision` draft.2). New input `live/escrow-code.json`; new section `escrow_code` and case `tx_f14_testnet` in `action.json`; rejects `tx_testnet_mainnet_address`, `tx_714_copy_address`, `tx_dev_mainnet_address` replace `tx_chain_testnet_pending`. |
 
 ## 1. Threat model
 
 | Mechanism | Defends against | Assumes |
 |---|---|---|
 | The action carries the exact unsigned EIP-1559 transaction; the signer signs `keccak256` of those bytes and splices the signature in (sections 2, 5.2) | Executing another transaction than the authorized one; a re-encoding step between what was committed and what is signed (core I3) | The signer never builds the transaction from a struct; the strict decoder (2.4) is used only to check the bytes |
-| Strict decoders: canonical CBOR, canonical RLP, exact calldata words (2.4) | One authorized byte string read as two payments by two parsers. go-ethereum's RLP decoder reads 19 of the 29 type-2 transaction rejects of the vectors as a valid payload (field `geth_rlp_decodes`) | Gate, signer and verifier use this decoder, checked by shared vectors |
+| Strict decoders: canonical CBOR, canonical RLP, exact calldata words (2.4) | One authorized byte string read as two payments by two parsers. go-ethereum's RLP decoder reads 21 of the 31 type-2 transaction rejects of the vectors as a valid payload (field `geth_rlp_decodes`) | Gate, signer and verifier use this decoder, checked by shared vectors |
 | `chain_id` inside the transaction, signed by EIP-1559; `to` must be the table's escrow for that chain (ED1) | Bytes authorized for one chain or contract executed on another (testnet against mainnet, the dev chain against either) | The table is compiled in (policy X2); the dev row exists only in `edictadev` builds |
-| Escrow runtime code hash per row (section 3) | A copy at the testnet or dev address whose code differs, so that a deposit log means something else | The hash is pinned from the verified mainnet deployment (`PENDING`) |
+| Escrow runtime code hash per row (section 3), checked by the signer before signing (S3c) and by the verifier (EE5) | A copy at the testnet or dev address whose code differs, so that a deposit log means something else; a deposit sent to the CREATE2 address before the copy exists, which would be a plain transfer to an address with no code | The hash is pinned from the verified mainnet deployment |
 | Facts count the deposit `value`, the cap (section 4) | A mandate that counts only what the facilitator later settles, after the money left | The facilitator settles at most the cap (contract rule, rail fact RF6) |
 | Signer pins: facilitator allowlist, refund delay, fees, gas, payer without code (S3) | A deposit that names an attacker's facilitator; a refund that goes to the facilitator because the payer's receive costs more than 30,000 gas; fee drain | The operator configures them; the agent cannot change them; facts carry none of them |
 | `expiresAt <= expires` (S5) | A deposit taking effect after the Authorization expired | The escrow refuses a deposit with `expiresAt <= block.timestamp` (RF5); the block time is the sequencer's |
@@ -204,29 +203,58 @@ configuration (policy X2). A row binds a chain to one escrow address and the
 keccak-256 hash of that address's runtime code (`EXTCODEHASH`, the
 `keccak256` of `eth_getCode`).
 
-| Row | `chain_id` | Network | Escrow | Runtime code hash | Builds | Status |
-|---|---|---|---|---|---|---|
-| R714 | 714 | Eden mainnet | `0x65d77c98e73dfbea91ecb72b27c9753e186a94c8` | `PENDING` (`UNVERIFIED`: not recorded by R0; the code is 2,809 bytes) | all | Address verified (Blockscout verified source, re-confirmed by R0) |
-| R-testnet | 3735928814 | Eden testnet | `PENDING`: the CREATE2 address of the verified creation code through the deterministic deployer `0x4e59b44847b379578588920ca78fbf26c0b4956c` (present on both networks, R0) with salt `0x00..00` (32 zero bytes) | equal to R714's | none yet | Not compiled into any build until the address and the hash are pinned and Q-E2 confirms the testnet; vector `tx_chain_testnet_pending` |
-| R-dev | 31337 | compose dev chain | `0x65d77c98e73dfbea91ecb72b27c9753e186a94c8` (placed by the genesis alloc) | equal to R714's | `edictadev` only | Dev only; a production build refuses it as unknown (vector `tx_dev_row_in_production`) |
+| Row | `chain_id` | Network | Escrow | Builds |
+|---|---|---|---|---|
+| R714 | 714 | Eden mainnet | `0x65d77c98e73dfbea91ecb72b27c9753e186a94c8` | all |
+| R-testnet | 3735928814 | Eden testnet | `0xe851a9b22d949ae005f65e1ba97c9b0c18354e5d` | all |
+| R-dev | 31337 | compose dev chain | `0xe851a9b22d949ae005f65e1ba97c9b0c18354e5d` | `edictadev` only |
 
-Notes:
-- The CREATE2 address is `keccak256(0xff || deployer || salt ||
-  keccak256(init_code))[12..32]` with `init_code` the verified creation code
-  of the 714 deployment, byte for byte (constructor arguments included).
-  `UNVERIFIED`: whether the 714 contract itself was deployed through that
-  deployer. If it was, reusing its salt gives the same address on testnet
-  as on mainnet, and R-testnet takes that address instead.
-- The dev row uses the mainnet address on purpose: a genesis alloc can put
-  the runtime code at any address, and this needs no creation code. The
-  domain is still separated by `chain_id` (31337 is signed into every dev
-  transaction). This is correct only if the contract has no immutables and
-  no constructor-set storage (`UNVERIFIED`; R0 found no owner, proxy or
-  fee). If that fails, the dev alloc also carries the storage, or the dev
-  row moves to the CREATE2 address; either is a dev-only change.
-- Testnet and dev rows exist only because the copies run the same verified
-  code; the code hash column is what makes a log on those chains mean what
-  it means on 714 (EE5).
+Runtime code hash, the same for every row:
+`281a5ec0494b3c25ba7d7e36648a4f00f9f910d3889cc09d706755bd894300e5`
+(`keccak256` of the 2,809-byte runtime code).
+
+How the constants were fixed (read-only, 2026-10-21; records in
+`spec/vectors/profiles/eden-escrow/live/escrow-code.json`, checked by the
+generator and the checker, section `escrow_code` of `action.json`):
+
+- R714. Blockscout lists `NativeEscrow` (`src/NativeEscrow.sol`, solc
+  `v0.8.28+commit.7893614a`, optimizer 200 runs, EVM `prague`, fully
+  verified 2026-06-04, no proxy, no constructor arguments), created by the
+  plain contract-creation transaction
+  `0x50b371c88ab7aecc7804fbd041612e7314e3d88868fec6ee6b5fa1ded1d28135` from
+  the EOA `0x63f8077424c1df3ada3569311a7984c4d36674c1` at nonce 9. The
+  address recomputes as `keccak256(rlp([creator, 9]))[12..32]`. The
+  transaction input equals the explorer's creation bytecode, and
+  `eth_getCode` on `https://rpc.eden.gateway.fm/` equals its deployed
+  bytecode. The 714 deployment did not use the deterministic deployer.
+- Creation code = a 26-byte constructor
+  (`60808060405234601557610af9908161001a8239f35b5f80fdfe`: refuse value,
+  copy 0xaf9 bytes, return) followed by the runtime code byte for byte. So
+  the contract has no immutables and its constructor writes no storage
+  (no `SSTORE`): a copy of the runtime code anywhere behaves as the 714
+  contract.
+- R-testnet. The CREATE2 address of that creation code through the
+  deterministic deployer `0x4e59b44847b379578588920ca78fbf26c0b4956c` with
+  salt 32 zero bytes: `keccak256(0xff || deployer || salt ||
+  keccak256(init_code))[12..32]`, `keccak256(init_code)` =
+  `7d841880f9d1d038341a5c78933a9964e96947edea5b8a455f7d885e3ca315fd`. The
+  deployer is present on testnet (69 bytes); on 2026-10-21 neither this
+  address nor `0x65d7...94c8` had code on testnet. Anyone can deploy the
+  copy with one transaction to the deployer (the creation code as calldata
+  after the salt), and the result is the same address with the same code;
+  until then S3c and EE5 refuse it.
+- R-dev. The same CREATE2 address, filled by the dev chain's genesis alloc
+  with the runtime code (correct, since no immutables and no constructor
+  storage). If the alloc route fails, the compose init step sends the same
+  CREATE2 deployment, and the address does not move.
+- The dev row exists only in `edictadev` builds; a production build refuses
+  chain 31337 as unknown (vector `tx_dev_row_in_production`). The testnet
+  row is in every build so that answering Q-E2 needs no new extractor ID;
+  using it still needs a funded payer and the deployment (C11).
+- Domains: each row pairs one chain with one address. The CREATE2 address
+  on 714 and the 714 address on testnet are refused (vectors
+  `tx_714_copy_address`, `tx_testnet_mainnet_address`), so one byte string
+  never names two escrows.
 
 ## 4. Policy extractor `eden/escrow-deposit-tx/v1`
 
@@ -276,7 +304,7 @@ below are the profile's checks (core 16.2 item 4).
 |---|---|---|
 | S1 Pins | Configured out of band, never taken from a request: `gate_id -> gate_pubkey`; the set of agent public keys it serves; this action type; the chain ids it serves (rows of its build's table); per chain: the payer address (the signing key's address, checked at startup), the allowed facilitators, `MaxRefundDelay` (seconds), `MaxFeePerGas` and `MaxGas`; operator caps (S7); `skew_s`; `RefuseFast`. The escrow address comes from the compiled table, never from configuration. | refuses to start |
 | S2 Two signatures | The request carries the signed envelope, the Authorization, the action bytes and the salt. The envelope passes core stages D, S and G with an agent key from the pinned set; its `action.type` is this type and stage A matches the bytes and salt; its `commitment_hash` equals the Authorization's; `VerifyAuthorization` (core 15.3) passes with the pinned gate key and id, this type, the exact action bytes, the salt, the signer's clock and `skew_s`. A gate signature alone never suffices. | `ErrNotAuthorized` |
-| S3 Decode and pins | Strict decode (2.4) with the build's table; `chain_id` is a served chain; `w2` (facilitator) is in the chain's allowlist; `refundAfter - expiresAt <= MaxRefundDelay`; `max_fee_per_gas <= MaxFeePerGas`; `gas_limit <= MaxGas`. S3e: the payer address has no code (no EIP-7702 delegation): checked at startup, and SHOULD be checked before every signature through the signer's own Eden RPC. The signer SHOULD refuse a `nonce` other than the payer's pending nonce. | `ErrMalformed`, `ErrUnknownDomain`, `ErrPinMismatch` |
+| S3 Decode and pins | Strict decode (2.4) with the build's table; `chain_id` is a served chain; `w2` (facilitator) is in the chain's allowlist; `refundAfter - expiresAt <= MaxRefundDelay`; `max_fee_per_gas <= MaxFeePerGas`; `gas_limit <= MaxGas`. S3c: `keccak256(eth_getCode(escrow))` equals the table's code hash, read through the signer's own Eden RPC: MUST at startup for every served chain, and SHOULD before every signature. S3e: the payer address has no code (no EIP-7702 delegation): checked at startup, and SHOULD be checked before every signature through the signer's own Eden RPC. The signer SHOULD refuse a `nonce` other than the payer's pending nonce. | `ErrMalformed`, `ErrUnknownDomain`, `ErrPinMismatch`, `ErrEscrowCode` |
 | S4 `paymentId` | Placeholder (Q-E3): if the client is to derive `paymentId`, the derivation and its check go here. Until then no check; `requirements_hash` binds the server's choice. | none yet |
 | S5 Time | `expiresAt <= expires` of the Authorization; `now + skew_s < expires` (core I6). SHOULD refuse `expiresAt <= now + skew_s` (the deposit would revert). | `ErrExpired` |
 | S6 One digest per decision | Before signing, the signer durably reserves `commitment_hash -> keccak256(tx)`. A repeat of the same request returns the stored signed bytes; any request for that `commitment_hash` with another digest is refused. Signatures are deterministic (RFC 6979, low `s`), so a re-sign after a crash gives the same bytes. | `ErrDigestConflict` |
@@ -293,6 +321,10 @@ Threat notes:
 - S2 is core D10: a compromised gate cannot pay alone, because the signer
   also needs the agent's envelope; a compromised agent cannot pay without
   the gate. Neither ever holds the payer key.
+- S3c: a transaction with value to an address without code succeeds as a
+  plain transfer. Before the testnet copy is deployed (section 3), a
+  deposit to the CREATE2 address would move the money to an address no one
+  controls and record no escrow; the code check refuses it.
 - S3e: the escrow refunds the remainder to the buyer with a 30,000 gas
   stipend and, if that fails, pays it to the facilitator (RF6). An EOA
   without code always accepts it; an EIP-7702 delegated account may not.
@@ -556,12 +588,12 @@ transaction is `wrong_tx` against a form T action with the same deposit
 |---|---|---|---|
 | RF1 | Eden mainnet `eth_chainId` 714, 100 ms blocks, Prague and Osaka active from genesis, single sequencer | verified (R0) | Eden RPC, ev-reth chainspec |
 | RF2 | Eden testnet chain id 3735928814 | verified (R0) | Eden RPC |
-| RF3 | `NativeEscrow` at `0x65d77c98...186a94c8` on 714: verified source (solc 0.8.28), no proxy, no owner, no fee | confirmed, re-confirmed (R0) | Blockscout verified contract |
+| RF3 | `NativeEscrow` at `0x65d77c98...186a94c8` on 714: verified source (solc 0.8.28), no proxy, no owner, no fee; created by a plain creation transaction from an EOA at nonce 9 | confirmed, re-confirmed (R0); creation verified 2026-10-21 (section 3) | Blockscout verified contract, Eden RPC |
 | RF4 | `deposit` selector `b707d860`, `settle` `79f48d4c` | verified (recomputed; vectors) | ABI |
 | RF5 | `deposit`: `buyer = msg.sender`, `amount = msg.value > 0`; `paymentId` single use; `expiresAt > block.timestamp`; `refundAfter > expiresAt`; `tiaPriceUsd > 0`, stored, never used; no zero check of `payTo` or `facilitator` | confirmed (source, R0) | verified source |
 | RF6 | `settle` only by the escrow's facilitator, `actualAmount <= amount`, no time check; remainder to the buyer with a 30,000 gas stipend, else to the facilitator; `refundExpired` by anyone after `refundAfter` | confirmed (source, R0) | verified source |
 | RF7 | Event `NativeEscrowDeposited(bytes32,address,address,address,uint256,uint256,uint256,uint256)`, indexed `paymentId`, `buyer`, `payTo`; data `facilitator`, `amount`, `expiresAt`, `refundAfter`, `tiaPriceUsd` | verified: the recomputed topic equals the recorded log's `topic0`, and every data word equals the recorded calldata and value (vectors `settlement.json`) | F14 receipt |
-| RF8 | A form T deposit emits exactly one log and calls no other contract | observed: the recorded receipt has one escrow log (the other four come from the 7702 account and the forwarder); from source `UNVERIFIED` | F14 receipt |
+| RF8 | A form T deposit emits exactly one log and calls no other contract | verified from the verified source (`deposit` has no external call and one `emit`), and observed on the recorded receipt (one escrow log; the other four come from the 7702 account and the forwarder) | `live/escrow-code.json` source, F14 receipt |
 | RF9 | Eden transactions are EIP-2718; type 2 signing hash `keccak256(0x02 \|\| rlp(9 items))` | verified (go-ethereum; the recorded transactions are type 2, as were all 59 sampled mainnet transactions) | R0, vectors |
 | RF10 | The RPC serves no raw bytes; the bytes rebuilt from `eth_getTransactionByHash` hash to the transaction hash and equal the bytes in the Eden data blob on Celestia | verified on the recorded deposit and settle (vectors `rebuild`) | R0 |
 | RF11 | Block hash = `keccak256(rlp(header))` over the 21 fields Eden's RPC serves (London to Prague, including `withdrawalsRoot`, `blobGasUsed`, `excessBlobGas`, `parentBeaconBlockRoot`, `requestsHash`) | verified on block 227899844 (vector `block`); other blocks and later forks `UNVERIFIED` | F14 block |
@@ -572,8 +604,8 @@ transaction is `wrong_tx` against a form T action with the same deposit
 | RF16 | Transactions go to the sequencer's private pool via `eth_sendRawTransaction`; ordering is the sequencer's | confirmed (docs); not testable read-only | Eden docs |
 | RF17 | Per-transaction gas cap 16,777,216 (Osaka) | `UNVERIFIED` for ev-reth | reth |
 | RF18 | Deterministic deployer `0x4e59b448...` present on both networks; the escrow address has no code on testnet | verified (R0) | Eden RPC |
-| RF19 | Escrow runtime code hash on 714 | `UNVERIFIED` (`PENDING`; runtime is 2,809 bytes) | needs `eth_getCode` |
-| RF20 | The escrow has no immutables and no constructor-set storage | `UNVERIFIED` (the dev alloc depends on it) | solc metadata |
+| RF19 | Escrow runtime code hash on 714 = `281a5ec0...894300e5` (2,809 bytes) | verified 2026-10-21 (`eth_getCode` equals the verified deployed bytecode) | Eden RPC, Blockscout |
+| RF20 | The escrow has no immutables and no constructor-set storage | verified: the creation code is a 26-byte constructor without `SSTORE` followed by the runtime code verbatim | Blockscout creation bytecode, creation tx input |
 | RF21 | EIP-7702 delegations exist on Eden (an EOA can carry code) | verified (the recorded account is delegated, `0xef0100 \|\| ...`) | F14 account read |
 | RF22 | History depth of the public RPC (how long receipts stay available) | `UNVERIFIED` | |
 | RF23 | That the recorded flow is x402 `escrow-upto` | `UNVERIFIED` | |
@@ -592,9 +624,9 @@ transaction is `wrong_tx` against a form T action with the same deposit
 
 Location `spec/vectors/profiles/eden-escrow/`. Every file has `format`
 `edicta-vectors/v0`, `profile` `eden-escrow`, `revision`
-`eden-escrow-v1-draft.1`; uints are decimal strings, bytes lower-case hex.
+`eden-escrow-v1-draft.2`; uints are decimal strings, bytes lower-case hex.
 Written by `spec/vectors/tools/edenescrow-gen` (go-ethereum v1.17.8, its own
-module, no network: recorded data comes only from `live/f14.json`);
+module, no network: recorded data comes only from `live/`);
 checked independently, without go-ethereum, by
 `spec/vectors/check/check_profile_eden_escrow.py` (also run by
 `check_vectors.py`). `go run . -check` in the generator's directory fails
@@ -603,9 +635,10 @@ if a file differs from a fresh generation.
 | File | Contents |
 |---|---|
 | `live/f14.json` | Recorded Eden mainnet data (read-only, 2026-10-21): block 227899844 as served, its two transactions as stored in the Eden data blob on Celestia height 15152868, the F14 deposit (raw bytes, `eth_getTransactionByHash`, `eth_getTransactionReceipt`, the inner deposit call) and the F14 settle. Input only. |
+| `live/escrow-code.json` | Read-only records of 2026-10-21: the Blockscout verified-contract record of the 714 escrow (metadata, MIT source, creation and deployed bytecode, creator and creation transaction), the creation transaction from Eden RPC, and `eth_chainId`, `eth_blockNumber`, `eth_getCode` answers on both networks for the escrow, its CREATE2 address and the deployer. Input only. |
 | `deposit_call.json` | Section 2.3. `cases`: `data_hex` and the decoded fields (the F14 call and two synthetic bounds). `reject`: `data_hex`, `expect_error`, `rule`, `cause`. 3 cases, 16 rejects. |
-| `action.json` | Sections 2, 3, 4. `extractor` (ID, kind, scale, rows per build), `requirements_tag`, `limits`. `cases`: `build`, the transaction fields, `data_ref`, `resource`, `requirements_hex` (mock), `requirements_hash_hex`, `tx_hex`, `sighash_hex` (equal to go-ethereum's), `cbor_hex`, `action_salt_hex`, `action_hash_hex` (core 5.1), `facts`, `facts_cbor_hex`. `reject`: `build`, `cbor_hex`, `expect_error`, `extractor_expect_error`, `rule`, `cause`, and for transaction-level rejects `geth_rlp_decodes` (informative). 5 cases (one `edictadev`), 55 rejects. |
-| `signed.json` | Sections 5.2, 6, 7.3. `keys.payer1` (label, private key, public key, address; vector-only). `cases`: the signature `(y_parity, r, s)` (RFC 6979, low `s`), `signed_hex` (splice rule, equal to go-ethereum's), `rail_ref`, `payer`. `rail_ref`: EE1 cases (8). `exact_tx`: EE3 and EE4 cases (5 pass, 16 `wrong_tx`, including the recorded form A transaction). |
+| `action.json` | Sections 2, 3, 4. `extractor` (ID, kind, scale, rows with code hash and builds), `escrow_code` (code hash, constructor prefix, init code hash, CREATE and CREATE2 derivations, recorded code on both networks), `requirements_tag`, `limits`. `cases`: `build`, the transaction fields, `data_ref`, `resource`, `requirements_hex` (mock), `requirements_hash_hex`, `tx_hex`, `sighash_hex` (equal to go-ethereum's), `cbor_hex`, `action_salt_hex`, `action_hash_hex` (core 5.1), `facts`, `facts_cbor_hex`. `reject`: `build`, `cbor_hex`, `expect_error`, `extractor_expect_error`, `rule`, `cause`, and for transaction-level rejects `geth_rlp_decodes` (informative). 6 cases (one testnet, one `edictadev`), 57 rejects. |
+| `signed.json` | Sections 5.2, 6, 7.3. `keys.payer1` (label, private key, public key, address; vector-only). `cases`: the signature `(y_parity, r, s)` (RFC 6979, low `s`), `signed_hex` (splice rule, equal to go-ethereum's), `rail_ref`, `payer`. `rail_ref`: EE1 cases (8). `exact_tx`: EE3 and EE4 cases (6 pass, 16 `wrong_tx`, including the recorded form A transaction). |
 | `settlement.json` | Section 7.3, recorded data. `event` (signature, topic0, equality with the recorded log). `rebuild`: EE2 on the recorded deposit and settle answers (bytes equal the Celestia copy) and one lying answer. `receipt`: consensus encoding and bloom of the recorded receipt. `deposit_event`: EE7 and EE8 on the recorded escrow log (21 cases: 1 executed, 1 reverted, 19 `settlement_log_mismatch`). `block`: header RLP and hash, transactions root of block 227899844. |
 
 The vector key `payer1` is derived from a public label; it MUST NOT hold
@@ -613,17 +646,13 @@ funds on any chain.
 
 Not covered by vectors: the signer rules (configuration and state), the
 source sequencing and levels (C13 tests them with fakes and recorded
-answers), L2 receipts (RF13), the testnet row (`PENDING`).
+answers), L2 receipts (RF13), the S3c code check (needs an RPC).
 
-## 12. Open items (`PENDING` and `UNVERIFIED`)
+## 12. Open items
 
 | Item | Needs | Blocks |
 |---|---|---|
-| R714 runtime code hash (RF19) | one read-only `eth_getCode` on 714 (or the Blockscout `deployed_bytecode`) | EE5, `edicta doctor`, freeze |
-| R-testnet address | the verified creation code (Blockscout `creation_bytecode`), and whether the 714 deployment used the deterministic deployer | the testnet row, C11, freeze |
-| Testnet at all | Q-E2 | the testnet row |
-| No immutables, no constructor storage (RF20) | solc metadata of the verified source | the dev alloc (compose) |
+| Testnet use and the copy's deployment | Q-E2, then one CREATE2 transaction (human's go) | C11 |
 | `PaymentRequirements` bytes `R`, `paymentId` derivation, form A | Q-E3 | 2.5, S4, section 8 |
 | `eth_getBlockReceipts` and receipts root (RF13) | one recorded full block with receipts | L2 |
-| RF8 from source | a read of the verified source | none (EE8 already requires one log) |
 | Core hook for profile report fields (7.1) | the human | none |

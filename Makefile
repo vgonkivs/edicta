@@ -20,6 +20,7 @@ test:
 vectors:
 	python3 spec/vectors/check/check_vectors.py
 	env -u GOROOT go -C spec/vectors/tools/execresult-gen run . -check
+	env -u GOROOT go -C spec/vectors/tools/edenescrow-gen run . -check
 
 # EdictaPublish artifacts with the pinned solc image (needs docker).
 contracts:
