@@ -54,6 +54,7 @@ const (
 	ReasonPolicyPrivate                     Reason = "policy_private"
 	ReasonPrincipalSchemeUnsupported        Reason = "principal_scheme_unsupported"
 	ReasonAnchorUnpaid                      Reason = "anchor_unpaid"
+	ReasonUnsupportedRevision               Reason = "unsupported_revision"
 )
 
 // DisagreementText is what the report says when header sources, or a header
@@ -113,6 +114,7 @@ var reasonTable = []ReasonInfo{
 	{ReasonPolicyPrivate, []string{"policy", "gate_integrity", "action", "execution"}, "The record needed is a private blob (kind 15) and no configured auditor key opens it. Names the first record. On action and execution: a private-form v1 decision record without a reveal that applies.", "an auditor key of the mandate"},
 	{ReasonPrincipalSchemeUnsupported, []string{"policy"}, "The verifier build lacks the principal signature scheme the mandate names.", "a verifier build with that scheme"},
 	{ReasonAnchorUnpaid, []string{"anchor"}, "Anchor included, non-zero result code: published, but a valid verdict requires a paid anchor (tx_code == 0). Pending reference, no evidence inside the window, and an absence proof shows a PFF candidate at a height of [h0, anchor_deadline] whose result code is proven non-zero, with no height showing one with code 0. Names the first such height. Permanent: never invalid.", "none (unpaid anchor: operator funding failure, surfaced by the escrow alert); another archive copy or --absence-source if a paid anchor may sit at a height not proven"},
+	{ReasonUnsupportedRevision, []string{"envelope"}, "The commitment hashes to the reference, payload_ref.da is a value this verifier's revision does not define (outside {1, 2}), and with that payload_ref read as opaque the first failure is S3 on da. A later revision may define the value and its keys, so this is not a verdict on the decision. The report prints the da value.", "A verifier of a revision that defines this da (release notes name the revision)."},
 }
 
 // Reasons returns the closed table of 20.1.1, in order.

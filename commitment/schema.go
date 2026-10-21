@@ -28,6 +28,8 @@ type field struct {
 	onlyIf     func(seen map[uint64]*node) bool
 	requiredIf func(seen map[uint64]*node) bool
 	sub        []field
+	// opaque skips the checks of a map value that the reader does not define.
+	opaque bool
 }
 
 func isID(c byte) bool {
@@ -117,6 +119,9 @@ func checkMap(n *node, schema []field, path string) error {
 				return fmt.Errorf("%w: %s is not a media type", ErrInvalidString, name)
 			}
 		case kMap:
+			if f.opaque {
+				break
+			}
 			if err := checkMap(v, f.sub, name); err != nil {
 				return err
 			}

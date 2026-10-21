@@ -257,10 +257,27 @@ func (r *run) envelope(dec *archive.DecisionRecord) bool {
 		got, err := commitment.HashOf(c)
 		return err == nil && got == r.h
 	}
+	// A da this revision does not define may come with keys it does not know,
+	// and a later revision may define both, so that is not a verdict on the
+	// decision. A copy that does not hash to the reference is only a bad copy.
+	if da, ok := commitment.UndefinedDA(dec.Envelope, definedDA); ok {
+		if raw, err := commitment.EnvelopeCommitment(dec.Envelope); err != nil || commitment.HashCanonical(raw) != r.h {
+			return corrupt(errors.New("envelope hashes to another commitment"))
+		}
+		r.rep.DA = da
+		r.unchecked(CheckEnvelope, ReasonUnsupportedRevision,
+			fmt.Errorf("%w: payload_ref.da %d: %w", ErrEnvelopeInvalid, da, commitment.ErrInvalidEnum))
+		return false
+	}
 	sc, err := commitment.DecodeSigned(dec.Envelope)
 	if err != nil {
 		if raw, rerr := commitment.EnvelopeCommitment(dec.Envelope); rerr == nil &&
 			commitment.HashCanonical(raw) == r.h {
+			// Damaged outside the hash (signature, envelope keys): a bad
+			// copy of a decision that is unchecked, whatever its payload_ref.
+			if _, ok := commitment.UndefinedDACommitment(raw, definedDA); ok {
+				return corrupt(err)
+			}
 			if _, derr := commitment.Decode(raw); derr != nil {
 				return proven(derr)
 			}
@@ -268,10 +285,10 @@ func (r *run) envelope(dec *archive.DecisionRecord) bool {
 		return corrupt(err)
 	}
 	if err := commitment.ValidateStatic(&sc.Commitment, r.v.cfg.Params); err != nil {
-		if hashesToRef(&sc.Commitment) {
-			return proven(err)
+		if !hashesToRef(&sc.Commitment) {
+			return corrupt(err)
 		}
-		return corrupt(err)
+		return proven(err)
 	}
 	if err := commitment.CheckPublicKey(sc.Commitment.AgentPubKey); err != nil {
 		if hashesToRef(&sc.Commitment) {
@@ -299,6 +316,11 @@ func (r *run) envelope(dec *archive.DecisionRecord) bool {
 	r.rep.ActionType = r.c.Action.Type
 	r.pass(CheckEnvelope)
 	return true
+}
+
+// definedDA reports whether this revision defines the payload_ref.da value.
+func definedDA(da commitment.DA) bool {
+	return da == commitment.DAFibre || da == commitment.DACelestiaBlob
 }
 
 // checkAction reads the action from the decision record. A public record

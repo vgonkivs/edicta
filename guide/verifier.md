@@ -164,6 +164,7 @@ ones you will meet most:
 | `anchor_pending` | Fast mode, your trusted header is too low for the evidence. Retry later or with a newer checkpoint. If the anchor evidence is in the archive and verifies at height `H`, a trusted header at or above `H` is enough for a pass (see "Presence and absence need different headers"); below `H` the report says `evidence ties at H; verdict needs a checkpoint >= H`. A header trust that cannot name its checkpoint height leaves `header_trust` unchecked (`no_trusted_header`). |
 | `absence_unproven` | Fast mode, no anchor in the window and absence not proven. Run `edicta-verify absence` or pass `--absence-source`. |
 | `anchor_unpaid` | The anchor PFF was included with a non-zero result code: the payload was published, but `valid` requires a paid anchor (result code 0). An unpaid anchor is an operator funding failure, surfaced by the escrow alert; nothing to fix on the verifier side. The report names `unpaid_height`. It stays `unchecked` for good and is never `invalid`. Another archive copy or `--absence-source` only helps if a paid anchor may sit at a height not proven. |
+| `unsupported_revision` | The commitment hashes to the reference, but its `payload_ref.da` is a value this verifier does not define (for now anything outside 1 and 2); the rest of that `payload_ref` is read as opaque. A later revision may define it, so this is not a verdict on the decision and never `invalid`. Use a verifier of a revision that defines this `da`; the gate keeps refusing such commitments. |
 
 ## Fast-mode decisions
 

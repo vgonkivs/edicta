@@ -74,6 +74,13 @@ func loadReasons(t testing.TB) reasonsDoc {
 	d.Cases = append(d.Cases, add.Cases...)
 	d.Boundary = append(d.Boundary, add.Boundary...)
 
+	patch := readReasons(t, reasonsV105Path)
+	require.Equal(t, "v1.0.5", patch.Revision)
+	require.Equal(t, "verifier/reasons_v1.0.3.json", patch.Extends)
+	d.Reasons = append(d.Reasons, patch.Reasons...)
+	d.Cases = append(d.Cases, patch.Cases...)
+	d.Boundary = append(d.Boundary, patch.Boundary...)
+
 	words := readReasons(t, reasonsV11Path)
 	require.Equal(t, "v1.1", words.Revision)
 	require.NotEmpty(t, words.Reasons)
@@ -264,6 +271,24 @@ func TestReasonVectors(t *testing.T) {
 			r.deps.Trust = cpTrust{r.trust, h0 + fastWindow + 1}
 			return r.verify(t), verifier.ReplayReport{}
 		},
+		"unsupported_revision_da_4": func(t *testing.T) (verifier.Report, verifier.ReplayReport) {
+			return newRig(t, vectorParts(t, "v1/unknown_da_v1.0.5.json#da_4")).verify(t), verifier.ReplayReport{}
+		},
+		"unsupported_revision_da_5_key_7": func(t *testing.T) (verifier.Report, verifier.ReplayReport) {
+			env, h := vectorEnvelopeOf(t, "v1/unknown_da_v1.0.5.json#da_5_key_7")
+			return rawRig(t, env, h).verify(t), verifier.ReplayReport{}
+		},
+		"unsupported_revision_da_4_signer_19": func(t *testing.T) (verifier.Report, verifier.ReplayReport) {
+			env, h := vectorEnvelopeOf(t, "v1/unknown_da_v1.0.5.json#da_4_signer_19")
+			return rawRig(t, env, h).verify(t), verifier.ReplayReport{}
+		},
+		"unsupported_revision_da_5": func(t *testing.T) (verifier.Report, verifier.ReplayReport) {
+			return newRig(t, vectorParts(t, "v1/unknown_da_v1.0.5.json#da_5")).verify(t), verifier.ReplayReport{}
+		},
+		"unsupported_revision_da_5_height_2_63": func(t *testing.T) (verifier.Report, verifier.ReplayReport) {
+			env, h := vectorEnvelopeOf(t, "v1/unknown_da_v1.0.5.json#da_5_height_2_63")
+			return rawRig(t, env, h).verify(t), verifier.ReplayReport{}
+		},
 		"execution_blocked": func(t *testing.T) (verifier.Report, verifier.ReplayReport) {
 			r := newRig(t, newParts(t))
 			return r.verify(t, verifier.WithExecutionCheck()), verifier.ReplayReport{}
@@ -334,7 +359,7 @@ func TestReasonBoundaryCases(t *testing.T) {
 			}
 			var rep verifier.Report
 			switch c.ID {
-			case "commitment_rule_broken":
+			case "commitment_rule_broken", "ttl_still_fails":
 				p := newParts(t)
 				cc := gatefix.Clone(p.c)
 				cc.ValidUntil = cc.IssuedAt + 3601
@@ -342,6 +367,8 @@ func TestReasonBoundaryCases(t *testing.T) {
 				p.env, p.hash = gatefix.Sign(t, "agent1", cc)
 				p.auth = signAuth(t, gateKey(t), p.hash, cc, commitment.PathDA, authExpires)
 				rep = newRig(t, p).verify(t)
+			case "defined_da_signer_size_fails":
+				t.Skip("TestDefinedDASignerSizeFails")
 			case "agent_key_small_order":
 				t.Skip("covered by the commitment package vectors")
 			case "issued_before_anchor":
