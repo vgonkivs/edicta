@@ -1,0 +1,10 @@
+.git
+.claude
+.idea
+.venv
+docs
+celestia/bin
+**/__pycache__
+**/*_test.go
+spec/vectors
+deploy
