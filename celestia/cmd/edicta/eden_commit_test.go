@@ -65,6 +65,12 @@ func (s *cliSigner) Sign(_ context.Context, req signer.Request) (signer.Output, 
 	return signer.Output{CommitmentHash: h, Signed: signed, RailRef: edenescrow.RailRef(signed)}, nil
 }
 
+// Status answers like a signer without the status route, so the CLI falls
+// back to the payment-signature poll.
+func (s *cliSigner) Status(context.Context, commitment.Hash) (signer.Status, error) {
+	return signer.Status{}, &commitcmd.SignerError{Status: 404, Code: "edictaapi.ErrRouteNotFound", Message: "no route"}
+}
+
 func (s *cliSigner) PaymentSignature(_ context.Context, req signer.PaymentProofRequest) (signer.PaymentProof, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -111,6 +117,15 @@ func edenArgs(f edenFiles, extra ...string) []string {
 	}, extra...)
 }
 
+// privateDir is a state directory only its owner can use, as the store requires.
+func privateDir(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "state")
+	require.NoError(t, os.Mkdir(dir, 0o700))
+	require.NoError(t, os.Chmod(dir, 0o700))
+	return dir
+}
+
 func newCLISigner(t *testing.T) *cliSigner {
 	t.Helper()
 	priv, err := secp256k1.GeneratePrivateKey()
@@ -126,7 +141,7 @@ func TestEdenCommitFlagsDriveTheWholeFlow(t *testing.T) {
 	fakeServiceAt(t, g, pub, edenNow, sg)
 	f := writeEdenFiles(t)
 
-	code, out := commit(t, "", edenArgs(f, "--sign", "--broadcast", "--record", "--payment-signature", "--wait", "1m", "--state-dir", t.TempDir())...)
+	code, out := commit(t, "", edenArgs(f, "--sign", "--broadcast", "--record", "--payment-signature", "--wait", "1m", "--state-dir", privateDir(t))...)
 	require.Equal(t, commitcmd.ExitOK, code, out)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal([]byte(out), &resp))
@@ -193,7 +208,7 @@ func TestEdenCommitResumesByHashAfterASignerOutage(t *testing.T) {
 	pub := sdktest.NewPublisher(commitment.DACelestiaBlob)
 	fakeServiceAt(t, g, pub, edenNow, sg)
 	f := writeEdenFiles(t)
-	state := t.TempDir()
+	state := privateDir(t)
 
 	code, out := commit(t, "", edenArgs(f, "--sign", "--broadcast", "--state-dir", state)...)
 	require.Equal(t, commitcmd.ExitUnavailable, code, out)

@@ -83,6 +83,17 @@ type fakeSigner struct {
 	notExecuted int
 	proofErr    error
 
+	// statusRoute turns the status route on; without it the fake answers
+	// like a signer that lacks the route.
+	statusRoute bool
+	signedTx    []byte
+	statusPolls int
+	signCtxErrs []error
+	// blockProof makes the payment-signature call wait for its context.
+	blockProof bool
+
+	finalState signer.State
+
 	badTx    bool
 	badRail  bool
 	badMsg   bool
@@ -96,10 +107,11 @@ func newFakeSigner(t *testing.T) *fakeSigner {
 	return &fakeSigner{priv: priv}
 }
 
-func (f *fakeSigner) Sign(_ context.Context, req signer.Request) (signer.Output, error) {
+func (f *fakeSigner) Sign(ctx context.Context, req signer.Request) (signer.Output, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.signReqs = append(f.signReqs, req)
+	f.signCtxErrs = append(f.signCtxErrs, ctx.Err())
 	if f.signErr != nil {
 		return signer.Output{}, f.signErr
 	}
@@ -126,10 +138,36 @@ func (f *fakeSigner) Sign(_ context.Context, req signer.Request) (signer.Output,
 	if f.badRail {
 		ref = strings.Repeat("0", 64)
 	}
+	f.signedTx = signed
 	return signer.Output{CommitmentHash: h, Signed: signed, RailRef: ref}, nil
 }
 
-func (f *fakeSigner) PaymentSignature(_ context.Context, req signer.PaymentProofRequest) (signer.PaymentProof, error) {
+func (f *fakeSigner) Status(_ context.Context, _ commitment.Hash) (signer.Status, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.statusRoute {
+		return signer.Status{}, &commitcmd.SignerError{Status: 404, Code: "edictaapi.ErrRouteNotFound", Message: "no route"}
+	}
+	if f.signedTx == nil {
+		return signer.Status{}, &commitcmd.SignerError{Status: 404, Code: "signer.ErrUnknownDecision", Message: "unknown"}
+	}
+	f.statusPolls++
+	if f.finalState != "" {
+		return signer.Status{State: f.finalState, Signed: f.signedTx, Detail: "d"}, nil
+	}
+	st := signer.Status{State: signer.StateSigned, Sent: true, RailRef: edenescrow.RailRef(f.signedTx), Signed: f.signedTx}
+	if f.statusPolls > f.notExecuted {
+		st.State = signer.StateRecorded
+		st.Receipt = []byte("receipt")
+	}
+	return st, nil
+}
+
+func (f *fakeSigner) PaymentSignature(ctx context.Context, req signer.PaymentProofRequest) (signer.PaymentProof, error) {
+	if f.blockProof {
+		<-ctx.Done()
+		return signer.PaymentProof{}, ctx.Err()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.proofCalls++
@@ -271,6 +309,8 @@ func TestEdenFlagRulesAreCheckedBeforeAnythingIsPublished(t *testing.T) {
 			q.Eden, q.Sign, q.Broadcast = nil, true, true
 			q.ActionType, q.Action = "application/vnd.test.order+json", []byte("x")
 		},
+		"record without sign":              func(q *commitcmd.Request, _ *edenRig) { q.Record = true },
+		"payment signature without sign":   func(q *commitcmd.Request, _ *edenRig) { q.PaymentSignature = true },
 		"bad wait":                         func(q *commitcmd.Request, _ *edenRig) { q.Record, q.Wait = true, "2h" },
 		"no build":                         func(q *commitcmd.Request, _ *edenRig) { q.Eden.Build = nil },
 		"no header":                        func(q *commitcmd.Request, _ *edenRig) { q.Eden.PaymentRequired = "" },
@@ -527,7 +567,7 @@ func TestEdenResumeRefusesAStateOfAnotherCommitment(t *testing.T) {
 	require.Error(t, err, "resume takes no build fields")
 }
 
-func TestEdenResumeAfterTheAuthorizationExpiredStillWaits(t *testing.T) {
+func TestEdenResumeAfterTheAuthorizationExpiredFollowsTheSignedBytes(t *testing.T) {
 	r := newEdenRig(t)
 	req := edenRequest(t)
 	req.Sign, req.Broadcast = true, true
@@ -539,9 +579,186 @@ func TestEdenResumeAfterTheAuthorizationExpiredStillWaits(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, resp.Settled)
 
-	_, err = r.svc.Commit(context.Background(), commitcmd.Request{ResumeHash: first.CommitmentHash, Sign: true, Broadcast: true})
-	require.Error(t, err, "signing again needs a live Authorization")
-	assert.Equal(t, "authorization_expired", failureOf(t, err).Code)
+	resp, err = r.svc.Commit(context.Background(), commitcmd.Request{ResumeHash: first.CommitmentHash, Sign: true, Broadcast: true, Record: true})
+	require.NoError(t, err, "stored signed bytes are followed, not signed again")
+	assert.Len(t, r.signer.signReqs, 1)
+	assert.True(t, resp.Settled)
+}
+
+// loseSigned drops the signed bytes from the stored state, as a crash between
+// the signer's answer and the write would.
+func (r *edenRig) loseSigned(hash string) {
+	st := r.state.m[hash]
+	st.Signed, st.RailRef = nil, ""
+	r.state.m[hash] = st
+}
+
+func TestEdenExpiredAuthorizationAdoptsWhatTheSignerHolds(t *testing.T) {
+	r := newEdenRig(t)
+	r.signer.statusRoute = true
+	req := edenRequest(t)
+	req.Sign, req.Broadcast = true, true
+	first, err := r.svc.Commit(context.Background(), req)
+	require.NoError(t, err)
+	r.loseSigned(first.CommitmentHash)
+
+	r.svc.Clock = func() time.Time { return time.Unix(int64(first.Expires)+3600, 0) }
+	resp, err := r.svc.Commit(context.Background(), commitcmd.Request{ResumeHash: first.CommitmentHash, Sign: true, Broadcast: true, Record: true})
+	require.NoError(t, err)
+	assert.Len(t, r.signer.signReqs, 1, "the signer is not asked to sign again")
+	assert.Equal(t, first.RailRef, resp.RailRef)
+	assert.True(t, resp.Settled)
+	assert.True(t, resp.Recorded)
+	assert.Equal(t, r.signer.signedTx, r.state.m[first.CommitmentHash].Signed, "the adopted bytes are stored")
+}
+
+func TestEdenNeverAdvisesCommitAgainWhileTheSignerMayHoldTheDecision(t *testing.T) {
+	r := newEdenRig(t)
+	req := edenRequest(t)
+	req.Sign, req.Broadcast = true, true
+	first, err := r.svc.Commit(context.Background(), req)
+	require.NoError(t, err)
+	r.loseSigned(first.CommitmentHash)
+	r.svc.Clock = func() time.Time { return time.Unix(int64(first.Expires)+3600, 0) }
+	again := commitcmd.Request{ResumeHash: first.CommitmentHash, Sign: true, Broadcast: true}
+
+	// No status route: the CLI cannot tell.
+	_, err = r.svc.Commit(context.Background(), again)
+	require.Error(t, err)
+	f := failureOf(t, err)
+	assert.Equal(t, "authorization_expired", f.Code)
+	assert.Contains(t, f.Message, "do not commit again")
+	assert.Empty(t, r.signer.signReqs[1:], "no second sign")
+
+	// Status route answering unknown: only then is a new commitment right.
+	r.signer.statusRoute, r.signer.signedTx = true, nil
+	_, err = r.svc.Commit(context.Background(), again)
+	require.Error(t, err)
+	assert.Contains(t, failureOf(t, err).Message, "commit again")
+	assert.NotContains(t, failureOf(t, err).Message, "do not commit again")
+}
+
+func TestEdenResumeObjectKeepsTheStoredAuthorizationAndSignedBytes(t *testing.T) {
+	r := newEdenRig(t)
+	req := edenRequest(t)
+	req.Sign, req.Broadcast = true, true
+	first, err := r.svc.Commit(context.Background(), req)
+	require.NoError(t, err)
+	before := r.state.m[first.CommitmentHash]
+	require.NotEmpty(t, before.Signed)
+
+	_, err = r.svc.Commit(context.Background(), commitcmd.Request{
+		Resume: &commitcmd.Resume{Envelope: first.Envelope, Action: first.Action, Salt: first.Salt},
+		Eden:   &commitcmd.EdenInput{PaymentRequired: req.Eden.PaymentRequired},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, before, r.state.m[first.CommitmentHash], "the stored state is not erased")
+}
+
+func TestEdenResumeObjectWithAWrongQuoteLeavesTheStoreAlone(t *testing.T) {
+	r := newEdenRig(t)
+	first, err := r.svc.Commit(context.Background(), edenRequest(t))
+	require.NoError(t, err)
+	before := r.state.m[first.CommitmentHash]
+	other := strings.Replace(string(liveFixture(t, "houston-payment-required.json")), `"amount": "7208392580248"`, `"amount": "1"`, 1)
+
+	_, err = r.svc.Commit(context.Background(), commitcmd.Request{
+		Resume: &commitcmd.Resume{Envelope: first.Envelope, Action: first.Action, Salt: first.Salt},
+		Eden:   &commitcmd.EdenInput{PaymentRequired: base64.StdEncoding.EncodeToString([]byte(other))},
+	})
+	require.Error(t, err)
+	assert.Equal(t, commitcmd.ExitUsage, failureOf(t, err).Exit)
+	assert.Equal(t, before, r.state.m[first.CommitmentHash])
+}
+
+func TestEdenSignRunsDetachedFromTheCallersCancellation(t *testing.T) {
+	r := newEdenRig(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	r.gate.hook = cancel
+	req := edenRequest(t)
+	req.Sign, req.Broadcast = true, true
+	_, err := r.svc.Commit(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, r.signer.signCtxErrs, 1)
+	assert.NoError(t, r.signer.signCtxErrs[0], "the sign call is not cancelled with the caller")
+	assert.NotEmpty(t, r.state.m[failHash(t, r)].Signed, "the answer is stored")
+}
+
+func failHash(t *testing.T, r *edenRig) string {
+	t.Helper()
+	require.Len(t, r.state.m, 1)
+	for h := range r.state.m {
+		return h
+	}
+	return ""
+}
+
+func TestEdenRecordFollowsTheStatusRoute(t *testing.T) {
+	r := newEdenRig(t)
+	r.signer.statusRoute = true
+	r.signer.notExecuted = 2
+	req := edenRequest(t)
+	req.Sign, req.Broadcast, req.Record = true, true, true
+	resp, err := r.svc.Commit(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, resp.Settled)
+	assert.True(t, resp.Recorded)
+	assert.Equal(t, []byte("receipt"), resp.Receipt)
+	assert.Zero(t, r.signer.proofCalls, "no payment proof is fetched for record")
+	assert.Len(t, r.sleeps, 2)
+
+	r2 := newEdenRig(t)
+	r2.signer.statusRoute = true
+	req.PaymentSignature = true
+	resp, err = r2.svc.Commit(context.Background(), req)
+	require.NoError(t, err)
+	assert.Regexp(t, `^0x[0-9a-f]{130}$`, resp.PaymentSignature)
+}
+
+func TestEdenRecordFinalStates(t *testing.T) {
+	for _, st := range []struct {
+		state signer.State
+		code  string
+	}{{signer.StateReverted, "deposit_reverted"}, {signer.StateNotExecuted, "deposit_not_executed"}, {signer.StateWrong, "settlement_wrong"}} {
+		t.Run(string(st.state), func(t *testing.T) {
+			r := newEdenRig(t)
+			r.signer.statusRoute = true
+			r.signer.finalState = st.state
+			req := edenRequest(t)
+			req.Sign, req.Broadcast, req.Record = true, true, true
+			_, err := r.svc.Commit(context.Background(), req)
+			require.Error(t, err)
+			f := failureOf(t, err)
+			assert.Equal(t, st.code, f.Code)
+			assert.Equal(t, commitcmd.ExitRefused, f.Exit)
+		})
+	}
+}
+
+func TestEdenSettlementWaitIsAlsoAWallClockBound(t *testing.T) {
+	r := newEdenRig(t)
+	r.signer.blockProof = true
+	req := edenRequest(t)
+	req.Sign, req.Broadcast, req.PaymentSignature, req.Wait = true, true, true, "50ms"
+	start := time.Now()
+	_, err := r.svc.Commit(context.Background(), req)
+	require.Error(t, err)
+	assert.Less(t, time.Since(start), 5*time.Second)
+	f := failureOf(t, err)
+	assert.Equal(t, "settlement_pending", f.Code)
+	assert.Equal(t, commitcmd.ExitUnavailable, f.Exit)
+}
+
+func TestEdenUnparsableSignerFailureIsUnknownNotRefused(t *testing.T) {
+	r := newEdenRig(t)
+	r.signer.signErr = &commitcmd.SignerError{Status: 502, Code: "signer.unparsable", Message: "bad gateway", Retryable: true}
+	req := edenRequest(t)
+	req.Sign, req.Broadcast = true, true
+	_, err := r.svc.Commit(context.Background(), req)
+	require.Error(t, err)
+	f := failureOf(t, err)
+	assert.Equal(t, commitcmd.ExitUnavailable, f.Exit)
+	assert.Contains(t, f.Message, "do not commit again")
 }
 
 func TestEdenStateWriteFailureReturnsTheResumeMaterial(t *testing.T) {

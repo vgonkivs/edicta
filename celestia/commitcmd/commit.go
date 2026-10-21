@@ -171,6 +171,9 @@ type Response struct {
 	Payer            string                  `json:"payer,omitempty"`
 	Settled          bool                    `json:"settled,omitempty"`
 	PaymentSignature string                  `json:"payment_signature,omitempty"`
+	Recorded         bool                    `json:"recorded,omitempty"`
+	Receipt          []byte                  `json:"receipt,omitempty"`
+	Warning          string                  `json:"warning,omitempty"`
 }
 
 // DecodeRequest reads one request strictly: well-formed, bounded nesting, no
@@ -289,6 +292,7 @@ func (s *Service) Commit(ctx context.Context, req Request) (Response, error) {
 	}
 
 	run := &run{mode: mode}
+	resumed := false
 	switch {
 	case req.ResumeHash != "":
 		if req.hasBuildFields() || req.Resume != nil || req.Eden != nil && (len(req.Eden.Build) != 0 || req.Eden.Resource != "") {
@@ -311,6 +315,7 @@ func (s *Service) Commit(ctx context.Context, req Request) (Response, error) {
 			return Response{}, usagef("resume needs envelope, action and salt")
 		}
 		run.st = State{Envelope: r.Envelope, Action: r.Action, Salt: r.Salt}
+		resumed = true
 	default:
 		validFor := s.DefaultValidFor
 		if req.ValidFor != "" {
@@ -358,8 +363,33 @@ func (s *Service) Commit(ctx context.Context, req Request) (Response, error) {
 			return Response{}, run.carry(edenUsage("payment_required differs from the stored quote"))
 		}
 	}
-	if f := s.save(run); f != nil {
-		return Response{}, f
+	if resumed && s.State != nil {
+		// What an earlier run stored for this commitment stays: the
+		// Authorization and the signed bytes are never overwritten by a
+		// resume that carries only the envelope, the action and the salt.
+		if old, ok, err := s.State.Load(run.hexH); err != nil {
+			return Response{}, run.carry(&Failure{Exit: ExitUnavailable, Code: "state_unavailable", Retryable: true, Message: err.Error()})
+		} else if ok && bytes.Equal(old.Envelope, run.st.Envelope) {
+			run.st.Authorization, run.st.Signed, run.st.RailRef = old.Authorization, old.Signed, old.RailRef
+			if len(run.rr) == 0 {
+				run.rr = old.Requirements
+			}
+		}
+	}
+	if len(run.rr) != 0 {
+		// A wrong quote must not reach the store.
+		tx, err := edenescrow.DecodeTxAction(run.st.Action)
+		if err != nil {
+			return Response{}, run.carry(usagef("the action is not an Eden escrow deposit: %v", err))
+		}
+		if _, err := edenescrow.CheckRequirements(tx, run.rr, true); err != nil {
+			return Response{}, run.carry(usagef("payment_required: %v", err))
+		}
+	}
+	if !resumed && req.ResumeHash == "" {
+		if f := s.save(run); f != nil {
+			return Response{}, f
+		}
 	}
 
 	var resp Response
@@ -375,6 +405,11 @@ func (s *Service) Commit(ctx context.Context, req Request) (Response, error) {
 			return Response{}, err
 		}
 		run.st.Authorization = resp.Authorization
+		if f := s.save(run); f != nil {
+			return Response{}, f
+		}
+	}
+	if resumed && len(run.st.Authorization) != 0 {
 		if f := s.save(run); f != nil {
 			return Response{}, f
 		}

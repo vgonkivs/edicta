@@ -105,6 +105,9 @@ func (s *Service) checkEdenFlags(req Request) *Failure {
 	if req.Eden == nil && !resuming {
 		return usagef("sign, broadcast, record and payment_signature need the eden input")
 	}
+	if (req.Record || req.PaymentSignature) && !req.Sign && !resuming {
+		return usagef("record and payment_signature on a new commitment need sign and broadcast (nothing could be paid otherwise)")
+	}
 	if req.wantsSettle() {
 		if s.Signer == nil {
 			return usagef("no signer is configured: pass the signer URL and token file")
@@ -198,12 +201,24 @@ func composeContext(user json.RawMessage, ec edenContext) (json.RawMessage, erro
 			}
 		}
 	}
-	raw, err := json.Marshal(ec)
+	raw, err := marshalPlain(ec)
 	if err != nil {
 		return nil, err
 	}
 	members[ContextKey] = raw
-	return json.Marshal(members)
+	return marshalPlain(members)
+}
+
+// marshalPlain is json.Marshal without HTML escaping, so the payload keeps
+// the caller's bytes for < > and &.
+func marshalPlain(v any) (json.RawMessage, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
 // quoteResource returns resource.url of R, or "" when R has none.
@@ -290,10 +305,35 @@ func (s *Service) loadState(hexHash string) (State, *Failure) {
 	return st, nil
 }
 
+// signTimeout bounds the sign call. It runs detached from the caller's
+// cancellation: the signer may finish and send the deposit after the caller
+// gave up, and the answer must still be stored.
+const signTimeout = 2 * time.Minute
+
+// routeAbsent is the code a signer without the status route answers with.
+const routeAbsent = "edictaapi.ErrRouteNotFound"
+
+// unknownDecision is the code of a hash the signer holds nothing for (or does
+// not show to this credential).
+const unknownDecision = "signer.ErrUnknownDecision"
+
+func signerCode(err error) string {
+	var se *SignerError
+	if errors.As(err, &se) {
+		return se.Code
+	}
+	return ""
+}
+
+// final marks an error that ends a poll.
+type final struct{ f *Failure }
+
+func (e final) Error() string { return e.f.Error() }
+
 // settle takes an authorized Eden commitment through the flags the request
-// set: sign (the signer also sends), then wait for the deposit to execute.
-// The signer's answers are checked here against the committed action; none
-// is taken on trust.
+// set: sign (the signer also sends), then follow the deposit until it
+// executed. The signer's answers are checked here against the committed
+// action; none is taken on trust.
 func (s *Service) settle(ctx context.Context, req Request, r *run, resp *Response) error {
 	tx, err := edenescrow.DecodeTxAction(r.st.Action)
 	if err != nil {
@@ -307,49 +347,120 @@ func (s *Service) settle(ctx context.Context, req Request, r *run, resp *Respons
 	}
 	view := tx.DepositView()
 	resp.Deposit = &view
+	var payer [20]byte
+	havePayer := false
+	fill := func() *Failure {
+		if len(r.st.Signed) == 0 {
+			return nil
+		}
+		_, p, err := edenescrow.ParseSigned(tx, r.st.Signed)
+		if err != nil {
+			return r.carry(usagef("the stored signed transaction is not the committed one: %v", err))
+		}
+		payer, havePayer = p, true
+		resp.SignedTx, resp.RailRef, resp.Payer = r.st.Signed, edenescrow.RailRef(r.st.Signed), "0x"+hex.EncodeToString(p[:])
+		return nil
+	}
+	if f := fill(); f != nil {
+		return f
+	}
 	if !req.wantsSettle() {
 		return nil
 	}
 	wait, _ := s.settleWait(req)
 
-	if req.Sign {
+	// The signer may already hold this decision (an earlier call was cut
+	// off after it signed): follow its bytes, never sign again.
+	statusAbsent, confirmedUnknown := false, false
+	if len(r.st.Signed) == 0 {
+		st, serr := s.Signer.Status(ctx, r.hash)
+		switch {
+		case serr == nil && len(st.Signed) != 0:
+			if f := s.adopt(r, tx, st.Signed, st.RailRef); f != nil {
+				return f
+			}
+			if f := s.save(r); f != nil {
+				return f
+			}
+			if f := fill(); f != nil {
+				return f
+			}
+		case serr == nil:
+		case signerCode(serr) == routeAbsent:
+			statusAbsent = true
+		case signerCode(serr) == unknownDecision:
+			confirmedUnknown = true
+		}
+	}
+
+	if req.Sign && len(r.st.Signed) == 0 {
+		hold := "the signer may already hold this decision: continue with the commitment hash (resume_hash with record or payment_signature) or ask the operator; do not commit again"
 		if uint64(s.now().Unix())+authSkewS >= resp.Expires {
-			return r.carry(&Failure{Exit: ExitRefused, Code: "authorization_expired", Message: "the Authorization has expired: commit again"})
+			msg := "the Authorization has expired and the signer holds nothing for this decision: commit again"
+			if !confirmedUnknown {
+				msg = "the Authorization has expired; " + hold
+			}
+			return r.carry(&Failure{Exit: ExitRefused, Code: "authorization_expired", Message: msg})
 		}
 		if tx.Deposit.ExpiresAt > resp.Expires {
 			return r.carry(&Failure{Exit: ExitRefused, Code: "quote_outlives_authorization",
 				Message: "the quote's expiresAt is after the Authorization's expiry: commit again with a longer valid_for"})
 		}
-		out, err := s.Signer.Sign(ctx, signer.Request{
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), signTimeout)
+		out, err := s.Signer.Sign(sctx, signer.Request{
 			Envelope: r.st.Envelope, Action: r.st.Action, Salt: r.st.Salt, Authorization: r.st.Authorization, Requirements: r.rr,
 		})
+		cancel()
 		if err != nil {
-			return r.carry(classify(err))
+			f := classify(err)
+			if f.Exit == ExitRefused && f.Code == "signer.unparsable" {
+				f.Exit, f.Retryable = ExitUnavailable, true
+			}
+			if f.Exit == ExitUnavailable {
+				f.Message += " (" + hold + ")"
+			}
+			return r.carry(f)
 		}
 		if out.CommitmentHash != r.hash || out.RailRef != edenescrow.RailRef(out.Signed) {
 			return r.carry(&Failure{Exit: ExitRefused, Code: "signer_response_invalid", Message: "the signer answered for another decision or rail_ref"})
 		}
-		if _, _, err := edenescrow.ParseSigned(tx, out.Signed); err != nil {
-			return r.carry(&Failure{Exit: ExitRefused, Code: "signer_response_invalid", Message: fmt.Sprintf("the signed transaction is not the committed one: %v", err)})
-		}
-		r.st.Signed, r.st.RailRef = out.Signed, out.RailRef
-		if f := s.save(r); f != nil {
+		if f := s.adopt(r, tx, out.Signed, out.RailRef); f != nil {
 			return f
 		}
-	}
-	var payer [20]byte
-	if len(r.st.Signed) != 0 {
-		var err error
-		if _, payer, err = edenescrow.ParseSigned(tx, r.st.Signed); err != nil {
-			return r.carry(usagef("the stored signed transaction is not the committed one: %v", err))
+		if f := s.save(r); f != nil {
+			f.SignedTx = r.st.Signed
+			return f
 		}
-		resp.SignedTx, resp.RailRef, resp.Payer = r.st.Signed, edenescrow.RailRef(r.st.Signed), "0x"+hex.EncodeToString(payer[:])
+		if f := fill(); f != nil {
+			return f
+		}
 	}
 	if !req.Record && !req.PaymentSignature {
 		return nil
 	}
-	if len(r.st.Signed) == 0 {
-		return r.carry(usagef("nothing was signed for this commitment yet: pass sign and broadcast"))
+	if len(r.st.Signed) == 0 && !statusAbsent {
+		msg := "the signer holds no signed deposit for this commitment: pass sign and broadcast"
+		if !confirmedUnknown {
+			msg = "the signer's status is unknown; " + "continue later with the commitment hash"
+		}
+		return r.carry(usagef("%s", msg))
+	}
+
+	if !statusAbsent {
+		st, absent, err := s.awaitSettled(ctx, r, wait)
+		if err != nil {
+			return err
+		}
+		if !absent {
+			resp.Settled, resp.Recorded = true, st.State == signer.StateRecorded
+			if resp.Recorded {
+				resp.Receipt = st.Receipt
+			}
+		}
+		statusAbsent = absent
+	}
+	if !req.PaymentSignature && !statusAbsent {
+		return nil
 	}
 	proof, err := s.awaitProof(ctx, r, wait)
 	if err != nil {
@@ -363,8 +474,13 @@ func (s *Service) settle(ctx context.Context, req Request, r *run, resp *Respons
 	if proof.Message != msg || !ok {
 		return r.carry(&Failure{Exit: ExitRefused, Code: "signer_response_invalid", Message: "the payment proof does not cover the decision's paymentId"})
 	}
-	if who, err := edenescrow.RecoverPersonal(msg, sig); err != nil || who != payer {
+	who, err := edenescrow.RecoverPersonal(msg, sig)
+	if err != nil || havePayer && who != payer {
 		return r.carry(&Failure{Exit: ExitRefused, Code: "signer_response_invalid", Message: "the payment proof was not made by the payer of the signed transaction"})
+	}
+	if !havePayer {
+		resp.Payer = "0x" + hex.EncodeToString(who[:])
+		resp.Warning = "the signed transaction is not known here: the payer is taken from the payment proof and was not cross-checked"
 	}
 	resp.Settled = true
 	if req.PaymentSignature {
@@ -373,40 +489,115 @@ func (s *Service) settle(ctx context.Context, req Request, r *run, resp *Respons
 	return nil
 }
 
-// awaitProof asks for the payment proof until the signer releases it, which
-// it does only once the deposit executed at its configured level: the
-// signer has no other status route. The wait is counted in poll intervals,
-// not read from a clock.
-func (s *Service) awaitProof(ctx context.Context, r *run, wait time.Duration) (signer.PaymentProof, error) {
-	poll := s.PollInterval
-	if poll <= 0 {
-		poll = defaultPoll
+// adopt checks signed bytes against the committed action and keeps them. A
+// stored value is never replaced by different bytes.
+func (s *Service) adopt(r *run, tx edenescrow.TxAction, signed []byte, railRef string) *Failure {
+	if _, _, err := edenescrow.ParseSigned(tx, signed); err != nil {
+		return r.carry(&Failure{Exit: ExitRefused, Code: "signer_response_invalid", Message: fmt.Sprintf("the signed transaction is not the committed one: %v", err)})
 	}
+	if railRef != "" && railRef != edenescrow.RailRef(signed) {
+		return r.carry(&Failure{Exit: ExitRefused, Code: "signer_response_invalid", Message: "the signer's rail_ref is not the hash of its signed transaction"})
+	}
+	if len(r.st.Signed) != 0 && !bytes.Equal(r.st.Signed, signed) {
+		return r.carry(&Failure{Exit: ExitRefused, Code: "signer_response_invalid", Message: "the signer's signed transaction differs from the stored one"})
+	}
+	r.st.Signed, r.st.RailRef = bytes.Clone(signed), edenescrow.RailRef(signed)
+	return nil
+}
+
+// poll repeats step every poll interval until it returns nil, a final error
+// or the wait is over. The wait is counted in intervals and also bounded by
+// the wall clock, since one step may take as long as the client timeout.
+func (s *Service) poll(ctx context.Context, r *run, wait time.Duration, step func(ctx context.Context) error) error {
+	interval := s.PollInterval
+	if interval <= 0 {
+		interval = defaultPoll
+	}
+	wctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	pending := func(err error) error {
+		f := classify(err)
+		f.Exit, f.Retryable, f.Code = ExitUnavailable, true, "settlement_pending"
+		f.Message = fmt.Sprintf("the deposit was not reported executed within %s (continue with the commitment hash): %v", wait, err)
+		return r.carry(f)
+	}
+	for elapsed := time.Duration(0); ; elapsed += interval {
+		err := step(wctx)
+		if err == nil {
+			return nil
+		}
+		var fin final
+		if errors.As(err, &fin) {
+			return r.carry(fin.f)
+		}
+		if ctx.Err() != nil {
+			return r.carry(classify(ctx.Err()))
+		}
+		var se *SignerError
+		if errors.As(err, &se) && !se.Retryable && se.Code != "signer.unparsable" {
+			return r.carry(classify(err))
+		}
+		if wctx.Err() != nil || elapsed+interval > wait {
+			return pending(err)
+		}
+		if werr := s.sleep(wctx, interval); werr != nil {
+			if ctx.Err() != nil {
+				return r.carry(classify(ctx.Err()))
+			}
+			return pending(err)
+		}
+	}
+}
+
+// awaitSettled follows the decision through the signer's status route until
+// the deposit executed. absent is set when the signer has no such route.
+func (s *Service) awaitSettled(ctx context.Context, r *run, wait time.Duration) (signer.Status, bool, error) {
+	var out signer.Status
+	absent := false
+	err := s.poll(ctx, r, wait, func(c context.Context) error {
+		st, err := s.Signer.Status(c, r.hash)
+		if err != nil {
+			if signerCode(err) == routeAbsent {
+				absent = true
+				return nil
+			}
+			if signerCode(err) == unknownDecision {
+				return final{&Failure{Exit: ExitRefused, Code: unknownDecision, Message: "the signer holds nothing for this decision"}}
+			}
+			return err
+		}
+		if len(st.Signed) != 0 && !bytes.Equal(st.Signed, r.st.Signed) {
+			return final{&Failure{Exit: ExitRefused, Code: "signer_response_invalid", Message: "the signer's signed transaction differs from the stored one"}}
+		}
+		switch st.State {
+		case signer.StateExecuted, signer.StateRecorded:
+			out = st
+			return nil
+		case signer.StateReverted:
+			return final{&Failure{Exit: ExitRefused, Code: "deposit_reverted", Message: "the deposit was included and reverted"}}
+		case signer.StateNotExecuted:
+			return final{&Failure{Exit: ExitRefused, Code: "deposit_not_executed", Message: "the deposit was not executed before its deadline: " + st.Detail}}
+		case signer.StateWrong:
+			return final{&Failure{Exit: ExitRefused, Code: "settlement_wrong", Message: "the signer needs its operator: " + st.Detail}}
+		}
+		return &SignerError{Status: 409, Code: "signer.ErrNotExecuted", Message: "state " + string(st.State), Retryable: true}
+	})
+	return out, absent, err
+}
+
+// awaitProof asks for the payment proof until the signer releases it, which
+// it does only once the deposit executed at its configured level.
+func (s *Service) awaitProof(ctx context.Context, r *run, wait time.Duration) (signer.PaymentProof, error) {
 	req := signer.PaymentProofRequest{CommitmentHash: r.hash, Field: PaymentField, Request: signer.Request{
 		Envelope: r.st.Envelope, Action: r.st.Action, Salt: r.st.Salt, Authorization: r.st.Authorization, Requirements: r.rr,
 	}}
-	for elapsed := time.Duration(0); ; elapsed += poll {
-		proof, err := s.Signer.PaymentSignature(ctx, req)
-		if err == nil {
-			return proof, nil
-		}
-		if cerr := ctx.Err(); cerr != nil {
-			return signer.PaymentProof{}, r.carry(classify(cerr))
-		}
-		var se *SignerError
-		if errors.As(err, &se) && !se.Retryable {
-			return signer.PaymentProof{}, r.carry(classify(err))
-		}
-		if elapsed+poll > wait {
-			f := classify(err)
-			f.Exit, f.Retryable, f.Code = ExitUnavailable, true, "settlement_pending"
-			f.Message = fmt.Sprintf("the deposit was not reported executed within %s (continue with the commitment hash): %v", wait, err)
-			return signer.PaymentProof{}, r.carry(f)
-		}
-		if werr := s.sleep(ctx, poll); werr != nil {
-			return signer.PaymentProof{}, r.carry(classify(werr))
-		}
-	}
+	var proof signer.PaymentProof
+	err := s.poll(ctx, r, wait, func(c context.Context) error {
+		p, err := s.Signer.PaymentSignature(c, req)
+		proof = p
+		return err
+	})
+	return proof, err
 }
 
 func (s *Service) sleep(ctx context.Context, d time.Duration) error {

@@ -38,6 +38,8 @@ type Failure struct {
 	// caller can continue it by hash.
 	CommitmentHash string
 	RailRef        string
+	// SignedTx is the deposit the signer signed, when it could not be stored.
+	SignedTx []byte
 }
 
 func (f *Failure) Error() string { return fmt.Sprintf("%s: %s", f.Code, f.Message) }

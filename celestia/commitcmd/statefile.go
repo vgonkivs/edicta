@@ -31,6 +31,13 @@ func NewFileStateStore(dir string) (*FileStateStore, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("commitcmd: state directory: %w", err)
 	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil, fmt.Errorf("commitcmd: state directory: %w", err)
+	}
+	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+		return nil, fmt.Errorf("commitcmd: state directory %s must be a directory only its owner can access", dir)
+	}
 	return &FileStateStore{dir: dir}, nil
 }
 
@@ -59,7 +66,16 @@ func (f *FileStateStore) Save(hash string, st State) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), filepath.Join(f.dir, hash+".json"))
+	if err := os.Rename(tmp.Name(), filepath.Join(f.dir, hash+".json")); err != nil {
+		return err
+	}
+	// The rename is durable only once the directory entry is.
+	d, err := os.Open(f.dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 // Load returns the state stored under hash, if any.

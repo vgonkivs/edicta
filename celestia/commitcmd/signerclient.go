@@ -5,6 +5,7 @@ package commitcmd
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/celestia/secret"
+	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/signer"
 )
@@ -25,6 +27,9 @@ import (
 type Signer interface {
 	Sign(ctx context.Context, req signer.Request) (signer.Output, error)
 	PaymentSignature(ctx context.Context, req signer.PaymentProofRequest) (signer.PaymentProof, error)
+	// Status shows the caller's own decision. A signer without the route
+	// answers a SignerError with the route-not-found code.
+	Status(ctx context.Context, h commitment.Hash) (signer.Status, error)
 }
 
 // SignerError is a refusal or failure the signer answered with.
@@ -73,6 +78,10 @@ func NewSignerClient(baseURL string, token secret.Secret, hc *http.Client) (*Sig
 	if hc == nil {
 		hc = &http.Client{Timeout: 60 * time.Second}
 	}
+	// The token must not follow a redirect to anywhere.
+	own := *hc
+	own.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	hc = &own
 	return &SignerClient{base: strings.TrimRight(u.String(), "/"), token: token, hc: hc}, nil
 }
 
@@ -110,12 +119,31 @@ func (c *SignerClient) PaymentSignature(ctx context.Context, req signer.PaymentP
 	return out, nil
 }
 
+// Status calls GET /v1/status/{hash}.
+func (c *SignerClient) Status(ctx context.Context, h commitment.Hash) (signer.Status, error) {
+	body, err := c.do(ctx, http.MethodGet, signer.RouteStatusPrefix+hex.EncodeToString(h[:]), nil)
+	if err != nil {
+		return signer.Status{}, err
+	}
+	st, err := signer.DecodeStatusResponse(body)
+	if err != nil {
+		return signer.Status{}, fmt.Errorf("commitcmd: signer status response: %w", err)
+	}
+	return st, nil
+}
+
 func (c *SignerClient) post(ctx context.Context, path string, body []byte) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, bytes.NewReader(body))
+	return c.do(ctx, http.MethodPost, path, body)
+}
+
+func (c *SignerClient) do(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("commitcmd: build signer request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/cbor")
+	if method == http.MethodPost {
+		req.Header.Set("Content-Type", "application/cbor")
+	}
 	req.Header.Set("Accept", "application/cbor")
 	req.Header.Set("Authorization", "Bearer "+c.token.RevealString())
 	resp, err := c.hc.Do(req)
@@ -142,7 +170,10 @@ func (c *SignerClient) post(ctx context.Context, path string, body []byte) ([]by
 	}
 	f, err := edictaapi.DecodeWrapper(data, errorSchema)
 	if err != nil {
-		return nil, &SignerError{Status: resp.StatusCode, Code: "signer.unparsable", Message: "unparsable error response"}
+		// A proxy page in front of the signer says nothing about the
+		// decision: a server-side failure may have come after the signing.
+		return nil, &SignerError{Status: resp.StatusCode, Code: "signer.unparsable", Message: "unparsable error response",
+			Retryable: resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests}
 	}
 	r, _ := f.Uint(3)
 	return nil, &SignerError{Status: resp.StatusCode, Code: f.Text(1), Message: f.Text(2), Retryable: r == 1}
