@@ -14,9 +14,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/payload"
 )
@@ -38,7 +40,14 @@ const (
 // MaxRequestBytes bounds one request body.
 const MaxRequestBytes = 2 << 20
 
-const authSkewS = 30
+// MaxJSONDepth bounds the nesting of a request and of a context.
+const MaxJSONDepth = 64
+
+const (
+	authSkewS           = 30
+	defaultAuthTimeout  = 2 * time.Minute
+	defaultAuthAttempts = 3
+)
 
 // Gate is the authorize call of the API; *edictaapi.Client has it.
 type Gate interface {
@@ -59,11 +68,21 @@ type Service struct {
 	DefaultMode string
 	// DefaultValidFor applies when a request names none.
 	DefaultValidFor time.Duration
-	// GatePub and GateID, when set, make the Authorization's signature and
-	// gate id checked before it is printed.
-	GatePub []byte
-	GateID  string
-	Clock   func() time.Time
+	// GateKeys and GateID are required: an Authorization is never reported
+	// as issued before its signature, gate id, action binding and expiry
+	// have been checked.
+	GateKeys [][]byte
+	GateID   string
+	Clock    func() time.Time
+	// AuthorizeTimeout bounds the authorize step once the payload is
+	// published; it ignores the caller's cancellation so that a started
+	// authorization is finished and not orphaned. Zero means two minutes.
+	AuthorizeTimeout time.Duration
+	// AuthorizeAttempts is how many times a retryable authorize failure is
+	// repeated with the same envelope. Zero means three.
+	AuthorizeAttempts int
+	// Wait sleeps between authorize attempts; nil means a short backoff.
+	Wait func(ctx context.Context, attempt int) error
 }
 
 // Named is a model or policy identity.
@@ -72,6 +91,14 @@ type Named struct {
 	Version *string `json:"version,omitempty"`
 	// Text is the policy text; a model has none.
 	Text string `json:"text,omitempty"`
+}
+
+// Resume re-sends an already published and signed commitment to the gate,
+// without publishing again. The three values come from a failure object.
+type Resume struct {
+	Envelope []byte `json:"envelope"`
+	Action   []byte `json:"action"`
+	Salt     []byte `json:"salt"`
 }
 
 // Request is the input of `edicta commit` and of POST /v1/commit.
@@ -85,6 +112,8 @@ type Request struct {
 	Mode    string          `json:"mode,omitempty"`
 	// ValidFor is a Go duration such as 10m.
 	ValidFor string `json:"valid_for,omitempty"`
+	// Resume, when set, replaces every field above except Mode.
+	Resume *Resume `json:"resume,omitempty"`
 }
 
 // Response is the output of a successful commit. Byte fields are base64.
@@ -101,8 +130,9 @@ type Response struct {
 	Salt           []byte `json:"salt"`
 }
 
-// DecodeRequest reads one request strictly: no unknown keys, no repeated
-// keys, one value, no trailing data.
+// DecodeRequest reads one request strictly: well-formed, bounded nesting, no
+// repeated keys (the case-insensitive match of encoding/json included), no
+// unknown keys, one value, no trailing data.
 func DecodeRequest(r io.Reader) (Request, error) {
 	data, err := io.ReadAll(io.LimitReader(r, MaxRequestBytes+1))
 	if err != nil {
@@ -111,7 +141,7 @@ func DecodeRequest(r io.Reader) (Request, error) {
 	if len(data) > MaxRequestBytes {
 		return Request{}, usagef("request larger than %d bytes", MaxRequestBytes)
 	}
-	if err := noDuplicateKeys(data); err != nil {
+	if err := CheckJSON(data); err != nil {
 		return Request{}, usagef("request: %v", err)
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
@@ -126,12 +156,19 @@ func DecodeRequest(r io.Reader) (Request, error) {
 	return req, nil
 }
 
-// noDuplicateKeys refuses a repeated object key at any depth; encoding/json
-// would silently keep the last value.
-func noDuplicateKeys(data []byte) error {
+// CheckJSON refuses data that is not one well-formed JSON value, nests deeper
+// than MaxJSONDepth, or repeats an object key. Keys are compared with case
+// folded, because encoding/json would merge them into one field.
+func CheckJSON(data []byte) error {
+	if !json.Valid(data) {
+		return errors.New("not valid JSON")
+	}
 	dec := json.NewDecoder(bytes.NewReader(data))
-	var walk func() error
-	walk = func() error {
+	var walk func(depth int) error
+	walk = func(depth int) error {
+		if depth > MaxJSONDepth {
+			return fmt.Errorf("nesting deeper than %d", MaxJSONDepth)
+		}
 		t, err := dec.Token()
 		if err != nil {
 			return err
@@ -142,7 +179,7 @@ func noDuplicateKeys(data []byte) error {
 		}
 		if d == '[' {
 			for dec.More() {
-				if err := walk(); err != nil {
+				if err := walk(depth + 1); err != nil {
 					return err
 				}
 			}
@@ -156,24 +193,35 @@ func noDuplicateKeys(data []byte) error {
 				return err
 			}
 			key, _ := k.(string)
-			if seen[key] {
+			folded := strings.ToLower(key)
+			if seen[folded] {
 				return fmt.Errorf("duplicate key %q", key)
 			}
-			seen[key] = true
-			if err := walk(); err != nil {
+			seen[folded] = true
+			if err := walk(depth + 1); err != nil {
 				return err
 			}
 		}
 		_, err = dec.Token()
 		return err
 	}
-	return walk()
+	return walk(0)
+}
+
+func (s *Service) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock()
+	}
+	return time.Now()
 }
 
 // Commit runs one request. Every error is a *Failure.
 func (s *Service) Commit(ctx context.Context, req Request) (Response, error) {
 	if s.Builders == nil || s.Gate == nil {
 		return Response{}, usagef("service is not configured")
+	}
+	if len(s.GateKeys) == 0 || s.GateID == "" {
+		return Response{}, usagef("no gate key: an Authorization cannot be verified")
 	}
 	mode := req.Mode
 	if mode == "" {
@@ -185,64 +233,133 @@ func (s *Service) Commit(ctx context.Context, req Request) (Response, error) {
 	if mode != ModeFast && mode != ModeStrict {
 		return Response{}, usagef("mode must be %q or %q", ModeFast, ModeStrict)
 	}
-	validFor := s.DefaultValidFor
-	if req.ValidFor != "" {
-		d, err := time.ParseDuration(req.ValidFor)
-		if err != nil || d <= 0 {
-			return Response{}, usagef("valid_for %q is not a positive duration", req.ValidFor)
+
+	var envelope, action, salt []byte
+	if r := req.Resume; r != nil {
+		if len(r.Envelope) == 0 || len(r.Action) == 0 || len(r.Salt) == 0 {
+			return Response{}, usagef("resume needs envelope, action and salt")
 		}
-		validFor = d
+		envelope, action, salt = r.Envelope, r.Action, r.Salt
+	} else {
+		validFor := s.DefaultValidFor
+		if req.ValidFor != "" {
+			d, err := time.ParseDuration(req.ValidFor)
+			if err != nil || d <= 0 {
+				return Response{}, usagef("valid_for %q is not a positive duration", req.ValidFor)
+			}
+			validFor = d
+		}
+		p, err := buildPayload(req)
+		if err != nil {
+			return Response{}, err
+		}
+		b, err := s.Builders(mode, validFor)
+		if err != nil {
+			return Response{}, classify(err)
+		}
+		res, err := b.Commit(ctx, p)
+		if err != nil {
+			return Response{}, classify(err)
+		}
+		envelope, action, salt = res.Envelope, res.Action, res.ActionSalt
 	}
-	p, err := buildPayload(req)
-	if err != nil {
-		return Response{}, err
+	return s.authorize(ctx, mode, envelope, action, salt)
+}
+
+// authorize asks the gate for the Authorization of a commitment that is
+// already published. It runs detached from the caller's cancellation: the
+// gate may have marked the nonce used by the time the caller gives up. A
+// retryable failure is repeated with the same envelope; a nonce replay returns
+// the stored Authorization, which is checked like a fresh one.
+func (s *Service) authorize(ctx context.Context, mode string, envelope, action, salt []byte) (Response, error) {
+	timeout := s.AuthorizeTimeout
+	if timeout <= 0 {
+		timeout = defaultAuthTimeout
 	}
-	b, err := s.Builders(mode, validFor)
-	if err != nil {
-		return Response{}, usagef("%v", err)
+	actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancel()
+	attempts := s.AuthorizeAttempts
+	if attempts <= 0 {
+		attempts = defaultAuthAttempts
 	}
-	res, err := b.Commit(ctx, p)
-	if err != nil {
-		return Response{}, classify(err)
+	resume := func(f *Failure) *Failure {
+		f.Envelope, f.Action, f.Salt = envelope, action, salt
+		return f
 	}
-	auth, verdict, err := s.Gate.AuthorizeWithVerdict(ctx, res.Envelope, res.Action, res.ActionSalt)
-	if err != nil {
-		return Response{}, classify(err)
+	var auth, verdict []byte
+	for i := 1; ; i++ {
+		var err error
+		auth, verdict, err = s.Gate.AuthorizeWithVerdict(actx, envelope, action, salt)
+		if err == nil {
+			break
+		}
+		f := classify(err)
+		if errors.Is(err, gate.ErrNonceUsed) && len(f.Stored) > 0 {
+			auth, verdict = f.Stored, f.PolicyVerdict
+			break
+		}
+		if f.Exit != ExitUnavailable || i >= attempts {
+			return Response{}, resume(f)
+		}
+		if werr := s.wait(actx, i); werr != nil {
+			return Response{}, resume(classify(werr))
+		}
 	}
-	out, err := s.describe(mode, res, auth)
+	out, err := s.describe(mode, envelope, action, salt, auth)
 	if err != nil {
+		var f *Failure
+		if errors.As(err, &f) {
+			f.Authorization = auth
+			return Response{}, resume(f)
+		}
 		return Response{}, err
 	}
 	out.PolicyVerdict = verdict
 	return out, nil
 }
 
-func (s *Service) describe(mode string, res *sdk.Result, auth []byte) (Response, error) {
+func (s *Service) wait(ctx context.Context, attempt int) error {
+	if s.Wait != nil {
+		return s.Wait(ctx, attempt)
+	}
+	t := time.NewTimer(time.Duration(attempt) * 500 * time.Millisecond)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *Service) describe(mode string, envelope, action, salt, auth []byte) (Response, error) {
 	refused := func(code, format string, a ...any) (Response, error) {
 		return Response{}, &Failure{Exit: ExitRefused, Code: code, Message: fmt.Sprintf(format, a...)}
 	}
+	sc, err := commitment.DecodeSigned(envelope)
+	if err != nil {
+		return Response{}, usagef("envelope: %v", err)
+	}
+	h, err := commitment.HashOf(&sc.Commitment)
+	if err != nil {
+		return Response{}, usagef("envelope: %v", err)
+	}
 	var sa *commitment.SignedAuthorization
-	var err error
-	if len(s.GatePub) > 0 {
-		now := time.Now
-		if s.Clock != nil {
-			now = s.Clock
-		}
-		sa, _, err = commitment.VerifyAuthorization(auth, commitment.AuthorizationCheck{
-			GatePubKey: s.GatePub, GateID: s.GateID, ActionType: res.Commitment.Action.Type,
-			Action: res.Action, ActionSalt: res.ActionSalt, Now: uint64(now().Unix()), SkewS: authSkewS,
+	var verr error
+	for _, k := range s.GateKeys {
+		sa, _, verr = commitment.VerifyAuthorization(auth, commitment.AuthorizationCheck{
+			GatePubKey: k, GateID: s.GateID, ActionType: sc.Commitment.Action.Type,
+			Action: action, ActionSalt: salt, Now: uint64(s.now().Unix()), SkewS: authSkewS,
 		})
-	} else {
-		sa, _, err = commitment.DecodeSignedAuthorization(auth)
-		if err == nil {
-			err = commitment.ValidateAuthorization(&sa.Authorization)
+		if verr == nil {
+			break
 		}
 	}
-	if err != nil {
-		return refused("authorization_invalid", "the gate's Authorization is unusable: %v", err)
+	if verr != nil {
+		return refused("authorization_invalid", "the gate's Authorization does not verify: %v", verr)
 	}
 	a := sa.Authorization
-	if !bytes.Equal(a.CommitmentHash, res.CommitmentHash[:]) {
+	if !bytes.Equal(a.CommitmentHash, h[:]) {
 		return refused("authorization_mismatch", "the Authorization names another commitment")
 	}
 	got := ModeStrict
@@ -252,20 +369,20 @@ func (s *Service) describe(mode string, res *sdk.Result, auth []byte) (Response,
 	if mode == ModeStrict && got != ModeStrict {
 		return refused("mode_mismatch", "strict mode was requested but the gate authorized in fast mode")
 	}
-	ref, err := commitment.EncodePayloadRef(res.Commitment.PayloadRef)
+	ref, err := commitment.EncodePayloadRef(sc.Commitment.PayloadRef)
 	if err != nil {
 		return Response{}, fmt.Errorf("commitcmd: encode payload ref: %w", err)
 	}
 	return Response{
-		CommitmentHash: hex.EncodeToString(res.CommitmentHash[:]),
+		CommitmentHash: hex.EncodeToString(h[:]),
 		PayloadRef:     ref,
 		Mode:           got,
 		AnchorDeadline: a.AnchorDeadline,
 		Expires:        a.Expires,
-		Envelope:       res.Envelope,
+		Envelope:       envelope,
 		Authorization:  auth,
-		Action:         res.Action,
-		Salt:           res.ActionSalt,
+		Action:         action,
+		Salt:           salt,
 	}, nil
 }
 
@@ -277,6 +394,9 @@ func buildPayload(req Request) (*payload.Payload, error) {
 		return nil, usagef("action is required (base64 of the exact action bytes)")
 	case len(bytes.TrimSpace(req.Context)) == 0 || bytes.Equal(bytes.TrimSpace(req.Context), []byte("null")):
 		return nil, usagef("context is required")
+	}
+	if err := CheckJSON(req.Context); err != nil {
+		return nil, usagef("context: %v", err)
 	}
 	var ctxBuf bytes.Buffer
 	if err := json.Compact(&ctxBuf, req.Context); err != nil {

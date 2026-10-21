@@ -37,11 +37,16 @@ const (
 // fakeGate signs an Authorization over the envelope it is given, as a gate
 // that accepted it would. It never looks at the agent key.
 type fakeGate struct {
-	mu     sync.Mutex
-	priv   ed25519.PrivateKey
-	fast   bool
-	err    error
-	calls  int
+	mu    sync.Mutex
+	priv  ed25519.PrivateKey
+	fast  bool
+	err   error
+	calls int
+	// lose makes the first call issue an Authorization but fail with a
+	// transport error; later calls answer 409 with the stored one.
+	lose   bool
+	hook   func()
+	issued []byte
 	action []byte
 	salt   []byte
 }
@@ -50,9 +55,15 @@ func (g *fakeGate) AuthorizeWithVerdict(_ context.Context, envelope, action, sal
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.calls++
+	if g.hook != nil {
+		g.hook()
+	}
 	g.action, g.salt = action, salt
 	if g.err != nil {
 		return nil, nil, g.err
+	}
+	if g.issued != nil {
+		return nil, nil, &edictaapi.Error{Status: 409, Code: "ErrNonceUsed", Message: "used", Stored: g.issued}
 	}
 	sc, err := commitment.DecodeSigned(envelope)
 	if err != nil {
@@ -75,6 +86,10 @@ func (g *fakeGate) AuthorizeWithVerdict(_ context.Context, envelope, action, sal
 	}
 	sig := ed25519.Sign(g.priv, commitment.AuthorizationSigningMessage(commitment.HashAuthorization(canon)))
 	b, err := commitment.EncodeSignedAuthorization(&commitment.SignedAuthorization{Authorization: a, Signature: sig})
+	if err == nil && g.lose {
+		g.issued = b
+		return nil, nil, errors.New("connection reset")
+	}
 	return b, nil, err
 }
 
@@ -124,7 +139,7 @@ func newRig(t *testing.T) *rig {
 	signer, err := sdk.NewEd25519Signer(agent)
 	require.NoError(t, err)
 	r.svc = &commitcmd.Service{
-		Gate: r.gate, GatePub: gpub, GateID: gateID, Clock: clock.Now,
+		Gate: r.gate, GateKeys: [][]byte{gpub}, GateID: gateID, Clock: clock.Now, Wait: func(context.Context, int) error { return nil },
 		Builders: func(mode string, validFor time.Duration) (*sdk.Builder, error) {
 			r.modes = append(r.modes, mode)
 			r.ttls = append(r.ttls, validFor)
@@ -218,13 +233,12 @@ func TestStrictRefusesAFastAuthorization(t *testing.T) {
 
 func TestGateRefusalIsExit3AndRetryableIsExit6(t *testing.T) {
 	r := newRig(t)
-	r.gate.err = &edictaapi.Error{Status: 409, Code: "ErrNonceUsed", Message: "used", Stored: []byte{1}}
+	r.gate.err = &edictaapi.Error{Status: 409, Code: "ErrNonceUsed", Message: "used"}
 	_, err := r.svc.Commit(context.Background(), request())
 	assert.Equal(t, commitcmd.ExitRefused, exitOf(t, err))
 	var f *commitcmd.Failure
 	require.ErrorAs(t, err, &f)
 	assert.Equal(t, "ErrNonceUsed", f.Code)
-	assert.Equal(t, []byte{1}, f.Stored)
 
 	r.gate.err = &edictaapi.Error{Status: 503, Code: "ErrUnavailable", Message: "down", Retryable: true}
 	_, err = r.svc.Commit(context.Background(), request())
@@ -279,7 +293,7 @@ func TestAuthorizationOfAnotherGateKeyIsRefused(t *testing.T) {
 	r := newRig(t)
 	other, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	r.svc.GatePub = other
+	r.svc.GateKeys = [][]byte{other}
 	_, err = r.svc.Commit(context.Background(), request())
 	assert.Equal(t, commitcmd.ExitRefused, exitOf(t, err))
 }
@@ -327,7 +341,7 @@ func post(h http.Handler, host, ct, body string) *httptest.ResponseRecorder {
 
 func TestServeCommitsAndRefusesBadCallers(t *testing.T) {
 	r := newRig(t)
-	h := commitcmd.Handler(r.svc, true)
+	h := commitcmd.Handler(r.svc, commitcmd.Options{})
 	body := `{"action_type":"application/vnd.test.order+json","action":"eyJidXkiOiIxIn0=","context":{"p":1},"model":{"id":"m"},"policy":{"id":"p"}}`
 
 	rec := post(h, "127.0.0.1:8500", "application/json", body)
@@ -355,7 +369,7 @@ func TestServeCommitsAndRefusesBadCallers(t *testing.T) {
 
 func TestServeMapsFailuresToStatus(t *testing.T) {
 	r := newRig(t)
-	h := commitcmd.Handler(r.svc, true)
+	h := commitcmd.Handler(r.svc, commitcmd.Options{})
 	body := `{"action_type":"application/vnd.test.order+json","action":"eyJidXkiOiIxIn0=","context":{"p":1},"model":{"id":"m"},"policy":{"id":"p"}}`
 	r.gate.err = &edictaapi.Error{Status: 403, Code: "ErrPolicyDenied", Message: "no"}
 	rec := post(h, "localhost", "application/json", body)
@@ -371,7 +385,7 @@ func TestServeMapsFailuresToStatus(t *testing.T) {
 
 func TestServeRefusesRemoteBindWithoutTheFlag(t *testing.T) {
 	r := newRig(t)
-	err := commitcmd.Serve(context.Background(), "0.0.0.0:0", r.svc, false, nil)
+	err := commitcmd.Serve(context.Background(), "0.0.0.0:0", r.svc, commitcmd.Options{}, nil)
 	require.ErrorIs(t, err, commitcmd.ErrBind)
 }
 
@@ -381,7 +395,7 @@ func TestServeListensOnLoopbackAndStops(t *testing.T) {
 	addr := make(chan string, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- commitcmd.Serve(ctx, "127.0.0.1:0", r.svc, false, func(a net.Addr) { addr <- a.String() })
+		done <- commitcmd.Serve(ctx, "127.0.0.1:0", r.svc, commitcmd.Options{}, func(a net.Addr) { addr <- a.String() })
 	}()
 	var a string
 	select {
@@ -401,4 +415,183 @@ func TestServeListensOnLoopbackAndStops(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("serve did not stop")
 	}
+}
+
+func deep(n int) string { return strings.Repeat("[", n) + strings.Repeat("]", n) }
+
+func TestNestedBodyIsRefusedWithoutOverflowingTheStack(t *testing.T) {
+	body := `{"context":` + deep(100000) + `}`
+	_, err := commitcmd.DecodeRequest(strings.NewReader(body))
+	require.Error(t, err)
+	assert.Equal(t, commitcmd.ExitUsage, exitOf(t, err))
+
+	big := `{"context":` + strings.Repeat("[", 1<<20) + `}`
+	_, err = commitcmd.DecodeRequest(strings.NewReader(big))
+	require.Error(t, err)
+
+	_, err = commitcmd.DecodeRequest(strings.NewReader(`{"context":` + deep(commitcmd.MaxJSONDepth-2) + `}`))
+	assert.NoError(t, err, "ordinary nesting passes")
+}
+
+func TestKeysThatDifferOnlyInCaseAreDuplicates(t *testing.T) {
+	_, err := commitcmd.DecodeRequest(strings.NewReader(`{"action":"QUFB","ACTION":"QkJC"}`))
+	require.Error(t, err)
+	assert.Equal(t, commitcmd.ExitUsage, exitOf(t, err))
+	assert.Error(t, commitcmd.CheckJSON([]byte(`{"a":1,"A":2}`)))
+	assert.NoError(t, commitcmd.CheckJSON([]byte(`{"a":{"b":1},"c":{"b":2}}`)))
+}
+
+func TestContextWithDuplicateKeysIsRefused(t *testing.T) {
+	r := newRig(t)
+	q := request()
+	q.Context = []byte(`{"price":1,"price":2}`)
+	_, err := r.svc.Commit(context.Background(), q)
+	require.Error(t, err)
+	assert.Equal(t, commitcmd.ExitUsage, exitOf(t, err))
+	assert.Empty(t, r.pub.Blobs())
+}
+
+func TestNoGateKeyFailsClosed(t *testing.T) {
+	r := newRig(t)
+	r.svc.GateKeys = nil
+	_, err := r.svc.Commit(context.Background(), request())
+	require.Error(t, err)
+	assert.Equal(t, commitcmd.ExitUsage, exitOf(t, err))
+	assert.Empty(t, r.pub.Blobs(), "nothing is published")
+}
+
+func TestARefusedAuthorizationIsKeptInTheFailure(t *testing.T) {
+	r := newRig(t)
+	r.gate.fast = true
+	_, err := r.svc.Commit(context.Background(), request())
+	var f *commitcmd.Failure
+	require.ErrorAs(t, err, &f)
+	assert.Equal(t, "mode_mismatch", f.Code)
+	assert.NotEmpty(t, f.Authorization, "the issued Authorization is returned")
+	assert.NotEmpty(t, f.Envelope)
+}
+
+func TestALostAuthorizeResponseIsRecoveredFromTheStoredOne(t *testing.T) {
+	r := newRig(t)
+	r.gate.lose = true
+	resp, err := r.svc.Commit(context.Background(), request())
+	require.NoError(t, err)
+	assert.Equal(t, 2, r.gate.calls, "authorize was repeated with the same envelope")
+	assert.Len(t, r.pub.Blobs(), 1, "the payload was published once")
+	assert.NotEmpty(t, resp.Authorization)
+}
+
+func TestCallerCancellationDoesNotAbandonAnAuthorize(t *testing.T) {
+	r := newRig(t)
+	r.gate.lose = true
+	ctx, cancel := context.WithCancel(context.Background())
+	r.gate.hook = cancel
+	resp, err := r.svc.Commit(ctx, request())
+	require.NoError(t, err, "the authorize step finished after the caller gave up")
+	assert.NotEmpty(t, resp.Authorization)
+	assert.Equal(t, 2, r.gate.calls)
+}
+
+func TestResumeAuthorizesWithoutPublishing(t *testing.T) {
+	r := newRig(t)
+	r.gate.err = &edictaapi.Error{Status: 503, Code: "ErrUnavailable", Message: "down", Retryable: true}
+	_, err := r.svc.Commit(context.Background(), request())
+	var f *commitcmd.Failure
+	require.ErrorAs(t, err, &f)
+	assert.Equal(t, commitcmd.ExitUnavailable, f.Exit)
+	require.NotEmpty(t, f.Envelope)
+	assert.Len(t, r.pub.Blobs(), 1)
+
+	r.gate.err = nil
+	resp, err := r.svc.Commit(context.Background(), commitcmd.Request{Resume: &commitcmd.Resume{Envelope: f.Envelope, Action: f.Action, Salt: f.Salt}})
+	require.NoError(t, err)
+	assert.Equal(t, f.Action, resp.Action)
+	assert.Len(t, r.pub.Blobs(), 1, "no second publish")
+
+	_, err = r.svc.Commit(context.Background(), commitcmd.Request{Resume: &commitcmd.Resume{}})
+	assert.Equal(t, commitcmd.ExitUsage, exitOf(t, err))
+}
+
+func TestStrictAgainstAFastRecorderSaysSo(t *testing.T) {
+	r := newRig(t)
+	r.pending = true
+	_, err := r.svc.Commit(context.Background(), request())
+	var f *commitcmd.Failure
+	require.ErrorAs(t, err, &f)
+	assert.Equal(t, "recorder_fast_mode", f.Code)
+	assert.Len(t, r.pub.Blobs(), 1, "published once, not reissued")
+}
+
+func TestPayloadErrorsAreNotRetryable(t *testing.T) {
+	for _, e := range []error{sdk.ErrPayloadMismatch, sdk.ErrAlreadyFinalized, sdk.ErrSignerClosed, sdk.ErrPlaintextHashMismatch} {
+		r := newRig(t)
+		r.svc.Builders = func(string, time.Duration) (*sdk.Builder, error) { return nil, e }
+		_, err := r.svc.Commit(context.Background(), request())
+		var f *commitcmd.Failure
+		require.ErrorAs(t, err, &f)
+		assert.Equal(t, commitcmd.ExitRefused, f.Exit)
+		assert.False(t, f.Retryable)
+	}
+}
+
+func TestRemoteModeNeedsTokenHostAndNoForeignOrigin(t *testing.T) {
+	r := newRig(t)
+	opts := commitcmd.Options{AllowRemote: true, Token: []byte("s3cret"), AllowedHosts: []string{"agent:8500"}}
+	h := commitcmd.Handler(r.svc, opts)
+	body := `{"action_type":"application/vnd.test.order+json","action":"eyJidXkiOiIxIn0=","context":{"p":1},"model":{"id":"m"},"policy":{"id":"p"}}`
+	do := func(host, auth, origin string) int {
+		req := httptest.NewRequest(http.MethodPost, "/v1/commit", strings.NewReader(body))
+		req.Host = host
+		req.Header.Set("Content-Type", "application/json")
+		if auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	assert.Equal(t, http.StatusOK, do("agent:8500", "Bearer s3cret", ""))
+	assert.Equal(t, http.StatusUnauthorized, do("agent:8500", "", ""))
+	assert.Equal(t, http.StatusUnauthorized, do("agent:8500", "Bearer wrong", ""))
+	assert.Equal(t, http.StatusUnauthorized, do("agent:8500", "s3cret", ""))
+	assert.Equal(t, http.StatusForbidden, do("evil:8500", "Bearer s3cret", ""))
+	assert.Equal(t, http.StatusForbidden, do("127.0.0.1:8500", "Bearer s3cret", ""), "loopback is not special in remote mode")
+	assert.Equal(t, http.StatusForbidden, do("agent:8500", "Bearer s3cret", "https://evil.example"))
+	assert.Equal(t, 1, r.gate.calls)
+
+	opts.AllowedOrigins = []string{"https://ui.example"}
+	h = commitcmd.Handler(newRig(t).svc, opts)
+	assert.Equal(t, http.StatusOK, do("agent:8500", "Bearer s3cret", "https://ui.example"))
+}
+
+func TestRemoteOptionsMustBeComplete(t *testing.T) {
+	r := newRig(t)
+	require.ErrorIs(t, commitcmd.Options{AllowRemote: true}.ValidateBasic(), commitcmd.ErrBind)
+	require.ErrorIs(t, commitcmd.Options{AllowRemote: true, Token: []byte("x")}.ValidateBasic(), commitcmd.ErrBind)
+	require.NoError(t, commitcmd.Options{AllowRemote: true, Token: []byte("x"), AllowedHosts: []string{"a:1"}}.ValidateBasic())
+	require.ErrorIs(t, commitcmd.Serve(context.Background(), "0.0.0.0:0", r.svc, commitcmd.Options{AllowRemote: true}, nil), commitcmd.ErrBind)
+
+	h := commitcmd.Handler(r.svc, commitcmd.Options{AllowRemote: true})
+	rec := post(h, "agent:8500", "application/json", "{}")
+	assert.Equal(t, http.StatusForbidden, rec.Code, "a misconfigured remote handler refuses everything")
+}
+
+func TestOriginOnLoopbackStaysAllowedByHostAndContentTypeChecks(t *testing.T) {
+	r := newRig(t)
+	h := commitcmd.Handler(r.svc, commitcmd.Options{})
+	rec := post(h, "127.0.0.1:8500", "text/plain", "{}")
+	assert.Equal(t, http.StatusUnsupportedMediaType, rec.Code)
+}
+
+func TestAForgedStoredAuthorizationIsNotAccepted(t *testing.T) {
+	r := newRig(t)
+	r.gate.err = &edictaapi.Error{Status: 409, Code: "ErrNonceUsed", Message: "used", Stored: []byte{1}}
+	_, err := r.svc.Commit(context.Background(), request())
+	var f *commitcmd.Failure
+	require.ErrorAs(t, err, &f)
+	assert.Equal(t, "authorization_invalid", f.Code)
+	assert.Equal(t, []byte{1}, f.Authorization)
 }

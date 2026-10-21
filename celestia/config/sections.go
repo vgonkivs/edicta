@@ -59,7 +59,23 @@ type Agent struct {
 	// RecorderURL is the Recorder or the relay the agent publishes to.
 	RecorderURL string `toml:"recorder_url"`
 	GateURL     string `toml:"gate_url"`
+	// SubmitterTrust says whose Recorder the agent publishes through:
+	// same_operator or untrusted. `edicta commit` refuses to run without it.
+	SubmitterTrust string `toml:"submitter_trust"`
+	// GateKeys are hex Ed25519 public keys of the gate; `edicta commit`
+	// verifies the Authorization against them.
+	GateKeys []string `toml:"gate_keys"`
+	// MandateFile is the canonical SignedMandate the agent acts under: its
+	// hash is the commitment's mandate_ref and its auditors are the payload
+	// recipients.
+	MandateFile string `toml:"mandate_file"`
 }
+
+// Submitter trust values of Agent.SubmitterTrust.
+const (
+	SubmitterSameOperator = "same_operator"
+	SubmitterUntrusted    = "untrusted"
+)
 
 // Gate is the gate's identity, key and inputs.
 type Gate struct {
@@ -476,7 +492,12 @@ func (a Agent) ValidateBasic() error {
 			return cfgErr("%s: %v", k, err)
 		}
 	}
-	return nil
+	switch a.SubmitterTrust {
+	case "", SubmitterSameOperator, SubmitterUntrusted:
+	default:
+		return cfgErr(`agent.submitter_trust must be "same_operator" or "untrusted"`)
+	}
+	return checkHexKeys("agent.gate_keys", a.GateKeys)
 }
 
 // ValidateBasic checks the stateless fields.

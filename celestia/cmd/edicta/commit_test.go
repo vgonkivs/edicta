@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/celestia/commitcmd"
+	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/sdk"
@@ -79,7 +80,7 @@ func fakeService(t *testing.T, g *cliGate, pub *sdktest.Publisher) {
 	newCommitService = func(_ context.Context, o commonOpts) (*commitcmd.Service, func(), error) {
 		g.got = o
 		return &commitcmd.Service{
-			Gate: g, Clock: clock.Now,
+			Gate: g, GateKeys: [][]byte{g.priv.Public().(ed25519.PublicKey)}, GateID: testGateID, Clock: clock.Now,
 			Builders: func(mode string, validFor time.Duration) (*sdk.Builder, error) {
 				cfg := sdk.DefaultConfig()
 				cfg.AgentID = "agent-1"
@@ -180,9 +181,7 @@ func TestCommitWithoutAConfigIsAUsageError(t *testing.T) {
 }
 
 func TestParseRecipients(t *testing.T) {
-	_, err := parseRecipients(nil)
-	require.Error(t, err)
-	_, err = parseRecipients([]string{"zz"})
+	_, err := parseRecipients([]string{"zz"})
 	require.Error(t, err)
 	_, err = parseRecipients([]string{"00"})
 	require.Error(t, err, "not a 32-byte key")
@@ -238,5 +237,69 @@ type syncBuffer struct {
 	b  bytes.Buffer
 }
 
-func (s *syncBuffer) Write(p []byte) (int, error) { s.mu.Lock(); defer s.mu.Unlock(); return s.b.Write(p) }
-func (s *syncBuffer) String() string              { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+func (s *syncBuffer) String() string { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }
+
+func TestSubmitterTrustIsRequiredAndUntrustedIsRefused(t *testing.T) {
+	_, err := submitterTrust("")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "required")
+	_, err = submitterTrust("untrusted")
+	require.Error(t, err)
+	_, err = submitterTrust("bogus")
+	require.Error(t, err)
+	v, err := submitterTrust("same_operator")
+	require.NoError(t, err)
+	assert.Equal(t, sdk.SubmitterSameOperator, v)
+}
+
+func TestGateKeySourcesInOrder(t *testing.T) {
+	k1, k2 := strings.Repeat("11", 32), strings.Repeat("22", 32)
+	var cfg config.Config
+	cfg.Agent = &config.Agent{GateKeys: []string{k1}}
+	cfg.Signer = &config.Signer{PinnedGateKeys: []string{k2}}
+
+	got, err := gateKeysOf(commonOpts{gateKeys: stringList{k2}}, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, hex.EncodeToString(got[0]), k2, "the flag wins")
+	got, err = gateKeysOf(commonOpts{}, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, hex.EncodeToString(got[0]), k1, "then agent.gate_keys")
+	cfg.Agent.GateKeys = nil
+	got, err = gateKeysOf(commonOpts{}, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, hex.EncodeToString(got[0]), k2, "then signer.pinned_gate_keys")
+	cfg.Signer = nil
+	_, err = gateKeysOf(commonOpts{}, cfg)
+	require.Error(t, err, "no key, no run")
+	_, err = gateKeysOf(commonOpts{gateKeys: stringList{"zz"}}, cfg)
+	require.Error(t, err)
+}
+
+func TestMandateOfNeedsARecipientAndAGoodRef(t *testing.T) {
+	_, _, err := mandateOf(commonOpts{}, "")
+	require.Error(t, err)
+	k, err := ecdh.X25519().GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	pub := hex.EncodeToString(k.PublicKey().Bytes())
+	_, _, err = mandateOf(commonOpts{recipients: stringList{pub}, mandateRef: "abc"}, "")
+	require.Error(t, err)
+	ref, rec, err := mandateOf(commonOpts{recipients: stringList{pub}, mandateRef: strings.Repeat("ab", 32)}, "")
+	require.NoError(t, err)
+	assert.Equal(t, byte(0xab), ref[0])
+	assert.Len(t, rec, 1)
+	_, _, err = mandateOf(commonOpts{recipients: stringList{pub}}, filepath.Join(t.TempDir(), "none"))
+	require.Error(t, err, "a missing mandate file is an error, not a silent skip")
+}
+
+func TestAgentServeRemoteNeedsTokenAndHost(t *testing.T) {
+	fakeService(t, newCLIGate(t), sdktest.NewPublisher(commitment.DACelestiaBlob))
+	var out bytes.Buffer
+	code := runAgent(context.Background(), []string{"serve", "--listen", "0.0.0.0:0", "--allow-remote"}, &out)
+	assert.Equal(t, commitcmd.ExitUsage, code)
+	assert.Contains(t, out.String(), "bearer token")
+}
