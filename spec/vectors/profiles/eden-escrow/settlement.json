@@ -1,7 +1,7 @@
 {
   "format": "edicta-vectors/v0",
   "profile": "eden-escrow",
-  "revision": "eden-escrow-v1-draft.2",
+  "revision": "eden-escrow-v1-draft.3",
   "generator": "spec/vectors/tools/edenescrow-gen",
   "upstream": {
     "go-ethereum": "github.com/ethereum/go-ethereum v1.17.8"
@@ -689,6 +689,34 @@
           "blockHash": "0x40a41bde8fd170edd66b42c5a80fa0e77a96b47177c448fb823ce0ec1d2fb69b",
           "transactionHash": "0x6aa7c945a3a398cc8d26e4b9176cbef7b75425cb85c75f82f6a0fab3eef8bc71",
           "transactionIndex": "0x1",
+          "removed": false
+        }
+      ],
+      "expect": "settlement_log_mismatch"
+    },
+    {
+      "id": "event_other_index",
+      "cause": "the log names another transactionIndex",
+      "action_ref": "tx_f14_714",
+      "tx_hash": "0x6aa7c945a3a398cc8d26e4b9176cbef7b75425cb85c75f82f6a0fab3eef8bc71",
+      "block_hash": "0x40a41bde8fd170edd66b42c5a80fa0e77a96b47177c448fb823ce0ec1d2fb69a",
+      "transaction_index": "0x1",
+      "from": "0xf3042d6fe371959cd81891e19f56bd0a9e1e2b20",
+      "escrow": "0x65d77c98e73dfbea91ecb72b27c9753e186a94c8",
+      "status": "1",
+      "logs": [
+        {
+          "address": "0x65d77c98e73dfbea91ecb72b27c9753e186a94c8",
+          "topics": [
+            "0x4e8468b036003985396bfb5e6fc36f0e8395146648e829557ea1fd48d2b9a6ff",
+            "0xe7b0fe0c168a34ec93cfca6752955af23bbe002de0d16d399f35ff910b160f35",
+            "0x000000000000000000000000f3042d6fe371959cd81891e19f56bd0a9e1e2b20",
+            "0x000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc"
+          ],
+          "data": "0x000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000003972f538a8081d000000000000000000000000000000000000000000000000000000006ad87b94000000000000000000000000000000000000000000000000000000006ae1b4e800000000000000000000000000000000000000000000000008c9da13856cd000",
+          "blockHash": "0x40a41bde8fd170edd66b42c5a80fa0e77a96b47177c448fb823ce0ec1d2fb69a",
+          "transactionHash": "0x6aa7c945a3a398cc8d26e4b9176cbef7b75425cb85c75f82f6a0fab3eef8bc71",
+          "transactionIndex": "0x0",
           "removed": false
         }
       ],

@@ -16,6 +16,7 @@ from cbor_strict import CBORError, decode_strict
 
 ACTION_TYPE = "application/vnd.edicta.eden.escrow-deposit-tx.v1+cbor"
 EXTRACTOR_ID = "eden/escrow-deposit-tx/v1"
+EXTRACTOR_DEV_ID = "eden/escrow-deposit-tx-dev/v1"
 REQUIREMENTS_TAG = b"edicta/eden-escrow/v1/requirements"
 ERR_MALFORMED = "edenescrow.ErrMalformed"
 ERR_DOMAIN = "edenescrow.ErrUnknownDomain"
@@ -285,7 +286,7 @@ def rail_ref(signed: bytes) -> str:
 
 
 def check_rail_ref(ref: str) -> bytes:
-    """EE1: exactly 64 lower-case hex characters."""
+    """EE1: exactly 64 lower-case hex characters; a failure is unchecked, never violated."""
     if RAIL_REF_RE.fullmatch(ref) is None:
         raise Refused("malformed_rail_ref", "EE1", ref)
     return bytes.fromhex(ref)

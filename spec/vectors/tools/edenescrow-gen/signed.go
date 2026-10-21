@@ -126,6 +126,13 @@ func buildSignedFile(lv *live) obj {
 		ee3{"high_s", base.id, "wrong_tx", "s replaced by n - s and y_parity flipped (recovers the same key)", splice(items, highS)},
 		ee3{"y_parity_2", base.id, "wrong_tx", "y_parity 2", splice(items, sig{2, goodSig.r, goodSig.s})},
 		ee3{"r_zero", base.id, "wrong_tx", "r = 0", splice(items, sig{goodSig.y, big.NewInt(0), goodSig.s})},
+		ee3{"r_equals_n", base.id, "wrong_tx", "r = n", splice(items, sig{goodSig.y, secpN, goodSig.s})},
+		ee3{"s_zero", base.id, "wrong_tx", "s = 0", splice(items, sig{goodSig.y, goodSig.r, big.NewInt(0)})},
+		ee3{"r_not_on_curve", base.id, "wrong_tx", "r is no x-coordinate of the curve, so no key recovers", splice(items, sig{goodSig.y, notOnCurve(), goodSig.s})},
+		ee3{"y_parity_zero_byte", base.id, "wrong_tx", "y_parity 0 encoded as the single byte 0x00",
+			txOf(append(append([][]byte{}, items...), []byte{0x00}, rlpBig(goodSig.r), rlpBig(goodSig.s)))},
+		ee3{"s_as_list", base.id, "wrong_tx", "s encoded as a list holding the s string",
+			txOf(append(append([][]byte{}, items...), rlpUint(goodSig.y), rlpBig(goodSig.r), rlpList(rlpBig(goodSig.s))))},
 		ee3{"s_leading_zero", base.id, "wrong_tx", "s with a leading zero byte",
 			txOf(append(append([][]byte{}, items...), rlpUint(goodSig.y), rlpBig(goodSig.r), sLeadingZero))},
 		ee3{"thirteen_items", base.id, "wrong_tx", "a thirteenth item after s", txOf(extra)},
@@ -148,12 +155,12 @@ func buildSignedFile(lv *live) obj {
 	good := railRef(goodBin)
 	railRefs := []obj{
 		{{"id", "rail_ref_ok"}, {"rail_ref", good}, {"expect", "ok"}},
-		{{"id", "rail_ref_upper"}, {"rail_ref", upperFirstLetter(good)}, {"expect", "malformed_rail_ref"}},
-		{{"id", "rail_ref_0x"}, {"rail_ref", "0x" + good}, {"expect", "malformed_rail_ref"}},
-		{{"id", "rail_ref_63"}, {"rail_ref", good[:63]}, {"expect", "malformed_rail_ref"}},
-		{{"id", "rail_ref_65"}, {"rail_ref", good + "0"}, {"expect", "malformed_rail_ref"}},
-		{{"id", "rail_ref_non_hex"}, {"rail_ref", "g" + good[1:]}, {"expect", "malformed_rail_ref"}},
-		{{"id", "rail_ref_one_char"}, {"rail_ref", "a"}, {"expect", "malformed_rail_ref"}},
+		{{"id", "rail_ref_upper"}, {"rail_ref", upperFirstLetter(good)}, {"expect", "malformed_rail_ref"}, {"status", "unchecked"}},
+		{{"id", "rail_ref_0x"}, {"rail_ref", "0x" + good}, {"expect", "malformed_rail_ref"}, {"status", "unchecked"}},
+		{{"id", "rail_ref_63"}, {"rail_ref", good[:63]}, {"expect", "malformed_rail_ref"}, {"status", "unchecked"}},
+		{{"id", "rail_ref_65"}, {"rail_ref", good + "0"}, {"expect", "malformed_rail_ref"}, {"status", "unchecked"}},
+		{{"id", "rail_ref_non_hex"}, {"rail_ref", "g" + good[1:]}, {"expect", "malformed_rail_ref"}, {"status", "unchecked"}},
+		{{"id", "rail_ref_one_char"}, {"rail_ref", "a"}, {"expect", "malformed_rail_ref"}, {"status", "unchecked"}},
 		{{"id", "rail_ref_f14"}, {"rail_ref", strings.TrimPrefix(lv.Deposit.Hash, "0x")}, {"expect", "ok"}},
 	}
 	return obj{
@@ -174,4 +181,18 @@ func buildSignedFile(lv *live) obj {
 func upperFirstLetter(s string) string {
 	i := strings.IndexAny(s, "abcdef")
 	return s[:i] + strings.ToUpper(s[i:i+1]) + s[i+1:]
+}
+
+// notOnCurve returns the smallest r for which x^3 + 7 has no square root
+// modulo p, so no point has x = r.
+func notOnCurve() *big.Int {
+	p := crypto.S256().Params().P
+	for x := int64(1); ; x++ {
+		r := big.NewInt(x)
+		y2 := new(big.Int).Exp(r, big.NewInt(3), p)
+		y2.Add(y2, big.NewInt(7)).Mod(y2, p)
+		if new(big.Int).ModSqrt(y2, p) == nil {
+			return r
+		}
+	}
 }

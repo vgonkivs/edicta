@@ -200,6 +200,7 @@ func buildSettlementFile(lv *live) obj {
 		{"event_removed", "removed = true", 1, mutLog(func(l *rpcLog) { l.Removed = true }), buyer},
 		{"event_other_tx_hash", "the log names another transaction", 1, mutLog(func(l *rpcLog) { l.TransactionHash = flipHexByte(l.TransactionHash, 0) }), buyer},
 		{"event_other_block", "the log names another block", 1, mutLog(func(l *rpcLog) { l.BlockHash = flipHexByte(l.BlockHash, 0) }), buyer},
+		{"event_other_index", "the log names another transactionIndex", 1, mutLog(func(l *rpcLog) { l.TransactionIndex = "0x0" }), buyer},
 		{"event_reverted", "status 0 and no log: outcome reverted, the event rule does not apply", 0, nil, buyer},
 		{"event_reverted_with_log", "status 0 with a log", 0, []rpcLog{escrowLog}, buyer},
 	}

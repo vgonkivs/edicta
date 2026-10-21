@@ -18,6 +18,7 @@ import (
 const (
 	actionType      = "application/vnd.edicta.eden.escrow-deposit-tx.v1+cbor"
 	extractorID     = "eden/escrow-deposit-tx/v1"
+	extractorDevID  = "eden/escrow-deposit-tx-dev/v1"
 	requirementsTag = "edicta/eden-escrow/v1/requirements"
 	depositSig      = "deposit(bytes32,address,address,uint256,uint256,uint256)"
 	settleSig       = "settle(bytes32,uint256)"
@@ -429,10 +430,20 @@ func actionRejects(a actionCase) []actionReject {
 	addT("tx_nonce_wrapped_single_byte", "ET2", "nonce 7 encoded as 0x81 0x07", errMalformed, txOf(withItem(it, 1, []byte{0x81, 0x07})))
 	gas := new(big.Int).SetUint64(a.tx.gas).Bytes()
 	addT("tx_gas_long_form", "ET2", "a 3-byte gas_limit in long form (0xb8 0x03 ...)", errMalformed, txOf(withItem(it, 4, cat([]byte{0xb8, byte(len(gas))}, gas))))
+	straddle := cat(rlpList(append(append([][]byte{}, it[:8]...), []byte{0xc1})...), []byte{0x80})
+	addT("tx_item_straddles_list_end", "ET2", "access_list header 0xc1 claims a byte past the list end; that byte follows the list", errMalformed, append([]byte{2}, straddle...))
+	addT("tx_access_list_long_form", "ET2", "the empty access list as 0xf8 0x00 (long form for a short payload)", errMalformed, txOf(withItem(it, 8, []byte{0xf8, 0x00})))
 	addT("tx_access_list_as_string", "ET2", "access_list encoded as the empty string 0x80", errMalformed, txOf(withItem(it, 8, []byte{0x80})))
 	addT("tx_chain_id_as_list", "ET2", "chain_id encoded as a list", errMalformed, txOf(withItem(it, 0, rlpList(rlpUint(714)))))
 	val := a.tx.value.Bytes()
 	addT("tx_value_leading_zero", "ET3", "value with a leading zero byte", errMalformed, txOf(withItem(it, 6, rlpStr(append([]byte{0}, val...)))))
+	addT("tx_chain_id_leading_zero", "ET3", "chain_id 714 as 00 02 ca", errMalformed, txOf(withItem(it, 0, rlpStr([]byte{0, 2, 0xca}))))
+	addT("tx_fee_leading_zero", "ET3", "max_fee_per_gas with a leading zero byte", errMalformed, txOf(withItem(it, 3, rlpStr(append([]byte{0}, a.tx.fee.Bytes()...)))))
+	addT("tx_tip_zero_byte", "ET3", "tip 0 encoded as the single byte 0x00 (canonical RLP, not a canonical integer)", errMalformed, txOf(withItem(it, 2, []byte{0x00})))
+	addT("tx_nonce_9_bytes", "ET3", "nonce of 9 bytes", errMalformed, txOf(withItem(it, 1, rlpStr([]byte{1, 0, 0, 0, 0, 0, 0, 0, 7}))))
+	addT("tx_gas_9_bytes", "ET3", "gas_limit of 9 bytes", errMalformed, txOf(withItem(it, 4, rlpStr(cat([]byte{1}, make([]byte, 5), gas)))))
+	addT("tx_tip_33_bytes", "ET3", "max_priority_fee_per_gas of 33 bytes", errMalformed, txOf(withItem(it, 2, rlpStr(cat([]byte{1}, make([]byte, 32))))))
+	addT("tx_chain_id_2_63", "ET3", "chain_id 2^63", errMalformed, txOf(withItem(it, 0, rlpUint(1<<63))))
 	addT("tx_chain_id_9_bytes", "ET3", "chain_id of 9 bytes", errMalformed, txOf(withItem(it, 0, rlpStr([]byte{1, 0, 0, 0, 0, 0, 0, 2, 0xca}))))
 	addT("tx_nonce_2_63", "ET3", "nonce 2^63", errMalformed, txOf(withItem(it, 1, rlpUint(1<<63))))
 	addT("tx_gas_2_63", "ET3", "gas_limit 2^63", errMalformed, txOf(withItem(it, 4, rlpUint(1<<63))))
@@ -474,7 +485,7 @@ func buildActionFile(lv *live, code obj) obj {
 		salt := label("eden-escrow-v1 vector salt " + a.id)
 		f := factsOf(a.tx)
 		cs = append(cs, obj{
-			{"id", a.id}, {"description", a.desc}, {"build", a.build},
+			{"id", a.id}, {"description", a.desc}, {"build", a.build}, {"extractor_ids", idsFor(a.build)},
 			{"input", obj{
 				{"chain_id", dec(a.tx.chainID)}, {"nonce", dec(a.tx.nonce)},
 				{"max_priority_fee_per_gas", a.tx.tip.String()}, {"max_fee_per_gas", a.tx.fee.String()},
@@ -498,27 +509,49 @@ func buildActionFile(lv *live, code obj) obj {
 		if build == "" {
 			build = "production"
 		}
-		e := obj{{"id", r.id}, {"build", build}, {"cbor_hex", hx(r.cbor)}, {"expect_error", r.err},
+		id := extractorID
+		if build == "edictadev" {
+			id = extractorDevID
+		}
+		e := obj{{"id", r.id}, {"build", build}, {"extractor_id", id}, {"cbor_hex", hx(r.cbor)}, {"expect_error", r.err},
 			{"extractor_expect_error", errFacts}, {"rule", r.rule}, {"cause", r.cause}}
 		if r.tx != nil {
 			e = append(e, kv{"geth_rlp_decodes", gethDecodes(r.tx)})
 		}
 		rs = append(rs, e)
 	}
-	var rows []any
-	for _, r := range table {
-		rows = append(rows, obj{{"chain_id", dec(r.chainID)}, {"escrow", strings.ToLower(r.escrow.Hex())},
-			{"code_hash", hx(codeHash)}, {"builds", r.builds}})
+	rowsFor := func(dev bool) []any {
+		var rows []any
+		for _, r := range table {
+			if r.builds == "edictadev" && !dev {
+				continue
+			}
+			rows = append(rows, obj{{"chain_id", dec(r.chainID)}, {"escrow", strings.ToLower(r.escrow.Hex())},
+				{"code_hash", hx(codeHash)}})
+		}
+		return rows
 	}
 	return obj{
 		{"format", format}, {"profile", profile}, {"revision", revision}, {"generator", generator},
 		{"upstream", upstream},
 		{"action_type", actionType},
-		{"extractor", obj{{"id", extractorID}, {"kind", "x402-payment"}, {"scale", "18"}, {"rows", rows}}},
+		{"extractors", []any{
+			obj{{"id", extractorID}, {"build", "production"}, {"kind", "x402-payment"}, {"scale", "18"}, {"rows", rowsFor(false)}},
+			obj{{"id", extractorDevID}, {"build", "edictadev"}, {"kind", "x402-payment"}, {"scale", "18"}, {"rows", rowsFor(true)}},
+		}},
 		{"escrow_code", code},
 		{"requirements_tag", requirementsTag},
 		{"limits", obj{{"action_max", "4096"}, {"tx_max", "512"}, {"resource_max", "2048"}}},
 		{"cases", cs},
 		{"reject", rs},
 	}
+}
+
+// idsFor lists the extractors that accept a case: a dev build registers only
+// the dev ID for this type, which also holds the production rows.
+func idsFor(build string) []string {
+	if build == "edictadev" {
+		return []string{extractorDevID}
+	}
+	return []string{extractorID, extractorDevID}
 }

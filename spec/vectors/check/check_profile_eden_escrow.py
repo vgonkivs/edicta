@@ -28,7 +28,7 @@ from policy_v1 import encode_facts
 
 HERE = Path(__file__).resolve().parent
 DEFAULT = HERE.parent / "profiles" / "eden-escrow"
-REVISION = "eden-escrow-v1-draft.2"
+REVISION = "eden-escrow-v1-draft.3"
 
 fails: list[str] = []
 
@@ -70,14 +70,16 @@ def check_calls(d: dict):
 
 def check_actions(d: dict, calls: dict):
     header(d, "action")
-    expect(d["action_type"] == ee.ACTION_TYPE and d["extractor"]["id"] == ee.EXTRACTOR_ID, "action type, extractor")
+    ids = {x["build"]: x["id"] for x in d["extractors"]}
+    expect(d["action_type"] == ee.ACTION_TYPE and ids == {"production": ee.EXTRACTOR_ID, "edictadev": ee.EXTRACTOR_DEV_ID},
+           "action type, extractor IDs")
     expect(d["requirements_tag"].encode() == ee.REQUIREMENTS_TAG, "requirements tag")
-    rows = {"all": {}, "edictadev": {}}
-    for r in d["extractor"]["rows"]:
-        rows[r["builds"]][int(r["chain_id"])] = bytes.fromhex(r["escrow"][2:])
-        expect(r["code_hash"] == ee.CODE_HASH.hex(), f"row {r['chain_id']}: code hash")
-    expect(rows["all"] == ee.ROWS["production"], "production rows")
-    expect({**rows["all"], **rows["edictadev"]} == ee.ROWS["edictadev"], "edictadev rows")
+    for x in d["extractors"]:
+        rows = {}
+        for r in x["rows"]:
+            rows[int(r["chain_id"])] = bytes.fromhex(r["escrow"][2:])
+            expect(r["code_hash"] == ee.CODE_HASH.hex(), f"row {r['chain_id']}: code hash")
+        expect(rows == ee.ROWS[x["build"]], f"{x['id']}: rows")
     out = {}
     for c in d["cases"]:
         cid, inp = c["id"], c["input"]
@@ -86,6 +88,9 @@ def check_actions(d: dict, calls: dict):
         if c["build"] == "edictadev":
             e = refused(ee.decode_action, b, "production")
             expect(e is not None and e.rule == "ED1", f"{cid}: production build must refuse the dev row")
+            expect(c["extractor_ids"] == [ee.EXTRACTOR_DEV_ID], f"{cid}: extractor ids")
+        else:
+            expect(c["extractor_ids"] == [ee.EXTRACTOR_ID, ee.EXTRACTOR_DEV_ID], f"{cid}: extractor ids")
         req = bytes.fromhex(inp["requirements_hex"])
         expect(a["tx"].hex() == c["tx_hex"], f"{cid}: tx")
         expect(ee.requirements_hash(req).hex() == c["requirements_hash_hex"] == a["requirements_hash"].hex(),
@@ -110,6 +115,8 @@ def check_actions(d: dict, calls: dict):
         expect(e is not None and e.sentinel == r["expect_error"] and e.rule == r["rule"],
                f"action reject {r['id']}: got {e and (e.sentinel, e.rule, str(e))}")
         expect(r["extractor_expect_error"] == "ErrFactsInvalid", f"action reject {r['id']}: extractor")
+        want_id = ee.EXTRACTOR_DEV_ID if r["build"] == "edictadev" else ee.EXTRACTOR_ID
+        expect(r["extractor_id"] == want_id, f"action reject {r['id']}: extractor id")
     return out
 
 
@@ -163,6 +170,7 @@ def check_signed(d: dict, actions: dict):
         e = refused(ee.check_rail_ref, c["rail_ref"])
         got = "ok" if e is None else e.sentinel
         expect(got == c["expect"], f"rail_ref {c['id']}: {got}")
+        expect(c.get("status") == (None if e is None else "unchecked"), f"rail_ref {c['id']}: status")
     for c in d["exact_tx"]:
         signed = bytes.fromhex(c["signed_hex"])
         expect(ee.rail_ref(signed) == c["rail_ref"], f"exact_tx {c['id']}: rail_ref")

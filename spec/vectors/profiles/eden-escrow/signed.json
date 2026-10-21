@@ -1,7 +1,7 @@
 {
   "format": "edicta-vectors/v0",
   "profile": "eden-escrow",
-  "revision": "eden-escrow-v1-draft.2",
+  "revision": "eden-escrow-v1-draft.3",
   "generator": "spec/vectors/tools/edenescrow-gen",
   "upstream": {
     "go-ethereum": "github.com/ethereum/go-ethereum v1.17.8"
@@ -98,32 +98,38 @@
     {
       "id": "rail_ref_upper",
       "rail_ref": "F6f00bb24f4193a0ebdbde4b496513d0214cc06f3e95c02aa57ecff305693227",
-      "expect": "malformed_rail_ref"
+      "expect": "malformed_rail_ref",
+      "status": "unchecked"
     },
     {
       "id": "rail_ref_0x",
       "rail_ref": "0xf6f00bb24f4193a0ebdbde4b496513d0214cc06f3e95c02aa57ecff305693227",
-      "expect": "malformed_rail_ref"
+      "expect": "malformed_rail_ref",
+      "status": "unchecked"
     },
     {
       "id": "rail_ref_63",
       "rail_ref": "f6f00bb24f4193a0ebdbde4b496513d0214cc06f3e95c02aa57ecff30569322",
-      "expect": "malformed_rail_ref"
+      "expect": "malformed_rail_ref",
+      "status": "unchecked"
     },
     {
       "id": "rail_ref_65",
       "rail_ref": "f6f00bb24f4193a0ebdbde4b496513d0214cc06f3e95c02aa57ecff3056932270",
-      "expect": "malformed_rail_ref"
+      "expect": "malformed_rail_ref",
+      "status": "unchecked"
     },
     {
       "id": "rail_ref_non_hex",
       "rail_ref": "g6f00bb24f4193a0ebdbde4b496513d0214cc06f3e95c02aa57ecff305693227",
-      "expect": "malformed_rail_ref"
+      "expect": "malformed_rail_ref",
+      "status": "unchecked"
     },
     {
       "id": "rail_ref_one_char",
       "rail_ref": "a",
-      "expect": "malformed_rail_ref"
+      "expect": "malformed_rail_ref",
+      "status": "unchecked"
     },
     {
       "id": "rail_ref_f14",
@@ -281,6 +287,46 @@
       "rail_ref": "7f4c5a444076dc0e76db3a6b7c51a3d3b97f496dea0b0e528cfacc0ece1b02eb",
       "expect": "wrong_tx",
       "cause": "r = 0"
+    },
+    {
+      "id": "r_equals_n",
+      "action_ref": "tx_f14_714",
+      "signed_hex": "02f901338202ca07808208fb83030d409465d77c98e73dfbea91ecb72b27c9753e186a94c8873972f538a8081db8c4b707d860e7b0fe0c168a34ec93cfca6752955af23bbe002de0d16d399f35ff910b160f35000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006ad87b94000000000000000000000000000000000000000000000000000000006ae1b4e800000000000000000000000000000000000000000000000008c9da13856cd000c080a0fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141a0745595310c10d822b0cd2443c73695f616b140aaafc1ac31400c67330a527dac",
+      "rail_ref": "8082639f536f3c5d7cb4354c4900a99f11fef7cd033f33007908a52e8734ec71",
+      "expect": "wrong_tx",
+      "cause": "r = n"
+    },
+    {
+      "id": "s_zero",
+      "action_ref": "tx_f14_714",
+      "signed_hex": "02f901138202ca07808208fb83030d409465d77c98e73dfbea91ecb72b27c9753e186a94c8873972f538a8081db8c4b707d860e7b0fe0c168a34ec93cfca6752955af23bbe002de0d16d399f35ff910b160f35000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006ad87b94000000000000000000000000000000000000000000000000000000006ae1b4e800000000000000000000000000000000000000000000000008c9da13856cd000c080a0f529b4ce6ed4b0107951cd589a1da92417724c20d0b211f69bf848ab87af1edd80",
+      "rail_ref": "6b3f5cab6b715e5d41fdbc13513bdef3d92617a42adebd0ac746987775a0446b",
+      "expect": "wrong_tx",
+      "cause": "s = 0"
+    },
+    {
+      "id": "r_not_on_curve",
+      "action_ref": "tx_f14_714",
+      "signed_hex": "02f901138202ca07808208fb83030d409465d77c98e73dfbea91ecb72b27c9753e186a94c8873972f538a8081db8c4b707d860e7b0fe0c168a34ec93cfca6752955af23bbe002de0d16d399f35ff910b160f35000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006ad87b94000000000000000000000000000000000000000000000000000000006ae1b4e800000000000000000000000000000000000000000000000008c9da13856cd000c08005a0745595310c10d822b0cd2443c73695f616b140aaafc1ac31400c67330a527dac",
+      "rail_ref": "e4af884e27a0a03bab2dcc3b5afab86070b33a02858bb1df206c873de5acb11a",
+      "expect": "wrong_tx",
+      "cause": "r is no x-coordinate of the curve, so no key recovers"
+    },
+    {
+      "id": "y_parity_zero_byte",
+      "action_ref": "tx_f14_714",
+      "signed_hex": "02f901338202ca07808208fb83030d409465d77c98e73dfbea91ecb72b27c9753e186a94c8873972f538a8081db8c4b707d860e7b0fe0c168a34ec93cfca6752955af23bbe002de0d16d399f35ff910b160f35000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006ad87b94000000000000000000000000000000000000000000000000000000006ae1b4e800000000000000000000000000000000000000000000000008c9da13856cd000c000a0f529b4ce6ed4b0107951cd589a1da92417724c20d0b211f69bf848ab87af1edda0745595310c10d822b0cd2443c73695f616b140aaafc1ac31400c67330a527dac",
+      "rail_ref": "fcbed2aafd7668268b8498d0728613512497bab0df30d9e0799192226b175047",
+      "expect": "wrong_tx",
+      "cause": "y_parity 0 encoded as the single byte 0x00"
+    },
+    {
+      "id": "s_as_list",
+      "action_ref": "tx_f14_714",
+      "signed_hex": "02f901348202ca07808208fb83030d409465d77c98e73dfbea91ecb72b27c9753e186a94c8873972f538a8081db8c4b707d860e7b0fe0c168a34ec93cfca6752955af23bbe002de0d16d399f35ff910b160f35000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006ad87b94000000000000000000000000000000000000000000000000000000006ae1b4e800000000000000000000000000000000000000000000000008c9da13856cd000c080a0f529b4ce6ed4b0107951cd589a1da92417724c20d0b211f69bf848ab87af1edde1a0745595310c10d822b0cd2443c73695f616b140aaafc1ac31400c67330a527dac",
+      "rail_ref": "47df6b5e7e2b6f0e7a5af6311068bd5dafc586af7d71bd1524cbd1f0daeffb55",
+      "expect": "wrong_tx",
+      "cause": "s encoded as a list holding the s string"
     },
     {
       "id": "s_leading_zero",
