@@ -1,0 +1,25 @@
+{
+  "name": "@edicta/houston",
+  "version": "0.1.0",
+  "description": "Drop-in step for an escrow-upto payment flow: commit, authorize, sign and settle through a local edicta agent serve",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist/src", "LICENSE"],
+  "engines": { "node": ">=20.3" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
