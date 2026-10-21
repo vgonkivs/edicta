@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -126,6 +128,9 @@ func RunDev(c DevConfig) (DevResult, error) {
 	if err != nil {
 		return DevResult{}, fmt.Errorf("%w: home directory: %w", ErrConfig, err)
 	}
+	if err := refuseForeignHome(home); err != nil {
+		return DevResult{}, err
+	}
 	if err := keyfile.MkdirSync(home); err != nil {
 		return DevResult{}, fmt.Errorf("init: home directory: %w", err)
 	}
@@ -181,6 +186,9 @@ func RunDev(c DevConfig) (DevResult, error) {
 		return res, err
 	}
 	if sm == nil {
+		if res.Principal.Status != Created {
+			return res, fmt.Errorf("%w: the principal key %s already exists and is not signed with: remove it or use a fresh dev home", ErrExisting, res.Principal.Path)
+		}
 		b, err := signDevMandate(res, keys, c)
 		if err != nil {
 			return res, err
@@ -424,4 +432,22 @@ type devEdictaTOML struct {
 	Recorder starterAccount `toml:"recorder"`
 	Archive  starterArchive `toml:"archive"`
 	Signer   *starterSigner `toml:"signer,omitempty"`
+}
+
+// refuseForeignHome refuses a non-empty directory that is not a dev home, so
+// a production home is never written into.
+func refuseForeignHome(home string) error {
+	entries, err := os.ReadDir(home)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	case err != nil:
+		return fmt.Errorf("init: home directory: %w", err)
+	case len(entries) == 0:
+		return nil
+	}
+	if _, err := os.Lstat(filepath.Join(home, DevMarkerFile)); err != nil {
+		return fmt.Errorf("%w: %s is not empty and has no %s: the dev init writes only into its own home", ErrConfig, home, DevMarkerFile)
+	}
+	return nil
 }

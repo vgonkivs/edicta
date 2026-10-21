@@ -160,3 +160,25 @@ func TestDevConfigValidateBasic(t *testing.T) {
 	assert.ErrorIs(t, DevConfig{Home: "x", FastDelay: 101}.ValidateBasic(), ErrConfig)
 	assert.NoError(t, DevConfig{Home: "x", FastDelay: 20}.ValidateBasic())
 }
+
+func TestRunDevRefusesAForeignHomeBeforeWriting(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(home, "edicta.toml"), []byte("x"), 0o600))
+
+	_, err := RunDev(DevConfig{Home: home})
+	require.ErrorIs(t, err, ErrConfig)
+	entries, err := os.ReadDir(home)
+	require.NoError(t, err)
+	assert.Len(t, entries, 1, "nothing was written")
+}
+
+func TestRunDevNeverSignsWithAnExistingPrincipalKey(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "dev")
+	res := runDev(t, home)
+	require.NoError(t, os.Remove(filepath.Join(res.Home, MandateFile)))
+
+	_, err := RunDev(DevConfig{Home: home})
+	require.ErrorIs(t, err, ErrExisting)
+	_, err = os.Stat(filepath.Join(res.Home, MandateFile))
+	assert.True(t, os.IsNotExist(err))
+}
