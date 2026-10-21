@@ -50,14 +50,14 @@ func TestRoutesMethodsMediaTypes(t *testing.T) {
 	rec = e.do(http.MethodPost, "/v1/health", cborType, []byte{0xa0})
 	requireErr(t, rec, 405, "edictaapi.ErrMethodNotAllowed", false)
 
-	for _, ct := range []string{"application/json", "", "text/plain", "application/cbor-seq"} {
+	for _, ct := range []string{"", "text/plain", "application/cbor-seq", "application/json-seq", "application/json; charset=latin1"} {
 		for _, p := range []string{"/v1/publish", "/v1/authorize", "/v1/record"} {
 			rec = e.do(http.MethodPost, p, ct, authReq(t))
 			requireErr(t, rec, 415, "edictaapi.ErrMediaType", false)
 		}
 	}
 	// Media type is checked before size: an oversized body with a wrong type is 415.
-	rec = e.do(http.MethodPost, "/v1/authorize", "application/json", make([]byte, authorizeLimit+1))
+	rec = e.do(http.MethodPost, "/v1/authorize", "text/plain", make([]byte, authorizeLimit+1))
 	requireErr(t, rec, 415, "edictaapi.ErrMediaType", false)
 	require.Zero(t, e.gate.calls())
 }
@@ -428,7 +428,12 @@ func TestVectorExamples(t *testing.T) {
 				e := newEnv(t, nil)
 				switch ex.ID {
 				case "publish_wrong_media_type":
-					rec := e.do(http.MethodPost, ex.Endpoint, ex.ContentType, unhex(t, ex.RequestHex))
+					ctype := ex.ContentType
+					if ctype == "application/json" {
+						// JSON is an accepted transport now; another unsupported type keeps the vector's point.
+						ctype = "text/plain"
+					}
+					rec := e.do(http.MethodPost, ex.Endpoint, ctype, unhex(t, ex.RequestHex))
 					requireErr(t, rec, 415, "edictaapi.ErrMediaType", false)
 					require.Zero(t, e.pub.count())
 				case "publish_ok":

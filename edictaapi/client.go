@@ -68,6 +68,11 @@ func WithRetry(maxAttempts int, wait WaitFunc) ClientOption {
 	}
 }
 
+// WithJSON makes the client speak application/json instead of
+// application/cbor. The bytes that matter (envelope, action, salt, signatures,
+// Authorization, receipt) are the same canonical objects, carried as base64.
+func WithJSON() ClientOption { return func(c *Client) { c.json = true } }
+
 // Client is the Go client of the API. It is safe for concurrent use.
 type Client struct {
 	base        string
@@ -78,6 +83,7 @@ type Client struct {
 	clock       gate.Clock
 	maxAttempts int
 	wait        WaitFunc
+	json        bool
 }
 
 var _ sdk.Publisher = (*Client)(nil)
@@ -256,8 +262,15 @@ func (c *Client) Health(ctx context.Context) (HealthInfo, error) {
 // do sends the request, repeating it unchanged while the server answers
 // retryable = 1 and attempts remain.
 func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+	rt, _ := routeSchemas(path)
+	if c.json && body != nil {
+		var err error
+		if body, err = cborToJSON(body, rt.req); err != nil {
+			return nil, fmt.Errorf("edictaapi: render json request: %w", err)
+		}
+	}
 	for attempt := 1; ; attempt++ {
-		out, after, err := c.once(ctx, method, path, body)
+		out, after, err := c.once(ctx, method, path, body, rt)
 		if err == nil {
 			return out, nil
 		}
@@ -271,7 +284,11 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 	}
 }
 
-func (c *Client) once(ctx context.Context, method, path string, body []byte) ([]byte, time.Duration, error) {
+func (c *Client) once(ctx context.Context, method, path string, body []byte, rt jsonRoute) ([]byte, time.Duration, error) {
+	ctype, limit := contentType, uint64(maxResponse)
+	if c.json {
+		ctype, limit = jsonContentType, jsonLimit(maxResponse)
+	}
 	var rd io.Reader
 	if body != nil {
 		rd = bytes.NewReader(body)
@@ -280,9 +297,9 @@ func (c *Client) once(ctx context.Context, method, path string, body []byte) ([]
 	if err != nil {
 		return nil, 0, fmt.Errorf("edictaapi: build request: %w", err)
 	}
-	req.Header.Set("Accept", contentType)
+	req.Header.Set("Accept", ctype)
 	if body != nil {
-		req.Header.Set("Content-Type", contentType)
+		req.Header.Set("Content-Type", ctype)
 	}
 	if c.token.isSet() {
 		req.Header.Set("Authorization", "Bearer "+string(c.token.b))
@@ -297,12 +314,23 @@ func (c *Client) once(ctx context.Context, method, path string, body []byte) ([]
 		return nil, 0, fmt.Errorf("edictaapi: %s %s: %w", method, path, err)
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1))
 	if err != nil {
 		return nil, 0, fmt.Errorf("edictaapi: read response: %w", err)
 	}
-	if len(data) > maxResponse {
+	if uint64(len(data)) > limit {
 		return nil, 0, fmt.Errorf("edictaapi: response above %d bytes: %w", maxResponse, commitment.ErrTooLarge)
+	}
+	if c.json {
+		schema := rt.resp
+		if resp.StatusCode != http.StatusOK {
+			schema = jsonErrorBody
+		}
+		if conv, cerr := jsonToCBOR(data, schema); cerr == nil {
+			data = conv
+		} else if resp.StatusCode == http.StatusOK {
+			return nil, 0, fmt.Errorf("edictaapi: %s response: %w", path, cerr)
+		}
 	}
 	if resp.StatusCode == http.StatusOK {
 		return data, 0, nil

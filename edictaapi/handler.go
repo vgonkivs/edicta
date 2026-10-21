@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 	"strconv"
 	"sync"
@@ -112,12 +111,19 @@ type response struct {
 	body       []byte
 	retryAfter time.Duration
 	allow      string
+	// schema names the fields of a 200 body when the answer is rendered as JSON.
+	schema []fspec
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	res := h.serve(r)
+	ctype := contentType
+	if responseIsJSON(r) {
+		ctype = jsonContentType
+		res = h.renderJSON(res)
+	}
 	hd := w.Header()
-	hd.Set("Content-Type", contentType)
+	hd.Set("Content-Type", ctype)
 	hd.Set("X-Content-Type-Options", "nosniff")
 	if res.allow != "" {
 		hd.Set("Allow", res.allow)
@@ -127,6 +133,23 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(res.status)
 	_, _ = w.Write(res.body)
+}
+
+// renderJSON converts a CBOR response body to JSON. The body is the server's
+// own, so a failure is a bug and is answered as an internal error.
+func (h *handler) renderJSON(res response) response {
+	schema := res.schema
+	if res.status != 200 {
+		schema = jsonErrorBody
+	}
+	out, err := cborToJSON(res.body, schema)
+	if err != nil {
+		h.log.Error("edictaapi: render json response", "err", err)
+		res.status, res.retryAfter = 500, 0
+		out, _ = cborToJSON(errorResponse(500, codeInternal, "internal error", false, nil, nil, 0).body, jsonErrorBody)
+	}
+	res.body = out
+	return res
 }
 
 func (h *handler) serve(r *http.Request) (res response) {
@@ -178,15 +201,31 @@ func (h *handler) serve(r *http.Request) (res response) {
 		if err != nil {
 			return h.failIn(ctx, r, err, nil, nil)
 		}
-		return response{status: 200, body: encodeHealth(info)}
+		return response{status: 200, body: encodeHealth(info), schema: healthSchema}
 	}
 
-	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != contentType {
+	isJSON, ok := requestMedia(r.Header.Get("Content-Type"))
+	if !ok {
 		return h.fail(r, ErrMediaType, nil)
 	}
-	body, err := readLimited(r, limit)
+	rt, _ := routeSchemas(r.URL.Path)
+	bodyLimit := limit
+	if isJSON {
+		bodyLimit = jsonLimit(limit)
+	}
+	body, err := readLimited(r, bodyLimit)
 	if err != nil {
 		return h.fail(r, err, nil)
+	}
+	if isJSON {
+		body, err = jsonToCBOR(body, rt.req)
+		if err != nil {
+			return h.fail(r, err, nil)
+		}
+		// Publish applies its own limit to the CBOR form.
+		if r.URL.Path != "/v1/publish" && uint64(len(body)) > limit {
+			return h.fail(r, fmt.Errorf("%w: body of %d bytes", commitment.ErrTooLarge, len(body)), nil)
+		}
 	}
 
 	var out []byte
@@ -202,7 +241,7 @@ func (h *handler) serve(r *http.Request) (res response) {
 	if err != nil {
 		return h.failIn(ctx, r, err, stored, verdict)
 	}
-	return response{status: 200, body: out}
+	return response{status: 200, body: out, schema: rt.resp}
 }
 
 // readLimited reads the body, answering ErrTooLarge above limit bytes.
