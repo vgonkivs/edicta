@@ -290,7 +290,21 @@ func blobs(h uint64, q Query, rows []int, shares []libshare.Share) Outcome {
 		out.Result = Absent
 		return out
 	}
-	parsed, err := libshare.ParseBlobs(shares)
+	// ParseBlobs appends continuation data to the first share's slice. When
+	// the shares are views of one buffer that writes into the shares after
+	// it, so a second read of the same data would see other bytes; it parses
+	// private copies of exact capacity instead.
+	own := make([]libshare.Share, len(shares))
+	for i := range shares {
+		b := make([]byte, libshare.ShareSize)
+		copy(b, shares[i].ToBytes())
+		s, err := libshare.NewShare(b)
+		if err != nil || len(shares[i].ToBytes()) != libshare.ShareSize {
+			return unproven(h, RuleBlobs, ErrShares, "share %d is not a whole share", i)
+		}
+		own[i] = s
+	}
+	parsed, err := libshare.ParseBlobs(own)
 	if err != nil {
 		return unproven(h, RuleBlobs, ErrShares, "%w", err)
 	}
