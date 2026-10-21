@@ -1,0 +1,251 @@
+{
+  "format": "edicta-vectors/v1",
+  "revision": "v1.0.5",
+  "generator": "spec/vectors/check/gen_v1_2.py",
+  "description": "Reasons added by the security patch revisions v1.0.5 and v1.1.1 (core section 0 and 20.1.1; pending the human's approval and tags), in the layout of verifier/reasons.json. The enum of v1.0.5 is the enum of extends plus these (45 reasons); every frozen case keeps its outcome. Cases: a verifier of v1.0.5, v1.1.1 or later reads the payload_ref of a da it does not define (outside {1, 2}) as an opaque map (stage D checks only its canonical form and its da; stage S applies S2 to da only), and an envelope whose first failure is then S3 on that da is unchecked, not fail; v1_0_4 states the outcome before the patch; v1_2 that of a v1.2 verifier, which defines no further da. archive_reader: kind 17 decision records with such envelopes; the general reader of v1.0.5 and later accepts them at 19.1 step 8 under path; v1_0_4_reader_cause is the strict reader's refusal before the patch (null: accepted). Writers may keep refusing them.",
+  "extends": "verifier/reasons_v1.0.3.json",
+  "reasons": [
+    {
+      "name": "unsupported_revision",
+      "group": "configuration",
+      "checks": [
+        "envelope"
+      ],
+      "meaning": "The commitment hashes to the reference, payload_ref.da is a value this verifier's revision does not define (outside {1, 2}), and with that payload_ref read as opaque the first failure is S3 on da. A later revision may define the value and its keys, so this is not a verdict on the decision. The report prints the da value.",
+      "advice": "A verifier of a revision that defines this da (release notes name the revision)."
+    }
+  ],
+  "cases": [
+    {
+      "id": "unsupported_revision_da_4",
+      "description": "An authorized decision with da = 4.",
+      "setup": {
+        "commitment": "v1/unknown_da_v1.0.5.json#da_4"
+      },
+      "refs": [
+        "v1/unknown_da_v1.0.5.json#da_4"
+      ],
+      "expect": {
+        "check": "envelope",
+        "status": "unchecked",
+        "reason": "unsupported_revision",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "v1_0_4": {
+        "check": "envelope",
+        "status": "fail",
+        "verdict": "invalid",
+        "exit": "1"
+      },
+      "v1_2": {
+        "check": "envelope",
+        "status": "unchecked",
+        "reason": "unsupported_revision"
+      }
+    },
+    {
+      "id": "unsupported_revision_da_5",
+      "description": "A decision with da = 5.",
+      "setup": {
+        "commitment": "v1/unknown_da_v1.0.5.json#da_5"
+      },
+      "refs": [
+        "v1/unknown_da_v1.0.5.json#da_5"
+      ],
+      "expect": {
+        "check": "envelope",
+        "status": "unchecked",
+        "reason": "unsupported_revision",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "v1_0_4": {
+        "check": "envelope",
+        "status": "fail",
+        "verdict": "invalid",
+        "exit": "1"
+      },
+      "v1_2": {
+        "check": "envelope",
+        "status": "unchecked",
+        "reason": "unsupported_revision"
+      }
+    },
+    {
+      "id": "unsupported_revision_da_5_key_7",
+      "description": "da = 5 with the reserved payload_ref key 7: the opaque reading skips D15, so a later revision may give an undefined da new keys.",
+      "setup": {
+        "commitment": "v1/unknown_da_v1.0.5.json#da_5_key_7"
+      },
+      "refs": [
+        "v1/unknown_da_v1.0.5.json#da_5_key_7"
+      ],
+      "expect": {
+        "check": "envelope",
+        "status": "unchecked",
+        "reason": "unsupported_revision",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "v1_0_4": {
+        "check": "envelope",
+        "status": "fail",
+        "verdict": "invalid",
+        "exit": "1"
+      },
+      "v1_2": {
+        "check": "envelope",
+        "status": "unchecked",
+        "reason": "unsupported_revision"
+      }
+    },
+    {
+      "id": "unsupported_revision_da_5_height_2_63",
+      "description": "da = 5 with payload_ref key 4 = 2^63: inside an opaque payload_ref S2 covers da only, so S3 on da decides.",
+      "setup": {
+        "commitment": "v1/unknown_da_v1.0.5.json#da_5_height_2_63"
+      },
+      "refs": [
+        "v1/unknown_da_v1.0.5.json#da_5_height_2_63"
+      ],
+      "expect": {
+        "check": "envelope",
+        "status": "unchecked",
+        "reason": "unsupported_revision",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "v1_0_4": {
+        "check": "envelope",
+        "status": "fail",
+        "verdict": "invalid",
+        "exit": "1"
+      },
+      "v1_2": {
+        "check": "envelope",
+        "status": "unchecked",
+        "reason": "unsupported_revision"
+      }
+    },
+    {
+      "id": "unsupported_revision_da_4_signer_19",
+      "description": "da = 4 with a 19-byte signer: the opaque reading does not apply D18.",
+      "setup": {
+        "commitment": "v1/unknown_da_v1.0.5.json#da_4_signer_19"
+      },
+      "refs": [
+        "v1/unknown_da_v1.0.5.json#da_4_signer_19"
+      ],
+      "expect": {
+        "check": "envelope",
+        "status": "unchecked",
+        "reason": "unsupported_revision",
+        "record_state": "authorized",
+        "verdict": "unchecked",
+        "exit": "2"
+      },
+      "v1_0_4": {
+        "check": "envelope",
+        "status": "fail",
+        "verdict": "invalid",
+        "exit": "1"
+      },
+      "v1_2": {
+        "check": "envelope",
+        "status": "unchecked",
+        "reason": "unsupported_revision"
+      }
+    }
+  ],
+  "boundary": [
+    {
+      "id": "ttl_still_fails",
+      "description": "A stage S failure other than S3 on da stays fail (verifier/reasons.json commitment_rule_broken, ttl_3601).",
+      "refs": [
+        "verifier/reasons.json#commitment_rule_broken"
+      ],
+      "expect": {
+        "check": "envelope",
+        "status": "fail",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    },
+    {
+      "id": "defined_da_signer_size_fails",
+      "description": "A da = 2 commitment with a 19-byte signer: da = 2 is defined, so D18 applies and the envelope fails in every revision (verifier/reasons.json commitment_rule_broken stands for the defined-da failures).",
+      "refs": [
+        "verifier/reasons.json#commitment_rule_broken"
+      ],
+      "expect": {
+        "check": "envelope",
+        "status": "fail",
+        "verdict": "invalid",
+        "exit": "1"
+      }
+    }
+  ],
+  "archive_reader": [
+    {
+      "id": "reader_da_5_key_7",
+      "description": "da = 5 with the reserved payload_ref key 7.",
+      "commitment": "v1/unknown_da_v1.0.5.json#da_5_key_7",
+      "record_cbor_hex": "a601010211035901b6a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450e0ac32f6fd5542cf428bf41ceac0fa0a051a6adf02a4061a6adf062807a1016c676174652d70617065722d3108a20378186170706c69636174696f6e2f6f637465742d73747265616d045820e4d640d90bb4d356d13bb036d05962cf8605915c494c413d9ccaa9a021fc4ec40aa6010502581d0000000000000000000000000000000000000037586d889dd7a6a44ca8035820ed51dc9fc62c2acef4eb7488ccfb1edabc429e7a02809273bfa5599e1bda5720041a004c4ba7055452ffd662aee2ab7cf5cf71785554587eed8609ff07582000000000000000000000000000000000000000000000000000000000000000000b5820fdd9d6415996b0bfac541d4fa3718f992fc4296b63da3e2b7e2fb81a9700b4aa0c582009946d1deac8e2a77f0370db8fd54a08cf186d4bc3552b29d653e02b455536920d190100025840707574f657b9b6112db67ed30dc073efd0842b86f20000a42e252aa1ad0720020759d0caafe717da0bbb0485f8ebb259e007f92aaf8466a8d51d7a9f88e3d407040105581c756e6b6e6f776e2d646120616374696f6e2064615f355f6b65795f370658206a94f00cfe91e0c16493d92d857ca80ab4ddaf9169c3ac42abf256d068115115",
+      "path": "decision/8a4688b21e6e4ccee651d1c66f1d8aca8708a89eca1123ec207b1936e5cb1f6e",
+      "v1_0_4_reader_cause": "ErrUnknownKey",
+      "expect": {
+        "reader": "ok",
+        "path": "decision/8a4688b21e6e4ccee651d1c66f1d8aca8708a89eca1123ec207b1936e5cb1f6e",
+        "envelope": "unchecked",
+        "reason": "unsupported_revision"
+      }
+    },
+    {
+      "id": "reader_da_4_signer_19",
+      "description": "da = 4 with a 19-byte signer.",
+      "commitment": "v1/unknown_da_v1.0.5.json#da_4_signer_19",
+      "record_cbor_hex": "a60101021103590192a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0450334ced23ecd43de17828bd524af64b64051a6adf02a4061a6adf062807a1016c676174652d70617065722d3108a20378186170706c69636174696f6e2f6f637465742d73747265616d04582081b786226cd7b8b1788cf43b5a9e78c9953c6033784337ab1ad24bf91c49d5640aa5010402581d0000000000000000000000000000000000000037586d889dd7a6a44ca8035820471c135f8406491c03ef6820b03263a6d5446a964c84f8be13a45b71866f4eed041a004c4ba7055352ffd662aee2ab7cf5cf71785554587eed86090b582023381d9acfa9bbb9dd0a5859aaed03fc66c264fd2ceb9ad5ca78f1adfbc3a0ef0c58200a3cd228eb8a7e701898d4b48be8456f4df0a1f9b20b1d002f1d80972904ff440d19010002584063aa06f2174a3b9a08b67e3b32223b4a84b448e4e3167c17ac8dfdef633b92663cb5c47e9eb374dba83197a300fbaa834556bc4eaca1d7f451e62af651f9e6000401055820756e6b6e6f776e2d646120616374696f6e2064615f345f7369676e65725f3139065820d9e720101d085aaa0d431d84ae441311244bbc54642f5878693cb5c035c67329",
+      "path": "decision/929328bd01a9b0dac3214c75430737492747f31eaef8decebc22532f9f997d5f",
+      "v1_0_4_reader_cause": "ErrFieldSize",
+      "expect": {
+        "reader": "ok",
+        "path": "decision/929328bd01a9b0dac3214c75430737492747f31eaef8decebc22532f9f997d5f",
+        "envelope": "unchecked",
+        "reason": "unsupported_revision"
+      }
+    },
+    {
+      "id": "reader_da_5_height_2_63",
+      "description": "da = 5 with payload_ref key 4 = 2^63 (S2 is not part of step 8).",
+      "commitment": "v1/unknown_da_v1.0.5.json#da_5_height_2_63",
+      "record_cbor_hex": "a60101021103590197a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04506ef0da25e11d038fd7abedebd4b72915051a6adf02a4061a6adf062807a1016c676174652d70617065722d3108a20378186170706c69636174696f6e2f6f637465742d73747265616d0458206e821680e93ce86fa48d767980c45fc3a6052a21bfce47928c29dc83e755edc20aa5010502581d0000000000000000000000000000000000000037586d889dd7a6a44ca80358202202298ac462fab06d30e0ebdd50464e8d320865b99559aadb4627f70bd59485041b8000000000000000055452ffd662aee2ab7cf5cf71785554587eed8609ff0b58205af1767c459c8fad2a9f6e038e3a0dc492112f4c88af6466e1ca57ee9b9397980c58209c68d1adb103564483980c23852d4e3355f514b77658975be658c78e46deee740d19010002584080966b4947956e05d99fbe1037b795176b8c63a7ded9fb08b896546a11e1bd8717a9747899b08ac0d55666cd2b4324f6075ab7a8aa8b0b4be8849aae1cb1ab030401055822756e6b6e6f776e2d646120616374696f6e2064615f355f6865696768745f325f36330658208a0eaa7978d70572a3d2ec48e5c5c2843a59c6363bccf0eb1b2caf78128ef087",
+      "path": "decision/d29803dc67e9eb3cc0e728cb370b8ca4682d4b2dfb04e64b7952a6420d238cd2",
+      "v1_0_4_reader_cause": null,
+      "expect": {
+        "reader": "ok",
+        "path": "decision/d29803dc67e9eb3cc0e728cb370b8ca4682d4b2dfb04e64b7952a6420d238cd2",
+        "envelope": "unchecked",
+        "reason": "unsupported_revision"
+      }
+    },
+    {
+      "id": "reader_da_5",
+      "description": "da = 5, every key as defined for da = 2: strict stage D passes in every revision.",
+      "commitment": "v1/unknown_da_v1.0.5.json#da_5",
+      "record_cbor_hex": "a60101021103590193a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04509d163dcad88228f05fec777a2ab76643051a6adf02a4061a6adf062807a1016c676174652d70617065722d3108a20378186170706c69636174696f6e2f6f637465742d73747265616d045820c1935af5867c961ea95a556ed38700bbf327c2e37a10523f69cba642ba6cb4f50aa5010502581d0000000000000000000000000000000000000037586d889dd7a6a44ca80358207cf12296b1694c0249862e0f6bbe4f173805c7fa089fccb7c04a2735e14d55f7041a004c4ba7055452ffd662aee2ab7cf5cf71785554587eed8609ff0b5820885bc9fe79efdf93b3e252b5a079753a0395c0fc1bb20f11abd8d5efa0cb8ef50c5820b9831e118152b21a281de9fc47d6ceb5465e585aee2b25d06d465437e00ac8ae0d190100025840f5d85611e353bb7e36d2cfaaf3d86387e2497a51c7df33a042051de3710588aedef2df4c78996f1ac8ea407167bcf41d88e3e588aab5efdffab10a827045400c04010556756e6b6e6f776e2d646120616374696f6e2064615f350658201ad97e6c4f6676b5204cd52ebfba82f67617a95f85fac297d717aa1862602ac7",
+      "path": "decision/f6c1e014d6ac4e4908c6a4e3ab34e6a9c3649661106f3f0898f620332b85b6fa",
+      "v1_0_4_reader_cause": null,
+      "expect": {
+        "reader": "ok",
+        "path": "decision/f6c1e014d6ac4e4908c6a4e3ab34e6a9c3649661106f3f0898f620332b85b6fa",
+        "envelope": "unchecked",
+        "reason": "unsupported_revision"
+      }
+    }
+  ]
+}

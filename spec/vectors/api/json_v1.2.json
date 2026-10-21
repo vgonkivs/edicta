@@ -1,0 +1,833 @@
+{
+  "format": "edicta-vectors/v1",
+  "revision": "v1.2",
+  "generator": "spec/vectors/check/gen_v1_2.py",
+  "description": "The JSON transport of core 18.4 (spec revision v1.2). requests: a request body (body, or body_hex for bytes that are not UTF-8) and its conversion: cbor_hex, the exact canonical CBOR wrapper the server then runs, or the refusal of the JSON stage (ErrMalformed, ErrWrongType; 400); cbor_wrapper names the sentinel the CBOR wrapper decoding then gives. media_types: JT1 ('json', 'cbor' or 415). accept: JT2 for a GET. responses: the JSON object a server renders for a CBOR response (compared as JSON values, member order and whitespace free), or the 500 of JT8. limits and check_order: JT6.",
+  "schemas": {
+    "publish_request": {
+      "blob": {
+        "key": "1",
+        "kind": "bytes"
+      },
+      "agent_id": {
+        "key": "2",
+        "kind": "text"
+      },
+      "requested_at": {
+        "key": "3",
+        "kind": "uint"
+      },
+      "signature": {
+        "key": "4",
+        "kind": "bytes"
+      }
+    },
+    "publish_response": {
+      "payload_ref": {
+        "key": "1",
+        "kind": "bytes"
+      },
+      "block_time": {
+        "key": "2",
+        "kind": "uint"
+      },
+      "retention_start": {
+        "key": "3",
+        "kind": "uint"
+      }
+    },
+    "authorize_request": {
+      "envelope": {
+        "key": "1",
+        "kind": "bytes"
+      },
+      "action": {
+        "key": "2",
+        "kind": "bytes"
+      },
+      "action_salt": {
+        "key": "3",
+        "kind": "bytes"
+      }
+    },
+    "authorize_response": {
+      "signed_authorization": {
+        "key": "1",
+        "kind": "bytes"
+      },
+      "policy_verdict": {
+        "key": "5",
+        "kind": "bytes"
+      }
+    },
+    "record_request": {
+      "envelope": {
+        "key": "1",
+        "kind": "bytes"
+      },
+      "rail_ref": {
+        "key": "2",
+        "kind": "text"
+      },
+      "executor_pubkey": {
+        "key": "3",
+        "kind": "bytes"
+      },
+      "executor_signature": {
+        "key": "4",
+        "kind": "bytes"
+      }
+    },
+    "record_response": {
+      "signed_receipt": {
+        "key": "1",
+        "kind": "bytes"
+      }
+    },
+    "health_response": {
+      "status": {
+        "key": "1",
+        "kind": "uint"
+      },
+      "chain_id": {
+        "key": "2",
+        "kind": "text"
+      },
+      "head_height": {
+        "key": "3",
+        "kind": "uint"
+      },
+      "head_time": {
+        "key": "4",
+        "kind": "uint"
+      },
+      "gate_id": {
+        "key": "5",
+        "kind": "text"
+      },
+      "gate_pubkey": {
+        "key": "6",
+        "kind": "bytes"
+      },
+      "recorder_signer": {
+        "key": "7",
+        "kind": "bytes"
+      },
+      "namespace": {
+        "key": "8",
+        "kind": "bytes"
+      },
+      "allowed_da": {
+        "key": "9",
+        "kind": "uints"
+      }
+    },
+    "error": {
+      "code": {
+        "key": "1",
+        "kind": "text"
+      },
+      "message": {
+        "key": "2",
+        "kind": "text"
+      },
+      "retryable": {
+        "key": "3",
+        "kind": "uint"
+      },
+      "stored": {
+        "key": "4",
+        "kind": "bytes"
+      },
+      "policy_verdict": {
+        "key": "5",
+        "kind": "bytes"
+      }
+    }
+  },
+  "requests": [
+    {
+      "id": "authorize_ok",
+      "description": "api/errors.json authorize_ok as JSON: converts to its exact CBOR request.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":\"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSY=\"}",
+      "expect": {
+        "cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820aa697e02c466b796bcf0d5b680a59fab232a6345cc4493ec49a29ead42b34126"
+      }
+    },
+    {
+      "id": "authorize_reordered_whitespace",
+      "description": "Members in another order, with space, tab, LF and CR between tokens.",
+      "endpoint": "/v1/authorize",
+      "body": "{\r\n\t\"action_salt\" : \"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSY=\" ,\n \"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\"\t}\n",
+      "expect": {
+        "cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820aa697e02c466b796bcf0d5b680a59fab232a6345cc4493ec49a29ead42b34126"
+      }
+    },
+    {
+      "id": "authorize_escaped_base64",
+      "description": "The salt's first base64 character written as a \\u escape: escapes are decoded first.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":\"\\u0071ml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSY=\"}",
+      "expect": {
+        "cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820aa697e02c466b796bcf0d5b680a59fab232a6345cc4493ec49a29ead42b34126"
+      }
+    },
+    {
+      "id": "authorize_escaped_member_name",
+      "description": "The member name envelope with an escaped letter: names compare after unescaping.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelop\\u0065\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":\"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSY=\"}",
+      "expect": {
+        "cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901035820aa697e02c466b796bcf0d5b680a59fab232a6345cc4493ec49a29ead42b34126"
+      }
+    },
+    {
+      "id": "authorize_duplicate_after_unescape",
+      "description": "envelope twice, once escaped: a duplicate member.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":\"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSY=\",\"envelop\\u0065\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "duplicate member 'envelope'"
+      }
+    },
+    {
+      "id": "authorize_duplicate_member",
+      "description": "action_salt twice.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":\"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSY=\",\"action_salt\":\"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSY=\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "duplicate member 'action_salt'"
+      }
+    },
+    {
+      "id": "authorize_unknown_member",
+      "description": "An extra member mode.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":\"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSY=\",\"mode\":1}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "unknown member 'mode'"
+      }
+    },
+    {
+      "id": "authorize_member_case",
+      "description": "Envelope with an upper-case E: an unknown member.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"Envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":\"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSY=\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "unknown member 'Envelope'"
+      }
+    },
+    {
+      "id": "authorize_base64_unpadded",
+      "description": "The salt without its padding.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":\"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSY\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "base64 is not canonical"
+      }
+    },
+    {
+      "id": "authorize_base64_url_alphabet",
+      "description": "The envelope in the URL-safe alphabet.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h_CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9_WSHT55gC1ggnts-_zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y_WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9_6Q8w2E8V_53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":\"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSY=\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "base64"
+      }
+    },
+    {
+      "id": "authorize_base64_trailing_bits",
+      "description": "The salt's last character with a non-zero trailing bit.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":\"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSZ=\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "base64 is not canonical"
+      }
+    },
+    {
+      "id": "authorize_base64_line_break",
+      "description": "A JSON-escaped line feed inside the envelope's base64.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQEC\\na2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":\"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSY=\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "base64 is not canonical"
+      }
+    },
+    {
+      "id": "authorize_number_for_bytes",
+      "description": "action_salt as a number: ErrWrongType.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":1}",
+      "expect": {
+        "error": "ErrWrongType",
+        "stage": "json",
+        "why": "action_salt"
+      }
+    },
+    {
+      "id": "authorize_array_for_bytes",
+      "description": "action_salt as an array of integers: ErrWrongType.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":[1,2]}",
+      "expect": {
+        "error": "ErrWrongType",
+        "stage": "json",
+        "why": "action_salt"
+      }
+    },
+    {
+      "id": "authorize_null_value",
+      "description": "action_salt null.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":null}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "unsupported value at offset 661"
+      }
+    },
+    {
+      "id": "authorize_true_value",
+      "description": "action_salt true.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":true}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "unsupported value at offset 661"
+      }
+    },
+    {
+      "id": "authorize_object_value",
+      "description": "action_salt an object.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":{}}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "unsupported value at offset 661"
+      }
+    },
+    {
+      "id": "authorize_trailing_data",
+      "description": "A second object after the first.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":\"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSY=\"}{}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "data after the top-level object"
+      }
+    },
+    {
+      "id": "authorize_bom",
+      "description": "A UTF-8 byte order mark before the object.",
+      "endpoint": "/v1/authorize",
+      "body_hex": "efbbbf7b22656e76656c6f7065223a226f674773415145436132526a595331685a32567564433078413167673131715941594b7843726656532f3754795751484f6737686376506170694d6c727749616150634855526f455542746f3559594954694630365544656179576873367346476d724166634147476d7241675551486f5146735a3246305a5331775958426c63693078434b494465436c686348427361574e6864476c7662693932626d51755a575270593352684c6d6c696133497562334a6b5a584975646a417259324a7663675259494d495a67454a383350796f574f396d666d42585551397349546e6f484b786c6672624141415565717730504371554241674a594851414141414141414141414141414141414141414141414141426c5a476c6a644745765a4441784131676755615956503379567758795955697830682f434b41766f677a7967547359726b56534253694a4f545861384547674241466b414656426d774647437431354852394a79354c4c59392f57534854353567433167676e74732b2f7a5078476b78686d4b505047577857694746584c325839736737314d715a45454c7964654b734d574344775663646d41366d4f6b4e45574944373955476e7438456b71325339793545746558314a556837564b4367305a41533043574542313267387933592f574c30345935765a4970664c566766356a37474b72537a4c673466457a6454694870347a4b4d714f64674a4a74707948365758784f67755642392f36513877324538562f35334a557a63696750222c22616374696f6e223a2271414670524655784d6a4d304e54593341686f414241312b424145464767414268714147415163624141414142473933376f41495931565452416b42222c22616374696f6e5f73616c74223a22716d6c2b4173526d74356138384e5732674b576671794d715930584d524a507353614b6572554b7a5153593d227d",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "top-level value is not an object"
+      }
+    },
+    {
+      "id": "authorize_top_level_array",
+      "description": "A JSON array as the body.",
+      "endpoint": "/v1/authorize",
+      "body": "[{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":\"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQSY=\"}]",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "top-level value is not an object"
+      }
+    },
+    {
+      "id": "authorize_vertical_tab",
+      "description": "A vertical tab (not JSON whitespace) before the object.",
+      "endpoint": "/v1/authorize",
+      "body_hex": "0b7b22656e76656c6f7065223a226f674773415145436132526a595331685a32567564433078413167673131715941594b7843726656532f3754795751484f6737686376506170694d6c727749616150634855526f455542746f3559594954694630365544656179576873367346476d724166634147476d7241675551486f5146735a3246305a5331775958426c63693078434b494465436c686348427361574e6864476c7662693932626d51755a575270593352684c6d6c696133497562334a6b5a584975646a417259324a7663675259494d495a67454a383350796f574f396d666d42585551397349546e6f484b786c6672624141415565717730504371554241674a594851414141414141414141414141414141414141414141414141426c5a476c6a644745765a4441784131676755615956503379567758795955697830682f434b41766f677a7967547359726b56534253694a4f545861384547674241466b414656426d774647437431354852394a79354c4c59392f57534854353567433167676e74732b2f7a5078476b78686d4b505047577857694746584c325839736737314d715a45454c7964654b734d574344775663646d41366d4f6b4e45574944373955476e7438456b71325339793545746558314a556837564b4367305a41533043574542313267387933592f574c30345935765a4970664c566766356a37474b72537a4c673466457a6454694870347a4b4d714f64674a4a74707948365758784f67755642392f36513877324538562f35334a557a63696750222c22616374696f6e223a2271414670524655784d6a4d304e54593341686f414241312b424145464767414268714147415163624141414142473933376f41495931565452416b42222c22616374696f6e5f73616c74223a22716d6c2b4173526d74356138384e5732674b576671794d715930584d524a507353614b6572554b7a5153593d227d",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "top-level value is not an object"
+      }
+    },
+    {
+      "id": "authorize_empty_object",
+      "description": "{}: converts to the empty map; wrapper decoding then gives ErrMissingField.",
+      "endpoint": "/v1/authorize",
+      "body": "{}",
+      "expect": {
+        "cbor_hex": "a0"
+      },
+      "cbor_wrapper": "ErrMissingField"
+    },
+    {
+      "id": "authorize_salt_missing",
+      "description": "Without action_salt: wrapper decoding gives ErrMissingField.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\"}",
+      "expect": {
+        "cbor_hex": "a2015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee8008635553440901"
+      },
+      "cbor_wrapper": "ErrMissingField"
+    },
+    {
+      "id": "authorize_salt_31",
+      "description": "A 31-byte salt: wrapper decoding gives ErrFieldSize.",
+      "endpoint": "/v1/authorize",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"action\":\"qAFpRFUxMjM0NTY3AhoABA1+BAEFGgABhqAGAQcbAAAABG937oAIY1VTRAkB\",\"action_salt\":\"qml+AsRmt5a88NW2gKWfqyMqY0XMRJPsSaKerUKzQQ==\"}",
+      "expect": {
+        "cbor_hex": "a3015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f02582da80169445531323334353637021a00040d7e0401051a000186a00601071b000000046f77ee800863555344090103581faa697e02c466b796bcf0d5b680a59fab232a6345cc4493ec49a29ead42b341"
+      },
+      "cbor_wrapper": "ErrFieldSize"
+    },
+    {
+      "id": "record_ok",
+      "description": "api/errors.json record_ok as JSON.",
+      "endpoint": "/v1/record",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"rail_ref\":\"1370093239\",\"executor_pubkey\":\"7Bcrk61eVjv0kyxw4SRQNMNUZ+8u/U1k6/gZaDRn4r8=\",\"executor_signature\":\"4Dgkm/BM47ZcWXc6Lk7B7/CHqGLk8JLaIAHqMSuQTS23bhq7CfjgSZFwozx6RoDNqF58gE6sJjFRJqpo4uPlAA==\"}",
+      "expect": {
+        "cbor_hex": "a4015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f026a31333730303933323339035820ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf045840e038249bf04ce3b65c59773a2e4ec1eff087a862e4f092da2001ea312b904d2db76e1abb09f8e0499170a33c7a4680cda85e7c804eac26315126aa68e2e3e500"
+      }
+    },
+    {
+      "id": "record_rail_ref_escaped",
+      "description": "rail_ref with every character escaped: the text is the unescaped string.",
+      "endpoint": "/v1/record",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"rail_ref\":\"\\u0031\\u0033\\u0037\\u0030\\u0030\\u0039\\u0033\\u0032\\u0033\\u0039\",\"executor_pubkey\":\"7Bcrk61eVjv0kyxw4SRQNMNUZ+8u/U1k6/gZaDRn4r8=\",\"executor_signature\":\"4Dgkm/BM47ZcWXc6Lk7B7/CHqGLk8JLaIAHqMSuQTS23bhq7CfjgSZFwozx6RoDNqF58gE6sJjFRJqpo4uPlAA==\"}",
+      "expect": {
+        "cbor_hex": "a4015901a4a201ac0101026b6463612d6167656e742d31035820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a04501b68e586084e2174e940de6b25a1b3ab051a6ac07dc0061a6ac0814407a1016c676174652d70617065722d3108a20378296170706c69636174696f6e2f766e642e6564696374612e69626b722e6f726465722e76302b63626f72045820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f0aa5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e600b58209edb3eff33f11a4c6198a3cf196c568861572f65fdb20ef532a64410bc9d78ab0c5820f055c76603a98e90d116203efd5069edf0492ad92f72e44b5e5f525487b54a0a0d19012d02584075da0f32dd8fd62f4e18e6f648a5f2d581fe63ec62ab4b32e0e1f133753887a78cca32a39d80926da721fa597c4e82e541f7fe90f30d84f15ff9dc953372280f026a31333730303933323339035820ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf045840e038249bf04ce3b65c59773a2e4ec1eff087a862e4f092da2001ea312b904d2db76e1abb09f8e0499170a33c7a4680cda85e7c804eac26315126aa68e2e3e500"
+      }
+    },
+    {
+      "id": "record_rail_ref_unpaired_surrogate",
+      "description": "rail_ref with an unpaired high surrogate.",
+      "endpoint": "/v1/record",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"rail_ref\":\"\\ud800\",\"executor_pubkey\":\"7Bcrk61eVjv0kyxw4SRQNMNUZ+8u/U1k6/gZaDRn4r8=\",\"executor_signature\":\"4Dgkm/BM47ZcWXc6Lk7B7/CHqGLk8JLaIAHqMSuQTS23bhq7CfjgSZFwozx6RoDNqF58gE6sJjFRJqpo4uPlAA==\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "unpaired surrogate"
+      }
+    },
+    {
+      "id": "record_rail_ref_lone_low_surrogate",
+      "description": "rail_ref with a lone low surrogate.",
+      "endpoint": "/v1/record",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"rail_ref\":\"\\udc00\",\"executor_pubkey\":\"7Bcrk61eVjv0kyxw4SRQNMNUZ+8u/U1k6/gZaDRn4r8=\",\"executor_signature\":\"4Dgkm/BM47ZcWXc6Lk7B7/CHqGLk8JLaIAHqMSuQTS23bhq7CfjgSZFwozx6RoDNqF58gE6sJjFRJqpo4uPlAA==\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "unpaired surrogate"
+      }
+    },
+    {
+      "id": "record_rail_ref_control",
+      "description": "rail_ref with a raw control character 0x01.",
+      "endpoint": "/v1/record",
+      "body_hex": "7b22656e76656c6f7065223a226f674773415145436132526a595331685a32567564433078413167673131715941594b7843726656532f3754795751484f6737686376506170694d6c727749616150634855526f455542746f3559594954694630365544656179576873367346476d724166634147476d7241675551486f5146735a3246305a5331775958426c63693078434b494465436c686348427361574e6864476c7662693932626d51755a575270593352684c6d6c696133497562334a6b5a584975646a417259324a7663675259494d495a67454a383350796f574f396d666d42585551397349546e6f484b786c6672624141415565717730504371554241674a594851414141414141414141414141414141414141414141414141426c5a476c6a644745765a4441784131676755615956503379567758795955697830682f434b41766f677a7967547359726b56534253694a4f545861384547674241466b414656426d774647437431354852394a79354c4c59392f57534854353567433167676e74732b2f7a5078476b78686d4b505047577857694746584c325839736737314d715a45454c7964654b734d574344775663646d41366d4f6b4e45574944373955476e7438456b71325339793545746558314a556837564b4367305a41533043574542313267387933592f574c30345935765a4970664c566766356a37474b72537a4c673466457a6454694870347a4b4d714f64674a4a74707948365758784f67755642392f36513877324538562f35334a557a63696750222c227261696c5f726566223a22610162222c226578656375746f725f7075626b6579223a22374263726b363165566a76306b797877345352514e4d4e555a2b38752f55316b362f675a6144526e3472383d222c226578656375746f725f7369676e6174757265223a223444676b6d2f424d34375a63575863364c6b3742372f434871474c6b384a4c61494148714d537551545332336268713743666a67535a46776f7a7836526f444e71463538674536734a6a46524a71706f3475506c41413d3d227d",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "control character in a string"
+      }
+    },
+    {
+      "id": "record_rail_ref_invalid_utf8",
+      "description": "rail_ref with the byte 0xff (invalid UTF-8).",
+      "endpoint": "/v1/record",
+      "body_hex": "7b22656e76656c6f7065223a226f674773415145436132526a595331685a32567564433078413167673131715941594b7843726656532f3754795751484f6737686376506170694d6c727749616150634855526f455542746f3559594954694630365544656179576873367346476d724166634147476d7241675551486f5146735a3246305a5331775958426c63693078434b494465436c686348427361574e6864476c7662693932626d51755a575270593352684c6d6c696133497562334a6b5a584975646a417259324a7663675259494d495a67454a383350796f574f396d666d42585551397349546e6f484b786c6672624141415565717730504371554241674a594851414141414141414141414141414141414141414141414141426c5a476c6a644745765a4441784131676755615956503379567758795955697830682f434b41766f677a7967547359726b56534253694a4f545861384547674241466b414656426d774647437431354852394a79354c4c59392f57534854353567433167676e74732b2f7a5078476b78686d4b505047577857694746584c325839736737314d715a45454c7964654b734d574344775663646d41366d4f6b4e45574944373955476e7438456b71325339793545746558314a556837564b4367305a41533043574542313267387933592f574c30345935765a4970664c566766356a37474b72537a4c673466457a6454694870347a4b4d714f64674a4a74707948365758784f67755642392f36513877324538562f35334a557a63696750222c227261696c5f726566223a2261ff62222c226578656375746f725f7075626b6579223a22374263726b363165566a76306b797877345352514e4d4e555a2b38752f55316b362f675a6144526e3472383d222c226578656375746f725f7369676e6174757265223a223444676b6d2f424d34375a63575863364c6b3742372f434871474c6b384a4c61494148714d537551545332336268713743666a67535a46776f7a7836526f444e71463538674536734a6a46524a71706f3475506c41413d3d227d",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "invalid UTF-8"
+      }
+    },
+    {
+      "id": "record_rail_ref_number",
+      "description": "rail_ref as a number: ErrWrongType.",
+      "endpoint": "/v1/record",
+      "body": "{\"envelope\":\"ogGsAQECa2RjYS1hZ2VudC0xA1gg11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURoEUBto5YYITiF06UDeayWhs6sFGmrAfcAGGmrAgUQHoQFsZ2F0ZS1wYXBlci0xCKIDeClhcHBsaWNhdGlvbi92bmQuZWRpY3RhLmlia3Iub3JkZXIudjArY2JvcgRYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PCqUBAgJYHQAAAAAAAAAAAAAAAAAAAAAAAABlZGljdGEvZDAxA1ggUaYVP3yVwXyYUix0h/CKAvogzygTsYrkVSBSiJOTXa8EGgBAFkAFVBmwFGCt15HR9Jy5LLY9/WSHT55gC1ggnts+/zPxGkxhmKPPGWxWiGFXL2X9sg71MqZEELydeKsMWCDwVcdmA6mOkNEWID79UGnt8Ekq2S9y5EteX1JUh7VKCg0ZAS0CWEB12g8y3Y/WL04Y5vZIpfLVgf5j7GKrSzLg4fEzdTiHp4zKMqOdgJJtpyH6WXxOguVB9/6Q8w2E8V/53JUzcigP\",\"rail_ref\":5,\"executor_pubkey\":\"7Bcrk61eVjv0kyxw4SRQNMNUZ+8u/U1k6/gZaDRn4r8=\",\"executor_signature\":\"4Dgkm/BM47ZcWXc6Lk7B7/CHqGLk8JLaIAHqMSuQTS23bhq7CfjgSZFwozx6RoDNqF58gE6sJjFRJqpo4uPlAA==\"}",
+      "expect": {
+        "error": "ErrWrongType",
+        "stage": "json",
+        "why": "rail_ref"
+      }
+    },
+    {
+      "id": "publish_ok",
+      "description": "api/publish_request.json publish_small_blob as JSON.",
+      "endpoint": "/v1/publish",
+      "body": "{\"blob\":\"pAEAAoKjAUxnYXRlLXBhcGVyLTECWCAbZtuh5lm1xHTQKWeocKKTB6BEti9ENmGJYBGM43wbKwNYMAqBS1iKpMB9Q3Vic9cX5H7mrYYO0wjVR47vKtpWEoHGcZDPBaKPTDvFVwU+JvZDQqMBSWF1ZGl0b3ItMQJYIP6FErIRtjMRrhNcY+rD2SPMCvrU446jyd7CIq/N1mfwA1gwVzI1PR4mUaFQKYZ+8xxHX/BMm6O9aEFLOruYCGQ1Sn04tOYuD2T51pIg83W1qkqyA0x/l5uPlj6gBhDpmugEWFB4OY+QSqOcOwFBJ8a30lIv434J1sHzxHwJ+jfwlCqcn2VOOzcobuzGahsqbO7Iuow/dQ44fC7bbnyzQOQe44qoXsUrCY1JfaZvnmXSWM/hnw==\",\"agent_id\":\"dca-agent-1\",\"requested_at\":1791000060,\"signature\":\"OXsIKFwCT47/i2tvtx3f8y5ZGCuvzDMm43HTjhx3D58sPX/nMZqCWE/SqVMxtmxrBH6iUUJO7PzFw5+p6U20BA==\"}",
+      "expect": {
+        "cbor_hex": "a40159012da401000282a3014c676174652d70617065722d310258201b66dba1e659b5c474d02967a870a29307a044b62f4436618960118ce37c1b2b0358300a814b588aa4c07d43756273d717e47ee6ad860ed308d5478eef2ada561281c67190cf05a28f4c3bc557053e26f64342a3014961756469746f722d31025820fe8512b211b63311ae135c63eac3d923cc0afad4e38ea3c9dec222afcdd667f00358305732353d1e2651a15029867ef31c475ff04c9ba3bd68414b3abb980864354a7d38b4e62e0f64f9d69220f375b5aa4ab2034c7f979b8f963ea00610e99ae804585078398f904aa39c3b014127c6b7d2522fe37e09d6c1f3c47c09fa37f0942a9c9f654e3b37286eecc66a1b2a6ceec8ba8c3f750e387c2edb6e7cb340e41ee38aa85ec52b098d497da66f9e65d258cfe19f026b6463612d6167656e742d31031a6ac07dfc045840397b08285c024f8eff8b6b6fb71ddff32e59182bafcc3326e371d38e1c770f9f2c3d7fe7319a82584fd2a95331b66c6b047ea251424eecfcc5c39fa9e94db404"
+      }
+    },
+    {
+      "id": "publish_requested_at_leading_zero",
+      "description": "requested_at written as 01791000060.",
+      "endpoint": "/v1/publish",
+      "body": "{\"blob\":\"pAEAAoKjAUxnYXRlLXBhcGVyLTECWCAbZtuh5lm1xHTQKWeocKKTB6BEti9ENmGJYBGM43wbKwNYMAqBS1iKpMB9Q3Vic9cX5H7mrYYO0wjVR47vKtpWEoHGcZDPBaKPTDvFVwU+JvZDQqMBSWF1ZGl0b3ItMQJYIP6FErIRtjMRrhNcY+rD2SPMCvrU446jyd7CIq/N1mfwA1gwVzI1PR4mUaFQKYZ+8xxHX/BMm6O9aEFLOruYCGQ1Sn04tOYuD2T51pIg83W1qkqyA0x/l5uPlj6gBhDpmugEWFB4OY+QSqOcOwFBJ8a30lIv434J1sHzxHwJ+jfwlCqcn2VOOzcobuzGahsqbO7Iuow/dQ44fC7bbnyzQOQe44qoXsUrCY1JfaZvnmXSWM/hnw==\",\"agent_id\":\"dca-agent-1\",\"requested_at\":01791000060,\"signature\":\"OXsIKFwCT47/i2tvtx3f8y5ZGCuvzDMm43HTjhx3D58sPX/nMZqCWE/SqVMxtmxrBH6iUUJO7PzFw5+p6U20BA==\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "leading zero"
+      }
+    },
+    {
+      "id": "publish_requested_at_fraction",
+      "description": "requested_at written as 1791000060.0.",
+      "endpoint": "/v1/publish",
+      "body": "{\"blob\":\"pAEAAoKjAUxnYXRlLXBhcGVyLTECWCAbZtuh5lm1xHTQKWeocKKTB6BEti9ENmGJYBGM43wbKwNYMAqBS1iKpMB9Q3Vic9cX5H7mrYYO0wjVR47vKtpWEoHGcZDPBaKPTDvFVwU+JvZDQqMBSWF1ZGl0b3ItMQJYIP6FErIRtjMRrhNcY+rD2SPMCvrU446jyd7CIq/N1mfwA1gwVzI1PR4mUaFQKYZ+8xxHX/BMm6O9aEFLOruYCGQ1Sn04tOYuD2T51pIg83W1qkqyA0x/l5uPlj6gBhDpmugEWFB4OY+QSqOcOwFBJ8a30lIv434J1sHzxHwJ+jfwlCqcn2VOOzcobuzGahsqbO7Iuow/dQ44fC7bbnyzQOQe44qoXsUrCY1JfaZvnmXSWM/hnw==\",\"agent_id\":\"dca-agent-1\",\"requested_at\":1791000060.0,\"signature\":\"OXsIKFwCT47/i2tvtx3f8y5ZGCuvzDMm43HTjhx3D58sPX/nMZqCWE/SqVMxtmxrBH6iUUJO7PzFw5+p6U20BA==\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "not an integer"
+      }
+    },
+    {
+      "id": "publish_requested_at_exponent",
+      "description": "requested_at written as 1e9.",
+      "endpoint": "/v1/publish",
+      "body": "{\"blob\":\"pAEAAoKjAUxnYXRlLXBhcGVyLTECWCAbZtuh5lm1xHTQKWeocKKTB6BEti9ENmGJYBGM43wbKwNYMAqBS1iKpMB9Q3Vic9cX5H7mrYYO0wjVR47vKtpWEoHGcZDPBaKPTDvFVwU+JvZDQqMBSWF1ZGl0b3ItMQJYIP6FErIRtjMRrhNcY+rD2SPMCvrU446jyd7CIq/N1mfwA1gwVzI1PR4mUaFQKYZ+8xxHX/BMm6O9aEFLOruYCGQ1Sn04tOYuD2T51pIg83W1qkqyA0x/l5uPlj6gBhDpmugEWFB4OY+QSqOcOwFBJ8a30lIv434J1sHzxHwJ+jfwlCqcn2VOOzcobuzGahsqbO7Iuow/dQ44fC7bbnyzQOQe44qoXsUrCY1JfaZvnmXSWM/hnw==\",\"agent_id\":\"dca-agent-1\",\"requested_at\":1e9,\"signature\":\"OXsIKFwCT47/i2tvtx3f8y5ZGCuvzDMm43HTjhx3D58sPX/nMZqCWE/SqVMxtmxrBH6iUUJO7PzFw5+p6U20BA==\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "not an integer"
+      }
+    },
+    {
+      "id": "publish_requested_at_negative",
+      "description": "requested_at written as -1.",
+      "endpoint": "/v1/publish",
+      "body": "{\"blob\":\"pAEAAoKjAUxnYXRlLXBhcGVyLTECWCAbZtuh5lm1xHTQKWeocKKTB6BEti9ENmGJYBGM43wbKwNYMAqBS1iKpMB9Q3Vic9cX5H7mrYYO0wjVR47vKtpWEoHGcZDPBaKPTDvFVwU+JvZDQqMBSWF1ZGl0b3ItMQJYIP6FErIRtjMRrhNcY+rD2SPMCvrU446jyd7CIq/N1mfwA1gwVzI1PR4mUaFQKYZ+8xxHX/BMm6O9aEFLOruYCGQ1Sn04tOYuD2T51pIg83W1qkqyA0x/l5uPlj6gBhDpmugEWFB4OY+QSqOcOwFBJ8a30lIv434J1sHzxHwJ+jfwlCqcn2VOOzcobuzGahsqbO7Iuow/dQ44fC7bbnyzQOQe44qoXsUrCY1JfaZvnmXSWM/hnw==\",\"agent_id\":\"dca-agent-1\",\"requested_at\":-1,\"signature\":\"OXsIKFwCT47/i2tvtx3f8y5ZGCuvzDMm43HTjhx3D58sPX/nMZqCWE/SqVMxtmxrBH6iUUJO7PzFw5+p6U20BA==\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "negative number"
+      }
+    },
+    {
+      "id": "publish_requested_at_2pow53",
+      "description": "requested_at written as 9007199254740992.",
+      "endpoint": "/v1/publish",
+      "body": "{\"blob\":\"pAEAAoKjAUxnYXRlLXBhcGVyLTECWCAbZtuh5lm1xHTQKWeocKKTB6BEti9ENmGJYBGM43wbKwNYMAqBS1iKpMB9Q3Vic9cX5H7mrYYO0wjVR47vKtpWEoHGcZDPBaKPTDvFVwU+JvZDQqMBSWF1ZGl0b3ItMQJYIP6FErIRtjMRrhNcY+rD2SPMCvrU446jyd7CIq/N1mfwA1gwVzI1PR4mUaFQKYZ+8xxHX/BMm6O9aEFLOruYCGQ1Sn04tOYuD2T51pIg83W1qkqyA0x/l5uPlj6gBhDpmugEWFB4OY+QSqOcOwFBJ8a30lIv434J1sHzxHwJ+jfwlCqcn2VOOzcobuzGahsqbO7Iuow/dQ44fC7bbnyzQOQe44qoXsUrCY1JfaZvnmXSWM/hnw==\",\"agent_id\":\"dca-agent-1\",\"requested_at\":9007199254740992,\"signature\":\"OXsIKFwCT47/i2tvtx3f8y5ZGCuvzDMm43HTjhx3D58sPX/nMZqCWE/SqVMxtmxrBH6iUUJO7PzFw5+p6U20BA==\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "integer above 2^53 - 1"
+      }
+    },
+    {
+      "id": "publish_requested_at_minus_zero",
+      "description": "requested_at written as -0.",
+      "endpoint": "/v1/publish",
+      "body": "{\"blob\":\"pAEAAoKjAUxnYXRlLXBhcGVyLTECWCAbZtuh5lm1xHTQKWeocKKTB6BEti9ENmGJYBGM43wbKwNYMAqBS1iKpMB9Q3Vic9cX5H7mrYYO0wjVR47vKtpWEoHGcZDPBaKPTDvFVwU+JvZDQqMBSWF1ZGl0b3ItMQJYIP6FErIRtjMRrhNcY+rD2SPMCvrU446jyd7CIq/N1mfwA1gwVzI1PR4mUaFQKYZ+8xxHX/BMm6O9aEFLOruYCGQ1Sn04tOYuD2T51pIg83W1qkqyA0x/l5uPlj6gBhDpmugEWFB4OY+QSqOcOwFBJ8a30lIv434J1sHzxHwJ+jfwlCqcn2VOOzcobuzGahsqbO7Iuow/dQ44fC7bbnyzQOQe44qoXsUrCY1JfaZvnmXSWM/hnw==\",\"agent_id\":\"dca-agent-1\",\"requested_at\":-0,\"signature\":\"OXsIKFwCT47/i2tvtx3f8y5ZGCuvzDMm43HTjhx3D58sPX/nMZqCWE/SqVMxtmxrBH6iUUJO7PzFw5+p6U20BA==\"}",
+      "expect": {
+        "error": "ErrMalformed",
+        "stage": "json",
+        "why": "negative number"
+      }
+    },
+    {
+      "id": "publish_requested_at_2pow53_minus_1",
+      "description": "requested_at 2^53 - 1: converts (the wrapper accepts it; PR5 later refuses the request as stale).",
+      "endpoint": "/v1/publish",
+      "body": "{\"blob\":\"pAEAAoKjAUxnYXRlLXBhcGVyLTECWCAbZtuh5lm1xHTQKWeocKKTB6BEti9ENmGJYBGM43wbKwNYMAqBS1iKpMB9Q3Vic9cX5H7mrYYO0wjVR47vKtpWEoHGcZDPBaKPTDvFVwU+JvZDQqMBSWF1ZGl0b3ItMQJYIP6FErIRtjMRrhNcY+rD2SPMCvrU446jyd7CIq/N1mfwA1gwVzI1PR4mUaFQKYZ+8xxHX/BMm6O9aEFLOruYCGQ1Sn04tOYuD2T51pIg83W1qkqyA0x/l5uPlj6gBhDpmugEWFB4OY+QSqOcOwFBJ8a30lIv434J1sHzxHwJ+jfwlCqcn2VOOzcobuzGahsqbO7Iuow/dQ44fC7bbnyzQOQe44qoXsUrCY1JfaZvnmXSWM/hnw==\",\"agent_id\":\"dca-agent-1\",\"requested_at\":9007199254740991,\"signature\":\"OXsIKFwCT47/i2tvtx3f8y5ZGCuvzDMm43HTjhx3D58sPX/nMZqCWE/SqVMxtmxrBH6iUUJO7PzFw5+p6U20BA==\"}",
+      "expect": {
+        "cbor_hex": "a40159012da401000282a3014c676174652d70617065722d310258201b66dba1e659b5c474d02967a870a29307a044b62f4436618960118ce37c1b2b0358300a814b588aa4c07d43756273d717e47ee6ad860ed308d5478eef2ada561281c67190cf05a28f4c3bc557053e26f64342a3014961756469746f722d31025820fe8512b211b63311ae135c63eac3d923cc0afad4e38ea3c9dec222afcdd667f00358305732353d1e2651a15029867ef31c475ff04c9ba3bd68414b3abb980864354a7d38b4e62e0f64f9d69220f375b5aa4ab2034c7f979b8f963ea00610e99ae804585078398f904aa39c3b014127c6b7d2522fe37e09d6c1f3c47c09fa37f0942a9c9f654e3b37286eecc66a1b2a6ceec8ba8c3f750e387c2edb6e7cb340e41ee38aa85ec52b098d497da66f9e65d258cfe19f026b6463612d6167656e742d31031b001fffffffffffff045840397b08285c024f8eff8b6b6fb71ddff32e59182bafcc3326e371d38e1c770f9f2c3d7fe7319a82584fd2a95331b66c6b047ea251424eecfcc5c39fa9e94db404"
+      }
+    },
+    {
+      "id": "publish_requested_at_string",
+      "description": "requested_at as a string: ErrWrongType.",
+      "endpoint": "/v1/publish",
+      "body": "{\"blob\":\"pAEAAoKjAUxnYXRlLXBhcGVyLTECWCAbZtuh5lm1xHTQKWeocKKTB6BEti9ENmGJYBGM43wbKwNYMAqBS1iKpMB9Q3Vic9cX5H7mrYYO0wjVR47vKtpWEoHGcZDPBaKPTDvFVwU+JvZDQqMBSWF1ZGl0b3ItMQJYIP6FErIRtjMRrhNcY+rD2SPMCvrU446jyd7CIq/N1mfwA1gwVzI1PR4mUaFQKYZ+8xxHX/BMm6O9aEFLOruYCGQ1Sn04tOYuD2T51pIg83W1qkqyA0x/l5uPlj6gBhDpmugEWFB4OY+QSqOcOwFBJ8a30lIv434J1sHzxHwJ+jfwlCqcn2VOOzcobuzGahsqbO7Iuow/dQ44fC7bbnyzQOQe44qoXsUrCY1JfaZvnmXSWM/hnw==\",\"agent_id\":\"dca-agent-1\",\"requested_at\":\"1791000060\",\"signature\":\"OXsIKFwCT47/i2tvtx3f8y5ZGCuvzDMm43HTjhx3D58sPX/nMZqCWE/SqVMxtmxrBH6iUUJO7PzFw5+p6U20BA==\"}",
+      "expect": {
+        "error": "ErrWrongType",
+        "stage": "json",
+        "why": "requested_at"
+      }
+    }
+  ],
+  "media_types": [
+    {
+      "content_type": "application/json",
+      "expect": "json"
+    },
+    {
+      "content_type": "application/json; charset=utf-8",
+      "expect": "json"
+    },
+    {
+      "content_type": "application/json; charset=UTF-8",
+      "expect": "json"
+    },
+    {
+      "content_type": "Application/JSON",
+      "expect": "json"
+    },
+    {
+      "content_type": "application/json; foo=bar",
+      "expect": "json"
+    },
+    {
+      "content_type": "application/json; charset=latin-1",
+      "expect": "415"
+    },
+    {
+      "content_type": "application/problem+json",
+      "expect": "415"
+    },
+    {
+      "content_type": "application/json-seq",
+      "expect": "415"
+    },
+    {
+      "content_type": "text/plain",
+      "expect": "415"
+    },
+    {
+      "content_type": "",
+      "expect": "415"
+    },
+    {
+      "content_type": "application/cbor",
+      "expect": "cbor"
+    },
+    {
+      "content_type": "application/cbor; foo=bar",
+      "expect": "cbor"
+    },
+    {
+      "content_type": "application/json;",
+      "expect": "json"
+    }
+  ],
+  "accept": [
+    {
+      "accept": null,
+      "expect": "cbor"
+    },
+    {
+      "accept": "application/json",
+      "expect": "json"
+    },
+    {
+      "accept": "application/cbor",
+      "expect": "cbor"
+    },
+    {
+      "accept": "*/*",
+      "expect": "cbor"
+    },
+    {
+      "accept": "application/*",
+      "expect": "cbor"
+    },
+    {
+      "accept": "application/json, application/cbor",
+      "expect": "cbor"
+    },
+    {
+      "accept": "application/json;q=0.9, application/cbor;q=0.8",
+      "expect": "json"
+    },
+    {
+      "accept": "application/json;q=0",
+      "expect": "cbor"
+    },
+    {
+      "accept": "text/html",
+      "expect": "cbor"
+    },
+    {
+      "accept": "application/cbor;q=0.5, application/json;q=0.6",
+      "expect": "json"
+    },
+    {
+      "accept": "application/json;q=1.5",
+      "expect": "cbor"
+    }
+  ],
+  "responses": [
+    {
+      "id": "authorize_ok",
+      "description": "The 200 of api/errors.json authorize_ok.",
+      "schema": "authorize_response",
+      "cbor_hex": "a10158a6a201a701010258202024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe035820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f046c676174652d70617065722d31051a6ac07f28060107010258407dcb3bbc984852600abedb931d5d2ac58f0e64bbf16615d702a5ba381d8175a023b4316a3e539630a9b61486dc9b5a57205f00da03916cffcc3498efad19b501",
+      "expect": {
+        "json": {
+          "signed_authorization": "ogGnAQECWCAgJKSsiiNm88Nlj8u9Tk4kKeJpjL+jKmO2nuDp89Nm/gNYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PBGxnYXRlLXBhcGVyLTEFGmrAfygGAQcBAlhAfcs7vJhIUmAKvtuTHV0qxY8OZLvxZhXXAqW6OB2BdaAjtDFqPlOWMKm2FIbcm1pXIF8A2gORbP/MNJjvrRm1AQ=="
+        }
+      }
+    },
+    {
+      "id": "record_ok",
+      "description": "The 200 of api/errors.json record_ok.",
+      "schema": "record_response",
+      "cbor_hex": "a101590114a201a801010258202024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe036c676174652d70617065722d31045820fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025066a31333730303933323339081a6ac07dfe095820ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf0a5840e038249bf04ce3b65c59773a2e4ec1eff087a862e4f092da2001ea312b904d2db76e1abb09f8e0499170a33c7a4680cda85e7c804eac26315126aa68e2e3e50002584047257367eaaaee96c2c8de7a72188b1ef989e8b38723af5dff35394cd2598636995277bf6ac367c169a509b8e2dd266456cb0173026c201330058d7e90806b07",
+      "expect": {
+        "json": {
+          "signed_receipt": "ogGoAQECWCAgJKSsiiNm88Nlj8u9Tk4kKeJpjL+jKmO2nuDp89Nm/gNsZ2F0ZS1wYXBlci0xBFgg/FHNjmIYoaONpH7QAjDwWAgW7RO6MwOsXeuRFUiQgCUGajEzNzAwOTMyMzkIGmrAff4JWCDsFyuTrV5WO/STLHDhJFA0w1Rn7y79TWTr+BloNGfivwpYQOA4JJvwTOO2XFl3Oi5Owe/wh6hi5PCS2iAB6jErkE0tt24auwn44EmRcKM8ekaAzahefIBOrCYxUSaqaOLj5QACWEBHJXNn6qrulsLI3npyGIse+Ynos4cjr13/NTlM0lmGNplSd79qw2fBaaUJuOLdJmRWywFzAmwgEzAFjX6QgGsH"
+        }
+      }
+    },
+    {
+      "id": "publish_ok",
+      "description": "The 200 of api/errors.json publish_ok.",
+      "schema": "publish_response",
+      "cbor_hex": "a3015862a5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e60021a6ac07dde0300",
+      "expect": {
+        "json": {
+          "payload_ref": "pQECAlgdAAAAAAAAAAAAAAAAAAAAAAAAAGVkaWN0YS9kMDEDWCBRphU/fJXBfJhSLHSH8IoC+iDPKBOxiuRVIFKIk5NdrwQaAEAWQAVUGbAUYK3XkdH0nLkstj39ZIdPnmA=",
+          "block_time": 1791000030,
+          "retention_start": 0
+        }
+      }
+    },
+    {
+      "id": "health_ok",
+      "description": "The 200 of api/errors.json health_ok.",
+      "schema": "health_response",
+      "cbor_hex": "a9010102676d6f6368612d34031a0063d79c041a6ac07e00056c676174652d70617065722d31065820fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025075419b01460add791d1f49cb92cb63dfd64874f9e6008581d000000000000000000000000000000000000006564696374612f643031098102",
+      "expect": {
+        "json": {
+          "status": 1,
+          "chain_id": "mocha-4",
+          "head_height": 6543260,
+          "head_time": 1791000064,
+          "gate_id": "gate-paper-1",
+          "gate_pubkey": "/FHNjmIYoaONpH7QAjDwWAgW7RO6MwOsXeuRFUiQgCU=",
+          "recorder_signer": "GbAUYK3XkdH0nLkstj39ZIdPnmA=",
+          "namespace": "AAAAAAAAAAAAAAAAAAAAAAAAAGVkaWN0YS9kMDE=",
+          "allowed_da": [
+            2
+          ]
+        }
+      }
+    },
+    {
+      "id": "health_no_recorder",
+      "description": "health_degraded_no_recorder: keys 7 and 8 absent.",
+      "schema": "health_response",
+      "cbor_hex": "a7010202676d6f6368612d34031a0063d79c041a6ac07e00056c676174652d70617065722d31065820fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802509820102",
+      "expect": {
+        "json": {
+          "status": 2,
+          "chain_id": "mocha-4",
+          "head_height": 6543260,
+          "head_time": 1791000064,
+          "gate_id": "gate-paper-1",
+          "gate_pubkey": "/FHNjmIYoaONpH7QAjDwWAgW7RO6MwOsXeuRFUiQgCU=",
+          "allowed_da": [
+            1,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "id": "error_nonce_used_stored",
+      "description": "409 ErrNonceUsed with the stored Authorization.",
+      "schema": "error",
+      "cbor_hex": "a4016c4572724e6f6e636555736564027818676174653a206e6f6e636520616c7265616479207573656403000458a6a201a701010258202024a4ac8a2366f3c3658fcbbd4e4e2429e2698cbfa32a63b69ee0e9f3d366fe035820c21980427cdcfca858ef667e6057510f6c2139e81cac657eb6c000051eab0d0f046c676174652d70617065722d31051a6ac07f28060107010258407dcb3bbc984852600abedb931d5d2ac58f0e64bbf16615d702a5ba381d8175a023b4316a3e539630a9b61486dc9b5a57205f00da03916cffcc3498efad19b501",
+      "expect": {
+        "json": {
+          "code": "ErrNonceUsed",
+          "message": "gate: nonce already used",
+          "retryable": 0,
+          "stored": "ogGnAQECWCAgJKSsiiNm88Nlj8u9Tk4kKeJpjL+jKmO2nuDp89Nm/gNYIMIZgEJ83PyoWO9mfmBXUQ9sITnoHKxlfrbAAAUeqw0PBGxnYXRlLXBhcGVyLTEFGmrAfygGAQcBAlhAfcs7vJhIUmAKvtuTHV0qxY8OZLvxZhXXAqW6OB2BdaAjtDFqPlOWMKm2FIbcm1pXIF8A2gORbP/MNJjvrRm1AQ=="
+        }
+      }
+    },
+    {
+      "id": "error_chain_down",
+      "description": "503 ErrChainUnavailable, retryable 1.",
+      "schema": "error",
+      "cbor_hex": "a30173457272436861696e556e617661696c61626c6502781c676174653a20636861696e206461746120756e617661696c61626c650301",
+      "expect": {
+        "json": {
+          "code": "ErrChainUnavailable",
+          "message": "gate: chain data unavailable",
+          "retryable": 1
+        }
+      }
+    },
+    {
+      "id": "publish_block_time_2pow53",
+      "description": "A publish response whose block_time is 2^53: a server bug, answered 500 in JSON (JT8).",
+      "schema": "publish_response",
+      "cbor_hex": "a3015862a5010202581d000000000000000000000000000000000000006564696374612f64303103582051a6153f7c95c17c98522c7487f08a02fa20cf2813b18ae45520528893935daf041a00401640055419b01460add791d1f49cb92cb63dfd64874f9e60021b00200000000000000300",
+      "expect": {
+        "status": "500",
+        "code": "edictaapi.ErrInternal",
+        "why": "block_time above 2^53 - 1"
+      }
+    }
+  ],
+  "limits": {
+    "authorize": {
+      "cbor": "67771",
+      "json": "91388"
+    },
+    "record": {
+      "cbor": "2560",
+      "json": "4440"
+    },
+    "publish": {
+      "cbor": "max_blob_bytes + 256",
+      "json": "4 * ceil((max_blob_bytes + 256) / 3) + 1024",
+      "json_at_1048576": "1399468"
+    }
+  },
+  "check_order": [
+    {
+      "id": "oversized_and_unknown_member",
+      "description": "A JSON body one byte above the authorize JSON limit that also has an unknown member: 413 in JSON (size first); its CBOR twin is 413 as well.",
+      "json_size": "91389",
+      "expect": {
+        "status": "413",
+        "code": "ErrTooLarge"
+      }
+    },
+    {
+      "id": "within_json_limit_cbor_over",
+      "description": "A well-formed JSON authorize body within the JSON limit whose converted wrapper is above 67771 bytes: 413 after conversion (JT6).",
+      "expect": {
+        "status": "413",
+        "code": "ErrTooLarge"
+      }
+    },
+    {
+      "id": "within_json_limit_unknown_member_cbor_over",
+      "description": "As the previous one with an unknown member: 400 ErrMalformed in JSON (JSON decoding before the CBOR size), where the CBOR request with an unknown key is 413.",
+      "expect": {
+        "status": "400",
+        "code": "ErrMalformed"
+      },
+      "cbor_twin": {
+        "status": "413",
+        "code": "ErrTooLarge"
+      }
+    }
+  ]
+}

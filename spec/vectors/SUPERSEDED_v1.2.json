@@ -1,0 +1,15 @@
+{
+  "format": "edicta-vectors/v1",
+  "revision": "v1.2",
+  "generator": "spec/vectors/check/gen_v1_2.py",
+  "description": "Frozen vector cases whose expectation spec revision v1.2 (minor) changed, in the layout of SUPERSEDED.json, which stays byte-identical (core section 0, v1.2 amendment: every revision lists its superseded cases in its own file). A checker or test of v1.2 or later skips a frozen case only through SUPERSEDED.json and these lists, and runs replaced_by instead, on the same inputs.",
+  "entries": [
+    {
+      "file": "api/errors.json",
+      "case": "publish_wrong_media_type",
+      "revision": "v1.2",
+      "type": "minor",
+      "replaced_by": "api/errors_v1.2.json#publish_wrong_media_type"
+    }
+  ]
+}

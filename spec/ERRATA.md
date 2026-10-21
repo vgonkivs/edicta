@@ -47,7 +47,27 @@ vectors:
 Security revisions so far: `v1.0.3` (core 20.8, AB5: an in-window PFF
 candidate is never absence; new reason `anchor_unpaid`; superseded
 `da/absence.json` cases `fibre_candidate_nonzero_code` and
-`window_three_heights_proven`).
+`window_three_heights_proven`); `v1.0.5` and `v1.1.1`, pending the human's
+approval and their tags (core 20.1, 20.1.1: a verifier reads the
+`payload_ref` of a `da` its revision does not define as an opaque map (S2
+on `da` only) and reports an envelope whose first failure is then S3 on that
+`da` as `unchecked`, new reason `unsupported_revision`, not `fail`; core
+19.1 step 8 lets readers accept such an envelope, writers may refuse it;
+an envelope-level defect outside the commitment is `source_corrupt`; new files
+`verifier/reasons_v1.0.5.json` and `v1/unknown_da_v1.0.5.json`; nothing superseded, since no frozen case
+expects an envelope `fail` on S3). Until the tags exist, implementations
+keep `v1.0.4` and `v1.1` behavior and no tag names the revision.
+
+Minor revisions list superseded cases too, since `v1.2` (core section 0,
+`v1.2` amendment), each in a file of its own, `SUPERSEDED_<revision>.json`
+(entry `type = minor`); `SUPERSEDED.json` is never edited. A frozen case
+whose input the minor revision now accepts keeps its bytes and stays
+correct for the revisions it names, and its new outcome goes into a new
+file. So far: `SUPERSEDED_v1.2.json` lists `api/errors.json`
+`publish_wrong_media_type` (JSON is accepted, core 18.4), replaced by
+`api/errors_v1.2.json#publish_wrong_media_type`.
+Like a security revision, and unlike an erratum, this is not a fix: the
+frozen case was right for its revision.
 
 Threat note: a frozen vector that contradicts the frozen text pushes
 implementations to invent a rule that no text defines. Here that rule would

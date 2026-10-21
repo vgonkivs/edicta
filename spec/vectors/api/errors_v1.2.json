@@ -1,0 +1,405 @@
+{
+  "format": "edicta-vectors/v1",
+  "revision": "v1.2",
+  "generator": "spec/vectors/check/gen_v1_2.py",
+  "description": "API error mapping of spec revision v1.2 (core 18.3, 18.4, 21), additive to api/errors.json and api/errors_v1.1.json, which stay byte-identical. v1.2 adds no code; order: the whole match order of v1.2 (that of v1.1). examples: publish_wrong_media_type replaces the frozen case of api/errors.json for a v1.2 server (SUPERSEDED_v1.2.json): the same request, now read as JSON (core 18.4), is 400 ErrMalformed with a JSON body; publish_text_plain_media_type keeps the 415 of a type the API does not accept. message is not normative.",
+  "base": "api/errors.json",
+  "extends": "api/errors_v1.1.json",
+  "additions": [],
+  "order": [
+    {
+      "code": "recorder.ErrAnchorRejected",
+      "status": "502"
+    },
+    {
+      "code": "ErrAnchorTooOld",
+      "status": "410"
+    },
+    {
+      "code": "ErrExpired",
+      "status": "410"
+    },
+    {
+      "code": "edictaapi.ErrPublishStale",
+      "status": "410"
+    },
+    {
+      "code": "ErrH0TooOld",
+      "status": "410"
+    },
+    {
+      "code": "ErrAnchorWindowClosed",
+      "status": "410"
+    },
+    {
+      "code": "ErrMalformed",
+      "status": "400"
+    },
+    {
+      "code": "ErrTrailingData",
+      "status": "400"
+    },
+    {
+      "code": "ErrFloat",
+      "status": "400"
+    },
+    {
+      "code": "ErrSimpleValue",
+      "status": "400"
+    },
+    {
+      "code": "ErrTag",
+      "status": "400"
+    },
+    {
+      "code": "ErrIndefiniteLength",
+      "status": "400"
+    },
+    {
+      "code": "ErrNonMinimalInt",
+      "status": "400"
+    },
+    {
+      "code": "ErrNestingTooDeep",
+      "status": "400"
+    },
+    {
+      "code": "ErrUnsortedMap",
+      "status": "400"
+    },
+    {
+      "code": "ErrDuplicateKey",
+      "status": "400"
+    },
+    {
+      "code": "ErrKeyType",
+      "status": "400"
+    },
+    {
+      "code": "ErrInvalidString",
+      "status": "400"
+    },
+    {
+      "code": "ErrUnknownKey",
+      "status": "400"
+    },
+    {
+      "code": "ErrWrongType",
+      "status": "400"
+    },
+    {
+      "code": "ErrMissingField",
+      "status": "400"
+    },
+    {
+      "code": "ErrFieldSize",
+      "status": "400"
+    },
+    {
+      "code": "ErrNonCanonical",
+      "status": "400"
+    },
+    {
+      "code": "ErrUnsupportedVersion",
+      "status": "400"
+    },
+    {
+      "code": "ErrIntRange",
+      "status": "400"
+    },
+    {
+      "code": "ErrInvalidEnum",
+      "status": "400"
+    },
+    {
+      "code": "ErrZeroValue",
+      "status": "400"
+    },
+    {
+      "code": "ErrPayloadTooLarge",
+      "status": "400"
+    },
+    {
+      "code": "ErrInvalidNamespace",
+      "status": "400"
+    },
+    {
+      "code": "ErrTimeOrder",
+      "status": "400"
+    },
+    {
+      "code": "ErrActionSize",
+      "status": "400"
+    },
+    {
+      "code": "edictaapi.ErrTokenInvalid",
+      "status": "401"
+    },
+    {
+      "code": "edictaapi.ErrPublishSignature",
+      "status": "401"
+    },
+    {
+      "code": "ErrInvalidPublicKey",
+      "status": "403"
+    },
+    {
+      "code": "ErrSignatureInvalid",
+      "status": "403"
+    },
+    {
+      "code": "ErrScopeMismatch",
+      "status": "403"
+    },
+    {
+      "code": "ErrActionTypeNotAllowed",
+      "status": "403"
+    },
+    {
+      "code": "ErrDANotAllowed",
+      "status": "403"
+    },
+    {
+      "code": "ErrAgentKeyIsGateKey",
+      "status": "403"
+    },
+    {
+      "code": "ErrAgentNotAllowed",
+      "status": "403"
+    },
+    {
+      "code": "ErrAgentKeyMismatch",
+      "status": "403"
+    },
+    {
+      "code": "ErrExecutorNotAllowed",
+      "status": "403"
+    },
+    {
+      "code": "ErrKeyRole",
+      "status": "403"
+    },
+    {
+      "code": "ErrAnchorPending",
+      "status": "403"
+    },
+    {
+      "code": "ErrNamespaceNotAllowed",
+      "status": "403"
+    },
+    {
+      "code": "ErrMandateRefMissing",
+      "status": "403"
+    },
+    {
+      "code": "ErrMandateMismatch",
+      "status": "403"
+    },
+    {
+      "code": "edictaapi.ErrRouteNotFound",
+      "status": "404"
+    },
+    {
+      "code": "edictaapi.ErrPublishDisabled",
+      "status": "404"
+    },
+    {
+      "code": "edictaapi.ErrMethodNotAllowed",
+      "status": "405"
+    },
+    {
+      "code": "ErrNonceUsed",
+      "status": "409"
+    },
+    {
+      "code": "ErrReceiptExists",
+      "status": "409"
+    },
+    {
+      "code": "ErrBeforeRegistryEpoch",
+      "status": "409"
+    },
+    {
+      "code": "ErrTooLarge",
+      "status": "413"
+    },
+    {
+      "code": "recorder.ErrTooLarge",
+      "status": "413"
+    },
+    {
+      "code": "ErrPayloadAboveCap",
+      "status": "413"
+    },
+    {
+      "code": "edictaapi.ErrMediaType",
+      "status": "415"
+    },
+    {
+      "code": "ErrActionMismatch",
+      "status": "422"
+    },
+    {
+      "code": "ErrPayloadSizeMismatch",
+      "status": "422"
+    },
+    {
+      "code": "ErrPayloadHashMismatch",
+      "status": "422"
+    },
+    {
+      "code": "ErrDACommitmentMismatch",
+      "status": "422"
+    },
+    {
+      "code": "ErrArchiveRecomputeUnsupported",
+      "status": "422"
+    },
+    {
+      "code": "ErrIssuedBeforeAnchor",
+      "status": "422"
+    },
+    {
+      "code": "ErrTTLTooLong",
+      "status": "422"
+    },
+    {
+      "code": "ErrNotAuthorized",
+      "status": "422"
+    },
+    {
+      "code": "ErrAnchorIntentInvalid",
+      "status": "422"
+    },
+    {
+      "code": "ErrCertInvalid",
+      "status": "422"
+    },
+    {
+      "code": "ErrNotYetValid",
+      "status": "425"
+    },
+    {
+      "code": "ErrAnchorNotFound",
+      "status": "425"
+    },
+    {
+      "code": "edictaapi.ErrQuotaExceeded",
+      "status": "429"
+    },
+    {
+      "code": "recorder.ErrSignerMismatch",
+      "status": "502"
+    },
+    {
+      "code": "recorder.ErrSubmitMismatch",
+      "status": "502"
+    },
+    {
+      "code": "ErrPayloadUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "ErrRetentionUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "ErrChainUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "ErrAllowlistUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "ErrRegistryUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "ErrClockRegression",
+      "status": "503"
+    },
+    {
+      "code": "ErrClosed",
+      "status": "503"
+    },
+    {
+      "code": "recorder.ErrOutcomeUnknown",
+      "status": "503"
+    },
+    {
+      "code": "recorder.ErrNodeUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "recorder.ErrTooManyPending",
+      "status": "503"
+    },
+    {
+      "code": "recorder.ErrNotVisible",
+      "status": "503"
+    },
+    {
+      "code": "ErrArchiveUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "recorder.ErrArchiveUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "recorder.ErrEscrowInsufficient",
+      "status": "503"
+    },
+    {
+      "code": "ErrAnchorIntentUnavailable",
+      "status": "503"
+    },
+    {
+      "code": "ErrAnchorIntentRejected",
+      "status": "503"
+    },
+    {
+      "code": "recorder.ErrClockSkew",
+      "status": "503"
+    },
+    {
+      "code": "edictaapi.ErrDeadline",
+      "status": "504"
+    },
+    {
+      "code": "edictaapi.ErrInternal",
+      "status": "500"
+    }
+  ],
+  "examples": [
+    {
+      "id": "publish_wrong_media_type",
+      "replaces": "api/errors.json#publish_wrong_media_type",
+      "endpoint": "/v1/publish",
+      "method": "POST",
+      "description": "The frozen request (Content-Type application/json, a CBOR body): under v1.2 JSON is accepted (18.4), the body is not a JSON object, so the answer is 400 ErrMalformed in JSON.",
+      "content_type": "application/json",
+      "request_cbor_hex": "a40159012da401000282a3014c676174652d70617065722d310258201b66dba1e659b5c474d02967a870a29307a044b62f4436618960118ce37c1b2b0358300a814b588aa4c07d43756273d717e47ee6ad860ed308d5478eef2ada561281c67190cf05a28f4c3bc557053e26f64342a3014961756469746f722d31025820fe8512b211b63311ae135c63eac3d923cc0afad4e38ea3c9dec222afcdd667f00358305732353d1e2651a15029867ef31c475ff04c9ba3bd68414b3abb980864354a7d38b4e62e0f64f9d69220f375b5aa4ab2034c7f979b8f963ea00610e99ae804585078398f904aa39c3b014127c6b7d2522fe37e09d6c1f3c47c09fa37f0942a9c9f654e3b37286eecc66a1b2a6ceec8ba8c3f750e387c2edb6e7cb340e41ee38aa85ec52b098d497da66f9e65d258cfe19f026b6463612d6167656e742d31031a6ac07dfc045840397b08285c024f8eff8b6b6fb71ddff32e59182bafcc3326e371d38e1c770f9f2c3d7fe7319a82584fd2a95331b66c6b047ea251424eecfcc5c39fa9e94db404",
+      "status": "400",
+      "response_media_type": "application/json",
+      "response_json": {
+        "code": "ErrMalformed",
+        "message": "json: top-level value is not an object",
+        "retryable": 0
+      }
+    },
+    {
+      "id": "publish_text_plain_media_type",
+      "endpoint": "/v1/publish",
+      "method": "POST",
+      "description": "Content-Type text/plain: 415 before the body is read (the intent of the frozen case).",
+      "content_type": "text/plain",
+      "request_cbor_hex": "a40159012da401000282a3014c676174652d70617065722d310258201b66dba1e659b5c474d02967a870a29307a044b62f4436618960118ce37c1b2b0358300a814b588aa4c07d43756273d717e47ee6ad860ed308d5478eef2ada561281c67190cf05a28f4c3bc557053e26f64342a3014961756469746f722d31025820fe8512b211b63311ae135c63eac3d923cc0afad4e38ea3c9dec222afcdd667f00358305732353d1e2651a15029867ef31c475ff04c9ba3bd68414b3abb980864354a7d38b4e62e0f64f9d69220f375b5aa4ab2034c7f979b8f963ea00610e99ae804585078398f904aa39c3b014127c6b7d2522fe37e09d6c1f3c47c09fa37f0942a9c9f654e3b37286eecc66a1b2a6ceec8ba8c3f750e387c2edb6e7cb340e41ee38aa85ec52b098d497da66f9e65d258cfe19f026b6463612d6167656e742d31031a6ac07dfc045840397b08285c024f8eff8b6b6fb71ddff32e59182bafcc3326e371d38e1c770f9f2c3d7fe7319a82584fd2a95331b66c6b047ea251424eecfcc5c39fa9e94db404",
+      "status": "415",
+      "response_media_type": "application/cbor",
+      "response_cbor_hex": "a301766564696374616170692e4572724d65646961547970650278306564696374616170693a20636f6e74656e742074797065206d757374206265206170706c69636174696f6e2f63626f720300"
+    }
+  ],
+  "bodies": []
+}

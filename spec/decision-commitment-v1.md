@@ -2,11 +2,17 @@
 
 Edicta — verifiable decision layer for autonomous agents.
 
-Status: revision `v1.0` (2026-10-09), spec revision `v1.1` (2026-10-15,
-minor revision, section 0; the last patch revision of `v1.0` is `v1.0.4`).
-The wire format is frozen. Wire version: `version = 1`. Text marked "since
-`v1.1`" binds `v1.1` implementations; a `v1.0.N` implementation follows the
-text without it and stays conforming to `v1.0.N`.
+Status: revision `v1.0` (2026-10-09), spec revision `v1.2` (2026-10-21,
+minor revision, section 0; provisional until the human confirms it and
+creates the tag `spec-v1.2`; the previous minor revision is `v1.1` of
+2026-10-15, the last patch revision of `v1.0` is `v1.0.4`, and the security
+patch revisions `v1.0.5` and `v1.1.1` are pending). The wire format is
+frozen. Wire version: `version = 1`. Text marked "since `v1.1`" binds `v1.1`
+and later implementations; text marked "since `v1.2`", section 18.4
+included, binds `v1.2` implementations; text marked "since `v1.0.5` and
+`v1.1.1`" binds those patch revisions and every later revision. An
+implementation of an earlier revision follows the text without them and
+stays conforming to its revision.
 Domain tags: `edicta/v1/...`. This document is the whole core specification;
 the policy layer is `spec/policy-v1.md` (revision `policy-v1.0`,
 "policy"). The earlier `v0` drafts are superseded and unsupported; they are
@@ -129,6 +135,53 @@ difference from the spec
 revision each verifier implements (its release notes); the report's
 `version` is the wire version and is 1 for both.
 
+Minor revision `v1.2` (amendment of this section; task 051, provisional
+until the human confirms it before the tag `spec-v1.2`). The rules of the
+`v1.1` amendment hold, with these additions:
+
+- A minor revision may change the outcome of a frozen vector case whose
+  input it now accepts. It lists the case in a file of its own,
+  `spec/vectors/SUPERSEDED_<revision>.json`, in the layout of
+  `SUPERSEDED.json` with `type = minor`; the replacing case gives the new
+  outcome on the same inputs in a new file; the frozen file keeps its bytes
+  and stays correct for the revisions it names. No list is ever edited once
+  written: `SUPERSEDED.json` stays as `v1.0.3` wrote it. A checker or test
+  of a revision skips a frozen case only through `SUPERSEDED.json` and the
+  lists of the revisions up to its own. First use: `SUPERSEDED_v1.2.json`,
+  `api/errors.json#publish_wrong_media_type` (JSON is accepted since `v1.2`,
+  section 18.4).
+- Vectors of `v1.2` carry `revision: v1.2`. Tags: `spec-v1.2` (the human
+  creates it, together with or after `spec-v1.0.5` and `spec-v1.1.1`).
+
+Security patch revisions `v1.0.5` and `v1.1.1` (pending the human's approval
+and tags; type `security`, task 051). A commitment whose `payload_ref.da` a
+verifier's revision does not define may be a valid decision of a later
+revision (a new DA type with new `payload_ref` keys or sizes). A verifier
+reports it `invalid` before this patch, a false `invalid` that monitoring
+would hold against an honest agent. Since the patch a verifier reads the
+`payload_ref` of an undefined `da` as an opaque map (stage D checks its
+canonical form and its `da` entry, not D15 to D18 on its other keys; stage S
+applies S2 inside it to `da` only), and an envelope whose first failure is
+then S3 on that `da` is `envelope` `unchecked` with the reason
+`unsupported_revision` (20.1.1), never `fail`. The defined values are
+`{1, 2}` in every revision so far (`3` stays reserved), so `da = 4` is
+undefined too. The move is `fail` to `unchecked` only, toward INCONCLUSIVE,
+as the security rule of this section allows; two revisions never give
+opposite definite verdicts. What still fails: a commitment whose bytes break
+canonical CBOR or a rule outside `payload_ref`, which no revision can
+redefine. No frozen verifier case expects an envelope `fail` on S3 or inside
+the `payload_ref` of an undefined `da`, so nothing is superseded. Gates are
+unchanged: they keep refusing such a commitment at stage D or S3.
+
+Threat note (unknown `da`). A verifier of `v1.0.4` or `v1.1` reports a
+decision of a later revision's `da` `invalid`. The patch makes it `unchecked`
+(`unsupported_revision`), and the report prints the `da` value, so an auditor
+reruns with a verifier of a revision that defines it. Monitoring SHOULD alert
+on `unsupported_revision`. A decision whose `da` no revision ever defines
+stays `unchecked` for good: a gate that authorized it broke invariant 2, which
+then shows as INCONCLUSIVE rather than `invalid`, the price of moving toward
+INCONCLUSIVE.
+
 | Revision | Date | Change | Vectors |
 |---|---|---|---|
 | `v1-draft.1` to `v1-draft.4` | 2026-10-09 | Drafts of task 031, written as additions to the `v0` drafts. The history is in git and in the task folder. | |
@@ -140,6 +193,8 @@ revision each verifier implements (its release notes); the report's
 | `v1.0.3` | 2026-10-10 | Type `security` (human decision of 2026-10-10, task 045, "AB5 security fix"; closes a path to a false `invalid`). `da = 1` absence: a PFF candidate for the reference inside `[h0, anchor_deadline]` counts as present whatever its result code, so absence is never proven at its height. Up to `v1.0.2` a candidate whose code AB5 proved non-zero made the height absent, and an honest anchor whose PFF was included with a non-zero code (an ante failure in FinalizeBlock, section 10.4 facts) gave `anchor_absent`, a false `invalid`. AB5 now classifies a candidate height as present (a proven code 0), present unpaid (every code proven, none 0) or not proven (section 20.8). Presence still needs code 0 in v1.0 (CV8), so a present-unpaid height gives `anchor` `unchecked` with the new reason `anchor_unpaid` ("anchor included, non-zero result code; not confirmable by v1.0 verifiers"), never `fail` (sections 20.1.1, 20.6, 20.10, 10.6.3). Outcome moves: `fail` `anchor_absent` to `unchecked` `anchor_unpaid` only. Section 0 states the patch-level rule (toward INCONCLUSIVE only) and the handling of superseded vector cases; `spec/ERRATA.md` and the errata procedure record the erratum versus security distinction. The reason enum has 44 reasons. | `da/absence.json` and `verifier/reasons.json` byte-identical; superseded cases listed in the new `SUPERSEDED.json`: `da/absence.json` `fibre_candidate_nonzero_code` and `window_three_heights_proven`. New files: `da/absence_v1.0.3.json` (the two cases on the same inputs, `window_unpaid_with_unproven_height`, `window_paid_after_unpaid`), `v1/verify_v1.0.3.json` (pending decisions with an in-window unpaid candidate, end to end), `verifier/reasons_v1.0.3.json` (the reason `anchor_unpaid`, additive to `reasons.json`). |
 | `v1.0.4` | 2026-10-11 | Type `clarification`. E3 (`spec/ERRATA.md`), human decision Q2 of 2026-10-10 (task 044): the header-trust bound of a pending reference, `max(D, H)` (and `D + 1` for an AB5 results proof, section 20.6; HT1), holds for every kind of header trust, a trusted header file, an explicit or agreed checkpoint (20.4) or any other trust an implementation adds. A trust that cannot name its checkpoint height `T` cannot show that bound, so `header_trust` stays `unchecked` (HT1, HT7), never `pass`. The frozen rules already said this; no check outcome of the spec changes. Conformance note: an implementation whose header-trust kind accepted a checkpoint below the bound, or an unknown one, gave a `pass` the frozen text never allowed; its fix moves that outcome only toward INCONCLUSIVE (`pass` to `unchecked`) and is a conformance bug fix of the implementation, recorded here, not a `security` revision of the spec. No frozen vector expects a `pass` with a checkpoint below the bound (every `pass` case of `v1/verify.json` has `trusted_head` 4200127 with `anchor_deadline` 4200126). | none |
 | `v1.1` | 2026-10-15 | Type `minor` (task 047; amendment above). (1) Presence trust up to `H` (human decision Q1 of 2026-10-10, task 044): for a pending reference whose evidence verifies at `h0 <= H <= D`, header trust needs to reach `H` only, not `D`; every other row of 20.6 still needs `max(D, H)`, and `D + 1` with an AB5 results proof (sections 10.6.2 HT1, 20.6, new 20.6.1). Outcome move: `anchor` `unchecked` `anchor_pending` to `pass` only. (2) The paid-anchor requirement stays (human decision H1 of 2026-10-15, task 047; it withdraws the removal of CV8's code clause that `v1.0.2` announced for `v1.1`, task 045 R3-1). Clarification only, no check outcome changes: "Inclusion proves publication; a VALID verdict additionally requires a paid anchor (`tx_code == 0`). Unpaid anchors are an operator funding failure, surfaced by the escrow alert." CV8 keeps its code clause; evidence key 12 keeps admitting only 0; `anchor_unpaid` stays `unchecked` for good, never `fail` (sections 1, 10.6.1, 10.6.3, 20.1.1, 20.6.1, 20.9). "Not part of the claim" in the frozen text means not part of the publication claim ("anchored"); the `valid` verdict needs CV8 as well (10.6.3). Superseded wording in frozen files, which keep their bytes: the `anchor_unpaid` meaning ("not confirmable by v1.0 verifiers") and advice ("a v1.1 verifier confirms inclusion without the code") of `verifier/reasons_v1.0.3.json`, and the quote "this requirement is removed in v1.1" in the E2 addendum of `spec/ERRATA.md`. No `v1.N` removes the requirement; the wording of `verifier/reasons_v1.1.json` replaces those strings for a `v1.1` verifier's text output. This is not an erratum: no frozen expectation is wrong, only an announcement that the human withdrew. (3) Archive kind 19 `execution_result` (task 045 R3-3): one record per captured ordinary rail tx, key `(chain_id, rail_ref)`, with the headers at the execution height and the next one, complete proofs of the transaction namespaces, the result and its RFC 6962 path; the verifier's rules XR1 to XR8 (new 20.2.2) and its place among the execution sources (EX10); the migration of the gate's capture store, MG1 to MG7 (sections 19.1 to 19.4, 19.7, 20.3; bank-send profile 3.4). Outcome move: `execution` `unchecked` to `pass` or `fail` once nodes have pruned the block, where the archived record proves what an online source with proofs used to (amendment above); the migration drops a capture only when the archive holds an equivalent record (MG5). Kind 19 is read only under an `exec/` path; the general reader keeps the `v1.0` kind set, so the frozen rejects `rec_kind_19` and `kind_19_undefined` keep `ErrInvalidEnum` and need no `SUPERSEDED.json` entry (19.1 step 3). An archive answers a missing `exec/` key as absent; a fault there stops the verification (20.3). The gate's capture store may keep a done-index of moved references, never read by a verifier (19.7). (4) API codes `recorder.ErrAnchorRejected` (502, matched first) and `recorder.ErrClockSkew` (503, retryable) (task 022d m4; sections 18.3, 21). Before, a server reported `recorder.ErrClockSkew` as 500 `edictaapi.ErrInternal` and `recorder.ErrAnchorRejected`, which wraps `ErrAnchorNotFound`, as 425 `ErrAnchorNotFound` (retryable). Gate checks, signed objects, tags and the invariants of section 1.1 are unchanged. | Frozen files byte-identical. New: `archive/execution_result_v1.1.json` (kind 19 records, rejects, XR cases, migration; built from synthetic blocks of the new tool `tools/execresult-gen`), `api/errors_v1.1.json` (the two codes, the merged match order), `v1/verify_v1.1.json` (presence with header trust in `[H, D)`, with the `v1.0` outcome of each case), `verifier/reasons_v1.1.json` (the `anchor_unpaid` wording under H1; the reason, its checks and every outcome unchanged). |
+| `v1.0.5`, `v1.1.1` | 2026-10-21 | Type `security`, pending the human's approval and the tags `spec-v1.0.5` and `spec-v1.1.1` (task 051; closes a path to a false `invalid`; amendment above). A verifier reads the `payload_ref` of a `da` its revision does not define (outside `{1, 2}`) as an opaque map (stage D checks its canonical form and its `da` entry, not D15 to D18 on its other keys; S2 applies to `da` only), the archive reader accepts such an envelope at 19.1 step 8 (writers may refuse it), an envelope-level defect outside the commitment with such a `da` is `source_corrupt`, and an envelope that hashes to the reference and whose first failure is then S3 on `payload_ref.da` is `envelope` `unchecked` with the new reason `unsupported_revision` (20.1, 20.1.1), not `fail`. The report prints the `da` value. Gates keep refusing at stage D or S3. Outcome move: `envelope` `fail` to `unchecked` only. The reason enum has 45 reasons. `spec/ERRATA.md` records the revision. | Frozen files byte-identical; no frozen case expects an envelope `fail` on S3 or inside an undefined `da`'s `payload_ref`, so nothing is superseded. New: `verifier/reasons_v1.0.5.json` (the reason, its cases, boundary cases and archive reader cases), `v1/unknown_da_v1.0.5.json` (the commitments they name). Landing: only after the verifier slice that implements the rule and its tests. |
+| `v1.2` | 2026-10-21 | Type `minor` (task 051; amendment above; provisional; design decisions E-D13 and E-D14, question Q-A5). (1) JSON transport over the HTTP API (new section 18.4, rules JT1 to JT11): every route also accepts `application/json` as a transport for the same wrapper maps, signed and hashed objects travel as base64 of their exact CBOR bytes; `ErrMediaType` now answers every type other than CBOR and JSON (JT1). (2) Superseded cases of a minor revision go into `SUPERSEDED_<revision>.json`; `SUPERSEDED.json` is never edited (amendment above). Outcome move: for a request with `Content-Type: application/json`, 415 to the JSON path (a body that is not JSON is now 400 `ErrMalformed`). Gate checks, signed objects, archive records, tags, reasons and the invariants of section 1.1 are unchanged. | Frozen files byte-identical, `SUPERSEDED.json` included. New: `SUPERSEDED_v1.2.json` (`api/errors.json#publish_wrong_media_type`, type `minor`, replaced by `api/errors_v1.2.json#publish_wrong_media_type`), `api/errors_v1.2.json`, `api/json_v1.2.json`; generator `gen_v1_2.py`, checker `check_v1_2.py`, JSON rules module `json_transport.py`. |
 
 Editorial note, no revision: the post-freeze rows of the first table and the
 revision scheme above were amended on 2026-10-10 by the human's decision. The
@@ -3561,13 +3616,13 @@ canonical encodings, carried as byte strings and never re-encoded.
 
 | Rule | Value |
 |---|---|
-| Content type | Requests with a body and every response body: `application/cbor`. A request with another `Content-Type` gets 415 `edictaapi.ErrMediaType`. |
+| Content type | Requests with a body and every response body: `application/cbor`. A request with another `Content-Type` gets 415 `edictaapi.ErrMediaType`. Since `v1.2` also `application/json` as a transport for the same maps (section 18.4). |
 | Encoding | Canonical CBOR, section 3 profile; wrapper maps with uint keys, all listed keys required unless marked optional. Arrays appear only in the health response. Booleans are uint `0`/`1`. An unknown wrapper key is `ErrUnknownKey` (400). |
 | Embedded objects | An envelope, SignedAuthorization, SignedReceipt or PayloadRef travels as a `bstr` holding its exact canonical bytes. Servers and clients splice and parse them with their own decoders; they never re-encode them. |
 | Versioning | Paths start with `/v1/`. An incompatible change gets `/v2/`. There are no other paths and no aliases. |
 | Size | Each endpoint's request limit (18.2) is checked before parsing: `ErrTooLarge` (413). |
 | Authentication | `/v1/publish` by the agent signature (section 17); `/v1/record` by the executor signature (section 14.3); optionally, per endpoint class, a bearer token in `Authorization: Bearer` (`edictaapi.ErrTokenInvalid`, 401). `/v1/health` is unauthenticated and carries no secrets. Tokens over plain HTTP to a non-loopback address are refused by configuration. |
-| Order of checks | Route (404), method (405), media type (415), token (401), size (413), wrapper decoding (400), then the operation's own stage order (sections 8.7, 14.3, 17). |
+| Order of checks | Route (404), method (405), media type (415), token (401), size (413), wrapper decoding (400), then the operation's own stage order (sections 8.7, 14.3, 17). Since `v1.2`, JSON requests: section 18.4 JT6. |
 
 ### 18.2 Endpoints
 
@@ -3734,6 +3789,79 @@ Threat notes:
 - `message` is for operators. It MUST NOT contain tokens, keys or request
   bodies; for 500 it is a fixed redacted text.
 
+### 18.4 JSON transport (since `v1.2`)
+
+Spec revision `v1.2` (minor; decision E-D13, Q-A5, provisional). Every route
+of 18.2 also accepts `application/json` as a transport for the same wrapper
+maps. JSON is never hashed, signed, archived or turned into a signed object:
+every signed or hashed object travels inside JSON as base64 of its exact
+canonical CBOR bytes, and the server converts the JSON request into the CBOR
+wrapper map a CBOR client would have sent and runs the unchanged CBOR path.
+A `v1.0.N` or `v1.1` server answers `application/json` with 415 (18.1); the
+frozen vector `api/errors.json#publish_wrong_media_type` holds for those
+revisions and is superseded for `v1.2` servers (`spec/vectors/SUPERSEDED_v1.2.json`,
+section 0). Building or signing a commitment is never a server operation
+(E-D14): a server that prepared bytes an agent then signed blindly would let
+a compromised gate obtain both signatures an executor's signer requires.
+
+| Rule | Requirement |
+|---|---|
+| JT1 Request media type | `Content-Type` parsed as RFC 9110 (type and subtype case-insensitive). `application/cbor` as before; `application/json` with any parameters, except a `charset` other than `utf-8` (case-insensitive). Anything else is 415 `edictaapi.ErrMediaType`: a missing or unparsable header, `+json` suffix types (`application/problem+json`), `application/json-seq`, `text/plain`. A `GET` has no request media type: its `Content-Type` and body are ignored. |
+| JT2 Response media type | A `GET` (the health endpoint, or a 404 or 405 answer to a `GET`) follows `Accept`: JSON iff `application/json` has a `q` above 0 and strictly above the `q` of `application/cbor`; no header, wildcards, ties and unacceptable types answer CBOR (never 406). Every other method answers in the request's media type when JT1 accepted it (JSON iff `application/json`) and in CBOR otherwise (the 415 itself, and a 404 or 405 to a request whose type JT1 refuses); `Accept` is then ignored. Every response carries `Vary: Accept, Content-Type`. Error bodies, the 401 of a token check included, follow the same rule. |
+| JT3 Document | The body is one JSON object (RFC 8259) in UTF-8 without a byte order mark; whitespace only space, tab, LF and CR; nothing after the object. Member names are exactly the field names of the table below for the route, case-sensitive, compared after unescaping; member order is free; an unknown member, a repeated member or a malformed document is `ErrMalformed` (400). |
+| JT4 Values | A byte string field is a JSON string holding standard base64 (RFC 4648 section 4 alphabet), padded and canonical: length a multiple of 4, no line breaks or other characters, zero trailing bits; JSON escapes inside it are decoded first; anything else is `ErrMalformed`. A text field is a JSON string; escapes are decoded; an unpaired surrogate, a raw control character below `0x20` or invalid UTF-8 is `ErrMalformed`. A uint field is a JSON number in integer form: digits only, no sign, no leading zero (other than `0` itself), no fraction or exponent (neither `1.0` nor `1e0`), at most `2^53 - 1`; anything else in a number is `ErrMalformed`. `null`, `true`, `false` and objects as values are `ErrMalformed`, and so is an array element other than an integer. A value of a JSON type other than the field's (a number or an array for a byte string, a string for a uint) is `ErrWrongType` (400); arrays are the type of the health response's `allowed_da` only. |
+| JT5 Conversion | The server builds the canonical CBOR wrapper map from the members (the schema's uint keys, ascending; byte strings exactly as decoded) and runs the CBOR path: wrapper decoding with its own sentinels (`ErrMissingField`, `ErrFieldSize`, `ErrInvalidString`, ...), then the operation (sections 8.7, 14.3, 17). The CBOR-level sentinels `ErrDuplicateKey`, `ErrUnknownKey`, `ErrTrailingData` and `ErrIntRange` cannot arise from JSON: those defects are `ErrMalformed` at JT3 and JT4. |
+| JT6 Order of checks | Route (404), method (405), media type (415), token (401), JSON body size (413: above `4 * ceil(L / 3) + 1024` bytes, `L` the route's request limit of 18.2), JSON decoding and conversion (400), the size of the converted wrapper against `L` (413; `/v1/publish` applies PR1 inside the operation, as for CBOR), wrapper decoding (400), then the operation. |
+| JT7 Response bodies | The 200 wrapper maps and the error body (18.3) rendered with the field names of the table: byte strings as canonical padded base64, uints as JSON numbers, the health `allowed_da` as an array of numbers, optional fields absent when absent. `retryable` is the number `0` or `1`, as in CBOR. |
+| JT8 Integers in responses | Every uint of a response body is at most `2^53 - 1` (all current fields are Unix seconds, heights, a status, a flag or a DA value). A larger value is a server bug: the server answers 500 `edictaapi.ErrInternal` in JSON, never a rounded number. CBOR responses are unaffected. |
+| JT9 Tokens | The bearer token check (18.1) applies to every media type JT1 accepts, with the same order (415 before 401). |
+| JT10 Messages | `message` is never normative, in JSON as in CBOR. The `ErrMediaType` text of the frozen vectors ("content type must be application/cbor") is stale wording, not a rule. |
+| JT11 Clients | A client chooses its decoder from the response `Content-Type`: CBOR or JSON; a 200 of any other type is refused (`ErrMalformed`). Codes map as 18.3. |
+
+| Route | Request members (JSON) | 200 response members (JSON) |
+|---|---|---|
+| `POST /v1/publish` | `blob`, `agent_id`, `requested_at`, `signature` | `payload_ref`, `block_time`, `retention_start` |
+| `POST /v1/authorize` | `envelope`, `action`, `action_salt` | `signed_authorization`, `policy_verdict` (policy 11.3, optional) |
+| `POST /v1/record` | `envelope`, `rail_ref`, `executor_pubkey`, `executor_signature` | `signed_receipt` |
+| `GET /v1/health` | none | `status`, `chain_id`, `head_height`, `head_time`, `gate_id`, `gate_pubkey`, `recorder_signer`, `namespace`, `allowed_da` |
+| error body (every non-200) | | `code`, `message`, `retryable`, `stored`, `policy_verdict` |
+
+The names are the names of the CBOR schemas (17.2, 18.2, 18.3; policy 11.3
+for key 5). `payload_ref`, `envelope`, `signed_authorization`,
+`signed_receipt`, `stored` and `policy_verdict` are base64 of the exact
+canonical bytes; a client splices and verifies them exactly as in CBOR.
+
+Consequences, stated so that two servers agree:
+- A request that is bad in two ways may get another code in JSON than in
+  CBOR, because JSON-level defects are found before the CBOR size and the
+  wrapper (JT6): an oversized request with an unknown member is 400 in JSON
+  and 413 in CBOR; a `rail_ref` of escaped characters can be 413 in JSON
+  where its CBOR form is 400. Both are refusals of a request that fails
+  anyway; for well-formed requests the 413 boundary is the same.
+- A publish whose 200 cannot be rendered in JSON (JT8) has already published
+  the blob; the Recorder's dedupe record (PR6) answers a JSON retry with the
+  same 500 until it expires, and a CBOR retry with the response. This needs
+  a broken publisher (`block_time` or `retention_start` above `2^53 - 1`).
+
+Threat notes (JSON).
+- No signed byte depends on JSON: the conversion places the decoded bytes
+  into the same wrapper keys, so a JSON request produces exactly a CBOR
+  request a CBOR client could have sent, and the gate's stages run on the
+  same bytes (invariants 1 to 9 are unaffected).
+- Parser differentials: duplicate members, escapes, surrogates, number forms
+  and base64 variants are pinned (JT3, JT4), so two servers never read one
+  JSON body as two different requests.
+- Access control: a token guard in front of the API that classified media
+  types differently from the API would let an unauthenticated JSON request
+  through (task 051 audit); JT9 requires one classification.
+- Memory: a JSON body costs more than its CBOR form; JT6 bounds it by the
+  base64 expansion of the route's CBOR limit before any decoding.
+
+Vectors: `spec/vectors/api/json_v1.2.json` (JT1 to JT8: request bodies with
+their converted CBOR wrapper or refusal, media-type and `Accept` cases,
+response renderings) and `spec/vectors/api/errors_v1.2.json` (the match order,
+unchanged from `v1.1`, and the replacing case of `publish_wrong_media_type`).
+
 ## 19. Archive records (format 1)
 
 The archive store (a directory, an object store, a database) is
@@ -3814,7 +3942,12 @@ reports every failure as `archive.ErrCorrupt` wrapping the cause named here
    kinds.
 8. Nested messages: `envelope` passes strict decoding of section 6 (stage D)
    and its commitment has `version = 1` (`ErrUnsupportedVersion`: a decision of
-   the superseded drafts is refused, not misread); `signed_authorization`
+   the superseded drafts is refused, not misread); since `v1.0.5` and `v1.1.1`,
+   for readers only: an envelope whose `payload_ref.da` the reader's revision
+   does not define passes with that `payload_ref` read as opaque (20.1), and
+   its path key is the hash of the commitment bytes it carries (the archive
+   check of such a record and its key use the opaque reading where the
+   strict decode fails); writers and gates may keep refusing it; `signed_authorization`
    passes the decoding of section 15 and its stage S rules (Q1 to Q6);
    `signed_receipt` passes stages D and S of section 14.2. Their own sentinels
    are the cause.
@@ -4459,7 +4592,14 @@ Archive cases (they follow the general rule):
 `fail` cases, a closed list:
 
 - `envelope`: the commitment hashes to the reference and breaks stage D or
-  S, or G0 on its `agent_pubkey`. Every copy has these bytes.
+  S, or G0 on its `agent_pubkey`. Every copy has these bytes. Since
+  `v1.0.5` and `v1.1.1`: a verifier reads the `payload_ref` of a `da` its
+  revision does not define as an opaque map (stage D checks its canonical
+  form and its `da` entry, not D15 to D18 on its other keys; stage S applies
+  S2 inside it to `da` only), and an envelope whose first failure is then S3
+  on that `da` is `unchecked` (`unsupported_revision`). With such a `da`, a
+  stage D failure outside the commitment bytes (the envelope's signature or
+  keys) makes a bad copy (`source_corrupt`), never `fail`.
 - `anchor_time`: K1 against `T_H` of a header that passed header trust.
   Without one, `anchor_time` is `unchecked` (`blocked`), whatever the
   untrusted header says.
@@ -4492,7 +4632,8 @@ Every `unchecked` check carries exactly one machine-readable `reason` from
 this enum. Every `fail` carries the rule or sentinel that failed. The text
 output prints the reason, the meaning, the source it names (EO2), and the
 advice. The enum is closed: 44 reasons in this revision (`anchor_unpaid`
-added by spec revision `v1.0.3`). A new reason is a revision change.
+added by spec revision `v1.0.3`); 45 since `v1.0.5` and `v1.1.1`
+(`unsupported_revision`). A new reason is a revision change.
 
 | Reason | On checks | Meaning | Advice |
 |---|---|---|---|
@@ -4538,6 +4679,7 @@ added by spec revision `v1.0.3`). A new reason is a revision change.
 | `anchor_pending` | `anchor` | Pending reference, no usable evidence, and the trusted header is below `anchor_deadline` (or `anchor_deadline + 1` when a results proof is needed): not decidable yet. | Retry later or with a newer checkpoint. |
 | `absence_unproven` | `anchor` | Pending reference, no evidence inside the window, and the absence proofs for `[h0, anchor_deadline]` are missing, incomplete or fail. Names the first height not proven. | Another archive copy or `--absence-source`. |
 | `anchor_unpaid` | `anchor` | Anchor included, non-zero result code: published, but a valid verdict requires a paid anchor. Pending reference, no evidence inside the window, and an absence proof (AB5) shows a PFF candidate for the reference at a height of `[h0, anchor_deadline]` whose result code is proven non-zero, with no height showing one with code 0. The payload was published (inclusion); the escrow did not pay; a `valid` verdict requires code 0 (CV8). (`v1.0.3` to `v1.0.4` worded the first sentence "Anchor included, non-zero result code; not confirmable by v1.0 verifiers.") Names the first such height. Spec revision `v1.0.3`. Permanent: a `valid` verdict requires a paid anchor in every revision (human decision H1 of 2026-10-15, section 10.6.3), so this stays `unchecked`, never `fail`. Since `v1.1` the text output prints the wording of `verifier/reasons_v1.1.json` (section 0, `v1.1` row). | None (unpaid anchor: operator funding failure; escrow alert). If a paid anchor may sit at a height not proven, another archive copy or `--absence-source`. |
+| `unsupported_revision` | `envelope` | Since `v1.0.5` and `v1.1.1`. The commitment hashes to the reference, `payload_ref.da` is a value this verifier's revision does not define (outside `{1, 2}`), and with that `payload_ref` read as opaque (stage D checks only its canonical form and its `da`) the first failure is S3 on `da`. A later revision may define the value and its keys; not a verdict on the decision. The report prints the `da` value. | A verifier of a revision that defines this `da`. |
 | `policy_private` | `policy`, `gate_integrity`, `action`, `execution` | The record needed is a private blob (kind 15) and no configured auditor key opens it. Names the first record. On `action` and `execution`: a form 2 decision record (20.11) without a reveal that applies. | An auditor key of the mandate. |
 | `principal_scheme_unsupported` | `policy` | The verifier build lacks the principal signature scheme the mandate names. | A verifier build with that scheme. |
 
@@ -5316,7 +5458,7 @@ have stable names, because the API reports them as codes:
 | `edictaapi.ErrTokenInvalid` | Missing or wrong bearer token on an endpoint that requires one | 401 |
 | `edictaapi.ErrRouteNotFound` | No such path | 404 |
 | `edictaapi.ErrMethodNotAllowed` | Wrong HTTP method for the path | 405 |
-| `edictaapi.ErrMediaType` | Request `Content-Type` is not `application/cbor` | 415 |
+| `edictaapi.ErrMediaType` | Request `Content-Type` is not `application/cbor` (since `v1.2`: neither `application/cbor` nor `application/json` under 18.4 JT1) | 415 |
 | `edictaapi.ErrDeadline` | The server's own per-request handler deadline passed, and the operation's error matches no other sentinel (section 18.3) | 504 |
 | `edictaapi.ErrInternal` | Anything unmapped; message redacted | 500 |
 
@@ -5349,6 +5491,7 @@ hand-written strict CBOR in `cbor_strict.py`), all in `spec/vectors/check/`:
 | `check_fibre_commit.py`, `check_fibre_cert.py`, `check_fibre_anchor.py` | The `da/` files produced by the Go tools of `spec/vectors/tools/`. |
 | `gen_policy.py` / `check_policy.py`, `gen_principal.py` / `check_principal.py` | `policy/*.json`, `principal/*.json` (`spec/policy-v1.md` section 15). |
 | `gen_profile_*.py` / `check_profile_*.py`, `gen_bank_send_action_from_tx.py` / `check_bank_send_action_from_tx.py` | `profiles/` (profile documents, section "Vectors"). |
+| `gen_v1_2.py` / `check_v1_2.py` | The files of spec revision `v1.2` (section 18.4; JSON rules module `json_transport.py`) and of the security patch revisions `v1.0.5` and `v1.1.1`: `api/errors_v1.2.json`, `api/json_v1.2.json`, `SUPERSEDED_v1.2.json`, `verifier/reasons_v1.0.5.json`, `v1/unknown_da_v1.0.5.json`. |
 
 No live checker imports a module of the superseded drafts, and
 `check_vectors.py` refuses any live vector file or checker module that holds
@@ -5408,7 +5551,11 @@ an action carries `action_salt_hex`.
 | `verifier/reasons_v1.0.3.json` | Spec revision `v1.0.3`: `extends` names `verifier/reasons.json`; the added reason `anchor_unpaid` and its case. The enum of the revision is the union (44). |
 | `da/absence_v1.0.3.json` | Spec revision `v1.0.3`, section 20.8: the superseded cases `fibre_candidate_nonzero_code` and `window_three_heights_proven` on byte-identical inputs with the per-height result `present_unpaid` and the window result `present_unpaid` (`unpaid_height`); `window_unpaid_with_unproven_height` and `window_paid_after_unpaid` (order of the window results), on records of `da/absence.json`. |
 | `v1/verify_v1.0.3.json` | Spec revision `v1.0.3`, section 20.6, in the layout of `v1/verify.json` `cases`, on the records named by `records_from`: an in-window unpaid candidate without evidence (`anchor_unpaid`), with a height not proven, after which a paid one decides (`evidence_unavailable`), with late evidence (`anchor_unpaid`, never `anchor_absent`), and with the deadline's results proof still waiting (`anchor_pending`). |
-| `SUPERSEDED.json` | Frozen cases whose expectation a `security` revision changed (section 0): `file`, `case`, `revision` (the changelog entry), `type`, `replaced_by`. Checkers and tests of the current revision skip a frozen case only through this list. |
+| `SUPERSEDED.json` | Frozen cases whose expectation a `security` revision changed (section 0): `file`, `case`, `revision` (the changelog entry), `type`, `replaced_by`. Checkers and tests of the current revision skip a frozen case only through this list and the lists below. |
+| `SUPERSEDED_v1.2.json` | Since `v1.2`: the frozen cases the minor revision `v1.2` supersedes, same layout, `type = minor` (section 0). |
+| `verifier/reasons_v1.0.5.json` | Security patch revisions `v1.0.5` and `v1.1.1` (pending): the reason `unsupported_revision`, additive to the enum of `verifier/reasons_v1.0.3.json`, its cases (`v1_0_4` and `v1_2` outcomes stated), boundary cases and archive reader cases. |
+| `v1/unknown_da_v1.0.5.json` | The commitments those cases name: undefined `da` values (4, 5) with a reserved key, a size outside the `da = 2` rules and a value above S2, each with the outcome of a gate of every revision. |
+| `api/errors_v1.2.json`, `api/json_v1.2.json` | Spec revision `v1.2`: the match order (unchanged from `v1.1`) and the replacing case of `api/errors.json#publish_wrong_media_type`; the JSON transport (18.4). |
 | `verifier/execution_outcomes.json`, `verifier/live/` | Section 20.2: one case per cause of `unchecked` and `fail`, the passing cases, and the live result proof of the bank-send checker. |
 | `policy/*.json`, `principal/*.json` | `spec/policy-v1.md` section 15. |
 | `profiles/dca-agent/`, `profiles/bank-send/` | Profile documents, section "Vectors". |
@@ -5502,6 +5649,14 @@ How an implementation uses them:
   of `verifier/reasons_v1.1.json`. `cd spec/vectors/tools/execresult-gen &&
   go run . -check` rebuilds the blocks and runs the XR cases with upstream
   code.
+- `v1.0.5` and `v1.1.1` (security, pending): a verifier gives the outcomes of
+  `verifier/reasons_v1.0.5.json`, and its archive reader accepts the records
+  of its `archive_reader` cases.
+- `v1.2` (minor): an implementation of `v1.2` passes every case a `v1.1.1`
+  implementation passes, except `api/errors.json#publish_wrong_media_type`,
+  which `SUPERSEDED_v1.2.json` replaces; the API server maps the codes in the
+  order of `api/errors_v1.2.json` and converts every JSON case of
+  `api/json_v1.2.json` to its CBOR wrapper or its refusal.
 
 Stage D vectors whose defect is inside the commitment are signed over
 `tag || <malformed commitment bytes>`, so the encoding defect is the only
