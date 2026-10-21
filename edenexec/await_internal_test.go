@@ -30,9 +30,16 @@ func (c *fakeClock) install(chk *Checker) {
 	}
 }
 
+// awaitChecker waits at L0, as an explicit configuration may: one source's
+// word decides an outcome, never not executed.
 func awaitChecker(t *testing.T, srcs ...Source) (*Checker, *fakeClock) {
 	t.Helper()
-	chk := newTestChecker(t, Config{PollInterval: time.Second}, srcs...)
+	return awaitCheckerAt(t, LevelNodeAttested, srcs...)
+}
+
+func awaitCheckerAt(t *testing.T, level Level, srcs ...Source) (*Checker, *fakeClock) {
+	t.Helper()
+	chk := newTestChecker(t, Config{MinLevel: level, PollInterval: time.Second}, srcs...)
 	clk := &fakeClock{now: time.Unix(scnTime, 0)}
 	clk.install(chk)
 	return chk, clk
@@ -60,7 +67,10 @@ func TestAwaitFoundAfterPolls(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StatusPass, rep.Status)
 	assert.Equal(t, OutcomeExecuted, rep.Outcome)
+	assert.Equal(t, AwaitExecuted, rep.State)
 	assert.Equal(t, 2, clk.sleeps)
+	assert.True(t, rep.RecordAllowed())
+	assert.False(t, rep.PaymentSignatureAllowed(), "one operator's word is L0")
 }
 
 func TestAwaitReverted(t *testing.T) {
@@ -74,16 +84,48 @@ func TestAwaitReverted(t *testing.T) {
 
 func TestAwaitNotExecuted(t *testing.T) {
 	s := newScenario(t)
-	src := s.source("own")
-	src.Txs = nil
-	chk, clk := awaitChecker(t, src)
+	a, b := s.source("own"), s.source("public")
+	a.Txs, b.Txs = nil, nil
+	chk, clk := awaitChecker(t, a, b)
 	start := clk.now
 	rep, err := chk.Await(context.Background(), s.target, start.Add(10*time.Second))
 	require.ErrorIs(t, err, ErrNotFound)
 	assert.Equal(t, ReasonNotFound, rep.Reason)
+	assert.Equal(t, AwaitNotExecuted, rep.State)
+	assert.True(t, rep.NonceReleaseAllowed())
 	assert.Equal(t, 10, clk.sleeps, "polls once per interval until the deadline")
 	assert.False(t, clk.now.Before(start.Add(10*time.Second)))
 }
+
+// One operator's not found is never not executed, at any level.
+func TestAwaitOneOperatorNotFoundIsUnknown(t *testing.T) {
+	s := newScenario(t)
+	a, b := s.source("own"), s.source("public")
+	a.Txs = nil
+	b.ChainErr = errors.New("down")
+	same := s.source("other-host")
+	same.Txs = nil
+	for name, srcs := range map[string][]Source{
+		"one source":                {a},
+		"other source unavailable":  {a, b},
+		"two hosts of one operator": {a, &operated{FakeSource: same, op: "own"}},
+	} {
+		chk, clk := awaitChecker(t, srcs...)
+		rep, err := chk.Await(context.Background(), s.target, clk.now.Add(3*time.Second))
+		require.ErrorIs(t, err, ErrSettlementUnknown, name)
+		require.NotErrorIs(t, err, ErrNotFound, name)
+		assert.Equal(t, AwaitUnknown, rep.State, name)
+		assert.False(t, rep.NonceReleaseAllowed(), name)
+	}
+}
+
+// operated gives a fake source an operator label.
+type operated struct {
+	*FakeSource
+	op string
+}
+
+func (o *operated) Operator() string { return o.op }
 
 func TestAwaitNoSourceAnswered(t *testing.T) {
 	s := newScenario(t)
@@ -91,7 +133,7 @@ func TestAwaitNoSourceAnswered(t *testing.T) {
 	src.ChainErr = errors.New("connection refused")
 	chk, clk := awaitChecker(t, src)
 	rep, err := chk.Await(context.Background(), s.target, clk.now.Add(3*time.Second))
-	require.ErrorIs(t, err, ErrSourceUnavailable)
+	require.ErrorIs(t, err, ErrSettlementUnknown)
 	require.NotErrorIs(t, err, ErrNotFound, "no answer is never not executed")
 	assert.Equal(t, ReasonSourceUnavailable, rep.Reason)
 }
@@ -108,9 +150,9 @@ func TestAwaitSeenThenGone(t *testing.T) {
 	}
 	chk, clk := awaitChecker(t, src)
 	rep, err := chk.Await(context.Background(), s.target, clk.now.Add(3*time.Second))
-	require.ErrorIs(t, err, ErrUnconfirmed)
-	require.NotErrorIs(t, err, ErrNotFound, "a transaction that was seen is never reported not executed")
-	assert.Equal(t, ReasonUnconfirmed, rep.Reason)
+	require.ErrorIs(t, err, ErrSettlementUnknown)
+	require.NotErrorIs(t, err, ErrNotFound, "one source is never enough for not executed")
+	assert.Equal(t, ReasonNotFound, rep.Reason)
 }
 
 func TestAwaitUnconfirmedAtDeadline(t *testing.T) {
@@ -118,8 +160,60 @@ func TestAwaitUnconfirmedAtDeadline(t *testing.T) {
 	src := s.source("own")
 	src.HeadNum = scnNumber + 1
 	chk, clk := awaitChecker(t, src)
-	_, err := chk.Await(context.Background(), s.target, clk.now.Add(2*time.Second))
-	require.ErrorIs(t, err, ErrUnconfirmed)
+	rep, err := chk.Await(context.Background(), s.target, clk.now.Add(2*time.Second))
+	require.ErrorIs(t, err, ErrSettlementUnknown)
+	assert.Equal(t, ReasonUnconfirmed, rep.Reason)
+	assert.Equal(t, AwaitUnknown, rep.State)
+}
+
+// A source below the depth blocks not executed, whatever the others say.
+func TestAwaitUnconfirmedBlocksNotExecuted(t *testing.T) {
+	s := newScenario(t)
+	a, b, c := s.source("a"), s.source("b"), s.source("c")
+	a.Txs, b.Txs = nil, nil
+	c.HeadNum = scnNumber + 1
+	chk, clk := awaitCheckerAt(t, LevelMultiSource, a, b, c)
+	rep, err := chk.Await(context.Background(), s.target, clk.now.Add(2*time.Second))
+	require.ErrorIs(t, err, ErrSettlementUnknown)
+	assert.Equal(t, AwaitUnknown, rep.State)
+	assert.False(t, rep.NonceReleaseAllowed())
+}
+
+func TestAwaitL1(t *testing.T) {
+	s := newScenario(t)
+	t.Run("two operators agree", func(t *testing.T) {
+		chk, clk := awaitCheckerAt(t, LevelMultiSource, s.source("a"), s.source("b"))
+		rep, err := chk.Await(context.Background(), s.target, clk.now.Add(time.Minute))
+		require.NoError(t, err)
+		assert.Equal(t, AwaitExecuted, rep.State)
+		assert.Equal(t, LevelMultiSource, rep.Level)
+		assert.True(t, rep.PaymentSignatureAllowed())
+	})
+	t.Run("one operator keeps it pending until the deadline", func(t *testing.T) {
+		b := s.source("b")
+		b.Txs = nil
+		chk, clk := awaitCheckerAt(t, LevelMultiSource, s.source("a"), b)
+		rep, err := chk.Await(context.Background(), s.target, clk.now.Add(5*time.Second))
+		require.ErrorIs(t, err, ErrSettlementUnknown)
+		assert.Equal(t, AwaitUnknown, rep.State)
+		assert.Equal(t, ReasonBelowLevel, rep.Reason)
+		assert.Equal(t, 5, clk.sleeps)
+		assert.False(t, rep.RecordAllowed())
+	})
+	t.Run("a disagreement stays disputed and never violated", func(t *testing.T) {
+		b := s.source("b")
+		rc := b.Receipts[s.R]
+		rc.Status, rc.Logs = 0, nil
+		b.Receipts[s.R] = rc
+		chk, clk := awaitCheckerAt(t, LevelMultiSource, s.source("a"), b)
+		rep, err := chk.Await(context.Background(), s.target, clk.now.Add(3*time.Second))
+		require.ErrorIs(t, err, ErrDisagree)
+		assert.Equal(t, AwaitDisputed, rep.State)
+		assert.Equal(t, StatusUnchecked, rep.Status)
+		assert.Equal(t, 3, clk.sleeps, "a later poll may resolve it")
+		assert.False(t, rep.RecordAllowed())
+		assert.False(t, rep.NonceReleaseAllowed())
+	})
 }
 
 func TestAwaitStopsAtOnce(t *testing.T) {
@@ -171,7 +265,9 @@ func TestAwaitRealTimer(t *testing.T) {
 	s := newScenario(t)
 	src := s.source("own")
 	src.Txs = nil
-	chk := newTestChecker(t, Config{PollInterval: time.Millisecond}, src)
+	other := s.source("other")
+	other.Txs = nil
+	chk := newTestChecker(t, Config{PollInterval: time.Millisecond}, src, other)
 	_, err := chk.Await(context.Background(), s.target, time.Now().Add(20*time.Millisecond))
 	require.ErrorIs(t, err, ErrNotFound)
 }
@@ -192,9 +288,10 @@ func TestAwaitAsksOwnNodeFirst(t *testing.T) {
 	chk, clk := awaitChecker(t, public, own)
 	rep, err := chk.Await(context.Background(), s.target, clk.now.Add(time.Minute))
 	require.NoError(t, err)
-	assert.Equal(t, []string{"own"}, order, "the first source at the depth is enough")
-	require.Len(t, rep.Sources, 1)
+	assert.Equal(t, []string{"own", "public"}, order, "every source is asked, so a disagreement shows")
+	require.Len(t, rep.Sources, 2)
 	assert.Equal(t, "own", rep.Sources[0].Name)
 	assert.Equal(t, SourceUsed, rep.Sources[0].Result)
-	assert.Equal(t, LevelNodeAttested, rep.Level, "Await stops at L0")
+	assert.Equal(t, SourceAgree, rep.Sources[1].Result)
+	assert.Equal(t, LevelMultiSource, rep.Level, "two operators reach L1 even when L0 is configured")
 }

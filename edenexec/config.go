@@ -15,13 +15,14 @@ import (
 const Profile = "eden-escrow-v1"
 
 // Level is how much of the settlement the report establishes; each includes
-// the ones below.
+// the ones below. The zero Level is unset, so that a configuration that
+// names none gets the default and L0 is only ever chosen explicitly.
 type Level uint8
 
 const (
 	// LevelNodeAttested: one source's word.
-	LevelNodeAttested Level = iota
-	// LevelMultiSource: MinSources operators, distinct by host, agree.
+	LevelNodeAttested Level = iota + 1
+	// LevelMultiSource: MinSources distinct operators agree.
 	LevelMultiSource
 	// LevelReceiptProven: the block's transactions and receipts rebuild the
 	// roots of a header the L1 operators attest.
@@ -74,7 +75,7 @@ func (c SourceClass) String() string {
 // Source is one Eden JSON-RPC endpoint. A lookup of something the source
 // does not have is ErrNotFound; any other failure is a source fault.
 type Source interface {
-	// Name is the normalized host, the identity that tells operators apart.
+	// Name is the normalized host. No two sources share one.
 	Name() string
 	Class() SourceClass
 	ChainID(ctx context.Context) (uint64, error)
@@ -91,6 +92,23 @@ type Source interface {
 	// CodeHash is keccak256 of the code at addr in the latest block. Code
 	// cannot change after creation, and pruned nodes keep only latest state.
 	CodeHash(ctx context.Context, addr [20]byte) ([32]byte, error)
+}
+
+// Operated is a Source that names its operator. Two sources with one
+// operator count once toward L1. The label is the configuration's
+// statement; nothing here can check that two operators are independent.
+type Operated interface {
+	Operator() string
+}
+
+// OperatorOf is the source's operator label, or its host when it has none.
+func OperatorOf(s Source) string {
+	if o, ok := s.(Operated); ok {
+		if op := o.Operator(); op != "" {
+			return op
+		}
+	}
+	return s.Name()
 }
 
 // DAStatus is the operator's own ev-node: whether a block's data is in
@@ -125,6 +143,7 @@ func NewTarget(action []byte, railRef string, expires, tRef uint64) (Target, err
 
 // Defaults.
 const (
+	DefaultMinLevel     = LevelMultiSource
 	DefaultMinSources   = 2
 	DefaultConfirmDepth = 20 // about 2 s of 100 ms blocks
 	DefaultPollInterval = 500 * time.Millisecond
@@ -141,9 +160,12 @@ const (
 
 // Config sets what a settlement report requires and how Await polls.
 type Config struct {
-	// MinLevel is the level a pass needs.
+	// MinLevel is the level a pass needs, and Await's level. Unset is L1:
+	// one RPC operator's word is enough only when L0 is configured.
 	MinLevel Level
-	// MinSources is how many agreeing operators make L1.
+	// MinSources is how many agreeing operators make L1, and how many
+	// operators must answer not found before Await calls a transaction not
+	// executed.
 	MinSources int
 	// ConfirmDepth is how many blocks must follow the transaction's. Eden's
 	// safe and finalized tags equal the head, so they carry no weight.
@@ -155,6 +177,9 @@ type Config struct {
 
 // ApplyDefaults fills the zero fields.
 func (c *Config) ApplyDefaults() {
+	if c.MinLevel == 0 {
+		c.MinLevel = DefaultMinLevel
+	}
 	if c.MinSources == 0 {
 		c.MinSources = DefaultMinSources
 	}
@@ -172,7 +197,7 @@ func (c *Config) ApplyDefaults() {
 // ValidateBasic checks the fields alone.
 func (c Config) ValidateBasic() error {
 	switch {
-	case c.MinLevel > LevelReceiptProven:
+	case c.MinLevel < LevelNodeAttested || c.MinLevel > LevelReceiptProven:
 		return fmt.Errorf("edenexec: config: level %d", c.MinLevel)
 	case c.MinSources < 2 || c.MinSources > MaxSources:
 		return fmt.Errorf("edenexec: config: MinSources %d is not in 2..%d", c.MinSources, MaxSources)
@@ -193,6 +218,17 @@ func (c Config) AwaitUntil(t Target) time.Time {
 	return time.Unix(int64(t.Action.Deposit.ExpiresAt), 0).Add(c.AwaitGrace)
 }
 
+// Operators is the number of distinct operators among srcs.
+func Operators(srcs []Source) int {
+	ops := map[string]bool{}
+	for _, s := range srcs {
+		if s != nil {
+			ops[OperatorOf(s)] = true
+		}
+	}
+	return len(ops)
+}
+
 // Checker runs the settlement rules against its sources.
 type Checker struct {
 	cfg  Config
@@ -204,7 +240,9 @@ type Checker struct {
 }
 
 // NewChecker checks the configuration against the sources: at least one,
-// distinct by host, and enough for the required level.
+// each named and distinct by host. Fewer operators than the level needs is
+// no error: such a checker still finds a wrong transaction, and its reports
+// say the level was not reached.
 func NewChecker(cfg Config, srcs []Source, da DAStatus) (*Checker, error) {
 	if err := cfg.ValidateBasic(); err != nil {
 		return nil, err
@@ -224,12 +262,9 @@ func NewChecker(cfg Config, srcs []Source, da DAStatus) (*Checker, error) {
 			return nil, fmt.Errorf("edenexec: source %d has no name", i)
 		}
 		if seen[s.Name()] {
-			return nil, fmt.Errorf("edenexec: two sources on host %s are one operator", s.Name())
+			return nil, fmt.Errorf("edenexec: two sources on host %s", s.Name())
 		}
 		seen[s.Name()] = true
-	}
-	if cfg.MinLevel >= LevelMultiSource && len(srcs) < cfg.MinSources {
-		return nil, fmt.Errorf("edenexec: level %s needs %d sources, %d given", cfg.MinLevel, cfg.MinSources, len(srcs))
 	}
 	return &Checker{
 		cfg: cfg, srcs: append([]Source(nil), srcs...), da: da,

@@ -31,6 +31,11 @@ var (
 	ErrActionRefused     = errors.New("edenexec: action is not a form T deposit of this build")
 )
 
+// ErrSettlementUnknown is Await's unknown state: past the deadline, the
+// sources neither agree on an outcome nor show that the transaction was not
+// executed. It is not a report reason.
+var ErrSettlementUnknown = errors.New("edenexec: settlement state unknown")
+
 // Reason is a settlement reason of the profile. These are not core reasons.
 type Reason string
 

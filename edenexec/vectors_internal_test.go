@@ -174,7 +174,7 @@ func TestVectorsExactTx(t *testing.T) {
 	var f signedFile
 	loadVector(t, "signed.json", &f)
 	acts := actions(t)
-	require.Len(t, f.ExactTx, 27)
+	require.Len(t, f.ExactTx, 29)
 	for _, c := range f.ExactTx {
 		t.Run(c.ID, func(t *testing.T) {
 			a, ok := acts[c.ActionRef]

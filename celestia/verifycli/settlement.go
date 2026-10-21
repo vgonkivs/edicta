@@ -14,7 +14,10 @@ import (
 )
 
 // settlementFlags select the Eden settlement report. Own nodes are asked
-// before public RPCs, each group in the order given.
+// before public RPCs, each group in the order given. Without
+// --settlement-level the report needs L1, so one source alone reports at
+// most that the level was not reached, or a wrong transaction; asking for
+// a level that the given sources can never reach is a usage error.
 type settlementFlags struct {
 	on      bool
 	rpc     []string
@@ -82,6 +85,10 @@ func (s settlementFlags) checker() (*edenexec.Checker, error) {
 			return nil, usagef("--settlement-da %q: %v", s.da, err)
 		}
 		da = st
+	}
+	if s.level != "" && cfg.MinLevel >= edenexec.LevelMultiSource && edenexec.Operators(srcs) < cfg.MinSources {
+		return nil, usagef("--settlement-level %s needs %d sources of distinct operators, %d given",
+			cfg.MinLevel, cfg.MinSources, edenexec.Operators(srcs))
 	}
 	chk, err := edenexec.NewChecker(cfg, srcs, da)
 	if err != nil {

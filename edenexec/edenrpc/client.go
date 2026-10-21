@@ -45,6 +45,9 @@ const codeMethodNotFound = -32601
 type Config struct {
 	URL   string
 	Class edenexec.SourceClass
+	// Operator labels who runs the endpoint; empty is its host. Sources
+	// with one label count once toward L1.
+	Operator string
 	// ExpectChainID, when set, is checked once before any other call.
 	ExpectChainID uint64
 	Timeout       time.Duration
@@ -75,6 +78,8 @@ func (c Config) ValidateBasic() error {
 	switch {
 	case c.Class != edenexec.ClassPublicRPC && c.Class != edenexec.ClassOwnNode:
 		return fmt.Errorf("edenrpc: source class %d", c.Class)
+	case !validLabel(c.Operator):
+		return fmt.Errorf("edenrpc: operator label %q is not 0 to %d printable ASCII characters", c.Operator, maxLabel)
 	case c.Timeout <= 0:
 		return errors.New("edenrpc: timeout must be positive")
 	case c.MaxResponse < 1024 || c.MaxResponse > MaxResponseLimit:
@@ -83,6 +88,21 @@ func (c Config) ValidateBasic() error {
 		return fmt.Errorf("edenrpc: MaxBlock %d is not in MaxResponse..%d", c.MaxBlock, MaxResponseLimit)
 	}
 	return nil
+}
+
+// maxLabel bounds an operator label, which reports print.
+const maxLabel = 64
+
+func validLabel(s string) bool {
+	if len(s) > maxLabel {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x21 || s[i] > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 // hostOf is the normalized host of an http or https URL: lower case, without
@@ -113,7 +133,10 @@ type Client struct {
 	chainSeen bool
 }
 
-var _ edenexec.Source = (*Client)(nil)
+var (
+	_ edenexec.Source   = (*Client)(nil)
+	_ edenexec.Operated = (*Client)(nil)
+)
 
 // New returns a client. A nil hc uses one with the configured timeout that
 // follows no redirect.
@@ -139,6 +162,14 @@ func newHTTPClient(timeout time.Duration) *http.Client {
 
 func (c *Client) Name() string                { return c.name }
 func (c *Client) Class() edenexec.SourceClass { return c.cfg.Class }
+
+// Operator is the configured label, or the host.
+func (c *Client) Operator() string {
+	if c.cfg.Operator != "" {
+		return c.cfg.Operator
+	}
+	return c.name
+}
 
 // rpcError is an error answer of the endpoint.
 type rpcError struct {

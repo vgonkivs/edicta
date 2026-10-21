@@ -448,3 +448,23 @@ func TestConfigValidate(t *testing.T) {
 		assert.Error(t, err)
 	}
 }
+
+func TestOperatorLabel(t *testing.T) {
+	c := Config{URL: "https://RPC.eden.gateway.fm./", Class: edenexec.ClassPublicRPC}
+	c.ApplyDefaults()
+	cl, err := New(c, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "rpc.eden.gateway.fm", cl.Operator(), "no label is the host")
+	assert.Equal(t, "rpc.eden.gateway.fm", edenexec.OperatorOf(cl))
+
+	c.Operator = "gateway"
+	cl, err = New(c, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "gateway", edenexec.OperatorOf(cl))
+
+	for _, bad := range []string{"two words", "tab\t", strings.Repeat("x", maxLabel+1), "caf\xc3\xa9"} {
+		c.Operator = bad
+		_, err := New(c, nil)
+		assert.Error(t, err, "%q", bad)
+	}
+}

@@ -67,8 +67,9 @@ private key in hex, mode 0600, that opens private records).
 Eden settlement (`verify` only, needs `--receipt`): `--settlement` with
 `--settlement-rpc URL` (repeatable, public Eden JSON-RPC) and/or
 `--settlement-own-rpc URL` (repeatable, your own Eden node, asked first);
-`--settlement-level L0|L1|L2` (default `L0`), `--settlement-min-sources N`
-(default 2), `--settlement-confirm-depth N` (default 20 blocks),
+`--settlement-level L0|L1|L2` (default `L1`; with one source the report
+then reaches at most `settlement_below_level`, so ask for `L0` to accept one
+source's word), `--settlement-min-sources N` (default 2), `--settlement-confirm-depth N` (default 20 blocks),
 `--settlement-da URL` (your own ev-node, report only). See below.
 
 Fast mode: `--absence-source URL`, a bridge node JSON-RPC URL that serves
@@ -311,9 +312,9 @@ Levels, and what you trust at each:
 - `L0`: one source's word (class `public-rpc`: the RPC operator; class
   `own-node`: your node, which re-executes the blocks, and the sequencer's
   ordering). Read the class on the `sources` lines.
-- `L1`: at least `--settlement-min-sources` sources on different hosts agree
-  on the block, the index and the receipt. You trust that they do not
-  collude.
+- `L1`: at least `--settlement-min-sources` sources of different operators
+  (each source's operator is its host) agree on the block, the index and the
+  receipt. You trust that they do not collude.
 - `L2`: in addition the block's transactions and receipts rebuild the roots
   of a header whose fields hash to the block hash. The header itself is
   attested by the `L1` sources. `block_number` and `block_time` come from

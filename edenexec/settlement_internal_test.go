@@ -20,6 +20,9 @@ func settle(t testing.TB, cfg Config, tg Target, srcs ...Source) Report {
 	return rep
 }
 
+// l0 asks for one source's word, which only an explicit configuration does.
+var l0 = Config{MinLevel: LevelNodeAttested}
+
 func requireUnchecked(t testing.TB, rep Report, reason Reason) {
 	t.Helper()
 	require.Equal(t, StatusUnchecked, rep.Status, "err %v", rep.Err)
@@ -29,7 +32,7 @@ func requireUnchecked(t testing.TB, rep Report, reason Reason) {
 
 func TestSettlementL0Executed(t *testing.T) {
 	s := newScenario(t)
-	rep := settle(t, Config{}, s.target, s.source("rpc.a"))
+	rep := settle(t, l0, s.target, s.source("rpc.a"))
 	require.Equal(t, StatusPass, rep.Status, "%v", rep.Err)
 	assert.Equal(t, LevelNodeAttested, rep.Level)
 	assert.Equal(t, OutcomeExecuted, rep.Outcome)
@@ -57,7 +60,7 @@ func TestSettlementReverted(t *testing.T) {
 	s := newScenario(t)
 	s.receipt.Status, s.receipt.Logs = 0, nil
 	src := s.source("rpc.a")
-	rep := settle(t, Config{}, s.target, src)
+	rep := settle(t, l0, s.target, src)
 	require.Equal(t, StatusPass, rep.Status, "%v", rep.Err)
 	assert.Equal(t, OutcomeReverted, rep.Outcome)
 }
@@ -258,14 +261,14 @@ func TestSettlementSourceRules(t *testing.T) {
 			bad := s.source("bad")
 			tc.mod(s, bad)
 
-			rep := settle(t, Config{}, s.target, bad)
+			rep := settle(t, l0, s.target, bad)
 			requireUnchecked(t, rep, tc.reason)
 			require.Len(t, rep.Sources, 1)
 			assert.Equal(t, SourceSetAside, rep.Sources[0].Result)
 			assert.Equal(t, tc.reason, rep.Sources[0].Reason)
 
 			// The source is set aside and the next one decides.
-			rep = settle(t, Config{}, s.target, bad, s.source("good"))
+			rep = settle(t, l0, s.target, bad, s.source("good"))
 			require.Equal(t, StatusPass, rep.Status, "%v", rep.Err)
 			assert.Equal(t, LevelNodeAttested, rep.Level)
 			assert.Equal(t, SourceSetAside, rep.Sources[0].Result)
@@ -330,18 +333,18 @@ func TestSettlementTimeWarnings(t *testing.T) {
 	s := newScenario(t)
 	tg := s.target
 	tg.Expires, tg.TRef = scnTime-1, scnTime+1
-	rep := settle(t, Config{}, tg, s.source("a"))
+	rep := settle(t, l0, tg, s.source("a"))
 	require.Equal(t, StatusPass, rep.Status)
 	assert.Equal(t, []string{WarnAfterExpires, WarnBeforeReference}, rep.Warnings)
 
 	tg.TRef = 0
-	rep = settle(t, Config{}, tg, s.source("a"))
+	rep = settle(t, l0, tg, s.source("a"))
 	assert.Equal(t, []string{WarnAfterExpires}, rep.Warnings)
 }
 
 func TestSettlementDA(t *testing.T) {
 	s := newScenario(t)
-	cfg := Config{}
+	cfg := l0
 	cfg.ApplyDefaults()
 	da := &FakeDA{Height: 15152868, Included: true}
 	c, err := NewChecker(cfg, []Source{s.source("a")}, da)
@@ -410,13 +413,14 @@ func TestConfig(t *testing.T) {
 	var c Config
 	c.ApplyDefaults()
 	require.NoError(t, c.ValidateBasic())
-	assert.Equal(t, LevelNodeAttested, c.MinLevel)
+	assert.Equal(t, LevelMultiSource, c.MinLevel, "L1 unless L0 is configured")
 	assert.Equal(t, DefaultMinSources, c.MinSources)
 	assert.Equal(t, uint64(DefaultConfirmDepth), c.ConfirmDepth)
 	assert.Equal(t, DefaultAwaitGrace, c.AwaitGrace)
 
 	bad := []func(*Config){
-		func(c *Config) { c.MinLevel = 3 },
+		func(c *Config) { c.MinLevel = 0 },
+		func(c *Config) { c.MinLevel = LevelReceiptProven + 1 },
 		func(c *Config) { c.MinSources = 1 },
 		func(c *Config) { c.MinSources = MaxSources + 1 },
 		func(c *Config) { c.ConfirmDepth = MaxConfirmDepth + 1 },
@@ -441,10 +445,15 @@ func TestConfig(t *testing.T) {
 	assert.Error(t, err, "unnamed source")
 	_, err = NewChecker(c, []Source{nil}, nil)
 	assert.Error(t, err)
-	l1 := c
-	l1.MinLevel = LevelMultiSource
-	_, err = NewChecker(l1, []Source{&FakeSource{SrcName: "a"}}, nil)
-	assert.Error(t, err, "L1 needs MinSources sources")
+
+	// Too few operators for the level is not a configuration error: the
+	// checker still finds a wrong transaction, and its pass needs the level.
+	s := newScenario(t)
+	one, err := NewChecker(c, []Source{s.source("a")}, nil)
+	require.NoError(t, err)
+	rep, err := one.Settlement(context.Background(), s.target)
+	require.NoError(t, err)
+	requireUnchecked(t, rep, ReasonBelowLevel)
 
 	for _, s := range []string{"L0", "L1", "L2"} {
 		l, err := ParseLevel(s)

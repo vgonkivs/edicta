@@ -31,9 +31,13 @@ const (
 
 // SourceResult is what one source asked contributed.
 type SourceResult struct {
-	Name   string
-	Class  SourceClass
-	Result string // used, agree or set_aside
+	Name     string
+	Class    SourceClass
+	Operator string
+	Result   string // used, agree or set_aside
+	// State tells a set-aside source's answer apart: not found,
+	// unconfirmed, unavailable or another rule.
+	State  SourceState
 	Reason Reason // for set_aside
 	Err    error
 }
@@ -69,7 +73,11 @@ type Report struct {
 	HasBlock bool
 	Warnings []string
 	DA       *DAReport
-	Sources  []SourceResult
+	// Deposit is the decoded action's deposit, whenever the action decoded.
+	Deposit *edenescrow.DepositView
+	Sources []SourceResult
+	// State is set by Await: the combined state of its last poll.
+	State AwaitState
 }
 
 // probe is one source's answers for the target.
@@ -131,9 +139,9 @@ func (c *Checker) SettlementOfAction(ctx context.Context, action []byte, railRef
 	return c.Settlement(ctx, t)
 }
 
-// evaluate asks the sources in order. With maxLevel L0 it stops at the
-// first source that passes, which is all an executor waiting for its own
-// transaction needs.
+// evaluate asks every source in order, since a source that disagrees or
+// still shows the transaction changes the combined result; only a violation
+// stops it early.
 func (c *Checker) evaluate(ctx context.Context, t Target, minLevel, maxLevel Level, srcs []Source) (Report, []probe) {
 	rep := Report{RailRef: t.RailRef, ChainID: t.Action.ChainID}
 	unchecked := func(err error) Report {
@@ -143,13 +151,15 @@ func (c *Checker) evaluate(ctx context.Context, t Target, minLevel, maxLevel Lev
 	if len(t.Action.Unsigned()) == 0 {
 		return unchecked(wrapf(ErrActionRefused, "the action was not decoded")), nil
 	}
-	R, err := ParseRailRef(t.RailRef)
-	if err != nil {
-		return unchecked(err), nil
-	}
 	row, ok := edenescrow.Lookup(t.Action.ChainID)
 	if !ok || row.Escrow != t.Action.To {
 		return unchecked(wrapf(ErrActionRefused, "chain %d is not a row of this build", t.Action.ChainID)), nil
+	}
+	view := t.Action.DepositView()
+	rep.Deposit = &view
+	R, err := ParseRailRef(t.RailRef)
+	if err != nil {
+		return unchecked(err), nil
 	}
 	r := &run{c: c, t: t, R: R, row: row}
 	var probes []probe
@@ -166,9 +176,6 @@ func (c *Checker) evaluate(ctx context.Context, t Target, minLevel, maxLevel Lev
 			r.fillPayer(&rep)
 			rep.Status, rep.Reason, rep.Err = StatusViolated, ReasonWrongTx, r.violation
 			return rep, probes
-		}
-		if p.passed && maxLevel == LevelNodeAttested {
-			break
 		}
 	}
 	r.fillPayer(&rep)
@@ -293,6 +300,9 @@ func (r *run) probe(ctx context.Context, src Source) (p probe) {
 
 // judge applies the levels and the outcome rule to the probes.
 func (r *run) judge(ctx context.Context, rep Report, probes []probe, minLevel, maxLevel Level) Report {
+	// The caller combines the probes as the sources answered them; the
+	// marks below are the report's alone.
+	probes = slices.Clone(probes)
 	var passing []int
 	for i, p := range probes {
 		if p.passed {
@@ -308,17 +318,21 @@ func (r *run) judge(ctx context.Context, rep Report, probes []probe, minLevel, m
 		return unchecked(r.noneReached(probes, minLevel, false), -1)
 	}
 	first := probes[passing[0]]
-	for _, i := range passing[1:] {
-		p := &probes[i]
-		if p.blockHash != first.blockHash || p.index != first.index || !bytes.Equal(p.receipt, first.receipt) {
-			p.passed = false
-			p.setAside(wrapf(ErrDisagree, "block, index or receipt differ from %s", first.src.Name()))
-			return unchecked(wrapf(ErrDisagree, "%s and %s disagree on the block, the index or the receipt",
-				first.src.Name(), p.src.Name()), passing[0])
+	if combineProbes(probes).disputed {
+		// Never a violation: a lagging source catches up, a rolled-back
+		// block disappears everywhere.
+		for _, i := range passing[1:] {
+			p := &probes[i]
+			if p.blockHash != first.blockHash || p.index != first.index || !bytes.Equal(p.receipt, first.receipt) {
+				p.passed = false
+				p.setAside(wrapf(ErrDisagree, "block, index or receipt differ from %s", first.src.Name()))
+				return unchecked(wrapf(ErrDisagree, "%s and %s disagree on the block, the index or the receipt",
+					first.src.Name(), p.src.Name()), passing[0])
+			}
 		}
 	}
 	level := LevelNodeAttested
-	if len(passing) >= r.c.cfg.MinSources && maxLevel >= LevelMultiSource {
+	if combineProbes(probes).passingOps >= r.c.cfg.MinSources && maxLevel >= LevelMultiSource {
 		level = LevelMultiSource
 	}
 	var (
@@ -363,7 +377,7 @@ func (r *run) noneReached(probes []probe, minLevel Level, somePassed bool) error
 		}
 	}
 	if somePassed {
-		return wrapf(ErrBelowLevel, "%s needs %d agreeing sources", minLevel, r.c.cfg.MinSources)
+		return wrapf(ErrBelowLevel, "%s needs %d agreeing operators", minLevel, r.c.cfg.MinSources)
 	}
 	if len(probes) == 0 {
 		return wrapf(ErrSourceUnavailable, "no source was asked")
@@ -402,7 +416,8 @@ func (r *run) blockProof(ctx context.Context, probes []probe, passing []int, fir
 func sourceResults(probes []probe, used int) []SourceResult {
 	out := make([]SourceResult, 0, len(probes))
 	for i, p := range probes {
-		sr := SourceResult{Name: p.src.Name(), Class: p.src.Class()}
+		o := observe(p)
+		sr := SourceResult{Name: p.src.Name(), Class: p.src.Class(), Operator: o.operator, State: o.state}
 		switch {
 		case i == used:
 			sr.Result = SourceUsed
@@ -414,6 +429,14 @@ func sourceResults(probes []probe, used int) []SourceResult {
 		out = append(out, sr)
 	}
 	return out
+}
+
+func combineProbes(probes []probe) combined {
+	obs := make([]observation, len(probes))
+	for i, p := range probes {
+		obs[i] = observe(p)
+	}
+	return combine(obs)
 }
 
 // ownFirst orders the operator's own nodes before the public RPCs, keeping

@@ -250,7 +250,7 @@ func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, e
 	fs.Var(&settleRPC, "settlement-rpc", "Eden JSON-RPC of a public operator for --settlement (repeatable, one per host)")
 	fs.Var(&settleOwn, "settlement-own-rpc", "Eden JSON-RPC of the operator's own node for --settlement, asked first (repeatable)")
 	fs.StringVar(&f.settle.da, "settlement-da", "", "the operator's own ev-node RPC, for whether the block's data is in Celestia (report only)")
-	fs.StringVar(&f.settle.level, "settlement-level", "", "level a settlement pass needs: L0, L1 or L2 (default L0)")
+	fs.StringVar(&f.settle.level, "settlement-level", "", "level a settlement pass needs: L0, L1 or L2 (default L1: two operators agree)")
 	fs.IntVar(&f.settle.sources, "settlement-min-sources", 0, "agreeing operators that make L1 (default 2)")
 	fs.Uint64Var(&f.settle.depth, "settlement-confirm-depth", 0, "Eden blocks that must follow the transaction's (default 20)")
 	var ckpt, cross, exclude, txRPC, resultArchives multiFlag
