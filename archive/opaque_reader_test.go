@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/test/archivefix"
 )
 
@@ -31,21 +32,47 @@ func TestArchiveReaderOpaqueUndefinedDA(t *testing.T) {
 }
 
 // The opaque reading covers payload_ref only: a trailing byte or a changed
-// field outside it is still refused.
+// version outside it is still refused (the strict cause wins where the
+// payload_ref itself fails the strict decode). The two cases
+// that pass strict decoding anyway are not the fallback; the other two are.
 func TestArchiveReaderOpaqueStaysStrictOutside(t *testing.T) {
-	c := archivefix.ReaderCases(t)[0]
-	raw := c.Record(t)
+	for _, c := range archivefix.ReaderCases(t) {
+		t.Run(c.ID, func(t *testing.T) {
+			raw := c.Record(t)
 
-	_, err := archive.DecodeAt(c.Path, append(append([]byte(nil), raw...), 0))
-	require.Error(t, err)
+			_, err := archive.DecodeAt(c.Path, append(append([]byte(nil), raw...), 0))
+			require.ErrorIs(t, err, commitment.ErrTrailingData)
 
-	// Version 1 -> 2 inside the commitment map (a2 01 ac 01 01 ...).
-	bad := append([]byte(nil), raw...)
-	i := indexOf(bad, []byte{0xa2, 0x01, 0xac, 0x01, 0x01})
-	require.GreaterOrEqual(t, i, 0)
-	bad[i+4] = 0x02
-	_, err = archive.DecodeAt(c.Path, bad)
-	require.Error(t, err)
+			// Version 1 -> 2 inside the commitment map (a2 01 ac 01 01 ...).
+			bad := append([]byte(nil), raw...)
+			i := indexOf(bad, []byte{0xa2, 0x01, 0xac, 0x01, 0x01})
+			require.GreaterOrEqual(t, i, 0)
+			bad[i+4] = 0x02
+			_, err = archive.DecodeAt(c.Path, bad)
+			want := error(commitment.ErrUnsupportedVersion)
+			if c.Cause != "" {
+				want = archivefix.Causes[c.Cause]
+			}
+			require.ErrorIs(t, err, want)
+		})
+	}
+}
+
+// The fallback is what admits the two cases the strict decode refuses; the
+// other two never reach it.
+func TestArchiveReaderFallbackCases(t *testing.T) {
+	for _, c := range archivefix.ReaderCases(t) {
+		t.Run(c.ID, func(t *testing.T) {
+			rec, err := archive.DecodeAt(c.Path, c.Record(t))
+			require.NoError(t, err)
+			_, err = commitment.DecodeSigned(rec.(*archive.DecisionRecord).Envelope)
+			if c.Cause == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, archivefix.Causes[c.Cause])
+		})
+	}
 }
 
 func indexOf(b, sub []byte) int {

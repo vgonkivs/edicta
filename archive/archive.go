@@ -17,6 +17,9 @@ var (
 	ErrConflict = errors.New("archive: a different record is stored under this key")
 	// ErrCorrupt wraps the decoding cause or describes a key mismatch.
 	ErrCorrupt = errors.New("archive: corrupt record")
+	// ErrUndefinedDA marks a write that needs the content of an envelope
+	// whose payload_ref.da this revision does not define.
+	ErrUndefinedDA = errors.New("archive: payload_ref.da is not defined by this revision")
 )
 
 // MaxRecordSize bounds any record before parsing.

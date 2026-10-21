@@ -194,6 +194,9 @@ func (s *Store) Put(ctx context.Context, r archive.Record) (archive.Outcome, err
 		if r.Form == archive.FormPrivate {
 			sc, err := commitment.DecodeSigned(r.Envelope)
 			if err != nil {
+				if _, ok := commitment.UndefinedDA(r.Envelope, commitment.DefinedDA); ok {
+					return 0, fmt.Errorf("fsarchive: %w: %w", archive.ErrUndefinedDA, err)
+				}
 				return 0, fmt.Errorf("fsarchive: %w", err)
 			}
 			need, err := archive.PrivateBlobPath(policy.PrivateAction, commitment.Hash(sc.Commitment.Action.Hash))

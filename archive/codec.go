@@ -703,19 +703,16 @@ func encodeRaw(r Record) ([]byte, error) {
 	return w.finish(), nil
 }
 
-func definedDA(da commitment.DA) bool {
-	return da == commitment.DAFibre || da == commitment.DACelestiaBlob
-}
-
 // decisionHash checks a decision envelope and returns its commitment hash.
 // An envelope whose payload_ref.da this reader does not define is read with
 // that payload_ref opaque, because a later revision may give that da other
-// keys; its key is the hash of the commitment bytes it carries. Writers
-// still refuse such an envelope. Every other envelope is strict.
+// keys; its key is the hash of the commitment bytes it carries. Writers built
+// on Encode accept it too: the key binds the record to those bytes. Every
+// other envelope is strict.
 func decisionHash(env []byte) (commitment.Hash, error) {
 	s, err := commitment.DecodeSigned(env)
 	if err != nil {
-		if _, ok := commitment.UndefinedDA(env, definedDA); ok {
+		if _, ok := commitment.UndefinedDA(env, commitment.DefinedDA); ok {
 			if raw, rerr := commitment.EnvelopeCommitment(env); rerr == nil {
 				return commitment.HashCanonical(raw), nil
 			}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/test/archivefix"
 	"github.com/vgonkivs/edicta/test/gatefix"
 	"github.com/vgonkivs/edicta/verifier"
 )
@@ -107,6 +108,28 @@ func TestUnknownDAIsUncheckedNotInvalid(t *testing.T) {
 			assert.Equal(t, "2", exitOf(rep.Verdict))
 			for _, ch := range rep.Checks {
 				assert.NotEqual(t, verifier.StatusFail, ch.Status, ch.Name)
+			}
+		})
+	}
+}
+
+// Through a real store the opaque-only envelopes are unchecked too, not a
+// corrupt source.
+func TestUnknownDAThroughARealStore(t *testing.T) {
+	for _, c := range archivefix.ReaderCases(t) {
+		t.Run(c.ID, func(t *testing.T) {
+			rec, err := archive.Decode(c.Record(t))
+			require.NoError(t, err)
+			r := newRig(t, newParts(t))
+			r.p.hash = c.Hash(t)
+			_, err = r.store.Put(context.Background(), rec)
+			require.NoError(t, err)
+			rep := r.verify(t)
+			ch := unchecked(t, rep, verifier.CheckEnvelope, verifier.ReasonUnsupportedRevision)
+			require.ErrorIs(t, ch.Err, commitment.ErrInvalidEnum)
+						for _, ch := range rep.Checks {
+				assert.NotEqual(t, verifier.StatusFail, ch.Status, ch.Name)
+				assert.NotEqual(t, verifier.ReasonSourceCorrupt, ch.Reason, ch.Name)
 			}
 		})
 	}

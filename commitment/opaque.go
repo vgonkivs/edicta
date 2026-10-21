@@ -2,6 +2,13 @@
 
 package commitment
 
+// DefinedDA reports whether this revision defines the payload_ref.da value.
+// Every reader that falls back to the opaque reading of an undefined da uses
+// it, so they cannot disagree on which values are undefined.
+func DefinedDA(da DA) bool {
+	return da == DAFibre || da == DACelestiaBlob
+}
+
 // UndefinedDA reads an envelope for a verifier whose revision defines only
 // some da values. When the envelope is well formed (one commitment, one
 // 64-byte signature, nothing else) and its commitment is UndefinedDACommitment,
