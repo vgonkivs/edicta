@@ -26,6 +26,9 @@ var (
 	// bucketState indexes the entries by state: state || 0x00 ||
 	// commitment_hash -> nothing, so the worker reads the open ones only.
 	bucketState = []byte("state")
+	// bucketSlot names the last decision that reserved each slot: slot ->
+	// commitment_hash.
+	bucketSlot = []byte("slot")
 )
 
 func stateKey(st State, h commitment.Hash) []byte {
@@ -50,7 +53,7 @@ func OpenBoltStore(path string) (*BoltStore, error) {
 		return nil, fmt.Errorf("signer: open store: %w", err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketEntries, bucketWindow, bucketState} {
+		for _, b := range [][]byte{bucketEntries, bucketWindow, bucketState, bucketSlot} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -107,6 +110,20 @@ func (s *BoltStore) Reserve(_ context.Context, e Entry, windowStart int64, admit
 			t.Value.Add(t.Value, new(big.Int).SetBytes(w.Value))
 			t.Fee.Add(t.Fee, new(big.Int).SetBytes(w.Fee))
 		}
+		slots := tx.Bucket(bucketSlot)
+		if e.Slot != "" {
+			if h := slots.Get([]byte(e.Slot)); h != nil {
+				raw := entries.Get(h)
+				if raw == nil {
+					return fmt.Errorf("signer: store: slot index names a missing entry %x", h)
+				}
+				var holder Entry
+				if err := json.Unmarshal(raw, &holder); err != nil {
+					return err
+				}
+				t.SlotHolder = &holder
+			}
+		}
 		if refused = admit(t); refused != nil {
 			return refused
 		}
@@ -130,6 +147,11 @@ func (s *BoltStore) Reserve(_ context.Context, e Entry, windowStart int64, admit
 		stored = e
 		if err := tx.Bucket(bucketState).Put(stateKey(e.State, e.CommitmentHash), nil); err != nil {
 			return err
+		}
+		if e.Slot != "" {
+			if err := slots.Put([]byte(e.Slot), bytes.Clone(e.CommitmentHash[:])); err != nil {
+				return err
+			}
 		}
 		return entries.Put(e.CommitmentHash[:], raw)
 	})
@@ -172,12 +194,14 @@ func (s *BoltStore) Update(_ context.Context, h commitment.Hash, fn func(*Entry)
 			fnErr = fmt.Errorf("%w: %x", ErrUnknownDecision, h)
 			return fnErr
 		}
-		var before Entry
+		// Two decodings share no slice, so fn cannot change before in place.
+		var before, e Entry
 		if err := json.Unmarshal(raw, &before); err != nil {
 			return err
 		}
-		e := before
-		e.Signed = bytes.Clone(before.Signed)
+		if err := json.Unmarshal(raw, &e); err != nil {
+			return err
+		}
 		if fnErr = fn(&e); fnErr != nil {
 			return fnErr
 		}
@@ -215,12 +239,18 @@ func checkImmutable(a, b Entry) error {
 		a.Key == b.Key && a.Payer == b.Payer && bytes.Equal(a.Value, b.Value) && bytes.Equal(a.Fee, b.Fee) &&
 		a.ReservedAt == b.ReservedAt && a.Until == b.Until && bytes.Equal(a.Envelope, b.Envelope) &&
 		bytes.Equal(a.Action, b.Action) && bytes.Equal(a.Salt, b.Salt) && bytes.Equal(a.Authorization, b.Authorization) &&
-		a.AuthExpires == b.AuthExpires && a.Mode == b.Mode
+		a.AuthExpires == b.AuthExpires && a.Mode == b.Mode && bytes.Equal(a.Requirements, b.Requirements) && a.Slot == b.Slot
 	if !same {
 		return errImmutable
 	}
 	if len(a.Signed) > 0 && (!bytes.Equal(a.Signed, b.Signed) || a.RailRef != b.RailRef) {
 		return fmt.Errorf("%w: signed bytes", errImmutable)
+	}
+	if len(a.PaymentProof) > 0 && !bytes.Equal(a.PaymentProof, b.PaymentProof) {
+		return fmt.Errorf("%w: payment proof", errImmutable)
+	}
+	if a.Seen && !b.Seen {
+		return fmt.Errorf("%w: seen", errImmutable)
 	}
 	return nil
 }

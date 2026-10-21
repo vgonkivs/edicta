@@ -170,10 +170,21 @@ func TestParallelIdenticalRequestsSignOnce(t *testing.T) {
 
 // N parallel distinct decisions against an hourly cap of k: exactly k are
 // stored and the counted sum never passes the cap.
+// ownSlots gives every decision its own slot, so that only the caps decide
+// between decisions that share the payer's nonce.
+type ownSlots struct{ signer.Handler }
+
+func (o ownSlots) Check(ctx context.Context, v signer.Verified, now time.Time) (signer.Plan, error) {
+	p, err := o.Handler.Check(ctx, v, now)
+	p.Slot += fmt.Sprintf("/%x", v.CommitmentHash)
+	return p, err
+}
+
 func TestParallelDistinctRequestsNeverPassTheCap(t *testing.T) {
 	const n, k = 20, 5
 	value := signertest.NewDeposit(time.Now()).Value
-	e := newEnv(t, func(c *signer.Config) {
+	wrap := func(h signer.Handler) signer.Handler { return ownSlots{h} }
+	e := newEnvOpts(t, envOpts{wrap: wrap}, func(c *signer.Config) {
 		c.Caps.MaxValuePerAction = value
 		c.Caps.MaxValuePerHour = new(big.Int).Mul(value, big.NewInt(k))
 	})

@@ -16,10 +16,20 @@ const maxRawTx = 64 << 10
 // PendingNonce is eth_getTransactionCount at pending: the nonce the next
 // transaction of addr needs.
 func (c *Client) PendingNonce(ctx context.Context, addr [20]byte) (uint64, error) {
+	return c.txCount(ctx, addr, "pending")
+}
+
+// LatestNonce is eth_getTransactionCount at latest: how many transactions
+// of addr the chain executed.
+func (c *Client) LatestNonce(ctx context.Context, addr [20]byte) (uint64, error) {
+	return c.txCount(ctx, addr, "latest")
+}
+
+func (c *Client) txCount(ctx context.Context, addr [20]byte, tag string) (uint64, error) {
 	if err := c.checkChain(ctx); err != nil {
 		return 0, err
 	}
-	res, err := c.call(ctx, c.cfg.MaxResponse, "eth_getTransactionCount", "0x"+hex.EncodeToString(addr[:]), "pending")
+	res, err := c.call(ctx, c.cfg.MaxResponse, "eth_getTransactionCount", "0x"+hex.EncodeToString(addr[:]), tag)
 	if err != nil {
 		return 0, err
 	}

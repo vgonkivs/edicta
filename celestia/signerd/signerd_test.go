@@ -107,6 +107,10 @@ store_path = %q
 gate_id = "gate1"
 gate_pubkey = %q
 agent_pubkeys = [%q]
+payment_signature_field = "off"
+
+[settlement]
+await_level = "L0"
 
 [caps]
 max_value_per_action = "1000000000000000000"
@@ -121,6 +125,7 @@ executor_key_file = %q
 chain_id = 714
 rpc = %q
 own_node = true
+broadcaster = "direct"
 payer_key_file = %q
 payer_address = "0x%x"
 facilitators = ["0xfac1117a70400000000000000000000000000000"]

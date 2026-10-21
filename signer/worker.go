@@ -100,6 +100,16 @@ func (s *Service) Advance(ctx context.Context, e Entry) {
 		}
 		res, err := h.Settle(ctx, e, e.SendStarted)
 		if err != nil {
+			if res.Seen && !e.Seen {
+				// A restart continues the same wait: a transaction once served
+				// must not later read as never executed.
+				if _, uerr := s.st.Update(ctx, e.CommitmentHash, func(x *Entry) error {
+					x.Seen = true
+					return nil
+				}); uerr != nil {
+					s.log.Warn("signer: storing that the transaction was seen", "commitment_hash", id, "err", uerr)
+				}
+			}
 			s.log.Info("signer: settlement unknown, looking again later", "commitment_hash", id, "rail_ref", e.RailRef, "err", err)
 			return
 		}
@@ -114,6 +124,8 @@ func (s *Service) Advance(ctx context.Context, e Entry) {
 				return fmt.Errorf("signer: state moved to %s", x.State)
 			}
 			x.State, x.Outcome, x.Detail = res.State, res.Outcome, res.Detail
+			x.Seen = x.Seen || res.Seen
+			x.PaymentProofAllowed = res.State == StateExecuted && res.PaymentProofAllowed
 			return nil
 		})
 		if err != nil {

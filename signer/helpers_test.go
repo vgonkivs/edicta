@@ -110,7 +110,27 @@ type env struct {
 	cfg   signer.Config
 	h     *eden.Handler
 	svc   *signer.Service
+	opts  envOpts
+	// second is the second operator's source in payment mode.
+	second *signertest.Chain
 }
+
+// envOpts change how the service is built.
+type envOpts struct {
+	// wrap replaces the handler the service sees.
+	wrap func(signer.Handler) signer.Handler
+	// payment turns the Payment-Signature on: two explicitly labelled
+	// operators at L1, the quote's facilitator allowed, R required.
+	payment bool
+}
+
+// labelled gives a fake chain an operator label.
+type labelled struct {
+	*signertest.Chain
+	op string
+}
+
+func (l labelled) Operator() string { return l.op }
 
 func defaultConfig(k signertest.Keys) signer.Config {
 	cfg := signer.Config{
@@ -128,13 +148,22 @@ func defaultConfig(k signertest.Keys) signer.Config {
 
 func newEnv(t testing.TB, mut ...func(*signer.Config)) *env {
 	t.Helper()
+	return newEnvOpts(t, envOpts{}, mut...)
+}
+
+func newEnvOpts(t testing.TB, o envOpts, mut ...func(*signer.Config)) *env {
+	t.Helper()
 	k := signertest.NewKeys(t.Name())
 	e := &env{
 		t: t, keys: k, clk: &clock{t: time.Now().Truncate(time.Second)},
 		chain: signertest.NewChain(714), gate: &fakeGate{keys: k},
-		path: filepath.Join(t.TempDir(), "signer.db"),
+		path: filepath.Join(t.TempDir(), "signer.db"), opts: o,
 	}
 	e.chain.Nonce = 7
+	if o.payment {
+		e.second = signertest.NewChain(714)
+		e.second.Host = "second-operator"
+	}
 	e.cfg = defaultConfig(k)
 	for _, m := range mut {
 		m(&e.cfg)
@@ -155,21 +184,35 @@ func (e *env) open() {
 	pins := eden.ChainPins{
 		ChainID: 714, Payer: e.keys.PayerAddress(), Facilitators: [][20]byte{signertest.Facilitator},
 		MaxRefundDelay: 7200, MaxFeePerGas: big.NewInt(10_000), MaxGas: 300_000, MaxFeePerAction: big.NewInt(3e9),
+		Broadcast: eden.BroadcastDirect,
 	}
-	hcfg := eden.Config{Chains: []eden.ChainPins{pins}, ResendEvery: 20 * time.Millisecond}
-	hcfg.ApplyDefaults()
+	hcfg := eden.Config{Chains: []eden.ChainPins{pins}, ResendEvery: 20 * time.Millisecond, PaymentSignatureField: eden.FieldOff}
 	ccfg := edenexec.Config{MinLevel: edenexec.LevelNodeAttested, PollInterval: 5 * time.Millisecond}
+	srcs := []edenexec.Source{e.chain}
+	if e.opts.payment {
+		hcfg.PaymentSignatureField = eden.FieldPaymentID
+		hcfg.Chains[0].Facilitators = append(hcfg.Chains[0].Facilitators, signertest.QuoteFacilitator())
+		ccfg.MinLevel = edenexec.LevelMultiSource
+		srcs = []edenexec.Source{labelled{e.chain, "own"}, labelled{e.second, "second"}}
+	}
+	hcfg.ApplyDefaults()
 	ccfg.ApplyDefaults()
-	checker, err := edenexec.NewChecker(ccfg, []edenexec.Source{e.chain}, nil)
+	checker, err := edenexec.NewChecker(ccfg, srcs, nil)
 	require.NoError(t, err)
-	h, err := eden.New(hcfg, map[uint64]eden.Chain{714: e.chain}, map[uint64]eden.Settler{714: checker}, time.Now, quiet)
+	h, err := eden.New(hcfg, eden.Deps{
+		Chains: map[uint64]eden.Chain{714: e.chain}, Settlers: map[uint64]eden.Settler{714: checker}, Log: quiet,
+	})
 	require.NoError(t, err)
 	wallet, err := signer.NewKeyWallet(e.keys.Payer)
 	require.NoError(t, err)
 	exec, err := signer.NewEd25519Executor(e.keys.Executor)
 	require.NoError(t, err)
+	var hd signer.Handler = h
+	if e.opts.wrap != nil {
+		hd = e.opts.wrap(h)
+	}
 	svc, err := signer.New(e.cfg, signer.Deps{
-		Store: st, Wallets: map[uint64]signer.WalletBackend{714: wallet}, Handlers: []signer.Handler{h},
+		Store: st, Wallets: map[uint64]signer.WalletBackend{714: wallet}, Handlers: []signer.Handler{hd},
 		Executor: exec, Recorder: signer.GateRecorder{C: e.gate}, Clock: e.clk, Log: quiet,
 	})
 	require.NoError(t, err)

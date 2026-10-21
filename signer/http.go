@@ -3,6 +3,7 @@
 package signer
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -26,12 +27,32 @@ const (
 	RouteHealth = "/v1/health"
 	// RouteRequeue is the operator's route back from state wrong.
 	RouteRequeue = "/v1/admin/requeue"
+	// RoutePaymentSignature releases the payment proof of a decision the
+	// rail executed.
+	RoutePaymentSignature = "/v1/payment-signature"
 )
 
+// MaxRequirementsSize bounds the payment requirements of a request.
+const MaxRequirementsSize = edenescrow.MaxRequirementsSize
+
 // SignLimit bounds a sign request in CBOR: the envelope, the action, the
-// salt and the Authorization with their wrapper heads.
+// salt, the Authorization and the payment requirements with their wrapper
+// heads.
 const SignLimit = commitment.MaxSignedSize + commitment.MaxActionSize + commitment.ActionSaltSize +
-	commitment.MaxAuthorizationSize + 32
+	commitment.MaxAuthorizationSize + MaxRequirementsSize + 48
+
+// PaymentLimit bounds a payment-signature request in CBOR: a sign request,
+// the commitment hash and the field.
+const PaymentLimit = SignLimit + 32 + maxFieldName + 16
+
+const maxFieldName = 32
+
+// MaxCredentials bounds the API credentials.
+const MaxCredentials = 1024
+
+func fieldNameChar(c byte) bool {
+	return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
+}
 
 var (
 	// SignRequestSchema is the request of POST /v1/sign.
@@ -40,6 +61,23 @@ var (
 		edictaapi.Field{Key: 2, Name: "action", Kind: edictaapi.KindBytes, Min: 1, Max: commitment.MaxActionSize, Required: true},
 		edictaapi.Field{Key: 3, Name: "action_salt", Kind: edictaapi.KindBytes, Min: commitment.ActionSaltSize, Max: commitment.ActionSaltSize, Required: true},
 		edictaapi.Field{Key: 4, Name: "signed_authorization", Kind: edictaapi.KindBytes, Min: 1, Max: commitment.MaxAuthorizationSize, Required: true},
+		edictaapi.Field{Key: 5, Name: "payment_required", Kind: edictaapi.KindBytes, Min: 1, Max: MaxRequirementsSize},
+	)
+	// PaymentRequestSchema is the request of POST /v1/payment-signature.
+	PaymentRequestSchema = edictaapi.NewSchema(
+		edictaapi.Field{Key: 1, Name: "commitment_hash", Kind: edictaapi.KindBytes, Min: 32, Max: 32, Required: true},
+		edictaapi.Field{Key: 2, Name: "field", Kind: edictaapi.KindText, Min: 1, Max: maxFieldName, Charset: fieldNameChar, Required: true},
+		edictaapi.Field{Key: 3, Name: "envelope", Kind: edictaapi.KindBytes, Min: 1, Max: commitment.MaxSignedSize, Required: true},
+		edictaapi.Field{Key: 4, Name: "action", Kind: edictaapi.KindBytes, Min: 1, Max: commitment.MaxActionSize, Required: true},
+		edictaapi.Field{Key: 5, Name: "action_salt", Kind: edictaapi.KindBytes, Min: commitment.ActionSaltSize, Max: commitment.ActionSaltSize, Required: true},
+		edictaapi.Field{Key: 6, Name: "signed_authorization", Kind: edictaapi.KindBytes, Min: 1, Max: commitment.MaxAuthorizationSize, Required: true},
+		edictaapi.Field{Key: 7, Name: "payment_required", Kind: edictaapi.KindBytes, Min: 1, Max: MaxRequirementsSize},
+	)
+	// PaymentResponseSchema is the 200 answer of POST /v1/payment-signature.
+	PaymentResponseSchema = edictaapi.NewSchema(
+		edictaapi.Field{Key: 1, Name: "signature", Kind: edictaapi.KindText, Min: 1, Max: 256, Required: true},
+		edictaapi.Field{Key: 2, Name: "message", Kind: edictaapi.KindBytes, Min: 32, Max: 32, Required: true},
+		edictaapi.Field{Key: 3, Name: "repeat", Kind: edictaapi.KindUint, Required: true},
 	)
 	// SignResponseSchema is the 200 answer of POST /v1/sign.
 	SignResponseSchema = edictaapi.NewSchema(
@@ -69,15 +107,77 @@ func DecodeSignRequest(b []byte) (Request, error) {
 	if err != nil {
 		return Request{}, err
 	}
-	return Request{Envelope: f.Bytes(1), Action: f.Bytes(2), Salt: f.Bytes(3), Authorization: f.Bytes(4)}, nil
+	r := Request{Envelope: f.Bytes(1), Action: f.Bytes(2), Salt: f.Bytes(3), Authorization: f.Bytes(4)}
+	if f.Has(5) {
+		r.Requirements = f.Bytes(5)
+	}
+	return r, nil
 }
 
 // EncodeSignRequest is the canonical CBOR of a sign request.
 func EncodeSignRequest(r Request) []byte {
-	return edictaapi.EncodeWrapper(
+	items := []edictaapi.Item{
 		edictaapi.BytesItem(1, r.Envelope), edictaapi.BytesItem(2, r.Action),
 		edictaapi.BytesItem(3, r.Salt), edictaapi.BytesItem(4, r.Authorization),
+	}
+	if r.Requirements != nil {
+		items = append(items, edictaapi.BytesItem(5, r.Requirements))
+	}
+	return edictaapi.EncodeWrapper(items...)
+}
+
+// DecodePaymentRequest decodes a CBOR payment-signature request with the
+// strict wrapper decoder.
+func DecodePaymentRequest(b []byte) (PaymentProofRequest, error) {
+	f, err := edictaapi.DecodeWrapper(b, PaymentRequestSchema)
+	if err != nil {
+		return PaymentProofRequest{}, err
+	}
+	r := PaymentProofRequest{Field: f.Text(2), Request: Request{
+		Envelope: f.Bytes(3), Action: f.Bytes(4), Salt: f.Bytes(5), Authorization: f.Bytes(6),
+	}}
+	copy(r.CommitmentHash[:], f.Bytes(1))
+	if f.Has(7) {
+		r.Requirements = f.Bytes(7)
+	}
+	return r, nil
+}
+
+// EncodePaymentRequest is the canonical CBOR of a payment-signature request.
+func EncodePaymentRequest(r PaymentProofRequest) []byte {
+	items := []edictaapi.Item{
+		edictaapi.BytesItem(1, r.CommitmentHash[:]), edictaapi.TextItem(2, r.Field),
+		edictaapi.BytesItem(3, r.Envelope), edictaapi.BytesItem(4, r.Action),
+		edictaapi.BytesItem(5, r.Salt), edictaapi.BytesItem(6, r.Authorization),
+	}
+	if r.Requirements != nil {
+		items = append(items, edictaapi.BytesItem(7, r.Requirements))
+	}
+	return edictaapi.EncodeWrapper(items...)
+}
+
+func encodePaymentProof(p PaymentProof) []byte {
+	var rep uint64
+	if p.Repeat {
+		rep = 1
+	}
+	return edictaapi.EncodeWrapper(
+		edictaapi.TextItem(1, string(p.Signature)), edictaapi.BytesItem(2, p.Message[:]), edictaapi.UintItem(3, rep),
 	)
+}
+
+// DecodePaymentResponse decodes a CBOR 200 answer of POST
+// /v1/payment-signature.
+func DecodePaymentResponse(b []byte) (PaymentProof, error) {
+	f, err := edictaapi.DecodeWrapper(b, PaymentResponseSchema)
+	if err != nil {
+		return PaymentProof{}, err
+	}
+	p := PaymentProof{Signature: []byte(f.Text(1))}
+	copy(p.Message[:], f.Bytes(2))
+	rep, _ := f.Uint(3)
+	p.Repeat = rep == 1
+	return p, nil
 }
 
 func encodeOutput(o Output) []byte {
@@ -104,10 +204,21 @@ func DecodeSignResponse(b []byte) (Output, error) {
 	return o, nil
 }
 
-// HTTPOptions configure the API.
-type HTTPOptions struct {
-	// Token is the bearer token every request needs.
+// Credential is one bearer token of the API. Agent pins it to one served
+// agent key, which the payment-proof route requires; a nil Agent is a
+// shared credential, refused while payment proofs are enabled.
+type Credential struct {
 	Token []byte
+	Agent []byte
+}
+
+// HTTPOptions configure the API. Every request needs one of the
+// credentials.
+type HTTPOptions struct {
+	// Token is a shared credential, pinned to no agent.
+	Token []byte
+	// Credentials are more credentials, each pinned or shared.
+	Credentials []Credential
 	// AllowRemote accepts a Host header that is not loopback. Without it a
 	// web page cannot reach the API through DNS rebinding.
 	AllowRemote bool
@@ -118,16 +229,44 @@ type HTTPOptions struct {
 	AdminToken []byte
 }
 
+// all is every API credential, the shared Token first.
+func (o HTTPOptions) all() []Credential {
+	out := make([]Credential, 0, len(o.Credentials)+1)
+	if o.Token != nil {
+		out = append(out, Credential{Token: o.Token})
+	}
+	return append(out, o.Credentials...)
+}
+
 // ValidateBasic checks the stateless fields.
 func (o HTTPOptions) ValidateBasic() error {
-	if len(o.Token) < 16 {
-		return errors.New("signer: the API token must be at least 16 bytes")
+	creds := o.all()
+	switch {
+	case len(creds) == 0:
+		return errors.New("signer: no API credential: the API never runs without a token")
+	case len(creds) > MaxCredentials:
+		return fmt.Errorf("signer: %d API credentials, at most %d", len(creds), MaxCredentials)
+	}
+	for i, c := range creds {
+		if len(c.Token) < 16 {
+			return fmt.Errorf("signer: API credential %d: the token must be at least 16 bytes", i)
+		}
+		if c.Agent != nil {
+			if err := commitment.CheckPublicKey(c.Agent); err != nil {
+				return fmt.Errorf("signer: API credential %d: agent key: %w", i, err)
+			}
+		}
+		for j := range i {
+			if subtle.ConstantTimeCompare(c.Token, creds[j].Token) == 1 {
+				return fmt.Errorf("signer: API credentials %d and %d share a token", j, i)
+			}
+		}
+		if len(o.AdminToken) > 0 && subtle.ConstantTimeCompare(o.AdminToken, c.Token) == 1 {
+			return errors.New("signer: the admin token must differ from every API token")
+		}
 	}
 	if len(o.AdminToken) > 0 && len(o.AdminToken) < 16 {
 		return errors.New("signer: the admin token must be at least 16 bytes")
-	}
-	if len(o.AdminToken) > 0 && subtle.ConstantTimeCompare(o.AdminToken, o.Token) == 1 {
-		return errors.New("signer: the admin token must differ from the API token")
 	}
 	if o.RequestTimeout < 0 {
 		return errors.New("signer: negative request timeout")
@@ -155,6 +294,9 @@ var errTable = []errRule{
 	{"signer.ErrNotRequeueable", ErrNotRequeueable, 409, false},
 	{"signer.ErrUnknownDecision", ErrUnknownDecision, 404, false},
 	{"signer.ErrRiskLimit", ErrRiskLimit, 429, true},
+	{"signer.ErrNotExecuted", ErrNotExecuted, 409, true},
+	{"signer.ErrRequirements", ErrRequirements, 422, false},
+	{"signer.ErrRequirements", edenescrow.ErrRequirements, 422, false},
 	{"edenescrow.ErrMalformed", edenescrow.ErrMalformed, 422, false},
 	{"edenescrow.ErrUnknownDomain", edenescrow.ErrUnknownDomain, 422, false},
 
@@ -205,7 +347,18 @@ func NewHandler(s *Service, o HTTPOptions, log *slog.Logger) (http.Handler, erro
 	if o.RequestTimeout == 0 {
 		o.RequestTimeout = 30 * time.Second
 	}
-	h := &apiHandler{s: s, o: o, want: sha256.Sum256(o.Token), log: log}
+	h := &apiHandler{s: s, o: o, log: log}
+	for i, c := range o.all() {
+		if c.Agent != nil && !s.agentPinned(c.Agent) {
+			return nil, fmt.Errorf("signer: API credential %d is pinned to an agent key the signer does not serve", i)
+		}
+		// With payment proofs on, the credential is what tells one agent
+		// from another: the decision's material is public.
+		if c.Agent == nil && s.PaymentProofsEnabled() {
+			return nil, fmt.Errorf("signer: API credential %d is shared; payment proofs need one credential per agent", i)
+		}
+		h.creds = append(h.creds, cred{digest: sha256.Sum256(c.Token), agent: bytes.Clone(c.Agent)})
+	}
 	if len(o.AdminToken) > 0 {
 		h.admin = sha256.Sum256(o.AdminToken)
 		h.adminOn = true
@@ -213,10 +366,15 @@ func NewHandler(s *Service, o HTTPOptions, log *slog.Logger) (http.Handler, erro
 	return h, nil
 }
 
+type cred struct {
+	digest [32]byte
+	agent  []byte
+}
+
 type apiHandler struct {
 	s       *Service
 	o       HTTPOptions
-	want    [32]byte
+	creds   []cred
 	admin   [32]byte
 	adminOn bool
 	log     *slog.Logger
@@ -280,16 +438,16 @@ func (h *apiHandler) serve(r *http.Request) (a answer) {
 			a = answer{status: 500, body: edictaapi.ErrorBody("signer.ErrInternal", "internal error", false)}
 		}
 	}()
-	method, token := http.MethodPost, h.want
+	method, admin := http.MethodPost, false
 	switch r.URL.Path {
-	case RouteSign:
+	case RouteSign, RoutePaymentSignature:
 	case RouteHealth:
 		method = http.MethodGet
 	case RouteRequeue:
 		if !h.adminOn {
 			return h.fail(edictaapi.ErrRouteNotFound)
 		}
-		token = h.admin
+		admin = true
 	default:
 		return h.fail(edictaapi.ErrRouteNotFound)
 	}
@@ -305,14 +463,18 @@ func (h *apiHandler) serve(r *http.Request) (a answer) {
 			return h.fail(edictaapi.ErrMediaType)
 		}
 	}
-	if !h.callerOK(r, token) {
+	agent, ok := h.caller(r, admin)
+	if !ok {
 		return h.fail(edictaapi.ErrTokenInvalid)
 	}
 	if method == http.MethodGet {
 		return answer{status: 200, body: edictaapi.EncodeWrapper(edictaapi.TextItem(1, "ok")), schema: HealthSchema}
 	}
-	if r.URL.Path == RouteRequeue {
+	switch r.URL.Path {
+	case RouteRequeue:
 		return h.requeue(r, isJSON)
+	case RoutePaymentSignature:
+		return h.paymentSignature(r, isJSON, agent)
 	}
 
 	limit := uint64(SignLimit)
@@ -378,24 +540,71 @@ func (h *apiHandler) requeue(r *http.Request, isJSON bool) answer {
 	return answer{status: 200, body: edictaapi.EncodeWrapper(edictaapi.TextItem(1, string(st))), schema: RequeueResponseSchema}
 }
 
-// callerOK checks the bearer token and, unless remote callers are allowed, a
-// loopback Host header.
-func (h *apiHandler) callerOK(r *http.Request, want [32]byte) bool {
+// caller checks the bearer token and, unless remote callers are allowed, a
+// loopback Host header, and returns the agent key the credential is pinned
+// to (nil for a shared one). Every credential is compared, so the time
+// taken does not say which one matched.
+func (h *apiHandler) caller(r *http.Request, admin bool) ([]byte, bool) {
 	if !h.o.AllowRemote {
 		host, _, err := net.SplitHostPort(r.Host)
 		if err != nil {
 			host = r.Host
 		}
 		if !IsLoopbackHost(strings.Trim(host, "[]")) {
-			return false
+			return nil, false
 		}
 	}
 	got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok {
-		return false
+		return nil, false
 	}
 	g := sha256.Sum256([]byte(got))
-	return subtle.ConstantTimeCompare(g[:], want[:]) == 1
+	if admin {
+		return nil, subtle.ConstantTimeCompare(g[:], h.admin[:]) == 1
+	}
+	var agent []byte
+	found := 0
+	for _, c := range h.creds {
+		m := subtle.ConstantTimeCompare(g[:], c.digest[:])
+		found |= m
+		if m == 1 {
+			agent = c.agent
+		}
+	}
+	return agent, found == 1
+}
+
+func (h *apiHandler) paymentSignature(r *http.Request, isJSON bool, agent []byte) answer {
+	limit := uint64(PaymentLimit)
+	if isJSON {
+		limit = edictaapi.JSONBodyLimit(limit)
+	}
+	body, err := readBody(r, limit)
+	if err != nil {
+		return h.fail(err)
+	}
+	if isJSON {
+		if body, err = edictaapi.JSONToWrapper(body, PaymentRequestSchema); err != nil {
+			return h.fail(err)
+		}
+		if len(body) > PaymentLimit {
+			return h.fail(fmt.Errorf("%w: body of %d bytes", commitment.ErrTooLarge, len(body)))
+		}
+	}
+	req, err := DecodePaymentRequest(body)
+	if err != nil {
+		return h.fail(err)
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), h.o.RequestTimeout)
+	defer cancel()
+	out, err := h.s.PaymentProof(ctx, req, agent)
+	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) && r.Context().Err() == nil {
+			err = fmt.Errorf("%w: %w", edictaapi.ErrDeadline, err)
+		}
+		return h.fail(err)
+	}
+	return answer{status: 200, body: encodePaymentProof(out), schema: PaymentResponseSchema}
 }
 
 // IsLoopbackHost reports whether host names the loopback interface.

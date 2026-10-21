@@ -24,6 +24,23 @@ func TestPendingNonce(t *testing.T) {
 	require.Error(t, err, "a non-minimal quantity")
 }
 
+func TestLatestNonceAsksForLatest(t *testing.T) {
+	s, c := newRPCServer(t)
+	var tag string
+	s.setAnswer(func(id json.RawMessage, method string, params []json.RawMessage) (string, bool) {
+		if method != "eth_getTransactionCount" {
+			return "", false
+		}
+		require.Len(t, params, 2)
+		require.NoError(t, json.Unmarshal(params[1], &tag))
+		return `{"jsonrpc":"2.0","id":` + string(id) + `,"result":"0x9"}`, true
+	})
+	n, err := c.LatestNonce(context.Background(), [20]byte{0x01})
+	require.NoError(t, err)
+	assert.Equal(t, uint64(9), n)
+	assert.Equal(t, "latest", tag)
+}
+
 func TestSendRawTransactionNeedsTheHashOfTheBytesSent(t *testing.T) {
 	s, c := newRPCServer(t)
 	signed := []byte{0x02, 0xc0}

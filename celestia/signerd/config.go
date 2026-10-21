@@ -28,8 +28,12 @@ import (
 type Config struct {
 	Listen      string `toml:"listen"`
 	AllowRemote bool   `toml:"allow_remote"`
-	// TokenFile holds the bearer token of the signer API (mode 0600).
+	// TokenFile holds a bearer token of the signer API shared by every
+	// agent (mode 0600). Refused while the Payment-Signature is enabled:
+	// then each agent has its own credential.
 	TokenFile string `toml:"token_file"`
+	// Credentials are bearer tokens each pinned to one agent key.
+	Credentials []Credential `toml:"credential"`
 	// AdminTokenFile enables the operator routes (re-queue) under their own
 	// token (mode 0600).
 	AdminTokenFile string `toml:"admin_token_file"`
@@ -47,10 +51,32 @@ type Config struct {
 	RefuseFast    bool     `toml:"refuse_fast"`
 	RetryInterval uint64   `toml:"retry_interval_s"`
 
+	// PaymentSignatureField is "paymentId" (the default) or "off".
+	PaymentSignatureField string `toml:"payment_signature_field"`
+	// CheckServerSignature requires the facilitator's signature in the
+	// quote; unset is true. The Payment-Signature needs it.
+	CheckServerSignature *bool `toml:"check_server_signature"`
+
 	Caps       Caps       `toml:"caps"`
 	Record     *Record    `toml:"record"`
 	Settlement Settlement `toml:"settlement"`
+	Broadcast  Broadcast  `toml:"broadcast"`
 	Chains     []Chain    `toml:"chain"`
+}
+
+// Credential is one API token pinned to one served agent key.
+type Credential struct {
+	AgentPubKey string `toml:"agent_pubkey"`
+	TokenFile   string `toml:"token_file"`
+}
+
+// Broadcast configures the payment server's relay.
+type Broadcast struct {
+	// ServerTimeoutS bounds one relay call.
+	ServerTimeoutS uint64 `toml:"server_timeout_s"`
+	// RelayGraceS: after it, while no source shows a relayed deposit, the
+	// same bytes are also sent directly.
+	RelayGraceS uint64 `toml:"relay_grace_s"`
 }
 
 // Caps are the operator's risk limits over every served chain.
@@ -75,6 +101,11 @@ type Record struct {
 
 // Settlement configures the wait for the rail.
 type Settlement struct {
+	// AwaitLevel is L1 (the default) or L2; L0, one source's word, only
+	// when written here, and never with the Payment-Signature enabled.
+	AwaitLevel string `toml:"await_level"`
+	// MinSources is how many operators L1 needs.
+	MinSources     int    `toml:"min_sources"`
 	ConfirmDepth   uint64 `toml:"confirm_depth"`
 	PollIntervalMS uint64 `toml:"poll_interval_ms"`
 	AwaitGraceS    uint64 `toml:"await_grace_s"`
@@ -90,7 +121,12 @@ type Chain struct {
 	RPC     string `toml:"rpc"`
 	OwnNode bool   `toml:"own_node"`
 	// SettlementRPC are more settlement sources, distinct hosts.
-	SettlementRPC   []string `toml:"settlement_rpc"`
+	SettlementRPC []string `toml:"settlement_rpc"`
+	// Broadcaster is "houston-relay" (the default) or "direct".
+	Broadcaster string `toml:"broadcaster"`
+	// RelayURL is the payment server (https) whose /deposit/send relays
+	// the deposit.
+	RelayURL        string   `toml:"relay_url"`
 	PayerKeyFile    string   `toml:"payer_key_file"`
 	PayerAddress    string   `toml:"payer_address"`
 	Facilitators    []string `toml:"facilitators"`
@@ -123,7 +159,20 @@ func (c *Config) ApplyDefaults() {
 	if c.RetryInterval == 0 {
 		c.RetryInterval = uint64(signer.DefaultRetryInterval / time.Second)
 	}
+	if c.PaymentSignatureField == "" {
+		c.PaymentSignatureField = eden.FieldPaymentID
+	}
+	if c.CheckServerSignature == nil {
+		on := true
+		c.CheckServerSignature = &on
+	}
 	s := &c.Settlement
+	if s.AwaitLevel == "" {
+		s.AwaitLevel = edenexec.DefaultMinLevel.String()
+	}
+	if s.MinSources == 0 {
+		s.MinSources = edenexec.DefaultMinSources
+	}
 	if s.ConfirmDepth == 0 {
 		s.ConfirmDepth = edenexec.DefaultConfirmDepth
 	}
@@ -136,6 +185,39 @@ func (c *Config) ApplyDefaults() {
 	if s.ResendEveryS == 0 {
 		s.ResendEveryS = uint64(eden.DefaultResendEvery / time.Second)
 	}
+	b := &c.Broadcast
+	if b.ServerTimeoutS == 0 {
+		b.ServerTimeoutS = uint64(eden.DefaultServerTimeout / time.Second)
+	}
+	if b.RelayGraceS == 0 {
+		b.RelayGraceS = min(uint64(eden.DefaultRelayGrace/time.Second), s.AwaitGraceS)
+	}
+	for i := range c.Chains {
+		if c.Chains[i].Broadcaster == "" {
+			c.Chains[i].Broadcaster = eden.BroadcastRelay
+		}
+	}
+}
+
+// PaymentSignatureEnabled: field paymentId and the server-signature check.
+func (c Config) PaymentSignatureEnabled() bool {
+	return c.PaymentSignatureField == eden.FieldPaymentID && (c.CheckServerSignature == nil || *c.CheckServerSignature)
+}
+
+// awaitSources are the chain's Await sources: its own RPC first.
+func (ch Chain) awaitSources() []string { return append([]string{ch.RPC}, ch.SettlementRPC...) }
+
+// operatorOf is a source's operator: its label, or its host standing in.
+func operatorOf(src string) (op string, explicit bool) {
+	label, raw := edenrpc.SplitSource(src)
+	if label != "" {
+		return label, true
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw, false
+	}
+	return strings.TrimSuffix(strings.ToLower(u.Hostname()), "."), false
 }
 
 // ValidateBasic checks every stateless rule by building the signer and
@@ -145,10 +227,21 @@ func (c Config) ValidateBasic() error {
 		return err
 	}
 	switch {
-	case c.TokenFile == "":
-		return errors.New("signerd: token_file is required: the API never runs without a token")
+	case c.TokenFile == "" && len(c.Credentials) == 0:
+		return errors.New("signerd: token_file or a [[credential]] is required: the API never runs without a token")
 	case c.StorePath == "":
 		return errors.New("signerd: store_path is required")
+	}
+	if err := c.checkCredentials(); err != nil {
+		return err
+	}
+	level, err := edenexec.ParseLevel(c.Settlement.AwaitLevel)
+	if err != nil {
+		return fmt.Errorf("signerd: settlement.await_level: %w", err)
+	}
+	if c.PaymentSignatureEnabled() && level < edenexec.LevelMultiSource {
+		return fmt.Errorf("signerd: settlement.await_level %s: the Payment-Signature needs %s (or payment_signature_field = \"off\")",
+			level, edenexec.LevelMultiSource)
 	}
 	if (c.TLSCertFile == "") != (c.TLSKeyFile == "") {
 		return errors.New("signerd: tls_cert_file and tls_key_file go together")
@@ -160,6 +253,11 @@ func (c Config) ValidateBasic() error {
 	}
 	if c.AdminTokenFile != "" && c.AdminTokenFile == c.TokenFile {
 		return errors.New("signerd: admin_token_file is token_file: the operator routes need their own token")
+	}
+	for i, cr := range c.Credentials {
+		if c.AdminTokenFile != "" && cr.TokenFile == c.AdminTokenFile {
+			return fmt.Errorf("signerd: credential %d uses admin_token_file: the operator routes need their own token", i)
+		}
 	}
 	if c.Record != nil {
 		if err := checkURL(c.Record.GateURL); err != nil {
@@ -180,6 +278,9 @@ func (c Config) ValidateBasic() error {
 	if err != nil {
 		return err
 	}
+	if err := c.SettlementConfig().ValidateBasic(); err != nil {
+		return fmt.Errorf("signerd: settlement: %w", err)
+	}
 	for _, p := range hc.Chains {
 		if p.MaxFeePerAction.Cmp(sc.Caps.MaxFeePerHour) > 0 {
 			return fmt.Errorf("signerd: chain %d: max_fee_per_action above caps.max_fee_per_hour refuses every deposit", p.ChainID)
@@ -194,7 +295,8 @@ func (c Config) ValidateBasic() error {
 			return fmt.Errorf("signerd: chains %d and %d share one payer key file: use one payer key per chain", other, ch.ChainID)
 		}
 		seen[ch.PayerKeyFile] = ch.ChainID
-		for _, src := range append([]string{ch.RPC}, ch.SettlementRPC...) {
+		ops := map[string]bool{}
+		for _, src := range ch.awaitSources() {
 			op, u := edenrpc.SplitSource(src)
 			if err := checkURL(u); err != nil {
 				return fmt.Errorf("signerd: chain %d: rpc: %w", ch.ChainID, err)
@@ -204,12 +306,76 @@ func (c Config) ValidateBasic() error {
 			if err := rc.ValidateBasic(); err != nil {
 				return fmt.Errorf("signerd: chain %d: rpc: %w", ch.ChainID, err)
 			}
+			name, explicit := operatorOf(src)
+			// A host standing in as the label cannot tell two hosts in
+			// front of one node apart.
+			if c.PaymentSignatureEnabled() && !explicit {
+				return fmt.Errorf("signerd: chain %d: source %q has no OPERATOR= label; the Payment-Signature needs one on every source", ch.ChainID, u)
+			}
+			ops[name] = true
+		}
+		// At L1 fewer operators never reach an outcome: nothing would ever
+		// be recorded or paid for.
+		if level >= edenexec.LevelMultiSource && len(ops) < c.Settlement.MinSources {
+			return fmt.Errorf("signerd: chain %d: %d distinct operators, await_level %s needs %d (add settlement_rpc or set await_level = \"L0\")",
+				ch.ChainID, len(ops), level, c.Settlement.MinSources)
+		}
+		if ch.Broadcaster == eden.BroadcastRelay {
+			hc := ch.relayConfig(c.Broadcast)
+			if err := hc.ValidateBasic(); err != nil {
+				return fmt.Errorf("signerd: chain %d: relay_url: %w", ch.ChainID, err)
+			}
+		} else if ch.RelayURL != "" {
+			return fmt.Errorf("signerd: chain %d: relay_url set but broadcaster is %q", ch.ChainID, ch.Broadcaster)
 		}
 		if c.Record != nil && ch.PayerKeyFile == c.Record.ExecutorKeyFile {
 			return fmt.Errorf("signerd: chain %d: the payer key file is the executor key file", ch.ChainID)
 		}
 	}
 	return nil
+}
+
+// checkCredentials: each credential has its own token file and is pinned
+// to a served agent key; a shared token_file is refused while the
+// Payment-Signature is enabled, since the decision's material is public and
+// only the credential tells one agent from another.
+func (c Config) checkCredentials() error {
+	if c.PaymentSignatureEnabled() && c.TokenFile != "" {
+		return errors.New("signerd: token_file is shared by every agent; the Payment-Signature needs one [[credential]] per agent")
+	}
+	files := map[string]int{}
+	if c.TokenFile != "" {
+		files[c.TokenFile] = -1
+	}
+	for i, cr := range c.Credentials {
+		if cr.TokenFile == "" {
+			return fmt.Errorf("signerd: credential %d: token_file is required", i)
+		}
+		if j, dup := files[cr.TokenFile]; dup {
+			return fmt.Errorf("signerd: credential %d shares its token file with %d", i, j)
+		}
+		files[cr.TokenFile] = i
+		k, err := hexKey(fmt.Sprintf("credential %d agent_pubkey", i), cr.AgentPubKey)
+		if err != nil {
+			return err
+		}
+		served := false
+		for _, a := range c.AgentPubKeys {
+			if b, err := hexKey("agent_pubkeys", a); err == nil && bytes.Equal(b, k) {
+				served = true
+			}
+		}
+		if !served {
+			return fmt.Errorf("signerd: credential %d is pinned to an agent key not in agent_pubkeys", i)
+		}
+	}
+	return nil
+}
+
+func (ch Chain) relayConfig(b Broadcast) eden.HoustonConfig {
+	hc := eden.HoustonConfig{BaseURL: ch.RelayURL, Timeout: time.Duration(b.ServerTimeoutS) * time.Second}
+	hc.ApplyDefaults()
+	return hc
 }
 
 func checkURL(s string) error {
@@ -288,15 +454,20 @@ func (c Config) SignerConfig() (signer.Config, error) {
 // HandlerConfig is the form T handler's part of the file.
 func (c Config) HandlerConfig() (eden.Config, error) {
 	hc := eden.Config{
-		AwaitGrace:  time.Duration(c.Settlement.AwaitGraceS) * time.Second,
-		ResendEvery: time.Duration(c.Settlement.ResendEveryS) * time.Second,
+		AwaitGrace:            time.Duration(c.Settlement.AwaitGraceS) * time.Second,
+		ResendEvery:           time.Duration(c.Settlement.ResendEveryS) * time.Second,
+		RelayGrace:            time.Duration(c.Broadcast.RelayGraceS) * time.Second,
+		PaymentSignatureField: c.PaymentSignatureField,
+		CheckServerSignature:  c.CheckServerSignature,
 	}
 	for _, ch := range c.Chains {
 		payer, err := address(fmt.Sprintf("chain %d payer_address", ch.ChainID), ch.PayerAddress)
 		if err != nil {
 			return eden.Config{}, err
 		}
-		p := eden.ChainPins{ChainID: ch.ChainID, Payer: payer, MaxRefundDelay: ch.MaxRefundDelayS, MaxGas: ch.MaxGas}
+		p := eden.ChainPins{
+			ChainID: ch.ChainID, Payer: payer, MaxRefundDelay: ch.MaxRefundDelayS, MaxGas: ch.MaxGas, Broadcast: ch.Broadcaster,
+		}
 		for i, f := range ch.Facilitators {
 			a, err := address(fmt.Sprintf("chain %d facilitators[%d]", ch.ChainID, i), f)
 			if err != nil {
@@ -316,10 +487,13 @@ func (c Config) HandlerConfig() (eden.Config, error) {
 	return hc, hc.ValidateBasic()
 }
 
-// SettlementConfig is the edenexec configuration of Await.
+// SettlementConfig is the edenexec configuration of Await. An await_level
+// that does not parse is left unset, which ValidateBasic refuses.
 func (c Config) SettlementConfig() edenexec.Config {
+	level, _ := edenexec.ParseLevel(c.Settlement.AwaitLevel)
 	sc := edenexec.Config{
-		MinLevel:     edenexec.LevelNodeAttested,
+		MinLevel:     level,
+		MinSources:   c.Settlement.MinSources,
 		ConfirmDepth: c.Settlement.ConfirmDepth,
 		PollInterval: time.Duration(c.Settlement.PollIntervalMS) * time.Millisecond,
 		AwaitGrace:   time.Duration(c.Settlement.AwaitGraceS) * time.Second,

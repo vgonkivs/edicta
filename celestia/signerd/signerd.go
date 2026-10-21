@@ -44,15 +44,32 @@ func Build(ctx context.Context, cfg Config, log *slog.Logger) (_ *Daemon, err er
 	if err != nil {
 		return nil, err
 	}
-	token, err := secret.FromFile(cfg.TokenFile)
-	if err != nil {
-		return nil, fmt.Errorf("signerd: token_file: %w", err)
+	opts := signer.HTTPOptions{AllowRemote: cfg.AllowRemote}
+	if cfg.TokenFile != "" {
+		token, err := secret.FromFile(cfg.TokenFile)
+		if err != nil {
+			return nil, fmt.Errorf("signerd: token_file: %w", err)
+		}
+		defer token.Zero()
+		opts.Token = token.Reveal()
 	}
-	defer token.Zero()
+	for i, cr := range cfg.Credentials {
+		tok, err := secret.FromFile(cr.TokenFile)
+		if err != nil {
+			return nil, fmt.Errorf("signerd: credential %d: %w", i, err)
+		}
+		defer tok.Zero()
+		agent, err := hexKey("agent_pubkey", cr.AgentPubKey)
+		if err != nil {
+			return nil, err
+		}
+		opts.Credentials = append(opts.Credentials, signer.Credential{Token: tok.Reveal(), Agent: agent})
+	}
 
 	wallets := map[uint64]signer.WalletBackend{}
 	chains := map[uint64]eden.Chain{}
 	settlers := map[uint64]eden.Settler{}
+	relays := map[uint64]eden.Relay{}
 	for _, ch := range cfg.Chains {
 		k, err := keyfile.ReadSecp256k1(ch.PayerKeyFile, "payer")
 		if err != nil {
@@ -77,6 +94,13 @@ func Build(ctx context.Context, cfg Config, log *slog.Logger) (_ *Daemon, err er
 			log.Warn("signerd: one settlement source: a deposit not found is never final as not executed",
 				"chain", ch.ChainID)
 		}
+		if ch.Broadcaster == eden.BroadcastRelay {
+			r, err := eden.NewHoustonRelay(ch.relayConfig(cfg.Broadcast), nil)
+			if err != nil {
+				return nil, fmt.Errorf("signerd: chain %d: %w", ch.ChainID, err)
+			}
+			relays[ch.ChainID] = r
+		}
 		srcs := []edenexec.Source{own}
 		for _, u := range ch.SettlementRPC {
 			c, err := rpcClient(u, edenexec.ClassPublicRPC, ch.ChainID)
@@ -91,7 +115,7 @@ func Build(ctx context.Context, cfg Config, log *slog.Logger) (_ *Daemon, err er
 		}
 		chains[ch.ChainID], settlers[ch.ChainID] = own, checker
 	}
-	h, err := eden.New(hc, chains, settlers, time.Now, log)
+	h, err := eden.New(hc, eden.Deps{Chains: chains, Settlers: settlers, Relays: relays, Log: log})
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +163,6 @@ func Build(ctx context.Context, cfg Config, log *slog.Logger) (_ *Daemon, err er
 	if err := svc.Start(ctx); err != nil {
 		return nil, err
 	}
-	opts := signer.HTTPOptions{Token: token.Reveal(), AllowRemote: cfg.AllowRemote}
 	if cfg.AdminTokenFile != "" {
 		admin, err := secret.FromFile(cfg.AdminTokenFile)
 		if err != nil {

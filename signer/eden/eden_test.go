@@ -33,7 +33,14 @@ func pins(k signertest.Keys) eden.ChainPins {
 	return eden.ChainPins{
 		ChainID: 714, Payer: k.PayerAddress(), Facilitators: [][20]byte{signertest.Facilitator},
 		MaxRefundDelay: 7200, MaxFeePerGas: big.NewInt(10_000), MaxGas: 300_000,
-		MaxFeePerAction: big.NewInt(10_000 * 300_000),
+		MaxFeePerAction: big.NewInt(10_000 * 300_000), Broadcast: eden.BroadcastDirect,
+	}
+}
+
+// deps are the handler's collaborators on one fake chain.
+func deps(chain *signertest.Chain, st eden.Settler, now func() time.Time) eden.Deps {
+	return eden.Deps{
+		Chains: map[uint64]eden.Chain{714: chain}, Settlers: map[uint64]eden.Settler{714: st}, Now: now,
 	}
 }
 
@@ -54,10 +61,9 @@ func newWorld(t testing.TB, mut ...func(*eden.ChainPins)) *world {
 	for _, m := range mut {
 		m(&w.pins)
 	}
-	cfg := eden.Config{Chains: []eden.ChainPins{w.pins}, ResendEvery: 20 * time.Millisecond}
+	cfg := eden.Config{Chains: []eden.ChainPins{w.pins}, ResendEvery: 20 * time.Millisecond, PaymentSignatureField: eden.FieldOff}
 	cfg.ApplyDefaults()
-	h, err := eden.New(cfg, map[uint64]eden.Chain{714: w.chain}, map[uint64]eden.Settler{714: newChecker(t, w.chain)},
-		func() time.Time { return w.now }, nil)
+	h, err := eden.New(cfg, deps(w.chain, newChecker(t, w.chain), func() time.Time { return w.now }))
 	require.NoError(t, err)
 	w.h = h
 	return w
@@ -348,8 +354,9 @@ func TestSettleKeepsResendingUntilItLands(t *testing.T) {
 		}
 		w.chain.Land(e.Signed)
 	}()
-	h, err := eden.New(eden.Config{Chains: []eden.ChainPins{w.pins}, AwaitGrace: time.Minute, ResendEvery: 20 * time.Millisecond},
-		map[uint64]eden.Chain{714: w.chain}, map[uint64]eden.Settler{714: newChecker(t, w.chain)}, time.Now, nil)
+	hcfg := eden.Config{Chains: []eden.ChainPins{w.pins}, AwaitGrace: time.Minute, ResendEvery: 20 * time.Millisecond, PaymentSignatureField: eden.FieldOff}
+	hcfg.ApplyDefaults()
+	h, err := eden.New(hcfg, deps(w.chain, newChecker(t, w.chain), time.Now))
 	require.NoError(t, err)
 	res, err := h.Settle(context.Background(), e, true)
 	require.NoError(t, err)
@@ -377,9 +384,9 @@ func TestSettleNotExecutedOnlyPastTheDeadline(t *testing.T) {
 	cfg.ApplyDefaults()
 	both, err := edenexec.NewChecker(cfg, []edenexec.Source{w.chain, second}, nil)
 	require.NoError(t, err)
-	hcfg := eden.Config{Chains: []eden.ChainPins{w.pins}}
+	hcfg := eden.Config{Chains: []eden.ChainPins{w.pins}, PaymentSignatureField: eden.FieldOff}
 	hcfg.ApplyDefaults()
-	h, err := eden.New(hcfg, map[uint64]eden.Chain{714: w.chain}, map[uint64]eden.Settler{714: both}, time.Now, nil)
+	h, err := eden.New(hcfg, deps(w.chain, both, time.Now))
 	require.NoError(t, err)
 	res, err := h.Settle(ctx, e, false)
 	require.NoError(t, err)

@@ -31,12 +31,15 @@ type systemClock struct{}
 func (systemClock) Now() time.Time { return time.Now() }
 
 // Request is one signing request: the agent's signed envelope, the action
-// bytes and salt it committed, and the gate's SignedAuthorization.
+// bytes and salt it committed, and the gate's SignedAuthorization, with the
+// payment requirements the action binds when the profile has them.
 type Request struct {
 	Envelope      []byte
 	Action        []byte
 	Salt          []byte
 	Authorization []byte
+	// Requirements are optional; a profile may require them.
+	Requirements []byte
 }
 
 // Output is what the signer hands back: the signed rail request, ready to
@@ -57,6 +60,8 @@ type Verified struct {
 	Commitment     commitment.Commitment
 	Authorization  commitment.Authorization
 	Action, Salt   []byte
+	// Requirements are the request's payment requirements, if presented.
+	Requirements []byte
 	// SkewS is the signer's skew_s.
 	SkewS uint64
 	// Repeat is set when the store already holds signed bytes for this
@@ -77,6 +82,9 @@ type Plan struct {
 	// Until is the chain time after which the transaction, not found, was
 	// not executed, Unix seconds.
 	Until int64
+	// Slot is the rail resource that only one unresolved decision may hold
+	// (the payer's nonce); empty is none.
+	Slot string
 }
 
 // Settlement is what the rail did with a signed decision.
@@ -84,6 +92,12 @@ type Settlement struct {
 	State   State // StateExecuted, StateReverted, StateNotExecuted or StateWrong
 	Outcome string
 	Detail  string
+	// Seen: some source served the transaction while waiting. Set also
+	// when the state is unknown, so the next wait carries it.
+	Seen bool
+	// PaymentProofAllowed: the outcome rests on evidence strong enough to
+	// release a payment proof.
+	PaymentProofAllowed bool
 }
 
 // Handler is the profile part for one action type.
@@ -98,12 +112,35 @@ type Handler interface {
 	// Finish splices the signature into the action's transaction. It is
 	// pure; the signature must recover to payer.
 	Finish(action []byte, sig [65]byte, payer [20]byte) (signed []byte, railRef string, err error)
-	// Send hands the signed bytes to the rail.
-	Send(ctx context.Context, key uint64, signed []byte) error
+	// Send hands the signed bytes of the action to the rail.
+	Send(ctx context.Context, key uint64, action, signed []byte) error
 	// Settle waits for the rail until the entry's deadline, resending the
-	// stored bytes while resend is set, and reports what it saw. An error
-	// means the state is unknown: look again later, never sign again.
+	// stored bytes while resend is set, and reports what it saw. It
+	// continues the wait the entry's Seen describes. An error means the
+	// state is unknown: look again later, never sign again; the returned
+	// Settlement's Seen still counts.
 	Settle(ctx context.Context, e Entry, resend bool) (Settlement, error)
+}
+
+// PaymentProver is the optional part of a Handler that releases a payment
+// proof for a decision the rail executed: a signature by the payer key over
+// a message the profile derives from the committed action and the payment
+// requirements, never over bytes a request names.
+type PaymentProver interface {
+	// PaymentProofEnabled says whether the configuration offers payment
+	// proofs at all.
+	PaymentProofEnabled() bool
+	// CheckPaymentProofField refuses a field the handler does not offer,
+	// with ErrPinMismatch.
+	CheckPaymentProofField(field string) error
+	// ActionDigest is what the payer key signs for the action bytes.
+	ActionDigest(action []byte) ([32]byte, error)
+	// PaymentProofDigest checks the committed action and the requirements
+	// and returns the proof's message and the digest the payer key signs.
+	PaymentProofDigest(action, requirements []byte) (message, digest [32]byte, err error)
+	// FinishPaymentProof formats the payer's signature over the message's
+	// digest; it must recover to payer.
+	FinishPaymentProof(message [32]byte, sig [65]byte, payer [20]byte) ([]byte, error)
 }
 
 // Recorder sends a record request to the gate. A receipt the
@@ -132,6 +169,7 @@ type Service struct {
 	st       Store
 	wallets  map[uint64]WalletBackend
 	handlers map[string]Handler
+	provers  map[string]PaymentProver
 	exec     ExecutorKey
 	rec      Recorder
 	clk      Clock
@@ -166,6 +204,7 @@ func New(cfg Config, d Deps) (*Service, error) {
 		}
 	}
 	hs := make(map[string]Handler, len(d.Handlers))
+	ps := map[string]PaymentProver{}
 	for _, h := range d.Handlers {
 		if h == nil {
 			return nil, errors.New("signer: nil handler")
@@ -174,6 +213,9 @@ func New(cfg Config, d Deps) (*Service, error) {
 			return nil, fmt.Errorf("signer: two handlers for %s", h.ActionType())
 		}
 		hs[h.ActionType()] = h
+		if p, ok := h.(PaymentProver); ok && p.PaymentProofEnabled() {
+			ps[h.ActionType()] = p
+		}
 	}
 	if d.Executor != nil {
 		if err := checkExecutorKey(cfg, d.Executor.PublicKey()); err != nil {
@@ -187,7 +229,7 @@ func New(cfg Config, d Deps) (*Service, error) {
 		d.Log = slog.Default()
 	}
 	return &Service{
-		cfg: cfg, st: d.Store, wallets: d.Wallets, handlers: hs, exec: d.Executor, rec: d.Recorder,
+		cfg: cfg, st: d.Store, wallets: d.Wallets, handlers: hs, provers: ps, exec: d.Executor, rec: d.Recorder,
 		clk: d.Clock, log: d.Log, kick: make(chan struct{}, 1), inflight: map[commitment.Hash]bool{},
 	}, nil
 }
@@ -280,9 +322,15 @@ func (s *Service) Sign(ctx context.Context, req Request) (Output, error) {
 		ReservedAt: now.Unix(), Until: plan.Until,
 		Envelope: bytes.Clone(req.Envelope), Action: bytes.Clone(req.Action), Salt: bytes.Clone(req.Salt),
 		Authorization: bytes.Clone(req.Authorization), AuthExpires: v.Authorization.Expires, Mode: v.Authorization.Mode,
+		Requirements: bytes.Clone(req.Requirements), Slot: plan.Slot,
 		State: StateReserved,
 	}
 	stored, existing, err := s.st.Reserve(ctx, e, now.Add(-HourWindow).Unix()+1, func(t Totals) error {
+		// Two different transactions on one nonce: the second fails at the
+		// chain, after its fee was counted and its decision consumed.
+		if t.SlotHolder != nil && t.SlotHolder.HoldsSlot(now, s.cfg.SkewS) {
+			return fmt.Errorf("%w: %s is held by the unresolved decision %x", ErrPinMismatch, plan.Slot, t.SlotHolder.CommitmentHash)
+		}
 		return s.admit(plan, t)
 	})
 	if err != nil {
@@ -325,7 +373,7 @@ func (s *Service) Sign(ctx context.Context, req Request) (Output, error) {
 		return Output{}, err
 	}
 	if sendOK {
-		if err := h.Send(ctx, plan.Key, stored.Signed); err != nil {
+		if err := h.Send(ctx, plan.Key, req.Action, stored.Signed); err != nil {
 			s.log.Warn("signer: first send failed; it is resent until the deadline",
 				"commitment_hash", hex.EncodeToString(v.CommitmentHash[:]), "rail_ref", stored.RailRef, "err", err)
 		}
@@ -432,7 +480,8 @@ func (s *Service) verify(req Request, now time.Time) (Verified, Handler, error) 
 	}
 	return Verified{
 		CommitmentHash: h, Commitment: *c, Authorization: sa.Authorization,
-		Action: bytes.Clone(req.Action), Salt: bytes.Clone(req.Salt), SkewS: s.cfg.SkewS,
+		Action: bytes.Clone(req.Action), Salt: bytes.Clone(req.Salt), Requirements: bytes.Clone(req.Requirements),
+		SkewS: s.cfg.SkewS,
 	}, hd, nil
 }
 

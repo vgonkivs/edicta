@@ -5,6 +5,7 @@ package signer
 import (
 	"context"
 	"math/big"
+	"time"
 
 	"github.com/vgonkivs/edicta/commitment"
 )
@@ -58,6 +59,12 @@ type Entry struct {
 	Authorization []byte `json:"authorization"`
 	AuthExpires   uint64 `json:"auth_expires"`
 	Mode          uint64 `json:"mode"`
+	// Requirements are the payment requirements presented with the
+	// request and checked before the reservation, if any.
+	Requirements []byte `json:"requirements,omitempty"`
+	// Slot is the rail resource the decision holds while it is unresolved
+	// (the payer's nonce); empty is none.
+	Slot string `json:"slot,omitempty"`
 
 	// Signed is set once and never changes.
 	Signed  []byte `json:"signed,omitempty"`
@@ -70,13 +77,39 @@ type Entry struct {
 	Outcome string `json:"outcome,omitempty"`
 	Receipt []byte `json:"receipt,omitempty"`
 	Detail  string `json:"detail,omitempty"`
+	// Seen: some source served the transaction while the signer waited.
+	// It only ever turns true, and keeps not executed out of reach.
+	Seen bool `json:"seen,omitempty"`
+	// PaymentProofAllowed: the settlement that set the outcome is strong
+	// enough for a payment proof.
+	PaymentProofAllowed bool `json:"payment_proof_allowed,omitempty"`
+	// PaymentProof is the payment proof released for the decision. Set
+	// once, it never changes.
+	PaymentProof []byte `json:"payment_proof,omitempty"`
+}
+
+// HoldsSlot says whether e still holds its slot at now: until its
+// settlement is final, or, unsigned, while a repeat could still sign it.
+// A decision the operator looks at keeps it.
+func (e Entry) HoldsSlot(now time.Time, skewS uint64) bool {
+	switch e.State {
+	case StateSigned, StateWrong:
+		return true
+	case StateReserved:
+		n := now.Unix()
+		return n < 0 || uint64(n) < e.AuthExpires+skewS
+	}
+	return false
 }
 
 // Totals are the sums the per-hour caps compare, over the entries reserved
-// inside the window.
+// inside the window, and the last other entry that reserved the new entry's
+// slot.
 type Totals struct {
 	Value *big.Int
 	Fee   *big.Int
+	// SlotHolder is the entry that last reserved the same slot, if any.
+	SlotHolder *Entry
 }
 
 // Store keeps the entries durably. Every write is durable when the call
@@ -85,8 +118,10 @@ type Store interface {
 	// Reserve stores e unless an entry for its commitment hash exists, in
 	// which case it returns that entry with existing set and changes
 	// nothing. Otherwise it sums the entries reserved at or after
-	// windowStart, calls admit with the sums, and stores e only if admit
-	// returns nil: the reservation and the counters are one durable write.
+	// windowStart, finds the last entry that reserved e's slot, calls admit
+	// with both, and stores e, as the slot's new holder, only if admit
+	// returns nil: the reservation, the counters and the slot are one
+	// durable write.
 	Reserve(ctx context.Context, e Entry, windowStart int64, admit func(Totals) error) (stored Entry, existing bool, err error)
 	// Get returns the entry of h.
 	Get(ctx context.Context, h commitment.Hash) (Entry, bool, error)

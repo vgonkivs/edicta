@@ -1,0 +1,299 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package eden_test
+
+import (
+	"context"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/edenexec"
+	"github.com/vgonkivs/edicta/signer"
+	"github.com/vgonkivs/edicta/signer/eden"
+	"github.com/vgonkivs/edicta/signer/signertest"
+)
+
+// relayHandler is a form T handler that broadcasts through relay, on the
+// system clock.
+func relayHandler(t *testing.T, w *world, relay eden.Relay, mut ...func(*eden.Config)) *eden.Handler {
+	t.Helper()
+	p := w.pins
+	p.Broadcast = eden.BroadcastRelay
+	cfg := eden.Config{Chains: []eden.ChainPins{p}, ResendEvery: 20 * time.Millisecond, PaymentSignatureField: eden.FieldOff}
+	for _, m := range mut {
+		m(&cfg)
+	}
+	cfg.ApplyDefaults()
+	d := deps(w.chain, newChecker(t, w.chain), time.Now)
+	d.Relays = map[uint64]eden.Relay{714: relay}
+	h, err := eden.New(cfg, d)
+	require.NoError(t, err)
+	return h
+}
+
+func TestRelayIsTheDefaultAndNeedsARelay(t *testing.T) {
+	w := newWorld(t)
+	p := w.pins
+	p.Broadcast = ""
+	cfg := eden.Config{Chains: []eden.ChainPins{p}, PaymentSignatureField: eden.FieldOff}
+	cfg.ApplyDefaults()
+	assert.Equal(t, eden.BroadcastRelay, cfg.Chains[0].Broadcast)
+	_, err := eden.New(cfg, deps(w.chain, newChecker(t, w.chain), nil))
+	require.ErrorContains(t, err, "relay")
+
+	cfg.Chains[0].Broadcast = "mempool"
+	require.Error(t, cfg.ValidateBasic())
+	cfg.Chains[0].Broadcast = eden.BroadcastRelay
+	cfg.RelayGrace = cfg.AwaitGrace + time.Second
+	require.Error(t, cfg.ValidateBasic(), "RelayGrace above AwaitGrace")
+}
+
+func TestSendGoesThroughTheRelayWithTheActionsPaymentID(t *testing.T) {
+	w := newWorld(t)
+	relay := &signertest.Relay{}
+	h := relayHandler(t, w, relay)
+	d := signertest.NewDeposit(w.now)
+	e := signedEntry(t, w, d, time.Now().Add(time.Minute))
+	require.NoError(t, h.Send(context.Background(), 714, e.Action, e.Signed))
+	require.Equal(t, 1, relay.Calls())
+	assert.Equal(t, e.Signed, relay.Sent[0].Signed)
+	assert.Equal(t, e.RailRef, relay.Sent[0].RailRef)
+	assert.Equal(t, d.PaymentID, relay.Sent[0].PaymentID)
+	assert.Zero(t, w.chain.SentCount(), "no direct send while the relay accepts")
+
+	relay.Set(func(r *signertest.Relay) { r.Err = eden.ErrRelayFault })
+	require.NoError(t, h.Send(context.Background(), 714, e.Action, e.Signed))
+	require.Equal(t, 1, w.chain.SentCount(), "a relay fault sends the same bytes directly")
+	assert.Equal(t, e.Signed, w.chain.Sent[0])
+
+	require.Error(t, h.Send(context.Background(), 1, e.Action, e.Signed), "the action names chain 714")
+}
+
+// A relay that answers success and withholds the bytes costs at most
+// RelayGrace.
+func TestSettleSendsDirectlyAfterRelayGrace(t *testing.T) {
+	w := newWorld(t)
+	w.chain.Set(func(c *signertest.Chain) { c.AutoLand = true })
+	relay := &signertest.Relay{}
+	h := relayHandler(t, w, relay, func(c *eden.Config) { c.RelayGrace = time.Second })
+	e := signedEntry(t, w, signertest.NewDeposit(w.now), time.Now().Add(time.Minute))
+	e.ReservedAt = time.Now().Unix()
+	res, err := h.Settle(context.Background(), e, true)
+	require.NoError(t, err)
+	assert.Equal(t, signer.StateExecuted, res.State)
+	assert.GreaterOrEqual(t, relay.Calls(), 1)
+	assert.GreaterOrEqual(t, w.chain.SentCount(), 1)
+	for _, s := range w.chain.Sent {
+		assert.Equal(t, e.Signed, s)
+	}
+}
+
+// scriptedSettler answers the calls of one wait in turn and records the
+// seen fact each call was given.
+type scriptedSettler struct {
+	mu      sync.Mutex
+	answers []func() (edenexec.Report, error)
+	seen    []bool
+}
+
+func (s *scriptedSettler) AwaitSeen(_ context.Context, _ edenexec.Target, until time.Time, seen bool) (edenexec.Report, error) {
+	// Like Await, a call returns at its horizon at the earliest.
+	time.Sleep(time.Until(until))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seen = append(s.seen, seen)
+	i := min(len(s.seen), len(s.answers)) - 1
+	return s.answers[i]()
+}
+
+func notFoundEverywhere() (edenexec.Report, error) {
+	return edenexec.Report{State: edenexec.AwaitNotExecuted, Sources: []edenexec.SourceResult{
+		{Operator: "one", State: edenexec.StateNotFound}, {Operator: "two", State: edenexec.StateNotFound},
+	}}, edenexec.ErrNotFound
+}
+
+// A source seen in an earlier horizon keeps not executed out of reach in
+// the last one; Settle carries the fact into each call and back out.
+func TestSettleCarriesSeenAcrossCalls(t *testing.T) {
+	w := newWorld(t)
+	st := &scriptedSettler{answers: []func() (edenexec.Report, error){
+		func() (edenexec.Report, error) {
+			return edenexec.Report{State: edenexec.AwaitUnknown, Seen: true}, edenexec.ErrSettlementUnknown
+		},
+		notFoundEverywhere,
+	}}
+	cfg := eden.Config{Chains: []eden.ChainPins{w.pins}, ResendEvery: 20 * time.Millisecond, PaymentSignatureField: eden.FieldOff}
+	cfg.ApplyDefaults()
+	h, err := eden.New(cfg, deps(w.chain, st, time.Now))
+	require.NoError(t, err)
+	e := signedEntry(t, w, signertest.NewDeposit(w.now), time.Now().Add(1500*time.Millisecond))
+	// Resending splits the wait into calls, one per resend.
+	res, err := h.Settle(context.Background(), e, true)
+	require.Error(t, err, "seen once: unknown, never not executed")
+	assert.True(t, res.Seen)
+	require.GreaterOrEqual(t, len(st.seen), 2)
+	assert.False(t, st.seen[0])
+	for _, s := range st.seen[1:] {
+		assert.True(t, s, "every later call continues the wait")
+	}
+
+	// A restart continues the wait from the stored fact.
+	st2 := &scriptedSettler{answers: []func() (edenexec.Report, error){notFoundEverywhere}}
+	h2, err := eden.New(cfg, deps(w.chain, st2, time.Now))
+	require.NoError(t, err)
+	e.Until = time.Now().Add(-time.Second).Unix()
+	e.Seen = true
+	_, err = h2.Settle(context.Background(), e, false)
+	require.Error(t, err)
+	assert.Equal(t, []bool{true}, st2.seen)
+
+	e.Seen = false
+	res, err = h2.Settle(context.Background(), e, false)
+	require.NoError(t, err)
+	assert.Equal(t, signer.StateNotExecuted, res.State)
+}
+
+func TestCheckNonceRelease(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	e := signedEntry(t, w, signertest.NewDeposit(w.now), w.now.Add(-time.Second))
+	e.Payer = w.keys.PayerAddress()
+	require.Error(t, w.h.CheckNonceRelease(ctx, e), "only a decision final as not executed")
+	e.State = signer.StateNotExecuted
+	w.chain.Set(func(c *signertest.Chain) { c.Latest = 7 })
+	require.NoError(t, w.h.CheckNonceRelease(ctx, e))
+	w.chain.Set(func(c *signertest.Chain) { c.Latest = 8 })
+	require.ErrorContains(t, w.h.CheckNonceRelease(ctx, e), "executed", "the nonce was used: the deposit landed")
+	e.Until = w.now.Add(time.Minute).Unix()
+	w.chain.Set(func(c *signertest.Chain) { c.Latest = 7 })
+	require.Error(t, w.h.CheckNonceRelease(ctx, e), "before the deadline")
+}
+
+// R presented with the deposit must pass even while the Payment-Signature
+// is off.
+func TestCheckHoldsAPresentedQuote(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t, func(p *eden.ChainPins) { p.Facilitators = append(p.Facilitators, signertest.QuoteFacilitator()) })
+	d, err := signertest.QuotedDeposit(signertest.NewDeposit(w.now))
+	require.NoError(t, err)
+	v := w.verified(t, d)
+	v.Requirements = d.Requirements
+	_, err = w.h.Check(ctx, v, w.now)
+	require.NoError(t, err)
+
+	v.Requirements = []byte(`{"x402Version":2,"accepts":[]}`)
+	_, err = w.h.Check(ctx, v, w.now)
+	require.ErrorIs(t, err, signer.ErrRequirements)
+	require.ErrorIs(t, err, edenescrow.ErrRequirements)
+
+	v.Requirements = nil
+	_, err = w.h.Check(ctx, v, w.now)
+	require.NoError(t, err, "R is optional while the Payment-Signature is off")
+}
+
+func TestPlanHoldsTheNonceSlot(t *testing.T) {
+	w := newWorld(t)
+	p, err := w.h.Check(context.Background(), w.verified(t, signertest.NewDeposit(w.now)), w.now)
+	require.NoError(t, err)
+	payer := w.keys.PayerAddress()
+	assert.Equal(t, "eden-escrow/714/"+hex.EncodeToString(payer[:])+"/nonce/7", p.Slot)
+}
+
+func TestHoustonRelayConfig(t *testing.T) {
+	for _, u := range []string{"http://pay.example", "https://user@pay.example", "https://pay.example/?a=b", "https://", "pay.example"} {
+		c := eden.HoustonConfig{BaseURL: u}
+		c.ApplyDefaults()
+		assert.Error(t, c.ValidateBasic(), u)
+	}
+	c := eden.HoustonConfig{BaseURL: "https://pay.example/base/", Timeout: 61 * time.Second}
+	assert.Error(t, c.ValidateBasic())
+	c.Timeout = 0
+	c.ApplyDefaults()
+	assert.Equal(t, eden.DefaultServerTimeout, c.Timeout)
+	require.NoError(t, c.ValidateBasic())
+}
+
+func TestHoustonRelay(t *testing.T) {
+	signed := []byte{0x02, 0xc0, 0x01}
+	railRef := edenescrow.RailRef(signed)
+	pid := [32]byte{0xab}
+	var mu sync.Mutex
+	answer := func(w http.ResponseWriter) {}
+	var got []byte
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		defer mu.Unlock()
+		if r.URL.Path != "/base"+eden.RelayPath || r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/json" {
+			w.WriteHeader(http.StatusTeapot)
+			return
+		}
+		got = b
+		answer(w)
+	}))
+	defer srv.Close()
+	rl, err := eden.NewHoustonRelay(eden.HoustonConfig{BaseURL: srv.URL + "/base/", Timeout: 200 * time.Millisecond}, srv.Client())
+	require.NoError(t, err)
+	set := func(f func(w http.ResponseWriter)) {
+		mu.Lock()
+		defer mu.Unlock()
+		answer = f
+	}
+	send := func() error { return rl.Send(context.Background(), signed, railRef, pid) }
+
+	set(func(w http.ResponseWriter) { _, _ = io.WriteString(w, `{"txHash":"0x`+strings.ToUpper(railRef)+`"}`) })
+	require.NoError(t, send())
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(got, &body))
+	assert.Equal(t, map[string]string{"signedTx": "0x" + hex.EncodeToString(signed), "paymentId": "0x" + hex.EncodeToString(pid[:])}, body)
+
+	set(func(w http.ResponseWriter) {})
+	require.NoError(t, send(), "an empty success")
+
+	faults := map[string]func(w http.ResponseWriter){
+		"error status": func(w http.ResponseWriter) { http.Error(w, "failed to broadcast transaction", http.StatusBadRequest) },
+		"other hash": func(w http.ResponseWriter) {
+			_, _ = io.WriteString(w, `{"result":{"hash":"0x`+strings.Repeat("1", 64)+`"}}`)
+		},
+		"short hash":      func(w http.ResponseWriter) { _, _ = io.WriteString(w, `{"transactionHash":"0x12"}`) },
+		"hash not string": func(w http.ResponseWriter) { _, _ = io.WriteString(w, `{"tx":{"txHash":12}}`) },
+		"error member":    func(w http.ResponseWriter) { _, _ = io.WriteString(w, `{"error":"failed to broadcast transaction"}`) },
+		"not json":        func(w http.ResponseWriter) { _, _ = io.WriteString(w, `ok`) },
+		"trailing data":   func(w http.ResponseWriter) { _, _ = io.WriteString(w, `{} {}`) },
+		"answer too long": func(w http.ResponseWriter) {
+			_, _ = io.WriteString(w, `{"a":"`+strings.Repeat("x", eden.MaxRelayAnswer)+`"}`)
+		},
+		"timeout": func(w http.ResponseWriter) { time.Sleep(400 * time.Millisecond) },
+		"redirect to http": func(w http.ResponseWriter) {
+			w.Header().Set("Location", "http://evil.example/")
+			w.WriteHeader(http.StatusFound)
+		},
+	}
+	for name, f := range faults {
+		set(f)
+		err := send()
+		require.ErrorIs(t, err, eden.ErrRelayFault, name)
+	}
+}
+
+func TestCheckRelayAnswer(t *testing.T) {
+	rail := strings.Repeat("ab", 32)
+	for _, ok := range []string{"", "  ", `{}`, `{"txHash":"0x` + rail + `"}`, `{"result":{"transactionHash":"0x` + rail + `"},"error":null}`, `{"success":true}`} {
+		assert.NoError(t, eden.CheckRelayAnswer([]byte(ok), rail), ok)
+	}
+	for _, bad := range []string{`[]`, `null`, `{"hash":"` + rail + `"}`, `{"transaction":{"hash":"0x` + strings.Repeat("cd", 32) + `"}}`, `{"txHash":"0x` + strings.Repeat("zz", 32) + `"}`} {
+		assert.True(t, errors.Is(eden.CheckRelayAnswer([]byte(bad), rail), eden.ErrRelayFault), bad)
+	}
+}

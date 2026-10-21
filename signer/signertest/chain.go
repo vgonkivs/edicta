@@ -47,6 +47,9 @@ type Chain struct {
 	Revert   bool
 	Depth    uint64
 
+	// Latest is the payer's latest nonce.
+	Latest uint64
+
 	ChainErr, CodeErr, NonceErr, SendErr, TxErr error
 
 	Sent   [][]byte
@@ -115,6 +118,12 @@ func (c *Chain) PendingNonce(context.Context, [20]byte) (uint64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.Nonce, c.NonceErr
+}
+
+func (c *Chain) LatestNonce(context.Context, [20]byte) (uint64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Latest, c.NonceErr
 }
 
 func (c *Chain) SendRawTransaction(_ context.Context, signed []byte) ([32]byte, error) {
@@ -330,4 +339,48 @@ func rlpRead(b []byte) (payload, rest []byte, err error) {
 		return nil, nil, errors.New("signertest: truncated")
 	}
 	return b[off : off+n], b[off+n:], nil
+}
+
+// Relay is a scripted payment-server relay: it records every send and lands
+// the bytes on Chain when Forward is set, as a relay that broadcasts them.
+type Relay struct {
+	mu      sync.Mutex
+	Chain   *Chain
+	Forward bool
+	Err     error
+	Sent    []RelaySend
+}
+
+// RelaySend is one call of the relay.
+type RelaySend struct {
+	Signed    []byte
+	RailRef   string
+	PaymentID [32]byte
+}
+
+func (r *Relay) Send(_ context.Context, signed []byte, railRef string, paymentID [32]byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Sent = append(r.Sent, RelaySend{Signed: append([]byte(nil), signed...), RailRef: railRef, PaymentID: paymentID})
+	if r.Err != nil {
+		return r.Err
+	}
+	if r.Forward && r.Chain != nil {
+		r.Chain.Land(signed)
+	}
+	return nil
+}
+
+// Calls is the number of sends.
+func (r *Relay) Calls() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.Sent)
+}
+
+// Set changes the relay under its lock.
+func (r *Relay) Set(f func(r *Relay)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	f(r)
 }

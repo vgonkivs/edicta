@@ -2,9 +2,9 @@
 
 // Package eden is the signer's handler for the eden-escrow form T deposit:
 // the profile's checks on the exact action bytes (strict decode, pins,
-// escrow code, payer code, nonce, time), the splice of the payer's
-// signature into those bytes, the send to Eden and the wait for the
-// settlement.
+// escrow code, payer code, nonce, payment requirements, time), the splice
+// of the payer's signature into those bytes, the broadcast to Eden, the wait
+// for the settlement, and the Payment-Signature for an executed deposit.
 package eden
 
 import (
@@ -33,13 +33,48 @@ type Chain interface {
 	// CodeHash is keccak256 of the code at addr in the latest block.
 	CodeHash(ctx context.Context, addr [20]byte) ([32]byte, error)
 	PendingNonce(ctx context.Context, addr [20]byte) (uint64, error)
+	// LatestNonce is how many transactions of addr the chain executed.
+	LatestNonce(ctx context.Context, addr [20]byte) (uint64, error)
 	SendRawTransaction(ctx context.Context, signed []byte) ([32]byte, error)
 }
 
-// Settler waits for a transaction's settlement (edenexec.Checker).
+// Settler waits for a transaction's settlement (edenexec.Checker). seen
+// continues an earlier wait for the same rail_ref.
 type Settler interface {
-	Await(ctx context.Context, t edenexec.Target, until time.Time) (edenexec.Report, error)
+	AwaitSeen(ctx context.Context, t edenexec.Target, until time.Time, seen bool) (edenexec.Report, error)
 }
+
+// paymentProofSetup is a Settler that can say whether its executed state
+// may carry a payment proof.
+type paymentProofSetup interface {
+	CheckPaymentProofSetup() error
+}
+
+// Relay hands signed bytes to the payment server. Its answer is never
+// evidence of anything: a nil error only means the bytes need not also be
+// sent directly yet. Inclusion is decided by the Settler alone.
+type Relay interface {
+	Send(ctx context.Context, signed []byte, railRef string, paymentID [32]byte) error
+}
+
+// Broadcast modes.
+const (
+	// BroadcastRelay sends through the payment server's relay first and
+	// directly when the relay fails or, after RelayGrace, while no source
+	// shows the transaction.
+	BroadcastRelay = "houston-relay"
+	// BroadcastDirect sends with eth_sendRawTransaction on the chain's RPC.
+	BroadcastDirect = "direct"
+)
+
+// Payment-Signature fields.
+const (
+	// FieldPaymentID: the Payment-Signature covers the quote's paymentId,
+	// the 32 bytes the pinned facilitator signed.
+	FieldPaymentID = "paymentId"
+	// FieldOff: no Payment-Signature.
+	FieldOff = "off"
+)
 
 // ChainPins are the operator's pins for one served chain. The
 // escrow address and its code hash come from the compiled table, never from
@@ -55,29 +90,31 @@ type ChainPins struct {
 	MaxGas         uint64
 	// MaxFeePerAction bounds max_fee_per_gas * gas_limit.
 	MaxFeePerAction *big.Int
+	// Broadcast is BroadcastRelay (the default) or BroadcastDirect.
+	Broadcast string
 }
 
-// NotExecutedSources is how many sources, distinct by host, must answer
-// that the transaction is not there before a decision is final as not
-// executed.
+// NotExecutedSources is how many operators must answer that the
+// transaction is not there before a decision is final as not executed.
 const NotExecutedSources = 2
 
-// notFoundSources counts the sources of a final report that answered not
-// found.
-func notFoundSources(rep edenexec.Report) int {
-	names := map[string]bool{}
+// notFoundOperators counts the operators of a final report that answered
+// not found.
+func notFoundOperators(rep edenexec.Report) int {
+	ops := map[string]bool{}
 	for _, s := range rep.Sources {
-		if s.Result == edenexec.SourceSetAside && s.Reason == edenexec.ReasonNotFound {
-			names[s.Name] = true
+		if s.State == edenexec.StateNotFound {
+			ops[s.Operator] = true
 		}
 	}
-	return len(names)
+	return len(ops)
 }
 
 // Defaults and bounds.
 const (
 	DefaultResendEvery = 5 * time.Second
 	MaxResendEvery     = 10 * time.Minute
+	DefaultRelayGrace  = 30 * time.Second
 )
 
 // Config is the handler's configuration.
@@ -88,6 +125,15 @@ type Config struct {
 	AwaitGrace time.Duration
 	// ResendEvery is how often the stored bytes are resent while waiting.
 	ResendEvery time.Duration
+	// RelayGrace is how long after signing a relayed deposit is resent only
+	// through the relay; after it, while no source shows the transaction,
+	// resends go directly. At most AwaitGrace.
+	RelayGrace time.Duration
+	// PaymentSignatureField is FieldPaymentID (the default) or FieldOff.
+	PaymentSignatureField string
+	// CheckServerSignature requires the facilitator's signature over
+	// paymentId in the requirements; nil is true.
+	CheckServerSignature *bool
 }
 
 // ApplyDefaults fills the zero fields that have defaults.
@@ -98,6 +144,30 @@ func (c *Config) ApplyDefaults() {
 	if c.ResendEvery == 0 {
 		c.ResendEvery = DefaultResendEvery
 	}
+	if c.RelayGrace == 0 {
+		c.RelayGrace = min(DefaultRelayGrace, c.AwaitGrace)
+	}
+	if c.PaymentSignatureField == "" {
+		c.PaymentSignatureField = FieldPaymentID
+	}
+	if c.CheckServerSignature == nil {
+		on := true
+		c.CheckServerSignature = &on
+	}
+	for i := range c.Chains {
+		if c.Chains[i].Broadcast == "" {
+			c.Chains[i].Broadcast = BroadcastRelay
+		}
+	}
+}
+
+func (c Config) checkServerSignature() bool {
+	return c.CheckServerSignature == nil || *c.CheckServerSignature
+}
+
+// PaymentSignatureEnabled: field paymentId and the server-signature check.
+func (c Config) PaymentSignatureEnabled() bool {
+	return c.PaymentSignatureField == FieldPaymentID && c.checkServerSignature()
 }
 
 // ValidateBasic checks the fields alone, against this build's table.
@@ -129,6 +199,8 @@ func (c Config) ValidateBasic() error {
 			return fmt.Errorf("signer/eden: chain %d: MaxFeePerGas must be above zero", p.ChainID)
 		case p.MaxFeePerAction == nil || p.MaxFeePerAction.Sign() <= 0:
 			return fmt.Errorf("signer/eden: chain %d: MaxFeePerAction must be above zero", p.ChainID)
+		case p.Broadcast != BroadcastRelay && p.Broadcast != BroadcastDirect:
+			return fmt.Errorf("signer/eden: chain %d: broadcast %q is not %s or %s", p.ChainID, p.Broadcast, BroadcastRelay, BroadcastDirect)
 		}
 	}
 	switch {
@@ -136,8 +208,31 @@ func (c Config) ValidateBasic() error {
 		return fmt.Errorf("signer/eden: AwaitGrace %v is not in (0, %v]", c.AwaitGrace, edenexec.MaxAwaitGrace)
 	case c.ResendEvery <= 0 || c.ResendEvery > MaxResendEvery:
 		return fmt.Errorf("signer/eden: ResendEvery %v is not in (0, %v]", c.ResendEvery, MaxResendEvery)
+	case c.RelayGrace <= 0 || c.RelayGrace > c.AwaitGrace:
+		return fmt.Errorf("signer/eden: RelayGrace %v is not in (0, AwaitGrace %v]", c.RelayGrace, c.AwaitGrace)
+	}
+	switch c.PaymentSignatureField {
+	case FieldPaymentID, FieldOff:
+	case "nonce":
+		// No server signature covers extra.nonce, so the agent would choose
+		// the bytes the payer key signs.
+		return errors.New("signer/eden: Payment-Signature field nonce is not offered: no server signature covers it")
+	default:
+		return fmt.Errorf("signer/eden: Payment-Signature field %q is not %s or %s", c.PaymentSignatureField, FieldPaymentID, FieldOff)
 	}
 	return nil
+}
+
+// Deps are the handler's collaborators, per served chain.
+type Deps struct {
+	Chains   map[uint64]Chain
+	Settlers map[uint64]Settler
+	// Relays are needed for the chains that broadcast through a relay.
+	Relays map[uint64]Relay
+	// Now is the local clock that decides when to stop waiting; nil is the
+	// system clock.
+	Now func() time.Time
+	Log *slog.Logger
 }
 
 // Handler is the form T handler.
@@ -146,35 +241,54 @@ type Handler struct {
 	pins     map[uint64]ChainPins
 	chains   map[uint64]Chain
 	settlers map[uint64]Settler
+	relays   map[uint64]Relay
 	now      func() time.Time
 	log      *slog.Logger
 }
 
-var _ signer.Handler = (*Handler)(nil)
+var (
+	_ signer.Handler       = (*Handler)(nil)
+	_ signer.PaymentProver = (*Handler)(nil)
+)
 
-// New wires one Chain and one Settler per served chain. now is the local
-// clock that decides when to stop waiting; nil is the system clock.
-func New(cfg Config, chains map[uint64]Chain, settlers map[uint64]Settler, now func() time.Time, log *slog.Logger) (*Handler, error) {
+// New wires one Chain and one Settler per served chain, and a Relay per
+// relayed chain. With the Payment-Signature enabled, every Settler must
+// confirm that its executed state can carry one (L1, explicit operator
+// labels, enough operators); otherwise the handler refuses to start.
+func New(cfg Config, d Deps) (*Handler, error) {
 	if err := cfg.ValidateBasic(); err != nil {
 		return nil, err
 	}
 	pins := make(map[uint64]ChainPins, len(cfg.Chains))
 	for _, p := range cfg.Chains {
-		if chains[p.ChainID] == nil {
+		if d.Chains[p.ChainID] == nil {
 			return nil, fmt.Errorf("signer/eden: no RPC for chain %d", p.ChainID)
 		}
-		if settlers[p.ChainID] == nil {
+		st := d.Settlers[p.ChainID]
+		if st == nil {
 			return nil, fmt.Errorf("signer/eden: no settlement sources for chain %d", p.ChainID)
+		}
+		if p.Broadcast == BroadcastRelay && d.Relays[p.ChainID] == nil {
+			return nil, fmt.Errorf("signer/eden: chain %d broadcasts through a relay but has none", p.ChainID)
+		}
+		if cfg.PaymentSignatureEnabled() {
+			ps, ok := st.(paymentProofSetup)
+			if !ok {
+				return nil, fmt.Errorf("signer/eden: chain %d: the settlement sources cannot show that a Payment-Signature is safe", p.ChainID)
+			}
+			if err := ps.CheckPaymentProofSetup(); err != nil {
+				return nil, fmt.Errorf("signer/eden: chain %d: Payment-Signature enabled: %w", p.ChainID, err)
+			}
 		}
 		pins[p.ChainID] = p
 	}
-	if now == nil {
-		now = time.Now
+	if d.Now == nil {
+		d.Now = time.Now
 	}
-	if log == nil {
-		log = slog.Default()
+	if d.Log == nil {
+		d.Log = slog.Default()
 	}
-	return &Handler{cfg: cfg, pins: pins, chains: chains, settlers: settlers, now: now, log: log}, nil
+	return &Handler{cfg: cfg, pins: pins, chains: d.Chains, settlers: d.Settlers, relays: d.Relays, now: d.Now, log: d.Log}, nil
 }
 
 func (h *Handler) ActionType() string { return edenescrow.ActionType }
@@ -239,8 +353,15 @@ func (h *Handler) payerCode(ctx context.Context, c Chain, payer [20]byte) error 
 	return nil
 }
 
+// nonceSlot is the resource only one unresolved decision may hold: one
+// payer nonce on one chain.
+func nonceSlot(chainID uint64, payer [20]byte, nonce uint64) string {
+	return fmt.Sprintf("eden-escrow/%d/%x/nonce/%d", chainID, payer, nonce)
+}
+
 // Check decodes the exact action bytes strictly and holds them to the pins,
-// the escrow and payer code, the payer's pending nonce and the time rules.
+// the escrow and payer code, the payer's pending nonce, the payment
+// requirements and the time rules.
 func (h *Handler) Check(ctx context.Context, v signer.Verified, now time.Time) (signer.Plan, error) {
 	a, err := edenescrow.DecodeTxAction(v.Action)
 	if err != nil {
@@ -282,6 +403,18 @@ func (h *Handler) Check(ctx context.Context, v signer.Verified, now time.Time) (
 		}
 	}
 
+	// With the Payment-Signature enabled the quote is required before the
+	// deposit, so the signer never pays a deposit whose proof it would then
+	// refuse.
+	if v.Requirements != nil || h.cfg.PaymentSignatureEnabled() {
+		if v.Requirements == nil {
+			return signer.Plan{}, fmt.Errorf("%w: no payment requirements; the Payment-Signature needs them", signer.ErrRequirements)
+		}
+		if _, err := edenescrow.CheckRequirements(a, v.Requirements, h.cfg.checkServerSignature()); err != nil {
+			return signer.Plan{}, fmt.Errorf("%w: %w", signer.ErrRequirements, err)
+		}
+	}
+
 	expires := v.Authorization.Expires
 	unix := now.Unix()
 	if unix < 0 {
@@ -301,6 +434,7 @@ func (h *Handler) Check(ctx context.Context, v signer.Verified, now time.Time) (
 	return signer.Plan{
 		Key: a.ChainID, Payer: p.Payer, Digest: a.SigHash(),
 		Value: new(big.Int).SetBytes(a.Value), Fee: feeBound, Until: until.Unix(),
+		Slot: nonceSlot(a.ChainID, p.Payer, a.Nonce),
 	}, nil
 }
 
@@ -318,75 +452,131 @@ func (h *Handler) Finish(action []byte, sig [65]byte, payer [20]byte) ([]byte, s
 	return signed, edenescrow.RailRef(signed), nil
 }
 
-// Send is eth_sendRawTransaction on the chain's own RPC.
-func (h *Handler) Send(ctx context.Context, key uint64, signed []byte) error {
-	c := h.chains[key]
+// Send broadcasts the stored bytes: through the relay when the chain uses
+// one, directly when the relay fails or is not used. The relay body's
+// paymentId comes from the decoded action, never from a request.
+func (h *Handler) Send(ctx context.Context, key uint64, action, signed []byte) error {
+	a, err := edenescrow.DecodeTxAction(action)
+	if err != nil {
+		return err
+	}
+	if a.ChainID != key {
+		return fmt.Errorf("signer/eden: the action is for chain %d, not %d", a.ChainID, key)
+	}
+	return h.broadcast(ctx, key, signed, a.Deposit.PaymentID, true)
+}
+
+func (h *Handler) broadcast(ctx context.Context, key uint64, signed []byte, paymentID [32]byte, viaRelay bool) error {
+	c, p := h.chains[key], h.pins[key]
 	if c == nil {
 		return fmt.Errorf("signer/eden: no RPC for chain %d", key)
+	}
+	if viaRelay && p.Broadcast == BroadcastRelay {
+		railRef := edenescrow.RailRef(signed)
+		err := h.relays[key].Send(ctx, signed, railRef, paymentID)
+		if err == nil {
+			return nil
+		}
+		h.log.Warn("signer/eden: relay failed; sending the same bytes directly", "rail_ref", railRef, "err", err)
 	}
 	_, err := c.SendRawTransaction(ctx, signed)
 	return err
 }
 
-// Settle resends the stored bytes, while resend is set and the deadline has
-// not passed, and waits for one source to show the transaction at the
-// confirmation depth, which a record request needs. It reports executed or reverted when a source shows the
-// transaction at the confirmation depth, not executed when past the deadline
-// a source answered and none ever served it, and wrong when the rail_ref
-// names other bytes. Anything else is unknown, an error.
+// Settle resends the stored bytes while resend is set and the deadline has
+// not passed, and waits until the sources show the transaction at the
+// configured level, which a record request needs. It continues the wait
+// the entry's Seen describes. It reports executed or reverted with that
+// outcome, not executed when past the deadline enough operators answered
+// and none ever served the transaction, and wrong when the rail_ref names
+// other bytes. Anything else is unknown, an error; the returned Seen still
+// counts.
 func (h *Handler) Settle(ctx context.Context, e signer.Entry, resend bool) (signer.Settlement, error) {
 	t, err := edenexec.NewTarget(e.Action, e.RailRef, e.AuthExpires, 0)
 	if err != nil {
 		return signer.Settlement{State: signer.StateWrong, Detail: err.Error()}, nil
 	}
-	c, st := h.chains[t.Action.ChainID], h.settlers[t.Action.ChainID]
-	if c == nil || st == nil {
-		return signer.Settlement{}, fmt.Errorf("signer/eden: chain %d is no longer served", t.Action.ChainID)
+	key := t.Action.ChainID
+	st := h.settlers[key]
+	if h.chains[key] == nil || st == nil {
+		return signer.Settlement{Seen: e.Seen}, fmt.Errorf("signer/eden: chain %d is no longer served", key)
 	}
 	until := time.Unix(e.Until, 0)
-	seen := false
+	relayUntil := time.Unix(e.ReservedAt, 0).Add(h.cfg.RelayGrace)
+	seen := e.Seen
 	for {
 		now := h.now()
 		horizon := until
 		if resend && now.Before(until) {
-			if _, err := c.SendRawTransaction(ctx, e.Signed); err != nil {
+			// A relay that answers success and withholds the bytes costs at
+			// most RelayGrace.
+			if err := h.broadcast(ctx, key, e.Signed, t.Action.Deposit.PaymentID, seen || now.Before(relayUntil)); err != nil {
 				h.log.Debug("signer/eden: resend", "rail_ref", e.RailRef, "err", err)
 			}
 			if next := now.Add(h.cfg.ResendEvery); next.Before(until) {
 				horizon = next
 			}
 		}
-		rep, err := st.Await(ctx, t, horizon)
+		rep, err := st.AwaitSeen(ctx, t, horizon, seen)
+		// A transaction once served and gone now is a rolled-back block or
+		// a pruning node, not one that never landed.
+		seen = seen || rep.Seen || errors.Is(err, edenexec.ErrUnconfirmed)
 		switch {
 		case err == nil:
 			state := signer.StateExecuted
 			if rep.Outcome == edenexec.OutcomeReverted {
 				state = signer.StateReverted
 			}
-			return signer.Settlement{State: state, Outcome: string(rep.Outcome),
-				Detail: fmt.Sprintf("block %d index %d", rep.Block, rep.Index)}, nil
+			return signer.Settlement{State: state, Outcome: string(rep.Outcome), Seen: true,
+				Detail:              fmt.Sprintf("block %d index %d level %s", rep.Block, rep.Index, rep.Level),
+				PaymentProofAllowed: rep.PaymentSignatureAllowed()}, nil
 		case ctx.Err() != nil:
-			return signer.Settlement{}, ctx.Err()
+			return signer.Settlement{Seen: seen}, ctx.Err()
 		case errors.Is(err, edenexec.ErrViolation), errors.Is(err, edenexec.ErrMalformedRailRef), errors.Is(err, edenexec.ErrActionRefused):
-			return signer.Settlement{State: signer.StateWrong, Detail: err.Error()}, nil
-		case errors.Is(err, edenexec.ErrUnconfirmed):
-			seen = true
+			return signer.Settlement{State: signer.StateWrong, Detail: err.Error(), Seen: seen}, nil
 		}
 		if horizon.Equal(until) || !h.now().Before(until) {
-			// A transaction once served and gone now is a rolled-back block,
-			// not one that never landed.
 			if errors.Is(err, edenexec.ErrNotFound) && !seen {
 				// Final only on the word of independent operators: one
 				// lagging or partitioned node must not strand a deposit that
-				// landed. Otherwise the state stays unknown and is looked
-				// up again.
-				if n := notFoundSources(rep); n < NotExecutedSources {
-					return signer.Settlement{}, fmt.Errorf("%w: only %d of the %d sources needed say not found",
+				// landed.
+				if n := notFoundOperators(rep); n < NotExecutedSources {
+					return signer.Settlement{}, fmt.Errorf("%w: only %d of the %d operators needed say not found",
 						edenexec.ErrBelowLevel, n, NotExecutedSources)
 				}
 				return signer.Settlement{State: signer.StateNotExecuted, Detail: err.Error()}, nil
 			}
-			return signer.Settlement{}, err
+			return signer.Settlement{Seen: seen}, err
 		}
 	}
+}
+
+// CheckNonceRelease is the operator's check before releasing the nonce of
+// a decision: it must be final as not executed past its deadline, and the
+// payer's latest nonce must not be above the deposit's, which would show
+// that a transaction with that nonce executed (a pruned or lagging source
+// can make an executed deposit read as not executed).
+func (h *Handler) CheckNonceRelease(ctx context.Context, e signer.Entry) error {
+	if e.State != signer.StateNotExecuted {
+		return fmt.Errorf("signer/eden: decision in state %s, not %s", e.State, signer.StateNotExecuted)
+	}
+	if h.now().Unix() < e.Until {
+		return errors.New("signer/eden: the deadline has not passed")
+	}
+	a, err := edenescrow.DecodeTxAction(e.Action)
+	if err != nil {
+		return err
+	}
+	c := h.chains[a.ChainID]
+	if c == nil {
+		return fmt.Errorf("signer/eden: chain %d is not served", a.ChainID)
+	}
+	n, err := c.LatestNonce(ctx, e.Payer)
+	if err != nil {
+		return fmt.Errorf("%w: latest nonce: %w", signer.ErrUnavailable, err)
+	}
+	if n > a.Nonce {
+		return fmt.Errorf("signer/eden: the payer's latest nonce is %d: a transaction with nonce %d executed", n, a.Nonce)
+	}
+	return nil
 }

@@ -2,7 +2,6 @@
 # agent and the gate never do. Amounts are decimal strings in wei; keys hex.
 
 listen = "127.0.0.1:8402"      # loopback only unless allow_remote = true
-token_file = "/var/lib/edicta-signer/api.token"   # mode 0600; every request needs it
 store_path = "/var/lib/edicta-signer/signer.db"
 # admin_token_file = "/var/lib/edicta-signer/admin.token"  # enables POST /v1/admin/requeue
 # allow_remote = true needs tls_cert_file and tls_key_file (or insecure_remote_http = true behind a TLS proxy)
@@ -12,6 +11,20 @@ gate_pubkey = "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c"
 agent_pubkeys = ["d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"]
 skew_s = 30
 refuse_fast = false
+
+# The Payment-Signature (POST /v1/payment-signature) is on by default: the
+# payer key signs the quote's paymentId once the deposit executed at L1.
+# It needs one credential per agent, an OPERATOR= label on every Eden
+# source, and the quote (PAYMENT-REQUIRED) with every deposit.
+# payment_signature_field = "off" turns it off; then a shared
+# token_file = "/var/lib/edicta-signer/api.token" may replace the credentials.
+payment_signature_field = "paymentId"
+check_server_signature = true
+
+# One bearer token per agent (mode 0600), pinned to that agent's key.
+[[credential]]
+agent_pubkey = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+token_file = "/var/lib/edicta-signer/agent-1.token"
 
 # Operator risk limits over every served chain, counted when reserved.
 [caps]
@@ -26,19 +39,27 @@ gate_token_file = "/var/lib/edicta-signer/gate-record.token"
 executor_key_file = "/var/lib/edicta-signer/executor.key"
 
 [settlement]
+await_level = "L1"     # L1: min_sources distinct operators agree; L0 only for record-only setups
+min_sources = 2
 confirm_depth = 20
 poll_interval_ms = 500
 await_grace_s = 300
 resend_every_s = 5
 
+# The payment server's relay (/deposit/send): its answers are never evidence.
+[broadcast]
+server_timeout_s = 10
+relay_grace_s = 30     # after it, a relayed deposit no source shows is also sent directly
+
 [[chain]]
 chain_id = 714
-# rpc and settlement_rpc take a URL or OPERATOR=URL, e.g.
-# "gateway=https://rpc.eden.gateway.fm/". Sources with one operator count
-# once toward L1; without a label the host stands in.
-rpc = "http://127.0.0.1:8545"
+# rpc and settlement_rpc take OPERATOR=URL. Sources with one operator count
+# once toward L1; the label is your statement that the operators differ.
+rpc = "own=http://127.0.0.1:8545"
 own_node = true
-settlement_rpc = ["https://rpc.eden.gateway.fm/"]
+settlement_rpc = ["gateway=https://rpc.eden.gateway.fm/"]
+broadcaster = "houston-relay"   # or "direct": eth_sendRawTransaction only
+relay_url = "https://pay.example"
 payer_key_file = "/var/lib/edicta-signer/payer-714.key"
 payer_address = "0x0000000000000000000000000000000000000001"
 facilitators = ["0x0000000000000000000000000000000000000002"]

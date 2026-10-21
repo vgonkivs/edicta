@@ -81,6 +81,8 @@ type Deposit struct {
 	ExpiresAt      uint64
 	RefundAfter    uint64
 	Resource       string
+	// Requirements is R, which the action binds; nil binds a mock document.
+	Requirements []byte
 }
 
 // NewDeposit is a deposit on Eden mainnet that expires 5 minutes after now.
@@ -119,7 +121,7 @@ func (d Deposit) ActionTo(to [20]byte) ([]byte, error) {
 		binary.BigEndian.PutUint64(w[24:], v)
 		data = append(data, w[:]...)
 	}
-	price := [32]byte{31: 0x2a}
+	price := [32]byte{31: tiaPriceUSD}
 	data = append(data, price[:]...)
 	value := d.Value
 	if value == nil {
@@ -130,7 +132,11 @@ func (d Deposit) ActionTo(to [20]byte) ([]byte, error) {
 		rlpUint(d.GasLimit), rlpString(to[:]), rlpString(value.Bytes()), rlpString(data), {0xc0},
 	}
 	unsigned := append([]byte{0x02}, rlpList(items...)...)
-	return edenescrow.EncodeTxAction(unsigned, d.Resource, edenescrow.RequirementsHash([]byte(`{"mock":true}`)))
+	r := d.Requirements
+	if r == nil {
+		r = []byte(`{"mock":true}`)
+	}
+	return edenescrow.EncodeTxAction(unsigned, d.Resource, edenescrow.RequirementsHash(r))
 }
 
 func rlpUint(v uint64) []byte {

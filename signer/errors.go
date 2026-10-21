@@ -38,4 +38,11 @@ var (
 	// ErrNotRequeueable: only a decision in state wrong with signed bytes
 	// can be re-queued.
 	ErrNotRequeueable = errors.New("signer: decision cannot be re-queued")
+	// ErrRequirements: the payment requirements are missing, do not bind to
+	// the committed action or quote another payment, or the committed
+	// resource is not one a payment proof may be released for.
+	ErrRequirements = errors.New("signer: payment requirements refused")
+	// ErrNotExecuted: no payment proof before the rail executed the
+	// decision's transaction on the word of enough operators. Retryable.
+	ErrNotExecuted = errors.New("signer: not executed")
 )
