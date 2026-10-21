@@ -18,20 +18,12 @@ type multiSourceFile struct {
 	Revision      string   `json:"revision"`
 	SourceResults []string `json:"source_results"`
 	Cases         []struct {
-		ID         string `json:"id"`
-		MinLevel   string `json:"min_level"`
-		MinSources string `json:"min_sources"`
-		Phase      string `json:"phase"`
-		Sources    []struct {
-			Host          string `json:"host"`
-			Operator      string `json:"operator"`
-			OperatorLabel string `json:"operator_label"`
-			Result        string `json:"result"`
-			Outcome       string `json:"outcome"`
-			Binding       string `json:"binding"`
-			Reason        string `json:"reason"`
-		} `json:"sources"`
-		Verify struct {
+		ID         string         `json:"id"`
+		MinLevel   string         `json:"min_level"`
+		MinSources string         `json:"min_sources"`
+		Phase      string         `json:"phase"`
+		Sources    []vectorSource `json:"sources"`
+		Verify     struct {
 			Status  string `json:"status"`
 			Level   string `json:"level"`
 			Outcome string `json:"outcome"`
@@ -42,6 +34,77 @@ type multiSourceFile struct {
 		PaymentSignatureAllowed bool   `json:"payment_signature_allowed"`
 		NonceReleaseAllowed     bool   `json:"nonce_release_allowed"`
 	} `json:"cases"`
+	Sequences []struct {
+		ID         string `json:"id"`
+		MinLevel   string `json:"min_level"`
+		MinSources string `json:"min_sources"`
+		Polls      []struct {
+			Phase   string         `json:"phase"`
+			Sources []vectorSource `json:"sources"`
+			Await   string         `json:"await"`
+			Seen    bool           `json:"seen"`
+		} `json:"polls"`
+		RecordAllowed           bool `json:"record_allowed"`
+		PaymentSignatureAllowed bool `json:"payment_signature_allowed"`
+		NonceReleaseAllowed     bool `json:"nonce_release_allowed"`
+	} `json:"sequences"`
+}
+
+type vectorSource struct {
+	Host          string `json:"host"`
+	Operator      string `json:"operator"`
+	OperatorLabel string `json:"operator_label"`
+	Result        string `json:"result"`
+	Outcome       string `json:"outcome"`
+	Binding       string `json:"binding"`
+	Reason        string `json:"reason"`
+}
+
+// vectorSources builds one scripted source per vector source (labels B1,
+// B2 for blocks, an r suffix or outcome reverted for a reverted receipt).
+// The vectors do not model L2, so no source serves the whole block.
+func vectorSources(t *testing.T, s *scenario, vs []vectorSource) []Source {
+	t.Helper()
+	var srcs []Source
+	for _, v := range vs {
+		src := s.source(v.Host)
+		src.BlockTxsErr = errors.New("no full blocks")
+		switch v.Result {
+		case "pass":
+			if strings.HasPrefix(v.Binding, "B2") {
+				otherBlock(s, src)
+			}
+			if v.Outcome == "reverted" {
+				require.True(t, v.Binding == "B1" || strings.HasSuffix(v.Binding, "r"), v.Binding)
+				reverted(s, src)
+			} else {
+				require.Equal(t, "executed", v.Outcome)
+				require.False(t, strings.HasSuffix(v.Binding, "r"))
+			}
+		case "not_found":
+			src.Txs = nil
+		case "unconfirmed":
+			src.HeadNum = scnNumber + 1
+		case "unavailable":
+			src.ChainErr = errors.New("connection refused")
+		case "set_aside":
+			mod := setAsideBy[v.Reason]
+			require.NotNil(t, mod, v.Reason)
+			mod(s, src)
+		default:
+			t.Fatalf("result %q", v.Result)
+		}
+		switch v.OperatorLabel {
+		case LabelExplicit:
+			srcs = append(srcs, &operated{FakeSource: src, op: v.Operator})
+		case LabelDefault:
+			require.Equal(t, v.Host, v.Operator)
+			srcs = append(srcs, src)
+		default:
+			t.Fatalf("operator_label %q", v.OperatorLabel)
+		}
+	}
+	return srcs
 }
 
 // setAsideBy makes an honest source fail one rule after it answered.
@@ -86,61 +149,20 @@ func reverted(s *scenario, f *FakeSource) {
 	f.Receipts[s.R] = rc
 }
 
-// TestMultiSourceVectors builds one scripted source per vector source
-// (labels B1, B2 for blocks, an r suffix or outcome reverted for a
-// reverted receipt) and checks the report and Await's state against the
-// combination table. The vectors do not model L2, so no source serves the
-// whole block.
+// TestMultiSourceVectors checks the report and Await's state of every
+// vector case against the combination table.
 func TestMultiSourceVectors(t *testing.T) {
 	var f multiSourceFile
 	loadVector(t, "multi_source.json", &f)
 	require.Equal(t, profileRevision(t), f.Revision)
 	require.Equal(t, []string{string(StatePass), string(StateNotFound), string(StateUnconfirmed),
 		string(StateUnavailable), string(StateSetAside)}, f.SourceResults)
-	require.Len(t, f.Cases, 26)
+	require.NotEmpty(t, f.Cases)
 	for _, c := range f.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			require.NotEqual(t, "violated", c.Verify.Status, "a source never makes a violation")
 			s := newScenario(t)
-			var srcs []Source
-			for _, v := range c.Sources {
-				src := s.source(v.Host)
-				src.BlockTxsErr = errors.New("no full blocks")
-				switch v.Result {
-				case "pass":
-					if strings.HasPrefix(v.Binding, "B2") {
-						otherBlock(s, src)
-					}
-					if v.Outcome == "reverted" {
-						require.True(t, v.Binding == "B1" || strings.HasSuffix(v.Binding, "r"), v.Binding)
-						reverted(s, src)
-					} else {
-						require.Equal(t, "executed", v.Outcome)
-						require.False(t, strings.HasSuffix(v.Binding, "r"))
-					}
-				case "not_found":
-					src.Txs = nil
-				case "unconfirmed":
-					src.HeadNum = scnNumber + 1
-				case "unavailable":
-					src.ChainErr = errors.New("connection refused")
-				case "set_aside":
-					mod := setAsideBy[v.Reason]
-					require.NotNil(t, mod, v.Reason)
-					mod(s, src)
-				default:
-					t.Fatalf("result %q", v.Result)
-				}
-				switch v.OperatorLabel {
-				case LabelExplicit:
-					srcs = append(srcs, &operated{FakeSource: src, op: v.Operator})
-				case LabelDefault:
-					require.Equal(t, v.Host, v.Operator)
-					srcs = append(srcs, src)
-				default:
-					t.Fatalf("operator_label %q", v.OperatorLabel)
-				}
-			}
+			srcs := vectorSources(t, s, c.Sources)
 			level, err := ParseLevel(c.MinLevel)
 			require.NoError(t, err)
 			minSources, err := strconv.Atoi(c.MinSources)
@@ -169,7 +191,7 @@ func TestMultiSourceVectors(t *testing.T) {
 			chk := newTestChecker(t, cfg, srcs...)
 			untilPassed := c.Phase == "until_passed"
 			require.True(t, untilPassed || c.Phase == "polling", c.Phase)
-			got := chk.poll(context.Background(), s.target, chk.srcs, untilPassed)
+			got := chk.poll(context.Background(), s.target, chk.srcs, untilPassed, false)
 			assert.Equal(t, c.Await, string(got.State))
 			assert.Equal(t, c.RecordAllowed, got.RecordAllowed())
 			assert.Equal(t, c.PaymentSignatureAllowed, got.PaymentSignatureAllowed())
@@ -239,4 +261,48 @@ func TestReportDepositAndSourceResults(t *testing.T) {
 	refused, err := newTestChecker(t, Config{}, s.source("a")).SettlementOfAction(context.Background(), []byte{0xa0}, s.railRef, 1, 1)
 	require.NoError(t, err)
 	assert.Nil(t, refused.Deposit)
+}
+
+// TestMultiSourceSequences replays the polls of one Await: each poll is
+// combined from its own answers, and a source seen in an earlier poll keeps
+// not executed out of reach.
+func TestMultiSourceSequences(t *testing.T) {
+	var f multiSourceFile
+	loadVector(t, "multi_source.json", &f)
+	require.NotEmpty(t, f.Sequences)
+	for _, sq := range f.Sequences {
+		t.Run(sq.ID, func(t *testing.T) {
+			level, err := ParseLevel(sq.MinLevel)
+			require.NoError(t, err)
+			minSources, err := strconv.Atoi(sq.MinSources)
+			require.NoError(t, err)
+			cfg := Config{MinLevel: level, MinSources: minSources, PollInterval: time.Second}
+			require.NotEmpty(t, sq.Polls)
+			seen := false
+			var last Report
+			for i, p := range sq.Polls {
+				s := newScenario(t)
+				chk := newTestChecker(t, cfg, vectorSources(t, s, p.Sources)...)
+				untilPassed := p.Phase == "until_passed"
+				require.True(t, untilPassed || p.Phase == "polling", p.Phase)
+				before := seen
+				last = chk.poll(context.Background(), s.target, chk.srcs, untilPassed, before)
+				assert.Equal(t, p.Await, string(last.State), "poll %d", i)
+				assert.Equal(t, p.Seen, last.Seen, "poll %d", i)
+				seen = last.Seen
+
+				// The same poll split into its own Await call carries seen in.
+				if untilPassed {
+					clk := &fakeClock{now: time.Unix(scnTime, 0)}
+					clk.install(chk)
+					rep, err := chk.AwaitSeen(context.Background(), s.target, clk.now, before)
+					assert.Equal(t, p.Await, string(rep.State), "poll %d as a call", i)
+					assert.Equal(t, rep.NonceReleaseAllowed(), errors.Is(err, ErrNotFound))
+				}
+			}
+			assert.Equal(t, sq.RecordAllowed, last.RecordAllowed())
+			assert.Equal(t, sq.PaymentSignatureAllowed, last.PaymentSignatureAllowed())
+			assert.Equal(t, sq.NonceReleaseAllowed, last.NonceReleaseAllowed())
+		})
+	}
 }

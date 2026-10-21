@@ -101,6 +101,19 @@ type x402File struct {
 		} `json:"server_signature"`
 		Accept []rVector `json:"accept"`
 		Reject []rVector `json:"reject"`
+		Header struct {
+			MaxChars string `json:"max_chars"`
+			Accept   []struct {
+				ID    string `json:"id"`
+				Value string `json:"value"`
+				RHex  string `json:"r_hex"`
+			} `json:"accept"`
+			Reject []struct {
+				ID     string `json:"id"`
+				Expect string `json:"expect"`
+				Value  string `json:"value"`
+			} `json:"reject"`
+		} `json:"header"`
 	} `json:"requirements"`
 	PaymentSignature struct {
 		Cases []struct {
@@ -219,7 +232,7 @@ func TestX402BuildAccept(t *testing.T) {
 func TestX402BuildReject(t *testing.T) {
 	v := loadJSON[x402File](t, "x402.json")
 	rh := RequirementsHash(readVectorFile(t, v.Build.RequirementsFromFile))
-	require.Len(t, v.BuildReject, 54)
+	requireIDs(t, v.BuildReject, "build_type_2_0", "build_type_2e0", "build_type_20e_minus_1", "build_type_02")
 	for _, c := range v.BuildReject {
 		t.Run(c.ID, func(t *testing.T) {
 			_, _, err := ActionFromDepositBuild(c.body(t), v.Build.Resource, rh)
@@ -275,7 +288,7 @@ func TestX402Requirements(t *testing.T) {
 	require.Equal(t, strconv.Itoa(maxJSONDepth), req.MaxDepth)
 	require.True(t, req.CheckServerSignature)
 	require.Len(t, req.Accept, 9)
-	require.Len(t, req.Reject, 40)
+	requireRIDs(t, req.Reject, "r_version_2_0", "r_version_2e0", "r_version_02")
 	for _, c := range req.Accept {
 		t.Run(c.ID, func(t *testing.T) {
 			r := unhex(t, c.RHex)
@@ -473,4 +486,75 @@ func TestJSONValueForms(t *testing.T) {
 	assert.Equal(t, []byte{0xab}, b)
 	_, ok = hexString(doc.member("H"), 1)
 	assert.False(t, ok)
+}
+
+// requireIDs checks that the cases the latest revision added are present,
+// without pinning the file's count.
+func requireIDs(t *testing.T, cases []jsonVector, ids ...string) {
+	t.Helper()
+	require.NotEmpty(t, cases)
+	have := map[string]bool{}
+	for _, c := range cases {
+		have[c.ID] = true
+	}
+	for _, id := range ids {
+		assert.True(t, have[id], id)
+	}
+}
+
+func requireRIDs(t *testing.T, cases []rVector, ids ...string) {
+	t.Helper()
+	vs := make([]jsonVector, len(cases))
+	for i, c := range cases {
+		vs[i] = jsonVector{ID: c.ID}
+	}
+	requireIDs(t, vs, ids...)
+}
+
+func TestX402HeaderDecoding(t *testing.T) {
+	v := loadJSON[x402File](t, "x402.json")
+	h := v.Requirements.Header
+	require.Equal(t, strconv.Itoa(base64.StdEncoding.EncodedLen(MaxRequirementsSize)), h.MaxChars)
+	require.NotEmpty(t, h.Accept)
+	require.NotEmpty(t, h.Reject)
+	for _, c := range h.Accept {
+		t.Run(c.ID, func(t *testing.T) {
+			got, err := DecodePaymentRequired(c.Value)
+			require.NoError(t, err)
+			assert.Equal(t, c.RHex, hex.EncodeToString(got))
+		})
+	}
+	for _, c := range h.Reject {
+		t.Run(c.ID, func(t *testing.T) {
+			_, err := DecodePaymentRequired(c.Value)
+			require.ErrorIs(t, err, ErrRequirements)
+			assert.Equal(t, c.Expect, ruleOf(t, err))
+		})
+	}
+}
+
+// The number 2 is the token 2: other spellings of the same value refuse,
+// in the build answer and in R alike.
+func TestNumberTwoIsTheToken(t *testing.T) {
+	v, _, a := x402Build(t)
+	r := readVectorFile(t, v.Build.RequirementsFromFile)
+	rh := RequirementsHash(r)
+	body := string(readVectorFile(t, v.Build.FromFile))
+	require.Contains(t, body, `"chainId":`)
+	for _, tok := range []string{"2.0", "2e0", "2E0", "20e-1", "0.2e1", "-2"} {
+		typed := strings.Replace(body, `"chainId":`, `"type":`+tok+`,"chainId":`, 1)
+		_, _, err := ActionFromDepositBuild([]byte(typed), v.Build.Resource, rh)
+		require.ErrorIs(t, err, ErrMalformed, tok)
+
+		doc := []byte(strings.Replace(string(r), `"x402Version": 2,`, `"x402Version": `+tok+`,`, 1))
+		require.NotEqual(t, r, doc)
+		dh := RequirementsHash(doc)
+		ra := rAction(t, a, v.Build.Resource, hex.EncodeToString(dh[:]))
+		_, err = CheckRequirements(ra, doc, true)
+		require.ErrorIs(t, err, ErrRequirements, tok)
+		assert.Equal(t, "S4c", ruleOf(t, err), tok)
+	}
+	typed := strings.Replace(body, `"chainId":`, `"type":2,"chainId":`, 1)
+	_, _, err := ActionFromDepositBuild([]byte(typed), v.Build.Resource, rh)
+	require.NoError(t, err)
 }

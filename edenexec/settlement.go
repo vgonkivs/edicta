@@ -81,6 +81,9 @@ type Report struct {
 	Sources []SourceResult
 	// State is set by Await: the combined state of its last poll.
 	State AwaitState
+	// Seen is set by Await: some source served a transaction for the
+	// rail_ref in some poll of the wait, which rules out not executed.
+	Seen bool
 }
 
 // probe is one source's answers for the target.

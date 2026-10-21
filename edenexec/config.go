@@ -280,6 +280,27 @@ func NewChecker(cfg Config, srcs []Source, da DAStatus) (*Checker, error) {
 	}, nil
 }
 
+// CheckPaymentProofSetup refuses a checker whose executed state could
+// never carry a payment proof, so that a signer releasing one refuses to
+// start rather than wait forever or on too little: Await below L1, a source
+// whose operator label was not configured (the host standing in cannot tell
+// two hosts in front of one node apart), or fewer distinct operators than
+// MinSources.
+func (c *Checker) CheckPaymentProofSetup() error {
+	if c.cfg.MinLevel < LevelMultiSource {
+		return fmt.Errorf("edenexec: Await at %s; a payment proof needs %s", c.cfg.MinLevel, LevelMultiSource)
+	}
+	for _, s := range c.srcs {
+		if _, explicit := OperatorLabel(s); !explicit {
+			return fmt.Errorf("edenexec: source %s has no configured operator label", s.Name())
+		}
+	}
+	if n := Operators(c.srcs); n < c.cfg.MinSources {
+		return fmt.Errorf("edenexec: %d distinct operators, %d needed", n, c.cfg.MinSources)
+	}
+	return nil
+}
+
 func sleepCtx(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)
 	defer t.Stop()

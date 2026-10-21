@@ -28,18 +28,18 @@ func DecodePaymentRequired(value string) ([]byte, error) {
 	}
 	body := strings.TrimRight(value, "=")
 	if pad := len(value) - len(body); pad > 2 || pad > 0 && len(value)%4 != 0 {
-		return nil, requirements("header", "padding of %d characters", pad)
+		return nil, requirements("RH", "padding of %d characters", pad)
 	}
 	for i := 0; i < len(body); i++ {
 		c := body[i]
 		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '+' || c == '/') {
-			return nil, requirements("header", "character 0x%02x at %d", c, i)
+			return nil, requirements("RH", "character 0x%02x at %d", c, i)
 		}
 	}
 	// The alphabet check above leaves no line break for the decoder to skip.
 	r, err := base64.RawStdEncoding.DecodeString(body)
 	if err != nil {
-		return nil, requirements("header", "%v", err)
+		return nil, requirements("RH", "%v", err)
 	}
 	if len(r) < 1 || len(r) > MaxRequirementsSize {
 		return nil, requirements("S4a", "R of %d bytes", len(r))
@@ -187,10 +187,35 @@ func checkEntry(a TxAction, entry, extra *jsonValue) error {
 const personalPrefix = "\x19Ethereum Signed Message:\n" + "32"
 
 // PersonalDigest is the personal_sign digest of a 32-byte message:
-// keccak256(0x19 || "Ethereum Signed Message:\n32" || m). Its preimage never
-// starts with a transaction type byte, so it never stands for a transaction.
+// keccak256(0x19 || "Ethereum Signed Message:\n32" || m). 0x19 lies in the
+// EIP-2718 type range but is neither 0x02, the only type the payer key
+// signs, nor an RLP list prefix (a legacy transaction), so the preimage
+// never stands for a transaction that key signs.
 func PersonalDigest(m [32]byte) [32]byte {
 	return keccak256([]byte(personalPrefix), m[:])
+}
+
+// PaymentProofMessage is the message a Payment-Signature covers for a
+// decoded action: its paymentId (w0), released only when the committed
+// resource names https:// (rule S11c) and R passes every requirements
+// check with the facilitator's signature enforced (S11d), so the 32 bytes
+// are ones the pinned facilitator signed, never bytes the agent chose. A
+// nil R is refused. Every failure is ErrRequirements.
+func PaymentProofMessage(a TxAction, r []byte) ([32]byte, error) {
+	if len(a.items) == 0 {
+		return [32]byte{}, fmt.Errorf("%w: the action was not decoded", ErrMalformed)
+	}
+	if !strings.HasPrefix(a.Resource, "https://") {
+		return [32]byte{}, requirements("S11c", "the committed resource does not start with https://")
+	}
+	if r == nil {
+		return [32]byte{}, requirements("absent", "no R stored or presented")
+	}
+	q, err := CheckRequirements(a, r, true)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	return q.PaymentID(), nil
 }
 
 // RecoverPersonal returns the address whose key made sig, r || s || v, as

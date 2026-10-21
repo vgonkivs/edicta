@@ -82,8 +82,8 @@ type combined struct {
 	outcome    Outcome
 	// notFoundOps counts the distinct operators that answered not found.
 	notFoundOps int
-	// seen: some source served the transaction, which rules out not
-	// executed.
+	// seen: some source served the transaction, in this poll or an
+	// earlier one of the same wait, which rules out not executed.
 	seen bool
 }
 
@@ -118,8 +118,8 @@ func combine(obs []observation) combined {
 // disputed; enough agreeing operators give the outcome at L1, and one is
 // enough only when L0 was configured; before the deadline anything else is
 // pending; after it, not executed needs no source that served the
-// transaction in this poll and at least minSources operators answering not
-// found, and anything else is unknown. A disagreement is never not
+// transaction in any poll of the wait and at least minSources operators
+// answering not found in this one, and anything else is unknown. A disagreement is never not
 // executed.
 func awaitState(c combined, awaitLevel Level, minSources int, untilPassed bool) (AwaitState, Level) {
 	outcome := AwaitExecuted

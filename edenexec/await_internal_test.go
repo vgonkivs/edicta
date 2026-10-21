@@ -155,6 +155,71 @@ func TestAwaitSeenThenGone(t *testing.T) {
 	assert.Equal(t, ReasonNotFound, rep.Reason)
 }
 
+// Two operators: one serves the transaction below the depth in the first
+// poll, then both answer not found past until. Seen sticks for the whole
+// wait, and across calls that continue it.
+func TestAwaitSeenInAnEarlierPollBlocksNotExecuted(t *testing.T) {
+	s := newScenario(t)
+	a := &operated{FakeSource: s.source("a"), op: "one"}
+	b := &operated{FakeSource: s.source("b"), op: "two"}
+	a.HeadNum = scnNumber + 1
+	a.OnTransaction = func(n int, h [32]byte) (TxView, error) {
+		if n == 1 {
+			return s.tx, nil
+		}
+		return TxView{}, ErrNotFound
+	}
+	b.Txs = nil
+	chk, clk := awaitCheckerAt(t, LevelMultiSource, a, b)
+	rep, err := chk.Await(context.Background(), s.target, clk.now.Add(3*time.Second))
+	require.ErrorIs(t, err, ErrSettlementUnknown)
+	require.NotErrorIs(t, err, ErrNotFound)
+	assert.Equal(t, AwaitUnknown, rep.State)
+	assert.True(t, rep.Seen)
+	assert.False(t, rep.NonceReleaseAllowed())
+
+	// A later call of the same wait, every source now answering not found.
+	rep, err = chk.AwaitSeen(context.Background(), s.target, clk.now, true)
+	require.ErrorIs(t, err, ErrSettlementUnknown)
+	assert.True(t, rep.Seen)
+	assert.Equal(t, AwaitUnknown, rep.State)
+
+	// Without the carried fact the same answers would be not executed.
+	rep, err = chk.AwaitSeen(context.Background(), s.target, clk.now, false)
+	require.ErrorIs(t, err, ErrNotFound)
+	assert.False(t, rep.Seen)
+	assert.Equal(t, AwaitNotExecuted, rep.State)
+}
+
+// Seen never stops a later poll from reaching an outcome.
+func TestAwaitSeenStillReachesExecuted(t *testing.T) {
+	s := newScenario(t)
+	a := &operated{FakeSource: s.source("a"), op: "one"}
+	b := &operated{FakeSource: s.source("b"), op: "two"}
+	chk, clk := awaitCheckerAt(t, LevelMultiSource, a, b)
+	rep, err := chk.AwaitSeen(context.Background(), s.target, clk.now.Add(time.Minute), true)
+	require.NoError(t, err)
+	assert.Equal(t, AwaitExecuted, rep.State)
+	assert.True(t, rep.PaymentSignatureAllowed())
+}
+
+func TestCheckPaymentProofSetup(t *testing.T) {
+	s := newScenario(t)
+	one := &operated{FakeSource: s.source("a"), op: "one"}
+	two := &operated{FakeSource: s.source("b"), op: "two"}
+	sameOp := &operated{FakeSource: s.source("c"), op: "one"}
+	ok := newTestChecker(t, Config{MinLevel: LevelMultiSource}, one, two)
+	require.NoError(t, ok.CheckPaymentProofSetup())
+	for name, chk := range map[string]*Checker{
+		"L0":             newTestChecker(t, Config{MinLevel: LevelNodeAttested}, one, two),
+		"unlabelled":     newTestChecker(t, Config{MinLevel: LevelMultiSource}, one, s.source("d")),
+		"one operator":   newTestChecker(t, Config{MinLevel: LevelMultiSource}, one, sameOp),
+		"three required": newTestChecker(t, Config{MinLevel: LevelMultiSource, MinSources: 3}, one, two),
+	} {
+		assert.Error(t, chk.CheckPaymentProofSetup(), name)
+	}
+}
+
 func TestAwaitUnconfirmedAtDeadline(t *testing.T) {
 	s := newScenario(t)
 	src := s.source("own")

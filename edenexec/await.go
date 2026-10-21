@@ -17,8 +17,9 @@ import (
 // The error says what the executor may do:
 //   - nil: executed or reverted at Report.Level. Record the rail_ref.
 //   - ErrNotFound: not executed. Past until, no source served the
-//     transaction in the last poll, not even one set aside afterwards, and
-//     at least MinSources operators answered not found.
+//     transaction in any poll of this Await, not even one set aside
+//     afterwards, and at least MinSources operators answered not found in
+//     the last poll.
 //     Never sign other bytes; only the operator may release the nonce.
 //   - ErrWrongTx, ErrMalformedRailRef, ErrActionRefused: returned at once;
 //     the claim itself is wrong.
@@ -29,11 +30,23 @@ import (
 //
 // Before until, a disagreement keeps the poll going: a lagging source
 // catches up and a rolled-back block disappears everywhere.
+//
+// Report.Seen says whether any source served the transaction in any poll.
 func (c *Checker) Await(ctx context.Context, t Target, until time.Time) (Report, error) {
+	return c.AwaitSeen(ctx, t, until, false)
+}
+
+// AwaitSeen is Await continuing an earlier wait for the same rail_ref:
+// seen is the Report.Seen of that wait. A source that once served the
+// transaction and now answers not found saw a rolled-back block, or prunes
+// or lags; that is no evidence of absence, so it keeps not executed out of
+// reach for the rest of the wait.
+func (c *Checker) AwaitSeen(ctx context.Context, t Target, until time.Time, seen bool) (Report, error) {
 	srcs := ownFirst(c.srcs)
 	for {
 		now := c.now()
-		rep := c.poll(ctx, t, srcs, !now.Before(until))
+		rep := c.poll(ctx, t, srcs, !now.Before(until), seen)
+		seen = rep.Seen
 		if err := ctx.Err(); err != nil {
 			return rep, err
 		}
@@ -59,15 +72,19 @@ func (c *Checker) Await(ctx context.Context, t Target, until time.Time) (Report,
 }
 
 // poll evaluates the sources once at the configured level, at most L1, and
-// sets the combined state.
-func (c *Checker) poll(ctx context.Context, t Target, srcs []Source, untilPassed bool) Report {
+// sets the combined state; seenBefore is whether an earlier poll of the
+// same wait saw the transaction.
+func (c *Checker) poll(ctx context.Context, t Target, srcs []Source, untilPassed, seenBefore bool) Report {
 	level := min(c.cfg.MinLevel, LevelMultiSource)
 	rep, probes := c.evaluate(ctx, t, level, LevelMultiSource, srcs)
-	rep.State = AwaitUnknown
+	rep.State, rep.Seen = AwaitUnknown, seenBefore
 	if rep.Status == StatusViolated || rep.Reason == ReasonMalformedRailRef || rep.Reason == ReasonActionRefused {
 		return rep
 	}
-	st, lvl := awaitState(combineProbes(probes), level, c.cfg.MinSources, untilPassed)
+	comb := combineProbes(probes)
+	comb.seen = comb.seen || seenBefore
+	rep.Seen = comb.seen
+	st, lvl := awaitState(comb, level, c.cfg.MinSources, untilPassed)
 	rep.State = st
 	if (st == AwaitExecuted || st == AwaitReverted) && (rep.Status != StatusPass || rep.Level != lvl) {
 		// The report and the combination read the same probes; a mismatch
