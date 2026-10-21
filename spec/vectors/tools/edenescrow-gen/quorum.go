@@ -2,11 +2,41 @@
 
 package main
 
-// The multi-source outcome table of the settlement check (sections 5.3 and
-// 7.4): per-source results are abstract, the vector pins how they combine.
+// The multi-source outcome table shared by the settlement report and the
+// signer's Await: per-source results are abstract, the vector pins how they
+// combine.
 
 type qsrc struct {
 	host, operator, result, outcome, binding, reason string
+	// defaultLabel marks an operator label that was not configured and is
+	// the host itself.
+	defaultLabel bool
+}
+
+// seenReasons are the set-aside reasons a source can only reach after it
+// served a transaction for the hash; the chain and code checks come before
+// the lookup.
+var seenReasons = map[string]bool{
+	"settlement_hash_mismatch":      true,
+	"settlement_tx_type":            true,
+	"settlement_disagree":           true,
+	"settlement_log_mismatch":       true,
+	"settlement_source_unavailable": true,
+}
+
+func seen(s qsrc) bool {
+	switch s.result {
+	case "pass", "unconfirmed":
+		return true
+	case "set_aside":
+		return seenReasons[s.reason]
+	}
+	return false
+}
+
+func defaulted(s qsrc) qsrc {
+	s.operator, s.defaultLabel = s.host, true
+	return s
 }
 
 type qcase struct {
@@ -57,7 +87,7 @@ func rank(level string) int {
 
 func quorum(c qcase) qresult {
 	var passes []qsrc
-	unconfirmed := false
+	unconfirmed, anySeen, explicit := false, false, true
 	for _, s := range c.sources {
 		switch s.result {
 		case "pass":
@@ -65,6 +95,8 @@ func quorum(c qcase) qresult {
 		case "unconfirmed":
 			unconfirmed = true
 		}
+		anySeen = anySeen || seen(s)
+		explicit = explicit && !s.defaultLabel
 	}
 	for _, p := range passes[min(1, len(passes)):] {
 		if p.binding != passes[0].binding {
@@ -72,13 +104,13 @@ func quorum(c qcase) qresult {
 		}
 	}
 	distinct := func(want string) int {
-		seen := map[string]bool{}
+		ops := map[string]bool{}
 		for _, s := range c.sources {
 			if s.result == want {
-				seen[s.operator] = true
+				ops[s.operator] = true
 			}
 		}
-		return len(seen)
+		return len(ops)
 	}
 	k := distinct("pass")
 	reached := ""
@@ -91,7 +123,7 @@ func quorum(c qcase) qresult {
 	if reached != "" && rank(reached) >= rank(c.minLevel) {
 		o := passes[0].outcome
 		return qresult{status: "pass", level: reached, outcome: o, await: o,
-			s10: true, s11: o == "executed" && reached == "L1"}
+			s10: true, s11: o == "executed" && reached == "L1" && explicit}
 	}
 	r := qresult{status: "unchecked"}
 	switch {
@@ -105,7 +137,7 @@ func quorum(c qcase) qresult {
 	switch {
 	case c.phase == "polling":
 		r.await = "pending"
-	case k == 0 && !unconfirmed && distinct("not_found") >= int(c.minSources):
+	case k == 0 && !anySeen && distinct("not_found") >= int(c.minSources):
 		r.await, r.release = "not_executed", true
 	default:
 		r.await = "unknown"
@@ -165,6 +197,16 @@ func quorumCases() []qcase {
 			sources: []qsrc{pass(own, "own", "executed", "B1"), res(gw, "gateway", "not_found")}},
 		{id: "level_l0_two_agree", desc: "MinLevel L0 with two agreeing operators: the report gives the highest level reached.", minLevel: "L0", phase: "polling", minSources: 2,
 			sources: []qsrc{pass(own, "own", "executed", "B1"), pass(gw, "gateway", "executed", "B1")}},
+		{id: "aside_found_two_not_found_until", desc: "One source served the transaction but its log failed EE8; two others answer not found: a source showed the transaction, so unknown, never not_executed.", minLevel: "L1", phase: "until_passed", minSources: 2,
+			sources: []qsrc{aside(own, "own", "settlement_log_mismatch"), res(gw, "gateway", "not_found"), res(bs, "blockscout", "not_found")}},
+		{id: "aside_hash_mismatch_two_not_found_until", desc: "One source served bytes for the hash that do not hash to it; two others answer not found: unknown.", minLevel: "L1", phase: "until_passed", minSources: 2,
+			sources: []qsrc{aside(own, "own", "settlement_hash_mismatch"), res(gw, "gateway", "not_found"), res(bs, "blockscout", "not_found")}},
+		{id: "aside_unavailable_after_lookup_until", desc: "One source served the transaction, then its receipt call failed; two others answer not found: unknown.", minLevel: "L1", phase: "until_passed", minSources: 2,
+			sources: []qsrc{aside(own, "own", "settlement_source_unavailable"), res(gw, "gateway", "not_found"), res(bs, "blockscout", "not_found")}},
+		{id: "aside_chain_config_two_not_found_until", desc: "One source is on another chain (set aside before any lookup); two others answer not found: not_executed.", minLevel: "L1", phase: "until_passed", minSources: 2,
+			sources: []qsrc{aside(own, "own", "settlement_chain_config"), res(gw, "gateway", "not_found"), res(bs, "blockscout", "not_found")}},
+		{id: "default_labels_agree", desc: "Two sources without a configured operator label (the host stands in) agree: the report and the record get L1, the Payment-Signature does not.", minLevel: "L1", phase: "polling", minSources: 2,
+			sources: []qsrc{defaulted(pass(own, "", "executed", "B1")), defaulted(pass(gw, "", "executed", "B1"))}},
 	}
 }
 
@@ -173,7 +215,11 @@ func buildQuorumFile() obj {
 	for _, c := range quorumCases() {
 		var ss []any
 		for _, s := range c.sources {
-			e := obj{{"host", s.host}, {"operator", s.operator}, {"result", s.result}}
+			lbl := "explicit"
+			if s.defaultLabel {
+				lbl = "default"
+			}
+			e := obj{{"host", s.host}, {"operator", s.operator}, {"operator_label", lbl}, {"result", s.result}}
 			if s.result == "pass" {
 				e = append(e, kv{"outcome", s.outcome}, kv{"binding", s.binding})
 			}

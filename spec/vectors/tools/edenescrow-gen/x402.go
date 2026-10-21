@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
@@ -22,6 +23,8 @@ const (
 	requiredFile    = "live/houston-payment-required.json"
 	otherKeyLabel   = "eden-escrow-v1 vector key facilitator-other"
 	maxRequirements = 16384
+	maxBuildBody    = 16384
+	maxDepth        = 16
 	bom             = "\xef\xbb\xbf"
 )
 
@@ -98,9 +101,9 @@ func mustU64(n json.Number) uint64 {
 	return v.Uint64()
 }
 
-// txFromBuild is the producer conversion of section 2.2a for a body the
-// fixture shows to be well formed; the reject vectors are labelled by hand
-// and re-derived by the Python checker.
+// txFromBuild converts a /deposit/build answer that is known to be well
+// formed; the reject vectors are labelled by hand and re-derived by the
+// Python checker.
 func txFromBuild(raw []byte) (txIn, [32]byte) {
 	var b buildBody
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -166,7 +169,8 @@ func recoverEIP191(m, sg []byte) (common.Address, bool) {
 	return crypto.PubkeyToAddress(*pub), true
 }
 
-// checkEntry is S4e on the good path: every quoted field equals the tx.
+// checkEntry panics unless every quoted field of the entry equals the
+// transaction, so the accept vectors start from a consistent quote.
 func checkEntry(e escrowEntry, t txIn) {
 	d := decodeCalldataUnchecked(t.data)
 	eq := func(what string, ok bool) {
@@ -200,6 +204,24 @@ func replaceOnce(s, old, new string) string {
 type jsonCase struct {
 	id, rule, cause string
 	body            string
+}
+
+// nested is depth-1 empty arrays inside each other: as a member value of
+// the top-level object it makes a document of the given depth.
+func nested(depth int) string {
+	return strings.Repeat("[", depth-1) + strings.Repeat("]", depth-1)
+}
+
+// esc is the JSON escape of one UTF-16 code unit, given as four hex digits.
+func esc(hex string) string { return "\\" + "u" + hex }
+
+// bodyKV keeps a body readable as JSON text when it is valid UTF-8; a body
+// that is not cannot travel in a JSON string, so it goes as hex.
+func bodyKV(body string) kv {
+	if utf8.ValidString(body) {
+		return kv{"json", body}
+	}
+	return kv{"json_hex", hx([]byte(body))}
 }
 
 func buildRejects(body string) []jsonCase {
@@ -250,20 +272,47 @@ func buildRejects(body string) []jsonCase {
 		{"build_chain_1", "ED1", "chainId 1", r(`"chainId":714`, `"chainId":1`)},
 		{"build_escrow_other", "ED1", "to = the HoustonForwarder", r(`"to":"0x65d77c98E73DFbEA91eCb72B27c9753e186a94c8"`, `"to":"0xeb35f99ed9b10cb724698076b5be63de0ed14c3a"`)},
 		{"build_payment_id_other", "BJ7", "top-level paymentId differs from the calldata's", r(`6113fed7"}`, `6113fed8"}`)},
+		{"build_too_large", "BJ0", "16385 bytes (whitespace between tokens)", r(`{"txData":`, "{"+strings.Repeat(" ", maxBuildBody+1-len(body))+`"txData":`)},
+		{"build_nesting_17", "BJ1", "an ignored top-level member nests the document 17 deep", r(`{"txData":`, `{"x":`+nested(maxDepth+1)+`,"txData":`)},
+		{"build_lone_surrogate", "BJ1", "an ignored top-level member holds the escaped lone surrogate " + esc("d800"), r(`{"txData":`, `{"x":"`+esc("d800")+`","txData":`)},
+		{"build_raw_control", "BJ1", "an ignored top-level member holds a raw tab inside a string", r(`{"txData":`, "{\"x\":\"a\tb\",\"txData\":")},
+		{"build_invalid_utf8", "BJ1", "an ignored top-level member holds the byte ff (not UTF-8)", r(`{"txData":`, "{\"x\":\"\xff\",\"txData\":")},
+		{"build_nan", "BJ1", "an ignored top-level member is NaN", r(`{"txData":`, `{"x":NaN,"txData":`)},
+		{"build_data_missing", "BJ2", "data absent (renamed)", r(`"data":"0xb707d860`, `"datum":"0xb707d860`)},
+		{"build_type_null", "BJ5", "type null", r(`"chainId":714}`, `"chainId":714,"type":null}`)},
+		{"build_value_escaped_sign", "BJ3", `value "` + esc("002d") + `7208392580248": after unescaping it is -7208392580248`, r(`"value":"7208392580248"`, `"value":"`+esc("002d")+`7208392580248"`)},
+		{"build_data_empty", "ET8", "data 0x: well-formed hex, then no deposit call (DC1)", r(`"data":"`+dataHex(body)+`"`, `"data":"0x"`)},
 	}
 }
 
-func buildVariants(body string) []jsonCase {
+// dataHex is the fixture's data member value, so a vector can replace it
+// whole.
+func dataHex(body string) string {
+	const k = `"data":"`
+	i := strings.Index(body, k) + len(k)
+	return body[i : i+strings.Index(body[i:], `"`)]
+}
+
+// buildVariants are accepted bodies; other holds the action of each one that
+// converts to another action than the fixture's.
+func buildVariants(body string, t txIn, resource string, reqHash []byte) (cases []jsonCase, other map[string][]byte) {
 	r := func(old, new string) string { return replaceOnce(body, old, new) }
+	maxNonce := t
+	maxNonce.nonce = 1<<53 - 1
+	other = map[string][]byte{"build_nonce_2_53_minus_1": actionCBOR(maxNonce.unsigned(), resource, reqHash)}
 	return []jsonCase{
 		{"build_fixture", "pass", "the fixture as received", body},
 		{"build_type_2", "pass", "type 2 present", r(`"chainId":714}`, `"chainId":714,"type":2}`)},
 		{"build_access_list_empty", "pass", "accessList [] present", r(`"chainId":714}`, `"chainId":714,"accessList":[]}`)},
 		{"build_unknown_top_member", "pass", "an unknown top-level member is ignored", r(`{"txData":`, `{"status":"ok","txData":`)},
 		{"build_upper_hex", "pass", "to in upper-case hex digits (no checksum check)", r(`"to":"0x65d77c98E73DFbEA91eCb72B27c9753e186a94c8"`, `"to":"0x65D77C98E73DFBEA91ECB72B27C9753E186A94C8"`)},
-		{"build_escaped_name", "pass", `member name "to" written as "to" (compared after unescaping)`, r(`"to":`, `"to":`)},
+		{"build_escaped_name", "pass", `member name "to" written as "` + esc("0074") + `o" (compared after unescaping)`, r(`"to":`, `"`+esc("0074")+`o":`)},
+		{"build_escaped_value", "pass", `value written as "` + esc("0037") + `208392580248" (checked after unescaping)`, r(`"value":"7208392580248"`, `"value":"`+esc("0037")+`208392580248"`)},
 		{"build_whitespace", "pass", "spaces, tabs and CR LF between tokens", r(`{"txData":{`, "{ \"txData\" :\t{\r\n")},
-	}
+		{"build_size_max", "pass", "exactly 16384 bytes (whitespace between tokens)", r(`{"txData":`, "{"+strings.Repeat(" ", maxBuildBody-len(body))+`"txData":`)},
+		{"build_nesting_16", "pass", "an ignored top-level member nests the document 16 deep", r(`{"txData":`, `{"x":`+nested(maxDepth)+`,"txData":`)},
+		{"build_nonce_2_53_minus_1", "pass", "nonce 2^53-1, the largest JSON uint: another transaction, so another action", r(`"nonce":508260`, `"nonce":9007199254740991`)},
+	}, other
 }
 
 func requirementsCases(raw []byte, t txIn) (pass, rej []obj) {
@@ -280,6 +329,33 @@ func requirementsCases(raw []byte, t txIn) (pass, rej []obj) {
 	copy(sZero[32:64], make([]byte, 32))
 	d := decodeCalldataUnchecked(t.data)
 	other := signEIP191(label(otherKeyLabel), d.paymentID[:])
+	withWord := func(off int, w *big.Int) string {
+		c := bytes.Clone(sig)
+		copy(c[off:off+32], word(w.Bytes()))
+		return r(sigHex, "0x"+hx(c))
+	}
+	// The other s of the same signature verifies with the other y parity.
+	if sig[64] > 1 {
+		panic("serverSignature v is expected as 0 or 1")
+	}
+	highS := bytes.Clone(sig)
+	copy(highS[32:64], word(new(big.Int).Sub(secpN, new(big.Int).SetBytes(sig[32:64])).Bytes()))
+	highS[64] ^= 1
+	if got, ok := recoverEIP191(d.paymentID[:], highS); !ok || got != d.facilitator {
+		panic("high-s serverSignature does not recover to the facilitator")
+	}
+	flipped := func(v byte) string {
+		c := bytes.Clone(sig)
+		c[64] = v
+		if got, ok := recoverEIP191(d.paymentID[:], c); ok && got == d.facilitator {
+			panic("the wrong y parity recovers the facilitator")
+		}
+		return r(sigHex, "0x"+hx(c))
+	}
+	wrongParity := sig[64] ^ 1
+	withMember := func(member string) string {
+		return r(`"x402Version": 2,`, `"x402Version": 2, "x": `+member+`,`)
+	}
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, raw); err != nil {
 		panic(err)
@@ -298,7 +374,11 @@ func requirementsCases(raw []byte, t txIn) (pass, rej []obj) {
 	add(&pass, "r_compact", "pass", "the same document without whitespace (other bytes, other hash)", compact.String(), nil)
 	add(&pass, "r_server_sig_v27", "pass", "serverSignature with v = 27 instead of 0", withV(27), nil)
 	add(&pass, "r_extra_entry", "pass", "a second accepts entry of scheme exact is ignored", r(entry, entry+",\n"+exact), nil)
-	add(&pass, "r_nonce_absent", "pass", "extra.nonce absent: S4 passes, S11 with field nonce refuses", r(`        "nonce": "0x6c10d990d3315965b652bc89080cc3d4998a84be859f461eeeb582cd5d34b0a1",`+"\n", ``), nil)
+	add(&pass, "r_nonce_absent", "pass", "extra.nonce absent: S4 passes (the Payment-Signature never signs it)", r(`        "nonce": "0x6c10d990d3315965b652bc89080cc3d4998a84be859f461eeeb582cd5d34b0a1",`+"\n", ``), nil)
+	add(&pass, "r_size_max", "pass", "exactly 16384 bytes (whitespace between tokens)", r("{\n  \"x402Version\"", "{"+strings.Repeat(" ", maxRequirements-len(s))+"\n  \"x402Version\""), nil)
+	add(&pass, "r_server_sig_high_s", "pass", "serverSignature with s replaced by n - s and the other y parity: same signer", r(sigHex, "0x"+hx(highS)), nil)
+	add(&pass, "r_escaped_value", "pass", `scheme written as "escrow`+esc("002d")+`upto" (compared after unescaping)`, r(`"scheme": "escrow-upto"`, `"scheme": "escrow`+esc("002d")+`upto"`), nil)
+	add(&pass, "r_nesting_16", "pass", "an ignored top-level member nests the document 16 deep", withMember(nested(maxDepth)), nil)
 
 	add(&rej, "r_too_large", "S4a", "16385 bytes (whitespace padding after the object)", s+strings.Repeat(" ", maxRequirements+1-len(s)), nil)
 	add(&rej, "r_binding", "S4b", "one whitespace byte added; the action's requirements_hash is over the fixture", s+"\n", requirementsHash(raw))
@@ -330,6 +410,16 @@ func requirementsCases(raw []byte, t txIn) (pass, rej []obj) {
 	add(&rej, "r_server_sig_s_zero", "S4f", "serverSignature with s = 0", r(sigHex, "0x"+hx(sZero)), nil)
 	add(&rej, "r_server_sig_short", "S4f", "serverSignature of 64 bytes", r(sigHex, sigHex[:len(sigHex)-2]), nil)
 	add(&rej, "r_server_sig_absent", "S4f", "serverSignature absent", dropServerSig(s, sigHex), nil)
+	add(&rej, "r_server_sig_r_n", "S4f", "serverSignature with r = n", withWord(0, secpN), nil)
+	add(&rej, "r_server_sig_s_n", "S4f", "serverSignature with s = n", withWord(32, secpN), nil)
+	add(&rej, "r_server_sig_wrong_parity", "S4f", fmt.Sprintf("serverSignature with v = %d instead of %d: another signer recovers", wrongParity, sig[64]), flipped(wrongParity), nil)
+	add(&rej, "r_server_sig_wrong_parity_27", "S4f", fmt.Sprintf("serverSignature with v = %d (27 and 28 swapped)", 27+wrongParity), flipped(27+wrongParity), nil)
+	add(&rej, "r_nesting_17", "S4c", "an ignored top-level member nests the document 17 deep", withMember(nested(maxDepth+1)), nil)
+	add(&rej, "r_lone_surrogate", "S4c", "the ignored error member holds the escaped lone surrogate "+esc("d800"), r(`"error": "Payment-Signature header is required"`, `"error": "`+esc("d800")+`"`), nil)
+	add(&rej, "r_raw_control", "S4c", "the ignored error member holds a raw tab", r(`"error": "Payment-Signature header is required"`, "\"error\": \"a\tb\""), nil)
+	add(&rej, "r_invalid_utf8", "S4c", "the ignored error member holds the byte ff (not UTF-8)", r(`"error": "Payment-Signature header is required"`, "\"error\": \"\xff\""), nil)
+	add(&rej, "r_nan", "S4c", "the ignored error member is NaN", r(`"error": "Payment-Signature header is required"`, `"error": NaN`), nil)
+	add(&rej, "r_scheme_escaped_other", "S4d", `scheme "escrow`+esc("002D")+`upt0": after unescaping not escrow-upto`, r(`"scheme": "escrow-upto"`, `"scheme": "escrow`+esc("002D")+`upt0"`), nil)
 	return pass, rej
 }
 
@@ -357,7 +447,13 @@ func buildX402File(h houston) obj {
 	if hx(sh) != "2b459989ad782892ebe827e4a050ba1b2d1ac9eafe7d261f410cf0979d4ad8dc" || len(u) != 245 {
 		panic("fixture tx differs from the research record")
 	}
-	resource := pr.Resource.URL
+	// The client calls the resource over HTTPS although the quote names
+	// http://, and a Payment-Signature is only issued for an https resource.
+	if !strings.HasPrefix(pr.Resource.URL, "http://") {
+		panic("the fixture's resource.url is expected to name http://")
+	}
+	httpResource := pr.Resource.URL
+	resource := "https://" + strings.TrimPrefix(httpResource, "http://")
 	reqHash := requirementsHash(h.required)
 	action := actionCBOR(u, resource, reqHash)
 	salt := label("eden-escrow-v1 vector salt houston_build")
@@ -373,16 +469,21 @@ func buildX402File(h houston) obj {
 	}
 
 	var builds []any
-	for _, c := range buildVariants(string(h.build)) {
-		builds = append(builds, obj{{"id", c.id}, {"expect", c.rule}, {"cause", c.cause}, {"json", c.body}})
+	variants, otherAction := buildVariants(string(h.build), tx, resource, reqHash)
+	for _, c := range variants {
+		e := obj{{"id", c.id}, {"expect", c.rule}, {"cause", c.cause}, bodyKV(c.body)}
+		if a, ok := otherAction[c.id]; ok {
+			e = append(e, kv{"cbor_hex", hx(a)})
+		}
+		builds = append(builds, e)
 	}
 	var bRej []any
 	for _, c := range buildRejects(string(h.build)) {
-		bRej = append(bRej, obj{{"id", c.id}, {"expect", c.rule}, {"cause", c.cause}, {"json", c.body}})
+		bRej = append(bRej, obj{{"id", c.id}, {"expect", c.rule}, {"cause", c.cause}, bodyKV(c.body)})
 	}
 	rPass, rRej := requirementsCases(h.required, tx)
+	s11 := s11Cases(u, resource, httpResource, d.paymentID[:], append(rPass, rRej...))
 
-	nonce := unhex(entry.Extra.Nonce)
 	psig := func(field string, m []byte) obj {
 		sg := signEIP191(label(payerLabel), m)
 		got, ok := recoverEIP191(m, sg)
@@ -421,6 +522,7 @@ func buildX402File(h houston) obj {
 			{"tx_length", dec(uint64(len(u)))},
 			{"sighash_hex", hx(sh)},
 			{"resource", resource},
+			{"requirements_resource_url", httpResource},
 			{"requirements_from_file", requiredFile},
 			{"requirements_hash_hex", hx(reqHash)},
 			{"cbor_hex", hx(action)},
@@ -432,11 +534,13 @@ func buildX402File(h houston) obj {
 			{"facts_cbor_hex", hx(f.cbor())},
 			{"profile_fields", profileFields(tx)},
 		}},
+		{"build_limits", obj{{"max_length", dec(maxBuildBody)}, {"max_depth", dec(maxDepth)}}},
 		{"build_accept", builds},
 		{"build_reject", bRej},
 		{"requirements", obj{
 			{"tx_ref", "build"},
 			{"max_length", dec(maxRequirements)},
+			{"max_depth", dec(maxDepth)},
 			{"check_server_signature", true},
 			{"server_signature", obj{
 				{"message_hex", hx(d.paymentID[:])}, {"digest_hex", hx(srvDigest)},
@@ -449,8 +553,67 @@ func buildX402File(h houston) obj {
 		{"payment_signature", obj{
 			{"key", "payer1 (signed.json keys)"},
 			{"scheme", "EIP-191 personal_sign over 32 raw bytes; signature r || s || v, v = 27 + y_parity, RFC 6979, low s"},
-			{"cases", []any{psig("paymentId", d.paymentID[:]), psig("nonce", nonce)}},
+			{"cases", []any{psig("paymentId", d.paymentID[:])}},
+			{"refused_fields", []string{"nonce"}},
 			{"payment_id_digest_equals_server_signature_digest", bytes.Equal(eip191(d.paymentID[:]), srvDigest)},
+			{"requests", s11},
 		}},
 	}
+}
+
+// s11Cases are the stateless steps of a Payment-Signature request: the
+// configured field, the committed resource and the requirements bound by the
+// action. The reservation, the requester's credentials and Await are state
+// and are tested with the signer.
+func s11Cases(tx []byte, resource, httpResource string, w0 []byte, reqs []obj) []any {
+	body := map[string][]byte{}
+	for _, o := range reqs {
+		body[o[0].V.(string)] = unhex(o[3].V.(string))
+	}
+	type c struct {
+		id, desc, field string
+		checkServerSig  bool
+		resource        string
+		bind, present   string
+		rule, err, s4   string
+	}
+	cases := []c{
+		{"s11_payment_id", "the fixture's quote: the message is w0", "paymentId", true, resource, "r_fixture", "r_fixture", "pass", "", ""},
+		{"s11_quote_without_nonce", "a quote without extra.nonce: field paymentId does not need it", "paymentId", true, resource, "r_nonce_absent", "r_nonce_absent", "pass", "", ""},
+		{"s11_field_nonce", "field nonce is not offered: no server signature covers its bytes", "nonce", true, resource, "r_fixture", "r_fixture", "S11a", "ErrPinMismatch", ""},
+		{"s11_server_signature_check_off", "CheckServerSignature false disables the Payment-Signature", "paymentId", false, resource, "r_fixture", "r_fixture", "S11a", "ErrPinMismatch", ""},
+		{"s11_http_resource", "the committed resource names http://", "paymentId", true, httpResource, "r_fixture", "r_fixture", "S11c", "ErrRequirements", ""},
+		{"s11_no_r", "no R stored or presented", "paymentId", true, resource, "r_fixture", "", "S11d", "ErrRequirements", "absent"},
+		{"s11_r_unbound", "the presented R is not the committed one", "paymentId", true, resource, "r_fixture", "r_binding", "S11d", "ErrRequirements", "S4b"},
+		{"s11_server_sig_absent", "the committed quote has no serverSignature: S4f is enforced here", "paymentId", true, resource, "r_server_sig_absent", "r_server_sig_absent", "S11d", "ErrRequirements", "S4f"},
+		{"s11_server_sig_other_key", "the committed quote's serverSignature is by another key", "paymentId", true, resource, "r_server_sig_other_key", "r_server_sig_other_key", "S11d", "ErrRequirements", "S4f"},
+	}
+	var out []any
+	for _, k := range cases {
+		bind, ok := body[k.bind]
+		if !ok {
+			panic("no requirements case " + k.bind)
+		}
+		a := actionCBOR(tx, k.resource, requirementsHash(bind))
+		var present any
+		if k.present != "" {
+			if _, ok := body[k.present]; !ok {
+				panic("no requirements case " + k.present)
+			}
+			present = k.present
+		}
+		e := obj{{"id", k.id}, {"description", k.desc}, {"field", k.field},
+			{"check_server_signature", k.checkServerSig}, {"resource", k.resource},
+			{"requirements_ref", k.bind}, {"cbor_hex", hx(a)}, {"r_ref", present}, {"expect", k.rule}}
+		if k.rule == "pass" {
+			e = append(e, kv{"message_hex", hx(w0)})
+		} else {
+			e = append(e, kv{"error", k.err})
+		}
+		if k.s4 != "" {
+			e = append(e, kv{"s4_rule", k.s4})
+		}
+		out = append(out, e)
+	}
+	return out
 }

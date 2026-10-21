@@ -271,9 +271,9 @@ func (t txIn) feeBound() *big.Int {
 	return new(big.Int).Mul(new(big.Int).SetUint64(t.gas), t.fee)
 }
 
-// factsOf applies EF2: the amount is the deposit plus the fee bound, so a
+// factsOf counts the deposit plus the fee bound as the amount, so a
 // mandate's per-asset limits bound everything the payer can lose. ok is
-// false when that sum does not fit the policy's 32-byte amount (EF3).
+// false when that sum does not fit the policy's 32-byte amount.
 func factsOf(t txIn) (f facts, ok bool) {
 	d := decodeCalldataUnchecked(t.data)
 	amount := new(big.Int).Add(t.value, t.feeBound())
@@ -289,7 +289,7 @@ func factsOf(t txIn) (f facts, ok bool) {
 	}, true
 }
 
-// profileFields is the deposit view of section 4.1: values the signer and
+// profileFields is the deposit view: values the signer and
 // the settlement report expose beside the facts, never policy facts.
 func profileFields(t txIn) obj {
 	d := decodeCalldataUnchecked(t.data)
@@ -426,7 +426,7 @@ func actionRejects(a actionCase) []actionReject {
 	txp, rsp, rqp := cborBytes(good), cborText(res), cborBytes(req)
 	one := cborUint(1)
 
-	// Action CBOR (EA1 to EA3).
+	// Action CBOR.
 	addC("action_empty", "EA1", "no bytes", nil)
 	addC("action_4097", "EA1", "4097 bytes, over the 4096 cap, refused before parsing", cborMap(k(2), cborBytes(make([]byte, 4092))))
 	addC("action_indefinite_map", "EA2", "indefinite-length map", cat([]byte{0xbf}, k(1), one, k(2), txp, k(3), rsp, k(4), rqp, []byte{0xff}))
@@ -452,7 +452,7 @@ func actionRejects(a actionCase) []actionReject {
 	addC("action_requirements_31", "EA3", "requirements_hash of 31 bytes", cborMap(k(1), one, k(2), txp, k(3), rsp, k(4), cborBytes(req[:31])))
 	addC("action_requirements_text", "EA3", "requirements_hash as a text string", cborMap(k(1), one, k(2), txp, k(3), rsp, k(4), cborText(strings.Repeat("a", 32))))
 
-	// Transaction (ET1 to ET8, then ED1).
+	// Transaction, then the domain table.
 	addT("tx_type_1", "ET1", "type byte 0x01 (EIP-2930)", errMalformed, append([]byte{1}, good[1:]...))
 	addT("tx_untyped", "ET1", "the RLP list without the type byte", errMalformed, good[1:])
 	addT("tx_trailing_byte", "ET2", "one byte after the list", errMalformed, append(bytes.Clone(good), 0x80))

@@ -1,7 +1,7 @@
 {
   "format": "edicta-vectors/v0",
   "profile": "eden-escrow",
-  "revision": "eden-escrow-v1-draft.5",
+  "revision": "eden-escrow-v1-draft.6",
   "generator": "spec/vectors/tools/edenescrow-gen",
   "source_results": [
     "pass",
@@ -22,6 +22,7 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -29,6 +30,7 @@
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -54,6 +56,7 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "reverted",
           "binding": "B1"
@@ -61,6 +64,7 @@
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "reverted",
           "binding": "B1"
@@ -86,6 +90,7 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -93,6 +98,7 @@
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B2"
@@ -117,6 +123,7 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -124,6 +131,7 @@
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "reverted",
           "binding": "B1r"
@@ -148,6 +156,7 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -155,6 +164,7 @@
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "not_found"
         }
       ],
@@ -177,6 +187,7 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -184,6 +195,7 @@
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "not_found"
         }
       ],
@@ -206,6 +218,7 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -213,6 +226,7 @@
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "unconfirmed"
         }
       ],
@@ -235,6 +249,7 @@
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -242,6 +257,7 @@
         {
           "host": "rpc2.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -266,6 +282,7 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -273,11 +290,13 @@
         {
           "host": "eden.blockscout.com",
           "operator": "blockscout",
+          "operator_label": "explicit",
           "result": "not_found"
         },
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -303,6 +322,7 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -310,6 +330,7 @@
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -317,6 +338,7 @@
         {
           "host": "eden.blockscout.com",
           "operator": "blockscout",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B2"
@@ -341,6 +363,7 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -348,6 +371,7 @@
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -355,6 +379,7 @@
         {
           "host": "eden.blockscout.com",
           "operator": "blockscout",
+          "operator_label": "explicit",
           "result": "unavailable"
         }
       ],
@@ -377,11 +402,13 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "not_found"
         },
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "not_found"
         }
       ],
@@ -404,11 +431,13 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "not_found"
         },
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "not_found"
         }
       ],
@@ -431,11 +460,13 @@
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "not_found"
         },
         {
           "host": "rpc2.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "not_found"
         }
       ],
@@ -458,11 +489,13 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "not_found"
         },
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "unavailable"
         }
       ],
@@ -485,11 +518,13 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "unavailable"
         },
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "not_found"
         }
       ],
@@ -512,11 +547,13 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "not_found"
         },
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "unconfirmed"
         }
       ],
@@ -539,6 +576,7 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -546,6 +584,7 @@
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "set_aside",
           "reason": "settlement_code_mismatch"
         }
@@ -569,12 +608,14 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "set_aside",
           "reason": "settlement_chain_config"
         },
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "set_aside",
           "reason": "settlement_hash_mismatch"
         }
@@ -598,6 +639,7 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -605,6 +647,7 @@
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "not_found"
         }
       ],
@@ -628,6 +671,7 @@
         {
           "host": "own-node.example",
           "operator": "own",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -635,6 +679,7 @@
         {
           "host": "rpc.eden.gateway.fm",
           "operator": "gateway",
+          "operator_label": "explicit",
           "result": "pass",
           "outcome": "executed",
           "binding": "B1"
@@ -648,6 +693,184 @@
       "await": "executed",
       "record_allowed": true,
       "payment_signature_allowed": true,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "aside_found_two_not_found_until",
+      "description": "One source served the transaction but its log failed EE8; two others answer not found: a source showed the transaction, so unknown, never not_executed.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "until_passed",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "operator_label": "explicit",
+          "result": "set_aside",
+          "reason": "settlement_log_mismatch"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "operator_label": "explicit",
+          "result": "not_found"
+        },
+        {
+          "host": "eden.blockscout.com",
+          "operator": "blockscout",
+          "operator_label": "explicit",
+          "result": "not_found"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_log_mismatch"
+      },
+      "await": "unknown",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "aside_hash_mismatch_two_not_found_until",
+      "description": "One source served bytes for the hash that do not hash to it; two others answer not found: unknown.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "until_passed",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "operator_label": "explicit",
+          "result": "set_aside",
+          "reason": "settlement_hash_mismatch"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "operator_label": "explicit",
+          "result": "not_found"
+        },
+        {
+          "host": "eden.blockscout.com",
+          "operator": "blockscout",
+          "operator_label": "explicit",
+          "result": "not_found"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_hash_mismatch"
+      },
+      "await": "unknown",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "aside_unavailable_after_lookup_until",
+      "description": "One source served the transaction, then its receipt call failed; two others answer not found: unknown.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "until_passed",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "operator_label": "explicit",
+          "result": "set_aside",
+          "reason": "settlement_source_unavailable"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "operator_label": "explicit",
+          "result": "not_found"
+        },
+        {
+          "host": "eden.blockscout.com",
+          "operator": "blockscout",
+          "operator_label": "explicit",
+          "result": "not_found"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_source_unavailable"
+      },
+      "await": "unknown",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "aside_chain_config_two_not_found_until",
+      "description": "One source is on another chain (set aside before any lookup); two others answer not found: not_executed.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "until_passed",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "operator_label": "explicit",
+          "result": "set_aside",
+          "reason": "settlement_chain_config"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "operator_label": "explicit",
+          "result": "not_found"
+        },
+        {
+          "host": "eden.blockscout.com",
+          "operator": "blockscout",
+          "operator_label": "explicit",
+          "result": "not_found"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_chain_config"
+      },
+      "await": "not_executed",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": true
+    },
+    {
+      "id": "default_labels_agree",
+      "description": "Two sources without a configured operator label (the host stands in) agree: the report and the record get L1, the Payment-Signature does not.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "polling",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own-node.example",
+          "operator_label": "default",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "rpc.eden.gateway.fm",
+          "operator_label": "default",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        }
+      ],
+      "verify": {
+        "status": "pass",
+        "level": "L1",
+        "outcome": "executed"
+      },
+      "await": "executed",
+      "record_allowed": true,
+      "payment_signature_allowed": false,
       "nonce_release_allowed": false
     }
   ]

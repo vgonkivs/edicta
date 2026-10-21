@@ -29,7 +29,7 @@ from policy_v1 import encode_facts
 
 HERE = Path(__file__).resolve().parent
 DEFAULT = HERE.parent / "profiles" / "eden-escrow"
-REVISION = "eden-escrow-v1-draft.5"
+REVISION = "eden-escrow-v1-draft.6"
 
 fails: list[str] = []
 
@@ -245,7 +245,10 @@ def check_x402(d: dict, base: Path, signed: dict):
     b = d["build"]
     req_hash = ee.requirements_hash(raw_r)
     expect(req_hash.hex() == b["requirements_hash_hex"], "x402: requirements_hash")
-    resource = json.loads(raw_r)["resource"]["url"]
+    # The quote names http://, the client calls https://; only an https resource gets a Payment-Signature.
+    quoted_url = json.loads(raw_r)["resource"]["url"]
+    expect(quoted_url.startswith("http://") and b["requirements_resource_url"] == quoted_url, "x402: quoted url")
+    resource = "https://" + quoted_url[len("http://"):]
     expect(resource == b["resource"], "x402: resource")
     action, a = xp.action_from_build(raw_build, resource, req_hash)
     expect(action.hex() == b["cbor_hex"] and str(len(action)) == b["action_length"], "x402: action bytes")
@@ -255,40 +258,58 @@ def check_x402(d: dict, base: Path, signed: dict):
            "x402: action_hash")
     expect(b["extractor_ids"] == [ee.EXTRACTOR_ID, ee.EXTRACTOR_DEV_ID], "x402: extractor ids")
     check_facts("x402 build", a, {**b, "extractor_expect_error": None, "extractor_rule": None})
+    lim = d["build_limits"]
+    expect(int(lim["max_length"]) == xp.BUILD_MAX and int(lim["max_depth"]) == xp.MAX_DEPTH, "build limits")
+
+    def body(c):
+        return bytes.fromhex(c["json_hex"]) if "json_hex" in c else c["json"].encode()
+
     for c in d["build_accept"]:
-        e = refused(xp.action_from_build, c["json"].encode(), resource, req_hash)
-        expect(e is None and xp.action_from_build(c["json"].encode(), resource, req_hash)[0] == action,
+        e = refused(xp.action_from_build, body(c), resource, req_hash)
+        want = bytes.fromhex(c["cbor_hex"]) if "cbor_hex" in c else action
+        expect(e is None and xp.action_from_build(body(c), resource, req_hash)[0] == want,
                f"build_accept {c['id']}: {e}")
     for c in d["build_reject"]:
-        e = refused(xp.action_from_build, c["json"].encode(), resource, req_hash)
+        e = refused(xp.action_from_build, body(c), resource, req_hash)
         expect(e is not None and e.rule == c["expect"], f"build_reject {c['id']}: got {e and e.rule}")
+    expect(any("json_hex" in c for c in d["build_reject"]), "a build body that is not UTF-8")
     rq = d["requirements"]
-    expect(int(rq["max_length"]) == xp.REQUIREMENTS_MAX and rq["check_server_signature"] is True, "S4 settings")
+    expect(int(rq["max_length"]) == xp.REQUIREMENTS_MAX and int(rq["max_depth"]) == xp.MAX_DEPTH
+           and rq["check_server_signature"] is True, "S4 settings")
     ss = rq["server_signature"]
     sig = bytes.fromhex(ss["signature_hex"])
     w0 = a["call"]["payment_id"]
     expect(xp.eip191_digest(w0).hex() == ss["digest_hex"] and ss["message_hex"] == w0.hex(), "serverSignature digest")
     expect(xp.recover_eip191(w0, sig) == a["call"]["facilitator"]
            and ss["recovered"] == ss["facilitator_w2"] == "0x" + a["call"]["facilitator"].hex(), "serverSignature signer")
-    entry = None
+    r_bytes = {}
     for c in rq["accept"] + rq["reject"]:
         r = bytes.fromhex(c["r_hex"])
+        r_bytes[c["id"]] = r
         ac = {**a, "requirements_hash": bytes.fromhex(c["requirements_hash_hex"])}
         e = refused(xp.check_requirements, r, ac)
         got = "pass" if e is None else e.rule
         expect(got == c["expect"], f"requirements {c['id']}: got {got} ({e})")
-        if c["id"] == "r_fixture" and e is None:
-            entry = xp.check_requirements(r, ac)
-        if c["id"] == "r_nonce_absent" and e is None:
-            no_nonce = xp.check_requirements(r, ac)
-            expect(refused(xp.payment_signature_message, "nonce", a, no_nonce) is not None,
-                   "S11 refuses field nonce when R has no nonce")
-    expect(refused(xp.payment_signature_message, "nonce", a, None) is not None, "S11 refuses nonce without R")
+        if c["expect"] == "pass" and c["id"] != "r_binding":
+            expect(c["requirements_hash_hex"] == ee.requirements_hash(r).hex(), f"requirements {c['id']}: hash")
     ps = d["payment_signature"]
+    expect(ps["refused_fields"] == ["nonce"] and [c["field"] for c in ps["cases"]] == ["paymentId"],
+           "Payment-Signature fields")
+    for c in ps["requests"]:
+        bind = r_bytes[c["requirements_ref"]]
+        act = xp.encode_action(a["tx"], c["resource"], ee.requirements_hash(bind))
+        expect(act.hex() == c["cbor_hex"], f"s11 {c['id']}: action bytes")
+        r = None if c["r_ref"] is None else r_bytes[c["r_ref"]]
+        m, refusal = xp.payment_signature_message(c["field"], c["check_server_signature"], act, r)
+        if c["expect"] == "pass":
+            expect(refusal is None and m.hex() == c["message_hex"], f"s11 {c['id']}: got {refusal}")
+        else:
+            expect(refusal == (c["expect"], c["error"], c.get("s4_rule")), f"s11 {c['id']}: got {refusal}")
     key = signed["keys"]["payer1"]
     priv = int(key["private_key_hex"], 16)
     for c in ps["cases"]:
-        m = xp.payment_signature_message(c["field"], a, entry)
+        m, refusal = xp.payment_signature_message(c["field"], True, action, raw_r)
+        expect(refusal is None, f"payment_signature {c['field']}: refused {refusal}")
         digest = xp.eip191_digest(m)
         y, r_, s_ = ee.sign_rfc6979(priv, digest)
         want = r_.to_bytes(32, "big") + s_.to_bytes(32, "big") + bytes([27 + y])

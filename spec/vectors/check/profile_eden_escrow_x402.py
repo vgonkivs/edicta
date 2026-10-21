@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""eden-escrow profile, x402 escrow-upto flow (spec/profiles/eden-escrow-v1.md 2.2a, 5.1 S4 and S11, 7.4).
+"""eden-escrow profile, x402 escrow-upto flow (spec/profiles/eden-escrow-v1.md 2.2a, 5.1 S4 and S11, 5.5).
 
 The /deposit/build conversion (BJ1 to BJ7), the PaymentRequirements checks (S4a to S4f), the
 Payment-Signature message (S11) and the multi-source outcome rules. Written independently of the Go
@@ -57,14 +57,43 @@ def _constant(c):
     raise JSONError(c)
 
 
+MAX_DEPTH = 16
+
+
+def _depth_ok(text: str) -> bool:
+    """Nesting of arrays and objects at most MAX_DEPTH, counted without recursion before parsing, so
+    a deep document never reaches the recursive parser."""
+    depth, in_str, esc = 0, False, False
+    for ch in text:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch in "[{":
+            depth += 1
+            if depth > MAX_DEPTH:
+                return False
+        elif ch in "]}":
+            depth -= 1
+    return True
+
+
 def strict_json(raw: bytes):
     """Core JT3 document rules: UTF-8 without a byte order mark, JSON whitespace only, one value and
-    nothing after it, no repeated member name at any depth, no NaN or Infinity, no unpaired surrogate.
-    Numbers come back as written (JInt, JFloat)."""
+    nothing after it, no repeated member name at any depth, no NaN or Infinity; strings are taken
+    after unescaping under the JT4 text rules (no unpaired surrogate, no raw control character); and
+    the profile's nesting limit. Numbers come back as written (JInt, JFloat)."""
     try:
         text = raw.decode("utf-8")
         if text.startswith(chr(0xFEFF)):
             raise JSONError("byte order mark")
+        if not _depth_ok(text):
+            raise JSONError(f"nested deeper than {MAX_DEPTH}")
         v = json.loads(text, object_pairs_hook=_no_dups, parse_int=JInt, parse_float=JFloat,
                        parse_constant=_constant)
         _no_surrogates(v)
@@ -77,6 +106,7 @@ _DEC = re.compile(r"(0|[1-9][0-9]{0,77})")
 _HEX_ANY = re.compile(r"0x(?:[0-9a-fA-F]{2})*")
 MAX_SAFE = (1 << 53) - 1
 REQUIREMENTS_MAX = 16384
+BUILD_MAX = 16384
 
 
 def json_uint(v):
@@ -122,6 +152,8 @@ def encode_action(tx: bytes, resource: str, req_hash: bytes) -> bytes:
 def action_from_build(raw: bytes, resource: str, req_hash: bytes, build: str = "production") -> tuple:
     """Section 2.2a: the /deposit/build answer to form T action bytes, then 2.4 on them.
     Returns (action bytes, decoded action)."""
+    if not 1 <= len(raw) <= BUILD_MAX:
+        _bad("BJ0", f"{len(raw)} bytes")
     try:
         doc = strict_json(raw)
     except JSONError as e:
@@ -169,6 +201,8 @@ def recover_eip191(m: bytes, sig: bytes):
     if len(sig) != 65 or sig[64] not in (0, 1, 27, 28):
         return None
     r, s = int.from_bytes(sig[:32], "big"), int.from_bytes(sig[32:64], "big")
+    if not (1 <= r < pc.N and 1 <= s < pc.N):
+        return None
     q = pc.recover(eip191_digest(m), r, s, sig[64] & 1 if sig[64] < 27 else sig[64] - 27)
     return None if q is None else pc.eth_address(q)
 
@@ -215,26 +249,45 @@ def check_requirements(raw: bytes, a: dict, check_server_signature: bool = True)
     return e
 
 
-def payment_signature_message(field: str, a: dict, entry):
-    """S11: the 32 bytes the payer key signs. paymentId is w0 of the authorized transaction; nonce
-    comes only from an entry that passed S4, so R is bound by the committed requirements_hash."""
-    if field == "paymentId":
-        return a["call"]["payment_id"]
-    if field == "nonce" and entry is not None and "nonce" in entry["extra"]:
-        return hex_n(entry["extra"]["nonce"], 32)
-    raise Refused("payment_signature_refused", "S11", field)
+def payment_signature_message(field: str, check_server_signature: bool, action: bytes, r):
+    """The stateless steps of S11 (a, c, d, f): the 32 bytes the payer key signs, or the refusal.
+    Only field paymentId is offered, only with the serverSignature check on; the committed resource
+    is https; R (stored or presented) passes S4 a to f with S4f enforced against the action's
+    requirements_hash; the message is w0. Returns (message, None) or (None, (rule, error, s4 rule))."""
+    if field != "paymentId" or not check_server_signature:
+        return None, ("S11a", "ErrPinMismatch", None)
+    a = ee.decode_action(action)
+    if not a["resource"].startswith("https://"):
+        return None, ("S11c", "ErrRequirements", None)
+    if r is None:
+        return None, ("S11d", "ErrRequirements", "absent")
+    try:
+        check_requirements(r, a, True)
+    except Refused as e:
+        return None, ("S11d", "ErrRequirements", e.rule)
+    return a["call"]["payment_id"], None
 
 
 _SOURCE_REASON = {"not_found": "settlement_not_found", "unavailable": "settlement_source_unavailable",
                   "unconfirmed": "settlement_unconfirmed"}
 
+# Set-aside reasons that a source can only give after it served a transaction for the hash: EE5 (chain,
+# code) runs before the lookup, everything after it means the source showed the transaction.
+_SEEN_ASIDE = {"settlement_hash_mismatch", "settlement_tx_type", "settlement_disagree", "settlement_log_mismatch",
+               "settlement_source_unavailable"}
+
+
+def _seen(s: dict) -> bool:
+    return s["result"] in ("pass", "unconfirmed") or (s["result"] == "set_aside" and s["reason"] in _SEEN_ASIDE)
+
 
 def multi_source(sources: list, min_sources: int, min_level: str, phase: str) -> dict:
-    """Sections 5.3 and 7.4: per-source results to the report, the Await state and what it allows."""
+    """Section 5.5: per-source results to the report, the Await state and what it allows."""
     passing = [s for s in sources if s["result"] == "pass"]
     if len({s["binding"] for s in passing}) > 1:
         return {"verify": {"status": "unchecked", "reason": "settlement_disagree"}, "await": "disputed",
                 "record": False, "payment_signature": False, "release": False}
+    explicit = all(s["operator_label"] == "explicit" for s in sources)
 
     def operators(result):
         return {s["operator"] for s in sources if s["result"] == result}
@@ -244,7 +297,7 @@ def multi_source(sources: list, min_sources: int, min_level: str, phase: str) ->
     if level and (level == "L1" or min_level == "L0"):
         o = passing[0]["outcome"]
         return {"verify": {"status": "pass", "level": level, "outcome": o}, "await": o, "record": True,
-                "payment_signature": o == "executed" and level == "L1", "release": False}
+                "payment_signature": o == "executed" and level == "L1" and explicit, "release": False}
     waiting = any(s["result"] == "unconfirmed" for s in sources)
     if waiting:
         reason = "settlement_unconfirmed"
@@ -255,7 +308,7 @@ def multi_source(sources: list, min_sources: int, min_level: str, phase: str) ->
         reason = first["reason"] if first["result"] == "set_aside" else _SOURCE_REASON[first["result"]]
     if phase == "polling":
         state = "pending"
-    elif not k and not waiting and len(operators("not_found")) >= min_sources:
+    elif not any(_seen(s) for s in sources) and len(operators("not_found")) >= min_sources:
         state = "not_executed"
     else:
         state = "unknown"

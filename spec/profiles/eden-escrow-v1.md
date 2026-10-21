@@ -6,7 +6,7 @@ escrow deposit that a facilitator later settles. Eden is only the payment
 rail. Commitments use any core `da` (the first Eden release uses `da = 2`,
 fast or strict mode), and nothing in this profile touches the anchoring.
 
-Status: revision `eden-escrow-v1-draft.5` (2026-10-21), **draft, not
+Status: revision `eden-escrow-v1-draft.6` (2026-10-21), **draft, not
 frozen**. Built on the core spec `spec/decision-commitment-v1.md`, revision
 `v1.2`, and on `spec/policy-v1.md` (`policy-v1.0`). Section numbers prefixed
 "core" refer to the core spec; "policy" refers to the policy spec. The `v1`
@@ -43,13 +43,25 @@ development, 714 as the target); the requester's funded test settled the
 `PAYMENT-REQUIRED` header is recorded for a wire-byte `R` vector; and the
 human approved.
 
+Freeze condition on the server (for the requester; Edicta cannot enforce
+it): on the paid retry the payment server checks that the address
+recovered from the `Payment-Signature` is the escrow's `buyer` of that
+`paymentId`, and accepts each `Payment-Signature` (each `paymentId`) at
+most once (RF27). Without the first check, the quote's own
+`serverSignature` is a valid payment proof for anyone who saw the quote,
+because with field `paymentId` both sign the same 32-byte message (5.1,
+S11 threat notes). Without the second, anyone who sees the header can
+spend the payment again. The requester confirms both in writing or by the
+funded test before the freeze.
+
 | Revision | Change | Vectors |
 |---|---|---|
 | `eden-escrow-v1-draft.1` | First draft: form T action and its strict decoder, escrow table, extractor `eden/escrow-deposit-tx/v1`, signer rules S1 to S10, `rail_ref`, settlement report EE1 to EE9 with levels L0 to L2. Form A is a placeholder (section 8). | Initial set (section 11). |
 | `eden-escrow-v1-draft.2` | Table pinned from read-only records of the deployment (section 3): the runtime code hash; the testnet row at the CREATE2 address, now in every build; the dev row moves to that same address. New signer rule S3c (escrow code hash before signing). RF8, RF19, RF20 settled from the verified source and bytecode. Outcome changes: chain 3735928814 to the CREATE2 address is accepted (was `ErrUnknownDomain`); chain 31337 to the 714 address is refused in `edictadev` builds (was accepted). | All files regenerated (`revision` draft.2). New input `live/escrow-code.json`; new section `escrow_code` and case `tx_f14_testnet` in `action.json`; rejects `tx_testnet_mainnet_address`, `tx_714_copy_address`, `tx_dev_mainnet_address` replace `tx_chain_testnet_pending`. |
 | `eden-escrow-v1-draft.3` | Audit fixes. (1) `edictadev` builds register the type under a separate extractor ID, `eden/escrow-deposit-tx-dev/v1`, which alone holds the dev row; `eden/escrow-deposit-tx/v1` has the same output in every build (policy X1, X2), so a production verifier reports `policy_no_extractor` for a dev decision instead of a false `facts_mismatch`. (2) EE1: a malformed `rail_ref` is `unchecked`, no longer `violated`; the order is 7.2, EE1, then the source rules. (3) S6 and S7 in one durable write. (4) Fee bounds: `MaxFeePerAction` and `MaxFeePerHour` (S7). (5) S3c before every signature is a MUST, failing closed. (6) The nonce release path (5.3), one payer key per served chain (S1), chain-id uniqueness (RF1, RF2), settlement evidence not archived (7.6). | All files regenerated (`revision` draft.3). `action.json`: `extractors` (two IDs, rows per ID), `extractor_ids` per case, `extractor_id` per reject, 9 new rejects (ET2 straddling item and long-form empty list; ET3 leading zeros on `chain_id`, fee and tip, 9-byte `nonce` and `gas_limit`, 33-byte tip, `chain_id` 2^63). `signed.json`: `status` on EE1 cases; EE3 cases `r_equals_n`, `s_zero`, `r_not_on_curve`, `y_parity_zero_byte`, `s_as_list`. `settlement.json`: `event_other_index`. |
 | `eden-escrow-v1-draft.4` | Wording only: the verifier report key of the settlement report is `rail_settlement` (the core report already has `settlement` for da = 1 anchors). No encoding, check, table row or outcome changes. | Vector files regenerated for the `revision` string only. |
-| `eden-escrow-v1-draft.5` | The requester's x402 v2 `escrow-upto` flow. (1) `R` is the base64-decoded `PAYMENT-REQUIRED` response header, not the body (2.5); the `/deposit/build` answer converts to form T as is (2.2a, rules BJ1 to BJ7); `paymentId` is the server's (2.3). (2) Outcome change: facts `amount = value + gas_limit * max_fee_per_gas` (EF2), and an amount above 32 bytes is refused (EF3); profile fields `payment_id`, `facilitator`, `expires_at` and others for the signer and the report (4.1), not policy facts. (3) Signer: S4 checks on `R` with the optional `serverSignature` check; S11 `Payment-Signature` (EIP-191 by the payer key, field by configuration, only after the deposit is executed at L1, only for the decision's own values); S8 amended. (4) Broadcaster rules: Houston relay or direct, `/deposit/status` never evidence (5.4). (5) Settlement: sources carry an operator; L1 counts distinct operators; the verifier and Await default to L1 with `MinSources = 2`; Await states and the multi-source outcome rules (5.5, 7.4); report field `deposit` (7.5). (6) Section 8 closed (form A not planned); rail facts RF2a, RF23 to RF31. | All files regenerated (`revision` draft.5). New inputs `live/houston-deposit-build.json` and `live/houston-payment-required.json` (the requester's fixtures, byte for byte). New `x402.json` (build to action and facts, 7 accepted and 44 refused build answers, S4 with 5 accepted and 30 refused `R`, `serverSignature`, Payment-Signature digests and signatures for both fields) and `multi_source.json` (21 outcome cases). `action.json`: every `amount` changes (EF2); `profile_fields` per case; cases `tx_amount_max_714`, `tx_amount_overflow_714`; `tx_max_714` now refused by the extractor (EF3). `signed.json`: two more cases and two more `exact_tx` passes (8 and 29 in all). |
+| `eden-escrow-v1-draft.5` | The requester's x402 v2 `escrow-upto` flow. (1) `R` is the base64-decoded `PAYMENT-REQUIRED` response header, not the body (2.5); the `/deposit/build` answer converts to form T as is (2.2a, rules BJ1 to BJ7); `paymentId` is the server's (2.3). (2) Outcome change: facts `amount = value + gas_limit * max_fee_per_gas` (EF2), and an amount above 32 bytes is refused (EF3); profile fields `payment_id_hex`, `facilitator`, `expires_at` and others for the signer and the report (4.1), not policy facts. (3) Signer: S4 checks on `R` with the optional `serverSignature` check; S11 `Payment-Signature` (EIP-191 by the payer key, field by configuration, only after the deposit is executed at L1, only for the decision's own values); S8 amended. (4) Broadcaster rules: Houston relay or direct, `/deposit/status` never evidence (5.4). (5) Settlement: sources carry an operator; L1 counts distinct operators; the verifier and Await default to L1 with `MinSources = 2`; Await states and the multi-source outcome rules (5.5, 7.4); report field `deposit` (7.5). (6) Section 8 closed (form A not planned); rail facts RF2a, RF23 to RF31. | All files regenerated (`revision` draft.5). New inputs `live/houston-deposit-build.json` and `live/houston-payment-required.json` (the requester's fixtures, byte for byte). New `x402.json` (build to action and facts, 7 accepted and 44 refused build answers, S4 with 5 accepted and 30 refused `R`, `serverSignature`, Payment-Signature digests and signatures for both fields) and `multi_source.json` (21 outcome cases). `action.json`: every `amount` changes (EF2); `profile_fields` per case; cases `tx_amount_max_714`, `tx_amount_overflow_714`; `tx_max_714` now refused by the extractor (EF3). `signed.json`: two more cases and two more `exact_tx` passes (8 and 29 in all). |
+| `eden-escrow-v1-draft.6` | Audit fixes of draft.5, all on the signer, the producer step and Await; no change to the decoder, the table, the extractors or the facts. (1) S11: only field `paymentId` is offered (`nonce` refuses to start: no server signature covers it, so the agent would choose the signed bytes); S11 needs `CheckServerSignature` and runs S4 a to f with S4f on the `R` bound by the action; with S11 enabled, S4 is a MUST before the deposit is signed. (2) S11 needs the decision's S2 material (envelope, Authorization, action bytes, salt) re-verified, and the request's API credential pinned to the envelope's agent key (one credential per agent is a MUST while S11 is enabled), so one agent cannot fetch another agent's Payment-Signature. (3) S11 refuses a committed `resource` that does not start with `https://`. (4) Await Q5: a source that served the transaction (set aside after the lookup) blocks `not_executed` and the nonce release. (5) Operator labels: explicit or defaulted, shown in the report; S11 needs explicit labels; L1's trust statement names the labels. (6) BJ0 and S4c: body and `R` sizes, nesting depth 16, strings checked after unescaping under the core JT4 text rules; timeouts for the build and relay calls; B3 direct fallback after `RelayGrace`. (7) S3: the pending-nonce check is a MUST. (8) S8 wording; freeze condition on the server's `buyer` and single-use checks (section 0). Outcome changes: S11 refusals (field `nonce`, `http://` resource, missing or unsigned `R`, a request without the agent's own credential; S11 enabled with a shared credential or an unlabelled source refuses to start); a deposit without `R` when S11 is enabled; a nonce other than the pending one; Await `unknown` instead of `not_executed` when a set-aside source served the transaction. | All files regenerated (`revision` draft.6). `x402.json`: `build.resource` is now the `https://` form of `R`'s URL (action 334 bytes, new `cbor_hex` and `action_hash_hex`), new `build.requirements_resource_url`, `build_limits`; `build_escaped_name` now really escapes; `build_accept` 11 (new: `build_escaped_value`, `build_size_max`, `build_nesting_16`, `build_nonce_2_53_minus_1` with its own `cbor_hex`), `build_reject` 54 (new: `build_too_large`, `build_nesting_17`, `build_lone_surrogate`, `build_raw_control`, `build_invalid_utf8` as `json_hex`, `build_nan`, `build_data_missing`, `build_type_null`, `build_value_escaped_sign`, `build_data_empty`); `requirements` `max_depth`, `accept` 9 (new: `r_size_max`, `r_server_sig_high_s`, `r_escaped_value`, `r_nesting_16`), `reject` 40 (new: `r_server_sig_r_n`, `r_server_sig_s_n`, `r_server_sig_wrong_parity`, `r_server_sig_wrong_parity_27`, `r_nesting_17`, `r_lone_surrogate`, `r_raw_control`, `r_invalid_utf8`, `r_nan`, `r_scheme_escaped_other`); `payment_signature`: the `nonce` case removed, `refused_fields`, 9 `requests` (S11 steps a, c, d). `multi_source.json`: `operator_label` on every source; 26 cases (new: `aside_found_two_not_found_until`, `aside_hash_mismatch_two_not_found_until`, `aside_unavailable_after_lookup_until`, `aside_chain_config_two_not_found_until`, `default_labels_agree`); no earlier case changed its outcome. |
 
 ## 1. Threat model
 
@@ -60,10 +72,10 @@ human approved.
 | `chain_id` inside the transaction, signed by EIP-1559; `to` must be the table's escrow for that chain (ED1) | Bytes authorized for one chain or contract executed on another (testnet against mainnet, the dev chain against either) | The table is compiled in (policy X2); the dev row belongs only to the dev extractor ID, registered only in `edictadev` builds |
 | Escrow runtime code hash per row (section 3), checked by the signer before signing (S3c) and by the verifier (EE5) | A copy at the testnet or dev address whose code differs, so that a deposit log means something else; a deposit sent to the CREATE2 address before the copy exists, which would be a plain transfer to an address with no code | The hash is pinned from the verified mainnet deployment |
 | Facts count the deposit `value` (the cap) plus the fee bound `gas_limit * max_fee_per_gas` (section 4) | A mandate that counts only what the facilitator later settles, after the money left; gas burned outside the principal's limits (a compromised agent sending many reverting or high-fee deposits) | The facilitator settles at most the cap (contract rule, RF6); the sender pays at most `gas_limit * max_fee_per_gas` in fees (EIP-1559) and Eden charges no other fee (RF29, `UNVERIFIED`) |
-| `/deposit/build` JSON converted by one strict rule set (2.2a) | Two producers (TS and Go) building different bytes from one server answer; a server field silently dropped | The committed bytes are what the signer signs; the conversion runs before the commitment, never after |
-| `requirements_hash` over the exact header bytes `R` (2.5); signer checks S4 when `R` is presented | A deposit whose calldata does not match the server's quote; a quote not issued by the pinned facilitator (`serverSignature`, S4f) | `R` is untrusted input until S4 passed; `serverSignature` covers only `paymentId` (RF26) |
-| Payment-Signature only for the decision's own `paymentId` or the `nonce` of its bound `R`, only after the deposit executed at L1 (S11) | The payer key used as a free EIP-191 oracle by a compromised agent; a payment claim before any money moved | The payer key is dedicated to this profile; no other service accepts its EIP-191 signatures (S1) |
-| Inclusion checked through at least two Eden RPC operators (L1), never through the server's `/deposit/status` (5.4, 5.5, 7.4) | One RPC operator, or the payment server, saying a deposit landed when it did not | Those operators do not collude (operator labels are configuration, not proof of independence) |
+| `/deposit/build` JSON converted by one strict rule set (2.2a), with size and nesting limits | Two producers (TS and Go) building different bytes from one server answer; a server field silently dropped; a hostile server exhausting the producer's memory or stack | The committed bytes are what the signer signs; the conversion runs before the commitment, never after |
+| `requirements_hash` over the exact header bytes `R` (2.5); signer checks S4 when `R` is presented, and always when S11 is enabled | A deposit whose calldata does not match the server's quote; a quote not issued by the pinned facilitator (`serverSignature`, S4f) | `R` is untrusted input until S4 passed; `serverSignature` covers only `paymentId` (RF26) |
+| Payment-Signature only over the decision's own `paymentId` (`w0`), which the pinned facilitator signed in `R` (S4f enforced); only to the decision's own agent (its pinned API credential, plus the re-verified S2 material); only for an `https://` resource; only after the deposit executed at L1 with explicitly labelled operators (S11) | The payer key used as an EIP-191 oracle for bytes a compromised agent chose; one agent taking another agent's payment proof; a payment proof sent in clear; a payment claim before any money moved | The payer key is dedicated to this profile (S1); the allowlisted facilitator does not sign `paymentId` values chosen to be harmful elsewhere; the payment server checks `buyer` and single use (section 0, RF27) |
+| Inclusion checked through at least two Eden RPC operators (L1), never through the server's `/deposit/status` (5.4, 5.5, 7.4) | One RPC operator, or the payment server, saying a deposit landed when it did not | Those operators do not collude, and the configured labels name distinct operators (labels are the configurer's statement, not proof of independence; a defaulted label is the host and does not detect two hosts in front of one node) |
 | Signer pins: facilitator allowlist, refund delay, fees, gas, payer without code (S3); fee budgets (S7) | A deposit that names an attacker's facilitator; a refund that goes to the facilitator because the payer's receive costs more than 30,000 gas; fee drain, per transaction and per hour | The operator configures them; the agent cannot change them; facts carry none of them |
 | `expiresAt <= expires` (S5) | A deposit taking effect after the Authorization expired | The escrow refuses a deposit with `expiresAt <= block.timestamp` (RF5); the block time is the sequencer's |
 | One digest per `commitment_hash`, durable before signing; deterministic signatures (S6) | Two different transactions for one decision; a re-sign after a crash producing new bytes | The account nonce lets one signed transaction land at most once |
@@ -122,7 +134,8 @@ JSON.
 
 | Rule | Check (every failure is `edenescrow.ErrMalformed`, rule named in the vectors) |
 |---|---|
-| BJ1 Document | The body is one JSON document under core 18.4 JT3 (UTF-8 without a byte order mark; whitespace only space, tab, LF, CR; nothing after the value; member names compared after unescaping), with no member name repeated in any object at any depth. It is an object with a member `txData` (an object) and a member `paymentId` (a string). Other top-level members are ignored. |
+| BJ0 Size | The body is 1 to 16384 bytes. The producer reads at most 16385 bytes of the answer and refuses a longer one before parsing. |
+| BJ1 Document | The body is one JSON document under core 18.4 JT3 (UTF-8 without a byte order mark; whitespace only space, tab, LF, CR; nothing after the value; member names compared after unescaping), with no member name repeated in any object at any depth, arrays and objects nested at most 16 deep (the top-level object is depth 1), and no `NaN` or `Infinity`. Every string, member names and values, ignored members included, is taken after unescaping under the core JT4 text rules: an unpaired surrogate, a raw control character below `0x20` or invalid UTF-8 refuses. BJ2 to BJ7 compare and parse the unescaped strings. It is an object with a member `txData` (an object) and a member `paymentId` (a string). Other top-level members are ignored. |
 | BJ2 Members | `txData` has exactly the members `to`, `data`, `value`, `nonce`, `gasLimit`, `maxFeePerGas`, `maxPriorityFeePerGas`, `chainId`, and optionally `type` and `accessList`. Any other member (`from`, `gas`, `gasPrice`, `authorizationList`, ...) and any missing one is refused. |
 | BJ3 Integers | `value`, `gasLimit`, `maxFeePerGas`, `maxPriorityFeePerGas`: JSON strings of 1 to 78 decimal digits, no sign, no leading zero other than `"0"` itself, no spaces. `nonce`, `chainId`: JSON numbers in the core JT4 uint form (digits only, no sign, fraction or exponent; at most `2^53 - 1`). |
 | BJ4 Hex | `to`: `"0x"` and exactly 40 hex digits; `data`: `"0x"` and an even number of hex digits; `paymentId`: `"0x"` and exactly 64 hex digits. Digits of either case; the prefix is lower-case `0x`; an EIP-55 checksum is not checked (the bytes are what count). |
@@ -130,7 +143,7 @@ JSON.
 | BJ6 Build | `tx = 0x02 \|\| rlp([chainId, nonce, maxPriorityFeePerGas, maxFeePerGas, gasLimit, to, value, data, []])` with canonical RLP integers (ET3: minimal big-endian, zero is `0x80`); the action (2.1) with `resource` and `requirements_hash` (2.5); then 2.4 runs on the action, and its first failing rule (ET3 for 2^256 or a 2^63 gas limit, ET4, ET6, ET8, ED1, ...) is the refusal. |
 | BJ7 `paymentId` | The top-level `paymentId` equals `w0` of the calldata (2.3). |
 
-The rules run in order BJ1 to BJ7. The step is outside the trust
+The rules run in order BJ0 to BJ7. The step is outside the trust
 boundary: a producer that converts differently only produces an action the
 signer refuses or a deposit the server rejects; the committed bytes are
 exactly what the signer signs, so the "no re-encoding after commitment"
@@ -138,14 +151,32 @@ rule (core I3) is unaffected. Producers SHOULD also run S4 (5.1) on
 `(R, tx)` before committing, as the requester's client checks the deposit
 against the quote.
 
+Escapes: a JSON string may spell the same text in several ways (`"to"` or
+`"\u0074o"`). Every check reads the unescaped text, so all spellings are
+accepted alike and none can smuggle a sign, a space or another character
+past BJ3 or BJ4 (vectors `build_escaped_name`, `build_escaped_value`,
+`build_value_escaped_sign`). Parsers MUST check the nesting depth before
+they descend, so that no parser recurses deeper than 16 levels.
+
+Timeouts: the producer's calls to `/deposit/build` and `/deposit/send`
+(5.4) each have a deadline (`ServerTimeout`, default 10 s, at most 60 s).
+A build that times out produces no action and no commitment; a relay that
+times out falls back to a direct send (B3).
+
+Threat note: the server's answer is read before anything is committed, by
+a process that holds no key. The size, depth and time limits bound what a
+hostile or broken server costs that process: memory, stack and waiting
+time, never a wrong commitment.
+
 Observed on the fixture (`x402.json` `build`, 2026-10-21): the server
 chose `nonce` 508260 (the pending nonce of `from`, `UNVERIFIED`), gas
 224145, max fee 1533 wei, tip 0, chain 714 (RF24); no `type`, no
-`accessList`, no `from`. The resulting `tx` is 245 bytes, the action 333
-bytes; the decoder and both extractors accept it as is. The server picks
-the nonce, so a client builds one deposit at a time per payer (two
-concurrent builds get the same nonce; the second signed transaction fails
-at the chain or is refused by S3's pending-nonce check).
+`accessList`, no `from`. The resulting `tx` is 245 bytes, the action 334
+bytes (with the `https://` resource); the decoder and both extractors
+accept it as is. The server picks the nonce, so a client builds one
+deposit at a time per payer (two concurrent builds get the same nonce; the
+second signed transaction fails at the chain or is refused by S3's
+pending-nonce check).
 
 ### 2.3 Deposit calldata (`data`)
 
@@ -232,14 +263,18 @@ contain them.
 - `R` is at most 16384 bytes (S4a); a producer refuses a larger header.
 - `resource` (key 3) is the URL the client requested. It MAY differ from
   `R`'s `resource.url` (observed: the server names `http://` while the
-  client calls `https://`, RF23); `R` keeps the server's version.
+  client calls `https://`, RF23); `R` keeps the server's version. The
+  signer issues a Payment-Signature only when `resource` starts with
+  `https://` (S11), so a producer that wants one commits the `https://`
+  URL it actually calls.
 - Tag `edicta/eden-escrow/v1/requirements` (34 bytes, `tag(t)` first byte
   `0x22`), family `eden-escrow` under policy 2.1. It is a hash tag only:
   no Edicta key signs under it, and no core or policy tag has this ASCII.
 - Producers SHOULD put `R` and the resource into the payload plaintext so
   that an auditor can recompute the hash. The gate never reads `R`
   (invariant 3). The signer checks it when it is presented (S4), and MUST
-  have it for a `Payment-Signature` over the `nonce` (S11).
+  have it, with a valid `serverSignature`, before it signs a deposit while
+  S11 is enabled and before every Payment-Signature (S11).
 - Timing: the producer sets the commitment's `valid_until` so that the
   Authorization's `expires >= expiresAt` of the quote; otherwise S5 refuses
   every quote. The observed `expiresAt` is about 300 s after the quote
@@ -249,7 +284,9 @@ contain them.
   (`live/houston-payment-required.json`) as `R`: real values, but a
   pretty-printed re-serialization, not the header's wire bytes
   (`wire_bytes: false`). A raw header capture replaces it before the
-  freeze.
+  freeze. The `build` action commits the `https://` form of `R`'s URL
+  (`resource`), the URL the requester's client calls; `R`'s own
+  `http://` URL is kept as `requirements_resource_url`.
 
 Threat note: without the binding, an action names only a deposit; the
 purpose (which call, at what quoted price) would rest on payload text that
@@ -283,8 +320,10 @@ deposit sent as form T). The `tx` (243 bytes):
 The `/deposit/build` fixture converted by 2.2a: `tx` 245 bytes,
 `keccak256(tx)` =
 `2b459989ad782892ebe827e4a050ba1b2d1ac9eafe7d261f410cf0979d4ad8dc` (equal to
-go-ethereum's signing hash); with `resource` = `R`'s `resource.url` and
-`requirements_hash` over the saved document, the action is 333 bytes.
+go-ethereum's signing hash); with `resource` =
+`https://inference.bot.fun/v1/chat/completions` (`R`'s URL with the
+`https://` scheme the client uses) and `requirements_hash` over the saved
+document, the action is 334 bytes.
 Facts (4): `{kind: x402-payment, asset: eip155:714/native, amount:
 068e6a28ffe5 (7208392580248 + 224145 * 1533 = 7208736194533 wei), scale: 18,
 recipient: eip155:714:0xc5aaa301b580d31e64b3bf546846586d934416dc}`.
@@ -449,17 +488,17 @@ I7) applies; the rules below are the profile's checks (core 16.2 item 4).
 
 | Rule | Requirement | Refusal |
 |---|---|---|
-| S1 Pins | Configured out of band, never taken from a request: `gate_id -> gate_pubkey`; the set of agent public keys it serves; this action type; the chain ids it serves (rows of its build's table); per chain: the payer address (the signing key's address, checked at startup; one payer key per served chain SHOULD hold, so a key never signs for two chains), the allowed facilitators, `MaxRefundDelay` (seconds), `MaxFeePerGas`, `MaxGas` and `MaxFeePerAction`; operator caps (S7); `skew_s`; `RefuseFast`; the Eden RPC sources for S3c, S3e and Await, each with a class and an `operator` label (5.5), `AwaitLevel` (default and minimum for S11: `L1`) and `MinSources` (default 2, at least 2); `PaymentSignatureField` (`paymentId`, the default, or `nonce`); `CheckServerSignature` (default true); the broadcaster mode (5.4). The escrow address comes from the compiled table, never from configuration. The payer key is dedicated to this profile: it signs nothing but S8 and S11 messages, holds only native TIA, has no token balances or approvals, and its address is used with no other service that authenticates by EIP-191 signatures. | refuses to start |
+| S1 Pins | Configured out of band, never taken from a request: `gate_id -> gate_pubkey`; the set of agent public keys it serves; this action type; the chain ids it serves (rows of its build's table); per chain: the payer address (the signing key's address, checked at startup; one payer key per served chain SHOULD hold, so a key never signs for two chains), the allowed facilitators, `MaxRefundDelay` (seconds), `MaxFeePerGas`, `MaxGas` and `MaxFeePerAction`; operator caps (S7); `skew_s`; `RefuseFast`; the Eden RPC sources for S3c, S3e, the pending nonce (S3) and Await, each with a class and an `operator` label (5.5), `AwaitLevel` (default and minimum for S11: `L1`) and `MinSources` (default 2, at least 2); `PaymentSignatureField` (`paymentId`, the default, or `off`; any other value, `nonce` included, refuses to start); `CheckServerSignature` (default true). S11 is **enabled** when `PaymentSignatureField = paymentId` and `CheckServerSignature = true`; then every Await source MUST carry an explicitly configured `operator` label (a source without one refuses to start). The API credentials: each pinned to exactly one served agent public key; one credential per agent SHOULD be configured, and while S11 is enabled it MUST be (a credential shared by several agents, or not pinned to an agent key, refuses to start). `ServerTimeout` and `RelayGrace` and the broadcaster mode (5.4). The escrow address comes from the compiled table, never from configuration. The payer key is dedicated to this profile: it signs nothing but S8 and S11 messages, holds only native TIA, has no token balances or approvals, and its address is used with no other service that authenticates by EIP-191 signatures. | refuses to start |
 | S2 Two signatures | The request carries the signed envelope, the Authorization, the action bytes and the salt. The envelope passes core stages D, S and G with an agent key from the pinned set; its `action.type` is this type and stage A matches the bytes and salt; its `commitment_hash` equals the Authorization's; `VerifyAuthorization` (core 15.3) passes with the pinned gate key and id, this type, the exact action bytes, the salt, the signer's clock and `skew_s`. A gate signature alone never suffices. | `ErrNotAuthorized` |
-| S3 Decode and pins | Strict decode (2.4) with the build's table; `chain_id` is a served chain; `w2` (facilitator) is in the chain's allowlist; `refundAfter - expiresAt <= MaxRefundDelay`; `max_fee_per_gas <= MaxFeePerGas`; `gas_limit <= MaxGas`; `max_fee_per_gas * gas_limit <= MaxFeePerAction`. S3c: `keccak256(eth_getCode(escrow, "latest"))` equals the table's code hash, read through the signer's own Eden RPC, at startup for every served chain and before every signature (MUST); an RPC error refuses (fail closed). S3e: the payer address has no code (no EIP-7702 delegation): checked at startup, and SHOULD be checked before every signature through the signer's own Eden RPC. The signer SHOULD refuse a `nonce` other than the payer's pending nonce. | `ErrMalformed`, `ErrUnknownDomain`, `ErrPinMismatch`, `ErrEscrowCode` |
-| S4 `R` checks | Run when the request presents `R` (optional for S2 to S9: SHOULD be presented and then MUST pass before the deposit is signed; MUST pass before S11 with field `nonce`). In order, the first failure decides: **S4a** `1 <= len(R) <= 16384`. **S4b** `H(tag \|\| R)` (2.5) equals the action's `requirements_hash`. **S4c** `R` is one JSON document under BJ1's document rules (JT3, no repeated member names at any depth); an object; `x402Version` is the JSON number `2`; `accepts` is an array. **S4d** Exactly one element of `accepts` is an object with `scheme = "escrow-upto"` and an `extra` object whose `paymentId` (`"0x"` and 64 hex digits) equals `w0`; other elements are ignored. **S4e** In that entry: `network = "eip155:" + chain_id`; `asset = "native"`; `amount` (BJ3 decimal string) `= value`; `payTo` (BJ4 address) `= w1`; `extra.escrowContract = to`; `extra.facilitator = w2`; `extra.expiresAt = w3` and `extra.refundAfter = w4` (JT4 uint numbers); `extra.tiaPriceUsd` (decimal string) `= w5` as an integer; `extra.chainId = chain_id` (JT4 uint); `extra.nonce`, if present, is `"0x"` and 64 hex digits. Other members are ignored. **S4f** (when `CheckServerSignature`) `extra.serverSignature` is `"0x"` and 130 hex digits, `r \|\| s \|\| v` with `v` in {0, 1, 27, 28} and `r`, `s` in `1..n-1`, and the address recovered from `personal_sign(w0)` (5.6) equals `w2`. | `ErrRequirements` |
+| S3 Decode and pins | Strict decode (2.4) with the build's table; `chain_id` is a served chain; `w2` (facilitator) is in the chain's allowlist; `refundAfter - expiresAt <= MaxRefundDelay`; `max_fee_per_gas <= MaxFeePerGas`; `gas_limit <= MaxGas`; `max_fee_per_gas * gas_limit <= MaxFeePerAction`. S3c: `keccak256(eth_getCode(escrow, "latest"))` equals the table's code hash, read through the signer's own Eden RPC, at startup for every served chain and before every signature (MUST); an RPC error refuses (fail closed). S3e: the payer address has no code (no EIP-7702 delegation): checked at startup, and SHOULD be checked before every signature through the signer's own Eden RPC. S3n: before a new reservation (S6; not for the repeat of a stored one), the transaction's `nonce` MUST equal the payer's pending nonce, `eth_getTransactionCount(payer, "pending")` read through the signer's own Eden RPC; a different nonce and an RPC error both refuse with `ErrPinMismatch` (fail closed). The signer SHOULD also refuse a `nonce` it signed for another `commitment_hash` whose Await state is not yet final. | `ErrMalformed`, `ErrUnknownDomain`, `ErrPinMismatch`, `ErrEscrowCode` |
+| S4 `R` checks | For the deposit (S2 to S9): `R` SHOULD be presented and, when presented, MUST pass before the deposit is signed; while S11 is enabled (S1), `R` MUST be presented and pass, S4f included, so that the signer never pays a deposit whose Payment-Signature it would refuse. For S11: MUST pass with S4f enforced (S11d). In order, the first failure decides: **S4a** `1 <= len(R) <= 16384`. **S4b** `H(tag \|\| R)` (2.5) equals the action's `requirements_hash`. **S4c** `R` is one JSON document under BJ1's document rules (JT3, no repeated member names at any depth, nesting at most 16 deep, no `NaN`, every string taken after unescaping under the core JT4 text rules; S4d to S4f compare unescaped strings); an object; `x402Version` is the JSON number `2`; `accepts` is an array. **S4d** Exactly one element of `accepts` is an object with `scheme = "escrow-upto"` and an `extra` object whose `paymentId` (`"0x"` and 64 hex digits) equals `w0`; other elements are ignored. **S4e** In that entry: `network = "eip155:" + chain_id`; `asset = "native"`; `amount` (BJ3 decimal string) `= value`; `payTo` (BJ4 address) `= w1`; `extra.escrowContract = to`; `extra.facilitator = w2`; `extra.expiresAt = w3` and `extra.refundAfter = w4` (JT4 uint numbers); `extra.tiaPriceUsd` (decimal string) `= w5` as an integer; `extra.chainId = chain_id` (JT4 uint); `extra.nonce`, if present, is `"0x"` and 64 hex digits. Other members are ignored. **S4f** (when `CheckServerSignature`, which S11 requires) `extra.serverSignature` is `"0x"` and 130 hex digits, `r \|\| s \|\| v` with `v` in {0, 1, 27, 28} and `r`, `s` in `1..n-1`, and the address recovered from `personal_sign(w0)` (5.6) equals `w2`. | `ErrRequirements` |
 | S5 Time | `expiresAt <= expires` of the Authorization; `now + skew_s < expires` (core I6). SHOULD refuse `expiresAt <= now + skew_s` (the deposit would revert). | `ErrExpired` |
 | S6 One digest per decision | Before signing, the signer durably reserves `commitment_hash -> keccak256(tx)`, in the same durable write as the S7 counters. A repeat of the same request returns the stored signed bytes and counts nothing; any request for that `commitment_hash` with another digest is refused. Signatures are deterministic (RFC 6979, low `s`), so a re-sign after a crash gives the same bytes. | `ErrDigestConflict` |
 | S7 Operator caps | `value <= MaxValuePerAction`; in any rolling 3600 s window, the sum of `value` `<= MaxValuePerHour` and the sum of the fee bound `max_fee_per_gas * gas_limit` `<= MaxFeePerHour`. Counted when reserved (S6, same durable write, before signing), not when landed; a reserved action stays counted even if never sent. A risk limit of the operator, beside the principal's mandate. | `ErrRiskLimit` |
-| S8 What is signed | Exactly `keccak256(tx)` of the bytes S3 decoded, with the payer key. The output is built by the splice rule of 5.2; nothing is re-encoded from a struct. The only other transaction the payer key ever signs is the nonce release of 5.3. The only other message it signs is the S11 `personal_sign` digest; that digest is `keccak256(0x19 \|\| ...)`, a preimage that never starts with a transaction type byte, so neither can stand for the other. | |
+| S8 What is signed | Exactly `keccak256(tx)` of the bytes S3 decoded, with the payer key. The output is built by the splice rule of 5.2; nothing is re-encoded from a struct. The only other transaction the payer key ever signs is the nonce release of 5.3. The only other message it signs is the S11 `personal_sign` digest; that digest is `keccak256(0x19 \|\| ...)`. `0x19` lies in the EIP-2718 type range (`0x00` to `0x7f`) but is not `0x02`, the only type this key signs, and is not an RLP list prefix (`0xc0` and above, a legacy transaction), so neither preimage can stand for the other. | |
 | S9 Mode | Accepts `mode = 2` (fast) by default: the principal consented through the mandate's `fast_mode_max_delay` (invariant 9). `RefuseFast = true` refuses it. Logs `mode` and `anchor_deadline`. | `ErrFastModeRefused` |
 | S10 Record | Optional record request (core 14.3), signed with the executor key, only when `Await` (5.5) reached state `executed` or `reverted` at `AwaitLevel`. `rail_ref` has the form of section 6. Never recorded in any other state. | |
-| S11 Payment-Signature | On a request naming a `commitment_hash` (and, for field `nonce`, presenting `R`): (a) a stored S6 reservation exists for that `commitment_hash` (the signer itself signed its deposit after S2 to S9); (b) the field is the configured `PaymentSignatureField`; a request naming another field is refused; (c) Await (5.5) reached state `executed` at level `L1` or higher (at least two operators, EE8 included) for that reservation's `rail_ref`; (d) the message `m` is, for field `paymentId`, `w0` of the reserved `tx`; for field `nonce`, `extra.nonce` of the entry that S4 (a to f, with S4f as configured) selected in the presented `R`, which S4b binds to the committed action; field `nonce` without `R`, or with an entry without `nonce`, is refused; (e) the signature is the payer key's `personal_sign` of `m` (5.6), deterministic; it is stored per `(commitment_hash, field)` and a repeat returns it. Nothing else is ever signed through this path: not the request's bytes, not a hash the agent names. | `ErrNotAuthorized`, `ErrRequirements`, `ErrNotExecuted`, `ErrPinMismatch` |
+| S11 Payment-Signature | On a request naming a `commitment_hash` and a field, in this order (the first failure decides): **S11a** Enabled: S11 is enabled (S1) and the named field is `paymentId`; otherwise `ErrPinMismatch`. **S11b** Requester: the request carries the decision's S2 material (signed envelope, SignedAuthorization, action bytes, salt), and it passes S2, except that the clock checks (core 15.3 X4, S5's `now + skew_s < expires`) use the time stored with the S6 reservation instead of `now`; the envelope's `commitment_hash` is the one named; a stored S6 reservation exists for it (the signer itself signed its deposit); `keccak256(tx)` of these action bytes equals the reserved digest; and the request's API credential is pinned (S1) to the envelope's `agent_pubkey`. Otherwise `ErrNotAuthorized`. **S11c** Resource: the action's `resource` (key 3) starts with the 8 bytes `https://`; otherwise `ErrRequirements`. **S11d** Requirements: S4 a to f pass, S4f enforced, on `R`: the bytes stored with the reservation when the deposit was signed, or the bytes presented in this request (S4b binds either to the committed `requirements_hash`, so only one `R` can pass); no `R` or a failure is `ErrRequirements`. **S11e** Executed: Await (5.5) reached state `executed` at level `L1` or higher (at least two operators, EE8 included) for the reservation's `rail_ref`, and every Await source has an explicit operator label; otherwise `ErrNotExecuted`. **S11f** Message: `m = w0` of the reserved `tx`; S4d made it the selected entry's `paymentId`, and S4f the 32 bytes the pinned facilitator signed. **S11g** Signature: the payer key's `personal_sign` of `m` (5.6), deterministic, stored per `commitment_hash`; a repeat request runs S11a to S11d again and returns the stored signature. Nothing else is ever signed through this path: not the request's bytes, not a hash or nonce the agent names. | `ErrPinMismatch`, `ErrNotAuthorized`, `ErrRequirements`, `ErrNotExecuted` |
 
 Refusal names are the `signer` package's sentinels (to be defined with the
 signer skeleton); the vectors do not cover them, since they depend on
@@ -497,33 +536,73 @@ Threat notes:
   issued `paymentId`; `serverSignature` covers nothing else (amount,
   `payTo`, times and price are unsigned by the server, RF26), so S4e's
   equalities are checks of consistency, not of the server's authority.
-- S11 makes the signer an EIP-191 signer for 32-byte messages. Bounds: one
-  message per authorized, signed and executed deposit and field; `m` is
-  `w0` (in the committed action; with S4f, issued by a pinned
-  facilitator) or the `nonce` in the committed `R`. A compromised agent
-  still chooses what it commits: with field `nonce` (not covered by
-  `serverSignature`) it can commit an `R` whose `nonce` is any 32 bytes and,
-  by paying a real deposit within the mandate, obtain the payer key's
-  `personal_sign` of those bytes. `personal_sign` cannot authorize a
-  transaction or an EIP-712 permit, and the dedicated payer key (S1) has
-  no other use, so the residual is a signature no other system should
-  accept. Field `paymentId` with S4f leaves the agent no free choice.
+- S11 makes the payer key an EIP-191 signer for 32-byte messages, so who
+  chooses those bytes is the question. Bounds: one message per authorized,
+  signed and executed deposit; `m` is always `w0` of the committed
+  transaction, and S11d with S4f enforced requires that the pinned,
+  allowlisted facilitator signed exactly those 32 bytes in the committed
+  `R`. A compromised agent can commit any `w0` in its own form T bytes
+  (the decoder and the escrow accept any unused 32 bytes), but without the
+  facilitator's signature over them S11 refuses. So the signed bytes are
+  chosen by the facilitator, never by the agent. Residual: a compromised or
+  colluding allowlisted facilitator can choose them; `personal_sign`
+  cannot authorize a transaction or an EIP-712 permit, and the dedicated
+  payer key (S1) has no other use, so what remains is a signature that no
+  other system should accept (some contracts, for example a Safe, do
+  accept `eth_sign`-style owner signatures: hence the dedicated key).
+- Why not field `nonce`: `extra.nonce` is not covered by `serverSignature`
+  (RF26). A compromised agent could commit an `R` whose `nonce` is any 32
+  bytes (a Safe transaction hash, say), pay one real deposit within its
+  mandate and obtain the payer key's signature of those bytes. No check
+  the signer can run closes that, so this revision does not offer the
+  field; a server that verifies `nonce` needs a later revision in which a
+  server signature covers it (section 12).
+- Why S11b: the `commitment_hash` is public. Without S11b, any client of
+  the signer API (a compromised agent included) could fetch another
+  agent's Payment-Signature and spend the payment the victim made. Two
+  parts, because neither suffices alone:
+  - The S2 material ties the request to an authorized decision that the
+    signer itself paid, re-verified rather than read from storage. It is
+    not a secret: the envelope is public, the Authorization is archived
+    (kind 4), and without auditors in the mandate the decision record (kind 17,
+    form 1) holds the action bytes and the salt in clear, as does a
+    reveal (kind 18). So it does not identify the requester.
+  - The per-agent credential does: while S11 is enabled each credential is
+    pinned to one agent key (S1), and S11b requires the envelope's agent
+    key. Agent B, holding only its own credential, is refused for agent
+    A's `commitment_hash`.
+  Residual: the credential is a bearer secret of the agent's process; a
+  thief of it acts as that agent, here and at every other signer
+  endpoint. An agent signature over the S11 request would remove the
+  bearer secret, but the core states that an agent key signs only
+  commitments and publish requests (core 17.1), so it needs a core change
+  (section 12).
 - S11 after execution only: a Payment-Signature before the deposit
   landed would let the server (or anyone holding the header) claim
-  payment for a deposit that may never execute. L1 is the floor so that a
-  single RPC operator cannot trigger it.
+  payment for a deposit that may never execute. L1 with explicit operator
+  labels is the floor, so that a single RPC operator, or two hosts that
+  the configurer did not name as distinct operators, cannot trigger it.
+- Soft confirmation: S11e rests on Eden's soft blocks (`ConfirmDepth`
+  blocks past the head of each source). The single sequencer can still
+  roll a soft block back before it reaches Celestia (7.6); a deposit
+  dropped that way leaves a Payment-Signature that was issued for money
+  that never moved. Accepted for fast settlement; the server's own check
+  of the escrow (`buyer`, RF27) at redemption time is what catches it.
 - With field `paymentId`, the Payment-Signature message is the same
   32-byte message as the facilitator's `serverSignature` (vector
   `payment_id_digest_equals_server_signature_digest`). The server must
   therefore check that the recovered signer is the escrow's `buyer`;
   otherwise the quote's own `serverSignature` would be a valid payment
-  proof for anyone who saw the quote. What the server checks is
-  `UNVERIFIED` (RF27); this is a question to the requester, not a rule
-  Edicta can enforce.
-- Replay: a Payment-Signature is a bearer proof for one deposit. Anyone who
-  sees it (the server, or an on-path observer if the resource is called
-  over plain HTTP) can present it again; single use is the server's rule
-  (`UNVERIFIED`, RF27). Clients MUST call the resource over HTTPS.
+  proof for anyone who saw the quote. Edicta cannot enforce this; it is a
+  freeze condition (section 0, RF27).
+- Replay and transport: a Payment-Signature is a bearer proof for one
+  deposit. Anyone who sees it (the server, or an on-path observer if the
+  resource is called over plain HTTP) can present it again; single use is
+  the server's rule (freeze condition, section 0). The key holder never
+  sees where the client sends the header, so the part it can enforce is
+  S11c: the committed `resource` names `https://`. A client that commits
+  `https://` and then calls `http://` defeats it; that is outside what the
+  signer can see.
 
 ### 5.2 Signed transaction (splice rule)
 
@@ -544,13 +623,14 @@ the caller: `signed` and `rail_ref` (section 6).
 
 ```
 0 producer: R from PAYMENT-REQUIRED; /deposit/build -> tx (2.2a); S4 SHOULD; commit (da = 2, fast)
+  (resource = the https:// URL it calls)
 1 gate: Authorization (core invariant 5: nonce marked durably before it leaves)
-2 signer: S1..S9 (S4 when R is presented); S6 reserve; sign; store signed bytes; rail_ref known now
+2 signer: S1..S9 (S4 when R is presented, always while S11 is enabled); S6 reserve (MAY keep R); sign; store signed bytes; rail_ref known now
 3 broadcaster (5.4): I5 in-flight record (commitment_hash -> rail_ref),
   then the Houston relay or eth_sendRawTransaction(signed)
 4 Await(rail_ref, until = expiresAt + AwaitGrace): EE2..EE8 per source, combined by 5.5 at AwaitLevel
 5a executed or reverted at AwaitLevel -> record request (S10)
-5b executed at L1 -> S11 Payment-Signature on request -> the client retries the paid call
+5b executed at L1 -> S11 Payment-Signature on the agent's request -> the client retries the paid call
 5c not_executed (5.5) after until -> no record request; never sign other bytes
 5d disputed or unknown -> no record, no S11, no release; retried later, then the operator
 ```
@@ -577,7 +657,8 @@ it is logged with that `commitment_hash`. It moves no money (only the gas),
 so it widens nothing the mandate bounds; if the original lands first, the
 release fails on the nonce. Since draft.5 `not_executed` is the
 multi-source state of 5.5: a single source that shows the deposit blocks
-the release.
+the release, including (since draft.6) a source set aside after it served
+the transaction.
 
 | Case | Behaviour |
 |---|---|
@@ -587,7 +668,7 @@ the release.
 | Stuck in the sequencer's private pool, or censored (RF16) | 5b after `until`; if it lands later the deposit reverts (`expiresAt` passed). |
 | Reverted deposit | Recorded honestly with its `rail_ref`; the decision is consumed. |
 | Eden RPC down | Await polls until `until`; if too few operators answered, the state stays `unknown` (not 5c) and the lookup is retried later. |
-| Relay accepted the bytes but never broadcast them | Await sees nothing; the broadcaster re-sends the same bytes directly (5.4); 5c after `until` if still not found. |
+| Relay accepted the bytes but never broadcast them | Await sees nothing; once `RelayGrace` has passed since the relay's answer with no source showing `rail_ref`, the broadcaster sends the same bytes directly (5.4 B3); 5c after `until` if still not found. |
 | Two decisions with identical action bytes | Same digest, same signed bytes (RFC 6979), same hash: the payment lands once, both decisions are counted by the mandate (over-count, safe), both may record the same `rail_ref`. |
 
 Idempotency key (core 16.3): the rail has no idempotency field for a plain
@@ -615,7 +696,12 @@ Rules:
   `transactionHash`, possibly under `result`, `tx`, `transaction`) is only
   compared with `rail_ref`: a different hash is logged as a relay fault and
   the broadcaster sends directly. An error (observed: `failed to broadcast
-  transaction`) or a timeout leads to a direct send of the same bytes.
+  transaction`), a timeout (`ServerTimeout`, 2.2a) or an answer longer
+  than 16384 bytes (read no further) leads to a direct send of the same
+  bytes. After a success, if no Await source shows `rail_ref` within
+  `RelayGrace` (default 30 s, at most `AwaitGrace`), the broadcaster also
+  sends directly: a relay that answers success and withholds the bytes
+  costs at most `RelayGrace`.
 - B4 `GET {base}/deposit/status/:txHash` is never evidence and never an
   Await source: observed, it answers `confirmed` for any hash already on
   Eden, whatever transaction it is (RF25). It MUST NOT change any state of
@@ -628,7 +714,7 @@ Threat note: the relay sees the signed bytes before inclusion. It can
 delay, withhold or front-run them only as any public mempool observer
 could: it cannot change them (the signature covers every field) and cannot
 make a different transaction count (EE3, S6). Withholding costs at most
-`until`; the direct fallback bounds it.
+`RelayGrace`, after which the direct fallback sends the same bytes.
 
 ### 5.5 Await states and the multi-source rule
 
@@ -636,11 +722,22 @@ Await combines per-source results (EE2 to EE8 on each Eden JSON-RPC source)
 into one state. A source's result is `pass` (with outcome and binding:
 `blockHash`, `transactionIndex`, receipt consensus encoding), `not_found`,
 `unconfirmed` (EE6 below `ConfirmDepth`), `unavailable`, or `set_aside`
-(any other EE failure, with its reason). Sources count by **operator**: each
-configured source carries an `operator` label (default: its OH3 host), and
-two sources with one label count once. The label is the operator's
-statement; Edicta cannot check independence (RF30: whether Blockscout's
-`api/eth-rpc` reads its own node or `rpc.eden.gateway.fm` is unknown).
+(any other EE failure, with its reason). A source is **seen** when it
+served a transaction for `rail_ref`: every `pass` and `unconfirmed`, and
+every `set_aside` whose reason comes after the lookup (EE2
+`settlement_hash_mismatch` and `settlement_tx_type`, EE7
+`settlement_disagree`, EE8 `settlement_log_mismatch`, and
+`settlement_source_unavailable` when a call failed after the transaction
+was served). EE5's `settlement_chain_config` and `settlement_code_mismatch`
+come before the lookup and are not seen; neither is a failure of the
+lookup itself (`unavailable`). Sources count by **operator**: each
+configured source carries an `operator` label, explicit (configured) or
+defaulted (its OH3 host), and two sources with one label count once. The
+label is the configurer's statement; Edicta cannot check independence
+(RF30: whether Blockscout's `api/eth-rpc` reads its own node or
+`rpc.eden.gateway.fm` is unknown), and a defaulted label cannot detect two
+hosts in front of one node. S11 therefore needs explicit labels on every
+source (S1, S11e).
 
 | Order | Condition | Await state | Report (7.5, `MinLevel` = `AwaitLevel`) |
 |---|---|---|---|
@@ -648,12 +745,12 @@ statement; Edicta cannot check independence (RF30: whether Blockscout's
 | Q2 | Passing operators `k >= MinSources` | outcome (`executed` or `reverted`) at `L1` | `pass`, `L1` |
 | Q3 | `1 <= k < MinSources` and `AwaitLevel = L0` (explicit configuration) | outcome at `L0` | `pass`, `L0` |
 | Q4 | Before `until`, otherwise | `pending` (keep polling) | `unchecked`, reason as 7.5 |
-| Q5 | After `until`: `k = 0`, no source `unconfirmed`, and at least `MinSources` distinct operators answered `not_found` | `not_executed` | `unchecked`, `settlement_not_found` |
+| Q5 | After `until`: no source seen (so `k = 0` and none `unconfirmed`), and at least `MinSources` distinct operators answered `not_found` | `not_executed` | `unchecked`, reason as 7.5 |
 | Q6 | After `until`, otherwise | `unknown` (retried later) | `unchecked`, reason as 7.5 |
 
 | State | S10 record | S11 Payment-Signature | Nonce release (5.3) |
 |---|---|---|---|
-| `executed` at L1 | yes | yes | no |
+| `executed` at L1 | yes | yes, if every source's label is explicit | no |
 | `executed` at L0 | yes | no (L1 is the floor) | no |
 | `reverted` | yes | no | no |
 | `pending`, `disputed`, `unknown` | no | no | no |
@@ -666,15 +763,27 @@ Properties:
   gives `violated` (7.5), and it rests on the signed `rail_ref`, not on a
   source.
 - One source showing the deposit blocks `not_executed`, whatever the
-  others say; one source alone never reaches `executed` at L1.
-- Set-aside sources count for neither side.
+  others say, even when that source was set aside after it served the
+  transaction (vector `aside_found_two_not_found_until`); one source alone
+  never reaches `executed` at L1.
+- Set-aside sources never count as passing operators or as `not_found`
+  answers; a seen one blocks `not_executed`.
 - Defaults for this profile: `AwaitLevel = L1`, `MinSources = 2`
   (configuration validation refuses a `MinSources` below 2). Recommended
   sources: the operator's own Eden full node (class `own-node`) and
   `https://rpc.eden.gateway.fm`; a third operator when available.
 
-Vectors: `multi_source.json` (21 cases: per-source results, `MinSources`,
-`min_level`, phase, the report, the Await state and what it allows).
+Vectors: `multi_source.json` (26 cases: per-source results with the
+operator label's origin, `MinSources`, `min_level`, phase, the report, the
+Await state and what it allows).
+
+Threat note (Q5): a source that served the transaction and then failed a
+later check (a lying log, a bad hash, a missing receipt) is evidence that
+the transaction may exist. Counting it as nothing would let two silent
+operators produce `not_executed` and a nonce release while a third showed
+inclusion; the release then only fails on the nonce (gas lost), but the
+operator and the auditor would read "not executed" for a deposit that may
+have landed.
 
 ### 5.6 `personal_sign` (S4f and S11)
 
@@ -698,12 +807,15 @@ signature = r || s || v                                             ; 65 bytes
   paymentId, nonce}}` (the requester's client shape; `payload` carries both
   values whichever field was signed). The signer returns only the
   signature. Which field the server verifies is `UNVERIFIED` (RF27): the
-  client signs `nonce` by default, `paymentId` by option; this profile
-  defaults to `paymentId` because it is bound to the authorized transaction
-  as `w0`.
+  client signs `nonce` by default, `paymentId` by option. This profile
+  offers only `paymentId`: it is `w0` of the authorized transaction and
+  the facilitator signed it (S4f); `nonce` is covered by nothing the
+  signer can check (S11 threat notes). If the server verifies only
+  `nonce`, S11 cannot serve it until a later revision.
 
-Vectors: `x402.json` `payment_signature` (both fields, with message,
-preimage, digest, the `payer1` signature) and `requirements` `server_signature`.
+Vectors: `x402.json` `payment_signature` (field `paymentId`: message,
+preimage, digest, the `payer1` signature; `refused_fields`; `requests`,
+the stateless S11 steps a, c and d) and `requirements` `server_signature`.
 
 ## 6. `rail_ref` and receipts
 
@@ -758,7 +870,7 @@ clarification may want to say so.
 | `rail_ref` from a receipt that passed core 14.2 | the gate's and the executor's signatures (a claim, not a fact) |
 | `expires` (Authorization), `T_ref` | signed objects of the decision |
 | Escrow address and code hash for `chain_id` | the build's table (section 3) |
-| Sources: Eden JSON-RPC endpoints, each of class `public-rpc` or `own-node`, with an `operator` label (default: the OH3 host) | configuration; each is distinct by core OH3 (normalized host); L1 counts distinct operators (5.5) |
+| Sources: Eden JSON-RPC endpoints, each of class `public-rpc` or `own-node`, with an `operator` label, explicit or defaulted to the OH3 host | configuration; each is distinct by core OH3 (normalized host); L1 counts distinct operators (5.5); the report shows each label's origin |
 | `data_da_height` of the Eden block (optional) | the operator's own ev-node; report only |
 
 Configuration: `MinLevel` (default `L1` since draft.5; `L0` only by
@@ -810,7 +922,7 @@ and for the signer's Await.
 | Level | Name | Adds | Trust left |
 |---|---|---|---|
 | L0 | `node-attested` | EE2 to EE8 pass on one source. | That source. Class `own-node`: the operator's own node that checks the sequencer's signatures and re-executes, plus the sequencer's ordering. Class `public-rpc`: the RPC operator's word. |
-| L1 | `multi-source` | At least `MinSources` sources of distinct operators (and distinct by OH3) pass L0 and agree on `blockHash`, `transactionIndex` and the receipt's consensus encoding (`type \|\| rlp([status, cumulativeGasUsed, logsBloom, logs])`, rebuilt from each served receipt). | Collusion of those operators. |
+| L1 | `multi-source` | At least `MinSources` sources of distinct operators (and distinct by OH3) pass L0 and agree on `blockHash`, `transactionIndex` and the receipt's consensus encoding (`type \|\| rlp([status, cumulativeGasUsed, logsBloom, logs])`, rebuilt from each served receipt). | Collusion of those operators, and that the configured operator labels name distinct operators: a label is the configurer's own claim, and a defaulted label (the host) does not detect two hosts in front of one node. |
 | L2 | `receipt-proven` | From any source: the header fields hash to `blockHash` (`keccak256(rlp(header))`, RF11); all transactions of the block, `S` at `transactionIndex`, rebuild `transactionsRoot` (go-ethereum `DeriveSha`, RF12); all receipts (`eth_getBlockReceipts`, or one per transaction) rebuild `receiptsRoot` (RF13), and the one at `transactionIndex` equals the agreed receipt. The header itself is attested at L1. | The header is attested by the L1 operators; the block's contents are exact for that header. |
 
 A failure of the L2 proofs gives `settlement_block_proof` when `L2` was
@@ -843,7 +955,7 @@ Report field `rail_settlement` (JSON names):
 | `warnings` | EE9 names |
 | `da_included` | optional: `{height, source}` from the own ev-node's `data_da_height`, node-attested, report only |
 | `deposit` | the profile fields of 4.1 for the decoded action (present whenever the action decodes) |
-| `sources` | every source asked: name (OH3 host), class, `operator`, result (`used`, `agree`, `set_aside`, `not_found`, `unconfirmed`, `unavailable`) and reason |
+| `sources` | every source asked: name (OH3 host), class, `operator`, `operator_label` (`explicit` or `default`), result (`used`, `agree`, `set_aside`, `not_found`, `unconfirmed`, `unavailable`) and reason |
 
 ### 7.6 What the levels do not prove
 
@@ -950,27 +1062,28 @@ transaction is `wrong_tx` against a form T action with the same deposit
 | RF24 | `/deposit/build` chooses `nonce` (observed: the pending nonce of `from`), gas limit and fees; it returns JSON without `type`, `accessList` or `from` | observed on one fixture; nonce choice `UNVERIFIED` | fixture |
 | RF25 | `GET /deposit/status/:txHash` answers `pending` for an unknown hash and `confirmed` for any hash already on Eden | observed by the client's author; not evidence (5.4 B4) | R2 |
 | RF26 | `serverSignature` is the facilitator's `personal_sign` over the 32 bytes of `paymentId` only, `r \|\| s \|\| v` with `v = 0`, low `s` | verified on the fixture (recovers to `extra.facilitator`, the facilitator of the F14 settle) | fixture, F14 |
-| RF27 | What the server checks on the paid retry: which 32 bytes the `Payment-Signature` covers (`nonce` or `paymentId`), that the recovered signer is the escrow's `buyer`, the amount, the expiry, single use; whether `v` 27/28 and 0/1 are both accepted | `UNVERIFIED`: the paid retry was never observed; the requester's funded test this week | requester |
+| RF27 | What the server checks on the paid retry: which 32 bytes the `Payment-Signature` covers (`nonce` or `paymentId`), that the recovered signer is the escrow's `buyer`, the amount, the expiry, single use; whether `v` 27/28 and 0/1 are both accepted | `UNVERIFIED`: the paid retry was never observed; the requester's funded test this week. The `buyer` check and single use are a freeze condition (section 0) | requester |
 | RF28 | Whether `/deposit/send` is required, or any broadcast of the signed bytes suffices; its success body. Observed: a body without `paymentId` is refused; a bogus transaction gives `failed to broadcast transaction` | `UNVERIFIED` | requester |
 | RF29 | Eden charges the sender only `gas_used * effective_gas_price` (no separate data or L1 fee), so `value + gas_limit * max_fee_per_gas` bounds the payer's loss | `UNVERIFIED` (ev-reth fee model not checked) | |
 | RF30 | Independence of the candidate sources: Blockscout's `https://eden.blockscout.com/api/eth-rpc` serves `eth_chainId`, `eth_getCode`, `eth_getTransactionByHash`, `eth_getTransactionReceipt` (observed 2026-10-21); whether it reads a node other than `rpc.eden.gateway.fm` | serving observed; independence `UNVERIFIED` | R2 |
 | RF31 | The quote's `amount` equals the deposit `value` (the cap), and the client's own spend check counts `amount + gasLimit * maxFeePerGas` | verified on the fixture and the client code | fixture, client |
+| RF32 | `eth_getTransactionCount(payer, "pending")` on the signer's own Eden node counts the payer's transactions still in the sequencer's private pool (RF16), so S3n sees a nonce the signer already used | `UNVERIFIED`; if it does not, two signatures in flight can share a nonce until one lands (the second fails at the chain, gas only), and S3n's SHOULD (the signer's own in-flight nonces) is what prevents it | ev-reth, Eden team |
 
 ## 10. Sentinels
 
 | Sentinel | Rules | Vectors |
 |---|---|---|
-| `edenescrow.ErrMalformed` | DC1 to DC5, EA1 to EA3, ET1 to ET8; BJ1 to BJ5 and BJ7 (producer step) | `deposit_call.json` `reject`, `action.json` `reject`, `x402.json` `build_reject` (rule in `expect`) |
+| `edenescrow.ErrMalformed` | DC1 to DC5, EA1 to EA3, ET1 to ET8; BJ0 to BJ5 and BJ7 (producer step) | `deposit_call.json` `reject`, `action.json` `reject`, `x402.json` `build_reject` (rule in `expect`) |
 | `edenescrow.ErrUnknownDomain` | ED1 | `action.json` `reject` (rule `ED1`), `x402.json` `build_reject` |
 | `policy.ErrFactsInvalid` | section 4 (wraps both), EF3 | `action.json` `extractor_expect_error` (rejects, and cases with `extractor_rule` `EF3`) |
-| signer refusals | S2 to S11; S4 is `ErrRequirements`, S11 adds `ErrNotExecuted` | `x402.json` `requirements` (rule only); the rest depends on configuration and state |
+| signer refusals | S2 to S11; S4 is `ErrRequirements`; S11 uses `ErrPinMismatch` (S11a), `ErrNotAuthorized` (S11b), `ErrRequirements` (S11c, S11d) and `ErrNotExecuted` (S11e) | `x402.json` `requirements` (rule only), `payment_signature` `requests` (S11a, S11c, S11d with the sentinel); the rest depends on configuration and state |
 | `edenexec` sentinels | section 7.7 | `signed.json` `rail_ref`, `exact_tx`; `settlement.json` |
 
 ## 11. Vectors
 
 Location `spec/vectors/profiles/eden-escrow/`. Every file has `format`
 `edicta-vectors/v0`, `profile` `eden-escrow`, `revision`
-`eden-escrow-v1-draft.5`; uints are decimal strings, bytes lower-case hex.
+`eden-escrow-v1-draft.6`; uints are decimal strings, bytes lower-case hex.
 Written by `spec/vectors/tools/edenescrow-gen` (go-ethereum v1.17.8, its own
 module, no network: recorded data comes only from `live/`);
 checked independently, without go-ethereum, by
@@ -985,16 +1098,18 @@ if a file differs from a fresh generation.
 | `deposit_call.json` | Section 2.3. `cases`: `data_hex` and the decoded fields (the F14 call and two synthetic bounds). `reject`: `data_hex`, `expect_error`, `rule`, `cause`. 3 cases, 16 rejects. |
 | `action.json` | Sections 2, 3, 4. `extractors` (per ID: build, kind, scale, rows with code hash), `escrow_code` (code hash, constructor prefix, init code hash, CREATE and CREATE2 derivations, recorded code on both networks), `requirements_tag`, `limits`. `cases`: `build`, `extractor_ids` (the IDs that accept it, with equal facts), the transaction fields, `data_ref`, `resource`, `requirements_hex` (mock), `requirements_hash_hex`, `tx_hex`, `sighash_hex` (equal to go-ethereum's), `cbor_hex`, `action_salt_hex`, `action_hash_hex` (core 5.1), `facts` and `facts_cbor_hex` (`null` when the extractor refuses), `extractor_expect_error` and `extractor_rule` (`null` unless EF3 refuses), `profile_fields` (4.1). `reject`: `build`, `extractor_id`, `cbor_hex`, `expect_error`, `extractor_expect_error`, `rule`, `cause`, and for transaction-level rejects `geth_rlp_decodes` (informative). 8 cases (one testnet, one `edictadev`; `tx_max_714` and `tx_amount_overflow_714` refused by EF3, `tx_amount_max_714` at the 32-byte limit), 66 rejects. |
 | `live/houston-deposit-build.json`, `live/houston-payment-required.json` | The requester's client fixtures, byte for byte (SHA-256 in `x402.json` `inputs`): a `/deposit/build` answer (never signed) and the decoded `payment-required` header of a live 402, as saved (pretty-printed; not wire bytes). Input only. |
-| `x402.json` | Sections 2.2a, 2.5, 2.7, 4, 5.1 S4 and S11, 5.6. `build`: the fixture's transaction fields, `tx_hex` (245 bytes), `sighash_hex` (equal to go-ethereum's), `resource`, `requirements_hash_hex` over the saved `R`, `cbor_hex` (333 bytes), salt, `action_hash_hex`, `facts`, `facts_cbor_hex`, `profile_fields`. `build_accept` (7 JSON bodies giving the same action: `type 2`, empty `accessList`, unknown top-level member, upper-case hex, escaped member name, whitespace) and `build_reject` (44, with the first failing rule BJ1 to BJ7 or the 2.4 rule). `requirements`: `server_signature` (message, digest, signature, recovered = `w2`); `accept` (5) and `reject` (30) `R` byte strings with the `requirements_hash` the action carries and the S4 rule (S4a to S4f). `payment_signature`: for fields `paymentId` and `nonce`, the message, the EIP-191 preimage and digest, and the `payer1` signature (`v` 27 or 28). |
-| `multi_source.json` | Section 5.5. 21 cases: sources (host, operator, result, outcome and binding label), `min_sources`, `min_level`, phase (`polling` or `until_passed`), and the expected report (`status`, `level` or `reason`), Await state, `record_allowed`, `payment_signature_allowed`, `nonce_release_allowed`. No case is `violated`. |
+| `x402.json` | Sections 2.2a, 2.5, 2.7, 4, 5.1 S4 and S11, 5.6. `build`: the fixture's transaction fields, `tx_hex` (245 bytes), `sighash_hex` (equal to go-ethereum's), `resource` (the `https://` form), `requirements_resource_url` (`R`'s own URL), `requirements_hash_hex` over the saved `R`, `cbor_hex` (334 bytes), salt, `action_hash_hex`, `facts`, `facts_cbor_hex`, `profile_fields`. `build_limits` (16384 bytes, depth 16). `build_accept` (11 bodies: `type 2`, empty `accessList`, unknown top-level member, upper-case hex, escaped member name, escaped value, whitespace, exactly 16384 bytes, depth 16 give the fixture's action; `nonce` 2^53-1 gives the action in its own `cbor_hex`) and `build_reject` (54, with the first failing rule BJ0 to BJ7 or the 2.4 rule). A body is in `json`, or in `json_hex` when it is not valid UTF-8. `requirements`: `max_length`, `max_depth`, `server_signature` (message, digest, signature, recovered = `w2`); `accept` (9) and `reject` (40) `R` byte strings with the `requirements_hash` the action carries and the S4 rule (S4a to S4f). `payment_signature`: field `paymentId` with the message, the EIP-191 preimage and digest, and the `payer1` signature (`v` 27 or 28); `refused_fields` (`nonce`); `requests` (9 cases of the stateless S11 steps: field, `check_server_signature`, the action's `resource`, `requirements_ref` (the `R` the action commits), `cbor_hex`, `r_ref` (the `R` stored or presented, or `null`), and `pass` with `message_hex` or the step, sentinel and S4 rule). |
+| `multi_source.json` | Section 5.5. 26 cases: sources (host, operator, `operator_label`, result, outcome and binding label, set-aside reason), `min_sources`, `min_level`, phase (`polling` or `until_passed`), and the expected report (`status`, `level` or `reason`), Await state, `record_allowed`, `payment_signature_allowed`, `nonce_release_allowed`. No case is `violated`. |
 | `signed.json` | Sections 5.2, 6, 7.3. `keys.payer1` (label, private key, public key, address; vector-only). `cases`: the signature `(y_parity, r, s)` (RFC 6979, low `s`), `signed_hex` (splice rule, equal to go-ethereum's), `rail_ref`, `payer`. `rail_ref`: EE1 cases (8; `status` `unchecked` on each malformed one). `exact_tx`: EE3 and EE4 cases (8 pass, 21 `wrong_tx`, including the recorded form A transaction, `r = n`, `s = 0`, an `r` off the curve, `y_parity` as `0x00`, `s` as a list). |
 | `settlement.json` | Section 7.3, recorded data. `event` (signature, topic0, equality with the recorded log). `rebuild`: EE2 on the recorded deposit and settle answers (bytes equal the Celestia copy) and one lying answer. `receipt`: consensus encoding and bloom of the recorded receipt. `deposit_event`: EE7 and EE8 on the recorded escrow log (22 cases: 1 executed, 1 reverted, 20 `settlement_log_mismatch`). `block`: header RLP and hash, transactions root of block 227899844. |
 
 The vector key `payer1` is derived from a public label; it MUST NOT hold
 funds on any chain.
 
-Not covered by vectors: the signer rules other than S4 and the S11 message
-(configuration and state), the per-source sequencing of 7.3 (C13 tests it
+Not covered by vectors: the signer rules other than S4 and the stateless
+S11 steps (configuration and state; the signer's tests cover S3n, S11b
+with agent B asking for agent A's `commitment_hash`, S11e, and the
+startup refusals of S1), the per-source sequencing of 7.3 (C13 tests it
 with fakes and recorded answers; 5.5 combination is in `multi_source.json`),
 L2 receipts (RF13), the S3c code check (needs an RPC), the broadcaster
 (5.4, needs a server).
@@ -1010,7 +1125,10 @@ re-derived by the independent Python checker
 |---|---|---|
 | Testnet use and the copy's deployment | one CREATE2 transaction (human's go) | C11 |
 | Raw `PAYMENT-REQUIRED` header capture (wire bytes) for a non-mock `R` vector | the requester (said to be sent; not received) | freeze |
-| Which field the server's `Payment-Signature` check uses; buyer = signer check; single use; `v` forms (RF27) | the requester's funded test | default of `PaymentSignatureField`, freeze |
+| Which field the server's `Payment-Signature` check uses; `v` forms (RF27) | the requester's funded test | S11 for that server: if it verifies only `nonce`, a revision in which a server signature covers `nonce` |
+| The server checks recovered signer = escrow `buyer` and accepts each Payment-Signature once (RF27; section 0) | the requester, in writing or by the funded test | freeze |
+| Agent signature over the S11 request instead of the per-agent credential (S11b): removes the bearer secret, but the core says an agent key signs only commitments and publish requests (core 17.1) | the human (core wording) | none; S11b uses credentials until then |
+| `eth_getTransactionCount` `pending` and the sequencer's private pool (RF32) | the Eden team or a funded test | S3n's strength |
 | `/deposit/send` required or not; its success body (RF28) | the requester | default broadcaster mode |
 | Eden fee model beyond gas (RF29) | ev-reth source or the Eden team | EF2's bound |
 | Independence of a second public Eden RPC operator (RF30) | the Eden team or the operator | L1 with public sources only |
