@@ -96,8 +96,8 @@ func TestUnknownDAIsUncheckedNotInvalid(t *testing.T) {
 		"v1/unknown_da_v1.0.5.json#da_5_key_7", "v1/unknown_da_v1.0.5.json#da_4_signer_19",
 	} {
 		t.Run(ref, func(t *testing.T) {
-			// The store refuses to write an envelope that does not decode
-			// strictly (da_5_key_7, evolve_signer_19), so it is served raw.
+			// The rig serves the envelope raw: a writer may refuse one that
+			// does not decode strictly (da_5_key_7, da_4_signer_19).
 			env, h := vectorEnvelopeOf(t, ref)
 			rep := rawRig(t, env, h).verify(t)
 			c := unchecked(t, rep, verifier.CheckEnvelope, verifier.ReasonUnsupportedRevision)

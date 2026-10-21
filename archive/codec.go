@@ -318,12 +318,8 @@ func checkValues(pm *pmap, defs []fdef, kind Kind) error {
 	case KindMandate, KindPolicyAllow, KindPolicyDeny, KindPolicyBucket, KindPolicyClosed:
 		return checkPolicyBody(kind, pm.items[3].b)
 	case KindDecision:
-		s, err := commitment.DecodeSigned(pm.items[3].b)
-		if err != nil {
+		if _, err := decisionHash(pm.items[3].b); err != nil {
 			return err
-		}
-		if s.Commitment.Version != commitment.Version {
-			return fmt.Errorf("%w: decision of version %d", commitment.ErrUnsupportedVersion, s.Commitment.Version)
 		}
 	case KindAuthorization:
 		sa, _, err := commitment.DecodeSignedAuthorization(pm.items[3].b)
@@ -707,6 +703,35 @@ func encodeRaw(r Record) ([]byte, error) {
 	return w.finish(), nil
 }
 
+func definedDA(da commitment.DA) bool {
+	return da == commitment.DAFibre || da == commitment.DACelestiaBlob
+}
+
+// decisionHash checks a decision envelope and returns its commitment hash.
+// An envelope whose payload_ref.da this reader does not define is read with
+// that payload_ref opaque, because a later revision may give that da other
+// keys; its key is the hash of the commitment bytes it carries. Writers
+// still refuse such an envelope. Every other envelope is strict.
+func decisionHash(env []byte) (commitment.Hash, error) {
+	s, err := commitment.DecodeSigned(env)
+	if err != nil {
+		if _, ok := commitment.UndefinedDA(env, definedDA); ok {
+			if raw, rerr := commitment.EnvelopeCommitment(env); rerr == nil {
+				return commitment.HashCanonical(raw), nil
+			}
+		}
+		return commitment.Hash{}, err
+	}
+	if s.Commitment.Version != commitment.Version {
+		return commitment.Hash{}, fmt.Errorf("%w: decision of version %d", commitment.ErrUnsupportedVersion, s.Commitment.Version)
+	}
+	h, err := commitment.HashOf(&s.Commitment)
+	if err != nil {
+		return commitment.Hash{}, fmt.Errorf("decision hash: %w", err)
+	}
+	return h, nil
+}
+
 // KeyPath returns the canonical slash-separated path of the record's key.
 func KeyPath(r Record) (string, error) {
 	switch r := r.(type) {
@@ -720,13 +745,9 @@ func KeyPath(r Record) (string, error) {
 		}
 	case *DecisionRecord:
 		if r != nil {
-			s, err := commitment.DecodeSigned(r.Envelope)
+			h, err := decisionHash(r.Envelope)
 			if err != nil {
 				return "", fmt.Errorf("archive: decision envelope: %w", err)
-			}
-			h, err := commitment.HashOf(&s.Commitment)
-			if err != nil {
-				return "", fmt.Errorf("archive: decision hash: %w", err)
 			}
 			return HashPath(KindDecision, h), nil
 		}
