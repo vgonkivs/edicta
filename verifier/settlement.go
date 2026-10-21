@@ -5,6 +5,7 @@ package verifier
 import (
 	"bytes"
 	"context"
+	"fmt"
 
 	"github.com/vgonkivs/edicta/commitment"
 )
@@ -86,5 +87,17 @@ func (r *run) settlement() {
 	if r.facts != nil {
 		in.TRef = r.facts.BlockTime
 	}
-	info.Result, info.Err = chk.CheckSettlement(r.ctx, in)
+	info.Result, info.Err = checkSettlement(r.ctx, chk, in)
+}
+
+// checkSettlement runs a checker on bytes an executor chose; a panic in it
+// becomes the report's error, so it can never end the run before the core
+// report is printed with its own exit code.
+func checkSettlement(ctx context.Context, chk SettlementChecker, in SettlementInput) (res any, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			res, err = nil, fmt.Errorf("settlement checker panicked: %v", p)
+		}
+	}()
+	return chk.CheckSettlement(ctx, in)
 }

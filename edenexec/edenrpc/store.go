@@ -87,13 +87,13 @@ func (s *Store) DataDAHeight(ctx context.Context, height uint64) (uint64, bool, 
 	url := strings.TrimRight(s.cfg.URL, "/") + GetBlockPath
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return 0, false, err
+		return 0, false, fmt.Errorf("GetBlock: %s: cannot build the request", s.name)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Connect-Protocol-Version", "1")
 	resp, err := s.hc.Do(req)
 	if err != nil {
-		return 0, false, fmt.Errorf("GetBlock: %w", err)
+		return 0, false, fmt.Errorf("GetBlock: %s: %w", s.name, withoutURL(err))
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxStoreAnswer+1))

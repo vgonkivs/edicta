@@ -139,6 +139,22 @@ func TestSettlementFlags(t *testing.T) {
 	assert.Equal(t, []string{"http://b"}, f.settle.ownRPC)
 }
 
+func TestSettlementExcludedHosts(t *testing.T) {
+	h := strings.Repeat("ab", 32)
+	base := []string{"verify", h, "--gate-key", gatePubHex(t), "--archive", t.TempDir(), "--settlement", "--receipt", "r"}
+	for name, extra := range map[string][]string{
+		"public": {"--settlement-rpc", "https://gate.example/rpc"},
+		"own":    {"--settlement-own-rpc", "http://gate.example:8545"},
+		"da":     {"--settlement-rpc", "http://a", "--settlement-da", "http://gate.example:7331"},
+	} {
+		args := append(append([]string(nil), base...), extra...)
+		_, err := parseFlags(args, &bytes.Buffer{})
+		require.NoError(t, err, name)
+		_, err = parseFlags(append(args, "--exclude-host", "GATE.example"), &bytes.Buffer{})
+		require.ErrorContains(t, err, "excluded host", name)
+	}
+}
+
 // TestSettlementReportEndToEnd runs the real client and checker on the
 // recorded F14 answers: the claimed transaction is not the authorized form
 // T bytes, so the settlement report is violated, while the verdict and the

@@ -126,6 +126,16 @@ func VerifyBlock(h HeaderView, blockHash [32]byte, txs, receipts [][]byte, index
 	if got := keccak256(enc); got != blockHash {
 		return wrapf(ErrBlockProof, "header hashes to %x, not the block hash %x", got, blockHash)
 	}
+	for i := range txs {
+		if len(txs[i]) == 0 {
+			return wrapf(ErrBlockProof, "transaction %d is empty", i)
+		}
+	}
+	for i := range receipts {
+		if len(receipts[i]) == 0 {
+			return wrapf(ErrBlockProof, "receipt %d is empty", i)
+		}
+	}
 	switch {
 	case uint64(len(txs)) <= index:
 		return wrapf(ErrBlockProof, "%d transactions, index %d", len(txs), index)

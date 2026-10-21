@@ -167,12 +167,12 @@ func (c *Client) call(ctx context.Context, limit int64, method string, params ..
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.URL, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %s: cannot build the request", method, c.name)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", method, err)
+		return nil, fmt.Errorf("%s: %s: %w", method, c.name, withoutURL(err))
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
@@ -186,6 +186,17 @@ func (c *Client) call(ctx context.Context, limit int64, method string, params ..
 		return nil, fmt.Errorf("%s: HTTP %d", method, resp.StatusCode)
 	}
 	return parseEnvelope(raw, id)
+}
+
+// withoutURL drops the request URL from a transport error: a path or query
+// may carry an API key, and errors end up in shared reports. The host still
+// names the source.
+func withoutURL(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return ue.Err
+	}
+	return err
 }
 
 // parseEnvelope reads a JSON-RPC 2.0 answer to the request with this id:

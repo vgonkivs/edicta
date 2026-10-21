@@ -258,7 +258,7 @@ func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, e
 	fs.Var(&txRPC, "tx-rpc", "CometBFT RPC that serves the transaction the receipt names; the first is the primary, more are alternates tried in order")
 	fs.Var(&ckpt, "checkpoint-rpc", "CometBFT RPC of an independent checkpoint operator (repeatable)")
 	fs.Var(&cross, "cross-check", "CometBFT RPC to cross-check headers and the transaction (repeatable)")
-	fs.Var(&exclude, "exclude-host", "host that must not serve as a checkpoint or cross-check source, such as the gate's own endpoint (repeatable)")
+	fs.Var(&exclude, "exclude-host", "host that must not serve as a checkpoint, cross-check or settlement source, such as the gate's own endpoint (repeatable)")
 
 	// The hash may stand before, between or after the flags.
 	var positional []string
@@ -388,8 +388,9 @@ func (f flags) validate() error {
 	return f.checkExcluded()
 }
 
-// checkExcluded refuses a checkpoint or cross-check source on a host the
-// auditor named as not independent, such as the gate's own endpoint.
+// checkExcluded refuses a checkpoint, cross-check or settlement source on a
+// host the auditor named as not independent, such as the gate's own
+// endpoint.
 func (f flags) checkExcluded() error {
 	excluded := map[string]bool{}
 	for _, h := range f.excludeHosts {
@@ -409,7 +410,10 @@ func (f flags) checkExcluded() error {
 	for _, g := range []struct {
 		flag string
 		urls []string
-	}{{"--checkpoint-rpc", f.checkpointRPC}, {"--cross-check", f.crossRPC}} {
+	}{
+		{"--checkpoint-rpc", f.checkpointRPC}, {"--cross-check", f.crossRPC},
+		{"--settlement-rpc", f.settle.rpc}, {"--settlement-own-rpc", f.settle.ownRPC}, {"--settlement-da", nonEmpty(f.settle.da)},
+	} {
 		for _, u := range g.urls {
 			name, err := inclusion.SourceHost(u)
 			if err != nil {
@@ -583,6 +587,13 @@ func readFileCapped(path string, limit int64) ([]byte, error) {
 		return nil, errors.New("file is too large")
 	}
 	return b, nil
+}
+
+func nonEmpty(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return []string{s}
 }
 
 func codeFor(r verifier.Report) int {

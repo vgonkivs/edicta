@@ -336,6 +336,25 @@ func TestClientLimitsAndStatus(t *testing.T) {
 		_, err = c.ChainID(context.Background())
 		require.ErrorContains(t, err, "HTTP 307")
 	})
+	t.Run("transport errors name the host, not the URL", func(t *testing.T) {
+		srv := httptest.NewServer(http.NotFoundHandler())
+		addr := srv.Listener.Addr().String()
+		srv.Close() // nothing listens there now
+		cfg := Config{URL: "http://" + addr + "/v1/SECRETPATH?apikey=SECRETQUERY"}
+		cfg.ApplyDefaults()
+		c, err := New(cfg, nil)
+		require.NoError(t, err)
+		_, err = c.ChainID(context.Background())
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "SECRET")
+		assert.Contains(t, err.Error(), "127.0.0.1")
+
+		st, err := NewStore(StoreConfig{URL: "http://" + addr + "/SECRETPATH", Timeout: DefaultTimeout}, nil)
+		require.NoError(t, err)
+		_, _, err = st.DataDAHeight(context.Background(), 1)
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "SECRET")
+	})
 	t.Run("cancelled", func(t *testing.T) {
 		s, c := newRPCServer(t)
 		s.set("eth_chainId", `"0x2ca"`)

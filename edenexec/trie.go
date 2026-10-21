@@ -5,7 +5,8 @@ package edenexec
 // DeriveSha is the root of the Merkle Patricia trie that maps rlp(i) to
 // items[i], as go-ethereum's types.DeriveSha computes transactionsRoot and
 // receiptsRoot. The root does not depend on the insertion order, so the
-// trie is built at once from all keys.
+// trie is built at once from all keys. Items must not be empty: go-ethereum
+// stores an empty value as no value, so such a root would differ.
 func DeriveSha(items [][]byte) [32]byte {
 	if len(items) == 0 {
 		return keccak256(rlpBytes(nil))

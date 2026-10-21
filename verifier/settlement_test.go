@@ -20,10 +20,14 @@ type fakeSettlement struct {
 	in     *verifier.SettlementInput
 	result any
 	err    error
+	panics bool
 }
 
 func (f *fakeSettlement) CheckSettlement(_ context.Context, in verifier.SettlementInput) (any, error) {
 	f.in = &in
+	if f.panics {
+		panic("hostile bytes")
+	}
 	return f.result, f.err
 }
 
@@ -67,6 +71,22 @@ func TestSettlementReportIsVerdictNeutral(t *testing.T) {
 			assert.Equal(t, uint64(blockTime), fake.in.TRef)
 		})
 	}
+}
+
+func TestSettlementPanicIsAReportError(t *testing.T) {
+	p := newParts(t)
+	receipt := validReceipt(t, p)
+	base := newRig(t, p).verify(t, verifier.WithReceipt(receipt))
+
+	r := newRig(t, p)
+	r.deps.Settlements = map[string]verifier.SettlementChecker{gatefix.ActionType: &fakeSettlement{panics: true}}
+	rep := r.verify(t, verifier.WithReceipt(receipt), verifier.WithSettlement())
+	assert.Equal(t, base.Verdict, rep.Verdict)
+	assert.Equal(t, base.Checks, rep.Checks)
+	assert.Equal(t, base.Warnings, rep.Warnings)
+	require.NotNil(t, rep.RailSettlement)
+	assert.Nil(t, rep.RailSettlement.Result)
+	require.ErrorContains(t, rep.RailSettlement.Err, "settlement checker panicked: hostile bytes")
 }
 
 func TestSettlementReportBlocked(t *testing.T) {

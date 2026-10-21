@@ -44,9 +44,9 @@ checkpoint and the heights the decision needs. It is untrusted: every header
 is hash-linked to the checkpoint.
 
 Hardening: `--cross-check URL` (repeatable) compares the trusted chain with
-another source; `--exclude-host HOST` (repeatable) refuses a checkpoint or
-cross-check source on a host you know is not independent, such as the gate's
-own endpoint.
+another source; `--exclude-host HOST` (repeatable) refuses a checkpoint,
+cross-check or settlement source on a host you know is not independent, such
+as the gate's own endpoint.
 
 Execution: `--receipt FILE --tx-rpc URL [--tx-rpc URL ...] --check-execution`
 checks the transaction the receipt names (inclusion against the trusted
@@ -63,6 +63,13 @@ and search for forks), `--max-walk-steps N` (default 10000; alias
 `--policy-depth`), `--policy-evidence FILE` (repeatable; signed verdicts you
 hold, for fork detection), `--auditor-key FILE` (repeatable; an X25519
 private key in hex, mode 0600, that opens private records).
+
+Eden settlement (`verify` only, needs `--receipt`): `--settlement` with
+`--settlement-rpc URL` (repeatable, public Eden JSON-RPC) and/or
+`--settlement-own-rpc URL` (repeatable, your own Eden node, asked first);
+`--settlement-level L0|L1|L2` (default `L0`), `--settlement-min-sources N`
+(default 2), `--settlement-confirm-depth N` (default 20 blocks),
+`--settlement-da URL` (your own ev-node, report only). See below.
 
 Fast mode: `--absence-source URL`, a bridge node JSON-RPC URL that serves
 absence proofs; block results come from `--headers-rpc`.
@@ -269,6 +276,57 @@ without list permission on the bucket) now stops every `--check-execution`
 run. Grant `s3:ListBucket` to the reading identity, or put a front end in
 front of the bucket that maps a missing object to 404. Check with
 `curl -I <archive url>/<any absent key>`: it must say 404.
+
+## Eden settlement report
+
+For an Eden escrow deposit (action type
+`application/vnd.edicta.eden.escrow-deposit-tx.v1+cbor`), `--settlement`
+adds the field `rail_settlement` (text lines `rail settlement ...`). It says
+whether the transaction the receipt names is exactly the authorized deposit,
+whether it is in an Eden block at the confirmation depth, and whether it
+executed or reverted. It is printed beside the core report and **never
+changes the verdict or the exit code**; tooling that wants to act on it reads
+the field. The core `execution` check does not cover Eden
+(`--check-execution` gives `unchecked`, `no_checker`).
+
+```sh
+celestia/bin/edicta verify <commitment hash> --gate-key <hex> --archive <dir> \
+  --trusted <file> --receipt receipt.cbor --json \
+  --settlement --settlement-rpc https://rpc.eden.gateway.fm/
+```
+
+`status` is one of:
+- `violated` (`wrong_tx`): the bytes that hash to the signed `rail_ref` are
+  not the authorized transaction. Only signed data proves this; no RPC can
+  cause it.
+- `pass` with `level` and `outcome` (`executed` or `reverted`).
+- `unchecked` with a `reason`, for example `settlement_not_found`,
+  `settlement_unconfirmed` (retry later), `settlement_disagree`,
+  `settlement_below_level`, `malformed_rail_ref` (the receipt's `rail_ref` is
+  not 64 lower-case hex characters).
+- `not_run` with `blocked_on`: no receipt that passed, the decision is not
+  authorized, or the action type has no settlement report (`no_checker`).
+
+Levels, and what you trust at each:
+- `L0`: one source's word (class `public-rpc`: the RPC operator; class
+  `own-node`: your node, which re-executes the blocks, and the sequencer's
+  ordering). Read the class on the `sources` lines.
+- `L1`: at least `--settlement-min-sources` sources on different hosts agree
+  on the block, the index and the receipt. You trust that they do not
+  collude.
+- `L2`: in addition the block's transactions and receipts rebuild the roots
+  of a header whose fields hash to the block hash. The header itself is
+  attested by the `L1` sources. `block_number` and `block_time` come from
+  that proven header; below `L2` they are the used source's word.
+
+No level proves that the Eden block's data is in Celestia (`da_included` is
+your ev-node's word), and the single sequencer can roll back blocks that
+have not reached Celestia; a re-check then gives `unchecked`, never
+`violated`. Two passing sources that disagree make the report `unchecked`
+at any level, so one misbehaving source you configure can block it. Nothing
+about the Eden transaction is archived: once the RPCs prune the block, a
+re-check is `unchecked`. Source errors name the host, not the URL, so API
+keys in a URL path or query do not reach the report.
 
 ## Assumptions
 

@@ -1,0 +1,75 @@
+{
+ "_generator": "github.com/ethereum/go-ethereum v1.16.3, 2026-10-21",
+ "_note": "Merkle Patricia roots of rlp(i) to item(n, i), computed by go-ethereum types.DeriveSha with trie.NewStackTrie, offline. item(n, i) = the first 1 + (37*i + n) mod 90 bytes of k || k || ..., k = keccak256(\"edenexec/derivesha/v1\" || uint64be(n) || uint64be(i)).",
+ "cases": [
+  {
+   "n": 0,
+   "root_hex": "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+  },
+  {
+   "n": 1,
+   "root_hex": "fc6b7188ddf09f0a1a1d1e50f86d2d3a58c31cc9934ba8688ffc37133a028eaa"
+  },
+  {
+   "n": 2,
+   "root_hex": "25f4aba92c2829ccb7f35cf8f824527dfa224a2916928993d6b5d49d18a1305f"
+  },
+  {
+   "n": 3,
+   "root_hex": "cc5246d261b3908fb07e7622a014a311b72651a7b966964723dbcfb1163eca86"
+  },
+  {
+   "n": 15,
+   "root_hex": "38d7501702961348225d3961b8aaefc69d80844bd97cfdbd34e426192bde54da"
+  },
+  {
+   "n": 16,
+   "root_hex": "d4a3c9a44152c6b9a73911f9eeba95df6c21e791780dcc341ba0cc5dccdf6c51"
+  },
+  {
+   "n": 17,
+   "root_hex": "a4f84b387f2bbc6308116b9c25939c96778636c664eeb68def4edbf2bad65df1"
+  },
+  {
+   "n": 31,
+   "root_hex": "1bd5fa5da9e9ab9c0197f73e5fb9030307b23112ffa9c5b789193f21ad9089e4"
+  },
+  {
+   "n": 127,
+   "root_hex": "7b97795ace741440228d1efd2779f83115561510ab9bf79649bca2258eba4e09"
+  },
+  {
+   "n": 128,
+   "root_hex": "b5ba776254b8f621b3f7c71fac18bdeed7dbc51f11a85c74027a078f4c38e454"
+  },
+  {
+   "n": 129,
+   "root_hex": "3e72dd981fa725cf0a243fd8c17c348ac92e17d3ba584a0e39be6bd8883b692a"
+  },
+  {
+   "n": 130,
+   "root_hex": "53697fede0f7eccfbc4719190a6a9b96a0a9783855b99a3153d564eead023482"
+  },
+  {
+   "n": 131,
+   "root_hex": "fcbf40945f67b2b1cf3600a2844095a7adff40a9500a59ccfa8f2ca7d789b50e"
+  },
+  {
+   "n": 255,
+   "root_hex": "615a3959f258c34013820ac4c2f279dabb4cf66f9e91e4dd1b0b4e867b2ee195"
+  },
+  {
+   "n": 256,
+   "root_hex": "131a537989c4072c1c65b2f01733b790b0b117cf7b56c894227a402cc38c926f"
+  },
+  {
+   "n": 257,
+   "root_hex": "e05d0d283748c94c855d573f72fbb06ed15d6dac718a1ecc0def52bd61c69a99"
+  },
+  {
+   "n": 1000,
+   "root_hex": "dc1d3b8fd853de0b66e41c1c16fdd5f0369ffbf86c70ed1b19e89f4bb42797d2"
+  }
+ ],
+ "tag": "edenexec/derivesha/v1"
+}

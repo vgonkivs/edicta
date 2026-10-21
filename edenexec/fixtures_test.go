@@ -4,6 +4,7 @@ package edenexec_test
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -158,6 +159,9 @@ func TestRecordedBlockProof(t *testing.T) {
 		hh.BlobGasUsed = nil
 		require.ErrorIs(t, edenexec.VerifyBlock(hh, h.Hash, txs, rcpts, 1, deposit, rcpts[1]), edenexec.ErrBlockProof,
 			"a later fork's field without an earlier one")
+		empty := [][]byte{txs[0], {}}
+		require.ErrorIs(t, edenexec.VerifyBlock(h, h.Hash, empty, rcpts, 0, txs[0], rcpts[0]), edenexec.ErrBlockProof)
+		require.ErrorIs(t, edenexec.VerifyBlock(h, h.Hash, txs, [][]byte{{}, rcpts[1]}, 1, deposit, rcpts[1]), edenexec.ErrBlockProof)
 		hh = h
 		hh.RequestsHash = nil
 		require.ErrorIs(t, edenexec.VerifyBlock(hh, h.Hash, txs, rcpts, 1, deposit, rcpts[1]), edenexec.ErrBlockProof)
@@ -340,4 +344,38 @@ func TestF14RecordedLogsAreNotFormT(t *testing.T) {
 	require.NoError(t, err)
 	_, err = edenexec.CheckDeposit(rc, a, [20]byte{}, a.Row.Escrow)
 	require.ErrorIs(t, err, edenexec.ErrLogMismatch)
+}
+
+// TestDeriveShaAgainstGoEthereum pins the trie root on sizes that reach the
+// branch and extension shapes of real blocks (more than 16, 128 and 256
+// items), against roots go-ethereum computed offline.
+func TestDeriveShaAgainstGoEthereum(t *testing.T) {
+	var f struct {
+		Tag   string `json:"tag"`
+		Cases []struct {
+			N       uint64 `json:"n"`
+			RootHex string `json:"root_hex"`
+		} `json:"cases"`
+	}
+	readJSON(t, "testdata/derivesha-geth.json", &f)
+	require.NotEmpty(t, f.Cases)
+	maxN := uint64(0)
+	for _, c := range f.Cases {
+		items := make([][]byte, 0, c.N)
+		for i := uint64(0); i < c.N; i++ {
+			var b [16]byte
+			binary.BigEndian.PutUint64(b[:8], c.N)
+			binary.BigEndian.PutUint64(b[8:], i)
+			k := keccak(append([]byte(f.Tag), b[:]...))
+			l := 1 + (i*37+c.N)%90
+			var it []byte
+			for uint64(len(it)) < l {
+				it = append(it, k[:]...)
+			}
+			items = append(items, it[:l])
+		}
+		assert.Equal(t, h32(t, c.RootHex), edenexec.DeriveSha(items), "n = %d", c.N)
+		maxN = max(maxN, c.N)
+	}
+	assert.GreaterOrEqual(t, maxN, uint64(130))
 }

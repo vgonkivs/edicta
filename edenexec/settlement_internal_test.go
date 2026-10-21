@@ -96,6 +96,21 @@ func TestSettlementLevels(t *testing.T) {
 		require.Equal(t, StatusPass, rep.Status, "%v", rep.Err)
 		assert.Equal(t, LevelReceiptProven, rep.Level)
 	})
+	t.Run("L2 reports the proven header's time, not the used source's", func(t *testing.T) {
+		s := newScenario(t)
+		a, b := s.source("a"), s.source("b")
+		h := a.Headers[s.blockHash]
+		h.Time += 500 // same claimed hash, a lying timestamp
+		a.Headers[s.blockHash] = h
+		tg := s.target
+		tg.Expires = scnTime + 100
+		rep := settle(t, Config{MinLevel: LevelReceiptProven}, tg, a, b)
+		require.Equal(t, StatusPass, rep.Status, "%v", rep.Err)
+		assert.Equal(t, LevelReceiptProven, rep.Level)
+		assert.Equal(t, uint64(scnTime), rep.BlockTime)
+		assert.Equal(t, uint64(scnNumber), rep.Block)
+		assert.Empty(t, rep.Warnings, "no warning from the unproven timestamp")
+	})
 	t.Run("one source below L1 is below the level", func(t *testing.T) {
 		s := newScenario(t)
 		b := s.source("b")

@@ -321,9 +321,12 @@ func (r *run) judge(ctx context.Context, rep Report, probes []probe, minLevel, m
 	if len(passing) >= r.c.cfg.MinSources && maxLevel >= LevelMultiSource {
 		level = LevelMultiSource
 	}
-	var proofErr error
+	var (
+		proofErr error
+		proven   HeaderView
+	)
 	if level == LevelMultiSource && maxLevel >= LevelReceiptProven {
-		if proofErr = r.blockProof(ctx, probes, passing, first); proofErr == nil {
+		if proven, proofErr = r.blockProof(ctx, probes, passing, first); proofErr == nil {
 			level = LevelReceiptProven
 		}
 	}
@@ -336,6 +339,11 @@ func (r *run) judge(ctx context.Context, rep Report, probes []probe, minLevel, m
 	rep.Status, rep.Level, rep.Outcome = StatusPass, level, first.outcome
 	rep.HasBlock, rep.Block, rep.BlockHash, rep.Index = true, first.number, first.blockHash, first.index
 	rep.BlockTime = first.header.Time
+	if level == LevelReceiptProven {
+		// Only the proven header's fields hash to the block hash; the used
+		// source's own header may differ in anything but its claimed hash.
+		rep.Block, rep.BlockTime = proven.Number, proven.Time
+	}
 	rep.Warnings = timeWarnings(rep.BlockTime, r.t.Expires, r.t.TRef)
 	rep.Sources = sourceResults(probes, passing[0])
 	if r.c.da != nil {
@@ -364,8 +372,9 @@ func (r *run) noneReached(probes []probe, minLevel Level, somePassed bool) error
 }
 
 // blockProof tries the passing sources in order until one serves a block
-// whose contents rebuild the header the agreeing sources named.
-func (r *run) blockProof(ctx context.Context, probes []probe, passing []int, first probe) error {
+// whose contents rebuild the header the agreeing sources named, and returns
+// that header.
+func (r *run) blockProof(ctx context.Context, probes []probe, passing []int, first probe) (HeaderView, error) {
 	var last error
 	for _, i := range passing {
 		src := probes[i].src
@@ -383,9 +392,9 @@ func (r *run) blockProof(ctx context.Context, probes []probe, passing []int, fir
 			last = fmt.Errorf("%s: %w", src.Name(), err)
 			continue
 		}
-		return nil
+		return probes[i].header, nil
 	}
-	return last
+	return HeaderView{}, last
 }
 
 // sourceResults lists every source asked; used is the index of the source
