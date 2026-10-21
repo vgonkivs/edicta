@@ -83,6 +83,20 @@ func TestConfigWithThePaymentSignature(t *testing.T) {
 	assert.Equal(t, "houston-relay", cfg.Chains[0].Broadcaster)
 
 	other := sha256.Sum256([]byte("other agent"))
+	want := map[string]string{
+		"await level L0":                       "the Payment-Signature needs L1",
+		"unlabelled own source":                "has no OPERATOR= label",
+		"unlabelled second source":             "has no OPERATOR= label",
+		"one operator behind two hosts":        "distinct operators",
+		"a shared token":                       "token_file is shared",
+		"a credential for an agent not served": "not in agent_pubkeys",
+		"two credentials on one file":          "shares its token file",
+		"field nonce":                          "field nonce is not offered",
+		"plain http relay":                     "is not https",
+		"relay without url":                    "relay_url",
+		"relay grace above the await grace":    "RelayGrace",
+		"server timeout above 60 s":            "relay timeout",
+	}
 	refused := map[string]func(string) string{
 		"await level L0": func(s string) string {
 			return strings.Replace(s, "[caps]", "[settlement]\nawait_level = \"L0\"\n\n[caps]", 1)
@@ -122,18 +136,20 @@ func TestConfigWithThePaymentSignature(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			text := mut(base)
 			require.NotEqual(t, base, text)
-			assert.Error(t, validate(text))
+			require.NotEmpty(t, want[name])
+			assert.ErrorContains(t, validate(text), want[name])
 		})
 	}
 
 	off := strings.Replace(base, "store_path", "payment_signature_field = \"off\"\nstore_path", 1)
 	require.NoError(t, validate(strings.Replace(off, `rpc = "own=`, `rpc = "`, 1)), "labels are needed only for the Payment-Signature")
 	oneSource := strings.Replace(off, `settlement_rpc = ["gateway=https://rpc.eden.gateway.fm/"]`, "", 1)
-	assert.Error(t, validate(oneSource), "L1 with one operator would never reach an outcome")
+	assert.ErrorContains(t, validate(oneSource), "distinct operators", "L1 with one operator would never reach an outcome")
 	require.NoError(t, validate(strings.Replace(oneSource, "[caps]", "[settlement]\nawait_level = \"L0\"\n\n[caps]", 1)))
 	direct := strings.Replace(base, `relay_url = "https://pay.example/"`, `broadcaster = "direct"`, 1)
 	require.NoError(t, validate(direct))
-	assert.Error(t, validate(strings.Replace(direct, `broadcaster = "direct"`, "broadcaster = \"direct\"\nrelay_url = \"https://pay.example/\"", 1)))
+	assert.ErrorContains(t, validate(strings.Replace(direct, `broadcaster = "direct"`, "broadcaster = \"direct\"\nrelay_url = \"https://pay.example/\"", 1)),
+		"relay_url set but broadcaster")
 }
 
 func TestBuildWithThePaymentSignature(t *testing.T) {

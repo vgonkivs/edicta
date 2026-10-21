@@ -5,6 +5,7 @@ package eden
 import (
 	"encoding/hex"
 	"fmt"
+	"slices"
 
 	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/signer"
@@ -54,13 +55,33 @@ func (h *Handler) ActionDigest(action []byte) ([32]byte, error) {
 }
 
 // PaymentProofDigest is the personal_sign digest of the action's
-// paymentId, after the stateless checks.
+// paymentId, after the stateless checks. The facilitator must still be
+// allowed: one removed since the deposit (a compromised key, say) gets no
+// more payment proofs.
 func (h *Handler) PaymentProofDigest(action, r []byte) (message, digest [32]byte, err error) {
 	m, err := PaymentSignatureMessage(FieldPaymentID, h.cfg.checkServerSignature(), action, r)
 	if err != nil {
 		return [32]byte{}, [32]byte{}, err
 	}
+	a, err := edenescrow.DecodeTxAction(action)
+	if err != nil {
+		return [32]byte{}, [32]byte{}, err
+	}
+	p, ok := h.pins[a.ChainID]
+	if !ok || !slices.Contains(p.Facilitators, a.Deposit.Facilitator) {
+		return [32]byte{}, [32]byte{}, fmt.Errorf("%w: facilitator %x is no longer allowed", signer.ErrPinMismatch, a.Deposit.Facilitator)
+	}
 	return m, edenescrow.PersonalDigest(m), nil
+}
+
+// SlotOf is the nonce slot of a stored decision, for a store written before
+// slots were kept.
+func (h *Handler) SlotOf(e signer.Entry) (string, error) {
+	a, err := edenescrow.DecodeTxAction(e.Action)
+	if err != nil {
+		return "", err
+	}
+	return nonceSlot(a.ChainID, e.Payer, a.Nonce), nil
 }
 
 // FinishPaymentProof writes the payer's signature as personal_sign does:

@@ -14,6 +14,9 @@ import (
 	"github.com/vgonkivs/edicta/commitment"
 )
 
+// seenWriteTimeout bounds the write of the seen fact after a round ended.
+const seenWriteTimeout = 5 * time.Second
+
 // Run settles and records signed decisions until ctx ends: at start (a
 // restart resumes from the store), after every signature, and every retry
 // interval. It never signs.
@@ -103,10 +106,14 @@ func (s *Service) Advance(ctx context.Context, e Entry) {
 			if res.Seen && !e.Seen {
 				// A restart continues the same wait: a transaction once served
 				// must not later read as never executed.
-				if _, uerr := s.st.Update(ctx, e.CommitmentHash, func(x *Entry) error {
+				// The round's context may have ended; the fact must still land.
+				wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), seenWriteTimeout)
+				_, uerr := s.st.Update(wctx, e.CommitmentHash, func(x *Entry) error {
 					x.Seen = true
 					return nil
-				}); uerr != nil {
+				})
+				cancel()
+				if uerr != nil {
 					s.log.Warn("signer: storing that the transaction was seen", "commitment_hash", id, "err", uerr)
 				}
 			}

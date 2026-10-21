@@ -59,9 +59,9 @@ type Relay interface {
 
 // Broadcast modes.
 const (
-	// BroadcastRelay sends through the payment server's relay first and
-	// directly when the relay fails or, after RelayGrace, while no source
-	// shows the transaction.
+	// BroadcastRelay sends through the payment server's relay once, when
+	// signed, and directly when the relay fails and on every resend after
+	// RelayGrace.
 	BroadcastRelay = "houston-relay"
 	// BroadcastDirect sends with eth_sendRawTransaction on the chain's RPC.
 	BroadcastDirect = "direct"
@@ -125,9 +125,8 @@ type Config struct {
 	AwaitGrace time.Duration
 	// ResendEvery is how often the stored bytes are resent while waiting.
 	ResendEvery time.Duration
-	// RelayGrace is how long after signing a relayed deposit is resent only
-	// through the relay; after it, while no source shows the transaction,
-	// resends go directly. At most AwaitGrace.
+	// RelayGrace is how long after signing a relayed deposit is left to the
+	// relay; after it every resend goes directly. At most AwaitGrace.
 	RelayGrace time.Duration
 	// PaymentSignatureField is FieldPaymentID (the default) or FieldOff.
 	PaymentSignatureField string
@@ -463,15 +462,15 @@ func (h *Handler) Send(ctx context.Context, key uint64, action, signed []byte) e
 	if a.ChainID != key {
 		return fmt.Errorf("signer/eden: the action is for chain %d, not %d", a.ChainID, key)
 	}
-	return h.broadcast(ctx, key, signed, a.Deposit.PaymentID, true)
+	return h.broadcast(ctx, key, signed, a.Deposit.PaymentID)
 }
 
-func (h *Handler) broadcast(ctx context.Context, key uint64, signed []byte, paymentID [32]byte, viaRelay bool) error {
+func (h *Handler) broadcast(ctx context.Context, key uint64, signed []byte, paymentID [32]byte) error {
 	c, p := h.chains[key], h.pins[key]
 	if c == nil {
 		return fmt.Errorf("signer/eden: no RPC for chain %d", key)
 	}
-	if viaRelay && p.Broadcast == BroadcastRelay {
+	if p.Broadcast == BroadcastRelay {
 		railRef := edenescrow.RailRef(signed)
 		err := h.relays[key].Send(ctx, signed, railRef, paymentID)
 		if err == nil {
@@ -508,10 +507,15 @@ func (h *Handler) Settle(ctx context.Context, e signer.Entry, resend bool) (sign
 		now := h.now()
 		horizon := until
 		if resend && now.Before(until) {
-			// A relay that answers success and withholds the bytes costs at
-			// most RelayGrace.
-			if err := h.broadcast(ctx, key, e.Signed, t.Action.Deposit.PaymentID, seen || now.Before(relayUntil)); err != nil {
-				h.log.Debug("signer/eden: resend", "rail_ref", e.RailRef, "err", err)
+			// The relay had the bytes once, when they were signed, with a
+			// direct send on any fault. After RelayGrace every resend goes
+			// directly, whatever a source showed: a relay that answers
+			// success and withholds the bytes, or a sighting in a soft block
+			// that was rolled back, then costs at most RelayGrace.
+			if h.pins[key].Broadcast != BroadcastRelay || !now.Before(relayUntil) {
+				if _, err := h.chains[key].SendRawTransaction(ctx, e.Signed); err != nil {
+					h.log.Debug("signer/eden: resend", "rail_ref", e.RailRef, "err", err)
+				}
 			}
 			if next := now.Add(h.cfg.ResendEvery); next.Before(until) {
 				horizon = next

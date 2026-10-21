@@ -131,5 +131,8 @@ type Store interface {
 	Update(ctx context.Context, h commitment.Hash, fn func(*Entry) error) (Entry, error)
 	// Unfinished returns the entries in the given states.
 	Unfinished(ctx context.Context, states ...State) ([]Entry, error)
+	// IndexSlot gives an entry stored without a slot (by an earlier build)
+	// its slot, and makes it the slot's holder unless one is indexed.
+	IndexSlot(ctx context.Context, h commitment.Hash, slot string) error
 	Close() error
 }

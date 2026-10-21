@@ -93,11 +93,60 @@ func TestSettleSendsDirectlyAfterRelayGrace(t *testing.T) {
 	res, err := h.Settle(context.Background(), e, true)
 	require.NoError(t, err)
 	assert.Equal(t, signer.StateExecuted, res.State)
-	assert.GreaterOrEqual(t, relay.Calls(), 1)
+	assert.Zero(t, relay.Calls(), "the relay had the bytes once, when signed")
 	assert.GreaterOrEqual(t, w.chain.SentCount(), 1)
 	for _, s := range w.chain.Sent {
 		assert.Equal(t, e.Signed, s)
 	}
+}
+
+// A sighting does not stop the direct resends after RelayGrace: a relay
+// that answered success and withholds the bytes, with a soft block rolled
+// back after one source showed the deposit, must not pin the nonce.
+func TestSettleSendsDirectlyAfterRelayGraceEvenWhenSeen(t *testing.T) {
+	w := newWorld(t)
+	w.chain.Set(func(c *signertest.Chain) { c.AutoLand = true })
+	relay := &signertest.Relay{}
+	h := relayHandler(t, w, relay)
+	e := signedEntry(t, w, signertest.NewDeposit(w.now), time.Now().Add(time.Minute))
+	e.ReservedAt = time.Now().Add(-time.Hour).Unix()
+	e.Seen = true
+	res, err := h.Settle(context.Background(), e, true)
+	require.NoError(t, err)
+	assert.Equal(t, signer.StateExecuted, res.State)
+	assert.Zero(t, relay.Calls())
+	require.GreaterOrEqual(t, w.chain.SentCount(), 1)
+	assert.Equal(t, e.Signed, w.chain.Sent[0])
+}
+
+// Within RelayGrace a relayed deposit is left to the relay: no resend.
+func TestSettleLeavesARelayedDepositToTheRelayWithinTheGrace(t *testing.T) {
+	w := newWorld(t)
+	w.chain.Set(func(c *signertest.Chain) { c.AutoLand = true })
+	relay := &signertest.Relay{}
+	h := relayHandler(t, w, relay, func(c *eden.Config) { c.RelayGrace = time.Minute })
+	e := signedEntry(t, w, signertest.NewDeposit(w.now), time.Now().Add(1500*time.Millisecond))
+	e.ReservedAt = time.Now().Unix()
+	_, err := h.Settle(context.Background(), e, true)
+	require.Error(t, err, "nothing landed: unknown")
+	assert.Zero(t, relay.Calls())
+	assert.Zero(t, w.chain.SentCount())
+}
+
+// A facilitator removed from the allowlist since the deposit gets no more
+// payment proofs.
+func TestPaymentProofRechecksTheFacilitator(t *testing.T) {
+	d, err := signertest.QuotedDeposit(signertest.NewDeposit(time.Now()))
+	require.NoError(t, err)
+	action, err := d.Action()
+	require.NoError(t, err)
+	allowed := newWorld(t, func(p *eden.ChainPins) { p.Facilitators = append(p.Facilitators, signertest.QuoteFacilitator()) })
+	m, _, err := allowed.h.PaymentProofDigest(action, d.Requirements)
+	require.NoError(t, err)
+	assert.Equal(t, d.PaymentID, m)
+	removed := newWorld(t)
+	_, _, err = removed.h.PaymentProofDigest(action, d.Requirements)
+	require.ErrorIs(t, err, signer.ErrPinMismatch)
 }
 
 // scriptedSettler answers the calls of one wait in turn and records the

@@ -3,6 +3,7 @@
 package signer_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -101,4 +102,42 @@ func TestParallelSameNonceSignsOnce(t *testing.T) {
 		require.ErrorIs(t, err, signer.ErrPinMismatch)
 	}
 	assert.Equal(t, 1, ok)
+	stored, err := e.store.Unfinished(context.Background(), signer.StateReserved, signer.StateSigned)
+	require.NoError(t, err)
+	assert.Len(t, stored, 1, "the refused decisions stored nothing")
+}
+
+// A decision in flight from a store written before slots were kept gets its
+// slot at start, so a new decision cannot take its nonce.
+func TestStartIndexesTheSlotsOfAnEarlierStore(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	old := e.decision(signertest.DecisionOpts{Label: "old"})
+	a, err := edenescrow.DecodeTxAction(old.Action)
+	require.NoError(t, err)
+	_, _, err = e.store.Reserve(ctx, signer.Entry{
+		CommitmentHash: old.Hash, Digest: a.SigHash(), ActionType: edenescrow.ActionType, Key: 714,
+		Payer: e.keys.PayerAddress(), Value: a.Value, ReservedAt: e.clk.Now().Unix(), AuthExpires: old.Expires,
+		Action: old.Action, State: signer.StateSigned,
+	}, 0, admitAll)
+	require.NoError(t, err)
+	e.reopen()
+	assert.NotEmpty(t, e.entry(old.Hash).Slot)
+
+	_, err = e.svc.Sign(ctx, request(e.decision(signertest.DecisionOpts{Label: "new"})))
+	require.ErrorIs(t, err, signer.ErrPinMismatch)
+}
+
+// A credential pinned to one agent signs only that agent's decisions.
+func TestSignAsAPinnedCredential(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	d := e.decision(signertest.DecisionOpts{})
+	_, err := e.svc.SignAs(ctx, request(d), bytes.Repeat([]byte{0x01}, 32))
+	require.ErrorIs(t, err, signer.ErrNotAuthorized)
+	_, found, err := e.store.Get(ctx, d.Hash)
+	require.NoError(t, err)
+	assert.False(t, found)
+	_, err = e.svc.SignAs(ctx, request(d), e.keys.AgentPub())
+	require.NoError(t, err)
 }

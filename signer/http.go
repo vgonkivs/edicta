@@ -499,7 +499,7 @@ func (h *apiHandler) serve(r *http.Request) (a answer) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), h.o.RequestTimeout)
 	defer cancel()
-	out, err := h.s.Sign(ctx, req)
+	out, err := h.s.SignAs(ctx, req, agent)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) && r.Context().Err() == nil {
 			err = fmt.Errorf("%w: %w", edictaapi.ErrDeadline, err)

@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -120,6 +121,13 @@ type Handler interface {
 	// state is unknown: look again later, never sign again; the returned
 	// Settlement's Seen still counts.
 	Settle(ctx context.Context, e Entry, resend bool) (Settlement, error)
+}
+
+// Slotter is a Handler whose plans hold slots: it names the slot of a
+// decision stored by an earlier build without one, so that the in-flight
+// check also covers those.
+type Slotter interface {
+	SlotOf(e Entry) (string, error)
 }
 
 // PaymentProver is the optional part of a Handler that releases a payment
@@ -274,9 +282,39 @@ func (s *Service) Start(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := s.indexOldSlots(ctx); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	s.payers, s.started = payers, true
 	s.mu.Unlock()
+	return nil
+}
+
+// indexOldSlots gives every unresolved decision stored without a slot its
+// slot. A store written before slots were kept would otherwise let a new
+// decision take a nonce still in flight.
+func (s *Service) indexOldSlots(ctx context.Context) error {
+	entries, err := s.st.Unfinished(ctx, StateReserved, StateSigned, StateWrong)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.Slot != "" {
+			continue
+		}
+		sl, ok := s.handlers[e.ActionType].(Slotter)
+		if !ok {
+			continue
+		}
+		slot, err := sl.SlotOf(e)
+		if err != nil {
+			return fmt.Errorf("signer: stored decision %x has no slot and none can be derived: %w", e.CommitmentHash, err)
+		}
+		if err := s.st.IndexSlot(ctx, e.CommitmentHash, slot); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -285,6 +323,13 @@ func (s *Service) Start(ctx context.Context) error {
 // makes the first send. A repeat of a signed decision returns the stored
 // bytes.
 func (s *Service) Sign(ctx context.Context, req Request) (Output, error) {
+	return s.SignAs(ctx, req, nil)
+}
+
+// SignAs is Sign for a caller whose API credential is pinned to the agent
+// key caller; nil is a shared credential. A pinned caller may submit only
+// its own agent's decisions.
+func (s *Service) SignAs(ctx context.Context, req Request, caller []byte) (Output, error) {
 	s.mu.Lock()
 	started := s.started
 	s.mu.Unlock()
@@ -295,6 +340,9 @@ func (s *Service) Sign(ctx context.Context, req Request) (Output, error) {
 	v, h, err := s.verify(req, now)
 	if err != nil {
 		return Output{}, err
+	}
+	if caller != nil && subtle.ConstantTimeCompare(caller, v.Commitment.AgentPubKey) != 1 {
+		return Output{}, fmt.Errorf("%w: the API credential is not the decision's agent's", ErrNotAuthorized)
 	}
 	prior, found, err := s.st.Get(ctx, v.CommitmentHash)
 	if err != nil {

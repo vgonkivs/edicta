@@ -197,10 +197,10 @@ func PersonalDigest(m [32]byte) [32]byte {
 
 // PaymentProofMessage is the message a Payment-Signature covers for a
 // decoded action: its paymentId (w0), released only when the committed
-// resource names https:// (rule S11c) and R passes every requirements
-// check with the facilitator's signature enforced (S11d), so the 32 bytes
-// are ones the pinned facilitator signed, never bytes the agent chose. A
-// nil R is refused. Every failure is ErrRequirements.
+// resource names https:// and R passes every requirements check with the
+// facilitator's signature enforced, so the 32 bytes are ones the pinned
+// facilitator signed, never bytes the agent chose. A nil R is refused.
+// Every failure is ErrRequirements.
 func PaymentProofMessage(a TxAction, r []byte) ([32]byte, error) {
 	if len(a.items) == 0 {
 		return [32]byte{}, fmt.Errorf("%w: the action was not decoded", ErrMalformed)

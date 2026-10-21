@@ -255,6 +255,46 @@ func checkImmutable(a, b Entry) error {
 	return nil
 }
 
+func (s *BoltStore) IndexSlot(_ context.Context, h commitment.Hash, slot string) error {
+	if slot == "" {
+		return errors.New("signer: store: empty slot")
+	}
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketEntries)
+		raw := b.Get(h[:])
+		if raw == nil {
+			return fmt.Errorf("%w: %x", ErrUnknownDecision, h)
+		}
+		var e Entry
+		if err := json.Unmarshal(raw, &e); err != nil {
+			return err
+		}
+		if e.Slot != "" {
+			return nil
+		}
+		e.Slot = slot
+		enc, err := json.Marshal(e)
+		if err != nil {
+			return err
+		}
+		if err := b.Put(h[:], enc); err != nil {
+			return err
+		}
+		slots := tx.Bucket(bucketSlot)
+		if slots.Get([]byte(slot)) != nil {
+			return nil
+		}
+		return slots.Put([]byte(slot), bytes.Clone(h[:]))
+	})
+	if err != nil {
+		if errors.Is(err, ErrUnknownDecision) {
+			return err
+		}
+		return unavailable("index slot", err)
+	}
+	return nil
+}
+
 func (s *BoltStore) Unfinished(_ context.Context, states ...State) ([]Entry, error) {
 	var out []Entry
 	err := s.db.View(func(tx *bolt.Tx) error {
