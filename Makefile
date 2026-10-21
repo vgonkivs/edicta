@@ -1,7 +1,7 @@
 BIN := celestia/bin
 CMDS := edicta edictad edicta-live edicta-verify
 
-.PHONY: build demo test test-q vet vectors clean
+.PHONY: build demo test test-q vet vectors clean contracts contracts-check
 
 build:
 	@for c in $(CMDS); do echo "go build $$c"; go -C celestia build -o bin/$$c ./cmd/$$c || exit 1; done
@@ -20,6 +20,13 @@ test:
 vectors:
 	python3 spec/vectors/check/check_vectors.py
 	env -u GOROOT go -C spec/vectors/tools/execresult-gen run . -check
+
+# EdictaPublish artifacts with the pinned solc image (needs docker).
+contracts:
+	contracts/edictapublish/build.sh
+
+contracts-check:
+	contracts/edictapublish/build.sh check
 
 clean:
 	rm -rf $(BIN)

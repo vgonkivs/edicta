@@ -1,0 +1,11 @@
+{
+  "solc_image": "ethereum/solc:0.8.28",
+  "solc_version": "0.8.28",
+  "optimizer": true,
+  "optimizer_runs": 200,
+  "evm_version": "paris",
+  "metadata_hash": "none",
+  "source_sha256": "bd359e0d8706b70b2f8a1a2b44ca9fc8a40657a4062d4967c4dd62e1d72dd8b8",
+  "runtime_sha256": "56435a6b51477af0a1111dfb712b7f3b3def1455b5f55b212035b01da353f25d",
+  "init_sha256": "2f511d0fe04ec82a6a54e978619675373f7519f450755339b67bdacb0487c91e"
+}
