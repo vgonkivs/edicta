@@ -1,0 +1,654 @@
+{
+  "format": "edicta-vectors/v0",
+  "profile": "eden-escrow",
+  "revision": "eden-escrow-v1-draft.5",
+  "generator": "spec/vectors/tools/edenescrow-gen",
+  "source_results": [
+    "pass",
+    "not_found",
+    "unconfirmed",
+    "unavailable",
+    "set_aside"
+  ],
+  "binding_note": "binding labels stand for (blockHash, transactionIndex, receipt consensus encoding); equal labels mean byte-equal values",
+  "cases": [
+    {
+      "id": "agree_executed",
+      "description": "Two operators serve the deposit in the same block with status 1.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "polling",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        }
+      ],
+      "verify": {
+        "status": "pass",
+        "level": "L1",
+        "outcome": "executed"
+      },
+      "await": "executed",
+      "record_allowed": true,
+      "payment_signature_allowed": true,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "agree_reverted",
+      "description": "Two operators agree on a reverted deposit: recorded, but no Payment-Signature.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "polling",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "pass",
+          "outcome": "reverted",
+          "binding": "B1"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "pass",
+          "outcome": "reverted",
+          "binding": "B1"
+        }
+      ],
+      "verify": {
+        "status": "pass",
+        "level": "L1",
+        "outcome": "reverted"
+      },
+      "await": "reverted",
+      "record_allowed": true,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "disagree_block",
+      "description": "Two operators serve the transaction in different blocks (a rollback or a lie).",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "polling",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B2"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_disagree"
+      },
+      "await": "disputed",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "disagree_status",
+      "description": "Same block, one says status 1, the other status 0 (receipt encodings differ).",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "until_passed",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "pass",
+          "outcome": "reverted",
+          "binding": "B1r"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_disagree"
+      },
+      "await": "disputed",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "one_found_one_not_found",
+      "description": "One operator has it, the other not yet: below the level, keep polling.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "polling",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "not_found"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_below_level"
+      },
+      "await": "pending",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "one_found_one_not_found_until",
+      "description": "The same at until: never not_executed while a source shows the deposit.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "until_passed",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "not_found"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_below_level"
+      },
+      "await": "unknown",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "one_found_one_unconfirmed",
+      "description": "One operator past ConfirmDepth, the other below it.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "polling",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "unconfirmed"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_unconfirmed"
+      },
+      "await": "pending",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "same_operator",
+      "description": "Two hosts of one operator count once.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "polling",
+      "sources": [
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "rpc2.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_below_level"
+      },
+      "await": "pending",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "two_of_three",
+      "description": "Two operators agree, the third has not seen it: the level is reached.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "polling",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "eden.blockscout.com",
+          "operator": "blockscout",
+          "result": "not_found"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        }
+      ],
+      "verify": {
+        "status": "pass",
+        "level": "L1",
+        "outcome": "executed"
+      },
+      "await": "executed",
+      "record_allowed": true,
+      "payment_signature_allowed": true,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "two_agree_third_disagrees",
+      "description": "Two agree, a third passing source names another block: any disagreement between passing sources wins.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "polling",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "eden.blockscout.com",
+          "operator": "blockscout",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B2"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_disagree"
+      },
+      "await": "disputed",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "three_required_two_agree",
+      "description": "MinSources 3 and two agreeing operators: below the level.",
+      "min_level": "L1",
+      "min_sources": "3",
+      "phase": "polling",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "eden.blockscout.com",
+          "operator": "blockscout",
+          "result": "unavailable"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_below_level"
+      },
+      "await": "pending",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "none_found_polling",
+      "description": "Neither operator has it yet.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "polling",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "not_found"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "not_found"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_not_found"
+      },
+      "await": "pending",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "none_found_until",
+      "description": "Neither operator has it at until: not_executed, the nonce may be released.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "until_passed",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "not_found"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "not_found"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_not_found"
+      },
+      "await": "not_executed",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": true
+    },
+    {
+      "id": "none_found_same_operator_until",
+      "description": "Both answers come from one operator: unknown, not not_executed.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "until_passed",
+      "sources": [
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "not_found"
+        },
+        {
+          "host": "rpc2.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "not_found"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_not_found"
+      },
+      "await": "unknown",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "not_found_and_unavailable_until",
+      "description": "One not found, one down: unknown; the reason is the first source's.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "until_passed",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "not_found"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "unavailable"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_not_found"
+      },
+      "await": "unknown",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "unavailable_first_until",
+      "description": "One down, one not found: the first source's reason.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "until_passed",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "unavailable"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "not_found"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_source_unavailable"
+      },
+      "await": "unknown",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "not_found_and_unconfirmed_until",
+      "description": "One below ConfirmDepth at until: unknown, retried later.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "until_passed",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "not_found"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "unconfirmed"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_unconfirmed"
+      },
+      "await": "unknown",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "pass_and_code_mismatch",
+      "description": "The second source serves other code at the escrow address and is set aside.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "until_passed",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "set_aside",
+          "reason": "settlement_code_mismatch"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_below_level"
+      },
+      "await": "unknown",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "both_set_aside_until",
+      "description": "Both sources set aside (chain id, then hash): the first reason.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "phase": "until_passed",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "set_aside",
+          "reason": "settlement_chain_config"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "set_aside",
+          "reason": "settlement_hash_mismatch"
+        }
+      ],
+      "verify": {
+        "status": "unchecked",
+        "reason": "settlement_chain_config"
+      },
+      "await": "unknown",
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "level_l0_single",
+      "description": "MinLevel L0 (explicit configuration): one operator suffices for the report and the record, never for a Payment-Signature.",
+      "min_level": "L0",
+      "min_sources": "2",
+      "phase": "polling",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "not_found"
+        }
+      ],
+      "verify": {
+        "status": "pass",
+        "level": "L0",
+        "outcome": "executed"
+      },
+      "await": "executed",
+      "record_allowed": true,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "level_l0_two_agree",
+      "description": "MinLevel L0 with two agreeing operators: the report gives the highest level reached.",
+      "min_level": "L0",
+      "min_sources": "2",
+      "phase": "polling",
+      "sources": [
+        {
+          "host": "own-node.example",
+          "operator": "own",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        },
+        {
+          "host": "rpc.eden.gateway.fm",
+          "operator": "gateway",
+          "result": "pass",
+          "outcome": "executed",
+          "binding": "B1"
+        }
+      ],
+      "verify": {
+        "status": "pass",
+        "level": "L1",
+        "outcome": "executed"
+      },
+      "await": "executed",
+      "record_allowed": true,
+      "payment_signature_allowed": true,
+      "nonce_release_allowed": false
+    }
+  ]
+}

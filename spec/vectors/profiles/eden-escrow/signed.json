@@ -1,7 +1,7 @@
 {
   "format": "edicta-vectors/v0",
   "profile": "eden-escrow",
-  "revision": "eden-escrow-v1-draft.4",
+  "revision": "eden-escrow-v1-draft.5",
   "generator": "spec/vectors/tools/edenescrow-gen",
   "upstream": {
     "go-ethereum": "github.com/ethereum/go-ethereum v1.17.8"
@@ -62,6 +62,30 @@
       "s_hex": "0338e0cc69b006ac4e8621d5c0a53e8f86cf04366db3c3dc52b8f630722764a3",
       "signed_hex": "02f901978202ca887fffffffffffffffa0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff887fffffffffffffff9465d77c98e73dfbea91ecb72b27c9753e186a94c8a0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffb8c4b707d860ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff000000000000000000000000ffffffffffffffffffffffffffffffffffffffff000000000000000000000000fefefefefefefefefefefefefefefefefefefefe0000000000000000000000000000000000000000000000007ffffffffffffffe0000000000000000000000000000000000000000000000007fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc001a0e78f502db86c9bb4b924fc48890012643a4b5619fed8355d49b868b5e8ac58faa00338e0cc69b006ac4e8621d5c0a53e8f86cf04366db3c3dc52b8f630722764a3",
       "rail_ref": "9bbc51cc3585ec84edf1f27abd42fe6b546fe2c781173a1109a4e9c12d31d11e",
+      "payer": "0x847fd213005eb8a0dfa68093aca2276c81c2773f"
+    },
+    {
+      "id": "signed_amount_max_714",
+      "action_ref": "tx_amount_max_714",
+      "key": "payer1",
+      "sighash_hex": "d07f98eb2d48c7a9b1eaf1b83f52e12bccd9b8630adaa3a53f8ca7e50c18d830",
+      "y_parity": "1",
+      "r_hex": "21112cddee3009a2b502270328c9648deeb134f6a87da371107b0045bda118f7",
+      "s_hex": "2f05262597ea00504a8084136cbdcf1a01aec32c1317ee2fcc814ba62d48eec4",
+      "signed_hex": "02f901498202ca0180018252089465d77c98e73dfbea91ecb72b27c9753e186a94c8a0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffadf7b8c4b707d860e7b0fe0c168a34ec93cfca6752955af23bbe002de0d16d399f35ff910b160f35000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006ad87b94000000000000000000000000000000000000000000000000000000006ae1b4e800000000000000000000000000000000000000000000000008c9da13856cd000c001a021112cddee3009a2b502270328c9648deeb134f6a87da371107b0045bda118f7a02f05262597ea00504a8084136cbdcf1a01aec32c1317ee2fcc814ba62d48eec4",
+      "rail_ref": "250af167be8debe1db80a16dadeec03251f4abf594e9ac9476b71ba35ce0cb9b",
+      "payer": "0x847fd213005eb8a0dfa68093aca2276c81c2773f"
+    },
+    {
+      "id": "signed_amount_overflow_714",
+      "action_ref": "tx_amount_overflow_714",
+      "key": "payer1",
+      "sighash_hex": "bc3b72943e2a724a719ae11e2400a27c261bf5ca95c71a874a5e51a59984f0d4",
+      "y_parity": "1",
+      "r_hex": "1c636df7d3e691b59ab07839c53fbe67413eee9e9901751933481d580338b1ee",
+      "s_hex": "1ffd12a995557ad77ddc03ff952d6865ab0cb640e61547cbd91e5d8f6c9b7edb",
+      "signed_hex": "02f901498202ca0180018252089465d77c98e73dfbea91ecb72b27c9753e186a94c8a0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffadf8b8c4b707d860e7b0fe0c168a34ec93cfca6752955af23bbe002de0d16d399f35ff910b160f35000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006ad87b94000000000000000000000000000000000000000000000000000000006ae1b4e800000000000000000000000000000000000000000000000008c9da13856cd000c001a01c636df7d3e691b59ab07839c53fbe67413eee9e9901751933481d580338b1eea01ffd12a995557ad77ddc03ff952d6865ab0cb640e61547cbd91e5d8f6c9b7edb",
+      "rail_ref": "11378560aaebd8fe3887862a8469b35bfb7f531b35eeffd49734a155e392898c",
       "payer": "0x847fd213005eb8a0dfa68093aca2276c81c2773f"
     },
     {
@@ -170,6 +194,24 @@
       "action_ref": "tx_max_714",
       "signed_hex": "02f901978202ca887fffffffffffffffa0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff887fffffffffffffff9465d77c98e73dfbea91ecb72b27c9753e186a94c8a0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffb8c4b707d860ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff000000000000000000000000ffffffffffffffffffffffffffffffffffffffff000000000000000000000000fefefefefefefefefefefefefefefefefefefefe0000000000000000000000000000000000000000000000007ffffffffffffffe0000000000000000000000000000000000000000000000007fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc001a0e78f502db86c9bb4b924fc48890012643a4b5619fed8355d49b868b5e8ac58faa00338e0cc69b006ac4e8621d5c0a53e8f86cf04366db3c3dc52b8f630722764a3",
       "rail_ref": "9bbc51cc3585ec84edf1f27abd42fe6b546fe2c781173a1109a4e9c12d31d11e",
+      "expect": "pass",
+      "cause": "the signer's output for this action",
+      "payer": "0x847fd213005eb8a0dfa68093aca2276c81c2773f"
+    },
+    {
+      "id": "exact_amount_max_714",
+      "action_ref": "tx_amount_max_714",
+      "signed_hex": "02f901498202ca0180018252089465d77c98e73dfbea91ecb72b27c9753e186a94c8a0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffadf7b8c4b707d860e7b0fe0c168a34ec93cfca6752955af23bbe002de0d16d399f35ff910b160f35000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006ad87b94000000000000000000000000000000000000000000000000000000006ae1b4e800000000000000000000000000000000000000000000000008c9da13856cd000c001a021112cddee3009a2b502270328c9648deeb134f6a87da371107b0045bda118f7a02f05262597ea00504a8084136cbdcf1a01aec32c1317ee2fcc814ba62d48eec4",
+      "rail_ref": "250af167be8debe1db80a16dadeec03251f4abf594e9ac9476b71ba35ce0cb9b",
+      "expect": "pass",
+      "cause": "the signer's output for this action",
+      "payer": "0x847fd213005eb8a0dfa68093aca2276c81c2773f"
+    },
+    {
+      "id": "exact_amount_overflow_714",
+      "action_ref": "tx_amount_overflow_714",
+      "signed_hex": "02f901498202ca0180018252089465d77c98e73dfbea91ecb72b27c9753e186a94c8a0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffadf8b8c4b707d860e7b0fe0c168a34ec93cfca6752955af23bbe002de0d16d399f35ff910b160f35000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006ad87b94000000000000000000000000000000000000000000000000000000006ae1b4e800000000000000000000000000000000000000000000000008c9da13856cd000c001a01c636df7d3e691b59ab07839c53fbe67413eee9e9901751933481d580338b1eea01ffd12a995557ad77ddc03ff952d6865ab0cb640e61547cbd91e5d8f6c9b7edb",
+      "rail_ref": "11378560aaebd8fe3887862a8469b35bfb7f531b35eeffd49734a155e392898c",
       "expect": "pass",
       "cause": "the signer's output for this action",
       "payer": "0x847fd213005eb8a0dfa68093aca2276c81c2773f"

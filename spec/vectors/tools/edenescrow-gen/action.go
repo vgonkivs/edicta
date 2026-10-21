@@ -265,14 +265,44 @@ type facts struct {
 	scale                  uint64
 }
 
-func factsOf(t txIn) facts {
+// feeBound is the most gas the transaction can cost its sender:
+// gas_limit * max_fee_per_gas.
+func (t txIn) feeBound() *big.Int {
+	return new(big.Int).Mul(new(big.Int).SetUint64(t.gas), t.fee)
+}
+
+// factsOf applies EF2: the amount is the deposit plus the fee bound, so a
+// mandate's per-asset limits bound everything the payer can lose. ok is
+// false when that sum does not fit the policy's 32-byte amount (EF3).
+func factsOf(t txIn) (f facts, ok bool) {
 	d := decodeCalldataUnchecked(t.data)
+	amount := new(big.Int).Add(t.value, t.feeBound())
+	if amount.BitLen() > 256 {
+		return facts{}, false
+	}
 	return facts{
 		kind:      "x402-payment",
 		asset:     fmt.Sprintf("eip155:%d/native", t.chainID),
-		amount:    t.value.Bytes(),
+		amount:    amount.Bytes(),
 		scale:     18,
 		recipient: fmt.Sprintf("eip155:%d:%s", t.chainID, strings.ToLower(d.payTo.Hex())),
+	}, true
+}
+
+// profileFields is the deposit view of section 4.1: values the signer and
+// the settlement report expose beside the facts, never policy facts.
+func profileFields(t txIn) obj {
+	d := decodeCalldataUnchecked(t.data)
+	return obj{
+		{"payment_id_hex", hx(d.paymentID[:])},
+		{"pay_to", strings.ToLower(d.payTo.Hex())},
+		{"facilitator", strings.ToLower(d.facilitator.Hex())},
+		{"escrow", strings.ToLower(t.to.Hex())},
+		{"expires_at", dec(d.expiresAt)},
+		{"refund_after", dec(d.refundAfter)},
+		{"value", t.value.String()},
+		{"fee_bound", t.feeBound().String()},
+		{"tia_price_usd_hex", hx(d.price[:])},
 	}
 }
 
@@ -320,6 +350,8 @@ func actionCases(lv *live) []actionCase {
 	for len(printable) < 2048 {
 		printable = append(printable, byte(0x21+len(printable)%94))
 	}
+	amtMax := new(big.Int).Sub(two256Minus, big.NewInt(21000))
+	amtOver := new(big.Int).Add(amtMax, big.NewInt(1))
 	return []actionCase{
 		{"tx_f14_714", "Form T deposit on chain 714 with the recorded F14 calldata and value (the F14 flow itself is form A).", "production", "call_f14",
 			base, "https://api.example.com/v1/quote?symbol=TIA", mockRequirements(714, f14Value.String())},
@@ -327,8 +359,12 @@ func actionCases(lv *live) []actionCase {
 			txIn{714, 0, big.NewInt(0), big.NewInt(1), 21000, escrow714, big.NewInt(1), calls["call_min"]}, "a", mockRequirements(714, "1")},
 		{"tx_single_byte_714", "Integers at the RLP single-byte boundary: nonce, tip and value 127 (one byte), fee 128 (0x81 0x80).", "production", "call_f14",
 			txIn{714, 127, big.NewInt(127), big.NewInt(128), 100000, escrow714, big.NewInt(127), calls["call_f14"]}, "https://x.example/p", mockRequirements(714, "127")},
-		{"tx_max_714", "Largest values: nonce and gas 2^63-1, fees and value 2^256-1, a 2048-byte resource of every printable character.", "production", "call_max",
+		{"tx_max_714", "Largest values the decoder accepts: nonce and gas 2^63-1, fees and value 2^256-1, a 2048-byte resource of every printable character. The extractor refuses it (EF3: deposit plus fee bound above 2^256-1).", "production", "call_max",
 			txIn{714, maxInt63, two256Minus, two256Minus, maxInt63, escrow714, two256Minus, calls["call_max"]}, string(printable), mockRequirements(714, two256Minus.String())},
+		{"tx_amount_max_714", "Deposit plus fee bound exactly 2^256-1 (gas 21000, fee 1): the largest amount the facts can carry.", "production", "call_f14",
+			txIn{714, 1, big.NewInt(0), big.NewInt(1), 21000, escrow714, amtMax, calls["call_f14"]}, "https://x.example/p", mockRequirements(714, amtMax.String())},
+		{"tx_amount_overflow_714", "Deposit plus fee bound 2^256: the decoder accepts the bytes, the extractor refuses (EF3).", "production", "call_f14",
+			txIn{714, 1, big.NewInt(0), big.NewInt(1), 21000, escrow714, amtOver, calls["call_f14"]}, "https://x.example/p", mockRequirements(714, amtOver.String())},
 		{"tx_f14_testnet", "The tx_f14_714 deposit on the testnet 3735928814, to the CREATE2 copy of the escrow.", "production", "call_f14",
 			testnet, "https://api.example.com/v1/quote?symbol=TIA", mockRequirements(3735928814, f14Value.String())},
 		{"tx_f14_dev_31337", "The tx_f14_714 deposit on the dev chain 31337, to the CREATE2 address; accepted only by an edictadev build.", "edictadev", "call_f14",
@@ -483,7 +519,13 @@ func buildActionFile(lv *live, code obj) obj {
 		u := a.tx.unsigned()
 		action := a.cbor()
 		salt := label("eden-escrow-v1 vector salt " + a.id)
-		f := factsOf(a.tx)
+		f, ok := factsOf(a.tx)
+		var fj, fc, xerr, xrule any
+		if ok {
+			fj, fc = f.json(), hx(f.cbor())
+		} else {
+			xerr, xrule = errFacts, "EF3"
+		}
 		cs = append(cs, obj{
 			{"id", a.id}, {"description", a.desc}, {"build", a.build}, {"extractor_ids", idsFor(a.build)},
 			{"input", obj{
@@ -499,8 +541,11 @@ func buildActionFile(lv *live, code obj) obj {
 			{"cbor_hex", hx(action)},
 			{"action_salt_hex", hx(salt)},
 			{"action_hash_hex", hx(actionHash(salt, action))},
-			{"facts", f.json()},
-			{"facts_cbor_hex", hx(f.cbor())},
+			{"facts", fj},
+			{"facts_cbor_hex", fc},
+			{"extractor_expect_error", xerr},
+			{"extractor_rule", xrule},
+			{"profile_fields", profileFields(a.tx)},
 		})
 	}
 	var rs []any

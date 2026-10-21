@@ -3,7 +3,8 @@
 // Command edenescrow-gen writes the vectors of the eden-escrow profile with
 // go-ethereum: the form T transactions, their EIP-1559 signing hashes and
 // signatures, the rebuild of served transactions, the receipt encoding and
-// the header hash of a recorded Eden block. It lives in its own module so
+// the header hash of a recorded Eden block, the x402 escrow-upto flow from
+// the requester's fixtures and the multi-source outcome table. It lives in its own module so
 // the main module never depends on go-ethereum. Recorded chain data comes
 // only from ../../profiles/eden-escrow/live/; nothing is fetched.
 //
@@ -25,7 +26,7 @@ import (
 const (
 	format    = "edicta-vectors/v0"
 	profile   = "eden-escrow"
-	revision  = "eden-escrow-v1-draft.4"
+	revision  = "eden-escrow-v1-draft.5"
 	generator = "spec/vectors/tools/edenescrow-gen"
 )
 
@@ -88,6 +89,8 @@ func main() {
 		{"action.json", buildActionFile(&lv, code)},
 		{"signed.json", buildSignedFile(&lv)},
 		{"settlement.json", buildSettlementFile(&lv)},
+		{"x402.json", buildX402File(loadHouston(dir))},
+		{"multi_source.json", buildQuorumFile()},
 	}
 	failed := false
 	for _, f := range files {

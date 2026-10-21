@@ -228,11 +228,27 @@ def decode_tx(tx: bytes, build: str = "production") -> dict:
             "list_payload": tx[list_start:]}
 
 
+def fee_bound(a: dict) -> int:
+    return a["gas"] * a["fee"]
+
+
 def facts(a: dict) -> dict:
+    """EF2: amount = value + gas_limit * max_fee_per_gas; EF3: refused above the policy's 32 bytes."""
     cid = a["chain_id"]
+    amount = a["value"] + fee_bound(a)
+    if amount >= 1 << 256:
+        raise Refused("ErrFactsInvalid", "EF3", "amount above 32 bytes")
     return {"kind": "x402-payment", "asset": f"eip155:{cid}/native",
-            "amount": a["value"].to_bytes((a["value"].bit_length() + 7) // 8, "big"), "scale": 18,
+            "amount": amount.to_bytes((amount.bit_length() + 7) // 8, "big"), "scale": 18,
             "recipient": f"eip155:{cid}:0x{a['call']['pay_to'].hex()}"}
+
+
+def profile_fields(a: dict) -> dict:
+    c = a["call"]
+    return {"payment_id_hex": c["payment_id"].hex(), "pay_to": "0x" + c["pay_to"].hex(),
+            "facilitator": "0x" + c["facilitator"].hex(), "escrow": "0x" + a["to"].hex(),
+            "expires_at": str(c["expires_at"]), "refund_after": str(c["refund_after"]),
+            "value": str(a["value"]), "fee_bound": str(fee_bound(a)), "tia_price_usd_hex": c["tia_price_usd"].hex()}
 
 
 def requirements_hash(raw: bytes) -> bytes:

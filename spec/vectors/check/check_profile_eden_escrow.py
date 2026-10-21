@@ -23,12 +23,13 @@ from pathlib import Path
 
 import principal_crypto as pc
 import profile_eden_escrow as ee
+import profile_eden_escrow_x402 as xp
 from edicta import action_hash
 from policy_v1 import encode_facts
 
 HERE = Path(__file__).resolve().parent
 DEFAULT = HERE.parent / "profiles" / "eden-escrow"
-REVISION = "eden-escrow-v1-draft.4"
+REVISION = "eden-escrow-v1-draft.5"
 
 fails: list[str] = []
 
@@ -68,6 +69,23 @@ def check_calls(d: dict):
     return {c["id"]: c for c in d["cases"]}
 
 
+def check_facts(cid: str, a: dict, c: dict):
+    """EF2 and EF3, and the profile fields of section 4.1."""
+    e = refused(ee.facts, a)
+    if e is not None:
+        expect(c["facts"] is None and c["facts_cbor_hex"] is None and c["extractor_expect_error"] == e.sentinel
+               and c["extractor_rule"] == e.rule == "EF3", f"{cid}: extractor refusal")
+    else:
+        f, fj = ee.facts(a), c["facts"]
+        expect(fj is not None and f["kind"] == fj["kind"] and f["asset"] == fj["asset"]
+               and f["amount"].hex() == fj["amount"] and str(f["scale"]) == fj["scale"]
+               and f["recipient"] == fj["recipient"], f"{cid}: facts")
+        expect(int(fj["amount"], 16) == a["value"] + a["gas"] * a["fee"], f"{cid}: amount = value + fee bound")
+        expect(encode_facts(f).hex() == c["facts_cbor_hex"], f"{cid}: facts_cbor")
+        expect(c.get("extractor_expect_error") is None and c.get("extractor_rule") is None, f"{cid}: no refusal")
+    expect(ee.profile_fields(a) == c["profile_fields"], f"{cid}: profile fields")
+
+
 def check_actions(d: dict, calls: dict):
     header(d, "action")
     ids = {x["build"]: x["id"] for x in d["extractors"]}
@@ -104,11 +122,7 @@ def check_actions(d: dict, calls: dict):
         expect(ee.sighash(a["tx"]).hex() == c["sighash_hex"], f"{cid}: sighash")
         salt = bytes.fromhex(c["action_salt_hex"])
         expect(action_hash(ee.ACTION_TYPE, salt, b).hex() == c["action_hash_hex"], f"{cid}: action_hash")
-        f = ee.facts(a)
-        fj = c["facts"]
-        expect(f["kind"] == fj["kind"] and f["asset"] == fj["asset"] and f["amount"].hex() == fj["amount"]
-               and str(f["scale"]) == fj["scale"] and f["recipient"] == fj["recipient"], f"{cid}: facts")
-        expect(encode_facts(f).hex() == c["facts_cbor_hex"], f"{cid}: facts_cbor")
+        check_facts(cid, a, c)
         out[cid] = a
     for r in d["reject"]:
         e = refused(ee.decode_action, bytes.fromhex(r["cbor_hex"]), r["build"])
@@ -220,6 +234,87 @@ def check_settlement(d: dict, actions: dict, live: dict):
            and b["transactions_root_equal"] is True, "transactions root (generator)")
 
 
+def check_x402(d: dict, base: Path, signed: dict):
+    """Section 2.2a (the requester's /deposit/build fixture to action bytes and facts), S4, S11."""
+    header(d, "x402")
+    raw_build = (base / d["inputs"]["deposit_build"]["file"]).read_bytes()
+    raw_r = (base / d["inputs"]["payment_required"]["file"]).read_bytes()
+    expect(pc_sha256(raw_build) == d["inputs"]["deposit_build"]["sha256"]
+           and pc_sha256(raw_r) == d["inputs"]["payment_required"]["sha256"], "x402: input hashes")
+    expect(d["inputs"]["payment_required"]["wire_bytes"] is False, "x402: R is marked as not wire bytes")
+    b = d["build"]
+    req_hash = ee.requirements_hash(raw_r)
+    expect(req_hash.hex() == b["requirements_hash_hex"], "x402: requirements_hash")
+    resource = json.loads(raw_r)["resource"]["url"]
+    expect(resource == b["resource"], "x402: resource")
+    action, a = xp.action_from_build(raw_build, resource, req_hash)
+    expect(action.hex() == b["cbor_hex"] and str(len(action)) == b["action_length"], "x402: action bytes")
+    expect(a["tx"].hex() == b["tx_hex"] and str(len(a["tx"])) == b["tx_length"], "x402: tx")
+    expect(ee.sighash(a["tx"]).hex() == b["sighash_hex"], "x402: sighash")
+    expect(action_hash(ee.ACTION_TYPE, bytes.fromhex(b["action_salt_hex"]), action).hex() == b["action_hash_hex"],
+           "x402: action_hash")
+    expect(b["extractor_ids"] == [ee.EXTRACTOR_ID, ee.EXTRACTOR_DEV_ID], "x402: extractor ids")
+    check_facts("x402 build", a, {**b, "extractor_expect_error": None, "extractor_rule": None})
+    for c in d["build_accept"]:
+        e = refused(xp.action_from_build, c["json"].encode(), resource, req_hash)
+        expect(e is None and xp.action_from_build(c["json"].encode(), resource, req_hash)[0] == action,
+               f"build_accept {c['id']}: {e}")
+    for c in d["build_reject"]:
+        e = refused(xp.action_from_build, c["json"].encode(), resource, req_hash)
+        expect(e is not None and e.rule == c["expect"], f"build_reject {c['id']}: got {e and e.rule}")
+    rq = d["requirements"]
+    expect(int(rq["max_length"]) == xp.REQUIREMENTS_MAX and rq["check_server_signature"] is True, "S4 settings")
+    ss = rq["server_signature"]
+    sig = bytes.fromhex(ss["signature_hex"])
+    w0 = a["call"]["payment_id"]
+    expect(xp.eip191_digest(w0).hex() == ss["digest_hex"] and ss["message_hex"] == w0.hex(), "serverSignature digest")
+    expect(xp.recover_eip191(w0, sig) == a["call"]["facilitator"]
+           and ss["recovered"] == ss["facilitator_w2"] == "0x" + a["call"]["facilitator"].hex(), "serverSignature signer")
+    entry = None
+    for c in rq["accept"] + rq["reject"]:
+        r = bytes.fromhex(c["r_hex"])
+        ac = {**a, "requirements_hash": bytes.fromhex(c["requirements_hash_hex"])}
+        e = refused(xp.check_requirements, r, ac)
+        got = "pass" if e is None else e.rule
+        expect(got == c["expect"], f"requirements {c['id']}: got {got} ({e})")
+        if c["id"] == "r_fixture" and e is None:
+            entry = xp.check_requirements(r, ac)
+        if c["id"] == "r_nonce_absent" and e is None:
+            no_nonce = xp.check_requirements(r, ac)
+            expect(refused(xp.payment_signature_message, "nonce", a, no_nonce) is not None,
+                   "S11 refuses field nonce when R has no nonce")
+    expect(refused(xp.payment_signature_message, "nonce", a, None) is not None, "S11 refuses nonce without R")
+    ps = d["payment_signature"]
+    key = signed["keys"]["payer1"]
+    priv = int(key["private_key_hex"], 16)
+    for c in ps["cases"]:
+        m = xp.payment_signature_message(c["field"], a, entry)
+        digest = xp.eip191_digest(m)
+        y, r_, s_ = ee.sign_rfc6979(priv, digest)
+        want = r_.to_bytes(32, "big") + s_.to_bytes(32, "big") + bytes([27 + y])
+        expect(m.hex() == c["message_hex"] and digest.hex() == c["digest_hex"]
+               and pc.keccak256(bytes.fromhex(c["preimage_hex"])) == digest, f"payment_signature {c['field']}: digest")
+        expect(want.hex() == c["signature_hex"] and xp.recover_eip191(m, want) == bytes.fromhex(key["address"][2:])
+               and c["signer"] == key["address"], f"payment_signature {c['field']}: signature")
+    expect(ps["payment_id_digest_equals_server_signature_digest"] is True
+           and ps["cases"][0]["digest_hex"] == ss["digest_hex"], "paymentId message equals the serverSignature message")
+
+
+def check_multi_source(d: dict):
+    header(d, "multi_source")
+    for c in d["cases"]:
+        got = xp.multi_source(c["sources"], int(c["min_sources"]), c["min_level"], c["phase"])
+        want = {"verify": c["verify"], "await": c["await"], "record": c["record_allowed"],
+                "payment_signature": c["payment_signature_allowed"], "release": c["nonce_release_allowed"]}
+        expect(got == want, f"multi_source {c['id']}: got {got}")
+        expect(c["verify"]["status"] != "violated", f"multi_source {c['id']}: never violated")
+
+
+def pc_sha256(b: bytes) -> str:
+    import hashlib
+    return hashlib.sha256(b).hexdigest()
+
+
 def main() -> int:
     d = DEFAULT
     if "--dir" in sys.argv:
@@ -230,12 +325,14 @@ def main() -> int:
     check_escrow_code(load("action.json")["escrow_code"], load("live/escrow-code.json"))
     check_signed(load("signed.json"), actions)
     check_settlement(load("settlement.json"), actions, load("live/f14.json"))
+    check_x402(load("x402.json"), d, load("signed.json"))
+    check_multi_source(load("multi_source.json"))
     if fails:
         for f in fails:
             print(f"FAIL (eden-escrow): {f}", file=sys.stderr)
         return 1
     print("OK (eden-escrow): deposit calls, actions and rejects, signatures, rail_ref, EE3, EE2 rebuild, "
-          "receipt, EE8, header hash, escrow code and table")
+          "receipt, EE8, header hash, escrow code and table, x402 build and S4, Payment-Signature, multi-source")
     return 0
 
 
