@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,7 +25,16 @@ import (
 
 const vectorDir = "../spec/vectors/profiles/eden-escrow"
 
-const revision = "eden-escrow-v1-draft.3"
+// profileRevision is the revision the profile document states today; every
+// vector file must carry exactly it.
+func profileRevision(t testing.TB) string {
+	t.Helper()
+	b, err := os.ReadFile("../spec/profiles/eden-escrow-v1.md")
+	require.NoError(t, err)
+	m := regexp.MustCompile("Status: revision `(eden-escrow-v1-draft\\.[0-9]+)`").FindSubmatch(b)
+	require.NotNil(t, m, "profile document has no revision line")
+	return string(m[1])
+}
 
 type header struct {
 	Format   string `json:"format"`
@@ -187,7 +197,7 @@ func checkHeader(t *testing.T, h header) {
 	t.Helper()
 	require.Equal(t, "edicta-vectors/v0", h.Format)
 	require.Equal(t, "eden-escrow", h.Profile)
-	require.Equal(t, revision, h.Revision)
+	require.Equal(t, profileRevision(t), h.Revision)
 }
 
 func unhex(t testing.TB, s string) []byte {

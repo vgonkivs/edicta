@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,7 +21,16 @@ import (
 
 const vectorDir = "../spec/vectors/profiles/eden-escrow"
 
-const revision = "eden-escrow-v1-draft.3"
+// profileRevision is the revision the profile document states today; every
+// vector file must carry exactly it.
+func profileRevision(t testing.TB) string {
+	t.Helper()
+	b, err := os.ReadFile("../spec/profiles/eden-escrow-v1.md")
+	require.NoError(t, err)
+	m := regexp.MustCompile("Status: revision `(eden-escrow-v1-draft\\.[0-9]+)`").FindSubmatch(b)
+	require.NotNil(t, m, "profile document has no revision line")
+	return string(m[1])
+}
 
 func loadVector(t testing.TB, name string, v any) {
 	t.Helper()
@@ -32,7 +42,7 @@ func loadVector(t testing.TB, name string, v any) {
 	}
 	require.NoError(t, json.Unmarshal(b, &hdr))
 	if hdr.Revision != "" {
-		require.Equal(t, revision, hdr.Revision, name)
+		require.Equal(t, profileRevision(t), hdr.Revision, name)
 	}
 }
 
