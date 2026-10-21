@@ -70,15 +70,40 @@ func Address(pub *secp256k1.PublicKey) [20]byte {
 	return a
 }
 
+// SignTx signs the action's SigHash with the payer key and splices the
+// signature in. It is the only path a signer needs: the signature is
+// checked to recover to the key's own address before any bytes leave.
+func (a TxAction) SignTx(priv *secp256k1.PrivateKey) ([]byte, Signature, error) {
+	if priv == nil {
+		return nil, Signature{}, fmt.Errorf("%w: no key", ErrSignature)
+	}
+	sig, err := Sign(priv, a.SigHash())
+	if err != nil {
+		return nil, Signature{}, err
+	}
+	signed, err := a.Splice(sig, Address(priv.PubKey()))
+	if err != nil {
+		return nil, Signature{}, err
+	}
+	return signed, sig, nil
+}
+
 // Splice returns the signed transaction: the action's 9 item encodings
 // verbatim, then y_parity, r and s, under a new list header. Nothing is
-// re-encoded from fields. The signature must recover over SigHash.
-func (a TxAction) Splice(sig Signature) ([]byte, error) {
+// re-encoded from fields. The signature must recover over SigHash to payer:
+// another key, a flipped parity or a signature over another digest would
+// yield broadcastable bytes from an unintended sender, and the stored digest
+// of the decision would then repeat those bytes.
+func (a TxAction) Splice(sig Signature, payer [20]byte) ([]byte, error) {
 	if len(a.items) == 0 {
 		return nil, fmt.Errorf("%w: the action was not decoded", ErrMalformed)
 	}
-	if _, err := RecoverPayer(a.SigHash(), sig); err != nil {
+	got, err := RecoverPayer(a.SigHash(), sig)
+	if err != nil {
 		return nil, err
+	}
+	if got != payer {
+		return nil, fmt.Errorf("%w: recovers to %x, not the payer %x", ErrSignature, got, payer)
 	}
 	y := []byte{0x80}
 	if sig.YParity == 1 {

@@ -12,7 +12,8 @@ demo: build
 vet:
 	go vet ./...
 	go -C celestia vet ./...
-	go -C celestia vet -tags edictadev ./initcmd ./cmd/edicta-devinit
+	go vet -tags edictadev ./edenescrow/
+	go -C celestia vet -tags edictadev ./initcmd ./cmd/edicta-devinit ./edictad/ ./verifycli/
 
 test:
 	go test -race -p 2 ./...
@@ -57,4 +58,5 @@ dev-smoke:
 
 # Unit tests of the code behind the edictadev build tag (no docker, no network).
 test-dev:
-	go -C celestia test -race -count=1 -tags edictadev ./initcmd ./cmd/edicta-devinit
+	go test -race -count=1 -tags edictadev ./edenescrow/
+	go -C celestia test -race -count=1 -tags edictadev ./initcmd ./cmd/edicta-devinit ./edictad/ ./verifycli/

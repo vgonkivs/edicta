@@ -30,6 +30,11 @@ func payerKey(t testing.TB) *secp256k1.PrivateKey {
 	return secp256k1.PrivKeyFromBytes(unhex(t, v.Keys["payer1"].PrivateKeyHex))
 }
 
+func payerAddr(t testing.TB) [20]byte {
+	t.Helper()
+	return Address(payerKey(t).PubKey())
+}
+
 func TestDecodedActionDoesNotAliasInput(t *testing.T) {
 	_, b := f14(t)
 	a, err := DecodeTxAction(b)
@@ -42,9 +47,9 @@ func TestDecodedActionDoesNotAliasInput(t *testing.T) {
 	assert.Equal(t, want, a)
 	sig, err := Sign(payerKey(t), a.SigHash())
 	require.NoError(t, err)
-	signed, err := a.Splice(sig)
+	signed, err := a.Splice(sig, payerAddr(t))
 	require.NoError(t, err)
-	wantSigned, err := want.Splice(sig)
+	wantSigned, err := want.Splice(sig, payerAddr(t))
 	require.NoError(t, err)
 	assert.Equal(t, wantSigned, signed)
 }
@@ -81,7 +86,7 @@ func TestDecoderBounds(t *testing.T) {
 	a, _ := f14(t)
 	req := cborBstr(a.RequirementsHash[:])
 	res := cborTstr(a.Resource)
-	tx := cborBstr(a.Unsigned)
+	tx := cborBstr(a.unsigned)
 	cases := []struct {
 		name string
 		in   []byte
@@ -181,18 +186,18 @@ func TestTransactionRules(t *testing.T) {
 
 func TestEncodeTxActionRefusesWhatTheDecoderRefuses(t *testing.T) {
 	a, b := f14(t)
-	got, err := EncodeTxAction(a.Unsigned, a.Resource, a.RequirementsHash)
+	got, err := EncodeTxAction(a.unsigned, a.Resource, a.RequirementsHash)
 	require.NoError(t, err)
 	assert.Equal(t, b, got)
 
 	long := "https://a.example/" + strings.Repeat("a", MaxResourceSize-len("https://a.example/"))
-	_, err = EncodeTxAction(a.Unsigned, long, a.RequirementsHash)
+	_, err = EncodeTxAction(a.unsigned, long, a.RequirementsHash)
 	require.NoError(t, err, "a resource of exactly the maximum")
-	_, err = EncodeTxAction(a.Unsigned, long+"a", a.RequirementsHash)
+	_, err = EncodeTxAction(a.unsigned, long+"a", a.RequirementsHash)
 	require.ErrorIs(t, err, ErrMalformed)
-	_, err = EncodeTxAction(a.Unsigned, "https://a.example/x y", a.RequirementsHash)
+	_, err = EncodeTxAction(a.unsigned, "https://a.example/x y", a.RequirementsHash)
 	require.ErrorIs(t, err, ErrMalformed)
-	_, err = EncodeTxAction(a.Unsigned[:len(a.Unsigned)-1], a.Resource, a.RequirementsHash)
+	_, err = EncodeTxAction(a.unsigned[:len(a.unsigned)-1], a.Resource, a.RequirementsHash)
 	require.ErrorIs(t, err, ErrMalformed)
 }
 
@@ -222,31 +227,74 @@ func TestSignatureRanges(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, err := RecoverPayer(a.SigHash(), s)
 			require.ErrorIs(t, err, ErrSignature)
-			_, err = a.Splice(s)
+			_, err = a.Splice(s, payerAddr(t))
 			require.ErrorIs(t, err, ErrSignature)
 		})
 	}
 
-	// The other parity recovers another key, so Splice accepts it, but the
-	// payer differs: the signer must compare with its pinned address.
+	// The other parity recovers another key (or none): Splice refuses it,
+	// so no bytes from an unintended sender ever leave.
 	flipped := sig
 	flipped.YParity ^= 1
-	p1, err := RecoverPayer(a.SigHash(), sig)
+	_, err = a.Splice(flipped, payerAddr(t))
+	require.ErrorIs(t, err, ErrSignature)
+
+	// A valid signature by another key is refused too.
+	other, err := secp256k1.GeneratePrivateKey()
 	require.NoError(t, err)
-	if p2, err := RecoverPayer(a.SigHash(), flipped); err == nil {
-		assert.NotEqual(t, p1, p2)
+	otherSig, err := Sign(other, a.SigHash())
+	require.NoError(t, err)
+	_, err = a.Splice(otherSig, payerAddr(t))
+	require.ErrorIs(t, err, ErrSignature)
+	_, err = a.Splice(otherSig, Address(other.PubKey()))
+	require.NoError(t, err)
+}
+
+func TestSignTxIsTheSplicedSignature(t *testing.T) {
+	a, _ := f14(t)
+	signed, sig, err := a.SignTx(payerKey(t))
+	require.NoError(t, err)
+	want, err := Sign(payerKey(t), a.SigHash())
+	require.NoError(t, err)
+	assert.Equal(t, want, sig)
+	_, payer, err := ParseSigned(a, signed)
+	require.NoError(t, err)
+	assert.Equal(t, payerAddr(t), payer)
+
+	_, _, err = a.SignTx(nil)
+	require.ErrorIs(t, err, ErrSignature)
+	var zero TxAction
+	_, _, err = zero.SignTx(payerKey(t))
+	require.ErrorIs(t, err, ErrMalformed)
+}
+
+// Writing into the bytes Unsigned returns changes neither the digest nor the
+// signed transaction: only the decoded bytes are ever signed.
+func TestUnsignedIsACopy(t *testing.T) {
+	a, _ := f14(t)
+	h := a.SigHash()
+	before, _, err := a.SignTx(payerKey(t))
+	require.NoError(t, err)
+	u := a.Unsigned()
+	for i := range u {
+		u[i] ^= 0xff
 	}
+	assert.Equal(t, h, a.SigHash())
+	after, _, err := a.SignTx(payerKey(t))
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+	assert.NotEqual(t, u, a.Unsigned())
 }
 
 func TestUndecodedActionIsRefused(t *testing.T) {
 	a, _ := f14(t)
 	sig, err := Sign(payerKey(t), a.SigHash())
 	require.NoError(t, err)
-	signed, err := a.Splice(sig)
+	signed, err := a.Splice(sig, payerAddr(t))
 	require.NoError(t, err)
 
 	var zero TxAction
-	_, err = zero.Splice(sig)
+	_, err = zero.Splice(sig, payerAddr(t))
 	require.ErrorIs(t, err, ErrMalformed)
 	_, _, err = ParseSigned(zero, signed)
 	require.ErrorIs(t, err, ErrSignedMismatch)
@@ -261,7 +309,7 @@ func TestParseSignedRefusesAnotherAction(t *testing.T) {
 	require.NoError(t, err)
 	sig, err := Sign(payerKey(t), other.SigHash())
 	require.NoError(t, err)
-	signed, err := other.Splice(sig)
+	signed, err := other.Splice(sig, payerAddr(t))
 	require.NoError(t, err)
 	_, _, err = ParseSigned(a, signed)
 	require.ErrorIs(t, err, ErrSignedMismatch)

@@ -52,23 +52,28 @@ type TxAction struct {
 	GasLimit uint64
 	// MaxPriorityFee, MaxFeePerGas and Value are big-endian without leading
 	// zeros; zero is empty. Value is never empty in a decoded action.
-	MaxPriorityFee []byte
-	MaxFeePerGas   []byte
-	To             [20]byte
-	Value          []byte
-	Deposit        Deposit
-	// Unsigned is the action's tx field verbatim: 0x02 || rlp(9 items), the
-	// EIP-1559 signing preimage.
-	Unsigned         []byte
+	MaxPriorityFee   []byte
+	MaxFeePerGas     []byte
+	To               [20]byte
+	Value            []byte
+	Deposit          Deposit
 	Resource         string
 	RequirementsHash [32]byte
 	// Row is the table row of ChainID.
 	Row Row
 
-	// items is the payload of the RLP list in Unsigned: the 9 item
+	// unsigned is the action's tx field verbatim: 0x02 || rlp(9 items), the
+	// EIP-1559 signing preimage. It is private, and only the decoder sets
+	// it, so the bytes that SigHash and Splice use are always the bytes
+	// whose fields were decoded.
+	unsigned []byte
+	// items is the payload of the RLP list in unsigned: the 9 item
 	// encodings, verbatim. The signed transaction starts with it.
 	items []byte
 }
+
+// Unsigned returns a copy of the unsigned transaction, the action's tx field.
+func (a TxAction) Unsigned() []byte { return bytes.Clone(a.unsigned) }
 
 // DecodeTxAction decodes a form T action with this build's table.
 func DecodeTxAction(b []byte) (TxAction, error) { return builtTable.decode(b) }
@@ -142,7 +147,7 @@ func actionSchema(b []byte) (TxAction, error) {
 			if len(val) < 1 || len(val) > MaxTxSize {
 				return TxAction{}, malformed("EA3", "tx of %d bytes", len(val))
 			}
-			a.Unsigned = bytes.Clone(val)
+			a.unsigned = bytes.Clone(val)
 		case 3:
 			if len(val) < 1 || len(val) > MaxResourceSize {
 				return TxAction{}, malformed("EA3", "resource of %d bytes", len(val))
@@ -169,9 +174,9 @@ func actionSchema(b []byte) (TxAction, error) {
 	return a, nil
 }
 
-// parseTx applies the transaction rules to a.Unsigned and fills a.
+// parseTx applies the transaction rules to a.unsigned and fills a.
 func parseTx(a *TxAction) error {
-	tx := a.Unsigned
+	tx := a.unsigned
 	if tx[0] != txType {
 		return malformed("ET1", "transaction type 0x%02x", tx[0])
 	}
@@ -300,7 +305,7 @@ func CompareUint(a, b []byte) int {
 
 // SigHash is keccak256 of the unsigned transaction: the digest the payer key
 // signs.
-func (a TxAction) SigHash() [32]byte { return keccak256(a.Unsigned) }
+func (a TxAction) SigHash() [32]byte { return keccak256(a.unsigned) }
 
 // RequirementsHash binds the exact PaymentRequirements bytes the server sent.
 func RequirementsHash(raw []byte) [32]byte {

@@ -88,6 +88,18 @@ func TestPolicyEdenEscrowDeposit(t *testing.T) {
 	require.ErrorIs(t, err, archive.ErrNotFound)
 }
 
+// A dev binary says so at start; a production binary does not.
+func TestEdictadevBuildWarnsAtStart(t *testing.T) {
+	e := newEnv(t)
+	e.start()
+	const warning = "edictadev build, the Eden escrow table includes the dev chain 31337"
+	if edenescrow.RegisteredExtractorID() == edenescrow.DevExtractorID {
+		assert.Contains(t, e.logs.String(), warning)
+		return
+	}
+	assert.NotContains(t, e.logs.String(), warning)
+}
+
 // The executed transaction does not reveal the resource URL and the
 // requirements hash, so the action type is never public on execution.
 func TestEdenEscrowIsNotRevealedOnExecution(t *testing.T) {

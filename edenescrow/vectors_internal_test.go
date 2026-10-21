@@ -365,7 +365,7 @@ func TestActionVectors(t *testing.T) {
 				assert.Equal(t, addr(t, c.Input.To), a.To)
 				assert.Equal(t, minimal(t, c.Input.Value), a.Value)
 				assert.Equal(t, c.Input.Resource, a.Resource)
-				assert.Equal(t, c.TxHex, hex.EncodeToString(a.Unsigned))
+				assert.Equal(t, c.TxHex, hex.EncodeToString(a.unsigned))
 				assert.Equal(t, a.To, a.Row.Escrow)
 				assert.Equal(t, a.ChainID, a.Row.ChainID)
 				data, err := DecodeDepositCall(unhex(t, calls[c.Input.DataRef]))
@@ -407,7 +407,7 @@ func TestActionVectors(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			enc, err := EncodeTxAction(a.Unsigned, a.Resource, a.RequirementsHash)
+			enc, err := EncodeTxAction(a.unsigned, a.Resource, a.RequirementsHash)
 			require.NoError(t, err)
 			assert.Equal(t, b, enc)
 		})
@@ -479,10 +479,13 @@ func TestSignedVectors(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, addr(t, c.Payer), payer)
 
-			signed, err := a.Splice(sig)
+			signed, err := a.Splice(sig, payer)
 			require.NoError(t, err)
 			assert.Equal(t, c.SignedHex, hex.EncodeToString(signed))
 			assert.Equal(t, c.RailRef, RailRef(signed))
+			viaSignTx, _, err := a.SignTx(priv)
+			require.NoError(t, err)
+			assert.Equal(t, signed, viaSignTx)
 
 			got, gotPayer, err := ParseSigned(a, signed)
 			require.NoError(t, err)

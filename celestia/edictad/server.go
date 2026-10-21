@@ -28,6 +28,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/celestia/secret"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/fibre/fibrecommit"
 	"github.com/vgonkivs/edicta/gate"
@@ -387,6 +388,12 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 	log := d.Logger
 	if log == nil {
 		log = slog.Default()
+	}
+	if edenescrow.RegisteredExtractorID() == edenescrow.DevExtractorID {
+		// A dev binary deployed by mistake would admit escrow deposits on
+		// chain 31337, every local Hardhat or Anvil chain.
+		log.Warn("edictad: edictadev build, the Eden escrow table includes the dev chain 31337; for development only",
+			"extractor", edenescrow.DevExtractorID)
 	}
 	var clock gate.Clock = systemClock{}
 	if d.Clock != nil {
