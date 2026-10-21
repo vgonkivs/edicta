@@ -14,6 +14,7 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/policyext/tiatransfer"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/gate/registry"
@@ -42,13 +43,17 @@ func (p PolicyConfig) ValidateBasic() error { return nil }
 
 // compiledProfiles are the action types of the profiles this daemon is built
 // with, and whether their executed transactions are public: a bank send is a
-// public transaction.
-var compiledProfiles = gate.ProfileSet{bankaction.ActionType: true}
+// public transaction. An Eden escrow deposit is not: its action also holds
+// the resource URL and the requirements hash, which never go on chain, so a
+// revealed salt would make them guessable against the action hash.
+var compiledProfiles = gate.ProfileSet{bankaction.ActionType: true, edenescrow.ActionType: false}
 
 // policyExtractors is the registry of the actions this daemon can read facts
-// from. Only bank sends on Celestia in utia are known.
+// from: bank sends on Celestia in utia, and Eden escrow deposits with the
+// table of this build (the dev chain only in an edictadev build). An operator
+// admits a type by listing it in gate.action_types.
 func policyExtractors() (*policy.Extractors, error) {
-	return policy.NewExtractors(tiatransfer.New())
+	return policy.NewExtractors(tiatransfer.New(), edenescrow.New())
 }
 
 // loadMandate reads and verifies the mandate file.

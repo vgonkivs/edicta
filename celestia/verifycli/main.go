@@ -54,6 +54,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/policyext/tiatransfer"
 	"github.com/vgonkivs/edicta/celestia/secret"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/fibre/fibrecommit"
 	"github.com/vgonkivs/edicta/gate"
@@ -600,10 +601,14 @@ func parseKeyList(s, flag string) ([]ed25519.PublicKey, error) {
 	return keys, nil
 }
 
-// newExtractors is a variable so that tests can replace it. Only tia-transfer
-// is registered: an action type without an extractor makes its policy check
-// unchecked (policy_no_extractor).
-var newExtractors = func() (*policy.Extractors, error) { return policy.NewExtractors(tiatransfer.New()) }
+// newExtractors is a variable so that tests can replace it. It registers the
+// same extractors as the gate of the same build: tia-transfer and the Eden
+// escrow deposit. An action type without an extractor makes its policy check
+// unchecked (policy_no_extractor); so does a dev decision in a production
+// build, whose extractor ID only an edictadev build registers.
+var newExtractors = func() (*policy.Extractors, error) {
+	return policy.NewExtractors(tiatransfer.New(), edenescrow.New())
+}
 
 func committers() (map[commitment.DA]gate.DACommitter, error) {
 	fibreCommitter, err := fibrecommit.New(fibrecommit.DefaultMaxDataSize)

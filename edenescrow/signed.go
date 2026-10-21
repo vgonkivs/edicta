@@ -1,0 +1,189 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package edenescrow
+
+import (
+	"bytes"
+	"encoding/hex"
+	"fmt"
+
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
+)
+
+// Signature is a secp256k1 signature over a transaction's SigHash. R and S
+// are big-endian, left-padded to 32 bytes.
+type Signature struct {
+	YParity byte
+	R, S    [32]byte
+}
+
+// Sign signs digest with a deterministic (RFC 6979) low-s signature, so a
+// re-sign after a crash gives the same bytes.
+func Sign(priv *secp256k1.PrivateKey, digest [32]byte) (Signature, error) {
+	if priv == nil {
+		return Signature{}, fmt.Errorf("%w: no key", ErrSignature)
+	}
+	c := ecdsa.SignCompact(priv, digest[:], false)
+	code := c[0] - 27
+	if code > 1 {
+		// r overflowed the group order: no y_parity can express it.
+		return Signature{}, fmt.Errorf("%w: recovery code %d", ErrSignature, code)
+	}
+	var sig Signature
+	sig.YParity = code
+	copy(sig.R[:], c[1:33])
+	copy(sig.S[:], c[33:65])
+	return sig, nil
+}
+
+// RecoverPayer returns the address whose key made sig over digest. It
+// accepts only y_parity 0 or 1, 1 <= r < n and 1 <= s <= n/2: one signature
+// per digest and key, as the execution client requires.
+func RecoverPayer(digest [32]byte, sig Signature) ([20]byte, error) {
+	if sig.YParity > 1 {
+		return [20]byte{}, fmt.Errorf("%w: y_parity %d", ErrSignature, sig.YParity)
+	}
+	var r, s secp256k1.ModNScalar
+	if r.SetBytes(&sig.R) != 0 || r.IsZero() {
+		return [20]byte{}, fmt.Errorf("%w: r out of range", ErrSignature)
+	}
+	if s.SetBytes(&sig.S) != 0 || s.IsZero() || s.IsOverHalfOrder() {
+		return [20]byte{}, fmt.Errorf("%w: s not in 1..n/2", ErrSignature)
+	}
+	var compact [65]byte
+	compact[0] = 27 + sig.YParity
+	copy(compact[1:33], sig.R[:])
+	copy(compact[33:65], sig.S[:])
+	pub, _, err := ecdsa.RecoverCompact(compact[:], digest[:])
+	if err != nil {
+		return [20]byte{}, fmt.Errorf("%w: %v", ErrSignature, err)
+	}
+	return Address(pub), nil
+}
+
+// Address is the Ethereum address of a public key.
+func Address(pub *secp256k1.PublicKey) [20]byte {
+	sum := keccak256(pub.SerializeUncompressed()[1:])
+	var a [20]byte
+	copy(a[:], sum[12:])
+	return a
+}
+
+// Splice returns the signed transaction: the action's 9 item encodings
+// verbatim, then y_parity, r and s, under a new list header. Nothing is
+// re-encoded from fields. The signature must recover over SigHash.
+func (a TxAction) Splice(sig Signature) ([]byte, error) {
+	if len(a.items) == 0 {
+		return nil, fmt.Errorf("%w: the action was not decoded", ErrMalformed)
+	}
+	if _, err := RecoverPayer(a.SigHash(), sig); err != nil {
+		return nil, err
+	}
+	y := []byte{0x80}
+	if sig.YParity == 1 {
+		y = []byte{0x01}
+	}
+	rr := rlpString(trimZeros(sig.R[:]))
+	ss := rlpString(trimZeros(sig.S[:]))
+	n := len(a.items) + len(y) + len(rr) + len(ss)
+	out := append([]byte{txType}, rlpListHeader(n)...)
+	out = append(out, a.items...)
+	out = append(out, y...)
+	out = append(out, rr...)
+	return append(out, ss...), nil
+}
+
+// ParseSigned checks that signed is exactly the action's transaction with one
+// signature spliced in: type 0x02, one canonical RLP list of 12 items and
+// nothing after it, the first 9 byte-identical as encodings to the action's,
+// then y_parity as 0x80 or 0x01 and canonical r and s that recover a key. It
+// returns the signature and the payer. Every failure is ErrSignedMismatch.
+func ParseSigned(a TxAction, signed []byte) (Signature, [20]byte, error) {
+	fail := func(format string, args ...any) (Signature, [20]byte, error) {
+		return Signature{}, [20]byte{}, fmt.Errorf("%w: %s", ErrSignedMismatch, fmt.Sprintf(format, args...))
+	}
+	if len(a.items) == 0 {
+		return fail("the action was not decoded")
+	}
+	if len(signed) < 1 || signed[0] != txType {
+		return fail("not a type 2 transaction")
+	}
+	top, rest, err := rlpNext(signed[1:])
+	switch {
+	case err != nil:
+		return fail("%v", err)
+	case !top.list:
+		return fail("not an RLP list")
+	case len(rest) != 0:
+		return fail("%d bytes after the list", len(rest))
+	case !bytes.HasPrefix(top.payload, a.items):
+		return fail("the first 9 items differ from the authorized transaction")
+	}
+	var tail [3]rlpItem
+	b := top.payload[len(a.items):]
+	for i := range tail {
+		it, r, err := rlpNext(b)
+		if err != nil {
+			return fail("signature item %d: %v", i, err)
+		}
+		if it.list {
+			return fail("signature item %d is a list", i)
+		}
+		tail[i], b = it, r
+	}
+	if len(b) != 0 {
+		return fail("more than 12 items")
+	}
+	var sig Signature
+	switch {
+	case bytes.Equal(tail[0].raw, []byte{0x80}):
+	case bytes.Equal(tail[0].raw, []byte{0x01}):
+		sig.YParity = 1
+	default:
+		return fail("y_parity encoded as %x", tail[0].raw)
+	}
+	for i, dst := range []*[32]byte{&sig.R, &sig.S} {
+		v := tail[1+i].payload
+		if len(v) > 32 || len(v) > 0 && v[0] == 0 {
+			return fail("signature item %d is not a canonical 256-bit integer", 1+i)
+		}
+		copy(dst[32-len(v):], v)
+	}
+	payer, err := RecoverPayer(a.SigHash(), sig)
+	if err != nil {
+		return Signature{}, [20]byte{}, fmt.Errorf("%w: %w", ErrSignedMismatch, err)
+	}
+	return sig, payer, nil
+}
+
+// RailRef is the receipt's rail_ref of a signed transaction: its Eden
+// transaction hash as 64 lower-case hex characters, without 0x.
+func RailRef(signed []byte) string {
+	h := keccak256(signed)
+	return hex.EncodeToString(h[:])
+}
+
+// ParseRailRef accepts only the form RailRef produces.
+func ParseRailRef(s string) ([32]byte, bool) {
+	var h [32]byte
+	if len(s) != 64 {
+		return h, false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return h, false
+		}
+	}
+	if _, err := hex.Decode(h[:], []byte(s)); err != nil {
+		return [32]byte{}, false
+	}
+	return h, true
+}
+
+func trimZeros(b []byte) []byte {
+	for len(b) > 0 && b[0] == 0 {
+		b = b[1:]
+	}
+	return b
+}
