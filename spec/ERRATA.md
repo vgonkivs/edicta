@@ -55,8 +55,9 @@ on `da` only) and reports an envelope whose first failure is then S3 on that
 19.1 step 8 lets readers accept such an envelope, writers may refuse it;
 an envelope-level defect outside the commitment is `source_corrupt`; new files
 `verifier/reasons_v1.0.5.json` and `v1/unknown_da_v1.0.5.json`; nothing superseded, since no frozen case
-expects an envelope `fail` on S3). Until the tags exist, implementations
-keep `v1.0.4` and `v1.1` behavior and no tag names the revision.
+expects an envelope `fail` on S3). The behavior ships on main;
+the tags are pending the human, and until they exist no tag or release
+claims the revision.
 
 Minor revisions list superseded cases too, since `v1.2` (core section 0,
 `v1.2` amendment), each in a file of its own, `SUPERSEDED_<revision>.json`

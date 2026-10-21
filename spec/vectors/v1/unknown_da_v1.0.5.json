@@ -6,7 +6,7 @@
   "cases": [
     {
       "id": "da_4",
-      "description": "da = 4 with namespace, commitment, height and a 20-byte signer: undefined in every revision so far (the Eden publication target is a design draft, not in this spec).",
+      "description": "da = 4 with namespace, commitment, height and a 20-byte signer: undefined in every revision so far.",
       "payload_ref": {
         "1": "4",
         "2": "0000000000000000000000000000000000000037586d889dd7a6a44ca8",

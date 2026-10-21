@@ -346,7 +346,7 @@ def unknown_da_file() -> dict:
     out = []
     for cid, desc, da, extra in (
             ("da_4", "da = 4 with namespace, commitment, height and a 20-byte signer: undefined in every revision "
-             "so far (the Eden publication target is a design draft, not in this spec).", 4, {}),
+             "so far.", 4, {}),
             ("da_4_signer_19", "da = 4 with a 19-byte signer: D18 would refuse it for da = 2; under the opaque "
              "reading of an undefined da it is not applied.", 4, {5: signer[:19]}),
             ("da_5", "da = 5, every key of the da = 2 layout.", 5, {}),
