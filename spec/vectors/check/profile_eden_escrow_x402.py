@@ -207,6 +207,33 @@ def recover_eip191(m: bytes, sig: bytes):
     return None if q is None else pc.eth_address(q)
 
 
+HEADER_MAX = 4 * ((REQUIREMENTS_MAX + 2) // 3)
+_HEADER = re.compile(r"[A-Za-z0-9+/]*")
+_B64 = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+
+def decode_header(value: str) -> bytes:
+    """RH: the PAYMENT-REQUIRED header value (after HTTP removed the surrounding whitespace) to R."""
+    if len(value) > HEADER_MAX:
+        _bad("S4a", f"{len(value)} characters")
+    body = value.rstrip("=")
+    pad = len(value) - len(body)
+    if not _HEADER.fullmatch(body) or len(body) % 4 == 1 or pad > 2 or (pad and len(value) % 4):
+        _bad("RH", "header")
+    # Unused low bits of the last character are ignored, as WHATWG forgiving-base64 does.
+    r = bytearray()
+    bits = acc = 0
+    for ch in body.encode():
+        acc = (acc << 6) | _B64.index(ch)
+        bits += 6
+        if bits >= 8:
+            bits -= 8
+            r.append((acc >> bits) & 0xFF)
+    if not 1 <= len(r) <= REQUIREMENTS_MAX:
+        _bad("S4a", f"{len(r)} bytes")
+    return bytes(r)
+
+
 def check_requirements(raw: bytes, a: dict, check_server_signature: bool = True) -> dict:
     """S4a to S4f against the decoded action a; returns the matching accepts entry."""
     if not 1 <= len(raw) <= REQUIREMENTS_MAX:
@@ -277,12 +304,13 @@ _SEEN_ASIDE = {"settlement_hash_mismatch", "settlement_tx_type", "settlement_dis
                "settlement_source_unavailable"}
 
 
-def _seen(s: dict) -> bool:
+def seen(s: dict) -> bool:
     return s["result"] in ("pass", "unconfirmed") or (s["result"] == "set_aside" and s["reason"] in _SEEN_ASIDE)
 
 
-def multi_source(sources: list, min_sources: int, min_level: str, phase: str) -> dict:
-    """Section 5.5: per-source results to the report, the Await state and what it allows."""
+def multi_source(sources: list, min_sources: int, min_level: str, phase: str, seen_before: bool = False) -> dict:
+    """Section 5.5: per-source results to the report, the Await state and what it allows. seen_before: a
+    source was seen in an earlier poll of the same Await."""
     passing = [s for s in sources if s["result"] == "pass"]
     if len({s["binding"] for s in passing}) > 1:
         return {"verify": {"status": "unchecked", "reason": "settlement_disagree"}, "await": "disputed",
@@ -308,7 +336,7 @@ def multi_source(sources: list, min_sources: int, min_level: str, phase: str) ->
         reason = first["reason"] if first["result"] == "set_aside" else _SOURCE_REASON[first["result"]]
     if phase == "polling":
         state = "pending"
-    elif not any(_seen(s) for s in sources) and len(operators("not_found")) >= min_sources:
+    elif not seen_before and not any(seen(s) for s in sources) and len(operators("not_found")) >= min_sources:
         state = "not_executed"
     else:
         state = "unknown"

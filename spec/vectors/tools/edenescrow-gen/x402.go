@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -280,6 +281,10 @@ func buildRejects(body string) []jsonCase {
 		{"build_nan", "BJ1", "an ignored top-level member is NaN", r(`{"txData":`, `{"x":NaN,"txData":`)},
 		{"build_data_missing", "BJ2", "data absent (renamed)", r(`"data":"0xb707d860`, `"datum":"0xb707d860`)},
 		{"build_type_null", "BJ5", "type null", r(`"chainId":714}`, `"chainId":714,"type":null}`)},
+		{"build_type_2_0", "BJ5", "type 2.0: the number 2 in JSON, but not the token 2", r(`"chainId":714}`, `"chainId":714,"type":2.0}`)},
+		{"build_type_2e0", "BJ5", "type 2e0: the number 2 in JSON, but not the token 2", r(`"chainId":714}`, `"chainId":714,"type":2e0}`)},
+		{"build_type_20e_minus_1", "BJ5", "type 20e-1: the number 2 in JSON, but not the token 2", r(`"chainId":714}`, `"chainId":714,"type":20e-1}`)},
+		{"build_type_02", "BJ1", "type 02: a leading zero is not JSON", r(`"chainId":714}`, `"chainId":714,"type":02}`)},
 		{"build_value_escaped_sign", "BJ3", `value "` + esc("002d") + `7208392580248": after unescaping it is -7208392580248`, r(`"value":"7208392580248"`, `"value":"`+esc("002d")+`7208392580248"`)},
 		{"build_data_empty", "ET8", "data 0x: well-formed hex, then no deposit call (DC1)", r(`"data":"`+dataHex(body)+`"`, `"data":"0x"`)},
 	}
@@ -387,6 +392,9 @@ func requirementsCases(raw []byte, t txIn) (pass, rej []obj) {
 	add(&rej, "r_duplicate_member", "S4c", "amount twice in the entry", r(`"amount": "7208392580248",`, `"amount": "1", "amount": "7208392580248",`), nil)
 	add(&rej, "r_version_1", "S4c", "x402Version 1", r(`"x402Version": 2`, `"x402Version": 1`), nil)
 	add(&rej, "r_version_string", "S4c", "x402Version as a string", r(`"x402Version": 2`, `"x402Version": "2"`), nil)
+	add(&rej, "r_version_2_0", "S4c", "x402Version 2.0: the number 2 in JSON, but not the token 2", r(`"x402Version": 2`, `"x402Version": 2.0`), nil)
+	add(&rej, "r_version_2e0", "S4c", "x402Version 2e0: the number 2 in JSON, but not the token 2", r(`"x402Version": 2`, `"x402Version": 2e0`), nil)
+	add(&rej, "r_version_02", "S4c", "x402Version 02: a leading zero is not JSON", r(`"x402Version": 2`, `"x402Version": 02`), nil)
 	add(&rej, "r_accepts_object", "S4c", "accepts is an object", replaceOnce(r(`"accepts": [`, `"accepts": {"a": [`), "  ]\n}", "  ]}\n}"), nil)
 	add(&rej, "r_no_entry", "S4d", "the only entry has scheme exact", r(`"scheme": "escrow-upto"`, `"scheme": "exact"`), nil)
 	add(&rej, "r_two_entries", "S4d", "the escrow-upto entry twice", r(entry, entry+",\n"+entry), nil)
@@ -420,6 +428,78 @@ func requirementsCases(raw []byte, t txIn) (pass, rej []obj) {
 	add(&rej, "r_invalid_utf8", "S4c", "the ignored error member holds the byte ff (not UTF-8)", r(`"error": "Payment-Signature header is required"`, "\"error\": \"\xff\""), nil)
 	add(&rej, "r_nan", "S4c", "the ignored error member is NaN", r(`"error": "Payment-Signature header is required"`, `"error": NaN`), nil)
 	add(&rej, "r_scheme_escaped_other", "S4d", `scheme "escrow`+esc("002D")+`upt0": after unescaping not escrow-upto`, r(`"scheme": "escrow-upto"`, `"scheme": "escrow`+esc("002D")+`upt0"`), nil)
+	return pass, rej
+}
+
+// maxHeaderChars is the longest header value whose decoding can fit in
+// maxRequirements bytes.
+const maxHeaderChars = (maxRequirements + 2) / 3 * 4
+
+// decodeHeader is the header rule as the spec words it: length first,
+// then the alphabet and the padding, then the decoded size.
+func decodeHeader(v string) ([]byte, string) {
+	if len(v) > maxHeaderChars {
+		return nil, "S4a"
+	}
+	body := strings.TrimRight(v, "=")
+	pad := len(v) - len(body)
+	if pad > 2 || pad > 0 && len(v)%4 != 0 || len(body)%4 == 1 {
+		return nil, "RH"
+	}
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '+' || c == '/') {
+			return nil, "RH"
+		}
+	}
+	r, err := base64.RawStdEncoding.DecodeString(body)
+	if err != nil {
+		panic(err)
+	}
+	if len(r) < 1 || len(r) > maxRequirements {
+		return nil, "S4a"
+	}
+	return r, ""
+}
+
+// headerCases pin the header decoding on short values; the decoded bytes
+// need not be a valid R, since S4 runs after it.
+func headerCases() (pass, rej []any) {
+	type c struct{ id, cause, value, want string }
+	ok := []c{
+		{"rh_padded", "padded standard alphabet, with + and /", "+/+/QQ==", "fbffbf41"},
+		{"rh_unpadded", "the same bytes without padding", "+/+/QQ", "fbffbf41"},
+		{"rh_one_pad", "one padding character", "+/+/QUI=", "fbffbf4142"},
+		{"rh_one_pad_omitted", "the same bytes without padding", "+/+/QUI", "fbffbf4142"},
+		{"rh_trailing_bits", "non-zero unused bits in the last character are ignored", "+/+/QR", "fbffbf41"},
+		{"rh_trailing_bits_padded", "the same, padded", "+/+/QR==", "fbffbf41"},
+	}
+	bad := []c{
+		{"rh_empty", "empty value: R of 0 bytes", "", "S4a"},
+		{"rh_too_long", "one character more than the longest header that can decode to 16384 bytes", strings.Repeat("A", maxHeaderChars+1), "S4a"},
+		{"rh_leading_space", "a space inside the value (HTTP removes only the surrounding whitespace)", " +/+/QQ==", "RH"},
+		{"rh_crlf", "a line break inside", "+/+/\r\nQQ==", "RH"},
+		{"rh_url_alphabet", "the URL-safe alphabet", "-_-_QQ==", "RH"},
+		{"rh_padding_inside", "padding before the last group", "+/+/Q=Q=", "RH"},
+		{"rh_three_pad", "three padding characters", "+/+/Q===", "RH"},
+		{"rh_wrong_pad", "padding that does not end on a multiple of 4", "+/+/QQ=", "RH"},
+		{"rh_extra_pad", "padding after a full group", "+/+/QQ==" + "==", "RH"},
+		{"rh_pad_only", "padding only", "====", "RH"},
+		{"rh_dangling", "one character left over (length 1 mod 4)", "+/+/Q", "RH"},
+	}
+	for _, k := range ok {
+		got, rule := decodeHeader(k.value)
+		if rule != "" || hx(got) != k.want {
+			panic("header case " + k.id)
+		}
+		pass = append(pass, obj{{"id", k.id}, {"cause", k.cause}, {"value", k.value}, {"r_hex", k.want}})
+	}
+	for _, k := range bad {
+		if _, rule := decodeHeader(k.value); rule != k.want {
+			panic("header case " + k.id + " gives " + rule)
+		}
+		rej = append(rej, obj{{"id", k.id}, {"expect", k.want}, {"cause", k.cause}, {"value", k.value}})
+	}
 	return pass, rej
 }
 
@@ -482,6 +562,7 @@ func buildX402File(h houston) obj {
 		bRej = append(bRej, obj{{"id", c.id}, {"expect", c.rule}, {"cause", c.cause}, bodyKV(c.body)})
 	}
 	rPass, rRej := requirementsCases(h.required, tx)
+	hPass, hRej := headerCases()
 	s11 := s11Cases(u, resource, httpResource, d.paymentID[:], append(rPass, rRej...))
 
 	psig := func(field string, m []byte) obj {
@@ -549,6 +630,7 @@ func buildX402File(h houston) obj {
 			}},
 			{"accept", rPass},
 			{"reject", rRej},
+			{"header", obj{{"max_chars", dec(maxHeaderChars)}, {"accept", hPass}, {"reject", hRej}}},
 		}},
 		{"payment_signature", obj{
 			{"key", "payer1 (signed.json keys)"},

@@ -29,7 +29,7 @@ from policy_v1 import encode_facts
 
 HERE = Path(__file__).resolve().parent
 DEFAULT = HERE.parent / "profiles" / "eden-escrow"
-REVISION = "eden-escrow-v1-draft.6"
+REVISION = "eden-escrow-v1-draft.7"
 
 fails: list[str] = []
 
@@ -292,6 +292,14 @@ def check_x402(d: dict, base: Path, signed: dict):
         expect(got == c["expect"], f"requirements {c['id']}: got {got} ({e})")
         if c["expect"] == "pass" and c["id"] != "r_binding":
             expect(c["requirements_hash_hex"] == ee.requirements_hash(r).hex(), f"requirements {c['id']}: hash")
+    hd = rq["header"]
+    expect(int(hd["max_chars"]) == xp.HEADER_MAX, "header max_chars")
+    for c in hd["accept"]:
+        e = refused(xp.decode_header, c["value"])
+        expect(e is None and xp.decode_header(c["value"]).hex() == c["r_hex"], f"header {c['id']}: {e}")
+    for c in hd["reject"]:
+        e = refused(xp.decode_header, c["value"])
+        expect(e is not None and e.rule == c["expect"], f"header {c['id']}: got {e and e.rule}")
     ps = d["payment_signature"]
     expect(ps["refused_fields"] == ["nonce"] and [c["field"] for c in ps["cases"]] == ["paymentId"],
            "Payment-Signature fields")
@@ -329,6 +337,16 @@ def check_multi_source(d: dict):
                 "payment_signature": c["payment_signature_allowed"], "release": c["nonce_release_allowed"]}
         expect(got == want, f"multi_source {c['id']}: got {got}")
         expect(c["verify"]["status"] != "violated", f"multi_source {c['id']}: never violated")
+    for q in d["sequences"]:
+        seen_before = False
+        got = None
+        for i, p in enumerate(q["polls"]):
+            got = xp.multi_source(p["sources"], int(q["min_sources"]), q["min_level"], p["phase"], seen_before)
+            seen_before = seen_before or any(xp.seen(s) for s in p["sources"])
+            expect(got["await"] == p["await"] and seen_before == p["seen"], f"sequence {q['id']} poll {i}: got {got}")
+        expect((got["record"], got["payment_signature"], got["release"])
+               == (q["record_allowed"], q["payment_signature_allowed"], q["nonce_release_allowed"]),
+               f"sequence {q['id']}: allowed")
 
 
 def pc_sha256(b: bytes) -> str:
@@ -353,7 +371,7 @@ def main() -> int:
             print(f"FAIL (eden-escrow): {f}", file=sys.stderr)
         return 1
     print("OK (eden-escrow): deposit calls, actions and rejects, signatures, rail_ref, EE3, EE2 rebuild, "
-          "receipt, EE8, header hash, escrow code and table, x402 build and S4, Payment-Signature, multi-source")
+          "receipt, EE8, header hash, escrow code and table, x402 build, header and S4, Payment-Signature, multi-source and sequences")
     return 0
 
 

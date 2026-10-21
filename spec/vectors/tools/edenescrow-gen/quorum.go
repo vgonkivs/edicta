@@ -85,7 +85,11 @@ func rank(level string) int {
 	return -1
 }
 
-func quorum(c qcase) qresult {
+func quorum(c qcase) qresult { return quorumAfter(c, false) }
+
+// quorumAfter combines one poll; seenBefore says a source was seen in an
+// earlier poll of the same Await, which keeps not_executed out of reach.
+func quorumAfter(c qcase, seenBefore bool) qresult {
 	var passes []qsrc
 	unconfirmed, anySeen, explicit := false, false, true
 	for _, s := range c.sources {
@@ -137,7 +141,7 @@ func quorum(c qcase) qresult {
 	switch {
 	case c.phase == "polling":
 		r.await = "pending"
-	case k == 0 && !anySeen && distinct("not_found") >= int(c.minSources):
+	case k == 0 && !anySeen && !seenBefore && distinct("not_found") >= int(c.minSources):
 		r.await, r.release = "not_executed", true
 	default:
 		r.await = "unknown"
@@ -210,24 +214,69 @@ func quorumCases() []qcase {
 	}
 }
 
+func sourcesJSON(sources []qsrc) []any {
+	var ss []any
+	for _, s := range sources {
+		lbl := "explicit"
+		if s.defaultLabel {
+			lbl = "default"
+		}
+		e := obj{{"host", s.host}, {"operator", s.operator}, {"operator_label", lbl}, {"result", s.result}}
+		if s.result == "pass" {
+			e = append(e, kv{"outcome", s.outcome}, kv{"binding", s.binding})
+		}
+		if s.result == "set_aside" {
+			e = append(e, kv{"reason", s.reason})
+		}
+		ss = append(ss, e)
+	}
+	return ss
+}
+
+// A sequence is the polls of one Await, oldest first. Each poll is
+// combined on its own, except that a source seen in any earlier poll
+// still counts as seen.
+type qpoll struct {
+	phase   string
+	sources []qsrc
+}
+
+type qseq struct {
+	id, desc   string
+	minSources uint64
+	polls      []qpoll
+}
+
+func sequenceCases() []qseq {
+	const (
+		own = "own-node.example"
+		gw  = "rpc.eden.gateway.fm"
+		bs  = "eden.blockscout.com"
+	)
+	p := func(phase string, s ...qsrc) qpoll { return qpoll{phase: phase, sources: s} }
+	return []qseq{
+		{"seen_unconfirmed_then_none_found_until", "Poll 1: one operator serves the transaction below ConfirmDepth. After until both operators answer not found (a rolled-back soft block, or a pruned or lagging node): unknown, never not_executed.", 2, []qpoll{
+			p("polling", res(own, "own", "unconfirmed"), res(gw, "gateway", "not_found")),
+			p("until_passed", res(own, "own", "not_found"), res(gw, "gateway", "not_found"))}},
+		{"seen_pass_then_none_found_until", "Poll 1: one operator passes, the other has not seen it (below L1). After until both answer not found: unknown.", 2, []qpoll{
+			p("polling", pass(own, "own", "executed", "B1"), res(gw, "gateway", "not_found")),
+			p("until_passed", res(own, "own", "not_found"), res(gw, "gateway", "not_found"))}},
+		{"seen_aside_then_none_found_until", "Poll 1: one source serves the transaction and fails EE8. After until three operators answer not found: unknown.", 2, []qpoll{
+			p("polling", aside(own, "own", "settlement_log_mismatch"), res(gw, "gateway", "not_found"), res(bs, "blockscout", "not_found")),
+			p("until_passed", res(own, "own", "not_found"), res(gw, "gateway", "not_found"), res(bs, "blockscout", "not_found"))}},
+		{"seen_then_executed", "Poll 1: one operator below ConfirmDepth. Poll 2: two operators agree: executed at L1 (seen never blocks a pass).", 2, []qpoll{
+			p("polling", res(own, "own", "unconfirmed"), res(gw, "gateway", "not_found")),
+			p("polling", pass(own, "own", "executed", "B1"), pass(gw, "gateway", "executed", "B1"))}},
+		{"not_seen_then_none_found_until", "Poll 1: one source down, one on another chain (neither served the transaction). After until two operators answer not found: not_executed.", 2, []qpoll{
+			p("polling", res(own, "own", "unavailable"), aside(gw, "gateway", "settlement_chain_config")),
+			p("until_passed", res(own, "own", "not_found"), res(gw, "gateway", "not_found"))}},
+	}
+}
+
 func buildQuorumFile() obj {
 	var cs []any
 	for _, c := range quorumCases() {
-		var ss []any
-		for _, s := range c.sources {
-			lbl := "explicit"
-			if s.defaultLabel {
-				lbl = "default"
-			}
-			e := obj{{"host", s.host}, {"operator", s.operator}, {"operator_label", lbl}, {"result", s.result}}
-			if s.result == "pass" {
-				e = append(e, kv{"outcome", s.outcome}, kv{"binding", s.binding})
-			}
-			if s.result == "set_aside" {
-				e = append(e, kv{"reason", s.reason})
-			}
-			ss = append(ss, e)
-		}
+		ss := sourcesJSON(c.sources)
 		r := quorum(c)
 		v := obj{{"status", r.status}}
 		if r.status == "pass" {
@@ -244,10 +293,32 @@ func buildQuorumFile() obj {
 			{"record_allowed", r.s10}, {"payment_signature_allowed", r.s11}, {"nonce_release_allowed", r.release},
 		})
 	}
+	var seqs []any
+	for _, q := range sequenceCases() {
+		var polls []any
+		seenBefore := false
+		var r qresult
+		for _, pl := range q.polls {
+			r = quorumAfter(qcase{minLevel: "L1", phase: pl.phase, minSources: q.minSources, sources: pl.sources}, seenBefore)
+			for _, s := range pl.sources {
+				seenBefore = seenBefore || seen(s)
+			}
+			polls = append(polls, obj{{"phase", pl.phase}, {"sources", sourcesJSON(pl.sources)},
+				{"await", r.await}, {"seen", seenBefore}})
+		}
+		seqs = append(seqs, obj{
+			{"id", q.id}, {"description", q.desc},
+			{"min_level", "L1"}, {"min_sources", dec(q.minSources)},
+			{"polls", polls},
+			{"record_allowed", r.s10}, {"payment_signature_allowed", r.s11}, {"nonce_release_allowed", r.release},
+		})
+	}
 	return obj{
 		{"format", format}, {"profile", profile}, {"revision", revision}, {"generator", generator},
 		{"source_results", []string{"pass", "not_found", "unconfirmed", "unavailable", "set_aside"}},
 		{"binding_note", "binding labels stand for (blockHash, transactionIndex, receipt consensus encoding); equal labels mean byte-equal values"},
 		{"cases", cs},
+		{"sequence_note", "each sequence is the polls of one Await, oldest first; a poll is combined as a case, except that a source seen in any earlier poll still counts as seen (await and seen are the values after that poll; the allowed flags are those of the last poll)"},
+		{"sequences", seqs},
 	}
 }

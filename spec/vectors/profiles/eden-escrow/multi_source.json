@@ -1,7 +1,7 @@
 {
   "format": "edicta-vectors/v0",
   "profile": "eden-escrow",
-  "revision": "eden-escrow-v1-draft.6",
+  "revision": "eden-escrow-v1-draft.7",
   "generator": "spec/vectors/tools/edenescrow-gen",
   "source_results": [
     "pass",
@@ -872,6 +872,274 @@
       "record_allowed": true,
       "payment_signature_allowed": false,
       "nonce_release_allowed": false
+    }
+  ],
+  "sequence_note": "each sequence is the polls of one Await, oldest first; a poll is combined as a case, except that a source seen in any earlier poll still counts as seen (await and seen are the values after that poll; the allowed flags are those of the last poll)",
+  "sequences": [
+    {
+      "id": "seen_unconfirmed_then_none_found_until",
+      "description": "Poll 1: one operator serves the transaction below ConfirmDepth. After until both operators answer not found (a rolled-back soft block, or a pruned or lagging node): unknown, never not_executed.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "polls": [
+        {
+          "phase": "polling",
+          "sources": [
+            {
+              "host": "own-node.example",
+              "operator": "own",
+              "operator_label": "explicit",
+              "result": "unconfirmed"
+            },
+            {
+              "host": "rpc.eden.gateway.fm",
+              "operator": "gateway",
+              "operator_label": "explicit",
+              "result": "not_found"
+            }
+          ],
+          "await": "pending",
+          "seen": true
+        },
+        {
+          "phase": "until_passed",
+          "sources": [
+            {
+              "host": "own-node.example",
+              "operator": "own",
+              "operator_label": "explicit",
+              "result": "not_found"
+            },
+            {
+              "host": "rpc.eden.gateway.fm",
+              "operator": "gateway",
+              "operator_label": "explicit",
+              "result": "not_found"
+            }
+          ],
+          "await": "unknown",
+          "seen": true
+        }
+      ],
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "seen_pass_then_none_found_until",
+      "description": "Poll 1: one operator passes, the other has not seen it (below L1). After until both answer not found: unknown.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "polls": [
+        {
+          "phase": "polling",
+          "sources": [
+            {
+              "host": "own-node.example",
+              "operator": "own",
+              "operator_label": "explicit",
+              "result": "pass",
+              "outcome": "executed",
+              "binding": "B1"
+            },
+            {
+              "host": "rpc.eden.gateway.fm",
+              "operator": "gateway",
+              "operator_label": "explicit",
+              "result": "not_found"
+            }
+          ],
+          "await": "pending",
+          "seen": true
+        },
+        {
+          "phase": "until_passed",
+          "sources": [
+            {
+              "host": "own-node.example",
+              "operator": "own",
+              "operator_label": "explicit",
+              "result": "not_found"
+            },
+            {
+              "host": "rpc.eden.gateway.fm",
+              "operator": "gateway",
+              "operator_label": "explicit",
+              "result": "not_found"
+            }
+          ],
+          "await": "unknown",
+          "seen": true
+        }
+      ],
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "seen_aside_then_none_found_until",
+      "description": "Poll 1: one source serves the transaction and fails EE8. After until three operators answer not found: unknown.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "polls": [
+        {
+          "phase": "polling",
+          "sources": [
+            {
+              "host": "own-node.example",
+              "operator": "own",
+              "operator_label": "explicit",
+              "result": "set_aside",
+              "reason": "settlement_log_mismatch"
+            },
+            {
+              "host": "rpc.eden.gateway.fm",
+              "operator": "gateway",
+              "operator_label": "explicit",
+              "result": "not_found"
+            },
+            {
+              "host": "eden.blockscout.com",
+              "operator": "blockscout",
+              "operator_label": "explicit",
+              "result": "not_found"
+            }
+          ],
+          "await": "pending",
+          "seen": true
+        },
+        {
+          "phase": "until_passed",
+          "sources": [
+            {
+              "host": "own-node.example",
+              "operator": "own",
+              "operator_label": "explicit",
+              "result": "not_found"
+            },
+            {
+              "host": "rpc.eden.gateway.fm",
+              "operator": "gateway",
+              "operator_label": "explicit",
+              "result": "not_found"
+            },
+            {
+              "host": "eden.blockscout.com",
+              "operator": "blockscout",
+              "operator_label": "explicit",
+              "result": "not_found"
+            }
+          ],
+          "await": "unknown",
+          "seen": true
+        }
+      ],
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "seen_then_executed",
+      "description": "Poll 1: one operator below ConfirmDepth. Poll 2: two operators agree: executed at L1 (seen never blocks a pass).",
+      "min_level": "L1",
+      "min_sources": "2",
+      "polls": [
+        {
+          "phase": "polling",
+          "sources": [
+            {
+              "host": "own-node.example",
+              "operator": "own",
+              "operator_label": "explicit",
+              "result": "unconfirmed"
+            },
+            {
+              "host": "rpc.eden.gateway.fm",
+              "operator": "gateway",
+              "operator_label": "explicit",
+              "result": "not_found"
+            }
+          ],
+          "await": "pending",
+          "seen": true
+        },
+        {
+          "phase": "polling",
+          "sources": [
+            {
+              "host": "own-node.example",
+              "operator": "own",
+              "operator_label": "explicit",
+              "result": "pass",
+              "outcome": "executed",
+              "binding": "B1"
+            },
+            {
+              "host": "rpc.eden.gateway.fm",
+              "operator": "gateway",
+              "operator_label": "explicit",
+              "result": "pass",
+              "outcome": "executed",
+              "binding": "B1"
+            }
+          ],
+          "await": "executed",
+          "seen": true
+        }
+      ],
+      "record_allowed": true,
+      "payment_signature_allowed": true,
+      "nonce_release_allowed": false
+    },
+    {
+      "id": "not_seen_then_none_found_until",
+      "description": "Poll 1: one source down, one on another chain (neither served the transaction). After until two operators answer not found: not_executed.",
+      "min_level": "L1",
+      "min_sources": "2",
+      "polls": [
+        {
+          "phase": "polling",
+          "sources": [
+            {
+              "host": "own-node.example",
+              "operator": "own",
+              "operator_label": "explicit",
+              "result": "unavailable"
+            },
+            {
+              "host": "rpc.eden.gateway.fm",
+              "operator": "gateway",
+              "operator_label": "explicit",
+              "result": "set_aside",
+              "reason": "settlement_chain_config"
+            }
+          ],
+          "await": "pending",
+          "seen": false
+        },
+        {
+          "phase": "until_passed",
+          "sources": [
+            {
+              "host": "own-node.example",
+              "operator": "own",
+              "operator_label": "explicit",
+              "result": "not_found"
+            },
+            {
+              "host": "rpc.eden.gateway.fm",
+              "operator": "gateway",
+              "operator_label": "explicit",
+              "result": "not_found"
+            }
+          ],
+          "await": "not_executed",
+          "seen": false
+        }
+      ],
+      "record_allowed": false,
+      "payment_signature_allowed": false,
+      "nonce_release_allowed": true
     }
   ]
 }
