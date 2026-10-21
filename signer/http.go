@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -30,6 +31,9 @@ const (
 	// RoutePaymentSignature releases the payment proof of a decision the
 	// rail executed.
 	RoutePaymentSignature = "/v1/payment-signature"
+	// RouteStatusPrefix is followed by a commitment hash in 64 lower-case
+	// hex digits: GET shows the caller's own decision.
+	RouteStatusPrefix = "/v1/status/"
 )
 
 // MaxRequirementsSize bounds the payment requirements of a request.
@@ -78,6 +82,18 @@ var (
 		edictaapi.Field{Key: 1, Name: "signature", Kind: edictaapi.KindText, Min: 1, Max: 256, Required: true},
 		edictaapi.Field{Key: 2, Name: "message", Kind: edictaapi.KindBytes, Min: 32, Max: 32, Required: true},
 		edictaapi.Field{Key: 3, Name: "repeat", Kind: edictaapi.KindUint, Required: true},
+	)
+	// StatusResponseSchema is the 200 answer of GET /v1/status/{hash}.
+	StatusResponseSchema = edictaapi.NewSchema(
+		edictaapi.Field{Key: 1, Name: "state", Kind: edictaapi.KindText, Min: 1, Max: 32, Required: true},
+		edictaapi.Field{Key: 2, Name: "commitment_hash", Kind: edictaapi.KindBytes, Min: 32, Max: 32, Required: true},
+		edictaapi.Field{Key: 3, Name: "sent", Kind: edictaapi.KindUint, Required: true},
+		edictaapi.Field{Key: 4, Name: "rail_ref", Kind: edictaapi.KindText, Max: 128},
+		edictaapi.Field{Key: 5, Name: "signed_tx", Kind: edictaapi.KindBytes},
+		edictaapi.Field{Key: 6, Name: "outcome", Kind: edictaapi.KindText, Max: 64},
+		edictaapi.Field{Key: 7, Name: "detail", Kind: edictaapi.KindText, Max: 1024},
+		edictaapi.Field{Key: 8, Name: "payment_proof_allowed", Kind: edictaapi.KindUint, Required: true},
+		edictaapi.Field{Key: 9, Name: "receipt", Kind: edictaapi.KindBytes},
 	)
 	// SignResponseSchema is the 200 answer of POST /v1/sign.
 	SignResponseSchema = edictaapi.NewSchema(
@@ -439,11 +455,16 @@ func (h *apiHandler) serve(r *http.Request) (a answer) {
 		}
 	}()
 	method, admin := http.MethodPost, false
-	switch r.URL.Path {
-	case RouteSign, RoutePaymentSignature:
-	case RouteHealth:
+	var statusHash string
+	path := r.URL.Path
+	switch {
+	case strings.HasPrefix(path, RouteStatusPrefix):
+		method, statusHash = http.MethodGet, strings.TrimPrefix(path, RouteStatusPrefix)
+		path = RouteStatusPrefix
+	case path == RouteSign, path == RoutePaymentSignature:
+	case path == RouteHealth:
 		method = http.MethodGet
-	case RouteRequeue:
+	case path == RouteRequeue:
 		if !h.adminOn {
 			return h.fail(edictaapi.ErrRouteNotFound)
 		}
@@ -466,6 +487,9 @@ func (h *apiHandler) serve(r *http.Request) (a answer) {
 	agent, ok := h.caller(r, admin)
 	if !ok {
 		return h.fail(edictaapi.ErrTokenInvalid)
+	}
+	if path == RouteStatusPrefix {
+		return h.status(r, statusHash, agent)
 	}
 	if method == http.MethodGet {
 		return answer{status: 200, body: edictaapi.EncodeWrapper(edictaapi.TextItem(1, "ok")), schema: HealthSchema}
@@ -507,6 +531,50 @@ func (h *apiHandler) serve(r *http.Request) (a answer) {
 		return h.fail(err)
 	}
 	return answer{status: 200, body: encodeOutput(out), schema: SignResponseSchema}
+}
+
+// status shows one decision to the agent whose credential is pinned to it.
+// An unknown hash and another agent's decision answer alike.
+func (h *apiHandler) status(r *http.Request, name string, agent []byte) answer {
+	var ch commitment.Hash
+	raw, err := hex.DecodeString(name)
+	if err != nil || len(raw) != len(ch) || hex.EncodeToString(raw) != name {
+		return h.fail(edictaapi.ErrRouteNotFound)
+	}
+	copy(ch[:], raw)
+	ctx, cancel := context.WithTimeout(r.Context(), h.o.RequestTimeout)
+	defer cancel()
+	st, err := h.s.Status(ctx, ch, agent)
+	if err != nil {
+		return h.fail(err)
+	}
+	var sent, allowed uint64
+	if st.Sent {
+		sent = 1
+	}
+	if st.PaymentProofAllowed {
+		allowed = 1
+	}
+	items := []edictaapi.Item{
+		edictaapi.TextItem(1, string(st.State)), edictaapi.BytesItem(2, ch[:]), edictaapi.UintItem(3, sent),
+	}
+	if st.RailRef != "" {
+		items = append(items, edictaapi.TextItem(4, st.RailRef))
+	}
+	if len(st.Signed) != 0 {
+		items = append(items, edictaapi.BytesItem(5, st.Signed))
+	}
+	if st.Outcome != "" {
+		items = append(items, edictaapi.TextItem(6, st.Outcome))
+	}
+	if st.Detail != "" {
+		items = append(items, edictaapi.TextItem(7, st.Detail))
+	}
+	items = append(items, edictaapi.UintItem(8, allowed))
+	if len(st.Receipt) != 0 {
+		items = append(items, edictaapi.BytesItem(9, st.Receipt))
+	}
+	return answer{status: 200, body: edictaapi.EncodeWrapper(items...), schema: StatusResponseSchema}
 }
 
 const requeueLimit = 64
