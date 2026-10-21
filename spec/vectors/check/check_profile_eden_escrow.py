@@ -1,0 +1,202 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+"""Verifies the eden-escrow profile vectors (spec/vectors/profiles/eden-escrow) without go-ethereum.
+
+Re-derives every expectation the Go generator wrote: the strict decoders (deposit calldata, action
+CBOR, form T transaction, domain table) and the rule each reject fails first; the EIP-1559 signing
+hash, facts, salted action hash; the signer's splice rule, RFC 6979 signatures (pure Python), payer recovery and
+rail_ref; EE1 and EE3; the rebuild of served transactions (EE2); the receipt encoding and bloom;
+EE7 and EE8; the header hash of the recorded block. The transactions root (a Merkle-Patricia trie)
+is checked by the generator only.
+
+Usage: python3 spec/vectors/check/check_profile_eden_escrow.py [--dir DIR]
+"""
+
+from __future__ import annotations
+
+import sys
+
+sys.dont_write_bytecode = True
+
+import json
+from pathlib import Path
+
+import principal_crypto as pc
+import profile_eden_escrow as ee
+from edicta import action_hash
+from policy_v1 import encode_facts
+
+HERE = Path(__file__).resolve().parent
+DEFAULT = HERE.parent / "profiles" / "eden-escrow"
+REVISION = "eden-escrow-v1-draft.1"
+
+fails: list[str] = []
+
+
+def expect(cond: bool, what: str):
+    if not cond:
+        fails.append(what)
+
+
+def refused(fn, *args):
+    try:
+        fn(*args)
+    except ee.Refused as e:
+        return e
+    return None
+
+
+def header(d: dict, name: str):
+    expect(d.get("format") == "edicta-vectors/v0" and d.get("profile") == "eden-escrow"
+           and d.get("revision") == REVISION, f"{name}: header")
+
+
+def check_calls(d: dict):
+    header(d, "deposit_call")
+    expect(d["selector_hex"] == ee.SELECTOR_DEPOSIT.hex() == "b707d860", "selector")
+    for c in d["cases"]:
+        got = ee.decode_deposit_call(bytes.fromhex(c["data_hex"]))
+        f = c["fields"]
+        expect(got["payment_id"].hex() == f["payment_id_hex"] and "0x" + got["pay_to"].hex() == f["pay_to"]
+               and "0x" + got["facilitator"].hex() == f["facilitator"]
+               and str(got["expires_at"]) == f["expires_at"] and str(got["refund_after"]) == f["refund_after"]
+               and got["tia_price_usd"].hex() == f["tia_price_usd_hex"], f"call {c['id']}")
+    for r in d["reject"]:
+        e = refused(ee.decode_deposit_call, bytes.fromhex(r["data_hex"]))
+        expect(e is not None and e.sentinel == r["expect_error"] and e.rule == r["rule"],
+               f"call reject {r['id']}: got {e and (e.sentinel, e.rule)}")
+    return {c["id"]: c for c in d["cases"]}
+
+
+def check_actions(d: dict, calls: dict):
+    header(d, "action")
+    expect(d["action_type"] == ee.ACTION_TYPE and d["extractor"]["id"] == ee.EXTRACTOR_ID, "action type, extractor")
+    expect(d["requirements_tag"].encode() == ee.REQUIREMENTS_TAG, "requirements tag")
+    rows = {r["build"]: {} for r in d["extractor"]["rows"]}
+    for r in d["extractor"]["rows"]:
+        rows[r["build"]][int(r["chain_id"])] = bytes.fromhex(r["escrow"][2:])
+    expect(rows["production"] == ee.ROWS["production"], "production rows")
+    expect({**rows["production"], **rows["edictadev"]} == ee.ROWS["edictadev"], "edictadev rows")
+    out = {}
+    for c in d["cases"]:
+        cid, inp = c["id"], c["input"]
+        b = bytes.fromhex(c["cbor_hex"])
+        a = ee.decode_action(b, c["build"])
+        if c["build"] == "edictadev":
+            e = refused(ee.decode_action, b, "production")
+            expect(e is not None and e.rule == "ED1", f"{cid}: production build must refuse the dev row")
+        req = bytes.fromhex(inp["requirements_hex"])
+        expect(a["tx"].hex() == c["tx_hex"], f"{cid}: tx")
+        expect(ee.requirements_hash(req).hex() == c["requirements_hash_hex"] == a["requirements_hash"].hex(),
+               f"{cid}: requirements_hash")
+        expect(a["resource"] == inp["resource"], f"{cid}: resource")
+        for k_json, k in (("chain_id", "chain_id"), ("nonce", "nonce"), ("max_priority_fee_per_gas", "tip"),
+                          ("max_fee_per_gas", "fee"), ("gas_limit", "gas"), ("value", "value")):
+            expect(str(a[k]) == inp[k_json], f"{cid}: {k_json}")
+        expect("0x" + a["to"].hex() == inp["to"], f"{cid}: to")
+        expect(a["data"].hex() == calls[inp["data_ref"]]["data_hex"], f"{cid}: data")
+        expect(ee.sighash(a["tx"]).hex() == c["sighash_hex"], f"{cid}: sighash")
+        salt = bytes.fromhex(c["action_salt_hex"])
+        expect(action_hash(ee.ACTION_TYPE, salt, b).hex() == c["action_hash_hex"], f"{cid}: action_hash")
+        f = ee.facts(a)
+        fj = c["facts"]
+        expect(f["kind"] == fj["kind"] and f["asset"] == fj["asset"] and f["amount"].hex() == fj["amount"]
+               and str(f["scale"]) == fj["scale"] and f["recipient"] == fj["recipient"], f"{cid}: facts")
+        expect(encode_facts(f).hex() == c["facts_cbor_hex"], f"{cid}: facts_cbor")
+        out[cid] = a
+    for r in d["reject"]:
+        e = refused(ee.decode_action, bytes.fromhex(r["cbor_hex"]), r["build"])
+        expect(e is not None and e.sentinel == r["expect_error"] and e.rule == r["rule"],
+               f"action reject {r['id']}: got {e and (e.sentinel, e.rule, str(e))}")
+        expect(r["extractor_expect_error"] == "ErrFactsInvalid", f"action reject {r['id']}: extractor")
+    return out
+
+
+def check_signed(d: dict, actions: dict):
+    header(d, "signed")
+    k = d["keys"]["payer1"]
+    priv = int(k["private_key_hex"], 16)
+    addr = ee.address_of(priv)
+    expect("0x" + addr.hex() == k["address"], "payer1 address")
+    expect(int(d["secp256k1_n_hex"], 16) == pc.N, "n")
+    for c in d["cases"]:
+        a = actions[c["action_ref"]]
+        y, r, s = int(c["y_parity"]), int(c["r_hex"], 16), int(c["s_hex"], 16)
+        expect(ee.sign_rfc6979(priv, ee.sighash(a["tx"])) == (y, r, s), f"{c['id']}: RFC 6979 signature differs")
+        signed = ee.splice(a["tx"], y, r, s)
+        expect(signed.hex() == c["signed_hex"], f"{c['id']}: splice")
+        expect(ee.rail_ref(signed) == c["rail_ref"], f"{c['id']}: rail_ref")
+        expect("0x" + ee.exact_tx(signed, a["tx"]).hex() == c["payer"] == k["address"], f"{c['id']}: payer")
+    for c in d["rail_ref"]:
+        e = refused(ee.check_rail_ref, c["rail_ref"])
+        got = "ok" if e is None else e.sentinel
+        expect(got == c["expect"], f"rail_ref {c['id']}: {got}")
+    for c in d["exact_tx"]:
+        signed = bytes.fromhex(c["signed_hex"])
+        expect(ee.rail_ref(signed) == c["rail_ref"], f"exact_tx {c['id']}: rail_ref")
+        try:
+            payer = ee.exact_tx(signed, actions[c["action_ref"]]["tx"])
+            got = "pass"
+        except ee.Refused as e:
+            got, payer = e.sentinel, None
+        expect(got == c["expect"], f"exact_tx {c['id']}: {got}")
+        if got == "pass":
+            expect("0x" + payer.hex() == c["payer"], f"exact_tx {c['id']}: payer")
+
+
+def check_settlement(d: dict, actions: dict, live: dict):
+    header(d, "settlement")
+    ev = d["event"]
+    expect(pc.keccak256(ev["signature"].encode()) == ee.TOPIC_DEPOSITED and ev["topic0_hex"] == ee.TOPIC_DEPOSITED.hex(),
+           "deposited topic")
+    rc = live["deposit"]["rpc_receipt"]
+    expect(rc["logs"][0]["topics"][0] == "0x" + ev["topic0_hex"] and ev["f14_receipt_topic0_equal"] is True,
+           "topic0 equals the recorded log")
+    expect(pc.keccak256(ev["settled_signature"].encode()).hex() == ev["settled_topic0_hex"], "settled topic")
+    for r in d["rebuild"]:
+        b = ee.rebuild_type2(r["rpc_tx"])
+        h = pc.keccak256(b).hex()
+        expect(b.hex() == r["rebuilt_hex"] and h == r["rebuilt_hash"], f"rebuild {r['id']}")
+        expect(("match" if h == r["rail_ref"] else "settlement_hash_mismatch") == r["expect"], f"rebuild {r['id']}: expect")
+    raws = {live["deposit"]["hash"][2:]: live["deposit"]["raw_hex"], live["settle"]["hash"][2:]: live["settle"]["raw_hex"]}
+    for r in d["rebuild"]:
+        if r["expect"] == "match":
+            expect(raws[r["rail_ref"]] == r["rebuilt_hex"], f"rebuild {r['id']}: Celestia bytes")
+    expect(ee.receipt_consensus(rc).hex() == d["receipt"]["consensus_hex"], "receipt encoding")
+    expect(ee.bloom(rc["logs"]).hex() == rc["logsBloom"][2:] and d["receipt"]["bloom_recomputed_equal"] is True, "bloom")
+    for c in d["deposit_event"]:
+        got = ee.deposit_event(int(c["status"]), c["logs"], actions[c["action_ref"]], bytes.fromhex(c["from"][2:]),
+                               bytes.fromhex(c["escrow"][2:]), c["tx_hash"], c["block_hash"], c["transaction_index"])
+        expect(got == c["expect"], f"deposit_event {c['id']}: {got}")
+    blk = live["block_227899844"]["rpc_result"]
+    hr = ee.header_rlp(blk)
+    b = d["block"]
+    expect(hr.hex() == b["header_rlp_hex"], "header rlp")
+    expect(pc.keccak256(hr).hex() == b["header_hash"] == blk["hash"][2:] == b["served_hash"]
+           and b["header_hash_equal"] is True, "header hash")
+    txs = live["block_227899844"]["txs_raw_hex"]
+    expect(["0x" + pc.keccak256(bytes.fromhex(t)).hex() for t in txs] == blk["transactions"], "block tx hashes")
+    expect(b["transactions_root"] == b["served_transactions_root"] == blk["transactionsRoot"][2:]
+           and b["transactions_root_equal"] is True, "transactions root (generator)")
+
+
+def main() -> int:
+    d = DEFAULT
+    if "--dir" in sys.argv:
+        d = Path(sys.argv[sys.argv.index("--dir") + 1])
+    load = lambda n: json.loads((d / n).read_text())  # noqa: E731
+    calls = check_calls(load("deposit_call.json"))
+    actions = check_actions(load("action.json"), calls)
+    check_signed(load("signed.json"), actions)
+    check_settlement(load("settlement.json"), actions, load("live/f14.json"))
+    if fails:
+        for f in fails:
+            print(f"FAIL (eden-escrow): {f}", file=sys.stderr)
+        return 1
+    print("OK (eden-escrow): deposit calls, actions and rejects, signatures, rail_ref, EE3, EE2 rebuild, "
+          "receipt, EE8, header hash")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
