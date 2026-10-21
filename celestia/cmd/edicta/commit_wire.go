@@ -118,9 +118,36 @@ func buildCommitService(ctx context.Context, o commonOpts) (*commitcmd.Service, 
 		return nil, noop, usageErr("%v", err)
 	}
 
+	var signerClient commitcmd.Signer
+	if o.signerURL != "" {
+		if o.signerTokenFile == "" {
+			return nil, noop, usageErr("--signer-url needs --signer-token-file")
+		}
+		tok, err := secret.FromFile(o.signerTokenFile)
+		if err != nil {
+			return nil, noop, usageErr("--signer-token-file: %v", err)
+		}
+		tok = secret.New([]byte(strings.TrimSpace(tok.RevealString())))
+		c, err := commitcmd.NewSignerClient(o.signerURL, tok, hc)
+		if err != nil {
+			return nil, noop, usageErr("%v", err)
+		}
+		signerClient = c
+	} else if o.signerTokenFile != "" {
+		return nil, noop, usageErr("--signer-token-file needs --signer-url")
+	}
+	var state commitcmd.StateStore
+	if o.stateDir != "" {
+		st, err := commitcmd.NewFileStateStore(o.stateDir)
+		if err != nil {
+			return nil, noop, usageErr("%v", err)
+		}
+		state = st
+	}
+
 	fp := &fastPending{cfg: cfg}
 	svc := &commitcmd.Service{
-		Gate: gateClient, GateKeys: gateKeys, GateID: gateID,
+		Gate: gateClient, GateKeys: gateKeys, GateID: gateID, Signer: signerClient, State: state,
 		Builders: func(mode string, validFor time.Duration) (*sdk.Builder, error) {
 			sc := sdk.DefaultConfig()
 			sc.AgentID = cfg.Agent.ID

@@ -44,11 +44,13 @@ type fakeGate struct {
 	calls int
 	// lose makes the first call issue an Authorization but fail with a
 	// transport error; later calls answer 409 with the stored one.
-	lose   bool
-	hook   func()
-	issued []byte
-	action []byte
-	salt   []byte
+	lose bool
+	hook func()
+	// shorten lowers the Authorization expiry below the commitment's valid_until.
+	shorten uint64
+	issued  []byte
+	action  []byte
+	salt    []byte
 }
 
 func (g *fakeGate) AuthorizeWithVerdict(_ context.Context, envelope, action, salt []byte) ([]byte, []byte, error) {
@@ -75,7 +77,7 @@ func (g *fakeGate) AuthorizeWithVerdict(_ context.Context, envelope, action, sal
 	}
 	a := commitment.Authorization{
 		Version: commitment.Version, CommitmentHash: h[:], ActionHash: sc.Commitment.Action.Hash,
-		GateID: gateID, Expires: sc.Commitment.ValidUntil, Path: commitment.PathDA, Mode: commitment.ModeStrict,
+		GateID: gateID, Expires: sc.Commitment.ValidUntil - g.shorten, Path: commitment.PathDA, Mode: commitment.ModeStrict,
 	}
 	if g.fast {
 		a.Mode, a.AnchorDeadline = commitment.ModeFast, uint64(now)+600
@@ -125,15 +127,17 @@ func (p pendingOK) VerifyPending(context.Context, commitment.PayloadRef, uint64)
 	return p.t, nil
 }
 
-func newRig(t *testing.T) *rig {
+func newRig(t *testing.T) *rig { return newRigAt(t, now) }
+
+func newRigAt(t *testing.T, at int64) *rig {
 	t.Helper()
 	gpub, gpriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	_, agent, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	r := &rig{t: t, pub: sdktest.NewPublisher(commitment.DACelestiaBlob), gate: &fakeGate{priv: gpriv}, gatePk: gpub, agent: agent}
-	r.pub.SetBlockTime(uint64(now) - 20)
-	clock := sdktest.NewClock(now)
+	r.pub.SetBlockTime(uint64(at) - 20)
+	clock := sdktest.NewClock(at)
 	rk, err := ecdh.X25519().GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	signer, err := sdk.NewEd25519Signer(agent)
@@ -153,7 +157,7 @@ func newRig(t *testing.T) *rig {
 			}
 			d := sdk.Deps{Publisher: pendingPub{inner: r.pub, on: func() bool { return r.pending }}, Signer: signer, Clock: clock}
 			if mode == commitcmd.ModeFast {
-				d.Pending = pendingOK{t: uint64(now) - 20}
+				d.Pending = pendingOK{t: uint64(at) - 20}
 			}
 			return sdk.New(cfg, d)
 		},

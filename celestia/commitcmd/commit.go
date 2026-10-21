@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/payload"
@@ -83,6 +84,21 @@ type Service struct {
 	AuthorizeAttempts int
 	// Wait sleeps between authorize attempts; nil means a short backoff.
 	Wait func(ctx context.Context, attempt int) error
+
+	// Signer is the edicta-signer client; nil refuses sign, broadcast,
+	// record and payment_signature.
+	Signer Signer
+	// State keeps the run by commitment hash so that a crash can be resumed;
+	// nil keeps nothing and refuses resume_hash.
+	State StateStore
+	// DefaultWait bounds the settlement wait when a request names none; zero
+	// means five minutes.
+	DefaultWait time.Duration
+	// PollInterval is the pause between settlement polls; zero means two
+	// seconds.
+	PollInterval time.Duration
+	// Sleep pauses between settlement polls; nil uses a timer.
+	Sleep func(ctx context.Context, d time.Duration) error
 }
 
 // Named is a model or policy identity.
@@ -112,8 +128,27 @@ type Request struct {
 	Mode    string          `json:"mode,omitempty"`
 	// ValidFor is a Go duration such as 10m.
 	ValidFor string `json:"valid_for,omitempty"`
-	// Resume, when set, replaces every field above except Mode.
+	// Resume, when set, replaces every field above except Mode, and the
+	// quote in Eden.
 	Resume *Resume `json:"resume,omitempty"`
+
+	// Eden turns on the Eden input mode: action_type, action and the quote
+	// part of the context come from it.
+	Eden *EdenInput `json:"eden,omitempty"`
+	// Sign asks the signer for the deposit; the signer sends it when it
+	// signs, so Broadcast must be set with it.
+	Sign      bool `json:"sign,omitempty"`
+	Broadcast bool `json:"broadcast,omitempty"`
+	// Record waits until the signer reports the deposit executed.
+	Record bool `json:"record,omitempty"`
+	// PaymentSignature returns the Payment-Signature once it is released.
+	PaymentSignature bool `json:"payment_signature,omitempty"`
+	// Wait bounds Record and PaymentSignature, a duration such as 5m.
+	Wait string `json:"wait,omitempty"`
+	// ResumeHash continues a run stored under this commitment hash (64 hex).
+	// It replaces every field above except Mode, Eden.PaymentRequired and the
+	// settlement flags.
+	ResumeHash string `json:"resume_hash,omitempty"`
 }
 
 // Response is the output of a successful commit. Byte fields are base64.
@@ -128,6 +163,14 @@ type Response struct {
 	PolicyVerdict  []byte `json:"policy_verdict,omitempty"`
 	Action         []byte `json:"action"`
 	Salt           []byte `json:"salt"`
+
+	// Eden mode.
+	Deposit          *edenescrow.DepositView `json:"deposit,omitempty"`
+	SignedTx         []byte                  `json:"signed_tx,omitempty"`
+	RailRef          string                  `json:"rail_ref,omitempty"`
+	Payer            string                  `json:"payer,omitempty"`
+	Settled          bool                    `json:"settled,omitempty"`
+	PaymentSignature string                  `json:"payment_signature,omitempty"`
 }
 
 // DecodeRequest reads one request strictly: well-formed, bounded nesting, no
@@ -241,18 +284,34 @@ func (s *Service) Commit(ctx context.Context, req Request) (Response, error) {
 		return Response{}, usagef("mode must be %q or %q", ModeFast, ModeStrict)
 	}
 
-	var envelope, action, salt []byte
-	if r := req.Resume; r != nil {
-		if req.ActionType != "" || len(req.Action) != 0 || len(req.Context) != 0 || req.Model.ID != "" ||
-			req.Model.Version != nil || req.Model.Text != "" || req.Policy.ID != "" || req.Policy.Version != nil ||
-			req.Policy.Text != "" || req.ValidFor != "" {
-			return Response{}, usagef("resume takes no other field than mode")
+	if f := s.checkEdenFlags(req); f != nil {
+		return Response{}, f
+	}
+
+	run := &run{mode: mode}
+	switch {
+	case req.ResumeHash != "":
+		if req.hasBuildFields() || req.Resume != nil || req.Eden != nil && (len(req.Eden.Build) != 0 || req.Eden.Resource != "") {
+			return Response{}, usagef("resume_hash takes no field other than mode, the eden quote and the settlement flags")
+		}
+		st, f := s.loadState(req.ResumeHash)
+		if f != nil {
+			return Response{}, f
+		}
+		run.st, run.rr = st, st.Requirements
+		if req.Mode == "" && s.DefaultMode == "" && st.Mode != "" {
+			run.mode = st.Mode
+		}
+	case req.Resume != nil:
+		r := req.Resume
+		if req.hasBuildFields() || req.Eden != nil && (len(req.Eden.Build) != 0 || req.Eden.Resource != "") {
+			return Response{}, usagef("resume takes no other field than mode, the eden quote and the settlement flags")
 		}
 		if len(r.Envelope) == 0 || len(r.Action) == 0 || len(r.Salt) == 0 {
 			return Response{}, usagef("resume needs envelope, action and salt")
 		}
-		envelope, action, salt = r.Envelope, r.Action, r.Salt
-	} else {
+		run.st = State{Envelope: r.Envelope, Action: r.Action, Salt: r.Salt}
+	default:
 		validFor := s.DefaultValidFor
 		if req.ValidFor != "" {
 			d, err := time.ParseDuration(req.ValidFor)
@@ -260,6 +319,13 @@ func (s *Service) Commit(ctx context.Context, req Request) (Response, error) {
 				return Response{}, usagef("valid_for %q is not a positive duration", req.ValidFor)
 			}
 			validFor = d
+		}
+		if req.Eden != nil {
+			pre, f := s.prepareEden(req)
+			if f != nil {
+				return Response{}, f
+			}
+			req.ActionType, req.Action, req.Context, run.rr = edenescrow.ActionType, pre.action, pre.ctx, pre.rr
 		}
 		p, err := buildPayload(req)
 		if err != nil {
@@ -273,9 +339,58 @@ func (s *Service) Commit(ctx context.Context, req Request) (Response, error) {
 		if err != nil {
 			return Response{}, classify(err)
 		}
-		envelope, action, salt = res.Envelope, res.Action, res.ActionSalt
+		run.st = State{Envelope: res.Envelope, Action: res.Action, Salt: res.ActionSalt}
 	}
-	return s.authorize(ctx, mode, envelope, action, salt)
+	h, ferr := envelopeHash(run.st.Envelope)
+	if ferr != nil {
+		return Response{}, ferr
+	}
+	run.hash, run.hexH = h, hex.EncodeToString(h[:])
+	if req.Resume != nil && req.Eden != nil {
+		rr, err := edenescrow.DecodePaymentRequired(req.Eden.PaymentRequired)
+		if err != nil {
+			return Response{}, run.carry(edenUsage("payment_required: %v", err))
+		}
+		run.rr = rr
+	} else if req.ResumeHash != "" && req.Eden != nil && req.Eden.PaymentRequired != "" {
+		rr, err := edenescrow.DecodePaymentRequired(req.Eden.PaymentRequired)
+		if err != nil || !bytes.Equal(rr, run.rr) {
+			return Response{}, run.carry(edenUsage("payment_required differs from the stored quote"))
+		}
+	}
+	if f := s.save(run); f != nil {
+		return Response{}, f
+	}
+
+	var resp Response
+	var err error
+	if len(run.st.Authorization) != 0 {
+		resp, err = s.describe(run.mode, run.st.Envelope, run.st.Action, run.st.Salt, run.st.Authorization, false)
+		if err != nil {
+			return Response{}, run.carry(classify(err))
+		}
+	} else {
+		resp, err = s.authorize(ctx, run.mode, run.st.Envelope, run.st.Action, run.st.Salt)
+		if err != nil {
+			return Response{}, err
+		}
+		run.st.Authorization = resp.Authorization
+		if f := s.save(run); f != nil {
+			return Response{}, f
+		}
+	}
+	if req.Eden != nil || len(run.rr) != 0 || req.wantsSettle() {
+		if err := s.settle(ctx, req, run, &resp); err != nil {
+			return Response{}, err
+		}
+	}
+	return resp, nil
+}
+
+func (r Request) hasBuildFields() bool {
+	return r.ActionType != "" || len(r.Action) != 0 || len(r.Context) != 0 || r.Model.ID != "" ||
+		r.Model.Version != nil || r.Model.Text != "" || r.Policy.ID != "" || r.Policy.Version != nil ||
+		r.Policy.Text != "" || r.ValidFor != ""
 }
 
 // authorize asks the gate for the Authorization of a commitment that is
@@ -296,6 +411,9 @@ func (s *Service) authorize(ctx context.Context, mode string, envelope, action, 
 	}
 	resume := func(f *Failure) *Failure {
 		f.Envelope, f.Action, f.Salt = envelope, action, salt
+		if h, err := envelopeHash(envelope); err == nil {
+			f.CommitmentHash = hex.EncodeToString(h[:])
+		}
 		return f
 	}
 	var auth, verdict []byte
@@ -317,7 +435,7 @@ func (s *Service) authorize(ctx context.Context, mode string, envelope, action, 
 			return Response{}, resume(classify(werr))
 		}
 	}
-	out, err := s.describe(mode, envelope, action, salt, auth)
+	out, err := s.describe(mode, envelope, action, salt, auth, true)
 	if err != nil {
 		var f *Failure
 		if errors.As(err, &f) {
@@ -344,7 +462,11 @@ func (s *Service) wait(ctx context.Context, attempt int) error {
 	}
 }
 
-func (s *Service) describe(mode string, envelope, action, salt, auth []byte) (Response, error) {
+// describe checks the Authorization against the commitment and the pinned gate
+// keys. checkClock is off for an Authorization this program stored earlier:
+// the signature and bindings still hold after it expired, and the signing
+// step checks the clock itself.
+func (s *Service) describe(mode string, envelope, action, salt, auth []byte, checkClock bool) (Response, error) {
 	refused := func(code, format string, a ...any) (Response, error) {
 		return Response{}, &Failure{Exit: ExitRefused, Code: code, Message: fmt.Sprintf(format, a...)}
 	}
@@ -358,10 +480,14 @@ func (s *Service) describe(mode string, envelope, action, salt, auth []byte) (Re
 	}
 	var sa *commitment.SignedAuthorization
 	var verr error
+	nowS, skew := uint64(s.now().Unix()), uint64(authSkewS)
+	if !checkClock {
+		nowS, skew = 0, 0
+	}
 	for _, k := range s.GateKeys {
 		sa, _, verr = commitment.VerifyAuthorization(auth, commitment.AuthorizationCheck{
 			GatePubKey: k, GateID: s.GateID, ActionType: sc.Commitment.Action.Type,
-			Action: action, ActionSalt: salt, Now: uint64(s.now().Unix()), SkewS: authSkewS,
+			Action: action, ActionSalt: salt, Now: nowS, SkewS: skew,
 		})
 		if verr == nil {
 			break

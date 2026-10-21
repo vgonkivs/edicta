@@ -15,12 +15,16 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/commitcmd"
 	"github.com/vgonkivs/edicta/celestia/secret"
+	"github.com/vgonkivs/edicta/edenescrow"
 )
 
-const commitFlags = "[--config PATH] [--gate-id ID] [--gate-key HEX]... [--recipient X25519_HEX]... [--mandate-ref HEX] [--token-file FILE] [--cbor]"
+const commitFlags = "[--config PATH] [--gate-id ID] [--gate-key HEX]... [--recipient X25519_HEX]... [--mandate-ref HEX] [--token-file FILE] [--cbor]" +
+	" [--state-dir DIR] [--signer-url URL --signer-token-file FILE]"
 
 const commitUsage = "usage: edicta commit " + commitFlags +
-	" [--request FILE|-] [--action-file FILE] [--action-type TYPE] [--context FILE] [--model ID] [--policy ID] [--mode fast|strict] [--valid-for 10m]"
+	" [--request FILE|-] [--action-file FILE] [--action-type TYPE] [--context FILE] [--model ID] [--policy ID] [--mode fast|strict] [--valid-for 10m]" +
+	"\n  eden: --eden-build FILE|- --payment-required HEADER_B64|@FILE [--resource https://URL] [--sign --broadcast] [--record] [--payment-signature] [--wait 5m]" +
+	"\n  resume: --resume-hash HEX (needs --state-dir)"
 
 const serveUsage = "usage: edicta agent serve " + commitFlags + " [--listen 127.0.0.1:8500] [--allow-remote --serve-token-file FILE --allowed-host HOST:PORT... [--allowed-origin URL]...]"
 
@@ -33,6 +37,12 @@ type commonOpts struct {
 	mandateRef string
 	tokenFile  string
 	cbor       bool
+	// stateDir keeps each run by commitment hash for resume.
+	stateDir string
+	// signerURL and signerTokenFile reach edicta-signer; the token is the
+	// agent's own credential there.
+	signerURL       string
+	signerTokenFile string
 
 	// serve only
 	serveTokenFile string
@@ -54,6 +64,9 @@ func (o *commonOpts) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.mandateRef, "mandate-ref", "", "hex SHA-256 of the mandate in force, set as mandate_ref")
 	fs.StringVar(&o.tokenFile, "token-file", "", "file holding the bearer token of the API")
 	fs.BoolVar(&o.cbor, "cbor", false, "speak application/cbor to the API instead of application/json")
+	fs.StringVar(&o.stateDir, "state-dir", "", "directory that keeps each run by commitment hash, for resume")
+	fs.StringVar(&o.signerURL, "signer-url", "", "base URL of edicta-signer (eden sign, record and payment-signature)")
+	fs.StringVar(&o.signerTokenFile, "signer-token-file", "", "file holding the agent's API token at the signer")
 }
 
 // serviceFactory builds the Service; tests replace it so that no request
@@ -73,6 +86,15 @@ func runCommit(ctx context.Context, args []string, out io.Writer, stdin io.Reade
 	pol := fs.String("policy", "", "policy id")
 	mode := fs.String("mode", "", "fast or strict (default: strict)")
 	validFor := fs.String("valid-for", "", "validity of the commitment, a duration such as 10m")
+	edenBuild := fs.String("eden-build", "", "the /deposit/build JSON, a file or - for stdin (eden input)")
+	paymentRequired := fs.String("payment-required", "", "the PAYMENT-REQUIRED header value (base64), or @FILE holding it")
+	resource := fs.String("resource", "", "the https URL the client calls (default: the quote's own when it is https)")
+	doSign := fs.Bool("sign", false, "ask the signer for the deposit")
+	doBroadcast := fs.Bool("broadcast", false, "the signer sends the signed deposit (required with --sign: it sends when it signs)")
+	doRecord := fs.Bool("record", false, "wait until the signer reports the deposit executed")
+	doPaySig := fs.Bool("payment-signature", false, "print the Payment-Signature once the signer releases it")
+	wait := fs.String("wait", "", "bound of --record and --payment-signature, a duration such as 5m")
+	resumeHash := fs.String("resume-hash", "", "continue the run stored under this commitment hash")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
 		if err == nil {
 			err = fmt.Errorf("unexpected argument %q", fs.Arg(0))
@@ -119,6 +141,44 @@ func runCommit(ctx context.Context, args []string, out io.Writer, stdin io.Reade
 		}
 	}
 
+	if *edenBuild != "" || *paymentRequired != "" || *resource != "" {
+		if req.Eden == nil {
+			req.Eden = &commitcmd.EdenInput{}
+		}
+		if *edenBuild != "" {
+			if *edenBuild == "-" && *requestFile == "-" {
+				return fail(out, usageErr("--request - and --eden-build - both read stdin"))
+			}
+			b, err := readInput(*edenBuild, stdin, edenescrow.MaxBuildBodySize)
+			if err != nil {
+				return fail(out, usageErr("--eden-build: %v", err))
+			}
+			req.Eden.Build = b
+		}
+		if *paymentRequired != "" {
+			v := *paymentRequired
+			if name, ok := strings.CutPrefix(v, "@"); ok {
+				b, err := readInput(name, stdin, edenescrow.MaxRequirementsSize*2)
+				if err != nil {
+					return fail(out, usageErr("--payment-required: %v", err))
+				}
+				v = strings.TrimSpace(string(b))
+			}
+			req.Eden.PaymentRequired = v
+		}
+		if *resource != "" {
+			req.Eden.Resource = *resource
+		}
+	}
+	req.Sign, req.Broadcast = req.Sign || *doSign, req.Broadcast || *doBroadcast
+	req.Record, req.PaymentSignature = req.Record || *doRecord, req.PaymentSignature || *doPaySig
+	if *wait != "" {
+		req.Wait = *wait
+	}
+	if *resumeHash != "" {
+		req.ResumeHash = *resumeHash
+	}
+
 	svc, closeFn, err := newCommitService(ctx, o)
 	if err != nil {
 		return failErr(out, err)
@@ -134,6 +194,27 @@ func runCommit(ctx context.Context, args []string, out io.Writer, stdin io.Reade
 	}
 	fmt.Fprintln(out, string(b))
 	return commitcmd.ExitOK
+}
+
+// readInput reads a file, or stdin for "-", at most limit bytes.
+func readInput(name string, stdin io.Reader, limit int) ([]byte, error) {
+	r := stdin
+	if name != "-" {
+		f, err := os.Open(name)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		r = f
+	}
+	b, err := io.ReadAll(io.LimitReader(r, int64(limit)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > limit {
+		return nil, fmt.Errorf("more than %d bytes", limit)
+	}
+	return b, nil
 }
 
 func runAgent(ctx context.Context, args []string, out io.Writer) int {

@@ -173,6 +173,9 @@ type errorBody struct {
 	Action        []byte `json:"action,omitempty"`
 	Salt          []byte `json:"salt,omitempty"`
 	Authorization []byte `json:"authorization,omitempty"`
+
+	CommitmentHash string `json:"commitment_hash,omitempty"`
+	RailRef        string `json:"rail_ref,omitempty"`
 }
 
 // ErrorJSON is the error object `edicta commit` prints on stdout.
@@ -184,7 +187,8 @@ func ErrorJSON(f *Failure) ([]byte, error) {
 
 func (f *Failure) body() errorBody {
 	return errorBody{Code: f.Code, Message: f.Message, Retryable: f.Retryable, Stored: f.Stored, PolicyVerdict: f.PolicyVerdict,
-		Envelope: f.Envelope, Action: f.Action, Salt: f.Salt, Authorization: f.Authorization}
+		Envelope: f.Envelope, Action: f.Action, Salt: f.Salt, Authorization: f.Authorization,
+		CommitmentHash: f.CommitmentHash, RailRef: f.RailRef}
 }
 
 func writeFailure(w http.ResponseWriter, f *Failure) {

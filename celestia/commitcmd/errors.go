@@ -34,6 +34,10 @@ type Failure struct {
 	// Authorization is an Authorization the gate issued that was refused
 	// here (wrong key, wrong mode): the nonce is spent, so keep it.
 	Authorization []byte
+	// CommitmentHash and RailRef name the run once it exists, so that a
+	// caller can continue it by hash.
+	CommitmentHash string
+	RailRef        string
 }
 
 func (f *Failure) Error() string { return fmt.Sprintf("%s: %s", f.Code, f.Message) }
@@ -63,6 +67,14 @@ func classify(err error) *Failure {
 	var f *Failure
 	if errors.As(err, &f) {
 		return f
+	}
+	var se *SignerError
+	if errors.As(err, &se) {
+		out := &Failure{Exit: ExitRefused, Code: se.Code, Message: se.Message, Retryable: se.Retryable}
+		if se.Retryable {
+			out.Exit = ExitUnavailable
+		}
+		return out
 	}
 	var ae *edictaapi.Error
 	if errors.As(err, &ae) {

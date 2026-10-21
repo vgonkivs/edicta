@@ -66,6 +66,12 @@ func (g *cliGate) AuthorizeWithVerdict(_ context.Context, envelope, _, _ []byte)
 // fakeService replaces the production wiring for one test.
 func fakeService(t *testing.T, g *cliGate, pub *sdktest.Publisher) {
 	t.Helper()
+	fakeServiceAt(t, g, pub, 1_800_000_000, nil)
+}
+
+// fakeServiceAt is fakeService with its own clock and a signer.
+func fakeServiceAt(t *testing.T, g *cliGate, pub *sdktest.Publisher, at int64, sg commitcmd.Signer) {
+	t.Helper()
 	old := newCommitService
 	t.Cleanup(func() { newCommitService = old })
 	_, agent, err := ed25519.GenerateKey(rand.Reader)
@@ -74,13 +80,20 @@ func fakeService(t *testing.T, g *cliGate, pub *sdktest.Publisher) {
 	require.NoError(t, err)
 	rk, err := ecdh.X25519().GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	const now = int64(1_800_000_000)
-	pub.SetBlockTime(uint64(now) - 20)
-	clock := sdktest.NewClock(now)
+	pub.SetBlockTime(uint64(at) - 20)
+	clock := sdktest.NewClock(at)
 	newCommitService = func(_ context.Context, o commonOpts) (*commitcmd.Service, func(), error) {
 		g.got = o
+		var state commitcmd.StateStore
+		if o.stateDir != "" {
+			st, err := commitcmd.NewFileStateStore(o.stateDir)
+			require.NoError(t, err)
+			state = st
+		}
 		return &commitcmd.Service{
-			Gate: g, GateKeys: [][]byte{g.priv.Public().(ed25519.PublicKey)}, GateID: testGateID, Clock: clock.Now,
+			State: state,
+			Gate:  g, GateKeys: [][]byte{g.priv.Public().(ed25519.PublicKey)}, GateID: testGateID, Clock: clock.Now,
+			Signer: sg, PollInterval: time.Second, Sleep: func(context.Context, time.Duration) error { return nil },
 			Builders: func(mode string, validFor time.Duration) (*sdk.Builder, error) {
 				cfg := sdk.DefaultConfig()
 				cfg.AgentID = "agent-1"
