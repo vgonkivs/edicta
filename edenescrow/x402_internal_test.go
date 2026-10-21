@@ -1,0 +1,440 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package edenescrow
+
+import (
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/policy"
+)
+
+type jsonVector struct {
+	ID     string `json:"id"`
+	Expect string `json:"expect"`
+	Cause  string `json:"cause"`
+	JSON   string `json:"json"`
+}
+
+type rVector struct {
+	ID                  string `json:"id"`
+	Expect              string `json:"expect"`
+	RHex                string `json:"r_hex"`
+	RequirementsHashHex string `json:"requirements_hash_hex"`
+}
+
+type x402File struct {
+	header
+	Inputs map[string]struct {
+		File   string `json:"file"`
+		SHA256 string `json:"sha256"`
+	} `json:"inputs"`
+	Build struct {
+		FromFile string `json:"from_file"`
+		Input    struct {
+			ChainID        string `json:"chain_id"`
+			Nonce          string `json:"nonce"`
+			MaxPriorityFee string `json:"max_priority_fee_per_gas"`
+			MaxFeePerGas   string `json:"max_fee_per_gas"`
+			GasLimit       string `json:"gas_limit"`
+			To             string `json:"to"`
+			Value          string `json:"value"`
+			DataHex        string `json:"data_hex"`
+			PaymentIDHex   string `json:"payment_id_hex"`
+		} `json:"input"`
+		TxHex                string      `json:"tx_hex"`
+		TxLength             string      `json:"tx_length"`
+		SighashHex           string      `json:"sighash_hex"`
+		Resource             string      `json:"resource"`
+		RequirementsFromFile string      `json:"requirements_from_file"`
+		RequirementsHashHex  string      `json:"requirements_hash_hex"`
+		CBORHex              string      `json:"cbor_hex"`
+		ActionLength         string      `json:"action_length"`
+		ActionSaltHex        string      `json:"action_salt_hex"`
+		ActionHashHex        string      `json:"action_hash_hex"`
+		ExtractorIDs         []string    `json:"extractor_ids"`
+		Facts                vectorFacts `json:"facts"`
+		FactsCBORHex         string      `json:"facts_cbor_hex"`
+		ProfileFields        DepositView `json:"profile_fields"`
+	} `json:"build"`
+	BuildAccept  []jsonVector `json:"build_accept"`
+	BuildReject  []jsonVector `json:"build_reject"`
+	Requirements struct {
+		TxRef                string `json:"tx_ref"`
+		MaxLength            string `json:"max_length"`
+		CheckServerSignature bool   `json:"check_server_signature"`
+		ServerSignature      struct {
+			MessageHex    string `json:"message_hex"`
+			DigestHex     string `json:"digest_hex"`
+			SignatureHex  string `json:"signature_hex"`
+			V             string `json:"v"`
+			Recovered     string `json:"recovered"`
+			FacilitatorW2 string `json:"facilitator_w2"`
+		} `json:"server_signature"`
+		Accept []rVector `json:"accept"`
+		Reject []rVector `json:"reject"`
+	} `json:"requirements"`
+	PaymentSignature struct {
+		Cases []struct {
+			Field        string `json:"field"`
+			MessageHex   string `json:"message_hex"`
+			PreimageHex  string `json:"preimage_hex"`
+			DigestHex    string `json:"digest_hex"`
+			SignatureHex string `json:"signature_hex"`
+			Signer       string `json:"signer"`
+		} `json:"cases"`
+		SameDigest bool `json:"payment_id_digest_equals_server_signature_digest"`
+	} `json:"payment_signature"`
+}
+
+func readVectorFile(t testing.TB, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(vectorDir, name))
+	require.NoError(t, err)
+	return b
+}
+
+// x402Build loads the vectors and converts the recorded /deposit/build
+// answer with the recorded document as R.
+func x402Build(t testing.TB) (x402File, []byte, TxAction) {
+	t.Helper()
+	v := loadJSON[x402File](t, "x402.json")
+	r := readVectorFile(t, v.Build.RequirementsFromFile)
+	action, a, err := ActionFromDepositBuild(readVectorFile(t, v.Build.FromFile), v.Build.Resource, RequirementsHash(r))
+	require.NoError(t, err)
+	return v, action, a
+}
+
+func TestX402Inputs(t *testing.T) {
+	v := loadJSON[x402File](t, "x402.json")
+	checkHeader(t, v.header)
+	require.Len(t, v.Inputs, 2)
+	for name, in := range v.Inputs {
+		sum := sha256.Sum256(readVectorFile(t, in.File))
+		assert.Equal(t, in.SHA256, hex.EncodeToString(sum[:]), name)
+	}
+}
+
+func TestX402BuildVector(t *testing.T) {
+	v, action, a := x402Build(t)
+	b := v.Build
+	r := readVectorFile(t, b.RequirementsFromFile)
+	rh := RequirementsHash(r)
+	assert.Equal(t, b.RequirementsHashHex, hex.EncodeToString(rh[:]))
+	assert.Equal(t, b.CBORHex, hex.EncodeToString(action))
+	assert.Equal(t, b.ActionLength, strconv.Itoa(len(action)))
+	assert.Equal(t, b.TxHex, hex.EncodeToString(a.Unsigned()))
+	assert.Equal(t, b.TxLength, strconv.Itoa(len(a.Unsigned())))
+	sh := a.SigHash()
+	assert.Equal(t, b.SighashHex, hex.EncodeToString(sh[:]))
+
+	assert.Equal(t, u64(t, b.Input.ChainID), a.ChainID)
+	assert.Equal(t, u64(t, b.Input.Nonce), a.Nonce)
+	assert.Equal(t, minimal(t, b.Input.MaxPriorityFee), a.MaxPriorityFee)
+	assert.Equal(t, minimal(t, b.Input.MaxFeePerGas), a.MaxFeePerGas)
+	assert.Equal(t, u64(t, b.Input.GasLimit), a.GasLimit)
+	assert.Equal(t, addr(t, b.Input.To), a.To)
+	assert.Equal(t, minimal(t, b.Input.Value), a.Value)
+	assert.Equal(t, b.Input.PaymentIDHex, hex.EncodeToString(a.Deposit.PaymentID[:]))
+	data, err := DecodeDepositCall(unhex(t, b.Input.DataHex))
+	require.NoError(t, err)
+	assert.Equal(t, data, a.Deposit)
+
+	ah, err := commitment.ActionHash(ActionType, unhex(t, b.ActionSaltHex), action)
+	require.NoError(t, err)
+	assert.Equal(t, b.ActionHashHex, hex.EncodeToString(ah[:]))
+	assert.Equal(t, b.ProfileFields, a.DepositView())
+
+	for _, id := range b.ExtractorIDs {
+		tbl, ok := tablesInBuild[id]
+		if !ok {
+			continue
+		}
+		f, err := txExtractor{t: tbl}.Extract(action)
+		require.NoError(t, err, id)
+		assert.Equal(t, b.Facts.Kind, f.Kind)
+		assert.Equal(t, b.Facts.Asset, f.Asset)
+		assert.Equal(t, b.Facts.Amount, hex.EncodeToString(f.Amount))
+		assert.Equal(t, b.Facts.Scale, strconv.FormatUint(f.Scale, 10))
+		assert.Equal(t, b.Facts.Recipient, f.Recipient)
+		fc, err := policy.EncodeFacts(&f)
+		require.NoError(t, err)
+		assert.Equal(t, b.FactsCBORHex, hex.EncodeToString(fc))
+	}
+}
+
+func TestX402BuildAccept(t *testing.T) {
+	v, want, _ := x402Build(t)
+	rh := RequirementsHash(readVectorFile(t, v.Build.RequirementsFromFile))
+	require.Len(t, v.BuildAccept, 7)
+	for _, c := range v.BuildAccept {
+		t.Run(c.ID, func(t *testing.T) {
+			require.Equal(t, "pass", c.Expect)
+			action, _, err := ActionFromDepositBuild([]byte(c.JSON), v.Build.Resource, rh)
+			require.NoError(t, err)
+			assert.Equal(t, want, action)
+		})
+	}
+}
+
+func TestX402BuildReject(t *testing.T) {
+	v := loadJSON[x402File](t, "x402.json")
+	rh := RequirementsHash(readVectorFile(t, v.Build.RequirementsFromFile))
+	require.Len(t, v.BuildReject, 44)
+	for _, c := range v.BuildReject {
+		t.Run(c.ID, func(t *testing.T) {
+			_, _, err := ActionFromDepositBuild([]byte(c.JSON), v.Build.Resource, rh)
+			want := ErrMalformed
+			if c.Expect == "ED1" {
+				want = ErrUnknownDomain
+			}
+			require.ErrorIs(t, err, want)
+			assert.Equal(t, c.Expect, ruleOf(t, err))
+		})
+	}
+}
+
+// u is the backslash and u that start a JSON unicode escape, spelled out so
+// that editors and generators that unescape literals leave the escapes in.
+const u = "\\" + "u"
+
+// The conversion reads member names after unescaping: an escaped name is
+// the same member, so it repeats one written plainly.
+func TestBuildEscapedNames(t *testing.T) {
+	v, want, _ := x402Build(t)
+	rh := RequirementsHash(readVectorFile(t, v.Build.RequirementsFromFile))
+	body := string(readVectorFile(t, v.Build.FromFile))
+
+	escaped := strings.Replace(body, `"to":`, `"`+u+`0074o":`, 1)
+	require.NotEqual(t, body, escaped)
+	action, _, err := ActionFromDepositBuild([]byte(escaped), v.Build.Resource, rh)
+	require.NoError(t, err)
+	assert.Equal(t, want, action)
+
+	twice := strings.Replace(body, `"to":`, `"`+u+`0074o":"0x0000000000000000000000000000000000000001","to":`, 1)
+	_, _, err = ActionFromDepositBuild([]byte(twice), v.Build.Resource, rh)
+	require.ErrorIs(t, err, ErrMalformed)
+	assert.Equal(t, "BJ1", ruleOf(t, err))
+}
+
+// The requirements-bound action of a requirements case: the build's
+// transaction with the hash the case says the action carries.
+func rAction(t testing.TB, a TxAction, resource, hashHex string) TxAction {
+	t.Helper()
+	b, err := EncodeTxAction(a.Unsigned(), resource, [32]byte(unhex(t, hashHex)))
+	require.NoError(t, err)
+	out, err := DecodeTxAction(b)
+	require.NoError(t, err)
+	return out
+}
+
+func TestX402Requirements(t *testing.T) {
+	v, _, a := x402Build(t)
+	req := v.Requirements
+	require.Equal(t, "build", req.TxRef)
+	require.Equal(t, strconv.Itoa(MaxRequirementsSize), req.MaxLength)
+	require.True(t, req.CheckServerSignature)
+	require.Len(t, req.Accept, 5)
+	require.Len(t, req.Reject, 30)
+	for _, c := range req.Accept {
+		t.Run(c.ID, func(t *testing.T) {
+			r := unhex(t, c.RHex)
+			rh := RequirementsHash(r)
+			require.Equal(t, c.RequirementsHashHex, hex.EncodeToString(rh[:]))
+			ra := rAction(t, a, v.Build.Resource, c.RequirementsHashHex)
+			q, err := CheckRequirements(ra, r, true)
+			require.NoError(t, err)
+			assert.Equal(t, a.Deposit.PaymentID, q.PaymentID())
+			assert.Equal(t, rh, q.RequirementsHash())
+			_, hasNonce := q.Nonce()
+			assert.Equal(t, c.ID != "r_nonce_absent", hasNonce)
+		})
+	}
+	for _, c := range req.Reject {
+		t.Run(c.ID, func(t *testing.T) {
+			ra := rAction(t, a, v.Build.Resource, c.RequirementsHashHex)
+			r := unhex(t, c.RHex)
+			_, err := CheckRequirements(ra, r, true)
+			require.ErrorIs(t, err, ErrRequirements)
+			assert.Equal(t, c.Expect, ruleOf(t, err))
+
+			// Without the server-signature check, only its own rule stops
+			// passing to refuse.
+			_, err = CheckRequirements(ra, r, false)
+			if c.Expect == "S4f" {
+				require.NoError(t, err)
+			} else {
+				assert.Equal(t, c.Expect, ruleOf(t, err))
+			}
+		})
+	}
+}
+
+func TestX402ServerSignature(t *testing.T) {
+	v, _, a := x402Build(t)
+	s := v.Requirements.ServerSignature
+	m := [32]byte(unhex(t, s.MessageHex))
+	assert.Equal(t, a.Deposit.PaymentID, m)
+	d := PersonalDigest(m)
+	assert.Equal(t, s.DigestHex, hex.EncodeToString(d[:]))
+	sig := [65]byte(unhex(t, s.SignatureHex))
+	assert.Equal(t, s.V, strconv.Itoa(int(sig[64])))
+	got, err := RecoverPersonal(m, sig)
+	require.NoError(t, err)
+	assert.Equal(t, addr(t, s.Recovered), got)
+	assert.Equal(t, addr(t, s.FacilitatorW2), got)
+	assert.Equal(t, a.Deposit.Facilitator, got)
+}
+
+// The vectors' Payment-Signature digests and signatures check against the
+// personal_sign digest, and the messages are the action's paymentId and the
+// nonce of the quote the requirements checks selected.
+func TestX402PaymentSignatureDigests(t *testing.T) {
+	v, _, a := x402Build(t)
+	q, err := CheckRequirements(a, readVectorFile(t, v.Build.RequirementsFromFile), true)
+	require.NoError(t, err)
+	nonce, ok := q.Nonce()
+	require.True(t, ok)
+	ps := v.PaymentSignature
+	require.Len(t, ps.Cases, 2)
+	want := map[string][32]byte{"paymentId": a.Deposit.PaymentID, "nonce": nonce}
+	for _, c := range ps.Cases {
+		t.Run(c.Field, func(t *testing.T) {
+			m := [32]byte(unhex(t, c.MessageHex))
+			assert.Equal(t, want[c.Field], m)
+			assert.Equal(t, c.PreimageHex, hex.EncodeToString(append([]byte(personalPrefix), m[:]...)))
+			d := PersonalDigest(m)
+			assert.Equal(t, c.DigestHex, hex.EncodeToString(d[:]))
+
+			sig := [65]byte(unhex(t, c.SignatureHex))
+			assert.Contains(t, []byte{27, 28}, sig[64])
+			got, err := RecoverPersonal(m, sig)
+			require.NoError(t, err)
+			assert.Equal(t, addr(t, c.Signer), got)
+			assert.Equal(t, payerAddr(t), got)
+
+			// Deterministic and low s: the payer key gives exactly these bytes.
+			s, err := Sign(payerKey(t), d)
+			require.NoError(t, err)
+			assert.Equal(t, c.SignatureHex, hex.EncodeToString(append(append(s.R[:], s.S[:]...), 27+s.YParity)))
+		})
+	}
+	srv := PersonalDigest([32]byte(unhex(t, v.Requirements.ServerSignature.MessageHex)))
+	assert.Equal(t, ps.SameDigest, PersonalDigest(a.Deposit.PaymentID) == srv)
+}
+
+func TestRecoverPersonalRanges(t *testing.T) {
+	v, _, a := x402Build(t)
+	sig := [65]byte(unhex(t, v.Requirements.ServerSignature.SignatureHex))
+	n := [32]byte(unhex(t, loadJSON[signedFile](t, "signed.json").NHex))
+	for name, mod := range map[string]func(*[65]byte){
+		"v 2":    func(s *[65]byte) { s[64] = 2 },
+		"v 29":   func(s *[65]byte) { s[64] = 29 },
+		"r zero": func(s *[65]byte) { clear(s[:32]) },
+		"r = n":  func(s *[65]byte) { copy(s[:32], n[:]) },
+		"s zero": func(s *[65]byte) { clear(s[32:64]) },
+		"s = n":  func(s *[65]byte) { copy(s[32:64], n[:]) },
+	} {
+		s := sig
+		mod(&s)
+		_, err := RecoverPersonal(a.Deposit.PaymentID, s)
+		require.ErrorIs(t, err, ErrSignature, name)
+	}
+	for _, v := range []byte{0, 1, 27, 28} {
+		s := sig
+		s[64] = v
+		_, err := RecoverPersonal(a.Deposit.PaymentID, s)
+		require.NoError(t, err, "v %d", v)
+	}
+}
+
+func TestDecodePaymentRequired(t *testing.T) {
+	v := loadJSON[x402File](t, "x402.json")
+	r := readVectorFile(t, v.Build.RequirementsFromFile)
+	if len(r)%3 == 0 {
+		// One byte less, so that the padded and unpadded spellings differ.
+		r = r[:len(r)-1]
+	}
+	padded := base64.StdEncoding.EncodeToString(r)
+	raw := base64.RawStdEncoding.EncodeToString(r)
+	require.NotEqual(t, padded, raw)
+	for _, h := range []string{padded, raw} {
+		got, err := DecodePaymentRequired(h)
+		require.NoError(t, err)
+		assert.Equal(t, r, got)
+	}
+
+	big := base64.StdEncoding.EncodeToString(make([]byte, MaxRequirementsSize))
+	got, err := DecodePaymentRequired(big)
+	require.NoError(t, err)
+	assert.Len(t, got, MaxRequirementsSize)
+
+	for name, h := range map[string]string{
+		"empty":            "",
+		"line break":       padded[:8] + "\r\n" + padded[8:],
+		"space":            " " + padded,
+		"url alphabet":     strings.NewReplacer("+", "-", "/", "_").Replace(padded) + "-",
+		"padding inside":   padded[:4] + "=" + padded[4:],
+		"too much padding": raw + "===",
+		"wrong padding":    raw + map[int]string{2: "=", 3: "=="}[len(raw)%4],
+		"one byte long":    base64.StdEncoding.EncodeToString(make([]byte, MaxRequirementsSize+1)),
+		"dangling char":    "QUJDR",
+	} {
+		_, err := DecodePaymentRequired(h)
+		require.ErrorIs(t, err, ErrRequirements, name)
+	}
+}
+
+func TestStrictJSON(t *testing.T) {
+	ok := []string{
+		`{}`, `[]`, ` {"a" : [1, -0.5e+3, "x", true, false, null, {}]} `,
+		`{"a":{"b":1},"c":{"b":2}}`, `"` + u + `d83d` + u + `de00"`, `{"` + u + `0000":1}`,
+	}
+	for _, s := range ok {
+		_, err := parseJSON([]byte(s))
+		require.NoError(t, err, s)
+	}
+	bad := []string{
+		``, ` `, `{`, `{"a":1,}`, `[1,]`, `{"a":1}x`, `{"a" 1}`, `{a:1}`,
+		`{"a":1,"a":2}`, `{"x":{"a":1,"a":1}}`, `[{"a":1,"a":2}]`,
+		"\xef\xbb\xbf{}", "{\"a\":\"\x01\"}", "\f{}", `"` + u + `d83d"`, `"` + u + `de00"`, `"` + u + `d83d` + u + `0041"`,
+		`01`, `1.`, `.5`, `1e`, `-`, `+1`, `tru`, `nul`, `"\x"`, `"` + u + `12"`, "\"\xff\"", `{"a":1,"` + u + `0061":2}`,
+	}
+	for _, s := range bad {
+		_, err := parseJSON([]byte(s))
+		require.ErrorIs(t, err, errJSON, "%q", s)
+	}
+	// Depth is bounded by the input, not by the goroutine stack.
+	deep := strings.Repeat("[", 1<<20) + strings.Repeat("]", 1<<20)
+	_, err := parseJSON([]byte(deep))
+	require.NoError(t, err)
+}
+
+func TestJSONValueForms(t *testing.T) {
+	doc, err := parseJSON([]byte(`{"u":9007199254740991,"big":9007199254740992,"lz":"01","d":"0","h":"0xAb","H":"0Xab"}`))
+	require.NoError(t, err)
+	n, ok := jsonUint(doc.member("u"))
+	require.True(t, ok)
+	assert.Equal(t, uint64(maxSafeInt), n)
+	_, ok = jsonUint(doc.member("big"))
+	assert.False(t, ok)
+	_, ok = decimalString(doc.member("lz"))
+	assert.False(t, ok)
+	_, ok = decimalString(doc.member("d"))
+	assert.True(t, ok)
+	b, ok := hexString(doc.member("h"), 1)
+	require.True(t, ok)
+	assert.Equal(t, []byte{0xab}, b)
+	_, ok = hexString(doc.member("H"), 1)
+	assert.False(t, ok)
+}

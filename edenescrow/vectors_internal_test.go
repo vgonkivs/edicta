@@ -98,14 +98,17 @@ type actionCase struct {
 		Resource        string `json:"resource"`
 		RequirementsHex string `json:"requirements_hex"`
 	} `json:"input"`
-	RequirementsHashHex string      `json:"requirements_hash_hex"`
-	TxHex               string      `json:"tx_hex"`
-	SighashHex          string      `json:"sighash_hex"`
-	CBORHex             string      `json:"cbor_hex"`
-	ActionSaltHex       string      `json:"action_salt_hex"`
-	ActionHashHex       string      `json:"action_hash_hex"`
-	Facts               vectorFacts `json:"facts"`
-	FactsCBORHex        string      `json:"facts_cbor_hex"`
+	RequirementsHashHex  string       `json:"requirements_hash_hex"`
+	TxHex                string       `json:"tx_hex"`
+	SighashHex           string       `json:"sighash_hex"`
+	CBORHex              string       `json:"cbor_hex"`
+	ActionSaltHex        string       `json:"action_salt_hex"`
+	ActionHashHex        string       `json:"action_hash_hex"`
+	Facts                *vectorFacts `json:"facts"`
+	FactsCBORHex         *string      `json:"facts_cbor_hex"`
+	ExtractorExpectError *string      `json:"extractor_expect_error"`
+	ExtractorRule        *string      `json:"extractor_rule"`
+	ProfileFields        DepositView  `json:"profile_fields"`
 }
 
 type actionFile struct {
@@ -355,7 +358,7 @@ func TestActionVectors(t *testing.T) {
 	for _, c := range deposits.Cases {
 		calls[c.ID] = c.DataHex
 	}
-	require.Len(t, v.Cases, 6)
+	require.Len(t, v.Cases, 8)
 	for _, c := range v.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			b := unhex(t, c.CBORHex)
@@ -392,21 +395,39 @@ func TestActionVectors(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, c.ActionHashHex, hex.EncodeToString(ah[:]))
 
-				f := a.Facts()
+				assert.Equal(t, c.ProfileFields, a.DepositView())
+
+				reg, err = policy.NewExtractors(txExtractor{t: tbl})
+				require.NoError(t, err)
+				f, ferr := a.Facts()
+				gotID, rf, err := reg.Extract(ActionType, b)
+				assert.Equal(t, id, gotID)
+				if c.Facts == nil {
+					require.NotNil(t, c.ExtractorExpectError)
+					require.Equal(t, "ErrFactsInvalid", *c.ExtractorExpectError)
+					require.NotNil(t, c.ExtractorRule)
+					require.ErrorIs(t, ferr, policy.ErrFactsInvalid)
+					assert.Equal(t, *c.ExtractorRule, ruleOf(t, ferr))
+					require.ErrorIs(t, err, policy.ErrFactsInvalid)
+					assert.Equal(t, *c.ExtractorRule, ruleOf(t, err))
+					assert.Nil(t, c.FactsCBORHex)
+					continue
+				}
+				require.Nil(t, c.ExtractorExpectError)
+				require.Nil(t, c.ExtractorRule)
+				require.NoError(t, ferr)
 				assert.Equal(t, c.Facts.Kind, f.Kind)
 				assert.Equal(t, c.Facts.Asset, f.Asset)
 				assert.Equal(t, c.Facts.Amount, hex.EncodeToString(f.Amount))
 				assert.Equal(t, c.Facts.Scale, strconv.FormatUint(f.Scale, 10))
 				assert.Equal(t, c.Facts.Recipient, f.Recipient)
-				fc, err := policy.EncodeFacts(&f)
+				wantAmount := new(big.Int).Add(new(big.Int).SetBytes(a.Value), a.FeeBound())
+				assert.Equal(t, wantAmount.Bytes(), f.Amount, "amount is the value plus the fee bound")
+				fc, err2 := policy.EncodeFacts(&f)
+				require.NoError(t, err2)
+				require.NotNil(t, c.FactsCBORHex)
+				assert.Equal(t, *c.FactsCBORHex, hex.EncodeToString(fc))
 				require.NoError(t, err)
-				assert.Equal(t, c.FactsCBORHex, hex.EncodeToString(fc))
-
-				reg, err = policy.NewExtractors(txExtractor{t: tbl})
-				require.NoError(t, err)
-				gotID, rf, err := reg.Extract(ActionType, b)
-				require.NoError(t, err)
-				assert.Equal(t, id, gotID)
 				assert.Equal(t, f, rf)
 			}
 
@@ -466,7 +487,7 @@ func TestSignedVectors(t *testing.T) {
 	checkHeader(t, v.header)
 	actions := loadJSON[actionFile](t, "action.json")
 	require.Equal(t, hex.EncodeToString(secp256k1.S256().N.Bytes()), v.NHex)
-	require.Len(t, v.Cases, 6)
+	require.Len(t, v.Cases, 8)
 	for _, c := range v.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			a, ok := decodeAny(t, caseByID(t, actions, c.ActionRef))
@@ -525,7 +546,7 @@ func TestRailRefVectors(t *testing.T) {
 func TestExactTxVectors(t *testing.T) {
 	v := loadJSON[signedFile](t, "signed.json")
 	actions := loadJSON[actionFile](t, "action.json")
-	require.Len(t, v.ExactTx, 27)
+	require.Len(t, v.ExactTx, 29)
 	for _, c := range v.ExactTx {
 		t.Run(c.ID, func(t *testing.T) {
 			a, ok := decodeAny(t, caseByID(t, actions, c.ActionRef))

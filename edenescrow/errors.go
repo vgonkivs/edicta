@@ -20,6 +20,10 @@ var (
 	// ErrSignedMismatch is signed transaction bytes that are not the action's
 	// transaction with one valid signature spliced in.
 	ErrSignedMismatch = errors.New("edenescrow: signed transaction is not the authorized one")
+	// ErrRequirements is a payment-required statement that does not decode,
+	// does not bind to the action or quotes another deposit than the
+	// action's.
+	ErrRequirements = errors.New("edenescrow: payment requirements do not match the action")
 )
 
 // ruleError names the decoder rule that refused the input, so that tests
@@ -36,6 +40,10 @@ func (e *ruleError) Unwrap() error { return e.sentinel }
 
 func malformed(rule, format string, a ...any) error {
 	return &ruleError{sentinel: ErrMalformed, rule: rule, msg: fmt.Sprintf(format, a...)}
+}
+
+func requirements(rule, format string, a ...any) error {
+	return &ruleError{sentinel: ErrRequirements, rule: rule, msg: fmt.Sprintf(format, a...)}
 }
 
 func unknownDomain(format string, a ...any) error {

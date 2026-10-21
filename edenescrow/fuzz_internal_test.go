@@ -4,10 +4,16 @@ package edenescrow
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/policy"
 )
 
 func seedActions(f *testing.F) {
@@ -34,7 +40,14 @@ func FuzzDecodeTxAction(f *testing.F) {
 		enc, err := EncodeTxAction(a.unsigned, a.Resource, a.RequirementsHash)
 		require.NoError(t, err)
 		require.Equal(t, b, enc)
-		require.NoError(t, a.Facts().Validate())
+		if f, err := a.Facts(); err != nil {
+			require.ErrorIs(t, err, policy.ErrFactsInvalid)
+			require.Equal(t, "EF3", ruleOf(t, err))
+			sum := new(big.Int).Add(new(big.Int).SetBytes(a.Value), a.FeeBound())
+			require.Greater(t, sum.BitLen(), 256)
+		} else {
+			require.NoError(t, f.Validate())
+		}
 		require.Equal(t, a.Row.Escrow, a.To)
 		require.NotEmpty(t, a.Value)
 		require.LessOrEqual(t, len(a.unsigned), MaxTxSize)
@@ -127,4 +140,93 @@ func FuzzParseSigned(f *testing.F) {
 		require.NoError(t, err)
 		require.Equal(t, payer, p)
 	})
+}
+
+// The strict reader accepts nothing encoding/json would refuse, and every
+// accepted /deposit/build answer gives an action that decodes to the
+// answer's paymentId; every refusal is one of the decoder's sentinels.
+func FuzzActionFromDepositBuild(f *testing.F) {
+	v := loadJSON[x402File](f, "x402.json")
+	for _, c := range append(v.BuildAccept, v.BuildReject...) {
+		f.Add([]byte(c.JSON))
+	}
+	rh := RequirementsHash(readVectorFile(f, v.Build.RequirementsFromFile))
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if _, err := parseJSON(body); err == nil {
+			require.True(t, json.Valid(body), "%q", body)
+		}
+		action, a, err := ActionFromDepositBuild(body, v.Build.Resource, rh)
+		if err != nil {
+			require.True(t, errors.Is(err, ErrMalformed) || errors.Is(err, ErrUnknownDomain), "%v", err)
+			return
+		}
+		again, err := DecodeTxAction(action)
+		require.NoError(t, err)
+		require.Equal(t, a.Unsigned(), again.Unsigned())
+		doc, err := parseJSON(body)
+		require.NoError(t, err)
+		pid, ok := hexString(doc.member("paymentId"), 32)
+		require.True(t, ok)
+		require.Equal(t, a.Deposit.PaymentID, [32]byte(pid))
+	})
+}
+
+// Whatever R the checks accept is bound to the action by its hash and
+// names the action's paymentId; every refusal is ErrRequirements.
+func FuzzCheckRequirements(f *testing.F) {
+	v := loadJSON[x402File](f, "x402.json")
+	for _, c := range append(v.Requirements.Accept, v.Requirements.Reject...) {
+		f.Add(unhex(f, c.RHex))
+	}
+	r0 := readVectorFile(f, v.Build.RequirementsFromFile)
+	_, a, err := ActionFromDepositBuild(readVectorFile(f, v.Build.FromFile), v.Build.Resource, RequirementsHash(r0))
+	require.NoError(f, err)
+	f.Fuzz(func(t *testing.T, r []byte) {
+		// Bind the action to the fuzzed R so the checks past the hash run.
+		ra := rebind(t, a, r)
+		q, err := CheckRequirements(ra, r, true)
+		if err != nil {
+			require.ErrorIs(t, err, ErrRequirements)
+			return
+		}
+		require.Equal(t, ra.RequirementsHash, RequirementsHash(r))
+		require.Equal(t, ra.Deposit.PaymentID, q.PaymentID())
+		require.True(t, json.Valid(r))
+	})
+}
+
+func rebind(t testing.TB, a TxAction, r []byte) TxAction {
+	t.Helper()
+	b, err := EncodeTxAction(a.Unsigned(), a.Resource, RequirementsHash(r))
+	require.NoError(t, err)
+	out, err := DecodeTxAction(b)
+	require.NoError(t, err)
+	return out
+}
+
+// A decoded header is the base64 of exactly what it returns.
+func FuzzDecodePaymentRequired(f *testing.F) {
+	f.Add("eyJ4NDAyVmVyc2lvbiI6Mn0=")
+	f.Add("eyJ4NDAyVmVyc2lvbiI6Mn0")
+	f.Add("QQ=")
+	f.Add("a\r\nb")
+	f.Fuzz(func(t *testing.T, h string) {
+		r, err := DecodePaymentRequired(h)
+		if err != nil {
+			require.ErrorIs(t, err, ErrRequirements)
+			return
+		}
+		require.NotEmpty(t, r)
+		require.LessOrEqual(t, len(r), MaxRequirementsSize)
+		require.Equal(t, r, mustStdDecode(t, base64.StdEncoding.EncodeToString(r)))
+		trimmed := strings.TrimRight(h, "=")
+		require.Equal(t, len(base64.RawStdEncoding.EncodeToString(r)), len(trimmed))
+	})
+}
+
+func mustStdDecode(t testing.TB, s string) []byte {
+	t.Helper()
+	b, err := base64.StdEncoding.DecodeString(s)
+	require.NoError(t, err)
+	return b
 }
