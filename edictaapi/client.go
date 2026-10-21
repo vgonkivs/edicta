@@ -285,9 +285,9 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 }
 
 func (c *Client) once(ctx context.Context, method, path string, body []byte, rt jsonRoute) ([]byte, time.Duration, error) {
-	ctype, limit := contentType, uint64(maxResponse)
+	ctype, limit := contentType, jsonLimit(maxResponse)
 	if c.json {
-		ctype, limit = jsonContentType, jsonLimit(maxResponse)
+		ctype = jsonContentType
 	}
 	var rd io.Reader
 	if body != nil {
@@ -321,24 +321,23 @@ func (c *Client) once(ctx context.Context, method, path string, body []byte, rt 
 	if uint64(len(data)) > limit {
 		return nil, 0, fmt.Errorf("edictaapi: response above %d bytes: %w", limit, commitment.ErrTooLarge)
 	}
-	if c.json {
-		// The decoder follows the response's own type: an older server or a
-		// proxy may answer CBOR.
-		respJSON, known := requestMedia(resp.Header.Get("Content-Type"))
-		switch {
-		case respJSON:
-			schema := rt.resp
-			if resp.StatusCode != http.StatusOK {
-				schema = jsonErrorBody
-			}
-			if conv, cerr := jsonToCBOR(data, schema); cerr == nil {
-				data = conv
-			} else if resp.StatusCode == http.StatusOK {
-				return nil, 0, fmt.Errorf("edictaapi: %s response: %w", path, cerr)
-			}
-		case !known && resp.StatusCode == http.StatusOK:
-			return nil, 0, fmt.Errorf("edictaapi: %s response: unexpected content type %q", path, resp.Header.Get("Content-Type"))
+	// The decoder follows the response's own type, whatever was asked for.
+	respJSON, known := requestMedia(resp.Header.Get("Content-Type"))
+	switch {
+	case respJSON:
+		schema := rt.resp
+		if resp.StatusCode != http.StatusOK {
+			schema = jsonErrorBody
 		}
+		if conv, cerr := jsonToCBOR(data, schema); cerr == nil {
+			data = conv
+		} else if resp.StatusCode == http.StatusOK {
+			return nil, 0, fmt.Errorf("edictaapi: %s response: %w", path, cerr)
+		}
+	case !known && resp.StatusCode == http.StatusOK:
+		return nil, 0, fmt.Errorf("%w: %s response: unexpected content type %q", commitment.ErrMalformed, path, resp.Header.Get("Content-Type"))
+	case len(data) > maxResponse:
+		return nil, 0, fmt.Errorf("edictaapi: response above %d bytes: %w", maxResponse, commitment.ErrTooLarge)
 	}
 	if resp.StatusCode == http.StatusOK {
 		return data, 0, nil

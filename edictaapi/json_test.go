@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package edictaapi_test
 
 import (
@@ -611,5 +613,6 @@ func TestClientJSONFollowsResponseMediaType(t *testing.T) {
 
 	ctype, body = "text/html", []byte(`{"signed_authorization":"YQ=="}`)
 	_, err = c.Authorize(context.Background(), []byte("e"), []byte("a"), testSalt)
+	require.ErrorIs(t, err, commitment.ErrMalformed)
 	require.ErrorContains(t, err, "unexpected content type")
 }

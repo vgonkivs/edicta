@@ -355,9 +355,13 @@ func TestPublishDisabled(t *testing.T) {
 // TestVectorExamples replays the examples of errors.json that need only the handler and fakes.
 func TestVectorExamples(t *testing.T) {
 	v := loadErrVectors(t)
+	superseded := supersededCases(t)
 	for _, ex := range v.Examples {
 		ex := ex
 		t.Run(ex.ID, func(t *testing.T) {
+			if by, ok := superseded["api/errors.json#"+ex.ID]; ok {
+				t.Skipf("superseded, replaced by %s", by)
+			}
 			status := int(u64(t, ex.Status))
 			switch ex.Endpoint {
 			case "/v1/authorize", "/v1/record":
@@ -428,12 +432,7 @@ func TestVectorExamples(t *testing.T) {
 				e := newEnv(t, nil)
 				switch ex.ID {
 				case "publish_wrong_media_type":
-					ctype := ex.ContentType
-					if ctype == "application/json" {
-						// JSON is an accepted transport now; another unsupported type keeps the vector's point.
-						ctype = "text/plain"
-					}
-					rec := e.do(http.MethodPost, ex.Endpoint, ctype, unhex(t, ex.RequestHex))
+					rec := e.do(http.MethodPost, ex.Endpoint, ex.ContentType, unhex(t, ex.RequestHex))
 					requireErr(t, rec, 415, "edictaapi.ErrMediaType", false)
 					require.Zero(t, e.pub.count())
 				case "publish_ok":
