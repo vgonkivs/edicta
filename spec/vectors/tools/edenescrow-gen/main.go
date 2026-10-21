@@ -26,7 +26,7 @@ import (
 const (
 	format    = "edicta-vectors/v0"
 	profile   = "eden-escrow"
-	revision  = "eden-escrow-v1-draft.7"
+	revision  = "eden-escrow-v1-draft.8"
 	generator = "spec/vectors/tools/edenescrow-gen"
 )
 
