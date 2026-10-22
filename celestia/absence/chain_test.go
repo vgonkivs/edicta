@@ -27,6 +27,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/fibrecert"
 	"github.com/vgonkivs/edicta/celestia/railverify"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/verifier"
 )
 
@@ -310,7 +311,7 @@ func (m memIntents) Intent(_ context.Context, da commitment.DA, commit []byte, h
 }
 
 func TestIntentSignerFibre(t *testing.T) {
-	raw, err := os.ReadFile("../../spec/vectors/da/fibre_cert.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/da/fibre_cert.json"))
 	require.NoError(t, err)
 	var v struct {
 		Live struct {

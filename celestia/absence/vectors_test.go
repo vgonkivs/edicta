@@ -14,12 +14,13 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/absence"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 const (
-	absencePath     = "../../spec/vectors/da/absence.json"
-	absenceV103Path = "../../spec/vectors/da/absence_v1.0.3.json"
-	supersededPath  = "../../spec/vectors/SUPERSEDED.json"
+	absencePath     = "vectors/da/absence.json"
+	absenceV103Path = "vectors/da/absence_v1.0.3.json"
+	supersededPath  = "vectors/SUPERSEDED.json"
 	absenceFileName = "da/absence.json"
 	absenceV103Name = "da/absence_v1.0.3.json"
 )
@@ -108,7 +109,7 @@ func unhex(t *testing.T, s string) []byte {
 
 func loadAbsence(t *testing.T) vFile {
 	t.Helper()
-	b, err := os.ReadFile(absencePath)
+	b, err := os.ReadFile(testkit.SpecPath(t, absencePath))
 	require.NoError(t, err)
 	var f vFile
 	require.NoError(t, json.Unmarshal(b, &f))
@@ -226,7 +227,7 @@ type supersededEntry struct {
 // only through this list.
 func superseded(t *testing.T, file string) map[string]string {
 	t.Helper()
-	b, err := os.ReadFile(supersededPath)
+	b, err := os.ReadFile(testkit.SpecPath(t, supersededPath))
 	require.NoError(t, err)
 	var f struct {
 		Entries []supersededEntry `json:"entries"`
@@ -249,7 +250,7 @@ type v103File struct {
 
 func loadAbsenceV103(t *testing.T) v103File {
 	t.Helper()
-	b, err := os.ReadFile(absenceV103Path)
+	b, err := os.ReadFile(testkit.SpecPath(t, absenceV103Path))
 	require.NoError(t, err)
 	var f v103File
 	require.NoError(t, json.Unmarshal(b, &f))

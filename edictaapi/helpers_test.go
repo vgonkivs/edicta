@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
@@ -26,11 +25,12 @@ import (
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/sdk"
 )
 
 const (
-	vecDir     = "../spec/vectors/api"
+	vecDir     = "vectors/api"
 	cborType   = "application/cbor"
 	gateIDVec  = "edictad-1"
 	nowVec     = uint64(1791000060)
@@ -54,7 +54,7 @@ func unhex(t testing.TB, s string) []byte {
 
 func loadJSON(t testing.TB, name string, v any) {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(vecDir, name))
+	b, err := os.ReadFile(testkit.SpecPath(t, vecDir, name))
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(b, v))
 }

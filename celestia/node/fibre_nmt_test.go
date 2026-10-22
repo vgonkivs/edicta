@@ -2,11 +2,14 @@ package node
 
 import (
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 func nmtDep(version string, replace *debug.Module) *debug.BuildInfo {
@@ -49,7 +52,7 @@ func TestCheckNMTBuildInfo(t *testing.T) {
 // A test binary carries no module list, so the real check cannot run here;
 // the pin is compared with the module file instead.
 func TestNMTPinMatchesGoMod(t *testing.T) {
-	mod, err := os.ReadFile("../go.mod")
+	mod, err := os.ReadFile(filepath.Join(testkit.ModuleRoot(t), "go.mod"))
 	require.NoError(t, err)
 	assert.Contains(t, string(mod), NMTModule+" "+NMTVersion)
 	assert.NotContains(t, string(mod), "replace "+NMTModule)

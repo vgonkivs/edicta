@@ -17,6 +17,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/doctor"
 	"github.com/vgonkivs/edicta/celestia/node"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 func TestSystemEVM(t *testing.T) {
@@ -129,8 +130,7 @@ func TestSystemKeyring(t *testing.T) {
 	dir := t.TempDir()
 	pass := filepath.Join(dir, "pass")
 	require.NoError(t, os.WriteFile(pass, []byte("fixture-passphrase\n"), 0o600))
-	fixture, err := filepath.Abs("../node/testdata/file-keyring")
-	require.NoError(t, err)
+	fixture := testkit.RepoPath(t, "celestia/node/testdata/file-keyring")
 	kr := filepath.Join(dir, "kr")
 	require.NoError(t, os.CopyFS(kr, os.DirFS(fixture)))
 

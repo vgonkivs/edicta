@@ -13,6 +13,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/policy/privatebox"
 	"github.com/vgonkivs/edicta/sdk/blob"
@@ -27,7 +28,7 @@ type privateActionFixture struct {
 }
 
 func loadPrivateAction(t *testing.T) privateActionFixture {
-	raw, err := os.ReadFile("../spec/vectors/v1/verify.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/v1/verify.json"))
 	require.NoError(t, err)
 	var d struct {
 		Records map[string]struct {
@@ -49,7 +50,7 @@ func loadPrivateAction(t *testing.T) privateActionFixture {
 			SK string `json:"sk_hex"`
 		} `json:"auditor_keys"`
 	}
-	praw, err := os.ReadFile("../spec/vectors/policy/private.json")
+	praw, err := os.ReadFile(testkit.SpecPath(t, "vectors/policy/private.json"))
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(praw, &keys))
 	f := privateActionFixture{dec: dec.(*archive.DecisionRecord), rec: rec.(*archive.PrivateBlobRecord), h: h, sks: map[string]*ecdh.PrivateKey{}}

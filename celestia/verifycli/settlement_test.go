@@ -11,19 +11,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
-const edenVectors = "../../spec/vectors/profiles/eden-escrow"
+const edenVectors = "vectors/profiles/eden-escrow"
 
 func edenJSON(t testing.TB, name string, v any) {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(edenVectors, name))
+	b, err := os.ReadFile(testkit.SpecPath(t, edenVectors, name))
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(b, v))
 }

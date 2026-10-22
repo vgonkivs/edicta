@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 )
 
@@ -99,14 +99,13 @@ type Fixture struct {
 	Fibre map[[32]byte][]byte
 }
 
-func vectorDir() string {
-	_, file, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(file), "..", "..", "spec", "vectors", "archive")
+func vectorDir(tb testing.TB) string {
+	return testkit.SpecPath(tb, "vectors/archive")
 }
 
 func readJSON(t testing.TB, name string, v any) {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(vectorDir(), name))
+	b, err := os.ReadFile(filepath.Join(vectorDir(t), name))
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(b, v))
 }

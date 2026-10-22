@@ -12,6 +12,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 )
 
@@ -19,7 +20,7 @@ import (
 // segment from the verdict (private iff key 19 is present), so a record
 // under the other form's path is corrupt.
 func TestPolicyArchiveReads(t *testing.T) {
-	raw, err := os.ReadFile("../spec/vectors/policy/archive.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/policy/archive.json"))
 	require.NoError(t, err)
 	var d struct {
 		Reads []struct {

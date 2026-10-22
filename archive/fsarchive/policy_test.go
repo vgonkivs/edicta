@@ -16,11 +16,12 @@ import (
 	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/archive/httparchive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 func policyRecords(t *testing.T) map[string]archive.Record {
 	t.Helper()
-	raw, err := os.ReadFile("../../spec/vectors/policy/verify.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/policy/verify.json"))
 	require.NoError(t, err)
 	var d struct {
 		Records map[string]string `json:"records"`

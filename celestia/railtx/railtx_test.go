@@ -24,6 +24,7 @@ import (
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankmsg"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 var bg = context.Background()
@@ -55,7 +56,7 @@ type vecFile struct {
 
 func load(t *testing.T) (vecFile, map[string][]byte) {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "spec", "vectors", "profiles", "bank-send", "tx.json"))
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors", "profiles", "bank-send", "tx.json"))
 	require.NoError(t, err)
 	var f vecFile
 	require.NoError(t, json.Unmarshal(raw, &f))

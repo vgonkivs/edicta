@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 const forbidden = "github.com/celestiaorg/celestia-app"
@@ -13,7 +15,7 @@ const forbidden = "github.com/celestiaorg/celestia-app"
 func goOut(t *testing.T, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("go", args...)
-	cmd.Dir = "../.."
+	cmd.Dir = testkit.RepoRoot(t)
 	cmd.Env = append(cmd.Environ(), "GOFLAGS=-mod=readonly", "GOWORK=off")
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(out))

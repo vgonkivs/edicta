@@ -13,6 +13,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 )
 
@@ -65,7 +66,7 @@ func (c revealChecker) ActionFromTx(context.Context, ExecutionInput) ([]byte, er
 // TestPrivateActionVectors runs the action cases of spec/vectors/v1/verify.json
 // that need an auditor key, the kind 15 lookup or the reveal path.
 func TestPrivateActionVectors(t *testing.T) {
-	raw, err := os.ReadFile("../spec/vectors/v1/verify.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/v1/verify.json"))
 	require.NoError(t, err)
 	var d struct {
 		Records map[string]struct {
@@ -96,7 +97,7 @@ func TestPrivateActionVectors(t *testing.T) {
 			SK string `json:"sk_hex"`
 		} `json:"auditor_keys"`
 	}
-	praw, err := os.ReadFile("../spec/vectors/policy/private.json")
+	praw, err := os.ReadFile(testkit.SpecPath(t, "vectors/policy/private.json"))
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(praw, &keys))
 

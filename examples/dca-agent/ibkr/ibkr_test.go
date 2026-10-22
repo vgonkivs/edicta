@@ -14,11 +14,12 @@ import (
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/examples/dca-agent/ibkr"
 	"github.com/vgonkivs/edicta/examples/dca-agent/ibkrorder"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 const (
-	orderVectors = "../../../spec/vectors/profiles/dca-agent/ibkr_order.json"
-	coidVectors  = "../../../spec/vectors/profiles/dca-agent/client_order_id.json"
+	orderVectors = "vectors/profiles/dca-agent/ibkr_order.json"
+	coidVectors  = "vectors/profiles/dca-agent/client_order_id.json"
 )
 
 func unhex(tb testing.TB, s string) []byte {
@@ -51,7 +52,7 @@ var sentinels = map[string]error{
 }
 
 func TestVectorExecutorChecks(t *testing.T) {
-	raw, err := os.ReadFile(orderVectors)
+	raw, err := os.ReadFile(testkit.SpecPath(t, orderVectors))
 	require.NoError(t, err)
 	var f orderFile
 	require.NoError(t, json.Unmarshal(raw, &f))
@@ -81,7 +82,7 @@ func TestVectorExecutorChecks(t *testing.T) {
 // The order handed to the broker mapping comes from the authorized bytes
 // only: bytes that are not the unique encoding are refused, never repaired.
 func TestCheckOrderParsesAuthorizedBytesAsIs(t *testing.T) {
-	raw, err := os.ReadFile(orderVectors)
+	raw, err := os.ReadFile(testkit.SpecPath(t, orderVectors))
 	require.NoError(t, err)
 	var f struct {
 		Malformed []struct{ ID, CBORHex string } `json:"malformed"`
@@ -97,7 +98,7 @@ func TestCheckOrderParsesAuthorizedBytesAsIs(t *testing.T) {
 }
 
 func TestCheckOrderReturnsTheDecodedOrder(t *testing.T) {
-	raw, err := os.ReadFile(orderVectors)
+	raw, err := os.ReadFile(testkit.SpecPath(t, orderVectors))
 	require.NoError(t, err)
 	var f struct {
 		Cases []struct {
@@ -118,7 +119,7 @@ func TestCheckOrderReturnsTheDecodedOrder(t *testing.T) {
 
 func TestCheckOrderPrecedence(t *testing.T) {
 	// Vector bodies: malformed < invalid < account < risk limit.
-	raw, err := os.ReadFile(orderVectors)
+	raw, err := os.ReadFile(testkit.SpecPath(t, orderVectors))
 	require.NoError(t, err)
 	var f orderFile
 	require.NoError(t, json.Unmarshal(raw, &f))
@@ -138,7 +139,7 @@ func TestCheckOrderPrecedence(t *testing.T) {
 }
 
 func TestVectorClientOrderID(t *testing.T) {
-	raw, err := os.ReadFile(coidVectors)
+	raw, err := os.ReadFile(testkit.SpecPath(t, coidVectors))
 	require.NoError(t, err)
 	var f struct {
 		Cases []struct {

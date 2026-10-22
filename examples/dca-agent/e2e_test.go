@@ -15,6 +15,7 @@ import (
 	"github.com/vgonkivs/edicta/examples/dca-agent/ibkr"
 	"github.com/vgonkivs/edicta/examples/dca-agent/ibkrorder"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/payload"
 	"github.com/vgonkivs/edicta/sdk/sdktest"
@@ -263,6 +264,6 @@ func TestReadmeLinksTheProfile(t *testing.T) {
 	require.NoError(t, err, "examples/dca-agent/README.md must exist")
 	assert.True(t, strings.Contains(string(b), "spec/profiles/dca-agent-v0.md"),
 		"the README must link spec/profiles/dca-agent-v0.md")
-	_, err = os.Stat("../../spec/profiles/dca-agent-v0.md")
+	_, err = os.Stat(testkit.SpecPath(t, "profiles/dca-agent-v0.md"))
 	require.NoError(t, err)
 }

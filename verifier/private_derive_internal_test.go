@@ -11,12 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 )
 
 func loadPrivCase(t *testing.T, id string) (privCase, vecDoc) {
 	t.Helper()
-	raw, err := os.ReadFile("../spec/vectors/policy/private.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/policy/private.json"))
 	require.NoError(t, err)
 	var d privDoc
 	require.NoError(t, json.Unmarshal(raw, &d))

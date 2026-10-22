@@ -13,9 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/celestia/fibrecert"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
-const vectorPath = "../../spec/vectors/da/fibre_cert.json"
+const vectorPath = "vectors/da/fibre_cert.json"
 
 // num reads a JSON number that the vectors may write as a decimal string.
 type num int64
@@ -152,7 +153,7 @@ type vectorFile struct {
 
 func loadVectors(t *testing.T) *vectorFile {
 	t.Helper()
-	raw, err := os.ReadFile(vectorPath)
+	raw, err := os.ReadFile(testkit.SpecPath(t, vectorPath))
 	require.NoError(t, err)
 	var v vectorFile
 	require.NoError(t, json.Unmarshal(raw, &v))
@@ -268,8 +269,8 @@ func mustTime(t *testing.T, s string) time.Time {
 	return ts
 }
 
-func readLivePFF() ([]byte, error) {
-	raw, err := os.ReadFile(vectorPath)
+func readLivePFF(tb testing.TB) ([]byte, error) {
+	raw, err := os.ReadFile(testkit.SpecPath(tb, vectorPath))
 	if err != nil {
 		return nil, err
 	}

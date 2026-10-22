@@ -6,20 +6,20 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strconv"
 	"testing"
 
 	"github.com/fxamacker/cbor/v2"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/principalsig"
 )
 
 func readVec(t testing.TB, name string, v any) {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "spec", "vectors", "policy", name))
+	b, err := os.ReadFile(testkit.SpecPath(t, "vectors", "policy", name))
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(b, v))
 }

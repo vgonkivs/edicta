@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/test/archivefix"
 )
 
@@ -33,7 +34,7 @@ type v1ArchiveFile struct {
 
 func loadV1Archive(t *testing.T) v1ArchiveFile {
 	t.Helper()
-	raw, err := os.ReadFile("../spec/vectors/v1/archive.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/v1/archive.json"))
 	require.NoError(t, err)
 	var f v1ArchiveFile
 	require.NoError(t, json.Unmarshal(raw, &f))

@@ -19,6 +19,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/commitcmd"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/sdk/sdktest"
 	"github.com/vgonkivs/edicta/signer"
 )
@@ -100,7 +101,7 @@ type edenFiles struct {
 
 func writeEdenFiles(t *testing.T) edenFiles {
 	t.Helper()
-	live := filepath.Join("..", "..", "..", "spec", "vectors", "profiles", "eden-escrow", "live")
+	live := testkit.SpecPath(t, "vectors", "profiles", "eden-escrow", "live")
 	rr, err := os.ReadFile(filepath.Join(live, "houston-payment-required.json"))
 	require.NoError(t, err)
 	dir := t.TempDir()

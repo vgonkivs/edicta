@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/dacommit/sharev1"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
 
@@ -205,7 +207,7 @@ func TestDependencies(t *testing.T) {
 			}
 		}
 	}
-	mod, err := os.ReadFile("../../go.mod")
+	mod, err := os.ReadFile(filepath.Join(testkit.ModuleRoot(t), "go.mod"))
 	require.NoError(t, err)
 	assert.NotContains(t, string(mod), "celestia-core")
 	assert.NotContains(t, string(mod), "cometbft")

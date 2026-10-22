@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/principalsig"
 )
@@ -25,7 +26,7 @@ type adr036Case struct {
 
 func adr036Vectors(t *testing.T) (map[string]adr036Case, string) {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "spec", "vectors", "principal", "adr036.json"))
+	b, err := os.ReadFile(testkit.SpecPath(t, "vectors", "principal", "adr036.json"))
 	require.NoError(t, err)
 	var f struct {
 		Keys map[string]struct {

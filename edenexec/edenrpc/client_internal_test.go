@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -20,11 +19,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/edenexec"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 const (
-	vectorDir     = "../../spec/vectors/profiles/eden-escrow"
-	recordedBlock = "../testdata/eden-714-block-227899844.json"
+	vectorDir     = "vectors/profiles/eden-escrow"
+	recordedBlock = "edenexec/testdata/eden-714-block-227899844.json"
 )
 
 // rpcServer answers JSON-RPC requests on the loopback from a table of
@@ -113,7 +113,7 @@ type recorded struct {
 
 func loadRecorded(t testing.TB) recorded {
 	t.Helper()
-	b, err := os.ReadFile(recordedBlock)
+	b, err := os.ReadFile(testkit.RepoPath(t, recordedBlock))
 	require.NoError(t, err)
 	var r recorded
 	require.NoError(t, json.Unmarshal(b, &r))
@@ -133,7 +133,7 @@ type f14 struct {
 
 func loadF14(t testing.TB) f14 {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(vectorDir, "live/f14.json"))
+	b, err := os.ReadFile(testkit.SpecPath(t, vectorDir, "live/f14.json"))
 	require.NoError(t, err)
 	var f f14
 	require.NoError(t, json.Unmarshal(b, &f))

@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -14,6 +13,7 @@ import (
 
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/gate/registry"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
@@ -34,7 +34,7 @@ type adoptionStep struct {
 }
 
 func TestPolicyAdoptionVectors(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "spec", "vectors", "policy", "mandate.json"))
+	b, err := os.ReadFile(testkit.SpecPath(t, "vectors", "policy", "mandate.json"))
 	require.NoError(t, err)
 	var d struct {
 		Adoption []struct {

@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 func TestSelfTest(t *testing.T) {
@@ -22,7 +24,7 @@ func TestCheckBuildInBinary(t *testing.T) {
 	}
 	bin := filepath.Join(t.TempDir(), "checkbuild")
 	build := exec.Command("go", "build", "-mod=readonly", "-o", bin, "./fibrecommit/testdata/checkbuild")
-	build.Dir = ".."
+	build.Dir = testkit.ModuleRoot(t)
 	build.Env = append(os.Environ(), "GOFLAGS=", "GOPROXY=off", "GOWORK=off")
 	out, err := build.CombinedOutput()
 	require.NoError(t, err, string(out))
@@ -39,7 +41,7 @@ func TestCheckBuildInBinary(t *testing.T) {
 // is parsed by hand.
 func goModReplaces(t *testing.T) map[string]string {
 	t.Helper()
-	b, err := os.ReadFile("../go.mod")
+	b, err := os.ReadFile(filepath.Join(testkit.ModuleRoot(t), "go.mod"))
 	require.NoError(t, err)
 
 	out := map[string]string{}

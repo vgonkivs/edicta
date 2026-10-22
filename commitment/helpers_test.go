@@ -8,18 +8,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
-const vectorDir = "../spec/vectors/v1"
+const vectorDir = "vectors/v1"
 
-const keysFilePath = "../spec/vectors/keys.json"
+const keysFilePath = "vectors/keys.json"
 
 var sentinels = map[string]error{
 	"ErrTooLarge":             commitment.ErrTooLarge,
@@ -110,7 +110,7 @@ func u64(t testing.TB, s string) uint64 {
 
 func loadJSON(t testing.TB, name string, v any) {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(vectorDir, name))
+	b, err := os.ReadFile(testkit.SpecPath(t, vectorDir, name))
 	require.NoError(t, err, "read vector file")
 	err = json.Unmarshal(b, v)
 	require.NoErrorf(t, err, "parse %s", name)
@@ -307,7 +307,7 @@ func actionSalt(t testing.TB, a actionSpec) []byte {
 func loadKey(t testing.TB, name string) ed25519.PrivateKey {
 	t.Helper()
 	var kf keysFile
-	b, err := os.ReadFile(keysFilePath)
+	b, err := os.ReadFile(testkit.SpecPath(t, keysFilePath))
 	require.NoError(t, err, "read keys file")
 	require.NoError(t, json.Unmarshal(b, &kf), "parse keys file")
 	k, ok := kf.Keys[name]

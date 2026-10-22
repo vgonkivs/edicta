@@ -15,6 +15,7 @@ import (
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/fibre/fibrecommit"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 type vecCase struct {
@@ -36,7 +37,7 @@ type vecFile struct {
 
 func loadVectors(t *testing.T) vecFile {
 	t.Helper()
-	b, err := os.ReadFile("../../spec/vectors/da/fibre_commit.json")
+	b, err := os.ReadFile(testkit.SpecPath(t, "vectors/da/fibre_commit.json"))
 	require.NoError(t, err)
 	var f vecFile
 	require.NoError(t, json.Unmarshal(b, &f))

@@ -25,6 +25,7 @@ import (
 	cosmostx "github.com/cosmos/cosmos-sdk/types/tx"
 
 	"github.com/vgonkivs/edicta/celestia/fibrecert"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 func TestParsePFF_Live(t *testing.T) {
@@ -340,7 +341,7 @@ func TestThreshold_SingleImplementation(t *testing.T) {
 }
 
 func FuzzParsePFF(f *testing.F) {
-	raw, err := readLivePFF()
+	raw, err := readLivePFF(f)
 	if err == nil {
 		f.Add(raw)
 		f.Add(raw[:len(raw)/2])
@@ -605,7 +606,7 @@ func TestVerifyCertificate_FirstEntryCheckedWhenNothingRequired(t *testing.T) {
 }
 
 func FuzzValidatorsFor(f *testing.F) {
-	raw, err := os.ReadFile(vectorPath)
+	raw, err := os.ReadFile(testkit.SpecPath(f, vectorPath))
 	require.NoError(f, err)
 	var v vectorFile
 	require.NoError(f, json.Unmarshal(raw, &v))

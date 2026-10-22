@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 type mandateCase struct {
@@ -26,7 +28,7 @@ type mandateCase struct {
 
 func vectors(t *testing.T) (map[string]mandateCase, map[string]string) {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "spec", "vectors", "policy", "mandate.json"))
+	b, err := os.ReadFile(testkit.SpecPath(t, "vectors", "policy", "mandate.json"))
 	require.NoError(t, err)
 	var f struct {
 		Keys map[string]struct {
@@ -61,7 +63,7 @@ func call(args ...string) (int, string, string) {
 
 func renderText(t *testing.T, id string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "spec", "vectors", "policy", "render.json"))
+	b, err := os.ReadFile(testkit.SpecPath(t, "vectors", "policy", "render.json"))
 	require.NoError(t, err)
 	var f struct {
 		Cases []struct {

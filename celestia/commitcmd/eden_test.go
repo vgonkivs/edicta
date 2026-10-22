@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -25,6 +24,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/commitcmd"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/signer"
 )
 
@@ -36,7 +36,7 @@ const (
 
 func liveFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "spec", "vectors", "profiles", "eden-escrow", "live", name))
+	b, err := os.ReadFile(testkit.SpecPath(t, "vectors", "profiles", "eden-escrow", "live", name))
 	require.NoError(t, err)
 	return b
 }

@@ -15,12 +15,13 @@ import (
 	"github.com/vgonkivs/edicta/celestia/railverify"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/test/bankvec"
 	"github.com/vgonkivs/edicta/verifier"
 )
 
 func TestActionFromTxVectors(t *testing.T) {
-	raw, err := os.ReadFile("../../spec/vectors/profiles/bank-send/action_from_tx.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/profiles/bank-send/action_from_tx.json"))
 	require.NoError(t, err)
 	var f struct {
 		TypeURL string `json:"type_url"`

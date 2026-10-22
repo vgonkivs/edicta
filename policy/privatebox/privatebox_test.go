@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/chacha20poly1305"
 
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/policy/privatebox"
 	"github.com/vgonkivs/edicta/sdk/blob"
@@ -71,7 +72,7 @@ type rejectCase struct {
 }
 
 func load(t testing.TB) doc {
-	raw, err := os.ReadFile("../../spec/vectors/policy/private.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/policy/private.json"))
 	require.NoError(t, err)
 	var d doc
 	require.NoError(t, json.Unmarshal(raw, &d))

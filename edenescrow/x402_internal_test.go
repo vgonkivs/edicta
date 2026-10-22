@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 )
 
@@ -131,7 +131,7 @@ type x402File struct {
 
 func readVectorFile(t testing.TB, name string) []byte {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(vectorDir, name))
+	b, err := os.ReadFile(testkit.SpecPath(t, vectorDir, name))
 	require.NoError(t, err)
 	return b
 }

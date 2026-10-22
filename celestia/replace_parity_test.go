@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 func replaceSet(t *testing.T, path string) []string {
@@ -50,7 +52,7 @@ func replaceSet(t *testing.T, path string) []string {
 
 func TestReplaceSetParityWithFibreModule(t *testing.T) {
 	cel := replaceSet(t, "go.mod")
-	fib := replaceSet(t, "../fibre/go.mod")
+	fib := replaceSet(t, testkit.RepoPath(t, "fibre/go.mod"))
 	require.NotEmpty(t, cel)
 	require.Equal(t, cel, fib, "fibre/go.mod and celestia/go.mod must carry identical non-local replaces")
 }

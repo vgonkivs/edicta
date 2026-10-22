@@ -6,12 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/principalsig"
 )
@@ -33,7 +33,7 @@ type vecReject struct {
 
 func load(t *testing.T, name string, c any) (map[string]vecKey, []vecReject) {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "spec", "vectors", "principal", name))
+	b, err := os.ReadFile(testkit.SpecPath(t, "vectors", "principal", name))
 	require.NoError(t, err)
 	var f struct {
 		Keys   map[string]vecKey `json:"keys"`

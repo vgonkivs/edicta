@@ -6,13 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/signer"
 	"github.com/vgonkivs/edicta/signer/eden"
 	"github.com/vgonkivs/edicta/signer/signertest"
@@ -58,7 +58,7 @@ var sentinels = map[string]error{
 // vectors: the field, the https resource, R bound and signed by the
 // facilitator, and the message is always the action's paymentId.
 func TestPaymentSignatureRequestVectors(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "spec", "vectors", "profiles", "eden-escrow", "x402.json"))
+	b, err := os.ReadFile(testkit.SpecPath(t, "vectors", "profiles", "eden-escrow", "x402.json"))
 	require.NoError(t, err)
 	var v paymentVectors
 	require.NoError(t, json.Unmarshal(b, &v))

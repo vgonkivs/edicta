@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 // buildInfoOf builds the checkbuild program for the target and returns the
@@ -17,7 +19,7 @@ func buildInfoOf(t *testing.T, goos, goarch, cgo string) *debug.BuildInfo {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "checkbuild")
 	build := exec.Command("go", "build", "-mod=readonly", "-o", bin, "./fibrecommit/testdata/checkbuild")
-	build.Dir = ".."
+	build.Dir = testkit.ModuleRoot(t)
 	build.Env = append(os.Environ(),
 		"GOFLAGS=", "GOPROXY=off", "GOWORK=off",
 		"GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED="+cgo)

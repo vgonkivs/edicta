@@ -16,10 +16,11 @@ import (
 	"github.com/vgonkivs/edicta/celestia/test/cometfake"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/verifier"
 )
 
-const outcomesPath = "../../spec/vectors/verifier/execution_outcomes.json"
+const outcomesPath = "vectors/verifier/execution_outcomes.json"
 
 type outcomeDoc struct {
 	Revision string `json:"revision"`
@@ -82,7 +83,7 @@ type outcomeCase struct {
 
 func loadOutcomes(t testing.TB) outcomeDoc {
 	t.Helper()
-	raw, err := os.ReadFile(outcomesPath)
+	raw, err := os.ReadFile(testkit.SpecPath(t, outcomesPath))
 	require.NoError(t, err)
 	var d outcomeDoc
 	require.NoError(t, json.Unmarshal(raw, &d))

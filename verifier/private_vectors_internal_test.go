@@ -14,6 +14,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/sdk/blob"
 )
@@ -72,7 +73,7 @@ func auditorRecipientKey(t testing.TB, skHex string) blob.RecipientKey {
 // TestPrivateVerifyVectors runs the verifier cases of
 // spec/vectors/policy/private.json: with and without an auditor key.
 func TestPrivateVerifyVectors(t *testing.T) {
-	raw, err := os.ReadFile("../spec/vectors/policy/private.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/policy/private.json"))
 	require.NoError(t, err)
 	var d privDoc
 	require.NoError(t, json.Unmarshal(raw, &d))

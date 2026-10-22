@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -19,9 +18,10 @@ import (
 	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/edenexec"
 	"github.com/vgonkivs/edicta/edenexec/edenrpc"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
-const vectorDir = "../spec/vectors/profiles/eden-escrow"
+const vectorDir = "vectors/profiles/eden-escrow"
 
 // recordedBlock is one full Eden mainnet block with all its receipts, read
 // once from the public RPC (source and date in the file).
@@ -131,7 +131,7 @@ func TestRecordedBlockProof(t *testing.T) {
 	assert.Equal(t, h.ReceiptRoot, edenexec.DeriveSha(rcpts))
 
 	var f14 f14File
-	readJSON(t, filepath.Join(vectorDir, "live/f14.json"), &f14)
+	readJSON(t, testkit.SpecPath(t, vectorDir, "live/f14.json"), &f14)
 	for i, raw := range f14.Block.TxsRawHex {
 		assert.Equal(t, unhex(t, raw), txs[i], "the rebuilt bytes equal the Celestia copy")
 	}
@@ -191,9 +191,9 @@ func TestSettlementVectors(t *testing.T) {
 			TransactionsRoot string   `json:"transactions_root"`
 		} `json:"block"`
 	}
-	readJSON(t, filepath.Join(vectorDir, "settlement.json"), &f)
+	readJSON(t, testkit.SpecPath(t, vectorDir, "settlement.json"), &f)
 	var f14 f14File
-	readJSON(t, filepath.Join(vectorDir, "live/f14.json"), &f14)
+	readJSON(t, testkit.SpecPath(t, vectorDir, "live/f14.json"), &f14)
 
 	require.Len(t, f.Rebuild, 3)
 	for _, c := range f.Rebuild {
@@ -249,7 +249,7 @@ func TestEscrowCreationRebuilds(t *testing.T) {
 			Result json.RawMessage `json:"result"`
 		} `json:"rpc_reads"`
 	}
-	readJSON(t, filepath.Join(vectorDir, "live/escrow-code.json"), &f)
+	readJSON(t, testkit.SpecPath(t, vectorDir, "live/escrow-code.json"), &f)
 	tx, err := edenrpc.DecodeTransaction(f.CreationTx.RPCTx)
 	require.NoError(t, err)
 	assert.Nil(t, tx.To)
@@ -281,7 +281,7 @@ func TestEscrowCreationRebuilds(t *testing.T) {
 func f14Source(t testing.TB) (*edenexec.FakeSource, [32]byte) {
 	t.Helper()
 	var f f14File
-	readJSON(t, filepath.Join(vectorDir, "live/f14.json"), &f)
+	readJSON(t, testkit.SpecPath(t, vectorDir, "live/f14.json"), &f)
 	tx, err := edenrpc.DecodeTransaction(f.Deposit.RPCTx)
 	require.NoError(t, err)
 	rc, err := edenrpc.DecodeReceipt(f.Deposit.RPCReceipt)
@@ -307,7 +307,7 @@ func f14Action(t testing.TB) []byte {
 			CBORHex string `json:"cbor_hex"`
 		} `json:"cases"`
 	}
-	readJSON(t, filepath.Join(vectorDir, "action.json"), &f)
+	readJSON(t, testkit.SpecPath(t, vectorDir, "action.json"), &f)
 	for _, c := range f.Cases {
 		if c.ID == "tx_f14_714" {
 			return unhex(t, c.CBORHex)
@@ -337,7 +337,7 @@ func TestF14AtL0IsWrongTx(t *testing.T) {
 // form T receipt: its five logs fail the one-log rule.
 func TestF14RecordedLogsAreNotFormT(t *testing.T) {
 	var f f14File
-	readJSON(t, filepath.Join(vectorDir, "live/f14.json"), &f)
+	readJSON(t, testkit.SpecPath(t, vectorDir, "live/f14.json"), &f)
 	rc, err := edenrpc.DecodeReceipt(f.Deposit.RPCReceipt)
 	require.NoError(t, err)
 	a, err := edenescrow.DecodeTxAction(f14Action(t))

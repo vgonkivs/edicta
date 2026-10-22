@@ -14,6 +14,7 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/principalsig"
 	"github.com/vgonkivs/edicta/sdk/blob"
@@ -87,7 +88,7 @@ func TestSaltMismatchThroughNew(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, o, "the key given to New opens the payload")
 
-	raw, err := os.ReadFile("../spec/vectors/v1/verify.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/v1/verify.json"))
 	require.NoError(t, err)
 	var d actionVectors
 	require.NoError(t, json.Unmarshal(raw, &d))

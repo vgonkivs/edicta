@@ -13,18 +13,18 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 const (
-	dir = "../../spec/vectors/"
 	now = uint64(1791000060)
 )
 
 func readJSON(t testing.TB, name string, v any) {
 	t.Helper()
-	path := dir + "v1/" + name
+	path := testkit.SpecPath(t, "vectors/v1", name)
 	if name == "keys.json" {
-		path = dir + name
+		path = testkit.SpecPath(t, "vectors", name)
 	}
 	b, err := os.ReadFile(path)
 	require.NoError(t, err)

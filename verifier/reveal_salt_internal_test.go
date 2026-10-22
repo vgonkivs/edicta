@@ -12,13 +12,14 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 // revealRun is the run of the reveal_public_execution_pass vector up to the
 // reveal, with the given payload salt as if the payload had been opened.
 func revealRun(t *testing.T, payloadSalt []byte) *run {
 	t.Helper()
-	raw, err := os.ReadFile("../spec/vectors/v1/verify.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/v1/verify.json"))
 	require.NoError(t, err)
 	var d struct {
 		Records map[string]struct {

@@ -14,7 +14,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"testing"
 
@@ -26,6 +25,7 @@ import (
 	"github.com/vgonkivs/edicta/gate/gatetest"
 	"github.com/vgonkivs/edicta/gate/registry"
 	"github.com/vgonkivs/edicta/gate/registry/memreg"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 const (
@@ -43,9 +43,8 @@ const (
 
 // VectorPath returns the absolute path of a file in spec/vectors/v1. The
 // shared keys and the DA blob commitments live outside that directory.
-func VectorPath(name string) string {
-	_, file, _, _ := runtime.Caller(0)
-	root := filepath.Join(filepath.Dir(file), "..", "..", "spec", "vectors")
+func VectorPath(tb testing.TB, name string) string {
+	root := testkit.SpecPath(tb, "vectors")
 	switch name {
 	case "keys.json":
 		return filepath.Join(root, name)
@@ -58,7 +57,7 @@ func VectorPath(name string) string {
 // ReadVector parses a vector file into v.
 func ReadVector(t testing.TB, name string, v any) {
 	t.Helper()
-	b, err := os.ReadFile(VectorPath(name))
+	b, err := os.ReadFile(VectorPath(t, name))
 	require.NoError(t, err, "read vector")
 	err = json.Unmarshal(b, v)
 	require.NoErrorf(t, err, "parse %s", name)

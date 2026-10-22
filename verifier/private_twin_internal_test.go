@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 // TestPrivateTwinsOfVerifyVectors replays every public case of
@@ -21,7 +23,7 @@ func TestPrivateTwinsOfVerifyVectors(t *testing.T) {
 	for _, c := range loadVec(t).Cases {
 		pub[c.ID] = c
 	}
-	raw, err := os.ReadFile("../test/privatetwin/twins.json")
+	raw, err := os.ReadFile(testkit.RepoPath(t, "test/privatetwin/twins.json"))
 	require.NoError(t, err)
 	var d privDoc
 	require.NoError(t, json.Unmarshal(raw, &d))

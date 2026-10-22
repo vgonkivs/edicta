@@ -20,14 +20,15 @@ import (
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
 	"github.com/vgonkivs/edicta/gate/gatetest"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/test/gatefix"
 	"github.com/vgonkivs/edicta/test/sdkfix"
 )
 
 const (
-	liveCertVector   = "../../../spec/vectors/da/fibre_cert.json"
-	liveAnchorVector = "../../../spec/vectors/da/fibre_anchor.json"
+	liveCertVector   = "vectors/da/fibre_cert.json"
+	liveAnchorVector = "vectors/da/fibre_anchor.json"
 	fibreChainID     = "mocha-5"
 )
 
@@ -57,7 +58,7 @@ func loadLiveFibre(t *testing.T) liveFibre {
 		require.NoError(t, err)
 		return n
 	}
-	raw, err := os.ReadFile(liveCertVector)
+	raw, err := os.ReadFile(testkit.SpecPath(t, liveCertVector))
 	require.NoError(t, err)
 	var cv struct {
 		Live struct {
@@ -95,7 +96,7 @@ func loadLiveFibre(t *testing.T) liveFibre {
 	}
 	require.NotEmpty(t, l.promHdr)
 
-	raw, err = os.ReadFile(liveAnchorVector)
+	raw, err = os.ReadFile(testkit.SpecPath(t, liveAnchorVector))
 	require.NoError(t, err)
 	var av struct {
 		Live struct {

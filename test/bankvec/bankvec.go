@@ -6,22 +6,22 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
-func dir() string {
-	_, file, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(file), "..", "..", "spec", "vectors", "profiles", "bank-send")
+func dir(tb testing.TB) string {
+	return testkit.SpecPath(tb, "vectors/profiles/bank-send")
 }
 
 // Load decodes one vector file into v.
 func Load(tb testing.TB, name string, v any) {
 	tb.Helper()
-	raw, err := os.ReadFile(filepath.Join(dir(), name))
+	raw, err := os.ReadFile(filepath.Join(dir(tb), name))
 	require.NoError(tb, err)
 	require.NoError(tb, json.Unmarshal(raw, v))
 }

@@ -8,11 +8,12 @@ import (
 	"testing"
 
 	"github.com/vgonkivs/edicta/edenexec"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 // seeds are the recorded answers, so the fuzzer starts from real shapes.
 func seeds(f *testing.F) {
-	b, err := os.ReadFile(recordedBlock)
+	b, err := os.ReadFile(testkit.RepoPath(f, recordedBlock))
 	if err != nil {
 		f.Fatal(err)
 	}

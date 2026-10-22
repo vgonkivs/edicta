@@ -11,12 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	libshare "github.com/celestiaorg/go-square/v4/share"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 // reassemble is checked on the shares alone: the reassembly vector has no NMT
 // proof, so it cannot go through the lookup.
 func TestReassembleVector(t *testing.T) {
-	raw, err := os.ReadFile("../../spec/vectors/da/fibre_anchor.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/da/fibre_anchor.json"))
 	require.NoError(t, err)
 	var v struct {
 		Reassembly []struct {

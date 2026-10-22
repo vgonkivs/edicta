@@ -11,13 +11,14 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/test/archivefix"
 )
 
 // v1Record decodes a record of spec/vectors/v1/archive.json by case id.
 func v1Record(t *testing.T, id string) archive.Record {
-	raw, err := os.ReadFile("../../spec/vectors/v1/archive.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/v1/archive.json"))
 	require.NoError(t, err)
 	var d struct {
 		Cases []struct {

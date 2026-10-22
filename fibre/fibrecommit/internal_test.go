@@ -12,6 +12,7 @@ import (
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 func TestWrongDAWrapsBoth(t *testing.T) {
@@ -65,7 +66,7 @@ func TestSelfTestCasesMatchVectors(t *testing.T) {
 	var f struct {
 		Cases []vec `json:"cases"`
 	}
-	readJSON(t, "../../spec/vectors/da/fibre_commit.json", &f)
+	readJSON(t, testkit.SpecPath(t, "vectors/da/fibre_commit.json"), &f)
 	byID := map[string]vec{}
 	for _, c := range f.Cases {
 		byID[c.ID] = c

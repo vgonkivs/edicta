@@ -8,6 +8,8 @@ import (
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	cmttypes "github.com/cometbft/cometbft/types"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 // BoundSignedHeader wraps h in a SignedHeader whose commit names the height
@@ -37,7 +39,7 @@ func (l *Live) PromiseHeaderProto(t testing.TB) cmtproto.Header {
 // the set that the next_validators_hash of the promise header commits to.
 func (l *Live) PromiseValsetNext(t testing.TB) []byte {
 	t.Helper()
-	raw, err := os.ReadFile(vectorPath("fibre_cert.json"))
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/da/fibre_cert.json"))
 	require.NoError(t, err)
 	var f struct {
 		Live struct {

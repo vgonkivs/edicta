@@ -8,13 +8,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 // The text and JSON output of anchor_unpaid carry the wording of
 // reasons_v1.1.json: a valid verdict needs a paid anchor, so nothing may
 // still promise that a later verifier confirms inclusion without the code.
 func TestUnpaidOutputWordingIsV11(t *testing.T) {
-	raw, err := os.ReadFile("../../spec/vectors/verifier/reasons_v1.1.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/verifier/reasons_v1.1.json"))
 	require.NoError(t, err)
 	var words struct {
 		Reasons []struct {

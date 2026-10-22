@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/test/archivefix"
 )
 
@@ -40,7 +41,7 @@ func FuzzDecode(f *testing.F) {
 // addV1Seeds seeds every format 1 record and reject, the anchor intent and
 // absence proof kinds included.
 func addV1Seeds(f *testing.F) {
-	raw, err := os.ReadFile("../spec/vectors/v1/archive.json")
+	raw, err := os.ReadFile(testkit.SpecPath(f, "vectors/v1/archive.json"))
 	require.NoError(f, err)
 	var v struct {
 		Cases []struct {

@@ -15,12 +15,13 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/test/archivefix"
 	"github.com/vgonkivs/edicta/test/gatefix"
 	"github.com/vgonkivs/edicta/verifier"
 )
 
-const reasonsV105Path = "../spec/vectors/verifier/reasons_v1.0.5.json"
+const reasonsV105Path = "vectors/verifier/reasons_v1.0.5.json"
 
 type vectorEnvelope struct {
 	ID                string `json:"id"`
@@ -34,7 +35,7 @@ func vectorEnvelopeOf(t testing.TB, ref string) ([]byte, commitment.Hash) {
 	t.Helper()
 	file, id, ok := strings.Cut(ref, "#")
 	require.True(t, ok, ref)
-	raw, err := os.ReadFile("../spec/vectors/" + file)
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors", file))
 	require.NoError(t, err)
 	var d struct {
 		Cases  []vectorEnvelope `json:"cases"`
@@ -127,7 +128,7 @@ func TestUnknownDAThroughARealStore(t *testing.T) {
 			rep := r.verify(t)
 			ch := unchecked(t, rep, verifier.CheckEnvelope, verifier.ReasonUnsupportedRevision)
 			require.ErrorIs(t, ch.Err, commitment.ErrInvalidEnum)
-						for _, ch := range rep.Checks {
+			for _, ch := range rep.Checks {
 				assert.NotEqual(t, verifier.StatusFail, ch.Status, ch.Name)
 				assert.NotEqual(t, verifier.ReasonSourceCorrupt, ch.Reason, ch.Name)
 			}
@@ -157,7 +158,7 @@ func TestGateDecodeStillRefusesUnknownDA(t *testing.T) {
 
 // The reason's wording is the spec's.
 func TestUnsupportedRevisionReasonText(t *testing.T) {
-	d := readReasons(t, reasonsV105Path)
+	d := readReasons(t, testkit.SpecPath(t, reasonsV105Path))
 	require.Len(t, d.Reasons, 1)
 	info, ok := verifier.ReasonUnsupportedRevision.Info()
 	require.True(t, ok)

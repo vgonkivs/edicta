@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 func refBlob() commitment.PayloadRef {
@@ -44,7 +45,7 @@ func TestPayloadRefRoundTrip(t *testing.T) {
 
 // The bytes are the ones the commitment encoder emits under key 10.
 func TestPayloadRefIsTheCommitmentKey10Bytes(t *testing.T) {
-	raw, err := os.ReadFile(vectorDir + "/valid.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, vectorDir, "valid.json"))
 	require.NoError(t, err)
 	var v struct {
 		Cases []struct {
@@ -69,7 +70,7 @@ func TestPayloadRefIsTheCommitmentKey10Bytes(t *testing.T) {
 }
 
 func TestPayloadRefAPIVector(t *testing.T) {
-	raw, err := os.ReadFile("../spec/vectors/api/publish_request.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/api/publish_request.json"))
 	require.NoError(t, err)
 	var v struct {
 		Response []struct {

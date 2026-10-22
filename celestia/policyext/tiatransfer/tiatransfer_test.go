@@ -11,6 +11,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/policyext/tiatransfer"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 )
 
@@ -35,7 +36,7 @@ type vectors struct {
 }
 
 func load(t testing.TB) vectors {
-	b, err := os.ReadFile("../../../spec/vectors/profiles/bank-send/tia_transfer_facts.json")
+	b, err := os.ReadFile(testkit.SpecPath(t, "vectors/profiles/bank-send/tia_transfer_facts.json"))
 	require.NoError(t, err)
 	var v vectors
 	require.NoError(t, json.Unmarshal(b, &v))

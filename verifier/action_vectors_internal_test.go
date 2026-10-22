@@ -11,6 +11,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 type actionVectors struct {
@@ -44,7 +45,7 @@ type actionVectors struct {
 // private form without a key, the corrupt record, and O8 before the salt
 // comparison.
 func TestActionVectors(t *testing.T) {
-	raw, err := os.ReadFile("../spec/vectors/v1/verify.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/v1/verify.json"))
 	require.NoError(t, err)
 	var d actionVectors
 	require.NoError(t, json.Unmarshal(raw, &d))

@@ -8,13 +8,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 // Every policy case of the reasons vectors points at a case of the policy
 // verify vectors; the two files must say the same about it, because the
 // reasons tests skip building those cases.
 func TestPolicyReasonCasesMatchTheVerifyVectors(t *testing.T) {
-	raw, err := os.ReadFile("../spec/vectors/policy/verify.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/policy/verify.json"))
 	require.NoError(t, err)
 	var vd struct {
 		Cases []struct {
@@ -40,7 +42,7 @@ func TestPolicyReasonCasesMatchTheVerifyVectors(t *testing.T) {
 		byID["policy/verify.json#"+c.ID] = i
 	}
 	// The private-mode cases have the same shape in private.json.
-	praw, err := os.ReadFile("../spec/vectors/policy/private.json")
+	praw, err := os.ReadFile(testkit.SpecPath(t, "vectors/policy/private.json"))
 	require.NoError(t, err)
 	n := len(vd.Cases)
 	vd.Cases = nil

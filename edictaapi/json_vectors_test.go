@@ -11,9 +11,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
-const vectorsRoot = "../spec/vectors"
+const vectorsRoot = "vectors"
 
 type supersededFile struct {
 	Entries []struct {
@@ -27,7 +29,7 @@ type supersededFile struct {
 // "file#case" mapped to the replacing case, from every SUPERSEDED*.json.
 func supersededCases(t testing.TB) map[string]string {
 	t.Helper()
-	files, err := filepath.Glob(filepath.Join(vectorsRoot, "SUPERSEDED*.json"))
+	files, err := filepath.Glob(testkit.SpecPath(t, vectorsRoot, "SUPERSEDED*.json"))
 	require.NoError(t, err)
 	require.NotEmpty(t, files)
 	out := map[string]string{}

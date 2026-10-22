@@ -21,11 +21,12 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/nodefake"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 const (
-	fbCertPath   = "../../spec/vectors/da/fibre_cert.json"
-	fbAnchorPath = "../../spec/vectors/da/fibre_anchor.json"
+	fbCertPath   = "vectors/da/fibre_cert.json"
+	fbAnchorPath = "vectors/da/fibre_anchor.json"
 	fbChain      = "mocha-5"
 	fbLiveCase   = "h1402819"
 )
@@ -63,7 +64,7 @@ type fbLive struct {
 
 func loadFbLive(t testing.TB) fbLive {
 	t.Helper()
-	raw, err := os.ReadFile(fbCertPath)
+	raw, err := os.ReadFile(testkit.SpecPath(t, fbCertPath))
 	require.NoError(t, err)
 	var cv struct {
 		Live struct {
@@ -102,7 +103,7 @@ func loadFbLive(t testing.TB) fbLive {
 	}
 	require.NotEmpty(t, l.promiseHdr)
 
-	raw, err = os.ReadFile(fbAnchorPath)
+	raw, err = os.ReadFile(testkit.SpecPath(t, fbAnchorPath))
 	require.NoError(t, err)
 	var av struct {
 		Live struct {

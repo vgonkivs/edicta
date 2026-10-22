@@ -19,9 +19,10 @@ import (
 	"github.com/celestiaorg/nmt"
 
 	"github.com/vgonkivs/edicta/celestia/nodefake"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
-const anchorVectorPath = "../../spec/vectors/da/fibre_anchor.json"
+const anchorVectorPath = "vectors/da/fibre_anchor.json"
 
 var headerTime = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 
@@ -107,7 +108,7 @@ type anchorVector struct {
 
 func loadAnchorVector(t testing.TB) anchorVector {
 	t.Helper()
-	raw, err := os.ReadFile(anchorVectorPath)
+	raw, err := os.ReadFile(testkit.SpecPath(t, anchorVectorPath))
 	require.NoError(t, err)
 	var v anchorVector
 	require.NoError(t, json.Unmarshal(raw, &v))

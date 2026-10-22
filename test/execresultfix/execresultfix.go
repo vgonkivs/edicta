@@ -6,14 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 type File struct {
@@ -86,15 +85,14 @@ type MigrationExpect struct {
 }
 
 // Path is the vector file.
-func Path() string {
-	_, file, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(file), "..", "..", "spec", "vectors", "archive", "execution_result_v1.1.json")
+func Path(tb testing.TB) string {
+	return testkit.SpecPath(tb, "vectors/archive/execution_result_v1.1.json")
 }
 
 // Load reads the vector file.
 func Load(t testing.TB) File {
 	t.Helper()
-	raw, err := os.ReadFile(Path())
+	raw, err := os.ReadFile(Path(t))
 	require.NoError(t, err)
 	var f File
 	require.NoError(t, json.Unmarshal(raw, &f))

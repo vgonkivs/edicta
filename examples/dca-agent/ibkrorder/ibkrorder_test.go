@@ -12,9 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/examples/dca-agent/ibkrorder"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
-const vectorPath = "../../../spec/vectors/profiles/dca-agent/ibkr_order.json"
+const vectorPath = "vectors/profiles/dca-agent/ibkr_order.json"
 
 type vecCase struct {
 	ID           string            `json:"id"`
@@ -36,7 +37,7 @@ type vecFile struct {
 
 func load(tb testing.TB) vecFile {
 	tb.Helper()
-	raw, err := os.ReadFile(vectorPath)
+	raw, err := os.ReadFile(testkit.SpecPath(tb, vectorPath))
 	require.NoError(tb, err)
 	var v vecFile
 	require.NoError(tb, json.Unmarshal(raw, &v))

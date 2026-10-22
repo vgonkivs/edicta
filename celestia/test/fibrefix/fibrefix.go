@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -27,26 +26,8 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/fibreproof"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
-
-// vectorPath finds a file under spec/vectors/da from any package directory.
-func vectorPath(name string) string {
-	dir, err := os.Getwd()
-	if err != nil {
-		return name
-	}
-	for {
-		p := filepath.Join(dir, "spec", "vectors", "da", name)
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return name
-		}
-		dir = parent
-	}
-}
 
 func Unhex(t testing.TB, s string) []byte {
 	t.Helper()
@@ -124,7 +105,7 @@ type certFile struct {
 // LoadLive reads the live case from both vector files.
 func LoadLive(t testing.TB) *Live {
 	t.Helper()
-	raw, err := os.ReadFile(vectorPath("fibre_cert.json"))
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/da/fibre_cert.json"))
 	require.NoError(t, err)
 	var f certFile
 	require.NoError(t, json.Unmarshal(raw, &f))
@@ -437,7 +418,7 @@ type AnchorVector struct {
 
 func LoadAnchorVector(t testing.TB) AnchorVector {
 	t.Helper()
-	raw, err := os.ReadFile(vectorPath("fibre_anchor.json"))
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/da/fibre_anchor.json"))
 	require.NoError(t, err)
 	var v AnchorVector
 	require.NoError(t, json.Unmarshal(raw, &v))

@@ -6,13 +6,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 // The cases of v1/verify_v1.1.json: in-window evidence that verifies passes
 // once header trust reaches its height H, while every other row still waits
 // for the deadline (or deadline + 1 with a results proof).
 func TestPendingVerifyVectorsV11(t *testing.T) {
-	window, cases := loadFastFile(t, verifyV11VectorsPath, "v1.1")
+	window, cases := loadFastFile(t, testkit.SpecPath(t, verifyV11VectorsPath), "v1.1")
 	require.Equal(t, uint64(fastWindow), window)
 	require.Len(t, cases, 8)
 	assert.Equal(t, len(cases), runFastCases(t, cases), "every case of the file ran")
@@ -21,7 +23,7 @@ func TestPendingVerifyVectorsV11(t *testing.T) {
 // The v1.1 outcome only ever moves anchor_pending to pass relative to the
 // frozen text, and nothing else.
 func TestPresenceVectorsMoveOnlyPendingToPass(t *testing.T) {
-	_, cases := loadFastFile(t, verifyV11VectorsPath, "v1.1")
+	_, cases := loadFastFile(t, testkit.SpecPath(t, verifyV11VectorsPath), "v1.1")
 	for _, c := range cases {
 		require.NotNil(t, c.V10, c.ID)
 		require.NotNil(t, c.Expect.Anchor, c.ID)
@@ -39,7 +41,7 @@ func TestPresenceVectorsMoveOnlyPendingToPass(t *testing.T) {
 // anchor is anchor_pending, and for in-window evidence that verifies the
 // bound is H itself, where the anchor passes.
 func TestPresenceVectorsHeaderTrustBound(t *testing.T) {
-	_, cases := loadFastFile(t, verifyV11VectorsPath, "v1.1")
+	_, cases := loadFastFile(t, testkit.SpecPath(t, verifyV11VectorsPath), "v1.1")
 	var variants []fastCase
 	for _, c := range cases {
 		need, err := strconv.ParseUint(c.Expect.HeaderTrustNeeds, 10, 64)

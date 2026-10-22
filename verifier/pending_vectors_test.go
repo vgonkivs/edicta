@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/verifier"
 )
 
@@ -69,14 +70,14 @@ type fastAnchor struct {
 }
 
 const (
-	verifyVectorsPath     = "../spec/vectors/v1/verify.json"
-	verifyV103VectorsPath = "../spec/vectors/v1/verify_v1.0.3.json"
-	verifyV11VectorsPath  = "../spec/vectors/v1/verify_v1.1.json"
+	verifyVectorsPath     = "vectors/v1/verify.json"
+	verifyV103VectorsPath = "vectors/v1/verify_v1.0.3.json"
+	verifyV11VectorsPath  = "vectors/v1/verify_v1.1.json"
 )
 
 func loadFastCases(t *testing.T) (uint64, []fastCase) {
 	t.Helper()
-	return loadFastFile(t, verifyVectorsPath, "v1.0")
+	return loadFastFile(t, testkit.SpecPath(t, verifyVectorsPath), "v1.0")
 }
 
 func loadFastFile(t *testing.T, path, revision string) (uint64, []fastCase) {
@@ -154,7 +155,7 @@ func TestPendingVerifyVectors(t *testing.T) {
 // The cases of spec revision v1.0.3: an in-window candidate whose result
 // code is proven non-zero is anchor_unpaid, never anchor_absent.
 func TestPendingVerifyVectorsV103(t *testing.T) {
-	window, cases := loadFastFile(t, verifyV103VectorsPath, "v1.0.3")
+	window, cases := loadFastFile(t, testkit.SpecPath(t, verifyV103VectorsPath), "v1.0.3")
 	require.Equal(t, uint64(fastWindow), window)
 	assert.Equal(t, len(cases), runFastCases(t, cases), "every case of the file ran")
 }

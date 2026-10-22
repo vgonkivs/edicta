@@ -12,6 +12,7 @@ import (
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
@@ -128,7 +129,7 @@ func TestNewRefusesFibreCommitterMismatches(t *testing.T) {
 // TestConfigValidateBasicWrapsMandateErrors: the cause of a refused mandate
 // stays reachable through errors.Is, next to ErrInvalidConfig.
 func TestConfigValidateBasicWrapsMandateErrors(t *testing.T) {
-	raw, err := os.ReadFile("../spec/vectors/policy/mandate.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/policy/mandate.json"))
 	require.NoError(t, err)
 	var f struct {
 		Reject []struct {

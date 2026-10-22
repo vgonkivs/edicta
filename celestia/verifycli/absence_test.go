@@ -25,6 +25,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/headertrust"
 	"github.com/vgonkivs/edicta/celestia/railverify"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
 
@@ -38,7 +39,7 @@ type absenceCase struct {
 
 func loadAbsenceCase(t *testing.T, id string) absenceCase {
 	t.Helper()
-	raw, err := os.ReadFile("../../spec/vectors/da/absence.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/da/absence.json"))
 	require.NoError(t, err)
 	var f struct {
 		Synthetic []struct {

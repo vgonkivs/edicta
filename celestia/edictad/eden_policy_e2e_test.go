@@ -15,6 +15,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 )
 
@@ -22,7 +23,7 @@ import (
 // action vectors.
 func edenVector(t *testing.T, id string) []byte {
 	t.Helper()
-	raw, err := os.ReadFile("../../spec/vectors/profiles/eden-escrow/action.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/profiles/eden-escrow/action.json"))
 	require.NoError(t, err)
 	type vec struct {
 		ID      string `json:"id"`

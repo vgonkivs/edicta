@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,11 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 func liveBytes(t *testing.T, name string) []byte {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "spec", "vectors", "profiles", "eden-escrow", "live", name))
+	b, err := os.ReadFile(testkit.SpecPath(t, "vectors", "profiles", "eden-escrow", "live", name))
 	require.NoError(t, err)
 	return b
 }

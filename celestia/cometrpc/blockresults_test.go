@@ -15,11 +15,12 @@ import (
 	"github.com/vgonkivs/edicta/celestia/cometrpc"
 	"github.com/vgonkivs/edicta/celestia/railverify"
 	"github.com/vgonkivs/edicta/celestia/test/cometfake"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 var _ railverify.ResultsSource = (*cometrpc.Source)(nil)
 
-const liveResults = "../../spec/vectors/verifier/live/block_results_1442606.json"
+const liveResults = "vectors/verifier/live/block_results_1442606.json"
 
 func resultsBody(t testing.TB, height string, txs string) []byte {
 	t.Helper()
@@ -27,7 +28,7 @@ func resultsBody(t testing.TB, height string, txs string) []byte {
 }
 
 func TestBlockResultsLive(t *testing.T) {
-	raw, err := os.ReadFile(liveResults)
+	raw, err := os.ReadFile(testkit.SpecPath(t, liveResults))
 	require.NoError(t, err)
 	srv := serveFiles(t, map[string]answer{"/block_results": {body: raw}})
 	s, err := cometrpc.New(srv.URL, nil)
@@ -127,7 +128,7 @@ func TestBlockResultsHTTPFaults(t *testing.T) {
 }
 
 func FuzzBlockResultsJSON(f *testing.F) {
-	live, err := os.ReadFile(liveResults)
+	live, err := os.ReadFile(testkit.SpecPath(f, liveResults))
 	require.NoError(f, err)
 	f.Add(live, uint64(1442606))
 	f.Add(resultsBody(f, "7", `[{"code":11,"data":"AQI=","gas_wanted":"5","gas_used":"4"}]`), uint64(7))

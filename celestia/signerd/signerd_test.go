@@ -26,6 +26,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/signerd"
 	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -33,7 +34,7 @@ var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 // escrowCode is the recorded runtime code of the 714 escrow.
 func escrowCode(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile("../../spec/vectors/profiles/eden-escrow/live/escrow-code.json")
+	b, err := os.ReadFile(testkit.SpecPath(t, "vectors/profiles/eden-escrow/live/escrow-code.json"))
 	require.NoError(t, err)
 	var f struct {
 		Blockscout struct {

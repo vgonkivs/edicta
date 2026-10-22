@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -17,15 +16,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
-const vectorDir = "../spec/vectors/profiles/eden-escrow"
+const vectorDir = "vectors/profiles/eden-escrow"
 
 // profileRevision is the revision the profile document states today; every
 // vector file must carry exactly it.
 func profileRevision(t testing.TB) string {
 	t.Helper()
-	b, err := os.ReadFile("../spec/profiles/eden-escrow-v1.md")
+	b, err := os.ReadFile(testkit.SpecPath(t, "profiles/eden-escrow-v1.md"))
 	require.NoError(t, err)
 	m := regexp.MustCompile("Status: revision `(eden-escrow-v1-draft\\.[0-9]+)`").FindSubmatch(b)
 	require.NotNil(t, m, "profile document has no revision line")
@@ -34,7 +34,7 @@ func profileRevision(t testing.TB) string {
 
 func loadVector(t testing.TB, name string, v any) {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(vectorDir, name))
+	b, err := os.ReadFile(testkit.SpecPath(t, vectorDir, name))
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(b, v))
 	var hdr struct {

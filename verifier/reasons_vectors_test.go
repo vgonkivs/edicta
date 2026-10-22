@@ -15,14 +15,15 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/test/gatefix"
 	"github.com/vgonkivs/edicta/verifier"
 )
 
 const (
-	reasonsPath     = "../spec/vectors/verifier/reasons.json"
-	reasonsV103Path = "../spec/vectors/verifier/reasons_v1.0.3.json"
-	reasonsV11Path  = "../spec/vectors/verifier/reasons_v1.1.json"
+	reasonsPath     = "vectors/verifier/reasons.json"
+	reasonsV103Path = "vectors/verifier/reasons_v1.0.3.json"
+	reasonsV11Path  = "vectors/verifier/reasons_v1.1.json"
 )
 
 type reasonsDoc struct {
@@ -65,23 +66,23 @@ type reasonCase struct {
 // wording that later revisions give a reason in place of the frozen one.
 func loadReasons(t testing.TB) reasonsDoc {
 	t.Helper()
-	d := readReasons(t, reasonsPath)
+	d := readReasons(t, testkit.SpecPath(t, reasonsPath))
 	require.Equal(t, "v1.0", d.Revision)
-	add := readReasons(t, reasonsV103Path)
+	add := readReasons(t, testkit.SpecPath(t, reasonsV103Path))
 	require.Equal(t, "v1.0.3", add.Revision)
 	require.Equal(t, "verifier/reasons.json", add.Extends)
 	d.Reasons = append(d.Reasons, add.Reasons...)
 	d.Cases = append(d.Cases, add.Cases...)
 	d.Boundary = append(d.Boundary, add.Boundary...)
 
-	patch := readReasons(t, reasonsV105Path)
+	patch := readReasons(t, testkit.SpecPath(t, reasonsV105Path))
 	require.Equal(t, "v1.0.5", patch.Revision)
 	require.Equal(t, "verifier/reasons_v1.0.3.json", patch.Extends)
 	d.Reasons = append(d.Reasons, patch.Reasons...)
 	d.Cases = append(d.Cases, patch.Cases...)
 	d.Boundary = append(d.Boundary, patch.Boundary...)
 
-	words := readReasons(t, reasonsV11Path)
+	words := readReasons(t, testkit.SpecPath(t, reasonsV11Path))
 	require.Equal(t, "v1.1", words.Revision)
 	require.NotEmpty(t, words.Reasons)
 	for _, w := range words.Reasons {
@@ -419,7 +420,7 @@ func TestReasonBoundaryCases(t *testing.T) {
 
 func loadOutcomesCauses(t testing.TB) map[string]string {
 	t.Helper()
-	raw, err := os.ReadFile("../spec/vectors/verifier/execution_outcomes.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/verifier/execution_outcomes.json"))
 	require.NoError(t, err)
 	var d struct {
 		Cases []struct {

@@ -23,10 +23,11 @@ import (
 	"github.com/vgonkivs/edicta/celestia/railverify"
 	"github.com/vgonkivs/edicta/celestia/test/cometfake"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/verifier"
 )
 
-const liveDir = "../../spec/vectors/verifier/live/"
+const liveDir = "vectors/verifier/live/"
 
 type liveResultVec struct {
 	RootHex  string      `json:"root_hex"`
@@ -76,7 +77,7 @@ func toTxs(t testing.TB, rs []vecResult) []railverify.TxResult {
 
 func loadResultVec(t testing.TB) liveResultVec {
 	t.Helper()
-	raw, err := os.ReadFile(outcomesPath)
+	raw, err := os.ReadFile(testkit.SpecPath(t, outcomesPath))
 	require.NoError(t, err)
 	var doc struct {
 		ResultProof liveResultVec `json:"result_proof"`
@@ -89,9 +90,9 @@ func loadResultVec(t testing.TB) liveResultVec {
 // liveServer serves the two raw captures of the vectors as a node would.
 func liveServer(t testing.TB) *httptest.Server {
 	t.Helper()
-	results, err := os.ReadFile(liveDir + "block_results_1442606.json")
+	results, err := os.ReadFile(testkit.SpecPath(t, liveDir, "block_results_1442606.json"))
 	require.NoError(t, err)
-	header, err := os.ReadFile(liveDir + "header_1442607.json")
+	header, err := os.ReadFile(testkit.SpecPath(t, liveDir, "header_1442607.json"))
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -218,7 +219,7 @@ func (l liveHeaders) Header(_ context.Context, h uint64) ([]byte, error) {
 		return nil, l.err
 	}
 	require.Equal(l.t, uint64(1442607), h, "the result proof reads the header after the block")
-	raw, err := os.ReadFile(liveDir + "header_1442607.json")
+	raw, err := os.ReadFile(testkit.SpecPath(l.t, liveDir, "header_1442607.json"))
 	require.NoError(l.t, err)
 	var env struct {
 		Result struct {

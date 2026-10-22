@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
@@ -156,7 +157,7 @@ func TestPrivateAdoptionRefusesASwitchToPrivate(t *testing.T) {
 // TestPrivateMandateWithAForeignKidIsRefused feeds the gate a signed
 // mandate whose auditor kid is not derived from the auditor's key.
 func TestPrivateMandateWithAForeignKidIsRefused(t *testing.T) {
-	raw, err := os.ReadFile("../spec/vectors/policy/mandate.json")
+	raw, err := os.ReadFile(testkit.SpecPath(t, "vectors/policy/mandate.json"))
 	require.NoError(t, err)
 	var f struct {
 		Reject []struct {

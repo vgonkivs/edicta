@@ -17,9 +17,10 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
-const certVectorPath = "../../spec/vectors/da/fibre_cert.json"
+const certVectorPath = "vectors/da/fibre_cert.json"
 
 // live is the Mocha PFF at 1,402,819 with the evidence the certificate rule
 // needs, read from the shared vector file.
@@ -48,7 +49,7 @@ func unhex(t testing.TB, s string) []byte {
 
 func loadLive(t testing.TB) live {
 	t.Helper()
-	raw, err := os.ReadFile(certVectorPath)
+	raw, err := os.ReadFile(testkit.SpecPath(t, certVectorPath))
 	require.NoError(t, err)
 	var v struct {
 		Live struct {

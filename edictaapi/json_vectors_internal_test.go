@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
 type jsonVectors struct {
@@ -47,7 +48,7 @@ type jsonVectors struct {
 
 func loadJSONVectors(t *testing.T) jsonVectors {
 	t.Helper()
-	b, err := os.ReadFile("../spec/vectors/api/json_v1.2.json")
+	b, err := os.ReadFile(testkit.SpecPath(t, "vectors/api/json_v1.2.json"))
 	require.NoError(t, err)
 	var v jsonVectors
 	require.NoError(t, json.Unmarshal(b, &v))

@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/policy"
 )
 
@@ -86,7 +87,7 @@ func FuzzDecodeSignedVerdict(f *testing.F) {
 // FuzzDecodePrivatePart: the strict decoder accepts canonical bytes only, a
 // part it accepts hashes and merges deterministically, and nothing panics.
 func FuzzDecodePrivatePart(f *testing.F) {
-	raw, err := os.ReadFile("../spec/vectors/policy/private.json")
+	raw, err := os.ReadFile(testkit.SpecPath(f, "vectors/policy/private.json"))
 	require.NoError(f, err)
 	for _, m := range regexp.MustCompile(`"private_part_cbor_hex": "([0-9a-f]*)"`).FindAllSubmatch(raw, -1) {
 		b, err := hex.DecodeString(string(m[1]))
