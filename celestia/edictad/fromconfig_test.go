@@ -13,7 +13,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/edictad"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
+	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
 )
 
 // starterTOML has the shape `edicta init` writes for the Mocha preset.

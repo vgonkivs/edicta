@@ -19,7 +19,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/railtx"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/pricefeed"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
+	"github.com/vgonkivs/edicta/plugins/banksend/transfer"
 	"github.com/vgonkivs/edicta/sdk"
 )
 

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
+	"github.com/vgonkivs/edicta/plugins/banksend/transfer"
 )
 
 // transfer.ErrRejected is the Rail's final answer to a

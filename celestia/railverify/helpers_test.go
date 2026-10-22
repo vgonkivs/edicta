@@ -23,7 +23,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/test/cometfake"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/verifier"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
+	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
 	"github.com/vgonkivs/edicta/test/bankvec"
 )
 

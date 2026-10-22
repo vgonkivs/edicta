@@ -9,7 +9,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/nodefake"
 	"github.com/vgonkivs/edicta/celestia/railtx"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
+	"github.com/vgonkivs/edicta/plugins/banksend/transfer"
 )
 
 // The Rail reports it as indeterminate, so the executor keeps sending the same

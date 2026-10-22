@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vgonkivs/edicta/celestia/policyext/tiatransfer"
 	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
@@ -20,7 +19,8 @@ import (
 	"github.com/vgonkivs/edicta/engine/gate/registry"
 	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/engine/policy/privatebox"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
+	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
+	"github.com/vgonkivs/edicta/plugins/banksend/tiatransfer"
 )
 
 // PolicyConfig is the optional [policy] table. Without a mandate the gate

@@ -19,9 +19,9 @@ import (
 	"github.com/vgonkivs/edicta/engine/dacommit/blobv1"
 	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/engine/verifier"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/bankmsg"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
+	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
+	"github.com/vgonkivs/edicta/plugins/banksend/bankmsg"
+	"github.com/vgonkivs/edicta/plugins/banksend/transfer"
 )
 
 const rogueWait = 120 * time.Second

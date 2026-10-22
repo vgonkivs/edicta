@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
+	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
 )
 
 // ActionType is the action_type this executor accepts.

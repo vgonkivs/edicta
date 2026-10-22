@@ -14,7 +14,7 @@ import (
 
 	"github.com/fxamacker/cbor/v2"
 
-	"github.com/vgonkivs/edicta/examples/tia-transfer/bankmsg"
+	"github.com/vgonkivs/edicta/plugins/banksend/bankmsg"
 )
 
 // MediaType is the payload context media type of these bodies.

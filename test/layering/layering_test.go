@@ -61,11 +61,7 @@ var classes = map[string]class{
 	"engine/verifier":                 engine,
 	"api/edictaapi":                   api,
 
-	// The bank-send rail still lives under the tia-transfer example.
-	"examples/tia-transfer/bankaction": plugin + "banksend",
-	"examples/tia-transfer/bankmsg":    plugin + "banksend",
-	"examples/tia-transfer/transfer":   plugin + "banksend",
-	"celestia/policyext/tiatransfer":   plugin + "banksend",
+	"plugins/banksend": plugin + "banksend",
 
 	"edenescrow": plugin + "edenescrow",
 	"edenexec":   plugin + "edenescrow",
@@ -127,25 +123,12 @@ var narrow = []struct {
 // exceptions are today's known violations, as importer -> imported paths
 // relative to the root module. Each entry must still occur.
 var exceptions = map[string][]string{
-	// The bank-send rail lives under examples/tia-transfer, so every
-	// production user of the rail imports an example path.
-	"celestia/edictad":               {"examples/tia-transfer/bankaction"},
-	"celestia/initcmd":               {"examples/tia-transfer/bankaction"},
-	"celestia/verifycli":             {"examples/tia-transfer/bankaction"},
-	"celestia/railverify":            {"examples/tia-transfer/bankaction"},
-	"celestia/railtx":                {"examples/tia-transfer/transfer"},
-	"celestia/policyext/tiatransfer": {"examples/tia-transfer/bankaction", "examples/tia-transfer/bankmsg"},
-
 	// The demo and edicta-live drive the tia-transfer example agent and
-	// its price feed, and use the bank-send rail the same way.
-	"celestia/demo": {
-		"examples/tia-transfer/bankaction", "examples/tia-transfer/bankmsg",
-		"examples/tia-transfer/pricefeed", "examples/tia-transfer/transfer",
-	},
+	// its price feed.
+	"celestia/demo": {"examples/tia-transfer/pricefeed"},
 	"celestia/cmd/edicta-live": {
-		"examples/tia-transfer/agent", "examples/tia-transfer/bankaction",
-		"examples/tia-transfer/bankmsg", "examples/tia-transfer/pricefeed",
-		"examples/tia-transfer/pricetrigger", "examples/tia-transfer/transfer",
+		"examples/tia-transfer/agent", "examples/tia-transfer/pricefeed",
+		"examples/tia-transfer/pricetrigger",
 	},
 
 	// The archive and the verifier take the DA source interfaces, the

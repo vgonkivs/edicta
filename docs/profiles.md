@@ -10,7 +10,7 @@ This guide is for integrators who write or run an executor. Spec:
 
 | Profile | Action type | Executor | Public execution |
 |---|---|---|---|
-| bank-send (`spec/profiles/bank-send-v0.md`) | `application/vnd.edicta.cosmos.bank-send.v0+cbor` | `examples/tia-transfer/transfer` | yes |
+| bank-send (`spec/profiles/bank-send-v0.md`) | `application/vnd.edicta.cosmos.bank-send.v0+cbor` | `plugins/banksend/transfer` | yes |
 | dca-agent (`spec/profiles/dca-agent-v0.md`) | `application/vnd.edicta.ibkr.order.v0+cbor` | `examples/dca-agent/ibkr` | no |
 
 The `v0` in a profile name or media type is the profile's own version; both

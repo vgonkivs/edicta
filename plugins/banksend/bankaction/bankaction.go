@@ -15,7 +15,7 @@ import (
 	"github.com/fxamacker/cbor/v2"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/bankmsg"
+	"github.com/vgonkivs/edicta/plugins/banksend/bankmsg"
 )
 
 // ActionType is the action_type under which these bodies are committed.

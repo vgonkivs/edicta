@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
+	"github.com/vgonkivs/edicta/plugins/banksend/transfer"
 )
 
 // Sentinel errors.

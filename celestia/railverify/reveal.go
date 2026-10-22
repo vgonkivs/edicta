@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/vgonkivs/edicta/engine/verifier"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
+	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
 )
 
 // ErrNoBankSend is a transaction whose first message is not exactly the

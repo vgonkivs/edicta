@@ -1,4 +1,4 @@
-package bankaction_test
+package tiatransfer_test
 
 import (
 	"crypto/ed25519"
@@ -9,14 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/pricetrigger"
+	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
 	"github.com/vgonkivs/edicta/test/bankvec"
 )
 
 const gate1PubKeyHex = "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025"
 
-func TestEndToEndOffline(t *testing.T) {
+func TestEndToEndBankVectors(t *testing.T) {
 	e := bankvec.E2ECase(t)
 	action := bankvec.Hex(t, e.ActionHex)
 	ex := e.Executor
@@ -43,10 +43,10 @@ func TestEndToEndOffline(t *testing.T) {
 	assert.Equal(t, e.Commitment.HashHex, hex.EncodeToString(sa.Authorization.CommitmentHash))
 
 	a, m, err := bankaction.CheckExecution(action,
-		domain(ex.Domain), bankaction.Limits{})
+		bankDomain(ex.Domain), bankaction.Limits{})
 	require.NoError(t, err)
 
-	tau, err := bankaction.BlockIntervalMs(headers(t, ex.Headers))
+	tau, err := bankaction.BlockIntervalMs(bankHeaders(t, ex.Headers))
 	require.NoError(t, err)
 	assert.Equal(t, bankvec.U64(t, ex.TauMs), tau)
 
@@ -84,7 +84,7 @@ func failedChecks(ids []string) []pricetrigger.Check {
 	return out
 }
 
-func TestEndToEndExecutorStopsAtExpiry(t *testing.T) {
+func TestEndToEndBankVectorsExecutorStopsAtExpiry(t *testing.T) {
 	e := bankvec.E2ECase(t)
 	ex := e.Executor
 	in := bankaction.TimeoutInput{
@@ -98,4 +98,17 @@ func TestEndToEndExecutorStopsAtExpiry(t *testing.T) {
 	}
 	_, err := bankaction.TimeoutHeight(in)
 	require.ErrorIs(t, err, bankaction.ErrExpired)
+}
+
+func bankDomain(d bankvec.Domain) bankaction.Domain {
+	return bankaction.Domain{ChainID: d.ChainID, Denom: d.Denom, HRP: d.HRP, Sender: d.Sender}
+}
+
+func bankHeaders(t *testing.T, in []bankvec.Header) []bankaction.Header {
+	t.Helper()
+	out := make([]bankaction.Header, len(in))
+	for i, h := range in {
+		out[i] = bankaction.Header{Height: bankvec.U64(t, h.Height), TimeNs: bankvec.U64(t, h.TimeNs)}
+	}
+	return out
 }

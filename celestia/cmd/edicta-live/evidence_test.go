@@ -14,8 +14,8 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/bankmsg"
+	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
+	"github.com/vgonkivs/edicta/plugins/banksend/bankmsg"
 )
 
 func sprint(format string, a ...any) string { return fmt.Sprintf(format, a...) }

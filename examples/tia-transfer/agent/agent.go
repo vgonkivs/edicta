@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
-	"github.com/vgonkivs/edicta/examples/tia-transfer/bankmsg"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/pricefeed"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/pricetrigger"
+	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
+	"github.com/vgonkivs/edicta/plugins/banksend/bankmsg"
 )
 
 // DefaultThresholdBP is the band half-width used when Config.ThresholdBP is
