@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/dacommit/sharev1"
+	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
@@ -191,6 +193,8 @@ func TestConcurrentUse(t *testing.T) {
 
 // The package must stay light: no gate, no celestia-core or CometBFT.
 func TestDependencies(t *testing.T) {
+	gatePath := reflect.TypeOf(gate.Result{}).PkgPath()
+	require.Equal(t, "gate", testkit.ImportPackage(t, gatePath).Name)
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
 		return !strings.HasSuffix(fi.Name(), "_test.go")
@@ -201,7 +205,8 @@ func TestDependencies(t *testing.T) {
 		for name, file := range p.Files {
 			for _, imp := range file.Imports {
 				path := strings.Trim(imp.Path.Value, `"`)
-				assert.NotContainsf(t, path, "/edicta/gate", "%s imports %s", name, path)
+				inGate := path == gatePath || strings.HasPrefix(path, gatePath+"/")
+				assert.Falsef(t, inGate, "%s imports %s", name, path)
 				assert.NotContainsf(t, path, "celestia-core", "%s imports %s", name, path)
 				assert.NotContainsf(t, path, "cometbft", "%s imports %s", name, path)
 			}

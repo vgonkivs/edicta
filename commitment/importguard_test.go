@@ -1,22 +1,25 @@
 package commitment_test
 
 import (
-	"go/build"
-	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-)
 
-const module = "github.com/vgonkivs/edicta"
+	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
+	"github.com/vgonkivs/edicta/principalsig"
+)
 
 // The commitment format must stay independent of principal signature
 // schemes and their secp256k1 dependencies: walk every module-local import
 // of commitment and refuse principalsig, go-ethereum and cosmos-sdk.
 func TestCommitmentDoesNotImportPrincipalsig(t *testing.T) {
-	root, err := filepath.Abs("..")
-	require.NoError(t, err)
+	module := testkit.ModulePath(t)
+	principalsigPath := reflect.TypeOf(principalsig.Scheme(0)).PkgPath()
+	require.Equal(t, "principalsig", testkit.ImportPackage(t, principalsigPath).Name)
+	commitmentPath := reflect.TypeOf(commitment.Authorization{}).PkgPath()
 	seen := map[string]bool{}
 	var walk func(path string)
 	walk = func(path string) {
@@ -24,11 +27,8 @@ func TestCommitmentDoesNotImportPrincipalsig(t *testing.T) {
 			return
 		}
 		seen[path] = true
-		dir := filepath.Join(root, strings.TrimPrefix(strings.TrimPrefix(path, module), "/"))
-		pkg, err := build.ImportDir(dir, 0)
-		require.NoError(t, err, path)
-		for _, imp := range pkg.Imports {
-			require.NotEqual(t, module+"/principalsig", imp, "imported by %s", path)
+		for _, imp := range testkit.ImportPackage(t, path).Imports {
+			require.NotEqual(t, principalsigPath, imp, "imported by %s", path)
 			require.NotContains(t, imp, "go-ethereum", "imported by %s", path)
 			require.NotContains(t, imp, "cosmos-sdk", "imported by %s", path)
 			require.NotContains(t, imp, "decred", "imported by %s", path)
@@ -37,6 +37,6 @@ func TestCommitmentDoesNotImportPrincipalsig(t *testing.T) {
 			}
 		}
 	}
-	walk(module + "/commitment")
-	require.True(t, seen[module+"/commitment"])
+	walk(commitmentPath)
+	require.True(t, seen[commitmentPath])
 }

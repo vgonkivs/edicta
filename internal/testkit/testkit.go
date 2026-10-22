@@ -7,6 +7,7 @@ package testkit
 
 import (
 	"bufio"
+	"go/build"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -121,4 +122,19 @@ func modulePath(gomod string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// ImportPackage resolves an import path of the module that holds the working
+// directory to its directory and parses it, failing the test unless a Go
+// package lives there. Import guards call it on the paths they forbid, so
+// that a package moved to a new path fails the guard instead of leaving it
+// to check a path nothing can import.
+func ImportPackage(tb testing.TB, importPath string) *build.Package {
+	tb.Helper()
+	root, mod := nearestModule(tb)
+	rel, ok := strings.CutPrefix(importPath, mod)
+	require.Truef(tb, ok && (rel == "" || rel[0] == '/'), "%s is not a package of module %s", importPath, mod)
+	pkg, err := build.ImportDir(join(root, []string{strings.TrimPrefix(rel, "/")}), 0)
+	require.NoErrorf(tb, err, "%s does not resolve to a package", importPath)
+	return pkg
 }

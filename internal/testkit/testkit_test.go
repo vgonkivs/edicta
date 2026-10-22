@@ -47,3 +47,44 @@ func TestModuleRootIsTheRootModuleHere(t *testing.T) {
 	assert.Equal(t, testkit.RepoRoot(t), testkit.ModuleRoot(t))
 	assert.Equal(t, "github.com/vgonkivs/edicta", testkit.ModulePath(t))
 }
+
+// recordTB records a failure instead of ending the test, so that the cases
+// below can assert that a helper refuses its input.
+type recordTB struct {
+	testing.TB
+	failed bool
+}
+
+func (r *recordTB) Helper()               {}
+func (r *recordTB) Errorf(string, ...any) { r.failed = true }
+func (r *recordTB) FailNow()              { r.failed = true; panic(r) }
+
+func failsOn(t *testing.T, fn func(tb testing.TB)) (failed bool) {
+	r := &recordTB{TB: t}
+	defer func() {
+		if v := recover(); v != nil && v != r {
+			panic(v)
+		}
+		failed = r.failed
+	}()
+	fn(r)
+	return r.failed
+}
+
+func TestImportPackageRefusesPathsWithoutAPackage(t *testing.T) {
+	mod := testkit.ModulePath(t)
+	assert.Equal(t, "testkit", testkit.ImportPackage(t, mod+"/internal/testkit").Name)
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{"moved package", mod + "/engine/gate"},
+		{"directory without Go files", mod + "/spec"},
+		{"other module", "github.com/stretchr/testify/require"},
+		{"shared prefix", mod + "x/gate"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.True(t, failsOn(t, func(tb testing.TB) { testkit.ImportPackage(tb, tc.path) }))
+		})
+	}
+}
