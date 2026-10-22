@@ -6,7 +6,7 @@ escrow deposit that a facilitator later settles. Eden is only the payment
 rail. Commitments use any core `da` (the first Eden release uses `da = 2`,
 fast or strict mode), and nothing in this profile touches the anchoring.
 
-Status: revision `eden-escrow-v1-draft.8` (2026-10-21), **draft, not
+Status: revision `eden-escrow-v1-draft.9` (2026-10-22), **draft, not
 frozen**. Built on the core spec `spec/decision-commitment-v1.md`, revision
 `v1.2`, and on `spec/policy-v1.md` (`policy-v1.0`). Section numbers prefixed
 "core" refer to the core spec; "policy" refers to the policy spec. The `v1`
@@ -64,6 +64,7 @@ funded test before the freeze.
 | `eden-escrow-v1-draft.6` | Audit fixes of draft.5, all on the signer, the producer step and Await; no change to the decoder, the table, the extractors or the facts. (1) S11: only field `paymentId` is offered (`nonce` refuses to start: no server signature covers it, so the agent would choose the signed bytes); S11 needs `CheckServerSignature` and runs S4 a to f with S4f on the `R` bound by the action; with S11 enabled, S4 is a MUST before the deposit is signed. (2) S11 needs the decision's S2 material (envelope, Authorization, action bytes, salt) re-verified, and the request's API credential pinned to the envelope's agent key (one credential per agent is a MUST while S11 is enabled), so one agent cannot fetch another agent's Payment-Signature. (3) S11 refuses a committed `resource` that does not start with `https://`. (4) Await Q5: a source that served the transaction (set aside after the lookup) blocks `not_executed` and the nonce release. (5) Operator labels: explicit or defaulted, shown in the report; S11 needs explicit labels; L1's trust statement names the labels. (6) BJ0 and S4c: body and `R` sizes, nesting depth 16, strings checked after unescaping under the core JT4 text rules; timeouts for the build and relay calls; B3 direct fallback after `RelayGrace`. (7) S3: the pending-nonce check is a MUST. (8) S8 wording; freeze condition on the server's `buyer` and single-use checks (section 0). Outcome changes: S11 refusals (field `nonce`, `http://` resource, missing or unsigned `R`, a request without the agent's own credential; S11 enabled with a shared credential or an unlabelled source refuses to start); a deposit without `R` when S11 is enabled; a nonce other than the pending one; Await `unknown` instead of `not_executed` when a set-aside source served the transaction. | All files regenerated (`revision` draft.6). `x402.json`: `build.resource` is now the `https://` form of `R`'s URL (action 334 bytes, new `cbor_hex` and `action_hash_hex`), new `build.requirements_resource_url`, `build_limits`; `build_escaped_name` now really escapes; `build_accept` 11 (new: `build_escaped_value`, `build_size_max`, `build_nesting_16`, `build_nonce_2_53_minus_1` with its own `cbor_hex`), `build_reject` 54 (new: `build_too_large`, `build_nesting_17`, `build_lone_surrogate`, `build_raw_control`, `build_invalid_utf8` as `json_hex`, `build_nan`, `build_data_missing`, `build_type_null`, `build_value_escaped_sign`, `build_data_empty`); `requirements` `max_depth`, `accept` 9 (new: `r_size_max`, `r_server_sig_high_s`, `r_escaped_value`, `r_nesting_16`), `reject` 40 (new: `r_server_sig_r_n`, `r_server_sig_s_n`, `r_server_sig_wrong_parity`, `r_server_sig_wrong_parity_27`, `r_nesting_17`, `r_lone_surrogate`, `r_raw_control`, `r_invalid_utf8`, `r_nan`, `r_scheme_escaped_other`); `payment_signature`: the `nonce` case removed, `refused_fields`, 9 `requests` (S11 steps a, c, d). `multi_source.json`: `operator_label` on every source; 26 cases (new: `aside_found_two_not_found_until`, `aside_hash_mismatch_two_not_found_until`, `aside_unavailable_after_lookup_until`, `aside_chain_config_two_not_found_until`, `default_labels_agree`); no earlier case changed its outcome. |
 | `eden-escrow-v1-draft.7` | Audit fixes of draft.6, on the producer step, S4 and Await; no change to the decoder, the table, the extractors, the facts or any action bytes. (1) Await "seen" is sticky: a source seen in any poll of one Await blocks `not_executed` and the nonce release for the rest of that Await, and an implementation that splits the wait into several calls carries it from one call to the next (5.5). (2) "The JSON number `2`" (BJ5 `type`, S4c `x402Version`) is the exact token `2`; `2.0`, `2e0` and `20e-1` are refused. (3) The header decoding of 2.5 is a named rule, RH (alphabet, padding, unused bits ignored, size). (4) Threat note on pruned or lagging sources answering not found (5.5), with a SHOULD to compare the payer's `latest` nonce before a nonce release; RF22 names the transaction-lookup index. Outcome changes: Await `unknown` instead of `not_executed` when a source was seen only in an earlier poll; `type` or `x402Version` written as `2.0`, `2e0` or `20e-1` is refused (the Go code and the Python checker already refused them). | All files regenerated (`revision` draft.7). `x402.json`: `build_reject` 58 (new: `build_type_2_0`, `build_type_2e0`, `build_type_20e_minus_1` (BJ5), `build_type_02` (BJ1)); `requirements` `reject` 43 (new: `r_version_2_0`, `r_version_2e0`, `r_version_02`, all S4c); new `requirements.header` (`max_chars` 21848; 6 accepted and 11 refused header values, rule RH or S4a). `multi_source.json`: new `sequence_note` and `sequences` (5 Awaits of two polls: `seen_unconfirmed_then_none_found_until`, `seen_pass_then_none_found_until`, `seen_aside_then_none_found_until` end `unknown`; `seen_then_executed` ends `executed`; `not_seen_then_none_found_until` ends `not_executed`); the 26 cases are unchanged. |
 | `eden-escrow-v1-draft.8` | Wording only, to match the landed signer; no change to any encoding, action bytes, table, extractor or fact. (1) 5.3 row "two decisions with identical action bytes": the signer refuses the second (S3n in-flight nonce); S3's refusal of a nonce signed for another `commitment_hash` that is not final is a MUST. (2) RH counts the 21848 limit in bytes. (3) B3: the relay gets the bytes once at signing (direct send if it faults); after `RelayGrace` every resend goes directly, even once a source showed the deposit. | None in the decoder or the checks; the signer refuses a second decision on the same nonce. | All files regenerated (`revision` draft.8), no other change. |
+| `eden-escrow-v1-draft.9` | Signer and report wording; no change to any encoding, action bytes, table, extractor or fact. (1) The signer's durable "seen" mark survives restarts: MUST (was SHOULD), because a lost mark lets a restarted signer read `not_executed` for a deposit that showed up, release the nonce and sign again, a Payment-Signature included (5.5). (2) S11 states its rule outright: a Payment-Signature is signed only for the `paymentId` inside the action bytes of an authorized decision (MUST). (3) The per-agent API credential is transport authentication only; what may be signed is bound by the Authorization. The wording that an agent signature over the S11 request would need a core change is withdrawn: such a signature adds nothing the envelope and the Authorization do not already bind, and the core's one-key-one-role rule does not forbid several tag-separated message types (S11b, section 12). (4) `not_executed` stays inconclusive about the world until the Eden RPC retention window is known; this draft has no finality bound (5.5). (5) Production builds refuse extractor ids ending in `-dev` (section 3). (6) The verifier prints `rail_settlement` beside the core report until a later minor revision of the core adds a profile-results section (7.1). | None in the decoder or the checks. | All files regenerated (`revision` draft.9), no other change. |
 
 ## 1. Threat model
 
@@ -411,7 +412,10 @@ generator and the checker, section `escrow_code` of `action.json`):
   CREATE2 deployment, and the address does not move.
 - The dev row belongs only to the dev extractor ID (section 4), which only
   `edictadev` builds register; a production build refuses chain 31337 as
-  unknown (vector `tx_dev_row_in_production`). The testnet
+  unknown (vector `tx_dev_row_in_production`). A production build also
+  refuses to register, load or accept any extractor id that ends in `-dev`,
+  whatever the configuration says, so a gate or verifier configured with the
+  dev id cannot start in production. The testnet
   row is in every build so that answering Q-E2 needs no new extractor ID;
   using it still needs a funded payer and the deployment (C11).
 - Domains: each row pairs one chain with one address. The CREATE2 address
@@ -528,7 +532,7 @@ I7) applies; the rules below are the profile's checks (core 16.2 item 4).
 | S8 What is signed | Exactly `keccak256(tx)` of the bytes S3 decoded, with the payer key. The output is built by the splice rule of 5.2; nothing is re-encoded from a struct. The only other transaction the payer key ever signs is the nonce release of 5.3. The only other message it signs is the S11 `personal_sign` digest; that digest is `keccak256(0x19 \|\| ...)`. `0x19` lies in the EIP-2718 type range (`0x00` to `0x7f`) but is not `0x02`, the only type this key signs, and is not an RLP list prefix (`0xc0` and above, a legacy transaction), so neither preimage can stand for the other. | |
 | S9 Mode | Accepts `mode = 2` (fast) by default: the principal consented through the mandate's `fast_mode_max_delay` (invariant 9). `RefuseFast = true` refuses it. Logs `mode` and `anchor_deadline`. | `ErrFastModeRefused` |
 | S10 Record | Optional record request (core 14.3), signed with the executor key, only when `Await` (5.5) reached state `executed` or `reverted` at `AwaitLevel`. `rail_ref` has the form of section 6. Never recorded in any other state. | |
-| S11 Payment-Signature | On a request naming a `commitment_hash` and a field, in this order (the first failure decides): **S11a** Enabled: S11 is enabled (S1) and the named field is `paymentId`; otherwise `ErrPinMismatch`. **S11b** Requester: the request carries the decision's S2 material (signed envelope, SignedAuthorization, action bytes, salt), and it passes S2, except that the clock checks (core 15.3 X4, S5's `now + skew_s < expires`) use the time stored with the S6 reservation instead of `now`; the envelope's `commitment_hash` is the one named; a stored S6 reservation exists for it (the signer itself signed its deposit); `keccak256(tx)` of these action bytes equals the reserved digest; and the request's API credential is pinned (S1) to the envelope's `agent_pubkey`. Otherwise `ErrNotAuthorized`. **S11c** Resource: the action's `resource` (key 3) starts with the 8 bytes `https://`; otherwise `ErrRequirements`. **S11d** Requirements: S4 a to f pass, S4f enforced, on `R`: the bytes stored with the reservation when the deposit was signed, or the bytes presented in this request (S4b binds either to the committed `requirements_hash`, so only one `R` can pass); no `R` or a failure is `ErrRequirements`. **S11e** Executed: Await (5.5) reached state `executed` at level `L1` or higher (at least two operators, EE8 included) for the reservation's `rail_ref`, and every Await source has an explicit operator label; otherwise `ErrNotExecuted`. **S11f** Message: `m = w0` of the reserved `tx`; S4d made it the selected entry's `paymentId`, and S4f the 32 bytes the pinned facilitator signed. **S11g** Signature: the payer key's `personal_sign` of `m` (5.6), deterministic, stored per `commitment_hash`; a repeat request runs S11a to S11d again and returns the stored signature. Nothing else is ever signed through this path: not the request's bytes, not a hash or nonce the agent names. | `ErrPinMismatch`, `ErrNotAuthorized`, `ErrRequirements`, `ErrNotExecuted` |
+| S11 Payment-Signature | The rule (MUST): the signer signs a Payment-Signature only for the `paymentId` (`w0`) inside the action bytes of an authorized decision, and never for any other bytes. The steps below enforce it. On a request naming a `commitment_hash` and a field, in this order (the first failure decides): **S11a** Enabled: S11 is enabled (S1) and the named field is `paymentId`; otherwise `ErrPinMismatch`. **S11b** Requester: the request carries the decision's S2 material (signed envelope, SignedAuthorization, action bytes, salt), and it passes S2, except that the clock checks (core 15.3 X4, S5's `now + skew_s < expires`) use the time stored with the S6 reservation instead of `now`; the envelope's `commitment_hash` is the one named; a stored S6 reservation exists for it (the signer itself signed its deposit); `keccak256(tx)` of these action bytes equals the reserved digest; and the request's API credential is pinned (S1) to the envelope's `agent_pubkey`. Otherwise `ErrNotAuthorized`. **S11c** Resource: the action's `resource` (key 3) starts with the 8 bytes `https://`; otherwise `ErrRequirements`. **S11d** Requirements: S4 a to f pass, S4f enforced, on `R`: the bytes stored with the reservation when the deposit was signed, or the bytes presented in this request (S4b binds either to the committed `requirements_hash`, so only one `R` can pass); no `R` or a failure is `ErrRequirements`. **S11e** Executed: Await (5.5) reached state `executed` at level `L1` or higher (at least two operators, EE8 included) for the reservation's `rail_ref`, and every Await source has an explicit operator label; otherwise `ErrNotExecuted`. **S11f** Message: `m = w0` of the reserved `tx`; S4d made it the selected entry's `paymentId`, and S4f the 32 bytes the pinned facilitator signed. **S11g** Signature: the payer key's `personal_sign` of `m` (5.6), deterministic, stored per `commitment_hash`; a repeat request runs S11a to S11d again and returns the stored signature. Nothing else is ever signed through this path: not the request's bytes, not a hash or nonce the agent names. | `ErrPinMismatch`, `ErrNotAuthorized`, `ErrRequirements`, `ErrNotExecuted` |
 
 Refusal names are the `signer` package's sentinels (to be defined with the
 signer skeleton); the vectors do not cover them, since they depend on
@@ -600,13 +604,17 @@ Threat notes:
   - The per-agent credential does: while S11 is enabled each credential is
     pinned to one agent key (S1), and S11b requires the envelope's agent
     key. Agent B, holding only its own credential, is refused for agent
-    A's `commitment_hash`.
+    A's `commitment_hash`. The credential is transport authentication
+    only, a statement of who is asking. It never decides what is signed:
+    that is bound by the gate's Authorization (the `paymentId` inside the
+    authorized action bytes, S11b and S11f).
   Residual: the credential is a bearer secret of the agent's process; a
   thief of it acts as that agent, here and at every other signer
-  endpoint. An agent signature over the S11 request would remove the
-  bearer secret, but the core states that an agent key signs only
-  commitments and publish requests (core 17.1), so it needs a core change
-  (section 12).
+  endpoint, but can obtain only the signature over the `paymentId` of that
+  agent's own authorized, executed decision. An extra agent signature over
+  the S11 request is not offered: the commitment signature and the
+  Authorization already bind the request, so it would add no protection
+  beyond the credential's transport role.
 - S11 after execution only: a Payment-Signature before the deposit
   landed would let the server (or anyone holding the header) claim
   payment for a deposit that may never execute. L1 with explicit operator
@@ -776,8 +784,11 @@ the implementation splits it. Each poll combines the answers of that poll
 this poll or any earlier poll of this Await". An implementation that splits
 one Await into several calls (between resends, or a retry after `unknown`
 within one process) MUST carry the seen fact from each call into the next,
-for example by returning it with the call's result; it SHOULD store it
-with the S6 reservation so that a restart keeps it. Seen never stops a
+for example by returning it with the call's result. The signer MUST also
+store the mark durably with the S6 reservation, so that it survives a
+restart: without it a restarted signer could read `not_executed` for a
+deposit that did show up, release the nonce and sign again, a
+Payment-Signature included. Seen never stops a
 later poll from reaching `executed` or `reverted`; it only keeps
 `not_executed` and the nonce release out of reach.
 
@@ -833,6 +844,13 @@ with the state and the sticky seen fact after each poll, and what the
 last poll allows). The verifier's report (7.5) is one check, not an
 Await: it has no earlier polls and no `not_executed`.
 
+`not_executed` is an operator signal (the nonce release of 5.3), not proof
+that the deposit never landed. About the world it stays inconclusive
+(`unknown`) until the retention window of the Eden RPCs for transaction
+lookups is known (RF22); this draft sets no finality bound, and no time
+after `until` turns `not_executed` into a finding. Reports and tooling
+MUST NOT present it as one.
+
 Threat note (Q5): a source that served the transaction and then failed a
 later check (a lying log, a bad hash, a missing receipt) is evidence that
 the transaction may exist. Counting it as nothing would let two silent
@@ -865,8 +883,8 @@ the head or follows a rolled-back branch. Mitigations:
   record, never a false one); S11 is unaffected (it needs `executed`).
   The operator's `latest` nonce check before a release (5.3) detects the
   case. Refusing `not_executed` once `now - until` exceeds a retention
-  bound would close it, but needs a retention figure for each source
-  (section 12).
+  bound would close it, but needs a retention figure for each source;
+  until it is known `not_executed` stays inconclusive (section 12).
 
 ### 5.6 `personal_sign` (S4f and S11)
 
@@ -942,8 +960,10 @@ the field.
 
 `UNVERIFIED` for the human (core wording): core 20.10 lists the report
 fields without a hook for profile-defined fields. This profile treats
-`rail_settlement` as an additional field that no core rule reads. A core
-clarification may want to say so.
+`rail_settlement` as an additional field that no core rule reads. Until a
+later minor revision of the core adds a profile-results section to the
+verifier report, `rail_settlement` is printed beside the core report, not
+inside it.
 
 ### 7.2 Inputs
 
@@ -1166,7 +1186,7 @@ transaction is `wrong_tx` against a form T action with the same deposit
 
 Location `spec/vectors/profiles/eden-escrow/`. Every file has `format`
 `edicta-vectors/v0`, `profile` `eden-escrow`, `revision`
-`eden-escrow-v1-draft.8`; uints are decimal strings, bytes lower-case hex.
+`eden-escrow-v1-draft.9`; uints are decimal strings, bytes lower-case hex.
 Written by `spec/vectors/tools/edenescrow-gen` (go-ethereum v1.17.8, its own
 module, no network: recorded data comes only from `live/`);
 checked independently, without go-ethereum, by
@@ -1210,7 +1230,6 @@ re-derived by the independent Python checker
 | Raw `PAYMENT-REQUIRED` header capture (wire bytes) for a non-mock `R` vector | the requester (said to be sent; not received) | freeze |
 | Which field the server's `Payment-Signature` check uses; `v` forms (RF27) | the requester's funded test | S11 for that server: if it verifies only `nonce`, a revision in which a server signature covers `nonce` |
 | The server checks recovered signer = escrow `buyer` and accepts each Payment-Signature once (RF27; section 0) | the requester, in writing or by the funded test | freeze |
-| Agent signature over the S11 request instead of the per-agent credential (S11b): removes the bearer secret, but the core says an agent key signs only commitments and publish requests (core 17.1) | the human (core wording) | none; S11b uses credentials until then |
 | `eth_getTransactionCount` `pending` and the sequencer's private pool (RF32) | the Eden team or a funded test | S3n's strength |
 | `/deposit/send` required or not; its success body (RF28) | the requester | default broadcaster mode |
 | Eden fee model beyond gas (RF29) | ev-reth source or the Eden team | EF2's bound |

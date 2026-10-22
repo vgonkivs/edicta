@@ -1,7 +1,7 @@
 {
   "format": "edicta-vectors/v0",
   "profile": "eden-escrow",
-  "revision": "eden-escrow-v1-draft.8",
+  "revision": "eden-escrow-v1-draft.9",
   "generator": "spec/vectors/tools/edenescrow-gen",
   "source_results": [
     "pass",
