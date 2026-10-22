@@ -12,7 +12,7 @@ import (
 
 	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate/gatetest"
+	"github.com/vgonkivs/edicta/engine/gate/gatetest"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/test/gatefix"
 	"github.com/vgonkivs/edicta/test/sdkfix"

@@ -18,7 +18,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/heightcheck"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/nodefake"
-	"github.com/vgonkivs/edicta/gate/registry/boltreg"
+	"github.com/vgonkivs/edicta/engine/gate/registry/boltreg"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
 

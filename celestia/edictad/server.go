@@ -31,11 +31,11 @@ import (
 	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/dacommit/blobv1"
+	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/gate/registry/boltreg"
 	"github.com/vgonkivs/edicta/engine/policy"
-	"github.com/vgonkivs/edicta/gate"
-	"github.com/vgonkivs/edicta/gate/dacommit/blobv1"
-	"github.com/vgonkivs/edicta/gate/registry/boltreg"
-	"github.com/vgonkivs/edicta/retention"
+	"github.com/vgonkivs/edicta/engine/retention"
 	"github.com/vgonkivs/edicta/sdk"
 )
 

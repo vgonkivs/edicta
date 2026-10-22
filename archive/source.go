@@ -7,7 +7,7 @@ import (
 	"io"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/engine/gate"
 )
 
 type gateSource struct{ r Store }

@@ -9,7 +9,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate/registry"
+	"github.com/vgonkivs/edicta/engine/gate/registry"
 )
 
 // anchorMissingGrace is how many blocks past the deadline the watch waits

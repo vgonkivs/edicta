@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/vgonkivs/edicta/edictaapi"
+	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/engine/policy"
-	"github.com/vgonkivs/edicta/gate"
 )
 
 func (e *env) useLogger(l *slog.Logger) {

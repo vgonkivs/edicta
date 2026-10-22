@@ -9,8 +9,8 @@ import (
 	"fmt"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/engine/policy"
-	"github.com/vgonkivs/edicta/gate"
 )
 
 // Sentinels of this package. The names are the codes of section 18.3 with the

@@ -17,7 +17,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/engine/gate"
 )
 
 func TestBlobIntentBindingEdges(t *testing.T) {

@@ -17,8 +17,8 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate"
-	"github.com/vgonkivs/edicta/gate/registry"
+	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/gate/registry"
 )
 
 var discard = slog.New(slog.NewTextHandler(io.Discard, nil))

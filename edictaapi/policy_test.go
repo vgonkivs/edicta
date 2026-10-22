@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/edictaapi"
+	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/engine/policy"
-	"github.com/vgonkivs/edicta/gate"
 )
 
 func TestPolicyErrorMapping(t *testing.T) {

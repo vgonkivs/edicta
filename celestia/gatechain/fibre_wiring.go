@@ -7,8 +7,8 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/heightcheck"
 	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/gate"
-	"github.com/vgonkivs/edicta/retention"
+	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/retention"
 )
 
 type fibreHeaders struct{ r node.FibreChainReader }

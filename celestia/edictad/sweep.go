@@ -9,7 +9,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate/registry"
+	"github.com/vgonkivs/edicta/engine/gate/registry"
 )
 
 const sweepPage = 256

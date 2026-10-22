@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/engine/gate"
 )
 
 // NewIntentSource serves the gate's stage K-fast from r. The reader checks

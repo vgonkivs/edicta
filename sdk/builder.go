@@ -13,8 +13,8 @@ import (
 
 	"golang.org/x/crypto/chacha20poly1305"
 
-	"github.com/vgonkivs/edicta/dacommit/sharev1"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/dacommit/sharev1"
 	"github.com/vgonkivs/edicta/sdk/blob"
 	"github.com/vgonkivs/edicta/sdk/payload"
 )

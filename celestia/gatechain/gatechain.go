@@ -8,10 +8,10 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/heightcheck"
 	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/dacommit/sharev1"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate"
-	"github.com/vgonkivs/edicta/retention"
+	"github.com/vgonkivs/edicta/engine/dacommit/sharev1"
+	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/retention"
 )
 
 // NoArchive is an archive that holds nothing.

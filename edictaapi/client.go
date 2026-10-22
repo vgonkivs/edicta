@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/sdk"
 )
 

@@ -13,7 +13,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/nodefake"
 	"github.com/vgonkivs/edicta/celestia/recorder"
-	"github.com/vgonkivs/edicta/dacommit/sharev1"
+	"github.com/vgonkivs/edicta/engine/dacommit/sharev1"
 )
 
 var (

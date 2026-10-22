@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/dacommit/sharev1"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/dacommit/sharev1"
 	"github.com/vgonkivs/edicta/sdk"
 )
 

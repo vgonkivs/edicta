@@ -24,8 +24,8 @@ import (
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate"
-	"github.com/vgonkivs/edicta/gate/dacommit/blobv1"
+	"github.com/vgonkivs/edicta/engine/dacommit/blobv1"
+	"github.com/vgonkivs/edicta/engine/gate"
 )
 
 // square is a real one-share square holding the blob, so the header, the

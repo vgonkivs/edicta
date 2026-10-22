@@ -23,12 +23,12 @@ import (
 	"github.com/vgonkivs/edicta/celestia/railtx"
 	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/agent"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankmsg"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/pricefeed"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/pricetrigger"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
-	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/blob"
 )

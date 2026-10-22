@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/examples/dca-agent/dca"
 	"github.com/vgonkivs/edicta/examples/dca-agent/ibkr"
 	"github.com/vgonkivs/edicta/examples/dca-agent/ibkrorder"
-	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/payload"

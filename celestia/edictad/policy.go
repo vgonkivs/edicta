@@ -16,11 +16,11 @@ import (
 	"github.com/vgonkivs/edicta/celestia/policyext/tiatransfer"
 	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/gate/registry"
 	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/engine/policy/privatebox"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
-	"github.com/vgonkivs/edicta/gate"
-	"github.com/vgonkivs/edicta/gate/registry"
 )
 
 // PolicyConfig is the optional [policy] table. Without a mandate the gate

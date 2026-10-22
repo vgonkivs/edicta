@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/vgonkivs/edicta/edictaapi"
-	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/engine/gate"
 )
 
 // GateClient is the record call of the gate's HTTP client.

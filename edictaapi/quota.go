@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/engine/gate"
 )
 
 // Quota is the per-agent publish quota (rule PR7). Allow returns an error

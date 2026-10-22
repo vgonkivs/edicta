@@ -12,9 +12,9 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate"
-	"github.com/vgonkivs/edicta/gate/registry"
-	"github.com/vgonkivs/edicta/gate/registry/memreg"
+	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/gate/registry"
+	"github.com/vgonkivs/edicta/engine/gate/registry/memreg"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
 

@@ -78,7 +78,7 @@ func TestImportPackageRefusesPathsWithoutAPackage(t *testing.T) {
 		name string
 		path string
 	}{
-		{"moved package", mod + "/engine/gate"},
+		{"moved package", mod + "/gate"},
 		{"directory without Go files", mod + "/spec"},
 		{"other module", "github.com/stretchr/testify/require"},
 		{"shared prefix", mod + "x/gate"},

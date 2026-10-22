@@ -1,0 +1,425 @@
+package gate
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"slices"
+
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/gate/registry"
+	"github.com/vgonkivs/edicta/engine/policy"
+	"github.com/vgonkivs/edicta/engine/policy/privatebox"
+)
+
+// ErrPolicyStateConflict means the counter cell changed under the gate's
+// compare-and-swap, or holds another mandate. Nothing was written; the
+// request may be retried.
+var ErrPolicyStateConflict = errors.New("gate: policy state changed concurrently")
+
+// policyGate holds what the gate needs when a mandate is configured.
+type policyGate struct {
+	mandate     *policy.Mandate
+	mandateHash commitment.Hash
+	key         registry.StateKey
+	state       registry.StateRegistry
+	extractors  *policy.Extractors
+	mu          chan struct{} // capacity 1; held from the cell read through ConsumeState
+	// hasher blinds state hashes with the mandate's state_salt in private
+	// mode; sealer encrypts to its auditors.
+	hasher policy.StateHasher
+	sealer policy.Sealer
+}
+
+// private reports whether the mandate in force has auditors: verdicts are
+// then signed in private form and the action is archived encrypted.
+func (p *policyGate) private() bool { return p != nil && len(p.mandate.Auditors) > 0 }
+
+// setupPolicy validates the mandate against the dependencies and adopts it.
+func (g *Gate) setupPolicy(ctx context.Context) error {
+	bad := func(format string, a ...any) error {
+		return fmt.Errorf("%w: %s", ErrInvalidConfig, fmt.Sprintf(format, a...))
+	}
+	sm, h, err := policy.VerifyMandate(g.cfg.Mandate)
+	if err != nil {
+		return fmt.Errorf("%w: mandate: %w", ErrInvalidConfig, err)
+	}
+	m := &sm.Mandate
+	if m.GateID != g.cfg.Scope.GateID {
+		return bad("mandate is bound to gate %q, this gate is %q", m.GateID, g.cfg.Scope.GateID)
+	}
+	if g.d.Extractors == nil {
+		return bad("a mandate needs an extractor registry")
+	}
+	sr, ok := g.d.Registry.(registry.StateRegistry)
+	if !ok {
+		return bad("a mandate needs a registry with policy state")
+	}
+	for _, t := range g.cfg.Scope.ActionTypes {
+		if !g.d.Extractors.Has(t) {
+			return bad("action type %q has no extractor", t)
+		}
+	}
+	// A bound below the slack would refuse every pending reference past h0,
+	// after the anchor work: fast mode would be silently unusable.
+	if g.cfg.FastMode && m.FastModeMaxDelay != 0 && m.FastModeMaxDelay < g.cfg.MinFastSlackBlocks+1 {
+		return causeErr(CauseFastDelayBelowSlack, "fast_mode_max_delay %d below min_fast_slack_blocks %d + 1",
+			m.FastModeMaxDelay, g.cfg.MinFastSlackBlocks)
+	}
+	// Roles compare as (sig_type, bytes): only an Ed25519 principal can be one
+	// of the gate's Ed25519 keys, and padding a shorter principal to 32 bytes
+	// could match a key it is not.
+	if m.SigType == 0 {
+		var pk [32]byte
+		copy(pk[:], m.Principal)
+		if _, ok := g.gateKeys[pk]; ok {
+			return fmt.Errorf("%w: principal key is a gate key", commitment.ErrKeyRole)
+		}
+		if _, ok := g.executors[pk]; ok {
+			return fmt.Errorf("%w: principal key is an executor key", commitment.ErrKeyRole)
+		}
+		if hk, ok := g.d.Allowlist.(hasKey); ok && hk.HasKey(pk) {
+			return fmt.Errorf("%w: principal key is an agent key", commitment.ErrKeyRole)
+		}
+	}
+	for i, a := range m.Agents {
+		var ak [32]byte
+		copy(ak[:], a)
+		if _, ok := g.gateKeys[ak]; ok {
+			return fmt.Errorf("%w: mandate agent %d is a gate key", commitment.ErrKeyRole, i)
+		}
+		if _, ok := g.executors[ak]; ok {
+			return fmt.Errorf("%w: mandate agent %d is an executor key", commitment.ErrKeyRole, i)
+		}
+	}
+	pg := &policyGate{mandate: m, mandateHash: h, key: registry.StateKey(m.CounterKey()), state: sr,
+		extractors: g.d.Extractors, mu: make(chan struct{}, 1), hasher: policy.NewStateHasher(m), sealer: g.d.Sealer}
+	if pg.sealer == nil {
+		pg.sealer = privatebox.Sealer{}
+	}
+	if err := g.adopt(ctx, pg); err != nil {
+		return err
+	}
+	g.pol = pg
+	return nil
+}
+
+// adopt applies the version rules to the stored counter cell.
+func (g *Gate) adopt(ctx context.Context, pg *policyGate) error {
+	m := pg.mandate
+	cell, err := pg.state.State(ctx, pg.key)
+	if err != nil {
+		return fmt.Errorf("%w: policy cell: %w", ErrRegistryUnavailable, err)
+	}
+	write := func(expect commitment.Hash, c *policy.Counter) error {
+		enc, err := policy.EncodeCounter(c)
+		if err != nil {
+			return fmt.Errorf("gate: encode counter: %w", err)
+		}
+		err = pg.state.UpdateState(ctx, registry.StateTx{Key: pg.key, Expect: expect, Next: registry.NewStateCell(enc)})
+		if errors.Is(err, registry.ErrStateConflict) {
+			return fmt.Errorf("%w: policy cell changed during adoption: %w", ErrInvalidConfig, err)
+		}
+		if err != nil {
+			return fmt.Errorf("%w: policy cell: %w", ErrRegistryUnavailable, err)
+		}
+		return nil
+	}
+	if cell.Version == (commitment.Hash{}) {
+		return write(commitment.Hash{}, policy.NewCounter(m, pg.mandateHash))
+	}
+	c, err := policy.DecodeCounter(cell.Value)
+	if err != nil {
+		return fmt.Errorf("%w: policy cell: %w", ErrRegistryUnavailable, err)
+	}
+	switch {
+	case !bytes.Equal(c.MandateID, m.MandateID):
+		return fmt.Errorf("%w: policy cell holds another mandate id", ErrRegistryUnavailable)
+	case c.Version > m.Version:
+		return fmt.Errorf("%w: mandate version %d is below the stored version %d", ErrInvalidConfig, m.Version, c.Version)
+	case c.Version == m.Version:
+		if !bytes.Equal(c.MandateHash, pg.mandateHash[:]) {
+			return fmt.Errorf("%w: mandate version %d differs from the stored one", ErrInvalidConfig, m.Version)
+		}
+		return nil
+	}
+	next := *c
+	if err := next.Adopt(m, pg.mandateHash); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidConfig, err)
+	}
+	return write(cell.Version, &next)
+}
+
+type sealedAction struct {
+	hash     commitment.Hash
+	envelope []byte
+}
+
+// sealAction encrypts salt || action to the auditors, keyed by the
+// commitment's action hash.
+func (g *Gate) sealAction(envelope, action, salt []byte) (sealedAction, error) {
+	s, err := commitment.DecodeSigned(envelope)
+	if err != nil {
+		return sealedAction{}, fmt.Errorf("gate: decision envelope: %w", err)
+	}
+	plain := make([]byte, 0, len(salt)+len(action))
+	plain = append(append(plain, salt...), action...)
+	env, err := g.pol.sealer.Seal(policy.PrivateAction, plain, g.pol.mandate.Auditors)
+	if err != nil {
+		return sealedAction{}, fmt.Errorf("gate: seal action: %w", err)
+	}
+	return sealedAction{hash: commitment.Hash(s.Commitment.Action.Hash), envelope: env}, nil
+}
+
+// reveal archives the action salt of an executed private decision whose
+// type is configured for the reveal: on a public rail the executed
+// transaction is public anyway, and the salt lets anyone tie it to the
+// salted action hash. A failure does not change the receipt; the repair
+// rewrites it from the registry.
+func (g *Gate) reveal(ctx context.Context, c *commitment.Commitment, h commitment.Hash, receipt, salt []byte) {
+	if !g.RevealsOnExecution(c.Action.Type) || len(salt) == 0 {
+		return
+	}
+	ra, ok := g.d.Archiver.(RevealArchiver)
+	if !ok {
+		return
+	}
+	wctx, cancel := context.WithTimeout(ctx, g.cfg.ArchiveWriteTimeout)
+	defer cancel()
+	if err := ra.PutReveal(wctx, RevealRecord{CommitmentHash: h, Receipt: bytes.Clone(receipt), ActionSalt: bytes.Clone(salt)}); err != nil {
+		g.log.Error("reveal on execution not archived", "commitment_hash", hex.EncodeToString(h[:]), "err", err)
+	}
+}
+
+// RevealsOnExecution reports whether a receipt for an action of this type
+// publishes its salt: the mandate is private, so the decision record holds
+// no salt, and the type is configured for the reveal.
+func (g *Gate) RevealsOnExecution(actionType string) bool {
+	return g.pol.private() && slices.Contains(g.cfg.RevealOnExecution, actionType)
+}
+
+// lockPolicy takes the policy lock, giving up when ctx is done.
+func (g *Gate) lockPolicy(ctx context.Context) error {
+	select {
+	case g.pol.mu <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("gate: %w", ctx.Err())
+	}
+}
+
+func (g *Gate) unlockPolicy() { <-g.pol.mu }
+
+// policyInput is what the verdict builders know about the request.
+type policyInput struct {
+	h          commitment.Hash
+	actionHash commitment.Hash
+	agent      []byte
+	adm        policy.Admission
+	anchorTime uint64
+	decidedAt  uint64
+}
+
+func (g *Gate) baseVerdict(in policyInput, outcome uint64) policy.Verdict {
+	return policy.Verdict{
+		Format: 1, GateID: g.cfg.Scope.GateID, MandateHash: g.pol.mandateHash[:],
+		CommitmentHash: in.h[:], ActionHash: in.actionHash[:], AgentPubKey: bytes.Clone(in.agent),
+		Outcome: outcome, DecidedAt: in.decidedAt,
+	}
+}
+
+// signVerdict encodes, signs and self-verifies a verdict. It returns the
+// canonical SignedPolicyVerdict and the verdict hash. Under a private
+// mandate it signs the private form and also returns the canonical
+// PrivatePart, under a fresh salt so that equal parts never share a hash.
+func (g *Gate) signVerdict(ctx context.Context, v *policy.Verdict) ([]byte, commitment.Hash, []byte, error) {
+	var part []byte
+	if g.pol.private() {
+		salt := make([]byte, policy.PrivatePartSaltSize)
+		if _, err := rand.Read(salt); err != nil {
+			return nil, commitment.Hash{}, nil, fmt.Errorf("gate: private part salt: %w", err)
+		}
+		pub, pp, err := policy.SplitVerdict(v, salt, g.pol.hasher)
+		if err != nil {
+			return nil, commitment.Hash{}, nil, fmt.Errorf("gate: split verdict: %w", err)
+		}
+		if part, err = policy.EncodePrivatePart(pp); err != nil {
+			return nil, commitment.Hash{}, nil, fmt.Errorf("gate: encode private part: %w", err)
+		}
+		v = pub
+	}
+	b, h, err := g.signVerdictForm(ctx, v)
+	return b, h, part, err
+}
+
+func (g *Gate) signVerdictForm(ctx context.Context, v *policy.Verdict) ([]byte, commitment.Hash, error) {
+	canon, err := policy.EncodeVerdict(v)
+	if err != nil {
+		return nil, commitment.Hash{}, fmt.Errorf("gate: encode verdict: %w", err)
+	}
+	h := policy.HashVerdict(canon)
+	sig, err := g.sign(ctx, policy.VerdictSigningMessage(h))
+	if err != nil {
+		return nil, commitment.Hash{}, fmt.Errorf("gate: sign verdict: %w", err)
+	}
+	b, err := policy.EncodeSignedVerdict(&policy.SignedVerdict{Verdict: *v, Signature: sig})
+	if err != nil {
+		return nil, commitment.Hash{}, fmt.Errorf("gate: encode signed verdict: %w", err)
+	}
+	if _, _, err := policy.VerifyVerdict(b, g.signerPub); err != nil {
+		return nil, commitment.Hash{}, fmt.Errorf("gate: verdict does not verify: %w", err)
+	}
+	return b, h, nil
+}
+
+// denyVerdict signs the deny verdict for reason. The optional parts follow
+// from what the stage had learned; in private mode they go to the returned
+// PrivatePart.
+func (g *Gate) denyVerdict(ctx context.Context, in policyInput, reason error, prev *policy.State, evalTime uint64) (verdict, part []byte, err error) {
+	v := g.baseVerdict(in, policy.OutcomeDeny)
+	name := policy.ReasonOf(reason)
+	v.Reason = name
+	v.Extractor = in.adm.ExtractorID
+	if in.adm.Facts.Asset != "" {
+		f := in.adm.Facts
+		v.Facts = &f
+	}
+	v.AnchorTime = in.anchorTime
+	v.EvalTime = evalTime
+	v.PrevState = prev
+	if name == "ErrDecisionAge" {
+		v.GateClock = 1
+	}
+	b, _, part, err := g.signVerdict(ctx, &v)
+	return b, part, err
+}
+
+// admitPolicy runs the per-action rules. A deny is returned unsigned (denied
+// is true); the caller signs it once it knows the request is not a retry.
+func (g *Gate) admitPolicy(c *commitment.Commitment, action []byte, in *policyInput) (denied bool, err error) {
+	adm, derr := policy.Admit(g.pol.mandate, g.pol.extractors, policy.Decision{
+		AgentPubKey: c.AgentPubKey, ActionType: c.Action.Type, Action: action, ValidUntil: c.ValidUntil,
+		Pending: c.PayloadRef.Pending(),
+	})
+	in.adm = adm
+	switch {
+	case derr == nil:
+		return false, nil
+	case errors.Is(derr, policy.ErrDenied):
+		return true, derr
+	}
+	return false, fmt.Errorf("gate: policy admission: %w", derr)
+}
+
+// policyDeny is a signed deny verdict and, in private mode, its PrivatePart.
+type policyDeny struct{ verdict, part []byte }
+
+// policyDecision is the outcome of the stateful evaluation for an allow.
+type policyDecision struct {
+	verdict     []byte
+	verdictHash commitment.Hash
+	// privatePart is the canonical PrivatePart of a private-form verdict.
+	privatePart []byte
+	tx          registry.StateTx
+	// closedBucket and closedSet are set when the allow closed an hour.
+	closedBucket []byte
+	closedSet    []byte
+}
+
+// evaluatePolicy runs the stateful policy rules and, on allow, signs the allow verdict and
+// builds the cell transaction. On allow the policy lock is held; the caller
+// releases it. On a deny or an error it is already released.
+func (g *Gate) evaluatePolicy(ctx context.Context, p commitment.Params, c *commitment.Commitment, in *policyInput, now2 uint64) (dec *policyDecision, deny *policyDeny, err error) {
+	in.decidedAt = now2
+	age := uint64(0)
+	if now2 > in.anchorTime {
+		age = now2 - in.anchorTime
+	}
+	maxAge := g.pol.mandate.MaxDecisionAge
+	if maxAge == 0 {
+		maxAge = p.MaxTTL(c.PayloadRef.DA)
+	}
+	if age > maxAge {
+		b, part, serr := g.denyVerdict(ctx, *in, policy.ErrDecisionAge, nil, 0)
+		if serr != nil {
+			return nil, nil, serr
+		}
+		return nil, &policyDeny{verdict: b, part: part}, policy.ErrDecisionAge
+	}
+
+	if err := g.lockPolicy(ctx); err != nil {
+		return nil, nil, err
+	}
+	held := true
+	defer func() {
+		if held {
+			g.unlockPolicy()
+		}
+	}()
+	cell, err := g.pol.state.State(ctx, g.pol.key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: policy cell: %w", ErrRegistryUnavailable, err)
+	}
+	if cell.Version == (commitment.Hash{}) {
+		return nil, nil, fmt.Errorf("%w: policy cell is missing", ErrRegistryUnavailable)
+	}
+	ctr, err := policy.DecodeCounter(cell.Value)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: policy cell: %w", ErrRegistryUnavailable, err)
+	}
+	if !bytes.Equal(ctr.MandateHash, g.pol.mandateHash[:]) {
+		return nil, nil, fmt.Errorf("%w: the cell holds another mandate version", ErrPolicyStateConflict)
+	}
+	prev := ctr.Ledger.State
+	step, eerr := policy.Evaluate(g.pol.mandate, ctr.Ledger, in.adm, in.anchorTime)
+	if eerr != nil {
+		if !errors.Is(eerr, policy.ErrDenied) {
+			return nil, nil, fmt.Errorf("%w: policy evaluation: %w", ErrRegistryUnavailable, eerr)
+		}
+		evalTime := uint64(0)
+		if policy.ReasonOf(eerr) != "ErrOutsideMandate" {
+			evalTime = policy.EvalTime(prev, in.anchorTime)
+		}
+		b, part, serr := g.denyVerdict(ctx, *in, eerr, &prev, evalTime)
+		if serr != nil {
+			return nil, nil, serr
+		}
+		return nil, &policyDeny{verdict: b, part: part}, eerr
+	}
+
+	v := g.baseVerdict(*in, policy.OutcomeAllow)
+	f := in.adm.Facts
+	v.Extractor, v.Facts, v.AnchorTime, v.EvalTime = in.adm.ExtractorID, &f, in.anchorTime, step.EvalTime
+	v.PrevState, v.NewStateHash = &prev, step.NewHash[:]
+	if prev.Seq >= 1 {
+		v.PrevCommitmentHash, v.PrevVerdictHash = bytes.Clone(ctr.HeadCommitment), bytes.Clone(ctr.HeadVerdict)
+	}
+	vb, vh, part, err := g.signVerdict(ctx, &v)
+	if err != nil {
+		return nil, nil, err
+	}
+	next := *ctr
+	next.Ledger = step.Next
+	next.HeadCommitment, next.HeadVerdict = bytes.Clone(in.h[:]), bytes.Clone(vh[:])
+	enc, err := policy.EncodeCounter(&next)
+	if err != nil {
+		return nil, nil, fmt.Errorf("gate: encode counter: %w", err)
+	}
+	dec = &policyDecision{
+		verdict: vb, verdictHash: vh, privatePart: part,
+		tx: registry.StateTx{Key: g.pol.key, Expect: cell.Version, Next: registry.NewStateCell(enc)},
+	}
+	if step.ClosedBucket != nil {
+		if dec.closedBucket, err = policy.EncodeBucket(step.ClosedBucket); err != nil {
+			return nil, nil, fmt.Errorf("gate: encode closed bucket: %w", err)
+		}
+		if dec.closedSet, err = policy.EncodeClosedSet(step.ClosedSet); err != nil {
+			return nil, nil, fmt.Errorf("gate: encode closed set: %w", err)
+		}
+	}
+	held = false
+	return dec, nil, nil
+}

@@ -47,17 +47,19 @@ const (
 // classes maps a path relative to the root module to its class; the
 // longest matching prefix wins.
 var classes = map[string]class{
-	"internal":            internalPkg,
-	"engine/commitment":   format,
-	"dacommit":            format,
-	"engine/principalsig": principalsig,
-	"sdk":                 sdk,
-	"engine/policy":       engine,
-	"gate":                engine,
-	"retention":           engine,
-	"archive":             engine,
-	"verifier":            engine,
-	"edictaapi":           api,
+	"internal":                        internalPkg,
+	"engine/commitment":               format,
+	"engine/dacommit":                 format,
+	"engine/dacommit/blobv1":          engine,
+	"engine/principalsig":             principalsig,
+	"sdk":                             sdk,
+	"engine/policy":                   engine,
+	"engine/gate":                     engine,
+	"engine/retention":                engine,
+	"engine/retention/retentionstore": testsupport,
+	"archive":                         engine,
+	"verifier":                        engine,
+	"edictaapi":                       api,
 
 	// The bank-send rail still lives under the tia-transfer example.
 	"examples/tia-transfer/bankaction": plugin + "banksend",
@@ -108,12 +110,12 @@ var narrow = []struct {
 	{
 		why:  "storage, verification and the DA committer must not depend on the authorizer",
 		from: []string{"archive", "archive/fsarchive", "archive/httparchive", "verifier", "celestia/fibrecommit"},
-		to:   under("gate"),
+		to:   under("engine/gate"),
 	},
 	{
 		why:  "agent binaries must not link the gate",
 		from: []string{"sdk", "sdk/blob", "sdk/payload", "edictaapi"},
-		to:   under("gate"),
+		to:   under("engine/gate"),
 	},
 	{
 		why:  "the signer core must stay rail-agnostic",
@@ -148,13 +150,13 @@ var exceptions = map[string][]string{
 
 	// The archive and the verifier take the DA source interfaces, the
 	// committer interface and their sentinels from the gate package.
-	"archive":              {"gate"},
-	"archive/fsarchive":    {"gate"},
-	"verifier":             {"gate"},
-	"celestia/fibrecommit": {"gate"},
+	"archive":              {"engine/gate"},
+	"archive/fsarchive":    {"engine/gate"},
+	"verifier":             {"engine/gate"},
+	"celestia/fibrecommit": {"engine/gate"},
 
 	// The agent HTTP client maps error codes to the gate's sentinels.
-	"edictaapi": {"gate"},
+	"edictaapi": {"engine/gate"},
 
 	// The signer core takes wallet signature types and requirement errors
 	// from the Eden escrow profile.

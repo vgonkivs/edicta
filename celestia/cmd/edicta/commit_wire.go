@@ -27,9 +27,9 @@ import (
 	"github.com/vgonkivs/edicta/celestia/secret"
 	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/dacommit/blobv1"
+	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/engine/policy"
-	"github.com/vgonkivs/edicta/gate"
-	"github.com/vgonkivs/edicta/gate/dacommit/blobv1"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/blob"
 )

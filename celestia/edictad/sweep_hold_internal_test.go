@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/gate/registry"
+	"github.com/vgonkivs/edicta/engine/gate/registry"
 )
 
 // A scan must not write a record for an entry whose own request may still be

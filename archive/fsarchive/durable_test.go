@@ -11,7 +11,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/archive/fsarchive"
-	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/test/archivefix"
 )
 

@@ -8,7 +8,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/engine/gate"
 )
 
 // An oversize input must be refused from its length alone: the encoding of

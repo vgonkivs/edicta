@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate"
-	"github.com/vgonkivs/edicta/gate/gatetest"
-	"github.com/vgonkivs/edicta/gate/registry"
+	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/gate/gatetest"
+	"github.com/vgonkivs/edicta/engine/gate/registry"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/sdktest"
 	"github.com/vgonkivs/edicta/test/gatefix"

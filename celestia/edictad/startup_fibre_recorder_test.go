@@ -21,7 +21,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/test/fibreworld"
 	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate/registry/boltreg"
+	"github.com/vgonkivs/edicta/engine/gate/registry/boltreg"
 	"github.com/vgonkivs/edicta/sdk"
 )
 

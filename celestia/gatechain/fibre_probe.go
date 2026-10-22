@@ -11,7 +11,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/engine/gate"
 )
 
 // ErrProbeInconclusive means the capability probe could not decide: no usable

@@ -1,0 +1,24 @@
+// Package blobv1 adapts the shared share-commitment recompute to the gate's
+// DACommitter interface (da = 2, share version 1).
+package blobv1
+
+import (
+	"fmt"
+
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/dacommit/sharev1"
+	"github.com/vgonkivs/edicta/engine/gate"
+)
+
+type committer struct{}
+
+// New returns a stateless committer for da = 2. Every other da, and every
+// malformed reference or blob, fails with gate.ErrDACommitmentMismatch.
+func New() gate.DACommitter { return committer{} }
+
+func (committer) Check(ref commitment.PayloadRef, blob []byte) error {
+	if err := sharev1.Check(ref, blob); err != nil {
+		return fmt.Errorf("%w: %w", gate.ErrDACommitmentMismatch, err)
+	}
+	return nil
+}

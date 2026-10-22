@@ -17,8 +17,8 @@ import (
 	"github.com/vgonkivs/edicta/celestia/cometrpc"
 	"github.com/vgonkivs/edicta/celestia/execcapture"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/gate/registry"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
-	"github.com/vgonkivs/edicta/gate/registry"
 )
 
 // CaptureConfig configures the execution result capture: for a rail whose

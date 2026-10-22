@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vgonkivs/edicta/retention"
+	"github.com/vgonkivs/edicta/engine/retention"
 )
 
 var ErrExhausted = errors.New("retentionfix: script exhausted")

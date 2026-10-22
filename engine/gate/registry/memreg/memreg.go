@@ -1,0 +1,216 @@
+// Package memreg is an in-memory registry for tests and development. It has
+// no durability.
+package memreg
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"slices"
+	"sync"
+
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/gate/registry"
+)
+
+type Registry struct {
+	mu      sync.Mutex
+	claimed bool
+	entries map[registry.Key]registry.Entry
+	meta    registry.Meta
+	cells   map[registry.StateKey]registry.StateCell
+}
+
+var (
+	_ registry.Registry = (*Registry)(nil)
+	_ registry.Lister   = (*Registry)(nil)
+
+	_ registry.StateRegistry = (*Registry)(nil)
+)
+
+// New creates an empty registry whose creation time is epoch.
+func New(epoch uint64) (*Registry, error) {
+	if epoch == 0 {
+		return nil, errors.New("memreg: epoch must be set")
+	}
+	return &Registry{
+		entries: make(map[registry.Key]registry.Entry),
+		cells:   make(map[registry.StateKey]registry.StateCell),
+		meta:    registry.Meta{Epoch: epoch, Watermark: epoch},
+	}, nil
+}
+
+// Claim marks the registry as owned by one gate.
+func (r *Registry) Claim() (func(), error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.claimed {
+		return nil, registry.ErrInUse
+	}
+	r.claimed = true
+	return func() {
+		r.mu.Lock()
+		r.claimed = false
+		r.mu.Unlock()
+	}, nil
+}
+
+func (r *Registry) Consume(_ context.Context, e registry.Entry, tolerance uint64) error {
+	if err := registry.CheckConsume(e); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.consumeLocked(e, tolerance, nil)
+}
+
+// consumeLocked checks every refusal before it writes anything, so a refused
+// call leaves no trace.
+func (r *Registry) consumeLocked(e registry.Entry, tolerance uint64, tx *registry.StateTx) error {
+	if old, ok := r.entries[e.Key]; ok {
+		return &registry.ExistsError{Existing: old.Clone()}
+	}
+	if e.ValidUntil < r.meta.PruneCutoff {
+		return fmt.Errorf("%w: valid_until %d, cutoff %d", registry.ErrPrunedWindow, e.ValidUntil, r.meta.PruneCutoff)
+	}
+	if registry.BelowWatermark(e.AuthorizedAt, tolerance, r.meta.Watermark) {
+		return fmt.Errorf("%w: authorized_at %d, watermark %d", registry.ErrBelowWatermark, e.AuthorizedAt, r.meta.Watermark)
+	}
+	if tx != nil {
+		if err := r.checkCellLocked(*tx); err != nil {
+			return err
+		}
+	}
+	e.Receipt = nil
+	r.entries[e.Key] = e.Clone()
+	r.meta.Watermark = max(r.meta.Watermark, e.AuthorizedAt)
+	if tx != nil {
+		r.cells[tx.Key] = registry.StateCell{Version: tx.Next.Version, Value: slices.Clone(tx.Next.Value)}
+	}
+	return nil
+}
+
+func (r *Registry) checkCellLocked(tx registry.StateTx) error {
+	if r.cells[tx.Key].Version != tx.Expect {
+		return fmt.Errorf("%w: policy cell changed", registry.ErrStateConflict)
+	}
+	return nil
+}
+
+func (r *Registry) State(_ context.Context, k registry.StateKey) (registry.StateCell, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c := r.cells[k]
+	return registry.StateCell{Version: c.Version, Value: slices.Clone(c.Value)}, nil
+}
+
+func (r *Registry) UpdateState(_ context.Context, tx registry.StateTx) error {
+	if err := registry.CheckStateTx(tx); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.checkCellLocked(tx); err != nil {
+		return err
+	}
+	r.cells[tx.Key] = registry.StateCell{Version: tx.Next.Version, Value: slices.Clone(tx.Next.Value)}
+	return nil
+}
+
+func (r *Registry) ConsumeState(_ context.Context, e registry.Entry, tolerance uint64, tx registry.StateTx) error {
+	if err := registry.CheckConsume(e); err != nil {
+		return err
+	}
+	if err := registry.CheckStateTx(tx); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.consumeLocked(e, tolerance, &tx)
+}
+
+func (r *Registry) Get(_ context.Context, k registry.Key) (registry.Entry, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.entries[k]
+	if !ok {
+		return registry.Entry{}, registry.ErrNotFound
+	}
+	return e.Clone(), nil
+}
+
+// List returns up to n entries after the key, in key order.
+func (r *Registry) List(ctx context.Context, after *registry.Key, n int) ([]registry.Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if n <= 0 {
+		return nil, fmt.Errorf("%w: %d", registry.ErrInvalidPage, n)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var keys []registry.Key
+	for k := range r.entries {
+		if after == nil || compareKeys(k, *after) > 0 {
+			keys = append(keys, k)
+		}
+	}
+	slices.SortFunc(keys, compareKeys)
+	if len(keys) > n {
+		keys = keys[:n]
+	}
+	out := make([]registry.Entry, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, r.entries[k].Clone())
+	}
+	return out, nil
+}
+
+func compareKeys(a, b registry.Key) int {
+	if c := bytes.Compare(a.PubKey[:], b.PubKey[:]); c != 0 {
+		return c
+	}
+	return bytes.Compare(a.Nonce[:], b.Nonce[:])
+}
+
+func (r *Registry) AttachReceipt(_ context.Context, k registry.Key, h commitment.Hash, receipt []byte) error {
+	if len(receipt) == 0 {
+		return fmt.Errorf("%w: empty receipt", registry.ErrInvalidEntry)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.entries[k]
+	if !ok {
+		return registry.ErrNotFound
+	}
+	if e.CommitmentHash != h {
+		return fmt.Errorf("%w: the entry holds another commitment", registry.ErrStateConflict)
+	}
+	if e.Receipt != nil {
+		return fmt.Errorf("%w: receipt already attached", registry.ErrStateConflict)
+	}
+	e.Receipt = append([]byte(nil), receipt...)
+	r.entries[k] = e
+	return nil
+}
+
+func (r *Registry) Meta(_ context.Context) (registry.Meta, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.meta, nil
+}
+
+func (r *Registry) Prune(_ context.Context, cutoff uint64) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.meta.PruneCutoff = max(r.meta.PruneCutoff, cutoff)
+	n := 0
+	for k, e := range r.entries {
+		if registry.Prunable(e, cutoff) {
+			delete(r.entries, k)
+			n++
+		}
+	}
+	return n, nil
+}

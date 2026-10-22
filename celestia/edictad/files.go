@@ -11,7 +11,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/vgonkivs/edicta/celestia/secret"
-	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/engine/gate"
 )
 
 const seedLen = 32

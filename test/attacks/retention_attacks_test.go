@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/gate"
-	"github.com/vgonkivs/edicta/retention"
-	"github.com/vgonkivs/edicta/retention/memstore"
+	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/retention"
+	"github.com/vgonkivs/edicta/engine/retention/memstore"
 	rf "github.com/vgonkivs/edicta/test/retentionfix"
 )
 

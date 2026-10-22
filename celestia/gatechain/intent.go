@@ -18,7 +18,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/heightcheck"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/gate"
+	"github.com/vgonkivs/edicta/engine/gate"
 )
 
 // FibreIntentChain is what the Fibre intent check reads from the consensus
