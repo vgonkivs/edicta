@@ -21,7 +21,7 @@ What is new:
 - Wording: `anchor_unpaid` now says that a valid verdict requires a paid
   anchor and that an unpaid anchor is an operator funding failure.
 
-Human decision: a paid anchor (`tx_code == 0`) stays required for `valid`.
+A paid anchor (`tx_code == 0`) stays required for `valid`.
 The removal announced for v1.1 was withdrawn. An included anchor with another
 code stays `unchecked` (`anchor_unpaid`) and is never `invalid`.
 

@@ -36,7 +36,7 @@ func newFeed(c Config) (pricefeed.Feed, error) {
 	return nil, cfgErr("price source %q", c.PriceSource)
 }
 
-// loggingFeed reports every reading, so the human sees the baseline and the move.
+// loggingFeed reports every reading, so the operator sees the baseline and the move.
 type loggingFeed struct {
 	inner pricefeed.Feed
 	logf  func(string, ...any)
