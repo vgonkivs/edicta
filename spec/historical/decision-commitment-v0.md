@@ -1311,7 +1311,7 @@ Note: `celestia-node v0.34.2-mocha` imports `celestia-app/v10 v10.1.0-mocha`
 Fibre commitment, BlobID, params, protos, namespace validation and blob
 header are byte-identical between `v10.1.0-mocha` and `v10.4.0-mocha`.
 
-Replace set (decision of 2026-10-05): every Edicta module that imports
+Replace set: every Edicta module that imports
 celestia-app uses the replace directives of celestia-node `v0.34.2-mocha`
 verbatim. celestia-app `v10.4.0-mocha` itself pins newer forks (celestia-core
 `v0.42.3` instead of `v0.42.0`, cosmos-sdk `v0.52.12` instead of `v0.52.8`,

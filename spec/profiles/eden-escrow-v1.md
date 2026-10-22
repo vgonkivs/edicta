@@ -1168,7 +1168,7 @@ transaction is `wrong_tx` against a form T action with the same deposit
 | RF27 | What the server checks on the paid retry: which 32 bytes the `Payment-Signature` covers (`nonce` or `paymentId`), that the recovered signer is the escrow's `buyer`, the amount, the expiry, single use; whether `v` 27/28 and 0/1 are both accepted | `UNVERIFIED`: the paid retry was never observed; the requester's funded test this week. The `buyer` check and single use are a freeze condition (section 0) | requester |
 | RF28 | Whether `/deposit/send` is required, or any broadcast of the signed bytes suffices; its success body. Observed: a body without `paymentId` is refused; a bogus transaction gives `failed to broadcast transaction` | `UNVERIFIED` | requester |
 | RF29 | Eden charges the sender only `gas_used * effective_gas_price` (no separate data or L1 fee), so `value + gas_limit * max_fee_per_gas` bounds the payer's loss | `UNVERIFIED` (ev-reth fee model not checked) | |
-| RF30 | Independence of the candidate sources: Blockscout's `https://eden.blockscout.com/api/eth-rpc` serves `eth_chainId`, `eth_getCode`, `eth_getTransactionByHash`, `eth_getTransactionReceipt` (observed 2026-10-21); whether it reads a node other than `rpc.eden.gateway.fm` | serving observed; independence `UNVERIFIED` | the requester's client fixtures |
+| RF30 | Independence of the candidate sources: Blockscout's `https://eden.blockscout.com/api/eth-rpc` serves `eth_chainId`, `eth_getCode`, `eth_getTransactionByHash`, `eth_getTransactionReceipt` (observed 2026-10-21); whether it reads a node other than `rpc.eden.gateway.fm` | serving observed; independence `UNVERIFIED` | our own observation of the explorer, 2026-10-21 |
 | RF31 | The quote's `amount` equals the deposit `value` (the cap), and the client's own spend check counts `amount + gasLimit * maxFeePerGas` | verified on the fixture and the client code | fixture, client |
 | RF32 | `eth_getTransactionCount(payer, "pending")` on the signer's own Eden node counts the payer's transactions still in the sequencer's private pool (RF16), so S3n sees a nonce the signer already used | `UNVERIFIED`; if it does not, two signatures in flight can share a nonce until one lands (the second fails at the chain, gas only), and S3n's SHOULD (the signer's own in-flight nonces) is what prevents it | ev-reth, Eden team |
 
@@ -1212,7 +1212,7 @@ funds on any chain.
 Not covered by vectors: the signer rules other than S4 and the stateless
 S11 steps (configuration and state; the signer's tests cover S3n, S11b
 with agent B asking for agent A's `commitment_hash`, S11e, and the
-startup refusals of S1), the per-source sequencing of 7.3 (the signer's tests cover it
+startup refusals of S1), the per-source sequencing of 7.3 (the settlement report's tests in `edenexec` cover it
 with fakes and recorded answers; 5.5 combination is in `multi_source.json`),
 L2 receipts (RF13), the S3c code check (needs an RPC), the broadcaster
 (5.4, needs a server).
