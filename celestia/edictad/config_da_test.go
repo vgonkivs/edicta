@@ -11,7 +11,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 func parseFibre(t *testing.T, e *env, extra ...[2]string) (edictad.Config, error) {

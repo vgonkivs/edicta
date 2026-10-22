@@ -7,7 +7,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // State is where one decision stands at the signer.

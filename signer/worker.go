@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // seenWriteTimeout bounds the write of the seen fact after a round ended.

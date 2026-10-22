@@ -22,8 +22,8 @@ import (
 	"github.com/fxamacker/cbor/v2"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edictaapi"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/sdk"

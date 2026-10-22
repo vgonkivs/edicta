@@ -47,17 +47,17 @@ const (
 // classes maps a path relative to the root module to its class; the
 // longest matching prefix wins.
 var classes = map[string]class{
-	"internal":     internalPkg,
-	"commitment":   format,
-	"dacommit":     format,
-	"principalsig": principalsig,
-	"sdk":          sdk,
-	"policy":       engine,
-	"gate":         engine,
-	"retention":    engine,
-	"archive":      engine,
-	"verifier":     engine,
-	"edictaapi":    api,
+	"internal":            internalPkg,
+	"engine/commitment":   format,
+	"dacommit":            format,
+	"engine/principalsig": principalsig,
+	"sdk":                 sdk,
+	"engine/policy":       engine,
+	"gate":                engine,
+	"retention":           engine,
+	"archive":             engine,
+	"verifier":            engine,
+	"edictaapi":           api,
 
 	// The bank-send rail still lives under the tia-transfer example.
 	"examples/tia-transfer/bankaction": plugin + "banksend",

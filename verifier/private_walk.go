@@ -3,8 +3,8 @@ package verifier
 import (
 	"errors"
 
-	"github.com/vgonkivs/edicta/commitment"
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 // walkPrivate is the walk over private-form verdicts. Every hop checks the

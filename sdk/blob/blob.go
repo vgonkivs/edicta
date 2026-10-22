@@ -15,7 +15,7 @@ import (
 
 	"golang.org/x/crypto/chacha20poly1305"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 const (

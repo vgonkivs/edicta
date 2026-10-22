@@ -17,7 +17,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/doctor"
 	"github.com/vgonkivs/edicta/celestia/initcmd"
 	"github.com/vgonkivs/edicta/celestia/keyfile"
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 func readMandate(t *testing.T, path string) *policy.SignedMandate {

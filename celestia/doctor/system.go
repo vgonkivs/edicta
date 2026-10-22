@@ -22,7 +22,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/secret"
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 // maxBody bounds what a probe reads from any HTTP answer.

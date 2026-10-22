@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/payload"

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 func TestTransactionAttacksAreRefused(t *testing.T) {

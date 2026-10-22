@@ -13,7 +13,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/absence"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/internal/testkit"
 )
 

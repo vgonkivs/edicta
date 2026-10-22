@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // AnchorIntent is the archived anchor intent of a pending reference: the

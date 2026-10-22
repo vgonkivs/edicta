@@ -21,7 +21,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/execcapture"
 	"github.com/vgonkivs/edicta/celestia/railverify"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 const chainID = "mocha-4"

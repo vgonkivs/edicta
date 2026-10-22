@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/examples/dca-agent/dca"
 	"github.com/vgonkivs/edicta/examples/dca-agent/ibkr"
 	"github.com/vgonkivs/edicta/examples/dca-agent/ibkrorder"

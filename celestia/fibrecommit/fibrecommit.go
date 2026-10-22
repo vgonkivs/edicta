@@ -9,7 +9,7 @@ import (
 
 	"github.com/celestiaorg/celestia-app/v10/fibre"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/gate"
 )
 

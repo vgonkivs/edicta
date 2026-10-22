@@ -15,7 +15,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 var (

@@ -13,7 +13,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/archive/fsarchive"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // sweepCase leaves two authorized decisions in the registry whose

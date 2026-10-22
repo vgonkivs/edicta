@@ -16,7 +16,7 @@ import (
 	cosmostx "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/internal/testkit"
 )
 

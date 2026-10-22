@@ -5,7 +5,7 @@ import (
 	"crypto/ed25519"
 	"fmt"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // input holds every field of a commitment the builder chooses. It is not

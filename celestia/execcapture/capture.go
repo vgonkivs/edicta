@@ -19,7 +19,7 @@ import (
 	"github.com/celestiaorg/celestia-app/v10/pkg/appconsts"
 
 	"github.com/vgonkivs/edicta/celestia/railverify"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // MinPruneWindowBlocks is the smallest node prune window accepted: below it

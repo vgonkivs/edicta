@@ -24,9 +24,9 @@ import (
 	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/nodefake"
-	"github.com/vgonkivs/edicta/commitment"
-	"github.com/vgonkivs/edicta/policy"
-	"github.com/vgonkivs/edicta/principalsig"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/policy"
+	"github.com/vgonkivs/edicta/engine/principalsig"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
 

@@ -18,7 +18,7 @@ import (
 	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/archive/httparchive"
 	"github.com/vgonkivs/edicta/celestia/test/cometfake"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/gate/dacommit/blobv1"

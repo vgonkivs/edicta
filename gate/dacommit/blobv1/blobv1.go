@@ -5,8 +5,8 @@ package blobv1
 import (
 	"fmt"
 
-	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/dacommit/sharev1"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/gate"
 )
 

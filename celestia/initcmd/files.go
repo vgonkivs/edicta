@@ -15,7 +15,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/keyfile"
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 // Names of the files init writes in the home, next to edicta.toml.

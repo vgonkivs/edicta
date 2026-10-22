@@ -14,7 +14,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/keyfile"
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 // The Ed25519 known answer of RFC 8032, test 1: a broken or swapped crypto

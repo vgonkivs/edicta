@@ -12,7 +12,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/recorder"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // A restarted Recorder must not sign over the sequence of an intent an

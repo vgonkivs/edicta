@@ -20,9 +20,9 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/archive"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/gate"
-	"github.com/vgonkivs/edicta/policy"
 )
 
 const tempPrefix = ".tmp-"

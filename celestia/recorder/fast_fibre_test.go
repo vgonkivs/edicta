@@ -17,7 +17,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/fibrecert"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/recorder"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // liveUploader returns the certificate of the live PayForFibre for every

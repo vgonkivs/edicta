@@ -13,7 +13,7 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/fibrecert"
 	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/sdk"
 )
 

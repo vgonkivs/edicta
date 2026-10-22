@@ -8,8 +8,8 @@ import (
 	"fmt"
 
 	"github.com/vgonkivs/edicta/archive"
-	"github.com/vgonkivs/edicta/commitment"
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 // ErrPolicyViolation wraps every failed policy check: verified data proves

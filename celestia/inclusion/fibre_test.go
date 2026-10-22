@@ -11,7 +11,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/inclusion"
 	"github.com/vgonkivs/edicta/celestia/nodefake"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/sdk"
 )
 

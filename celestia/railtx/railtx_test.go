@@ -20,7 +20,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/nodefake"
 	"github.com/vgonkivs/edicta/celestia/railtx"
 	"github.com/vgonkivs/edicta/celestia/secret"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankmsg"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"

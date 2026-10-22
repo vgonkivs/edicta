@@ -15,7 +15,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 )
 

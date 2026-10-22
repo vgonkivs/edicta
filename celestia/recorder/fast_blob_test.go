@@ -20,7 +20,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/nodefake"
 	"github.com/vgonkivs/edicta/celestia/recorder"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // blobFast is a da = 2 fast-mode world: a chain, an archive, the own node and

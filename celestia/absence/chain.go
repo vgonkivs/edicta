@@ -17,7 +17,7 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/fibrecert"
 	"github.com/vgonkivs/edicta/celestia/gatechain"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/verifier"
 )
 

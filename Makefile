@@ -42,7 +42,7 @@ clean:
 	rm -rf $(BIN)
 
 # Quiet test run: package summary lines that failed, plus failure output only.
-# PKGS defaults to everything; pass PKGS="./policy/... ./gate/..." to narrow.
+# PKGS defaults to everything; pass PKGS="./engine/policy/... ./gate/..." to narrow.
 PKGS ?= ./...
 test-q:
 	@go test -race -count=1 -p 2 $(PKGS) 2>&1 | grep -E '^(--- FAIL|FAIL|panic:|ok )' | grep -v '^ok ' ; \

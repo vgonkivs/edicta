@@ -8,8 +8,8 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/vgonkivs/edicta/commitment"
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 // format is the archive record format this codec reads and writes.

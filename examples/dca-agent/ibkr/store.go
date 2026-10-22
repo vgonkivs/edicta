@@ -6,7 +6,7 @@ import (
 	"math/bits"
 	"sync"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 var (

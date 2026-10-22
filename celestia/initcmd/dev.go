@@ -20,8 +20,8 @@ import (
 	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/celestia/keyfile"
+	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
-	"github.com/vgonkivs/edicta/policy"
 )
 
 // The dev chains. Their ids exist only in builds with the edictadev tag, so a

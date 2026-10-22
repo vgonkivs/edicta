@@ -19,7 +19,7 @@ import (
 	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/recorder"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // headSwitch is a reader whose head is at height 0 while zero is set, as a

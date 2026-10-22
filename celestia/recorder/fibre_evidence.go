@@ -18,7 +18,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/fibreproof"
 	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/sdk"
 )
 

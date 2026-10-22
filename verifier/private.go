@@ -7,9 +7,9 @@ import (
 	"fmt"
 
 	"github.com/vgonkivs/edicta/archive"
-	"github.com/vgonkivs/edicta/commitment"
-	"github.com/vgonkivs/edicta/policy"
-	"github.com/vgonkivs/edicta/policy/privatebox"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/policy"
+	"github.com/vgonkivs/edicta/engine/policy/privatebox"
 )
 
 // opener opens private records with the configured auditor keys; nil when

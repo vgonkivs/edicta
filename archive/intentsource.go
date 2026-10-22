@@ -3,7 +3,7 @@ package archive
 import (
 	"context"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/gate"
 )
 

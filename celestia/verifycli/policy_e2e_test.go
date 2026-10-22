@@ -13,10 +13,10 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/celestia/policyext/tiatransfer"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/gate/dacommit/blobv1"
-	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
 

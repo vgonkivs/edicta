@@ -25,11 +25,11 @@ import (
 	"github.com/vgonkivs/edicta/celestia/keyfile"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/secret"
-	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edictaapi"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/gate"
 	"github.com/vgonkivs/edicta/gate/dacommit/blobv1"
-	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/blob"
 )

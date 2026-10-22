@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // Key identifies a nonce of one agent key.

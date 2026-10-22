@@ -3,7 +3,7 @@ package archive
 import (
 	"sort"
 
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 type ftype uint8

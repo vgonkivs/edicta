@@ -10,7 +10,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // Ed25519Signer signs commitment hashes with an in-memory key. It never prints

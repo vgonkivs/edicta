@@ -20,7 +20,7 @@ import (
 	cosmostx "github.com/cosmos/cosmos-sdk/types/tx"
 
 	"github.com/vgonkivs/edicta/celestia/nodefake"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/internal/testkit"
 )
 

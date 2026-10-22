@@ -17,8 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/celestia/commitcmd"
-	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/sdk/sdktest"
 	"github.com/vgonkivs/edicta/signer"

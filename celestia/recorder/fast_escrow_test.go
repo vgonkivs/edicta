@@ -16,7 +16,7 @@ import (
 	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/recorder"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // hookUploader runs hook before the honest upload; a hook error is the

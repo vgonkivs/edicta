@@ -12,7 +12,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/principalsig"
+	"github.com/vgonkivs/edicta/engine/principalsig"
 )
 
 // keyedLanding is a strict-mode blob Submitter on a secp256k1 key that shows

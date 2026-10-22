@@ -17,8 +17,8 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/commitcmd"
 	"github.com/vgonkivs/edicta/celestia/secret"
-	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edictaapi"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/signer"
 )
 

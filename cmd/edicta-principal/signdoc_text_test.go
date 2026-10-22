@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/engine/policy"
+	"github.com/vgonkivs/edicta/engine/principalsig"
 	"github.com/vgonkivs/edicta/internal/testkit"
-	"github.com/vgonkivs/edicta/policy"
-	"github.com/vgonkivs/edicta/principalsig"
 )
 
 type adr036Case struct {

@@ -8,8 +8,8 @@ import (
 	"crypto/subtle"
 	"fmt"
 
-	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edictaapi"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // DecodeStatusResponse decodes a CBOR 200 answer of GET /v1/status/{hash}.

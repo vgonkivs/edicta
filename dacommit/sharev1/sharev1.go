@@ -12,7 +12,7 @@ import (
 	"github.com/celestiaorg/go-square/v4/inclusion"
 	"github.com/celestiaorg/go-square/v4/share"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 const subtreeRootThreshold = 64

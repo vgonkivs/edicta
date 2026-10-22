@@ -8,7 +8,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 // Response is an HTTP answer, body cut at a small limit.

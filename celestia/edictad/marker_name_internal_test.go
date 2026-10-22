@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/gate"
-	"github.com/vgonkivs/edicta/policy"
 )
 
 // A public-mode deny is marked under its own name, never under ErrDenied,

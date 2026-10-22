@@ -24,7 +24,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/absence"
 	"github.com/vgonkivs/edicta/celestia/headertrust"
 	"github.com/vgonkivs/edicta/celestia/railverify"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )

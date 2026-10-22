@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // SettlementInput is what a profile's settlement report may rely on: the

@@ -14,10 +14,10 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/celestia/edictad"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankmsg"
-	"github.com/vgonkivs/edicta/policy"
 )
 
 const (

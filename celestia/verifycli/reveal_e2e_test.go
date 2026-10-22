@@ -15,9 +15,9 @@ import (
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/celestia/test/cometfake"
-	"github.com/vgonkivs/edicta/commitment"
-	"github.com/vgonkivs/edicta/policy"
-	"github.com/vgonkivs/edicta/policy/privatebox"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/policy"
+	"github.com/vgonkivs/edicta/engine/policy/privatebox"
 )
 
 // privatize turns the bank world's public decision record into the private

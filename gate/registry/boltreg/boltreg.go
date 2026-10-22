@@ -16,7 +16,7 @@ import (
 	"github.com/fxamacker/cbor/v2"
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/gate/registry"
 )
 

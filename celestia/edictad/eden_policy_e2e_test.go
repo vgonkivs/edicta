@@ -13,10 +13,10 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/edictad"
-	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/internal/testkit"
-	"github.com/vgonkivs/edicta/policy"
 )
 
 // edenVector returns the action bytes of a case or reject of the profile's

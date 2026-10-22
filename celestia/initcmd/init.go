@@ -21,7 +21,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/doctor"
 	"github.com/vgonkivs/edicta/celestia/keyfile"
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 // Sentinel errors of a run.

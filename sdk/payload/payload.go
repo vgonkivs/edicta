@@ -9,7 +9,7 @@ import (
 
 	"github.com/fxamacker/cbor/v2"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 const (

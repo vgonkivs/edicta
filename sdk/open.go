@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/sdk/blob"
 	"github.com/vgonkivs/edicta/sdk/payload"
 )

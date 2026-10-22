@@ -13,7 +13,7 @@ import (
 	lightdb "github.com/cometbft/cometbft/light/store/db"
 
 	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // LightConfig configures Light.

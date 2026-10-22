@@ -17,9 +17,9 @@ import (
 	"github.com/vgonkivs/edicta/celestia/headertrust"
 	"github.com/vgonkivs/edicta/celestia/inclusion"
 	"github.com/vgonkivs/edicta/celestia/railverify"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
-	"github.com/vgonkivs/edicta/policy"
 	"github.com/vgonkivs/edicta/verifier"
 )
 

@@ -21,7 +21,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/doctor"
 	"github.com/vgonkivs/edicta/celestia/keyfile"
 	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 var testNow = time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)

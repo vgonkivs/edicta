@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // PaymentProofRequest asks for the payment proof of one decision: the

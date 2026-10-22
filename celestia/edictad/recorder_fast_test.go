@@ -14,8 +14,8 @@ import (
 	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/celestia/recorder"
-	"github.com/vgonkivs/edicta/commitment"
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 const recFastKeys = "fast = true\nfast_dedicated_account = true\n"

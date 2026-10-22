@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/vgonkivs/edicta/archive"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // Replay verifies the decision and then recomputes the gate's retention

@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankmsg"
-	"github.com/vgonkivs/edicta/policy"
 )
 
 const (

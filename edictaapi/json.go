@@ -15,7 +15,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // JSON is a transport for the CBOR wrapper maps and nothing else. The request

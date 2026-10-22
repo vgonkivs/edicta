@@ -17,7 +17,7 @@ import (
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 
 	"github.com/vgonkivs/edicta/celestia/nodefake"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
 	"github.com/vgonkivs/edicta/gate/gatetest"
 	"github.com/vgonkivs/edicta/internal/testkit"

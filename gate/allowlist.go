@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // StaticAllowlist is an immutable map from agent id to public key.

@@ -14,7 +14,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/keyfile"
 	"github.com/vgonkivs/edicta/celestia/railtx"
 	"github.com/vgonkivs/edicta/celestia/secret"
-	"github.com/vgonkivs/edicta/principalsig"
+	"github.com/vgonkivs/edicta/engine/principalsig"
 )
 
 // CelestiaHRP is the bech32 prefix of Celestia account addresses.

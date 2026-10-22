@@ -16,9 +16,9 @@ import (
 	"github.com/vgonkivs/edicta/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/recorder"
-	"github.com/vgonkivs/edicta/commitment"
-	"github.com/vgonkivs/edicta/policy"
-	"github.com/vgonkivs/edicta/principalsig"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/policy"
+	"github.com/vgonkivs/edicta/engine/principalsig"
 )
 
 // defaultFastTimeoutBlocks is the recorder's own default, repeated here so the

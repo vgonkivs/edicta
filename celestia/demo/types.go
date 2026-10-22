@@ -7,7 +7,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/secret"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // Funding is the part of *railtx.Funder the funding loop uses. It has no

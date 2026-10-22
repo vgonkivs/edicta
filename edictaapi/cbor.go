@@ -5,7 +5,7 @@ import (
 	"math"
 	"unicode/utf8"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // A minimal strict decoder and canonical encoder for the wrapper maps of

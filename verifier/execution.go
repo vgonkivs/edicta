@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/vgonkivs/edicta/archive"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // ExecutionJudgement is the outcome rule applied to a checker's facts. Err

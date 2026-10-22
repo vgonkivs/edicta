@@ -9,7 +9,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // HourWindow is the rolling window of the per-hour caps.

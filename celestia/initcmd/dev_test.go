@@ -16,7 +16,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/edictad"
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 func runDev(t *testing.T, home string) DevResult {

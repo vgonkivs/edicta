@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/edictaapi"
-	"github.com/vgonkivs/edicta/policy"
+	"github.com/vgonkivs/edicta/engine/policy"
 )
 
 const (

@@ -8,7 +8,7 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // Kinds of the fast-mode records.

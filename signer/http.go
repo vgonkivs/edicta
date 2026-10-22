@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/edictaapi"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // Routes of the signer API.

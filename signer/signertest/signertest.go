@@ -16,8 +16,8 @@ import (
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 
-	"github.com/vgonkivs/edicta/commitment"
 	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
 // GateID is the gate id of the fixtures.

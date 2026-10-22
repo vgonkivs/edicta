@@ -9,7 +9,7 @@ import (
 
 	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/archive/httparchive"
-	"github.com/vgonkivs/edicta/commitment"
+	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/test/archivefix"
 	"github.com/vgonkivs/edicta/test/execresultfix"
 )
