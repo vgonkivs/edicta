@@ -201,11 +201,11 @@ func (Builtin) Settlement(name string) (Preset, error) {
 	case SettlementEdenTestnet:
 		return clonePreset(edenTestnet()), nil
 	case SettlementBase:
-		return Preset{}, fmt.Errorf("%w: %q is not available in this build; use %q, %q, %q or %q", ErrPreset, name, SettlementBaseSepolia, SettlementEdenMainnet, Custom, SettlementNone)
+		return Preset{}, fmt.Errorf("%w: %q is not available in this build; use %q, %q or %q (eden-* go in the edicta-signer file)", ErrPreset, name, SettlementBaseSepolia, Custom, SettlementNone)
 	case Custom, SettlementNone:
 		return Preset{Name: name}, nil
 	}
-	return Preset{}, fmt.Errorf("%w: unknown settlement %q; use %q, %q, %q, %q or %q", ErrPreset, name, SettlementBaseSepolia, SettlementEdenMainnet, SettlementEdenTestnet, Custom, SettlementNone)
+	return Preset{}, fmt.Errorf("%w: unknown settlement %q; use %q, %q or %q (eden-* go in the edicta-signer file)", ErrPreset, name, SettlementBaseSepolia, Custom, SettlementNone)
 }
 
 func clonePreset(p Preset) Preset {

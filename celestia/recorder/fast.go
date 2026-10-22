@@ -86,9 +86,9 @@ type FastDeps struct {
 	// Uploader is required for da = 1 and must sign promises with the key of
 	// Signer, the escrow owner.
 	Uploader node.FibreUploader
-	// GasPriceFloor, in utia per gas, is what an anchor tx pays when the node
-	// reports no minimum gas price. Nil keeps the strict behaviour: a node
-	// without a price is refused.
+	// GasPriceFloor, in utia per gas, is the lowest price an anchor tx pays,
+	// and what it pays when the node reports none or zero. Nil keeps the
+	// strict behaviour: a node without a price is refused.
 	GasPriceFloor *big.Rat
 	Log           *slog.Logger
 }
@@ -228,6 +228,8 @@ type fastCore struct {
 	// blob.
 	reserved []reservedSeq
 	bech     string
+	// floorLogged limits the warning about the gas price floor to one.
+	floorLogged atomic.Bool
 
 	mu      sync.Mutex
 	entries map[pendingKey]*fastEntry
@@ -1040,28 +1042,33 @@ func (f *fastCore) params(ctx context.Context, timeout, at uint64) (node.TxParam
 		}
 	}
 	f.reserved = kept
-	price, err := applyGasPriceFloor(f.d.GasPriceFloor)(f.d.Node.MinGasPrice(ctx))
+	price, floored, err := applyGasPriceFloor(f.d.GasPriceFloor)(f.d.Node.MinGasPrice(ctx))
 	if err != nil {
 		return node.TxParams{}, fmt.Errorf("%w: gas price: %w", ErrNodeUnavailable, err)
+	}
+	if floored && f.floorLogged.CompareAndSwap(false, true) {
+		f.d.Log.Warn("recorder: the node reports no minimum gas price, or one below the configured floor; anchor txs pay the floor", "floor_utia_per_gas", price.FloatString(9))
 	}
 	return node.TxParams{AccountNumber: acc.Number, Sequence: next, GasPrice: price, TimeoutHeight: timeout}, nil
 }
 
-// applyGasPriceFloor wraps the node's answer: an unset price becomes the
-// floor and any other error passes through. A price the node does report is
-// used as is, even below the floor, so a local chain stays cheap.
-func applyGasPriceFloor(floor *big.Rat) func(*big.Rat, error) (*big.Rat, error) {
-	return func(price *big.Rat, err error) (*big.Rat, error) {
+// applyGasPriceFloor wraps the node's answer into max(node, floor). A price
+// that is unset or zero counts as below the floor: a zero fee never lands.
+// Other errors pass through, and floored says the floor decided.
+func applyGasPriceFloor(floor *big.Rat) func(*big.Rat, error) (*big.Rat, bool, error) {
+	return func(price *big.Rat, err error) (*big.Rat, bool, error) {
 		if floor == nil {
-			return price, err
+			return price, false, err
 		}
 		switch {
 		case errors.Is(err, node.ErrNoMinGasPrice):
-			return new(big.Rat).Set(floor), nil
+			return new(big.Rat).Set(floor), true, nil
 		case err != nil:
-			return nil, err
+			return nil, false, err
+		case price.Sign() == 0 || price.Cmp(floor) < 0:
+			return new(big.Rat).Set(floor), true, nil
 		}
-		return price, nil
+		return price, false, nil
 	}
 }
 

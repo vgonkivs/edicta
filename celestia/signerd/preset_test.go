@@ -64,3 +64,21 @@ func TestChainPresetRefusals(t *testing.T) {
 		})
 	}
 }
+
+// The operator replaces only the placeholder own node; the preset still
+// supplies the public source, so L1 has its two operators.
+func TestChainPresetKeepsThePublicSourceWhenOwnRPCIsWritten(t *testing.T) {
+	text := strings.Replace(presetText(t), "[[chain]]\n", "[[chain]]\npreset = \"eden-mainnet\"\nrpc = \"own=http://127.0.0.1:1\"\n", 1)
+	require.NoError(t, validate(text))
+
+	cfg, err := signerd.ParseConfig([]byte(text))
+	require.NoError(t, err)
+	cfg.ApplyDefaults()
+	assert.Equal(t, []string{"gateway=https://rpc.eden.gateway.fm"}, cfg.Chains[0].SettlementRPC)
+
+	other := strings.Replace(text, "preset = \"eden-mainnet\"\n", "preset = \"eden-mainnet\"\nsettlement_rpc = [\"mine=https://eden.example.org\"]\n", 1)
+	cfg, err = signerd.ParseConfig([]byte(other))
+	require.NoError(t, err)
+	cfg.ApplyDefaults()
+	assert.Equal(t, []string{"mine=https://eden.example.org"}, cfg.Chains[0].SettlementRPC, "written sources win")
+}

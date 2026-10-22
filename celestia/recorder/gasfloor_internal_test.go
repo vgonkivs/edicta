@@ -20,30 +20,48 @@ func TestGasPriceFloor(t *testing.T) {
 	boom := errors.New("boom")
 
 	t.Run("an unset price becomes the floor", func(t *testing.T) {
-		got, err := applyGasPriceFloor(floor)(nil, fmt.Errorf("wrapped: %w", node.ErrNoMinGasPrice))
+		got, floored, err := applyGasPriceFloor(floor)(nil, fmt.Errorf("wrapped: %w", node.ErrNoMinGasPrice))
 		require.NoError(t, err)
+		assert.True(t, floored)
 		assert.Zero(t, got.Cmp(floor))
 		got.SetInt64(7)
 		assert.Zero(t, floor.Cmp(big.NewRat(1, 500)), "the floor is copied, not shared")
 	})
-	t.Run("a reported price is used as is, above or below the floor", func(t *testing.T) {
-		got, err := applyGasPriceFloor(floor)(reported, nil)
+	t.Run("a zero price becomes the floor", func(t *testing.T) {
+		got, floored, err := applyGasPriceFloor(floor)(new(big.Rat), nil)
 		require.NoError(t, err)
+		assert.True(t, floored)
+		assert.Zero(t, got.Cmp(floor))
+	})
+	t.Run("a price below the floor is raised to it", func(t *testing.T) {
+		got, floored, err := applyGasPriceFloor(floor)(big.NewRat(1, 1_000_000), nil)
+		require.NoError(t, err)
+		assert.True(t, floored)
+		assert.Zero(t, got.Cmp(floor))
+	})
+	t.Run("a price at or above the floor is used as is", func(t *testing.T) {
+		got, floored, err := applyGasPriceFloor(floor)(reported, nil)
+		require.NoError(t, err)
+		assert.False(t, floored)
 		assert.Zero(t, got.Cmp(reported))
-		low := big.NewRat(1, 1_000_000)
-		got, err = applyGasPriceFloor(floor)(low, nil)
+		got, floored, err = applyGasPriceFloor(floor)(floor, nil)
 		require.NoError(t, err)
-		assert.Zero(t, got.Cmp(low))
+		assert.False(t, floored)
+		assert.Zero(t, got.Cmp(floor))
 	})
 	t.Run("other errors pass through", func(t *testing.T) {
-		_, err := applyGasPriceFloor(floor)(nil, boom)
+		_, _, err := applyGasPriceFloor(floor)(nil, boom)
 		require.ErrorIs(t, err, boom)
-		_, err = applyGasPriceFloor(floor)(nil, fmt.Errorf("%w: garbage", node.ErrUnsupported))
+		_, _, err = applyGasPriceFloor(floor)(nil, fmt.Errorf("%w: garbage", node.ErrUnsupported))
 		require.ErrorIs(t, err, node.ErrUnsupported)
 	})
-	t.Run("without a floor an unset price is refused", func(t *testing.T) {
-		_, err := applyGasPriceFloor(nil)(nil, node.ErrNoMinGasPrice)
+	t.Run("without a floor the node's answer stands", func(t *testing.T) {
+		_, _, err := applyGasPriceFloor(nil)(nil, node.ErrNoMinGasPrice)
 		require.ErrorIs(t, err, node.ErrNoMinGasPrice)
 		require.ErrorIs(t, err, node.ErrUnsupported)
+		got, floored, err := applyGasPriceFloor(nil)(big.NewRat(1, 1_000_000), nil)
+		require.NoError(t, err)
+		assert.False(t, floored)
+		assert.Zero(t, got.Cmp(big.NewRat(1, 1_000_000)))
 	})
 }

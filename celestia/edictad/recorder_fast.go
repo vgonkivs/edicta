@@ -33,9 +33,12 @@ func (r RecorderConfig) hasFastKeys() bool {
 	return r.Fast || r.FastTimeoutBlocks != 0 || r.FastDedicatedAccount || r.FastUploadAddr != "" || r.FastEscrowHeadroomUtia != 0 || r.FastMinGasPrice != ""
 }
 
-// DefaultFastMinGasPrice is the anchor tx gas price used when the node
-// reports none, in utia per gas.
+// DefaultFastMinGasPrice is the lowest anchor tx gas price, in utia per gas.
 const DefaultFastMinGasPrice = "0.002"
+
+// maxFastMinGasPrice bounds the setting, in utia per gas, so a slipped digit
+// cannot make every anchor tx cost hundreds of times the default.
+var maxFastMinGasPrice = big.NewRat(1, 1)
 
 // gasPriceFloor parses FastMinGasPrice; nil when it is unset.
 func (r RecorderConfig) gasPriceFloor() (*big.Rat, error) {
@@ -50,6 +53,9 @@ func (r RecorderConfig) gasPriceFloor() (*big.Rat, error) {
 	p, ok := new(big.Rat).SetString(r.FastMinGasPrice)
 	if !ok || p.Sign() <= 0 {
 		return nil, fmt.Errorf("must be a positive decimal such as %s", DefaultFastMinGasPrice)
+	}
+	if p.Cmp(maxFastMinGasPrice) > 0 {
+		return nil, fmt.Errorf("%s utia per gas is above the ceiling of 1 utia per gas (the default is %s)", r.FastMinGasPrice, DefaultFastMinGasPrice)
 	}
 	return p, nil
 }
@@ -328,5 +334,6 @@ func logRecorderFast(log *slog.Logger, cfg Config, account []byte) {
 	} else {
 		attrs = append(attrs, "fast_timeout_blocks", cfg.Recorder.FastTimeoutBlocks)
 	}
+	attrs = append(attrs, "min_gas_price_utia", cfg.Recorder.FastMinGasPrice)
 	log.Info("edictad: recorder fast mode on; this account must sign nothing else", attrs...)
 }

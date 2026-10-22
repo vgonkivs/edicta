@@ -49,6 +49,8 @@ func TestRecorderFastMinGasPriceRefusals(t *testing.T) {
 		"leading dot": ".5",
 		"two dots":    "0.0.2",
 		"unit suffix": "0.002utia",
+		"above the ceiling": "2",
+		"far above":         "1000",
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := mandateFor(t, newEnv(t))
@@ -57,4 +59,7 @@ func TestRecorderFastMinGasPriceRefusals(t *testing.T) {
 			assert.Contains(t, err.Error(), "recorder.fast_min_gas_price")
 		})
 	}
+	p := mandateFor(t, newEnv(t))
+	_, err := p.parseBlobFast(gateFastFor(), recFast(recFastKeys+`fast_min_gas_price = "1"`))
+	require.NoError(t, err, "the ceiling itself is allowed")
 }

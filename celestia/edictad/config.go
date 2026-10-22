@@ -143,10 +143,11 @@ type RecorderConfig struct {
 	// margin. Reservations of uploaded promises live in memory and are lost
 	// on restart, while those promises can still be charged.
 	FastEscrowHeadroomUtia uint64 `toml:"fast_escrow_headroom_utia"`
-	// FastMinGasPrice is the gas price in utia per gas the anchor txs pay when
-	// the consensus node reports no minimum_gas_price (a few public endpoints
-	// leave it unset). A price the node does report is used as is. Decimal
-	// string, default 0.002, the value the main public mainnet nodes report.
+	// FastMinGasPrice is the lowest gas price in utia per gas the anchor txs
+	// pay: the node's minimum_gas_price is raised to it, and it stands in when
+	// the node reports none or zero (a few public endpoints leave it unset).
+	// Decimal string up to 1, default 0.002, the value the main public
+	// mainnet nodes report.
 	FastMinGasPrice string `toml:"fast_min_gas_price"`
 }
 

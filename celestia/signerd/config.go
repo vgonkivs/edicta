@@ -117,9 +117,9 @@ type Settlement struct {
 // Chain is one served Eden chain.
 type Chain struct {
 	// Preset names an Eden settlement preset (eden-mainnet, eden-testnet):
-	// it supplies chain_id when unset and, when no rpc and settlement_rpc
-	// are written, the preset's sources. Those start with a placeholder for
-	// the operator's own node, which the validation refuses until replaced.
+	// it supplies chain_id when unset, rpc when unset (a placeholder for
+	// the operator's own node, refused until replaced) and, when no
+	// settlement_rpc is written, the preset's public sources.
 	Preset  string `toml:"preset"`
 	ChainID uint64 `toml:"chain_id"`
 	// RPC is the signer's own Eden JSON-RPC: code checks, nonce, sends,
@@ -232,8 +232,16 @@ func (ch *Chain) applyPreset() {
 	if ch.ChainID == 0 {
 		ch.ChainID = sp.EVMChainID
 	}
-	if ch.RPC == "" && len(ch.SettlementRPC) == 0 && len(sp.RPC) > 0 {
-		ch.RPC, ch.SettlementRPC = sp.RPC[0], slices.Clone(sp.RPC[1:])
+	if len(sp.RPC) == 0 {
+		return
+	}
+	if ch.RPC == "" {
+		ch.RPC = sp.RPC[0]
+	}
+	// The preset's public sources stand in for the second operator that L1
+	// needs; the first entry is the operator's own node.
+	if len(ch.SettlementRPC) == 0 {
+		ch.SettlementRPC = slices.Clone(sp.RPC[1:])
 	}
 }
 
