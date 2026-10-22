@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/vgonkivs/edicta/verifier"
+	"github.com/vgonkivs/edicta/engine/verifier"
 )
 
 // When no key opens a private mandate, its id, version and principal are

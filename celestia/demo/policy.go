@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/vgonkivs/edicta/edictaapi"
+	"github.com/vgonkivs/edicta/api/edictaapi"
 	"github.com/vgonkivs/edicta/engine/policy"
 )
 

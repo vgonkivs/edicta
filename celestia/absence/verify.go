@@ -17,8 +17,8 @@ import (
 	core "github.com/cometbft/cometbft/types"
 	cosmostx "github.com/cosmos/cosmos-sdk/types/tx"
 
-	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/fibreproof"
+	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 )
 

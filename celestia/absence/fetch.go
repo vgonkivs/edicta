@@ -16,8 +16,8 @@ import (
 	"github.com/celestiaorg/celestia-node/share/shwap"
 	libshare "github.com/celestiaorg/go-square/v4/share"
 
-	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/railverify"
+	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 )
 

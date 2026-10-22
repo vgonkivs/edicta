@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/celestia/test/cometfake"
+	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 )
 
 // --exec-chain-id names the chain a revealed private bank send is rebuilt

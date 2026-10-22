@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/anchorverify"
+	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/test/gatefix"
-	"github.com/vgonkivs/edicta/verifier"
 )
 
 const height = uint64(4200000)

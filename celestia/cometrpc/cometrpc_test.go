@@ -24,7 +24,7 @@ import (
 	"github.com/vgonkivs/edicta/celestia/headertrust"
 	"github.com/vgonkivs/edicta/celestia/railverify"
 	"github.com/vgonkivs/edicta/celestia/test/cometfake"
-	"github.com/vgonkivs/edicta/verifier"
+	"github.com/vgonkivs/edicta/engine/verifier"
 )
 
 var bg = context.Background()

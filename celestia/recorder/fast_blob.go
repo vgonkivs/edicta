@@ -9,9 +9,9 @@ import (
 	libshare "github.com/celestiaorg/go-square/v4/share"
 	squaretx "github.com/celestiaorg/go-square/v4/tx"
 
-	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/node"
+	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/dacommit/sharev1"
 	"github.com/vgonkivs/edicta/sdk"

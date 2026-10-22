@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vgonkivs/edicta/verifier"
+	"github.com/vgonkivs/edicta/engine/verifier"
 )
 
 // A source that does not know the transaction, serves other bytes or a bad

@@ -12,9 +12,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/archive"
-	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/celestia/node"
+	"github.com/vgonkivs/edicta/engine/archive"
+	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/dacommit/blobv1"
 	"github.com/vgonkivs/edicta/engine/gate"

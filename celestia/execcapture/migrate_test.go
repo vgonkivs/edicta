@@ -16,14 +16,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/archive"
-	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/celestia/execcapture"
 	"github.com/vgonkivs/edicta/celestia/railverify"
+	"github.com/vgonkivs/edicta/engine/archive"
+	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/test/bankvec"
-	"github.com/vgonkivs/edicta/verifier"
 )
 
 // bankTx is the signed bank-send transaction of the profile vectors, with

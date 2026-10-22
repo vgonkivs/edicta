@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/verifier"
+	"github.com/vgonkivs/edicta/engine/verifier"
 )
 
 const anchorTxResultLine = "Informational: anchor tx result: code 0, node-reported, not part of the claim"

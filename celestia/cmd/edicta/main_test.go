@@ -14,11 +14,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/archive/fsarchive"
-	"github.com/vgonkivs/edicta/archive/httparchive"
 	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/test/fibrefix"
 	"github.com/vgonkivs/edicta/celestia/verifycli"
+	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
+	"github.com/vgonkivs/edicta/engine/archive/httparchive"
 )
 
 const (

@@ -13,15 +13,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vgonkivs/edicta/archive"
-	"github.com/vgonkivs/edicta/archive/fsarchive"
+	"github.com/vgonkivs/edicta/engine/archive"
+	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/dacommit/blobv1"
 	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankmsg"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/transfer"
-	"github.com/vgonkivs/edicta/verifier"
 )
 
 const rogueWait = 120 * time.Second

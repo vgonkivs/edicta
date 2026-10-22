@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/verifier"
+	"github.com/vgonkivs/edicta/engine/verifier"
 )
 
 func policyJSON(t *testing.T, info *verifier.PolicyInfo) map[string]json.RawMessage {

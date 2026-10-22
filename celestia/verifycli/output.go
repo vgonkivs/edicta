@@ -9,10 +9,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/policy"
-	"github.com/vgonkivs/edicta/verifier"
+	"github.com/vgonkivs/edicta/engine/verifier"
 )
 
 // checkView is one check. An unchecked check carries its machine-readable

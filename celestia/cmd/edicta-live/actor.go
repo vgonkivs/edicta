@@ -12,8 +12,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/vgonkivs/edicta/api/edictaapi"
 	"github.com/vgonkivs/edicta/celestia/railtx"
-	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/agent"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"

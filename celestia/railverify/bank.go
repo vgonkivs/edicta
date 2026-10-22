@@ -14,8 +14,8 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/vgonkivs/edicta/celestia/headertrust"
+	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
-	"github.com/vgonkivs/edicta/verifier"
 )
 
 type bankSend struct {

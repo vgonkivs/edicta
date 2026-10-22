@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/celestia/test/fibrefix"
+	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 )
 
 const fibreRecKeys = "max_blob_bytes = 1048576\nown_node = true\nescrow_margin_utia = 5\n" +

@@ -10,9 +10,9 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 
-	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/fibrecert"
 	"github.com/vgonkivs/edicta/celestia/node"
+	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/sdk"
 )

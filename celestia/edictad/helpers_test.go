@@ -23,11 +23,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/api/edictaapi"
 	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/nodefake"
 	"github.com/vgonkivs/edicta/celestia/recorder"
-	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/dacommit/sharev1"
 	"github.com/vgonkivs/edicta/engine/gate"

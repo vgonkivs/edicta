@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/engine/archive"
 )
 
 // Under a private mandate a clear mandate, bucket or closed set never reaches

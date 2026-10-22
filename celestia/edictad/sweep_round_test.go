@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/engine/archive"
 )
 
 // A record that fails for good is not retried, but the Authorization is in the

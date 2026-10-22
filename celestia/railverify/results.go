@@ -8,7 +8,7 @@ import (
 	abci "github.com/cometbft/cometbft/abci/types"
 	core "github.com/cometbft/cometbft/types"
 
-	"github.com/vgonkivs/edicta/verifier"
+	"github.com/vgonkivs/edicta/engine/verifier"
 )
 
 // ResultsRoot is the LastResultsHash that the block after these results

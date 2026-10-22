@@ -7,13 +7,13 @@ import (
 	"net/url"
 	"sync"
 
-	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/absence"
 	"github.com/vgonkivs/edicta/celestia/cometrpc"
 	"github.com/vgonkivs/edicta/celestia/headertrust"
 	"github.com/vgonkivs/edicta/celestia/node"
+	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/verifier"
+	"github.com/vgonkivs/edicta/engine/verifier"
 )
 
 // newProofSource connects to the bridge at rawURL. It is a variable so that

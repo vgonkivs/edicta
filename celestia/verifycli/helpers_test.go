@@ -18,16 +18,16 @@ import (
 	core "github.com/cometbft/cometbft/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/archive"
-	"github.com/vgonkivs/edicta/archive/fsarchive"
 	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/engine/archive"
+	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/dacommit/blobv1"
 	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/test/bankvec"
 	"github.com/vgonkivs/edicta/test/gatefix"
-	"github.com/vgonkivs/edicta/verifier"
 )
 
 const chainID = "mocha-4"

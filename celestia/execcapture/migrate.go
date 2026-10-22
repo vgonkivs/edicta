@@ -13,8 +13,8 @@ import (
 	"github.com/celestiaorg/go-square/v4/share"
 	abci "github.com/cometbft/cometbft/abci/types"
 
-	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/railverify"
+	"github.com/vgonkivs/edicta/engine/archive"
 )
 
 // Archive is the gate's archive as the move of captures into it uses it.

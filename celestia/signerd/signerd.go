@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/vgonkivs/edicta/api/edictaapi"
 	"github.com/vgonkivs/edicta/celestia/keyfile"
 	"github.com/vgonkivs/edicta/celestia/secret"
 	"github.com/vgonkivs/edicta/edenexec"
 	"github.com/vgonkivs/edicta/edenexec/edenrpc"
-	"github.com/vgonkivs/edicta/edictaapi"
 	"github.com/vgonkivs/edicta/signer"
 	"github.com/vgonkivs/edicta/signer/eden"
 )

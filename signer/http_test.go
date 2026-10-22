@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/edictaapi"
+	"github.com/vgonkivs/edicta/api/edictaapi"
 	"github.com/vgonkivs/edicta/signer"
 	"github.com/vgonkivs/edicta/signer/signertest"
 )

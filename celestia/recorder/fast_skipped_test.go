@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/engine/archive"
 )
 
 // Every archived intent the recovery leaves out is counted and logged once at

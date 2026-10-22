@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/celestia/railverify"
+	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/test/bankvec"
-	"github.com/vgonkivs/edicta/verifier"
 )
 
 // every rejection of the checker, so a test can require that exactly one

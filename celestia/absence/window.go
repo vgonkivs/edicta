@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/engine/archive"
 )
 
 // Window is the verdict over [h0, deadline]. Present names the first height

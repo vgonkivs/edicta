@@ -22,9 +22,9 @@ import (
 	"github.com/vgonkivs/edicta/celestia/cometrpc"
 	"github.com/vgonkivs/edicta/celestia/railverify"
 	"github.com/vgonkivs/edicta/celestia/test/cometfake"
+	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/internal/testkit"
-	"github.com/vgonkivs/edicta/verifier"
 )
 
 const liveDir = "vectors/verifier/live/"

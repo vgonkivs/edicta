@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/cometrpc"
 	"github.com/vgonkivs/edicta/celestia/execcapture"
+	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/gate/registry"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"

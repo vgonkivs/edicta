@@ -49,8 +49,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vgonkivs/edicta/archive"
-	"github.com/vgonkivs/edicta/archive/fsarchive"
+	"github.com/vgonkivs/edicta/engine/archive"
+	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/engine/principalsig"

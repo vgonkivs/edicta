@@ -15,8 +15,8 @@ import (
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	core "github.com/cometbft/cometbft/types"
 
-	"github.com/vgonkivs/edicta/archive"
-	"github.com/vgonkivs/edicta/verifier"
+	"github.com/vgonkivs/edicta/engine/archive"
+	"github.com/vgonkivs/edicta/engine/verifier"
 )
 
 // The rules an archived execution result is checked by, in order.

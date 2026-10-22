@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/vgonkivs/edicta/archive/fsarchive"
-	"github.com/vgonkivs/edicta/archive/httparchive"
 	"github.com/vgonkivs/edicta/celestia/test/cometfake"
+	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
+	"github.com/vgonkivs/edicta/engine/archive/httparchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/dacommit/blobv1"
 	"github.com/vgonkivs/edicta/engine/gate"

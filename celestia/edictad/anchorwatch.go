@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/vgonkivs/edicta/archive"
+	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/gate/registry"
 )

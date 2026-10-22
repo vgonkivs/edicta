@@ -13,11 +13,11 @@ import (
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	cmttypes "github.com/cometbft/cometbft/types"
 
-	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/anchorverify"
 	"github.com/vgonkivs/edicta/celestia/fibreproof"
 	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/node"
+	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/sdk"
 )

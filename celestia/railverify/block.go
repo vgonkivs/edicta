@@ -11,7 +11,7 @@ import (
 	fibretypes "github.com/celestiaorg/celestia-app/v10/x/fibre/types"
 	blobtx "github.com/celestiaorg/go-square/v4/tx"
 
-	"github.com/vgonkivs/edicta/verifier"
+	"github.com/vgonkivs/edicta/engine/verifier"
 )
 
 // RebuildDataRoot computes the data root of a block from its transactions

@@ -14,7 +14,7 @@ import (
 	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/edenexec"
 	"github.com/vgonkivs/edicta/edenexec/edenrpc"
-	"github.com/vgonkivs/edicta/verifier"
+	"github.com/vgonkivs/edicta/engine/verifier"
 )
 
 // settlementFlags select the Eden settlement report. Own nodes are asked

@@ -12,7 +12,7 @@ import (
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 
 	"github.com/vgonkivs/edicta/celestia/headertrust"
-	"github.com/vgonkivs/edicta/verifier"
+	"github.com/vgonkivs/edicta/engine/verifier"
 )
 
 // maxTrustedFile bounds the trusted header file.

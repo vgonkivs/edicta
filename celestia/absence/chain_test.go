@@ -22,13 +22,13 @@ import (
 
 	blobtypes "github.com/celestiaorg/celestia-app/v10/x/blob/types"
 
-	"github.com/vgonkivs/edicta/archive"
 	"github.com/vgonkivs/edicta/celestia/absence"
 	"github.com/vgonkivs/edicta/celestia/fibrecert"
 	"github.com/vgonkivs/edicta/celestia/railverify"
+	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/internal/testkit"
-	"github.com/vgonkivs/edicta/verifier"
 )
 
 // memRecords is an archive copy holding the records of one vector case.

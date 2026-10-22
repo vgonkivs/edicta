@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/vgonkivs/edicta/edictaapi"
+	"github.com/vgonkivs/edicta/api/edictaapi"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/payload"
 )

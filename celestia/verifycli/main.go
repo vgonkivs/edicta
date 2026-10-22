@@ -52,9 +52,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vgonkivs/edicta/archive"
-	"github.com/vgonkivs/edicta/archive/fsarchive"
-	"github.com/vgonkivs/edicta/archive/httparchive"
 	"github.com/vgonkivs/edicta/celestia/absence"
 	"github.com/vgonkivs/edicta/celestia/anchorverify"
 	"github.com/vgonkivs/edicta/celestia/cometrpc"
@@ -63,13 +60,16 @@ import (
 	"github.com/vgonkivs/edicta/celestia/policyext/tiatransfer"
 	"github.com/vgonkivs/edicta/celestia/secret"
 	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/engine/archive"
+	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
+	"github.com/vgonkivs/edicta/engine/archive/httparchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/dacommit/blobv1"
 	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/engine/policy"
+	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/bankaction"
 	"github.com/vgonkivs/edicta/sdk/blob"
-	"github.com/vgonkivs/edicta/verifier"
 )
 
 const (

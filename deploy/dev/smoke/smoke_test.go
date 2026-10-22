@@ -27,7 +27,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/edictaapi"
+	"github.com/vgonkivs/edicta/api/edictaapi"
 )
 
 const (

@@ -8,7 +8,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 
-	"github.com/vgonkivs/edicta/edictaapi"
+	"github.com/vgonkivs/edicta/api/edictaapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
