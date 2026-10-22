@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
 // rlpItemsOf splits a list encoding into its items' payloads; it is enough

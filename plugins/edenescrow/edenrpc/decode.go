@@ -5,7 +5,7 @@ package edenrpc
 import (
 	"encoding/json"
 
-	"github.com/vgonkivs/edicta/edenexec"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 )
 
 // maxQuantityBytes bounds a 256-bit integer.

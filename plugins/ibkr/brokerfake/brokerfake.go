@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/vgonkivs/edicta/examples/dca-agent/ibkr"
+	"github.com/vgonkivs/edicta/plugins/ibkr"
 )
 
 // ErrDuplicate is returned for a client order id the broker already holds.

@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
-	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
 // Routes of the signer API.

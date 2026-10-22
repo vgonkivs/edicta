@@ -19,8 +19,8 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/vgonkivs/edicta/celestia/config"
-	"github.com/vgonkivs/edicta/edenexec"
-	"github.com/vgonkivs/edicta/edenexec/edenrpc"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrpc"
 	"github.com/vgonkivs/edicta/signer"
 	"github.com/vgonkivs/edicta/signer/eden"
 )

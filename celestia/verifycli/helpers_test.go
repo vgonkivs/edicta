@@ -18,7 +18,6 @@ import (
 	core "github.com/cometbft/cometbft/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
@@ -26,6 +25,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/test/bankvec"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )

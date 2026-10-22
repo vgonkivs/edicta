@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/internal/testkit"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
 func liveBytes(t *testing.T, name string) []byte {

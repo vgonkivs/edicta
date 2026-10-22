@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/examples/dca-agent/ibkrorder"
 	"github.com/vgonkivs/edicta/internal/testkit"
+	"github.com/vgonkivs/edicta/plugins/ibkr/ibkrorder"
 )
 
 const vectorPath = "vectors/profiles/dca-agent/ibkr_order.json"

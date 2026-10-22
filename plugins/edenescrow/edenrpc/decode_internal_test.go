@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/edenexec"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 )
 
 func TestCheckStrict(t *testing.T) {

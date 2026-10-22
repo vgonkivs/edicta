@@ -11,10 +11,10 @@ import (
 	"strings"
 
 	"github.com/vgonkivs/edicta/celestia/config"
-	"github.com/vgonkivs/edicta/edenescrow"
-	"github.com/vgonkivs/edicta/edenexec"
-	"github.com/vgonkivs/edicta/edenexec/edenrpc"
 	"github.com/vgonkivs/edicta/engine/verifier"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrpc"
 )
 
 // settlementFlags select the Eden settlement report. Own nodes are asked

@@ -16,8 +16,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/vgonkivs/edicta/edenescrow"
-	"github.com/vgonkivs/edicta/edenexec"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 	"github.com/vgonkivs/edicta/signer"
 )
 

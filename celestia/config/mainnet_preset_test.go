@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/celestia/config"
-	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
 func TestIsPlaceholder(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 
-	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
 // WalletBackend holds one payer key. An implementation may be remote.

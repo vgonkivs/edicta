@@ -7,7 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
 // Outcome is what the transaction did, at the level reached.

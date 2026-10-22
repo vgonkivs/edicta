@@ -5,7 +5,7 @@ package edenexec
 import (
 	"encoding/hex"
 
-	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
 // ReportJSON is the settlement report with the profile's JSON names.

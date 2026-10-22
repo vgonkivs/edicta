@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/signer"
 )
 

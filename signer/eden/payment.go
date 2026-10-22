@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/signer"
 )
 

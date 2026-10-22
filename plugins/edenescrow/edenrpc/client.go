@@ -20,7 +20,7 @@ import (
 
 	"golang.org/x/crypto/sha3"
 
-	"github.com/vgonkivs/edicta/edenexec"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 )
 
 // Defaults and bounds of a client.

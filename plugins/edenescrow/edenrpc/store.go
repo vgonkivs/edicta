@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vgonkivs/edicta/edenexec"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 )
 
 // GetBlockPath is the Connect route of ev-node's StoreService.GetBlock,

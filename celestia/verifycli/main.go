@@ -58,7 +58,6 @@ import (
 	"github.com/vgonkivs/edicta/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/celestia/inclusion"
 	"github.com/vgonkivs/edicta/celestia/secret"
-	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/archive/httparchive"
@@ -69,6 +68,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
 	"github.com/vgonkivs/edicta/plugins/banksend/tiatransfer"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/sdk/blob"
 )
 

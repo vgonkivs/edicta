@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/examples/dca-agent/ibkrorder"
+	"github.com/vgonkivs/edicta/plugins/ibkr/ibkrorder"
 )
 
 // ErrInvalidConfig means NewExecutor refused its configuration.

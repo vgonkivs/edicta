@@ -7,8 +7,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/vgonkivs/edicta/edenexec"
 	"github.com/vgonkivs/edicta/internal/testkit"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 )
 
 // seeds are the recorded answers, so the fuzzer starts from real shapes.

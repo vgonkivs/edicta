@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/gate"
@@ -21,6 +20,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/policy/privatebox"
 	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
 	"github.com/vgonkivs/edicta/plugins/banksend/tiatransfer"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
 // PolicyConfig is the optional [policy] table. Without a mandate the gate

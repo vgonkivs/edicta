@@ -8,7 +8,7 @@ import (
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 
-	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
 // quoteFacilitatorKey is the test facilitator that signs the quotes' paymentId.

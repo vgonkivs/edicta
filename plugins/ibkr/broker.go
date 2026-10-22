@@ -3,7 +3,7 @@ package ibkr
 import (
 	"context"
 
-	"github.com/vgonkivs/edicta/examples/dca-agent/ibkrorder"
+	"github.com/vgonkivs/edicta/plugins/ibkr/ibkrorder"
 )
 
 // PlaceRequest is one order in the broker's wire form. Only RequestFromOrder

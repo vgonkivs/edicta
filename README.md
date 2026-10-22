@@ -167,6 +167,8 @@ Not production-ready.
 | `/` (module `github.com/vgonkivs/edicta`) | Core: `engine/commitment` (encoding, hashing, checks), `engine/gate`, `engine/policy` (mandates), `engine/principalsig`, `engine/archive`, `engine/verifier`, `sdk`, `api/edictaapi` (HTTP API), `engine/dacommit`, `test`; `cmd/edicta-principal` (the principal's mandate tool) |
 | `celestia/` (own module) | Recorder, chain client for the gate, Fibre blob commitment (`fibrecommit`), `edictad` daemon, `edicta` CLI (demo, verify), `edicta-live` runner |
 | `plugins/banksend` (root module) | The bank-send rail: action format, message encoding, executor, policy extension |
+| `plugins/edenescrow` (root module) | The Eden escrow rail: action format, escrow table, executor-side checks (`edenexec`) and the JSON-RPC reader (`edenrpc`) |
+| `plugins/ibkr` (root module) | The IBKR rail: order format (`ibkrorder`), executor, and a fake broker (`brokerfake`) |
 | `examples/` | Profiles in use: `tia-transfer` (Cosmos `MsgSend` on a price trigger) and `dca-agent` (IBKR order, offline with a fake broker) |
 | `spec/` | Specification, profiles, test vectors and their generators |
 | `docs/` | User guides |

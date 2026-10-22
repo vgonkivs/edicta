@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
 // Profile names the profile that defines the settlement report.

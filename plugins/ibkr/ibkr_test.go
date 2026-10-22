@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/examples/dca-agent/ibkr"
-	"github.com/vgonkivs/edicta/examples/dca-agent/ibkrorder"
 	"github.com/vgonkivs/edicta/internal/testkit"
+	"github.com/vgonkivs/edicta/plugins/ibkr"
+	"github.com/vgonkivs/edicta/plugins/ibkr/ibkrorder"
 )
 
 const (

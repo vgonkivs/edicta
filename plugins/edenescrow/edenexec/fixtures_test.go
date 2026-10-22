@@ -15,10 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/sha3"
 
-	"github.com/vgonkivs/edicta/edenescrow"
-	"github.com/vgonkivs/edicta/edenexec"
-	"github.com/vgonkivs/edicta/edenexec/edenrpc"
 	"github.com/vgonkivs/edicta/internal/testkit"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrpc"
 )
 
 const vectorDir = "vectors/profiles/eden-escrow"

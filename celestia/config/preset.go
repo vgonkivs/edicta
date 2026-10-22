@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
 // Preset names. The Base mainnet preset is known by name only: asking for it

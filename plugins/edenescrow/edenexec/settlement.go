@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
 // Status of a settlement report. It is verdict-neutral: nothing here moves

@@ -19,8 +19,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/edenescrow"
-	"github.com/vgonkivs/edicta/edenexec"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 	"github.com/vgonkivs/edicta/signer"
 	"github.com/vgonkivs/edicta/signer/eden"
 	"github.com/vgonkivs/edicta/signer/signertest"

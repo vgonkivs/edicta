@@ -41,7 +41,7 @@ type yet, so a gate with a mandate cannot allow it.
 
 ## Offline only
 
-Nothing here touches a network. The broker is a fake (`test/brokerfake`), the
+Nothing here touches a network. The broker is a fake (`plugins/ibkr/brokerfake`), the
 publisher and the gate's chain and storage are in-process fakes. The real IBKR
 client is a later adapter behind the `ibkr.Broker` interface. See
 `e2e_test.go` for the whole flow.

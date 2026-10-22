@@ -63,12 +63,8 @@ var classes = map[string]class{
 
 	"plugins/banksend": plugin + "banksend",
 
-	"edenescrow": plugin + "edenescrow",
-	"edenexec":   plugin + "edenescrow",
-
-	// The IBKR profile still lives under the DCA example.
-	"examples/dca-agent/ibkr":      plugin + "ibkr",
-	"examples/dca-agent/ibkrorder": plugin + "ibkr",
+	"plugins/edenescrow": plugin + "edenescrow",
+	"plugins/ibkr":       plugin + "ibkr",
 
 	"examples":  example,
 	"signer":    service,
@@ -95,7 +91,7 @@ var allowed = map[class][]class{
 
 // configDataTables are the rail packages config may read: presets use the
 // compiled escrow table so that preset, signer and verifier cannot disagree.
-var configDataTables = []string{"edenescrow"}
+var configDataTables = []string{"plugins/edenescrow"}
 
 // narrow forbids edges the class rules allow.
 var narrow = []struct {
@@ -143,7 +139,7 @@ var exceptions = map[string][]string{
 
 	// The signer core takes wallet signature types and requirement errors
 	// from the Eden escrow profile.
-	"signer": {"edenescrow"},
+	"signer": {"plugins/edenescrow"},
 }
 
 func TestLayering(t *testing.T) {

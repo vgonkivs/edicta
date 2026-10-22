@@ -11,7 +11,7 @@ import (
 
 	"github.com/fxamacker/cbor/v2"
 
-	"github.com/vgonkivs/edicta/examples/dca-agent/ibkrorder"
+	"github.com/vgonkivs/edicta/plugins/ibkr/ibkrorder"
 )
 
 // ErrMalformed covers every violation of the encoding or the field table.

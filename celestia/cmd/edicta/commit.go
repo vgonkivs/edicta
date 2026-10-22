@@ -15,7 +15,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/commitcmd"
 	"github.com/vgonkivs/edicta/celestia/secret"
-	"github.com/vgonkivs/edicta/edenescrow"
+	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
 const commitFlags = "[--config PATH] [--gate-id ID] [--gate-key HEX]... [--recipient X25519_HEX]... [--mandate-ref HEX] [--token-file FILE] [--cbor]" +
