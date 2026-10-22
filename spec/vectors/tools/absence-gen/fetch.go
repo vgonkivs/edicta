@@ -26,7 +26,7 @@ import (
 
 const chainID = "mocha-5"
 
-// Heights picked by hand from Mocha (task 031 P3 notes): a block with one
+// Heights picked by hand from Mocha: a block with one
 // normal tx and no PFF; a block with two share-version-1 blob txs and eight
 // PFFs; a block with a failed normal tx (code 4), two blob txs and three
 // PFFs, whose codes are not uniform; and three heights of the namespace an

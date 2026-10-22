@@ -4,7 +4,7 @@ Scope: `spec/decision-commitment-v1.md` (revision `v1.0`), `spec/policy-v1.md`
 (revision `policy-v1.0`) and their vectors. The frozen texts are the source of
 truth. An erratum changes only a conformance expectation, or wording that
 contradicts other frozen text. It never changes wire bytes, hashes, domain
-tags or invariants: such a change needs a new format version and the human's
+tags or invariants: such a change needs a new format version and the maintainer's
 decision.
 
 Versioning (core section 0, amended 2026-10-10). The wire format is frozen
@@ -23,7 +23,7 @@ implementation produces or accepts changes meaning.
 Software releases are a separate, semantic-version sequence (`v1.0.0`,
 `v1.0.1`, ...); their release notes state the spec revision they implement.
 The two sequences may share a commit and need not share a number:
-`spec-v1.0.1` (E1) and the software tag `v1.0.1` are both on `0ac2689`,
+`spec-v1.0.1` (E1) and the software tag `v1.0.1` sit on one commit,
 while the software tags `v1.0.2` and `v1.0.3` are code-only releases of spec
 revision `v1.0.1`. No freeze tag ever moves.
 
@@ -31,11 +31,10 @@ An erratum or clarification never changes a check outcome. An outcome moved
 toward INCONCLUSIVE (a verifier `pass` or `fail` that becomes `unchecked`;
 for the gate, decoders and executor an acceptance that becomes a refusal) is
 a `security` revision, only to close a path to a false `valid` or `invalid`,
-with the human's approval; any move away from INCONCLUSIVE, or between
+with the maintainer's approval; any move away from INCONCLUSIVE, or between
 `pass` and `fail`, needs a minor revision `v1.1` (core section 0).
 
-Erratum versus security revision (human decision of 2026-10-10), for the
-vectors:
+Erratum versus security revision, for the vectors:
 
 | | Erratum | Security revision |
 |---|---|---|
@@ -47,7 +46,7 @@ vectors:
 Security revisions so far: `v1.0.3` (core 20.8, AB5: an in-window PFF
 candidate is never absence; new reason `anchor_unpaid`; superseded
 `da/absence.json` cases `fibre_candidate_nonzero_code` and
-`window_three_heights_proven`); `v1.0.5` and `v1.1.1`, pending the human's
+`window_three_heights_proven`); `v1.0.5` and `v1.1.1`, pending the maintainer's
 approval and their tags (core 20.1, 20.1.1: a verifier reads the
 `payload_ref` of a `da` its revision does not define as an opaque map (S2
 on `da` only) and reports an envelope whose first failure is then S3 on that
@@ -56,7 +55,7 @@ on `da` only) and reports an envelope whose first failure is then S3 on that
 an envelope-level defect outside the commitment is `source_corrupt`; new files
 `verifier/reasons_v1.0.5.json` and `v1/unknown_da_v1.0.5.json`; nothing superseded, since no frozen case
 expects an envelope `fail` on S3). The behavior ships on main;
-the tags are pending the human, and until they exist no tag or release
+the tags are pending the maintainer, and until they exist no tag or release
 claims the revision.
 
 Minor revisions list superseded cases too, since `v1.2` (core section 0,
@@ -79,7 +78,6 @@ disagree on the cause of a corrupt record. The fix is always to the vector.
 
 - Type: erratum. Spec revision `v1.0.1`, tag `spec-v1.0.1`.
 - Date: 2026-10-10.
-- Author: protocol-engineer (task 040), approved by the human.
 - File: `spec/vectors/policy/archive.json`, array `reject`. Record bytes,
   ids, `expect_error` and every other case are unchanged; only `cause` and
   `description` of the two cases below change.
@@ -143,14 +141,11 @@ Manifest after E1 (`spec/vectors/MANIFEST.sha256`, changed line):
 
 ## E2. "Anchored" means inclusion proven; the anchor tx result is not part of the claim
 
-- Type: clarification. Spec revision `v1.0.2`, tag `spec-v1.0.2` (the human
+- Type: clarification. Spec revision `v1.0.2`, tag `spec-v1.0.2` (the maintainer
   creates it).
 - Date: 2026-10-10.
-- Author: protocol-engineer (task 045), human decisions of 2026-10-10
-  (task 045 `questions.md`: round 1 answer 1, round 2 answer A, and the
-  complete `da = 1` definition). Supersedes the first E2 text (commit
-  `2afafcd`, never tagged), which called the code `node-attested` under the
-  report's assumptions.
+- Supersedes the first E2 text (never tagged), which called the code
+  `node-attested` under the report's assumptions.
 - Files: `spec/decision-commitment-v1.md` sections 0, 1, 10.4 (facts), new
   10.6.3, 10.6.1 (report table, settlement paragraph), 10.7, 12.2, 13.1,
   19.8, 20.6, 20.9, 20.10, 23. No vector file changes; no vector carries the
@@ -164,7 +159,7 @@ Manifest after E1 (`spec/vectors/MANIFEST.sha256`, changed line):
 | 10.6.1 report | `settlement: node-attested` | unchanged, plus `anchor_tx_result` (both modes, `da = 1`) |
 | Section 1 | first E2: row "Nothing in `v1.0` (open gap)" | row "Anchored means inclusion proven": `tx_code` is the only node-attested field of the evidence and is not part of the claim |
 | 10.7 | block results and header `height + 1`: SHOULD, for a planned proven settlement | MAY; no proven settlement level is planned |
-| `UNVERIFIED` | non-zero PFF code; unsettled shard retention; keeper height window at the pin | VERIFIED by code at the pin (task 045 `fibre-shards-research.md`); new items: failed-PFB shares count as published (`da = 2`), no out-of-tree shard pruning |
+| `UNVERIFIED` | non-zero PFF code; unsettled shard retention; keeper height window at the pin | VERIFIED by code at the pin; new items: failed-PFB shares count as published (`da = 2`), no out-of-tree shard pruning |
 
 Scope check: no check outcome changes. CV8 keeps requiring the archived
 `tx_code = 0`, and the evidence record still admits only 0 (section 19.2):
@@ -177,10 +172,10 @@ check is added for it, because the parameter's value at `H` is not archived
 and has no upper bound. Wire bytes, hashes, tags, records, reasons and
 vectors are unchanged.
 
-Rationale. The human defined the claim: a fast-mode or strict decision is
+Rationale. The claim is defined so: a fast-mode or strict decision is
 "anchored" when inclusion is proven; the result code says whether the
 escrow (`da = 1`) or the fee payer (`da = 2`) paid, not whether the payload
-was published. Research at the pin (task 045) shows that validators fix
+was published. Research at the pin shows that validators fix
 shard retention at upload and prune on wall-clock time only, whatever the
 PFF's result, and that a PFF can be included with a non-zero code only
 through an ante failure, after its message (escrow, expiry, replay, height
@@ -194,8 +189,8 @@ or its result code proven or assumed was read: sections 1, 10.4 (NA6, NA7,
 the lookup threat note), 10.6.1 (CV8, `settlement`), 10.7, 11.1, 12.2, 13.1,
 19.2 (`tx_code`), 19.8, 20.1, 20.6, 20.9, 20.10, 23. The gate's NA6 and NA7
 and K-fast F6 and B5 keep requiring code 0 for the gate's own lookup; that
-is the gate's check, unchanged. Outside the spec, not changed here (owners:
-programmer, docs): `verifier/pending.go` and the `da = 1` report (replace
+is the gate's check, unchanged. Outside the spec, not changed here:
+`verifier/pending.go` and the `da = 1` report (replace
 the assumption line of the first E2 with the informational
 `anchor_tx_result` line, in both modes), and `guide/verifier.md` (the copy
 of the 20.9 block).
@@ -204,8 +199,7 @@ Prevention. The informational line and the JSON value are fixed strings that
 the verifier's report test can compare. No vector change; the manifest is
 unchanged.
 
-Addendum (same revision, human answers R3 of 2026-10-10, task 045
-`questions.md`). Clarifications only, no check outcome changes, no vector
+Addendum (same revision). Clarifications only, no check outcome changes, no vector
 changes:
 - 10.6.3, next to the definition: "v1.0 verifiers additionally require
   `tx_code == 0` (CV8); this requirement is removed in v1.1."
@@ -221,12 +215,11 @@ changes:
 
 ## E3. The pending-reference header-trust bound holds for every header-trust kind
 
-- Type: clarification. Spec revision `v1.0.4`, tag `spec-v1.0.4` (the human
+- Type: clarification. Spec revision `v1.0.4`, tag `spec-v1.0.4` (the maintainer
   creates it).
 - Date: 2026-10-11.
-- Author: protocol-engineer (task 045, audit item m3), human decision Q2 of
-  2026-10-10 (task 044 `analysis.md`: "uniform D bound across all
-  header-trust kinds: conformance fix to the frozen spec (20.6, max(D, H))").
+- Basis: a uniform D bound across all header-trust kinds is a conformance
+  fix to the frozen spec (20.6, max(D, H)).
 - Files: `spec/decision-commitment-v1.md` sections 0 (status line, changelog
   row) and 20.6 (one paragraph after the `max(D, H)` sentence). No vector
   file changes; the manifest is unchanged.
@@ -246,11 +239,11 @@ the bound (accepted a checkpoint below `D`, or did not know its checkpoint)
 could report `pass` where the frozen text requires `unchecked`. Fixing it
 moves outcomes only toward INCONCLUSIVE (`pass` to `unchecked`), never to
 `fail` and never away from `unchecked`. It is a conformance bug fix of that
-implementation, recorded in the changelog as Q2 requires, not a `security`
+implementation, recorded in the changelog, not a `security`
 revision: the spec text does not change behavior, so no frozen vector is
 superseded and nothing goes into `SUPERSEDED.json`.
 
-Vector check (Q2). No frozen vector expects a `pass` with a checkpoint below
+Vector check. No frozen vector expects a `pass` with a checkpoint below
 the bound: every case of `v1/verify.json` and `v1/verify_v1.0.3.json` whose
 `anchor` is `pass` has `trusted_head` 4200127 with `anchor_deadline`
 4200126; the cases with `trusted_head` below `D` (or below `D + 1` with a

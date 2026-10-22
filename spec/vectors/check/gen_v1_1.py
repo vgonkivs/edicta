@@ -9,7 +9,7 @@
   api/errors.json, with the merged match order of core 18.3;
 - v1/verify_v1.1.json: the anchor check of a pending reference when header trust reaches the anchor height H but not
   the deadline D (core 20.6.1), on the records of v1/verify.json;
-- verifier/reasons_v1.1.json: the wording of the reason anchor_unpaid under human decision H1 (the paid-anchor
+- verifier/reasons_v1.1.json: the wording of the reason anchor_unpaid (the paid-anchor
   requirement stays), replacing the meaning and advice strings of the frozen verifier/reasons_v1.0.3.json for the
   text output of a v1.1 verifier; no reason, check or outcome changes.
 

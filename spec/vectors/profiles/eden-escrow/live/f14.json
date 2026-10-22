@@ -1,5 +1,5 @@
 {
-  "_note": "Recorded Eden mainnet (chain 714) data of the F14 deposit and settle, read-only, copied from the task 051 R0 fixtures. Inputs of edenescrow-gen; never edited by hand.",
+  "_note": "Recorded Eden mainnet (chain 714) data of the F14 deposit and settle, read-only. Inputs of edenescrow-gen; never edited by hand.",
   "_retrieved": "2026-10-21",
   "_sources": {
     "block_txs": "Eden data blob (SignedData) of Eden block 227899844 in Celestia mainnet height 15152868, namespace 000000000000000000000000000000000000000a312b9016d7ca3339b6, share range [383, 387); share proof verified to the header data_hash in R0",
