@@ -1,6 +1,7 @@
 package recorder_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -243,9 +244,19 @@ func TestFastBlobSignsAtTheHigherOfTheLocalAndTheChainSequence(t *testing.T) {
 			f.node.mu.Unlock()
 			_, err = r.Publish(bg, []byte("a second payload"))
 			require.NoError(t, err)
+			// The background loop may rebroadcast the first, archived tx while
+			// the second is published; only the new payload's tx counts.
 			sent := f.node.sends()
-			require.Len(t, sent, 2)
-			assert.Equal(t, tc.want, txSequence(t, innerTx(sent[1])))
+			require.GreaterOrEqual(t, len(sent), 2)
+			first := innerTx(sent[0])
+			var second [][]byte
+			for _, raw := range sent[1:] {
+				if !bytes.Equal(innerTx(raw), first) {
+					second = append(second, raw)
+				}
+			}
+			require.Len(t, second, 1)
+			assert.Equal(t, tc.want, txSequence(t, innerTx(second[0])))
 		})
 	}
 }
