@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -16,6 +17,9 @@ var (
 	// ErrUnsupported means the node or chain is not one this build can use
 	// (failed compatibility check, missing module, wrong API shape).
 	ErrUnsupported = errors.New("node: unsupported")
+	// ErrNoMinGasPrice means the node answered but reports no minimum gas
+	// price (some public endpoints leave it unset).
+	ErrNoMinGasPrice = fmt.Errorf("%w: node reports no minimum gas price", ErrUnsupported)
 	// ErrUnavailable means the node could not be asked or did not answer in time.
 	ErrUnavailable = errors.New("node: unavailable")
 	// ErrAlreadyInMempool means the node already holds this exact transaction

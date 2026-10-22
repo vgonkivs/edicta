@@ -706,9 +706,10 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 		if _, ok := d.Reader.(signedHeaderReader); !ok {
 			return fail(cfgErr("the recorder needs a node reader that can return signed headers"))
 		}
+		floor, _ := cfg.Recorder.gasPriceFloor()
 		rcfg := recorder.Config{Namespace: ns, MaxBlobBytes: cfg.Recorder.maxBlob(), Archive: store, Now: clock.Now,
 			FastTimeoutBlocks: cfg.Recorder.FastTimeoutBlocks}
-		rec, err := recorder.NewFast(rcfg, recorder.FastDeps{Signer: d.RecorderFast.Signer, Node: d.Consensus, Log: log}, d.Reader)
+		rec, err := recorder.NewFast(rcfg, recorder.FastDeps{Signer: d.RecorderFast.Signer, Node: d.Consensus, GasPriceFloor: floor, Log: log}, d.Reader)
 		if err != nil {
 			return fail(fmt.Errorf("edictad: fast recorder: %w", err))
 		}
@@ -826,7 +827,8 @@ func buildFibreRecorder(cfg Config, d Deps, ns []byte, store archive.Store, cloc
 		Log:       log,
 	}
 	if cfg.Recorder.Fast {
-		fd.Fast = &recorder.FastDeps{Signer: d.RecorderFast.Signer, Node: d.Consensus, Uploader: d.RecorderFast.Uploader, Log: log}
+		floor, _ := cfg.Recorder.gasPriceFloor()
+		fd.Fast = &recorder.FastDeps{Signer: d.RecorderFast.Signer, Node: d.Consensus, Uploader: d.RecorderFast.Uploader, GasPriceFloor: floor, Log: log}
 		fd.Params = params
 	}
 	rec, err := build(fc, fd)

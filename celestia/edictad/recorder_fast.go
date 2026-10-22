@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"slices"
 	"strings"
 
@@ -29,12 +30,36 @@ const defaultFastTimeoutBlocks = 100
 const fastBlobCloseTimeoutS = 30
 
 func (r RecorderConfig) hasFastKeys() bool {
-	return r.Fast || r.FastTimeoutBlocks != 0 || r.FastDedicatedAccount || r.FastUploadAddr != "" || r.FastEscrowHeadroomUtia != 0
+	return r.Fast || r.FastTimeoutBlocks != 0 || r.FastDedicatedAccount || r.FastUploadAddr != "" || r.FastEscrowHeadroomUtia != 0 || r.FastMinGasPrice != ""
+}
+
+// DefaultFastMinGasPrice is the anchor tx gas price used when the node
+// reports none, in utia per gas.
+const DefaultFastMinGasPrice = "0.002"
+
+// gasPriceFloor parses FastMinGasPrice; nil when it is unset.
+func (r RecorderConfig) gasPriceFloor() (*big.Rat, error) {
+	if r.FastMinGasPrice == "" {
+		return nil, nil
+	}
+	for i, c := range r.FastMinGasPrice {
+		if c != '.' && (c < '0' || c > '9') || c == '.' && i == 0 {
+			return nil, fmt.Errorf("must be a plain decimal such as %s", DefaultFastMinGasPrice)
+		}
+	}
+	p, ok := new(big.Rat).SetString(r.FastMinGasPrice)
+	if !ok || p.Sign() <= 0 {
+		return nil, fmt.Errorf("must be a positive decimal such as %s", DefaultFastMinGasPrice)
+	}
+	return p, nil
 }
 
 func (r RecorderConfig) withFastDefaults(da string) RecorderConfig {
 	if r.Fast && da == DAConfigBlob && r.FastTimeoutBlocks == 0 {
 		r.FastTimeoutBlocks = defaultFastTimeoutBlocks
+	}
+	if r.Fast && r.FastMinGasPrice == "" {
+		r.FastMinGasPrice = DefaultFastMinGasPrice
 	}
 	return r
 }
@@ -45,9 +70,12 @@ func (c Config) validateRecorderFast() error {
 	r := c.Recorder
 	if !r.Fast {
 		if r.hasFastKeys() {
-			return cfgErr("recorder.fast_timeout_blocks, fast_dedicated_account, fast_upload_addr and fast_escrow_headroom_utia need recorder.fast")
+			return cfgErr("recorder.fast_timeout_blocks, fast_dedicated_account, fast_upload_addr, fast_escrow_headroom_utia and fast_min_gas_price need recorder.fast")
 		}
 		return nil
+	}
+	if _, err := r.gasPriceFloor(); err != nil {
+		return cfgErr("recorder.fast_min_gas_price: %v", err)
 	}
 	if !r.Enabled {
 		return cfgErr("recorder.fast needs recorder.enabled")

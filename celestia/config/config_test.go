@@ -123,9 +123,9 @@ func TestOverrideBuildsAMissingSection(t *testing.T) {
 	assert.Equal(t, "https://rpc.example.org", c.Verify.TxRPC)
 }
 
-func TestMainnetPresetsAreNotAvailableYet(t *testing.T) {
+func TestUnavailableAndUnknownPresetsAreRefused(t *testing.T) {
 	for _, tc := range []struct{ celestia, settlement string }{
-		{"celestia-mainnet", "none"}, {"mocha", "base"}, {"nope", "none"}, {"mocha", "nope"},
+		{"mocha", "base"}, {"nope", "none"}, {"mocha", "nope"},
 	} {
 		c, err := config.Parse([]byte(selfHosted), map[string]string{"network.celestia": tc.celestia, "network.settlement": tc.settlement})
 		require.NoError(t, err)

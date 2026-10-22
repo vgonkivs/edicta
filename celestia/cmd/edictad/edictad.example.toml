@@ -64,6 +64,9 @@ max_blob_bytes = 1048576
 #                                  # pending references go stale and are never re-signed
 # fast_timeout_blocks = 100        # celestia_blob only, 13..1000; above
 #                                  # gate.fast.max_h0_age_blocks + min_fast_slack_blocks
+# fast_min_gas_price = "0.002"     # utia per gas, used only when the consensus node reports no
+#                                  # minimum_gas_price (some public nodes leave it unset); a price the
+#                                  # node reports is used as is. Default 0.002
 # fast_upload_addr = "consensus.example.invalid:9090"  # da = "fibre" only; must be network.consensus_grpc.addr
 # fast_escrow_headroom_utia = <n>  # da = "fibre" only; at least one upload of max_blob_bytes. Reservations
 #                                  # are in memory and lost on restart: size it as max blob cost times the

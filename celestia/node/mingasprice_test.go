@@ -51,6 +51,8 @@ func TestMinGasPrice(t *testing.T) {
 		{"0.002000utia", "1/500", nil},
 		{"1utia", "1", nil},
 		{"0.1utia", "1/10", nil},
+		{"", "0", ErrNoMinGasPrice},
+		{"  ", "0", ErrNoMinGasPrice},
 		{"", "0", ErrUnsupported},
 		{"garbage", "0", ErrUnsupported},
 		{"-1utia", "0", ErrUnsupported},

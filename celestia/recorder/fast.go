@@ -86,7 +86,11 @@ type FastDeps struct {
 	// Uploader is required for da = 1 and must sign promises with the key of
 	// Signer, the escrow owner.
 	Uploader node.FibreUploader
-	Log      *slog.Logger
+	// GasPriceFloor, in utia per gas, is what an anchor tx pays when the node
+	// reports no minimum gas price. Nil keeps the strict behaviour: a node
+	// without a price is refused.
+	GasPriceFloor *big.Rat
+	Log           *slog.Logger
 }
 
 func (d FastDeps) check(da commitment.DA) error {
@@ -1036,11 +1040,29 @@ func (f *fastCore) params(ctx context.Context, timeout, at uint64) (node.TxParam
 		}
 	}
 	f.reserved = kept
-	price, err := f.d.Node.MinGasPrice(ctx)
+	price, err := applyGasPriceFloor(f.d.GasPriceFloor)(f.d.Node.MinGasPrice(ctx))
 	if err != nil {
 		return node.TxParams{}, fmt.Errorf("%w: gas price: %w", ErrNodeUnavailable, err)
 	}
 	return node.TxParams{AccountNumber: acc.Number, Sequence: next, GasPrice: price, TimeoutHeight: timeout}, nil
+}
+
+// applyGasPriceFloor wraps the node's answer: an unset price becomes the
+// floor and any other error passes through. A price the node does report is
+// used as is, even below the floor, so a local chain stays cheap.
+func applyGasPriceFloor(floor *big.Rat) func(*big.Rat, error) (*big.Rat, error) {
+	return func(price *big.Rat, err error) (*big.Rat, error) {
+		if floor == nil {
+			return price, err
+		}
+		switch {
+		case errors.Is(err, node.ErrNoMinGasPrice):
+			return new(big.Rat).Set(floor), nil
+		case err != nil:
+			return nil, err
+		}
+		return price, nil
+	}
 }
 
 // errProcessed marks a Fibre promise the chain has already settled: some tx

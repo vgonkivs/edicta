@@ -1,21 +1,49 @@
 package config
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"slices"
+	"strings"
+
+	"github.com/vgonkivs/edicta/edenescrow"
 )
 
-// Preset names. The mainnet presets are known by name only: they arrive with
-// the mainnet re-pin, and asking for them is a clear error, not a guess.
+// Preset names. The Base mainnet preset is known by name only: asking for it
+// is a clear error, not a guess.
 const (
 	CelestiaMocha         = "mocha"
 	CelestiaMainnet       = "celestia-mainnet"
 	SettlementBaseSepolia = "base-sepolia"
 	SettlementBase        = "base"
+	SettlementEdenTestnet = "eden-testnet"
+	SettlementEdenMainnet = "eden-mainnet"
 	Custom                = "custom"
 	SettlementNone        = "none"
 )
+
+// PlaceholderHost is the reserved top-level domain of a preset value the
+// operator must replace. It never resolves, so an unfilled placeholder fails
+// closed even if a check forgets to look for it.
+const PlaceholderHost = ".invalid"
+
+// IsPlaceholder reports whether an address, URL or OPERATOR=URL source names
+// a placeholder host.
+func IsPlaceholder(addr string) bool {
+	if label, rest, ok := strings.Cut(addr, "="); ok && !strings.ContainsAny(label, "/:") {
+		addr = rest
+	}
+	host := addr
+	if u, err := url.Parse(addr); err == nil && u.Hostname() != "" {
+		host = u.Hostname()
+	} else if h, _, err := net.SplitHostPort(addr); err == nil {
+		host = h
+	}
+	return strings.HasSuffix(strings.ToLower(strings.TrimSuffix(host, ".")), PlaceholderHost)
+}
 
 // ErrPreset wraps every refusal to resolve a preset.
 var ErrPreset = errors.New("config: preset")
@@ -54,13 +82,22 @@ type Preset struct {
 
 	// Settlement.
 	EVMChainID uint64
-	USDC       USDC
-	RPC        []string
+	// Escrow and EscrowCodeHash (0x hex) are set by the Eden presets: the
+	// escrow contract of the chain and the keccak-256 of its runtime code,
+	// read from the table the extractor compiles in.
+	Escrow         string
+	EscrowCodeHash string
+	USDC           USDC
+	RPC            []string
 	// FacilitatorURL and FacilitatorNetwork name the x402 facilitator and the
 	// network label it lists in its supported kinds.
 	FacilitatorURL     string
 	FacilitatorNetwork string
 }
+
+// IsEscrow reports whether the preset is an Eden escrow chain, which the
+// edicta-signer file configures, not the USDC section of edicta.toml.
+func (p Preset) IsEscrow() bool { return p.Escrow != "" }
 
 // Presets resolves preset names.
 type Presets interface {
@@ -81,6 +118,48 @@ var mocha = Preset{
 	CometRPC:      []string{"https://rpc-mocha.pops.one", "https://rpc-1.testnet.celestia.nodes.guru"},
 	FaucetURL:     "https://docs.celestia.org/operate/networks/mocha-testnet#mocha-testnet-faucet",
 	Fibre:         true,
+}
+
+// mainnet is the Celestia mainnet. The chain id and the Comet RPC endpoints
+// are what was observed on the network; the bridge and the consensus gRPC
+// endpoint are the operator's own and stay placeholders, so a config cannot
+// pass validation before they are replaced. Blob and fee parameters equal
+// Mocha's, so one fast-mode setup fits both.
+var mainnet = Preset{
+	Name:          CelestiaMainnet,
+	Version:       1,
+	ChainID:       "celestia",
+	Bridge:        Endpoint{Addr: "bridge.operator-fills-this-in.invalid", TLS: true},
+	ConsensusGRPC: Endpoint{Addr: "consensus-grpc.operator-fills-this-in.invalid:9090", TLS: false},
+	CometRPC:      []string{"https://celestia-rpc.publicnode.com", "https://rpc.lunaroasis.net"},
+	Fibre:         true,
+}
+
+// The Eden presets take the escrow address and code hash from the compiled
+// table, so the signer, the verifier and the preset can never disagree. The
+// first RPC is the operator's own node, a placeholder; the others are
+// further sources under their operators' labels.
+func edenPreset(name string, chainID uint64, rpc []string) Preset {
+	p := Preset{Name: name, Version: 1, EVMChainID: chainID, RPC: rpc}
+	if row, ok := edenescrow.Lookup(chainID); ok {
+		p.Escrow = "0x" + hex.EncodeToString(row.Escrow[:])
+		p.EscrowCodeHash = "0x" + hex.EncodeToString(row.CodeHash[:])
+	}
+	return p
+}
+
+func edenMainnet() Preset {
+	return edenPreset(SettlementEdenMainnet, 714, []string{
+		"own-node=https://eden-rpc.operator-fills-this-in.invalid",
+		"gateway=https://rpc.eden.gateway.fm",
+	})
+}
+
+func edenTestnet() Preset {
+	return edenPreset(SettlementEdenTestnet, 3735928814, []string{
+		"own-node=https://eden-testnet-rpc.operator-fills-this-in.invalid",
+		"second-operator=https://eden-testnet-rpc-2.operator-fills-this-in.invalid",
+	})
 }
 
 // The token's domain name and version are UNVERIFIED against the contract;
@@ -104,11 +183,11 @@ func (Builtin) Celestia(name string) (Preset, error) {
 	case CelestiaMocha:
 		return clonePreset(mocha), nil
 	case CelestiaMainnet:
-		return Preset{}, fmt.Errorf("%w: %q is not available in this build: it arrives with the mainnet re-pin; use %q or %q", ErrPreset, name, CelestiaMocha, Custom)
+		return clonePreset(mainnet), nil
 	case Custom:
 		return Preset{Name: Custom}, nil
 	}
-	return Preset{}, fmt.Errorf("%w: unknown celestia network %q; use %q or %q", ErrPreset, name, CelestiaMocha, Custom)
+	return Preset{}, fmt.Errorf("%w: unknown celestia network %q; use %q, %q or %q", ErrPreset, name, CelestiaMocha, CelestiaMainnet, Custom)
 }
 
 // Settlement returns the preset of a settlement chain. "none" and "custom"
@@ -117,12 +196,16 @@ func (Builtin) Settlement(name string) (Preset, error) {
 	switch name {
 	case SettlementBaseSepolia:
 		return clonePreset(baseSepolia), nil
+	case SettlementEdenMainnet:
+		return clonePreset(edenMainnet()), nil
+	case SettlementEdenTestnet:
+		return clonePreset(edenTestnet()), nil
 	case SettlementBase:
-		return Preset{}, fmt.Errorf("%w: %q is not available in this build: it arrives with the mainnet re-pin; use %q, %q or %q", ErrPreset, name, SettlementBaseSepolia, Custom, SettlementNone)
+		return Preset{}, fmt.Errorf("%w: %q is not available in this build; use %q, %q, %q or %q", ErrPreset, name, SettlementBaseSepolia, SettlementEdenMainnet, Custom, SettlementNone)
 	case Custom, SettlementNone:
 		return Preset{Name: name}, nil
 	}
-	return Preset{}, fmt.Errorf("%w: unknown settlement %q; use %q, %q or %q", ErrPreset, name, SettlementBaseSepolia, Custom, SettlementNone)
+	return Preset{}, fmt.Errorf("%w: unknown settlement %q; use %q, %q, %q, %q or %q", ErrPreset, name, SettlementBaseSepolia, SettlementEdenMainnet, SettlementEdenTestnet, Custom, SettlementNone)
 }
 
 func clonePreset(p Preset) Preset {

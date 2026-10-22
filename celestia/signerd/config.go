@@ -12,11 +12,13 @@ import (
 	"fmt"
 	"math/big"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/edenexec"
 	"github.com/vgonkivs/edicta/edenexec/edenrpc"
 	"github.com/vgonkivs/edicta/signer"
@@ -114,6 +116,11 @@ type Settlement struct {
 
 // Chain is one served Eden chain.
 type Chain struct {
+	// Preset names an Eden settlement preset (eden-mainnet, eden-testnet):
+	// it supplies chain_id when unset and, when no rpc and settlement_rpc
+	// are written, the preset's sources. Those start with a placeholder for
+	// the operator's own node, which the validation refuses until replaced.
+	Preset  string `toml:"preset"`
 	ChainID uint64 `toml:"chain_id"`
 	// RPC is the signer's own Eden JSON-RPC: code checks, nonce, sends,
 	// and the first settlement source. RPC and SettlementRPC take a URL or
@@ -193,9 +200,40 @@ func (c *Config) ApplyDefaults() {
 		b.RelayGraceS = min(uint64(eden.DefaultRelayGrace/time.Second), s.AwaitGraceS)
 	}
 	for i := range c.Chains {
+		c.Chains[i].applyPreset()
 		if c.Chains[i].Broadcaster == "" {
 			c.Chains[i].Broadcaster = eden.BroadcastRelay
 		}
+	}
+}
+
+// escrowPreset resolves Preset; an unset one is not an error.
+func (ch Chain) escrowPreset() (config.Preset, error) {
+	if ch.Preset == "" {
+		return config.Preset{}, nil
+	}
+	sp, err := (config.Builtin{}).Settlement(ch.Preset)
+	switch {
+	case err != nil:
+		return config.Preset{}, fmt.Errorf("signerd: chain preset: %w", err)
+	case !sp.IsEscrow():
+		return config.Preset{}, fmt.Errorf("signerd: chain preset %q is not an Eden preset (eden-mainnet, eden-testnet)", ch.Preset)
+	}
+	return sp, nil
+}
+
+// applyPreset fills what the file left unset from the chain's preset. An
+// unknown preset is left for ValidateBasic to refuse.
+func (ch *Chain) applyPreset() {
+	sp, err := ch.escrowPreset()
+	if err != nil || ch.Preset == "" {
+		return
+	}
+	if ch.ChainID == 0 {
+		ch.ChainID = sp.EVMChainID
+	}
+	if ch.RPC == "" && len(ch.SettlementRPC) == 0 && len(sp.RPC) > 0 {
+		ch.RPC, ch.SettlementRPC = sp.RPC[0], slices.Clone(sp.RPC[1:])
 	}
 }
 
@@ -288,6 +326,18 @@ func (c Config) ValidateBasic() error {
 	}
 	seen := map[string]uint64{}
 	for _, ch := range c.Chains {
+		sp, err := ch.escrowPreset()
+		if err != nil {
+			return err
+		}
+		if ch.Preset != "" && ch.ChainID != sp.EVMChainID {
+			return fmt.Errorf("signerd: chain %d: preset %q is for chain %d", ch.ChainID, ch.Preset, sp.EVMChainID)
+		}
+		for _, src := range ch.awaitSources() {
+			if config.IsPlaceholder(src) {
+				return fmt.Errorf("signerd: chain %d: %q is a placeholder: set your own node in rpc (own_node = true) and real settlement_rpc sources", ch.ChainID, src)
+			}
+		}
 		if ch.PayerKeyFile == "" {
 			return fmt.Errorf("signerd: chain %d: payer_key_file is required", ch.ChainID)
 		}

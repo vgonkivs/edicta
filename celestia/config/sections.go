@@ -432,16 +432,25 @@ func (n Network) ValidateBasic() error {
 	if n.Bridge.Addr == "" {
 		return cfgErr("network.bridge.addr is required")
 	}
+	if IsPlaceholder(n.Bridge.Addr) {
+		return cfgErr("network.bridge.addr is the preset's placeholder: set your own bridge node")
+	}
 	if err := checkBridgeAddr(n.Bridge.Addr, n.Bridge.TLS); err != nil {
 		return cfgErr("network.bridge.addr: %v", err)
 	}
 	if n.ConsensusGRPC.Addr == "" {
 		return cfgErr("network.consensus_grpc.addr is required")
 	}
+	if IsPlaceholder(n.ConsensusGRPC.Addr) {
+		return cfgErr("network.consensus_grpc.addr is the preset's placeholder: set your own consensus endpoint")
+	}
 	if err := checkGRPCAddr(n.ConsensusGRPC.Addr); err != nil {
 		return cfgErr("network.consensus_grpc.addr: %v", err)
 	}
 	for i, u := range n.CometRPC {
+		if IsPlaceholder(u) {
+			return cfgErr("network.comet_rpc[%d] is a placeholder: set a real endpoint", i)
+		}
 		if err := checkURL(u); err != nil {
 			return cfgErr("network.comet_rpc[%d]: %v", i, err)
 		}
@@ -451,6 +460,9 @@ func (n Network) ValidateBasic() error {
 			return cfgErr(`[network.evm] needs a settlement chain: network.settlement is "none"`)
 		}
 		return nil
+	}
+	if sp, err := (Builtin{}).Settlement(n.Settlement); err == nil && sp.IsEscrow() {
+		return cfgErr("network.settlement %q is an Eden escrow chain: the Eden signer file (edicta-signer, chain preset) configures it, not this file; use %q or %q here", n.Settlement, SettlementBaseSepolia, SettlementNone)
 	}
 	e := n.EVM
 	switch {

@@ -200,7 +200,7 @@ func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, e
 		"[--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)] [--cross-check URL]... [--exclude-host HOST]... " +
 		"[--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution [--exec-chain-id ID] [--result-archive DIR|URL]...] " +
 		"[--principal-key HEX]... [--principal ed25519:HEX|cosmos:BECH32|eth:0xHEX]... [--require-policy] [--policy-full] [--max-walk-steps N] [--policy-evidence FILE]... [--auditor-key FILE]... [--absence-source URL] [--json] " +
-		"[--settlement (--settlement-rpc URL | --settlement-own-rpc URL)... [--settlement-da URL] [--settlement-level L0|L1|L2] [--settlement-min-sources N] [--settlement-confirm-depth N]]\n" +
+		"[--settlement (--settlement-rpc URL | --settlement-own-rpc URL)... [--settlement-da URL] [--settlement-level L0|L1|L2] [--settlement-min-sources N] [--settlement-confirm-depth N] [--settlement-preset eden-mainnet|eden-testnet]]\n" +
 		"       absence <commitment_hash> --gate-key HEX --archive DIR --absence-source URL (--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)) [--json]"
 	var f flags
 	if len(args) == 0 || (args[0] != "verify" && args[0] != "replay" && args[0] != "absence") {
@@ -249,6 +249,7 @@ func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, e
 	var settleRPC, settleOwn multiFlag
 	fs.Var(&settleRPC, "settlement-rpc", "Eden JSON-RPC of a public operator for --settlement, as URL or OPERATOR=URL (repeatable, one per host)")
 	fs.Var(&settleOwn, "settlement-own-rpc", "Eden JSON-RPC of the operator's own node for --settlement, as URL or OPERATOR=URL, asked first (repeatable)")
+	fs.StringVar(&f.settle.preset, "settlement-preset", "", "Eden preset (eden-mainnet or eden-testnet): adds its public sources to --settlement-rpc; the preset's own-node slot is a placeholder, so give your own with --settlement-own-rpc")
 	fs.StringVar(&f.settle.da, "settlement-da", "", "the operator's own ev-node RPC, for whether the block's data is in Celestia (report only)")
 	fs.StringVar(&f.settle.level, "settlement-level", "", "level a settlement pass needs: L0, L1 or L2 (default L1: two operators agree)")
 	fs.IntVar(&f.settle.sources, "settlement-min-sources", 0, "agreeing operators that make L1 (default 2)")
@@ -326,6 +327,11 @@ func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, e
 	f.checkpointRPC, f.crossRPC, f.excludeHosts, f.txRPC = ckpt, cross, exclude, txRPC
 	f.resultArchives = resultArchives
 	f.settle.rpc, f.settle.ownRPC = settleRPC, settleOwn
+	if f.settle.preset != "" {
+		if f.settle.rpc, err = withPresetSources(f.settle.preset, f.settle.rpc, f.settle.ownRPC); err != nil {
+			return f, err
+		}
+	}
 	f.params = def
 	f.params.SkewS, f.params.BlobRetentionS = *skew, *blobRetention
 	f.applyDefaults(d, given)

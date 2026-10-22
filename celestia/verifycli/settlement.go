@@ -6,7 +6,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
+	"slices"
+	"strings"
 
+	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/edenescrow"
 	"github.com/vgonkivs/edicta/edenexec"
 	"github.com/vgonkivs/edicta/edenexec/edenrpc"
@@ -25,16 +29,17 @@ type settlementFlags struct {
 	rpc     []string
 	ownRPC  []string
 	da      string
+	preset  string
 	level   string
 	sources int
 	depth   uint64
 }
 
 func (s settlementFlags) validate(cmd, receiptPath string) error {
-	given := len(s.rpc) > 0 || len(s.ownRPC) > 0 || s.da != "" || s.level != "" || s.sources != 0 || s.depth != 0
+	given := len(s.rpc) > 0 || len(s.ownRPC) > 0 || s.da != "" || s.preset != "" || s.level != "" || s.sources != 0 || s.depth != 0
 	switch {
 	case !s.on && given:
-		return usagef("--settlement-rpc, --settlement-own-rpc, --settlement-da, --settlement-level, --settlement-min-sources and --settlement-confirm-depth are used only with --settlement")
+		return usagef("--settlement-rpc, --settlement-own-rpc, --settlement-preset, --settlement-da, --settlement-level, --settlement-min-sources and --settlement-confirm-depth are used only with --settlement")
 	case !s.on:
 		return nil
 	case cmd != "verify":
@@ -98,6 +103,42 @@ func (s settlementFlags) checker() (*edenexec.Checker, error) {
 		return nil, usagef("settlement: %v", err)
 	}
 	return chk, nil
+}
+
+// withPresetSources adds the sources of an Eden preset to the public ones
+// given. Placeholders are skipped (they stand for the operator's own node),
+// and so is any source on a host that is already present.
+func withPresetSources(name string, rpc, own []string) ([]string, error) {
+	sp, err := (config.Builtin{}).Settlement(name)
+	switch {
+	case err != nil:
+		return nil, usagef("--settlement-preset: %v", err)
+	case !sp.IsEscrow():
+		return nil, usagef("--settlement-preset %q is not an Eden preset", name)
+	}
+	seen := map[string]bool{}
+	for _, u := range append(slices.Clone(rpc), own...) {
+		_, raw := edenrpc.SplitSource(u)
+		seen[sourceHost(raw)] = true
+	}
+	out := slices.Clone(rpc)
+	for _, u := range sp.RPC {
+		_, raw := edenrpc.SplitSource(u)
+		if config.IsPlaceholder(u) || seen[sourceHost(raw)] {
+			continue
+		}
+		seen[sourceHost(raw)] = true
+		out = append(out, u)
+	}
+	return out, nil
+}
+
+func sourceHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return strings.ToLower(u.Hostname())
 }
 
 // sourceURLs strips the operator labels of OPERATOR=URL sources.

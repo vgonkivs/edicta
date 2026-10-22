@@ -637,6 +637,9 @@ func (c *ConsensusClient) MinGasPrice(ctx context.Context) (*big.Rat, error) {
 		return nil, classifyGRPC(ctx, err)
 	}
 	s := r.MinimumGasPrice
+	if strings.TrimSpace(s) == "" {
+		return nil, ErrNoMinGasPrice
+	}
 	i := 0
 	for i < len(s) && (s[i] >= '0' && s[i] <= '9' || s[i] == '.') {
 		i++
