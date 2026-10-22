@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,7 +54,37 @@ var compiledProfiles = gate.ProfileSet{bankaction.ActionType: true, edenescrow.A
 // table of this build (the dev chain only in an edictadev build). An operator
 // admits a type by listing it in gate.action_types.
 func policyExtractors() (*policy.Extractors, error) {
-	return policy.NewExtractors(tiatransfer.New(), edenescrow.New())
+	xs := []policy.Extractor{tiatransfer.New(), edenescrow.New()}
+	ids := make([]string, len(xs))
+	for i, x := range xs {
+		ids[i] = x.ID()
+	}
+	if err := refuseDevIDs(isDevBuild(), ids); err != nil {
+		return nil, err
+	}
+	return policy.NewExtractors(xs...)
+}
+
+func isDevBuild() bool { return edenescrow.RegisteredExtractorID() == edenescrow.DevExtractorID }
+
+// devMarked reports whether an extractor or action type id is marked for
+// development: a "-dev" suffix or a "-dev/" segment.
+func devMarked(id string) bool {
+	return strings.HasSuffix(id, "-dev") || strings.Contains(id, "-dev/")
+}
+
+// refuseDevIDs makes a production build refuse ids marked for development,
+// so a dev-only table can never be admitted by configuration alone.
+func refuseDevIDs(devBuild bool, ids []string) error {
+	if devBuild {
+		return nil
+	}
+	for _, id := range ids {
+		if devMarked(id) {
+			return cfgErr("%q is marked -dev and only an edictadev build accepts it", id)
+		}
+	}
+	return nil
 }
 
 // loadMandate reads and verifies the mandate file.

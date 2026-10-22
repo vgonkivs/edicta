@@ -389,7 +389,10 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 	if log == nil {
 		log = slog.Default()
 	}
-	if edenescrow.RegisteredExtractorID() == edenescrow.DevExtractorID {
+	if err := refuseDevIDs(isDevBuild(), cfg.Gate.ActionTypes); err != nil {
+		return nil, fmt.Errorf("gate.action_types: %w", err)
+	}
+	if isDevBuild() {
 		// A dev binary deployed by mistake would admit escrow deposits on
 		// chain 31337, every local Hardhat or Anvil chain.
 		log.Warn("edictad: edictadev build, the Eden escrow table includes the dev chain 31337; for development only",

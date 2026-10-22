@@ -85,7 +85,7 @@ func buildCommitService(ctx context.Context, o commonOpts) (*commitcmd.Service, 
 	if err != nil {
 		return nil, noop, usageErr("%v", err)
 	}
-	mandate, recipients, err := mandateOf(o, cfg.Agent.MandateFile)
+	mandate, recipients, err := mandateOfWarn(o, cfg.Agent.MandateFile, os.Stderr)
 	if err != nil {
 		return nil, noop, err
 	}
@@ -216,17 +216,35 @@ func gateKeysOf(o commonOpts, cfg config.Config) ([][]byte, error) {
 // file gives both (the hash and its auditors); --mandate-ref overrides the
 // hash and --recipient adds keys.
 func mandateOf(o commonOpts, file string) (ref [32]byte, rec []blob.Recipient, err error) {
-	if file != "" {
+	return mandateOfWarn(o, file, io.Discard)
+}
+
+// mandateOfWarn is mandateOf, and writes a WARNING line to warn when a flag
+// sets a value different from the mandate file's: the commitment then names
+// a mandate or auditors the principal did not sign.
+func mandateOfWarn(o commonOpts, file string, warn io.Writer) (ref [32]byte, rec []blob.Recipient, err error) {
+	fromFile := file != ""
+	if fromFile {
 		if ref, rec, err = loadMandate(file); err != nil {
 			return ref, nil, err
 		}
 	}
+	return applyFlags(o, ref, rec, fromFile, warn)
+}
+
+func applyFlags(o commonOpts, ref [32]byte, rec []blob.Recipient, fromFile bool, warn io.Writer) ([32]byte, []blob.Recipient, error) {
 	if o.mandateRef != "" {
 		b, err := hex.DecodeString(o.mandateRef)
 		if err != nil || len(b) != 32 {
 			return ref, nil, usageErr("--mandate-ref must be 64 hex characters")
 		}
-		copy(ref[:], b)
+		var flagRef [32]byte
+		copy(flagRef[:], b)
+		if fromFile && flagRef != ref {
+			fmt.Fprintf(warn, "WARNING: --mandate-ref %s overrides the mandate file's mandate_ref %s\n",
+				shortHex(flagRef[:]), shortHex(ref[:]))
+		}
+		ref = flagRef
 	}
 	extra, err := parseRecipients(o.recipients)
 	if err != nil {
@@ -238,6 +256,10 @@ func mandateOf(o commonOpts, file string) (ref [32]byte, rec []blob.Recipient, e
 			dup = dup || string(e.KID) == string(r.KID)
 		}
 		if !dup {
+			if fromFile {
+				fmt.Fprintf(warn, "WARNING: --recipient %s is not an auditor of the mandate file; the payload is also encrypted to it\n",
+					shortHex(r.KID))
+			}
 			rec = append(rec, r)
 		}
 	}
@@ -245,6 +267,14 @@ func mandateOf(o commonOpts, file string) (ref [32]byte, rec []blob.Recipient, e
 		return ref, nil, usageErr("no recipient: set agent.mandate_file with auditors or pass --recipient")
 	}
 	return ref, rec, nil
+}
+
+func shortHex(b []byte) string {
+	h := hex.EncodeToString(b)
+	if len(h) > 12 {
+		h = h[:12]
+	}
+	return h
 }
 
 func loadMandate(path string) (ref [32]byte, rec []blob.Recipient, err error) {
