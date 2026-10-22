@@ -90,7 +90,7 @@ The older manual runner (`edicta-live`, with your own `edictad` and
 endpoints), step by step: [celestia/README.md](celestia/README.md).
 
 User guides (quickstart, operator, principal, profiles, private mode,
-verifier): [guide/](guide/README.md).
+verifier): [docs/](docs/README.md).
 Architecture and design rationale: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Flow
@@ -154,7 +154,7 @@ replay`, `edicta-verify absence`) work end to end; the demo above, with the
   real wallets.
 - Fast mode is implemented in the gate, the Recorder (`[recorder] fast`, both
   DA modes) and the verifier (absence proofs); it has not run live, and its
-  Mocha checklist ([guide/mocha-checklist.md](guide/mocha-checklist.md)) has
+  Mocha checklist ([docs/mocha-checklist.md](docs/mocha-checklist.md)) has
   not been run.
 - Fibre support is implemented but has not run live yet.
 
@@ -169,7 +169,7 @@ Not production-ready.
 | `fibre/` (own module) | Fibre blob commitment |
 | `examples/` | Profiles in use: `tia-transfer` (Cosmos `MsgSend` on a price trigger) and `dca-agent` (IBKR order, offline with a fake broker) |
 | `spec/` | Specification, profiles, test vectors and their generators |
-| `guide/` | User guides |
+| `docs/` | User guides |
 
 ## License
 

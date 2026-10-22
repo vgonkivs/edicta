@@ -6,7 +6,7 @@ normative. The specification is the source of truth:
 [spec/decision-commitment-v1.md](spec/decision-commitment-v1.md) (core,
 revision `v1.0`), [spec/policy-v1.md](spec/policy-v1.md) (mandates,
 revision `policy-v1.0`), [spec/ERRATA.md](spec/ERRATA.md) and the profiles in
-[spec/profiles/](spec/profiles/). User guides are in [guide/](guide/README.md).
+[spec/profiles/](spec/profiles/). User guides are in [docs/](docs/README.md).
 
 ## What Edicta is
 
@@ -272,7 +272,7 @@ Details: [spec/ERRATA.md](spec/ERRATA.md). Vector hashes:
   evidence source is not detected until the verdict-chain head is anchored
   (planned, not in v1).
 - **Not verified live:** fast mode has not run live (the
-  [Mocha checklist](guide/mocha-checklist.md) has not been run, for either DA
+  [Mocha checklist](docs/mocha-checklist.md) has not been run, for either DA
   mode); Fibre mode has not run live; Keplr (ADR-036) and MetaMask (EIP-712)
   principal signing is vector-tested but not tested with real wallets, and
   some wallet facts (Keplr data limits and multi-line display, MetaMask
@@ -289,5 +289,5 @@ Details: [spec/ERRATA.md](spec/ERRATA.md). Vector hashes:
 - [spec/ERRATA.md](spec/ERRATA.md): errata to the frozen texts.
 - [spec/profiles/](spec/profiles/): rail profiles.
 - [spec/vectors/](spec/vectors/): cross-language test vectors.
-- [guide/](guide/README.md): user guides for operators, principals,
+- [docs/](docs/README.md): user guides for operators, principals,
   integrators and auditors.

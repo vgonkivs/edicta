@@ -751,11 +751,11 @@ func (f *FastLive) verify(ctx context.Context) error {
 	return coded(ExitWrong, fmt.Errorf("demo: the verifier says %s", res.Verdict))
 }
 
-// report prints the checklist rows, named by their guide/mocha-checklist.md
+// report prints the checklist rows, named by their docs/mocha-checklist.md
 // section, for the Results table.
 func (f *FastLive) report() {
 	sc := f.r.deps.Screen
-	sc.Info("Checklist (guide/mocha-checklist.md, da = celestia_blob):")
+	sc.Info("Checklist (docs/mocha-checklist.md, da = celestia_blob):")
 	for _, it := range f.out.Items {
 		sc.Check(CheckLine{Check: it.Section + " " + it.Title, Status: it.Status, Detail: it.Observed, Advice: "expected: " + it.Expected})
 	}

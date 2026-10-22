@@ -6,7 +6,7 @@ transfer on chain and an independent verifier, then tries to cheat five ways, gr
 Testnet TIA only; keep the amounts small. It runs Edicta wire version 1 in strict
 mode (the payload is anchored on L1 before the gate authorizes) with the
 `celestia_blob` data availability mode; the user guides are in
-[../../guide/](../../guide/README.md).
+[../../docs/](../../docs/README.md).
 
 ## What it proves
 
@@ -62,7 +62,7 @@ The run directory (archive, trusted headers, config) is kept, and the printed
 ## Live scene: fast mode on Mocha
 
 `celestia/bin/edicta demo fast-live [--restart] [funder and endpoint flags]`
-runs section 4 of [the Mocha checklist](../../guide/mocha-checklist.md) (and
+runs section 4 of [the Mocha checklist](../../docs/mocha-checklist.md) (and
 section 7 with `--restart`) in one command, with `da = celestia_blob` and the
 same funder flags, caps, endpoints and `--trusted-header` as `edicta demo`.
 It:

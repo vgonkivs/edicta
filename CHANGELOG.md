@@ -39,9 +39,9 @@ Operators, act on this:
   The execution check now reads an `exec/` key even for decisions that have
   none, so a store that answers 403 for missing keys stops every
   `--check-execution` run with exit 4. Fix the store before upgrading
-  verifiers (see `guide/verifier.md`).
+  verifiers (see `docs/verifier.md`).
 - With `[capture]` enabled the gate writes kind 19 records into the archive
   and drops the capture after reading the record back. A conflicting record
   under the same key keeps the capture and makes `/v1/health` report
-  degraded (see `guide/operator.md`).
+  degraded (see `docs/operator.md`).
 - Clients that retried on 425 for a rejected anchor must not retry on 502.

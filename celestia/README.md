@@ -1,8 +1,8 @@
 # Edicta on Celestia: running the live demo
 
-Looking for the one-command demo? See [demo/README.md](demo/README.md) (`edicta demo`). This page covers the older, manual `edicta-live` runner and is the full `edictad` configuration reference. The user guides, including fast mode and mandates, are in [../guide/](../guide/README.md).
+Looking for the one-command demo? See [demo/README.md](demo/README.md) (`edicta demo`). This page covers the older, manual `edicta-live` runner and is the full `edictad` configuration reference. The user guides, including fast mode and mandates, are in [../docs/](../docs/README.md).
 
-Setting up a stack from scratch: `edicta init` creates the keys, a starter mandate and `edicta.toml` in the Edicta home, and `edicta doctor` checks it. `edictad -config` accepts that `edicta.toml` as well as the `edictad.toml` described below. See [../guide/quickstart.md](../guide/quickstart.md) and the "The shared configuration" and "Checking the setup" parts of [../guide/operator.md](../guide/operator.md).
+Setting up a stack from scratch: `edicta init` creates the keys, a starter mandate and `edicta.toml` in the Edicta home, and `edicta doctor` checks it. `edictad -config` accepts that `edicta.toml` as well as the `edictad.toml` described below. See [../docs/quickstart.md](../docs/quickstart.md) and the "The shared configuration" and "Checking the setup" parts of [../docs/operator.md](../docs/operator.md).
 
 Everything here is Edicta wire version 1 (spec revision `v1.0`, tags `v1.0.0` and `v1.0.1`): `/v1/*` HTTP paths, `edicta/v1/*` tags, and a salted action hash whose 32-byte salt `edicta-live` carries from the agent to the gate and the executor.
 
@@ -186,7 +186,7 @@ refuses the start. To replace a mandate, sign a higher `version` with the same
 
 The principal builds and signs the mandate with `cmd/edicta-principal` (Ed25519,
 Keplr or MetaMask; a private mandate encrypted to auditors); see
-[../guide/principal.md](../guide/principal.md). With a mandate, every commitment must
+[../docs/principal.md](../docs/principal.md). With a mandate, every commitment must
 carry `mandate_ref`, the mandate's hash, or the gate refuses it with
 `ErrMandateRefMissing`. `edicta-live --mandate-hash <64 hex>` sets `mandate_ref` to the
 mandate's hash; without it `edicta-live` runs only against a gate without `[policy]`.
@@ -203,7 +203,7 @@ archived anchor intent before the anchor lands, and the Authorization says `mode
 2` with an `anchor_deadline` height. It needs `archive.dir`, a mandate whose
 `fast_mode_max_delay` is set, and `own_node = true`, because intents are looked up
 and broadcast through `network.consensus_grpc`. The keys, their ranges and the
-startup refusals: [../guide/operator.md](../guide/operator.md). The Recorder's own
+startup refusals: [../docs/operator.md](../docs/operator.md). The Recorder's own
 fast-mode keys (`recorder.fast`, `fast_dedicated_account`, `fast_timeout_blocks`,
 `fast_upload_addr`, `fast_escrow_headroom_utia`), the dedicated Recorder account and
 the escrow headroom are described there too. `edicta-live --fast --mandate-hash <64

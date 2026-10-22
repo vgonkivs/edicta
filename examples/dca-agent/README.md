@@ -6,7 +6,7 @@ The core knows nothing about orders, accounts or brokers; everything
 order-specific is here. The profile is specified in
 [spec/profiles/dca-agent-v0.md](../../spec/profiles/dca-agent-v0.md); its `v0`
 is the profile's own version, and it runs on the Edicta v1 core. Executor
-guide: [guide/profiles.md](../../guide/profiles.md).
+guide: [docs/profiles.md](../../docs/profiles.md).
 
 ## Flow
 
