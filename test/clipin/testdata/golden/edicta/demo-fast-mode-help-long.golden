@@ -1,0 +1,9 @@
+exit 4
+-- stdout --
+Usage of demo fast-mode:
+  -dir string
+    	where the kept run directory is created; default the system temp directory
+  -json
+    	print one JSON event per line
+usage: edicta demo fast-mode [--dir DIR] [--json]
+-- stderr --

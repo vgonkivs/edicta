@@ -1,0 +1,4 @@
+exit 1
+-- stdout --
+-- stderr --
+edicta-devinit: escrow code: open <fix>/missing.hex: no such file or directory

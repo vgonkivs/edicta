@@ -1,0 +1,39 @@
+exit 0
+-- stdout --
+Edicta mandate v1
+mandate_id: 47e9d11fb1954f274c3eb33dfc7970c2
+version: 1
+gate: gate-paper-1
+principal: cosmos celestia1hjlq8g26hnkwsegd75vwqqlf39a7gch9u7yer7 (adr-036)
+fast mode: not allowed
+auditors: none (public mandate)
+valid: reference time from 2026-10-02T04:00:00Z ; decision valid_until up to 2026-11-02T04:00:00Z
+max decision age: 1800s
+min spacing: 10s
+agents (2, shared counter):
+  - 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c
+  - d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a
+kinds: transfer
+asset test:eth (scale 18):
+  per action: no limit
+  period: max 1.000000000000000000 per rolling 744h (may count up to 745h)
+  recipients: any
+asset test:usd (scale 2):
+  per action: max 50.00
+  period: max 20.00 per rolling 1h (may count up to 2h)
+  period: max 100.00 per rolling 24h (may count up to 25h)
+  recipients:
+    - test:alice
+    - test:bob
+count: max 5 actions per rolling 1h (may count up to 2h)
+count: max 20 actions per rolling 24h (may count up to 25h)
+notes:
+  - Limits are measured on the reference time of each decision (block time at its payload reference height), not on execution time.
+  - Limits use hourly buckets; a bucket partly inside a window counts fully, so a limit may cover up to one extra hour (a "per 1h" limit may span up to 2h): the gate may deny early, never allow extra.
+  - Limits count authorizations, not executions.
+  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.
+  - In fast mode the gate may authorize before the payload is anchored on L1; the anchor must land within the stated number of blocks or the decision is invalid.
+
+mandate hash: fe43d0240602e199671dc314a97ab83bdbd23a5b770329bd66bd9e070e0cfb9e
+\ no newline at end
+-- stderr --

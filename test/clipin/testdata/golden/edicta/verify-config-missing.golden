@@ -1,0 +1,4 @@
+exit 4
+-- stdout --
+edicta: config: invalid configuration: reading <fix>/missing.toml: open <fix>/missing.toml: no such file or directory
+-- stderr --

@@ -1,0 +1,5 @@
+exit 4
+-- stdout --
+edicta: unexpected argument "extra"
+usage: edicta demo fast-live [--restart] [--max-recorder-funding UTIA] [--network mocha] [--home DIR] [--json] [--funder-keyring-dir DIR --funder-key NAME [--funder-passphrase-file FILE] [--address ADDR]] [--max-total-funding UTIA [--yes]] [--trusted-header H:HASH]
+-- stderr --

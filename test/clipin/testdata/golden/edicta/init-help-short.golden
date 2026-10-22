@@ -1,0 +1,5 @@
+exit 4
+-- stdout --
+edicta init: flag: help requested
+usage: edicta init [--home DIR] [--preset CELESTIA+SETTLEMENT] [--set network.key=value]... [--max-per-payment USDC] [--max-per-hour USDC]
+-- stderr --

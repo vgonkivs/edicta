@@ -1,0 +1,4 @@
+exit 1
+-- stdout --
+-- stderr --
+edicta-principal: open <fix>/missing.hex: no such file or directory

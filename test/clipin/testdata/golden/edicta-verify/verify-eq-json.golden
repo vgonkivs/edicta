@@ -1,0 +1,91 @@
+exit 0
+-- stdout --
+{
+  "verdict": "valid",
+  "commitment_hash": "09c7433a33ca17e4d00ac93df7284ab3e8a31e6167edc435b8c03b4161ce6f63",
+  "state": "authorized",
+  "authorization_verified": true,
+  "params": {
+    "skew_s": 30,
+    "blob_retention_s": 14400,
+    "fibre_retention_s": 14400
+  },
+  "da": 1,
+  "height": 1402819,
+  "block_time": 1791196782,
+  "retention_start": 1791196769,
+  "gate_id": "gate-paper-1",
+  "action_type": "application/vnd.edicta.ibkr.order.v0+cbor",
+  "settlement": "node-attested",
+  "anchor_tx_result": "code 0, node-reported, not part of the claim",
+  "authorization": {
+    "path": "da",
+    "expires": 1791197102,
+    "authorized_at": 1791196802,
+    "mode": "strict"
+  },
+  "cert": {
+    "cert_signed_power": 282969545202534,
+    "cert_total_power": 371550350184936,
+    "cert_signed_share": 0.7615913834065513,
+    "cert_quorum_warning": false,
+    "cert_token_precision": "robust",
+    "cert_valset_header": "next_validators_hash@1402813"
+  },
+  "anchor_proof_form": 1,
+  "anchor_candidates_earlier": 0,
+  "gate_integrity": {
+    "status": "not_checked",
+    "evidence": [],
+    "evidence_verdict_hashes": []
+  },
+  "header_trust": {
+    "status": "valid",
+    "mode": "file",
+    "checkpoint_height": 1402819,
+    "checkpoint_hash": "0dd99f73fda3f2e8f989368567bb729acd9198b1edf1f21819ad4aa05a0dedf2",
+    "cross_check": "off",
+    "hashes": {
+      "1402813": "ff805113f4f27d3864a0490c50a7aad8edfabba5d2509095ab4f30df5cf83ddd",
+      "1402819": "0dd99f73fda3f2e8f989368567bb729acd9198b1edf1f21819ad4aa05a0dedf2"
+    }
+  },
+  "trust_model": "trusted header from the file the auditor gave; headers are linked by hash only, no validator signatures are checked",
+  "checks": [
+    {
+      "name": "decision",
+      "status": "pass"
+    },
+    {
+      "name": "envelope",
+      "status": "pass"
+    },
+    {
+      "name": "action",
+      "status": "pass"
+    },
+    {
+      "name": "authorization",
+      "status": "pass"
+    },
+    {
+      "name": "payload",
+      "status": "pass"
+    },
+    {
+      "name": "anchor",
+      "status": "pass"
+    },
+    {
+      "name": "anchor_time",
+      "status": "pass"
+    },
+    {
+      "name": "header_trust",
+      "status": "pass"
+    }
+  ],
+  "version": 1,
+  "mode": "strict"
+}
+-- stderr --

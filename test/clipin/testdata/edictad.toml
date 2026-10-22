@@ -1,0 +1,120 @@
+# Example edictad configuration. Every value is a placeholder: replace the
+# endpoints, paths and the <...> markers. Secrets are never written here, only
+# the paths of files that hold them. Unknown keys are refused.
+
+[network]
+da = "celestia_blob"               # one data availability mode per instance: "celestia_blob" or "fibre"
+chain_id = ""                      # optional cross-check; empty = discover from the node
+min_app_version = 3                # celestia_blob only; da = "fibre" pins app version 10
+max_app_version = 10
+# fibre_chain_ids = ["mocha-5"]    # da = "fibre" only: the chains whose payment promises the gate accepts
+
+[network.bridge]                   # a bridge node you trust (reads, proofs)
+addr = "bridge.example.invalid:26658"
+token_file = "/etc/edictad/bn.token"
+tls = true
+
+[network.consensus_grpc]           # a consensus node's gRPC endpoint (submit, tx lookup)
+addr = "consensus.example.invalid:9090"
+token_file = ""
+tls = true
+
+# The [fibre] table exists only with da = "fibre" and must be absent (or all
+# zero) with "celestia_blob". Every key below shows its default. To switch,
+# change da, drop min_app_version and max_app_version, set fibre_chain_ids and
+# set the recorder keys below: own_node = true is required with da = "fibre".
+#
+# [fibre]
+# max_data_bytes = 16777216        # largest payload_size of a da = 1 decision, at most 16 MiB
+# max_read_bytes = 16777216        # anchor namespace data of one lookup, 64 KiB .. 1 GiB; also the bridge client's limit
+# anchor_cache_bytes = 0           # 0 = no cross-request cache; else max_read_bytes + 4096 .. 1 GiB
+# lookup_timeout_s = 60            # 1..600
+# assumed_lag_blocks = 0           # widen retention samples for a load-balanced consensus endpoint; 0 for an own node
+# sample_every_s = 30              # retention sampling, 1..300
+# canary_every_s = 600             # height canary, 60..3600
+# bridge_fallback = false          # download through the bridge when providers fail; enabled only if a start-time probe passes
+
+[archive]                          # required with both modes; one edictad per directory
+dir = "/var/lib/edictad/archive"
+write_timeout_s = 10               # 1..60; the archive write before signing and every later archive write
+sweep_interval_s = 600             # 60..86400; how often a failed sweep repeats
+
+[recorder]
+enabled = true
+namespace = "ababababababababababababababababababababababababababababab"
+keyring_dir = "/var/lib/edictad/keyring"      # the RECORDER's keyring, not the executor's
+keyring_backend = "file"
+key_name = "recorder"
+passphrase_file = "/etc/edictad/keyring.pass"
+max_blob_bytes = 1048576
+# Only with da = "fibre" (refused with celestia_blob); the defaults are shown.
+# own_node = true                  # required: submit and read only through the operator's own node
+# escrow_margin_utia = 0           # kept in the escrow on top of one upload's cost
+# submit_timeout_s = 300           # bound of one submit
+# upload_drain_s = 120             # shard uploads may continue this long after the submit returns
+# close_timeout_s = 150            # shutdown wait for draining uploads; not below upload_drain_s
+#
+# Fast mode (off by default): Publish returns a pending reference once the
+# payload and the anchor intent are archived and the node accepted the anchor
+# tx; the evidence is archived when the anchor lands. Needs [gate.fast] with
+# this namespace in pending_namespaces.
+# fast = true
+# fast_dedicated_account = true    # required: the account of key_name signs NOTHING else
+#                                  # (no other process, no executor, no manual txs), or
+#                                  # pending references go stale and are never re-signed
+# fast_timeout_blocks = 100        # celestia_blob only, 13..1000; above
+#                                  # gate.fast.max_h0_age_blocks + min_fast_slack_blocks
+# fast_min_gas_price = "0.002"     # utia per gas, at most 1: the lowest price anchor txs pay. A lower
+#                                  # node minimum_gas_price is raised to it; it also stands in when the
+#                                  # node reports none or zero. Default 0.002
+# fast_upload_addr = "consensus.example.invalid:9090"  # da = "fibre" only; must be network.consensus_grpc.addr
+# fast_escrow_headroom_utia = <n>  # da = "fibre" only; at least one upload of max_blob_bytes. Reservations
+#                                  # are in memory and lost on restart: size it as max blob cost times the
+#                                  # promises that may be unsettled at a restart
+
+[recorder.quota]
+blobs_per_hour = 60
+bytes_per_day = 67108864
+
+[gate]
+gate_id = "my-gate-1"
+key_file = "/etc/edictad/gate.ed25519"        # 32 raw bytes, mode 0600
+registry_path = "/var/lib/edictad/registry.db"
+action_types = ["application/vnd.edicta.cosmos.bank-send.v0+cbor"]
+allowlist_file = "/etc/edictad/agents.toml"   # [[agents]] agent_id, pubkey (hex)
+executor_keys = ["cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"]       # the executor's Ed25519 public key
+anchor_verifier = "self"
+
+# Fast mode (off by default): authorize a pending payload reference on its
+# archived anchor intent, before the anchor lands. Needs the archive and a
+# mandate that allows fast mode. The gate looks intents up and broadcasts
+# them through network.consensus_grpc, which must be the operator's own node.
+# [gate.fast]
+# enabled = true
+# own_node = true
+# intent_source = "archive"
+# pending_namespaces = ["ababababababababababababababababababababababababababababab"]
+# fast_window_blocks = 100
+# max_h0_age_blocks = 10
+# min_fast_slack_blocks = 3
+# min_promise_slack_seconds = 15
+# rebroadcast_intent = true                   # da = "fibre" only
+
+# Execution result capture (off by default): for bank-send receipts, keep the
+# header at H + 1, the transaction's result and its Merkle path to
+# last_results_hash in a local store, outside the archive, before the node
+# prunes them. Not read by verifiers.
+# [capture]
+# enabled = true
+# dir = "/var/lib/edictad/capture"            # neither inside nor containing archive.dir
+# comet_rpc = "http://127.0.0.1:26657"        # serves /tx, /block, /block_results, /header
+# node_prune_window_blocks = 100000           # what that node keeps; at least 100
+# retry_every_s = 30
+
+[http]
+listen = "127.0.0.1:8080"
+tls_cert_file = ""
+tls_key_file = ""
+authorize_token_file = "/etc/edictad/api.token"
+record_token_file = "/etc/edictad/api.token"
+allow_insecure = false

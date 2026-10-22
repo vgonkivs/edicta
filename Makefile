@@ -1,7 +1,7 @@
 BIN := celestia/bin
 CMDS := edicta edictad edicta-live edicta-verify edicta-signer
 
-.PHONY: build demo test test-q vet vectors clean contracts contracts-check dev-up dev-down dev-smoke test-dev
+.PHONY: build demo test test-clipin test-q vet vectors clean contracts contracts-check dev-up dev-down dev-smoke test-dev
 
 build:
 	@for c in $(CMDS); do echo "go build $$c"; go -C celestia build -o bin/$$c ./cmd/$$c || exit 1; done
@@ -19,6 +19,12 @@ test:
 	go test -race -p 2 ./...
 	go -C celestia test -race -p 2 ./...
 	$(MAKE) test-dev
+	$(MAKE) test-clipin
+
+# Command line pin: builds every entry point and replays test/clipin's case
+# table against the goldens. Regenerate them with ARGS=-update.
+test-clipin:
+	go test -count=1 -timeout 30m -tags clipin ./test/clipin $(ARGS)
 
 vectors:
 	python3 spec/vectors/check/check_vectors.py

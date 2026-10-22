@@ -1,0 +1,33 @@
+exit 2
+-- stdout --
+-- stderr --
+flag needs an argument: -config
+Usage of <argv0>:
+  -config string
+    	path of edicta.toml or of the legacy edictad.toml
+  -print-config
+    	print the parsed configuration (paths only, no secrets) and exit
+  -rapid.checks int
+    	rapid: number of checks to perform (default 100)
+  -rapid.debug
+    	rapid: debugging output
+  -rapid.debugvis
+    	rapid: debugging visualization
+  -rapid.failfile string
+    	rapid: fail file to use to reproduce test failure
+  -rapid.log
+    	rapid: eager verbose output to stdout (to aid with unrecoverable test failures)
+  -rapid.nofailfile
+    	rapid: do not write fail files on test failures
+  -rapid.seed uint
+    	rapid: PRNG seed to start with (0 to use a random one)
+  -rapid.shrinktime duration
+    	rapid: maximum time to spend on test case minimization (default 30s)
+  -rapid.steps int
+    	rapid: average number of Repeat actions to execute (default 30)
+  -rapid.v
+    	rapid: verbose output
+  -testify.m string
+    	regular expression to select tests of the testify suite to run
+  -update
+    	update golden values

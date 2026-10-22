@@ -1,0 +1,4 @@
+exit 1
+-- stdout --
+-- stderr --
+edicta-signer: reading config: open <fix>/missing.toml: no such file or directory

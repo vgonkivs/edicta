@@ -1,0 +1,4 @@
+exit 1
+-- stdout --
+-- stderr --
+edicta-principal: policy: mandate signature invalid: principalsig: invalid signature

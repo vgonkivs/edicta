@@ -1,0 +1,4 @@
+exit 1
+-- stdout --
+-- stderr --
+edicta-devinit: escrow code file is not non-empty hex

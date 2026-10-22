@@ -1,0 +1,4 @@
+exit 1
+-- stdout --
+-- stderr --
+edicta-signer: signerd: config: toml: expected '=' after key

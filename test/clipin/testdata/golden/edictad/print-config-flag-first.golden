@@ -1,0 +1,97 @@
+exit 0
+-- stdout --
+[network]
+chain_id = ''
+da = 'celestia_blob'
+fibre_chain_ids = []
+min_app_version = 3
+max_app_version = 10
+
+[network.bridge]
+addr = 'https://bridge.example.invalid:26658'
+token_file = '/etc/edictad/bn.token'
+tls = true
+
+[network.consensus_grpc]
+addr = 'consensus.example.invalid:9090'
+token_file = ''
+tls = true
+
+[fibre]
+max_data_bytes = 0
+max_read_bytes = 0
+anchor_cache_bytes = 0
+lookup_timeout_s = 0
+assumed_lag_blocks = 0
+sample_every_s = 0
+canary_every_s = 0
+bridge_fallback = false
+
+[archive]
+dir = '/var/lib/edictad/archive'
+write_timeout_s = 10
+sweep_interval_s = 600
+
+[recorder]
+enabled = true
+namespace = 'ababababababababababababababababababababababababababababab'
+keyring_dir = '/var/lib/edictad/keyring'
+keyring_backend = 'file'
+allow_test_keyring = false
+key_name = 'recorder'
+passphrase_file = '/etc/edictad/keyring.pass'
+max_blob_bytes = 1048576
+own_node = false
+escrow_margin_utia = 0
+submit_timeout_s = 0
+upload_drain_s = 0
+close_timeout_s = 0
+fast = false
+fast_timeout_blocks = 0
+fast_dedicated_account = false
+fast_upload_addr = ''
+fast_escrow_headroom_utia = 0
+fast_min_gas_price = ''
+
+[recorder.quota]
+blobs_per_hour = 60
+bytes_per_day = 67108864
+
+[gate]
+gate_id = 'my-gate-1'
+key_file = '/etc/edictad/gate.ed25519'
+registry_path = '/var/lib/edictad/registry.db'
+action_types = ['application/vnd.edicta.cosmos.bank-send.v0+cbor']
+allowlist_file = '/etc/edictad/agents.toml'
+executor_keys = ['cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd']
+anchor_verifier = 'self'
+reveal_on_execution = []
+
+[gate.fast]
+enabled = false
+intent_source = ''
+own_node = false
+pending_namespaces = []
+fast_window_blocks = 0
+max_h0_age_blocks = 0
+min_fast_slack_blocks = 0
+min_promise_slack_seconds = 0
+
+[http]
+listen = '127.0.0.1:8080'
+tls_cert_file = ''
+tls_key_file = ''
+authorize_token_file = '/etc/edictad/api.token'
+record_token_file = '/etc/edictad/api.token'
+allow_insecure = false
+
+[policy]
+mandate_file = ''
+
+[capture]
+enabled = false
+dir = ''
+comet_rpc = ''
+node_prune_window_blocks = 0
+retry_every_s = 0
+-- stderr --

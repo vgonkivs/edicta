@@ -1,0 +1,4 @@
+exit 4
+-- stdout --
+edicta: commitment hash must be 64 hex characters
+-- stderr --

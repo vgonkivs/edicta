@@ -1,0 +1,5 @@
+exit 4
+-- stdout --
+edicta init: flag provided but not defined: -bogus
+usage: edicta init [--home DIR] [--preset CELESTIA+SETTLEMENT] [--set network.key=value]... [--max-per-payment USDC] [--max-per-hour USDC]
+-- stderr --

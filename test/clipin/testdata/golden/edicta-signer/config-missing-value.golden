@@ -1,0 +1,9 @@
+exit 2
+-- stdout --
+-- stderr --
+flag needs an argument: -config
+Usage of <argv0>:
+  -check-config
+    	validate the configuration and exit, without reading keys or calling any RPC
+  -config string
+    	path of edicta-signer.toml

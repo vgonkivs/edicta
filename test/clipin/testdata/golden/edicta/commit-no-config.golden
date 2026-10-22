@@ -1,0 +1,4 @@
+exit 64
+-- stdout --
+{"error":{"code":"usage","message":"config: invalid configuration: reading <work>/home/.edicta/edicta.toml: open <work>/home/.edicta/edicta.toml: no such file or directory","retryable":false}}
+-- stderr --

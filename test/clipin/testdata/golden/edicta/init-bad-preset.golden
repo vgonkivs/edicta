@@ -1,0 +1,5 @@
+exit 4
+-- stdout --
+home 
+edicta init: init: invalid options: preset must be <celestia network>+<settlement chain>, for example "mocha+base-sepolia"
+-- stderr --

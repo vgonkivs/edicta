@@ -1,0 +1,6 @@
+exit 1
+-- stdout --
+fail  config      config: invalid configuration: invalid TOML at line 1 column 6: toml: expected '=' after key
+                  fix: fix the key named in the message in edicta.toml; unknown keys are refused so typos show up here
+0 ok, 0 warn, 1 fail
+-- stderr --

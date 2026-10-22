@@ -1,0 +1,15 @@
+exit 0
+-- stdout --
+DEV ONLY: do not use these keys on any public chain
+home            <work>/dev
+celestia chain  edicta-dev-1
+eden chain id   31337
+recorder        <celestia-addr>
+funder          <celestia-addr>
+payer           <0xaddr>
+facilitator     <0xaddr>
+mandate hash    <hex64>
+eden genesis    <work>/dev/genesis/eden-genesis.json (created)
+jwt secret      <work>/dev/genesis/jwt.hex (created)
+NativeEscrow: PLACEHOLDER, no runtime code in the Eden genesis yet
+-- stderr --

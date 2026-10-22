@@ -1,0 +1,28 @@
+exit 2
+-- stdout --
+commitment: 09c7433a33ca17e4d00ac93df7284ab3e8a31e6167edc435b8c03b4161ce6f63
+state: authorized
+parameters: skew 30s, blob retention 14400s, fibre retention 14400s
+gate: gate-paper-1  action type: application/vnd.edicta.ibkr.order.v0+cbor  da: 1  height: 1402819
+[ok] decision
+[ok] envelope
+[ok] action
+[ok] authorization
+[ok] payload
+[ok] anchor
+[unchecked] anchor_time: header trust did not pass, so the anchor block time is not trusted
+    reason: blocked: The check needs another check that did not pass; the report names that check.
+    source: header_trust
+    advice: fix the named check
+[unchecked] header_trust: no trusted header supplied
+    reason: no_trusted_header: No trusted header file, explicit checkpoint or checkpoint source was given.
+    advice: supply a trusted header
+authorization: path da, expires 1791197102, issued at 1791196802
+anchor block time: 1791196782
+settlement: node-attested
+Informational: anchor tx result: code 0, node-reported, not part of the claim
+certificate: signed 282969545202534 of 371550350184936 (0.7616), token precision "robust"
+anchor proof form: 1, earlier candidates: 0
+header trust: unchecked
+verdict: unchecked
+-- stderr --

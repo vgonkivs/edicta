@@ -1,0 +1,14 @@
+exit 1
+-- stdout --
+{
+  "ok": false,
+  "checks": [
+    {
+      "name": "config",
+      "status": "fail",
+      "cause": "config: invalid configuration: reading <fix>/missing.toml: open <fix>/missing.toml: no such file or directory",
+      "fix": "fix the key named in the message in edicta.toml; unknown keys are refused so typos show up here"
+    }
+  ]
+}
+-- stderr --

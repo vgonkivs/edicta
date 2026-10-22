@@ -1,0 +1,11 @@
+exit 1
+-- stdout --
+-- stderr --
+Usage of edicta-devinit:
+  -escrow-address string
+    	CREATE2 address of NativeEscrow in the Eden genesis
+  -escrow-code-file string
+    	file with the NativeEscrow runtime code, hex; absent keeps the slot a placeholder
+  -home string
+    	the dev home directory (required)
+edicta-devinit: flag: help requested

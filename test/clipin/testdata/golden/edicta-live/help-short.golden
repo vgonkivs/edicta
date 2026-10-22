@@ -1,0 +1,132 @@
+exit 0
+-- stdout --
+-- stderr --
+Usage of edicta-live:
+  -agent-id string
+    	agent id on edictad's allowlist
+  -agent-key-file string
+    	agent Ed25519 key: file of exactly 32 raw seed bytes, mode 0600
+  -api-token-file string
+    	file with edictad's bearer token (authorize; also record unless --record-token-file)
+  -api-url string
+    	edictad base URL, for example http://127.0.0.1:8080
+  -archive-url string
+    	fast mode: base URL of the archive edictad writes, read for the anchor intent
+  -asset string
+    	asset id (coingecko id; label for kraken) (default "celestia")
+  -bridge-addr string
+    	bridge node JSON-RPC address (reads, proofs)
+  -bridge-tls
+    	use TLS to the bridge node
+  -bridge-token-file string
+    	file with the bridge node auth token
+  -chain-id string
+    	optional: refuse a node on another chain id
+  -confirm-delay duration
+    	wait before the second status query of that final check; at most --rebroadcast-every (0 = default 2s)
+  -crosscheck-bridge value
+    	crosscheck: an independent bridge node address (at least two; repeatable)
+  -crosscheck-tls
+    	crosscheck: TLS to the --crosscheck-bridge nodes
+  -crosscheck-token-file string
+    	crosscheck: auth token file shared by the --crosscheck-bridge nodes
+  -da string
+    	data availability mode edictad runs: blob or fibre (default "blob")
+  -down-addr string
+    	destination when the price moves down
+  -down-amount uint
+    	amount in base units (utia) when down
+  -dry-run
+    	do everything except broadcast the transfer and record it
+  -evidence-file string
+    	also write the evidence JSON to this file
+  -executor-ed25519-file string
+    	executor Ed25519 key for record requests: 32 raw seed bytes, mode 0600; its public key must be in edictad's executor_keys
+  -executor-key string
+    	executor key name in that keyring
+  -executor-keyring-dir string
+    	executor keyring directory (file backend; not the Recorder's)
+  -executor-passphrase-file string
+    	file with the keyring passphrase
+  -executor-passphrase-prompt
+    	ask for the keyring passphrase on the terminal, no echo
+  -fast
+    	sign a pending reference edictad's Recorder returns, after checking its anchor intent through --grpc-addr (and --bridge-addr for da=blob); needs --archive-url
+  -fee uint
+    	fee in base units (utia); 0 derives it from the node's minimum gas price
+  -fee-margin string
+    	decimal factor on the node's minimum gas price when --fee is 0 (default 1.2)
+  -gas-limit uint
+    	gas limit of the transfer (default 150000)
+  -gate-id string
+    	pin the gate id (default: learned from edictad)
+  -gate-pubkey string
+    	pin the gate Ed25519 public key, 64 hex (default: learned from edictad; pinning is strongly advised)
+  -gen-recipient-key string
+    	create a new recipient key file at this path (mode 0600, must not exist) and add it
+  -grpc-addr string
+    	consensus node gRPC address (account, broadcast, tx lookup)
+  -grpc-tls
+    	use TLS to the consensus gRPC endpoint
+  -grpc-token-file string
+    	file with the consensus gRPC token
+  -inclusion string
+    	inclusion check: self (same operator), light (validator signatures) or crosscheck (default "self")
+  -indexer-lag-blocks int
+    	blocks past the timeout height the status node may lag before a missing tx counts as lost (0 = default 3)
+  -json
+    	print the evidence as JSON instead of text
+  -kraken-pair string
+    	kraken: ticker pair (default "TIAUSD")
+  -mandate-hash string
+    	hash of the gate's mandate, 64 hex, carried as the commitment's mandate_ref; required with --fast
+  -max-app-version uint
+    	compatibility check upper bound (0 = default)
+  -max-decisions int
+    	stop after this many decisions (default 1)
+  -max-fee uint
+    	the executor refuses to sign a fee above this (default 1000)
+  -min-app-version uint
+    	compatibility check lower bound (0 = default)
+  -namespace string
+    	pin the blob namespace, 58 hex (default: learned from edictad)
+  -poll-interval duration
+    	price poll interval (default 30s)
+  -price-base-url string
+    	override the price source base URL
+  -price-source string
+    	price source: coingecko or kraken (default "coingecko")
+  -publish-wait duration
+    	bound of one publication attempt (0 = SDK default)
+  -quote string
+    	quote currency, upper case (default "USD")
+  -reason string
+    	optional free-text reason carried in the context
+  -rebroadcast-every duration
+    	resend interval of the same signed bytes (default 10s)
+  -recipient value
+    	payload recipient as kid=<64 hex X25519 public key> (repeatable)
+  -record-token-file string
+    	file with edictad's record bearer token, if it differs
+  -rpc-primary string
+    	light: CometBFT RPC URL of the primary provider
+  -rpc-witness value
+    	light: CometBFT RPC URL of a witness from another operator (repeatable or comma separated)
+  -skew uint
+    	clock skew in seconds; must equal the gate's (default 30)
+  -strategy-id string
+    	strategy id carried in the context (default "tia-band-live")
+  -threshold-bp uint
+    	move in basis points that triggers a decision (100 = 1%) (default 100)
+  -timeout duration
+    	overall time limit of the run (default 30m0s)
+  -trust-hash string
+    	light: trusted header hash at --trust-height, 64 hex
+  -trust-height uint
+    	light: trusted height
+  -trust-period duration
+    	light: trusting period (below the unbonding time) (default 24h0m0s)
+  -up-addr string
+    	destination when the price moves up
+  -up-amount uint
+    	amount in base units (utia) when up

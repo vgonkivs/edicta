@@ -1,0 +1,4 @@
+exit 1
+-- stdout --
+-- stderr --
+edicta-live: FAILED: usage: edicta-live pubkey <seed-file>

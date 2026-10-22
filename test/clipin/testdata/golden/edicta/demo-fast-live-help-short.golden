@@ -1,0 +1,48 @@
+exit 4
+-- stdout --
+Usage of demo fast-live:
+  -address string
+    	expected funder address; must equal the key's address
+  -amount uint
+    	utia the agent decides to send (default 1000)
+  -explorer-block-url string
+    	explorer block link template with {height}
+  -explorer-tx-url string
+    	explorer tx link template with {hash}
+  -fund-timeout duration
+    	how long to wait for funds before asking (default 5m0s)
+  -funder-key string
+    	key name in that keyring
+  -funder-keyring-dir string
+    	file keyring of an account you already have
+  -funder-passphrase-file string
+    	file (mode 0600) with the keyring passphrase; otherwise prompted without echo
+  -headers-rpc string
+    	CometBFT RPC for headers (untrusted)
+  -home string
+    	demo home directory; chain keys and run directories live here (default "<work>/home/.edicta-demo")
+  -json
+    	print one JSON event per line
+  -max-recorder-funding uint
+    	cap of one funding send to the run's Recorder account (utia); default 20000
+  -max-total-funding uint
+    	raise the lifetime funding cap (utia); asks for a confirmation
+  -network string
+    	network preset (default "mocha")
+  -poll-every duration
+    	poll interval while waiting (default 5s)
+  -restart
+    	stop the in-process edictad before the anchor lands and start it again
+  -trust-root-api string
+    	trust-root block API template with {height}
+  -trust-root-page string
+    	trust-root block page template with {height}
+  -trusted-header string
+    	HEIGHT:HASH from a source you choose, instead of the explorer
+  -tx-rpc string
+    	CometBFT RPC for the transaction and its proofs
+  -yes
+    	confirm --max-total-funding without asking; does not start the run
+edicta: flag: help requested
+usage: edicta demo fast-live [--restart] [--max-recorder-funding UTIA] [--network mocha] [--home DIR] [--json] [--funder-keyring-dir DIR --funder-key NAME [--funder-passphrase-file FILE] [--address ADDR]] [--max-total-funding UTIA [--yes]] [--trusted-header H:HASH]
+-- stderr --

@@ -1,0 +1,6 @@
+exit 0
+-- stdout --
+valid
+mandate hash: 8984925e5ea465e4768790c1bce43e813d4feae75335ef1690570bc1a8b681d3
+principal: ed25519 fa6c9f14a1bf978b0a8d784308ed29d73672d05d2c0fa4b321e2908f37b9539e
+-- stderr --

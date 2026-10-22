@@ -1,0 +1,4 @@
+exit 64
+-- stdout --
+{"error":{"code":"usage","message":"flag provided but not defined: -bogus\nusage: edicta commit [--config PATH] [--gate-id ID] [--gate-key HEX]... [--recipient X25519_HEX]... [--mandate-ref HEX] [--token-file FILE] [--cbor] [--state-dir DIR] [--signer-url URL --signer-token-file FILE] [--request FILE|-] [--action-file FILE] [--action-type TYPE] [--context FILE] [--model ID] [--policy ID] [--mode fast|strict] [--valid-for 10m]\n  eden: --eden-build FILE|- --payment-required HEADER_B64|@FILE [--resource https://URL] [--sign --broadcast] [--record] [--payment-signature] [--wait 5m]\n  resume: --resume-hash HEX (needs --state-dir)","retryable":false}}
+-- stderr --

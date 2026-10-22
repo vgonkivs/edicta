@@ -1,0 +1,4 @@
+exit 1
+-- stdout --
+-- stderr --
+edicta-live: FAILED: edicta-live: invalid configuration: --api-url must be an absolute http or https URL

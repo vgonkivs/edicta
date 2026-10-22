@@ -1,0 +1,4 @@
+exit 0
+-- stdout --
+{"types":{"EIP712Domain":[{"name":"name","type":"string"},{"name":"version","type":"string"}],"Mandate":[{"name":"mandateHash","type":"bytes32"},{"name":"mandateId","type":"bytes16"},{"name":"version","type":"uint64"},{"name":"gateId","type":"string"}]},"primaryType":"Mandate","domain":{"name":"Edicta Mandate","version":"1"},"message":{"mandateHash":"0x99cc2f75e1a147bbc21ee870addd124f15af24299965292cc385139497fa2ef1","mandateId":"0xcbf8350f4a438ca0d8f333e844711283","version":"1","gateId":"gate-paper-1"}}
+-- stderr --

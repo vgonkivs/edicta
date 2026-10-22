@@ -1,0 +1,46 @@
+exit 0
+-- stdout --
+{"kind":"step","of":6,"step":1,"title":"Offline chain and fast-mode gate"}
+{"kind":"info","step":1,"text":"run directory <work>/edicta-fast-<n> (kept); no network, no funds: an in-process chain edicta-offline-1 stands in for Celestia"}
+{"kind":"ok","step":1,"text":"gate demo-edicta-fast-<n> started with [gate.fast] on, Recorder in fast mode; head 1019"}
+{"kind":"mandate","step":1,"text":"Edicta mandate v1\nmandate_id: 6564696374612d64656d6f2d66617374\nversion: 1\ngate: demo-edicta-fast-<n>\nprincipal: ed25519 <hex64>\nfast mode: allowed, anchor at most 20 blocks after the reference height\nauditors: none (public mandate)\nvalid: reference time from <time> ; decision valid_until up to <time>\nmax decision age: default (MaxTTL of the payload's DA)\nmin spacing: none\nagents (1, shared counter):\n  - <hex64>\nkinds: transfer\nasset cosmos:edicta-offline-1/utia (scale 6):\n  per action: max 0.002000\n  period: no limit\n  recipients:\n    - cosmos:edicta-offline-1:<celestia-addr>\ncount: no limit\nnotes:\n  - Limits are measured on the reference time of each decision (block time at its payload reference height), not on execution time.\n  - Limits use hourly buckets; a bucket partly inside a window counts fully, so a limit may cover up to one extra hour (a \"per 1h\" limit may span up to 2h): the gate may deny early, never allow extra.\n  - Limits count authorizations, not executions.\n  - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.\n  - In fast mode the gate may authorize before the payload is anchored on L1; the anchor must land within the stated number of blocks or the decision is invalid.\n"}
+{"kind":"step","of":6,"step":2,"title":"Decision on a pending reference"}
+{"kind":"ok","step":2,"text":"pending reference at h0 1025: the anchor intent (a signed PayForBlobs, timeout height 1045) is archived and broadcast, nothing is included yet"}
+{"kind":"ok","step":2,"text":"agent signed commitment <hex64> (send 1000 utia to <celestia-addr>)"}
+{"kind":"step","of":6,"step":3,"title":"Fast authorization"}
+{"kind":"ok","step":3,"text":"authorized in fast mode at head 1025, in the block of h0, before any anchor: anchor_deadline 1045, expires <hh:mm:ss>Z"}
+{"kind":"info","step":3,"text":"An executor may act on this Authorization now. The gate's promise: the decision lands on chain by the deadline, or the verifier proves it did not."}
+{"kind":"step","of":6,"step":4,"title":"Verify inside the anchor window"}
+{"kind":"ok","step":4,"text":"absence proofs for heights 1025..1028 fetched from the bridge (3688 bytes) and archived"}
+{"hash":"<hex64>","height":1028,"kind":"trust_root","link":"","source":"the offline chain (demo mode)","step":4}
+{"check":"decision","detail":"","kind":"check","reason":"","source":"","status":"pass","step":4}
+{"check":"envelope","detail":"","kind":"check","reason":"","source":"","status":"pass","step":4}
+{"check":"action","detail":"","kind":"check","reason":"","source":"","status":"pass","step":4}
+{"check":"authorization","detail":"","kind":"check","reason":"","source":"","status":"pass","step":4}
+{"check":"payload","detail":"","kind":"check","reason":"","source":"","status":"pass","step":4}
+{"check":"anchor","detail":"verifier: anchor invalid: no usable evidence, and the trusted header 1028 is below 1045","kind":"check","reason":"anchor_pending","source":"","status":"unchecked","step":4}
+{"check":"anchor_time","detail":"the anchor check did not pass","kind":"check","reason":"blocked","source":"","status":"unchecked","step":4}
+{"check":"header_trust","detail":"the anchor check did not pass","kind":"check","reason":"blocked","source":"","status":"unchecked","step":4}
+{"check":"policy","detail":"the anchor time is not verified","kind":"check","reason":"blocked","source":"","status":"unchecked","step":4}
+{"kind":"info","step":4,"text":"mode fast, publication: unknown, intent signer: -, absence: - over 0 height(s)"}
+{"assumptions":null,"command":"","exit":2,"kind":"verdict","retries":0,"step":4,"verdict":"inconclusive"}
+{"kind":"info","step":4,"text":"$ edicta verify <hex64> --gate-key <hex64> --archive <work>/edicta-fast-<n>/archive --trusted <work>/edicta-fast-<n>/trusted-1028.json --principal-key <hex64>"}
+{"kind":"step","of":6,"step":5,"title":"Anchor killed"}
+{"kind":"ok","step":5,"text":"head 1046, past the deadline 1045; the network accepted 2 broadcast(s) of the anchor tx and included none"}
+{"kind":"step","of":6,"step":6,"title":"Verify after the deadline: absence proofs"}
+{"kind":"ok","step":6,"text":"absence proofs for heights 1025..1045 fetched from the bridge (19362 bytes) and archived"}
+{"hash":"<hex64>","height":1045,"kind":"trust_root","link":"","source":"the offline chain (demo mode)","step":6}
+{"check":"decision","detail":"","kind":"check","reason":"","source":"","status":"pass","step":6}
+{"check":"envelope","detail":"","kind":"check","reason":"","source":"","status":"pass","step":6}
+{"check":"action","detail":"","kind":"check","reason":"","source":"","status":"pass","step":6}
+{"check":"authorization","detail":"","kind":"check","reason":"","source":"","status":"pass","step":6}
+{"check":"payload","detail":"","kind":"check","reason":"","source":"","status":"pass","step":6}
+{"check":"anchor","detail":"verifier: anchor_absent: the anchor is proven absent over the whole window: heights 1025 to 1045, deadline signed by the gate","kind":"check","reason":"","source":"","status":"fail","step":6}
+{"check":"anchor_time","detail":"the anchor check did not pass","kind":"check","reason":"blocked","source":"","status":"unchecked","step":6}
+{"check":"header_trust","detail":"the anchor check did not pass","kind":"check","reason":"blocked","source":"","status":"unchecked","step":6}
+{"check":"policy","detail":"the anchor time is not verified","kind":"check","reason":"blocked","source":"","status":"unchecked","step":6}
+{"kind":"info","step":6,"text":"mode fast, publication: failed, intent signer: <celestia-addr> (the Recorder's anchor account), absence: absent over 21 height(s)"}
+{"assumptions":null,"command":"","exit":1,"kind":"verdict","retries":0,"step":6,"verdict":"invalid"}
+{"kind":"info","step":6,"text":"$ edicta verify <hex64> --gate-key <hex64> --archive <work>/edicta-fast-<n>/archive --trusted <work>/edicta-fast-<n>/trusted-1045.json --principal-key <hex64>"}
+{"kind":"info","step":6,"text":"The Authorization was genuine and issued in one block; the decision it rests on was never published. The verifier proves that from chain data and names the account that signed the anchor intent."}
+-- stderr --

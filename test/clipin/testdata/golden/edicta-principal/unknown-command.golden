@@ -1,0 +1,20 @@
+exit 2
+-- stdout --
+-- stderr --
+edicta-principal: unknown command "bogus"
+usage:
+  edicta-principal render     --mandate FILE [--book FILE] [--accept-new-key]
+  edicta-principal typed-data --mandate FILE
+  edicta-principal signdoc    --mandate FILE [--text]
+  edicta-principal private    --mandate FILE --auditor LABEL:PUBKEY... [--new-id] [--out FILE]
+  edicta-principal sign       --mandate FILE --scheme ed25519|cosmos|eth (--key FILE | --signature SIG)
+                              [--replaces FILE] [--book FILE] [--accept-new-key] [--out FILE]
+  edicta-principal verify     --signed FILE
+  edicta-principal publish    --signed FILE --archive DIR
+
+signdoc --text prints the data D of the ADR-036 document: the rendered
+mandate, an empty line and "mandate hash: <hex>", with no newline after the
+hash. D is the exact data the principal signs. Paste it unchanged, without
+adding a newline, as the data argument of Keplr signArbitrary(chainId,
+address, data), then pass the returned signature to sign --scheme cosmos
+--signature.

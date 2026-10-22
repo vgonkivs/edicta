@@ -1,0 +1,4 @@
+exit 4
+-- stdout --
+edicta: exactly one of --archive and --archive-url is required
+-- stderr --

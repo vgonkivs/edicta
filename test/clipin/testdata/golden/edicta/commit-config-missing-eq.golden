@@ -1,0 +1,4 @@
+exit 64
+-- stdout --
+{"error":{"code":"usage","message":"config: invalid configuration: reading <fix>/missing.toml: open <fix>/missing.toml: no such file or directory","retryable":false}}
+-- stderr --

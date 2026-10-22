@@ -1,0 +1,4 @@
+exit 1
+-- stdout --
+-- stderr --
+edicta-devinit: -escrow-address needs -escrow-code-file

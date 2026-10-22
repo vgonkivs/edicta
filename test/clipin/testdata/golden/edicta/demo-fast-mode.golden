@@ -1,0 +1,71 @@
+exit 0
+-- stdout --
+[1/6] Offline chain and fast-mode gate
+  run directory <work>/edicta-fast-<n> (kept); no network, no funds: an in-process chain edicta-offline-1 stands in for Celestia
+  [ok] gate demo-edicta-fast-<n> started with [gate.fast] on, Recorder in fast mode; head 1019
+  [mandate] signed by this run's principal key; the gate enforces:
+    Edicta mandate v1
+    mandate_id: 6564696374612d64656d6f2d66617374
+    version: 1
+    gate: demo-edicta-fast-<n>
+    principal: ed25519 <hex64>
+    fast mode: allowed, anchor at most 20 blocks after the reference height
+    auditors: none (public mandate)
+    valid: reference time from <time> ; decision valid_until up to <time>
+    max decision age: default (MaxTTL of the payload's DA)
+    min spacing: none
+    agents (1, shared counter):
+      - <hex64>
+    kinds: transfer
+    asset cosmos:edicta-offline-1/utia (scale 6):
+      per action: max 0.002000
+      period: no limit
+      recipients:
+        - cosmos:edicta-offline-1:<celestia-addr>
+    count: no limit
+    notes:
+      - Limits are measured on the reference time of each decision (block time at its payload reference height), not on execution time.
+      - Limits use hourly buckets; a bucket partly inside a window counts fully, so a limit may cover up to one extra hour (a "per 1h" limit may span up to 2h): the gate may deny early, never allow extra.
+      - Limits count authorizations, not executions.
+      - Counters continue across versions of this mandate_id; a new mandate_id starts from zero.
+      - In fast mode the gate may authorize before the payload is anchored on L1; the anchor must land within the stated number of blocks or the decision is invalid.
+[2/6] Decision on a pending reference
+  [ok] pending reference at h0 1025: the anchor intent (a signed PayForBlobs, timeout height 1045) is archived and broadcast, nothing is included yet
+  [ok] agent signed commitment <hex64> (send 1000 utia to <celestia-addr>)
+[3/6] Fast authorization
+  [ok] authorized in fast mode at head 1025, in the block of h0, before any anchor: anchor_deadline 1045, expires <hh:mm:ss>Z
+  An executor may act on this Authorization now. The gate's promise: the decision lands on chain by the deadline, or the verifier proves it did not.
+[4/6] Verify inside the anchor window
+  [ok] absence proofs for heights 1025..1028 fetched from the bridge (3688 bytes) and archived
+  [trust root] header 1028 = <hex64> from the offline chain (demo mode)
+  [pass] decision
+  [pass] envelope
+  [pass] action
+  [pass] authorization
+  [pass] payload
+  [unchecked] anchor: reason=anchor_pending
+  [unchecked] anchor_time: reason=blocked
+  [unchecked] header_trust: reason=blocked
+  [unchecked] policy: reason=blocked
+  mode fast, publication: unknown, intent signer: -, absence: - over 0 height(s)
+  VERDICT: INCONCLUSIVE (anchor_pending, blocked, blocked, blocked) (verify exit 2)
+  $ edicta verify <hex64> --gate-key <hex64> --archive <work>/edicta-fast-<n>/archive --trusted <work>/edicta-fast-<n>/trusted-1028.json --principal-key <hex64>
+[5/6] Anchor killed
+  [ok] head 1046, past the deadline 1045; the network accepted 2 broadcast(s) of the anchor tx and included none
+[6/6] Verify after the deadline: absence proofs
+  [ok] absence proofs for heights 1025..1045 fetched from the bridge (19362 bytes) and archived
+  [trust root] header 1045 = <hex64> from the offline chain (demo mode)
+  [pass] decision
+  [pass] envelope
+  [pass] action
+  [pass] authorization
+  [pass] payload
+  [FAIL] anchor: verifier: anchor_absent: the anchor is proven absent over the whole window: heights 1025 to 1045, deadline signed by the gate
+  [unchecked] anchor_time: reason=blocked
+  [unchecked] header_trust: reason=blocked
+  [unchecked] policy: reason=blocked
+  mode fast, publication: failed, intent signer: <celestia-addr> (the Recorder's anchor account), absence: absent over 21 height(s)
+  VERDICT: INVALID (verify exit 1)
+  $ edicta verify <hex64> --gate-key <hex64> --archive <work>/edicta-fast-<n>/archive --trusted <work>/edicta-fast-<n>/trusted-1045.json --principal-key <hex64>
+  The Authorization was genuine and issued in one block; the decision it rests on was never published. The verifier proves that from chain data and names the account that signed the anchor intent.
+-- stderr --

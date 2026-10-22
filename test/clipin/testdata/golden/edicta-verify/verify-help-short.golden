@@ -1,0 +1,77 @@
+exit 4
+-- stdout --
+Usage of verify:
+  -absence-source string
+    	bridge node JSON-RPC URL that serves absence proofs of a pending reference; block results come from --headers-rpc
+  -archive string
+    	archive directory
+  -archive-url string
+    	read-only archive over HTTP
+  -auditor-key value
+    	file with an X25519 auditor private key, hex, mode 0600, that opens private mandates (repeatable)
+  -blob-retention uint
+    	blob retention the gate assumed, seconds (default 14400)
+  -check-execution
+    	check the transaction the receipt names
+  -checkpoint string
+    	explicit checkpoint HEIGHT:HASH, taken out of band
+  -checkpoint-quorum string
+    	operators that must agree on the checkpoint (default "1")
+  -checkpoint-rpc value
+    	CometBFT RPC of an independent checkpoint operator (repeatable)
+  -cross-check value
+    	CometBFT RPC to cross-check headers and the transaction (repeatable)
+  -exclude-host value
+    	host that must not serve as a checkpoint, cross-check or settlement source, such as the gate's own endpoint (repeatable)
+  -exec-chain-id string
+    	chain id the bank-send profile rebuilds a revealed private action for; default the chain id of the trusted header at the reference height
+  -gate-key string
+    	gate public key, hex; several separated by commas
+  -headers-rpc string
+    	CometBFT RPC that serves the headers between the checkpoint and the anchor
+  -json
+    	print one JSON document
+  -max-walk-steps int
+    	most steps the policy walk takes toward genesis (at least 1) (default 10000)
+  -policy-depth int
+    	alias of --max-walk-steps (default 10000)
+  -policy-evidence value
+    	file with a signed policy verdict held by the auditor, for fork detection (repeatable)
+  -policy-full
+    	walk the verdict chain and search for forks
+  -principal value
+    	trusted mandate principal by scheme: ed25519:HEX, cosmos:BECH32 or eth:0xHEX (repeatable; commas also separate)
+  -principal-key value
+    	trusted Ed25519 mandate principal public key, hex (repeatable; commas also separate keys)
+  -receipt string
+    	signed receipt file
+  -require-policy
+    	the gate had a mandate: a missing policy record is unchecked, not skipped
+  -result-archive value
+    	further archive copy, a directory or an http(s) URL, that the execution check reads for archived execution results after the archive (repeatable)
+  -settlement
+    	add the Eden settlement report of the transaction the receipt names; it never changes the verdict
+  -settlement-confirm-depth uint
+    	Eden blocks that must follow the transaction's (default 20)
+  -settlement-da string
+    	the operator's own ev-node RPC, for whether the block's data is in Celestia (report only)
+  -settlement-level string
+    	level a settlement pass needs: L0, L1 or L2 (default L1: two operators agree)
+  -settlement-min-sources int
+    	agreeing operators that make L1 (default 2)
+  -settlement-own-rpc value
+    	Eden JSON-RPC of the operator's own node for --settlement, as URL or OPERATOR=URL, asked first (repeatable)
+  -settlement-preset string
+    	Eden preset (eden-mainnet or eden-testnet): adds its public sources to --settlement-rpc; the preset's own-node slot is a placeholder, so give your own with --settlement-own-rpc
+  -settlement-rpc value
+    	Eden JSON-RPC of a public operator for --settlement, as URL or OPERATOR=URL (repeatable, one per host)
+  -skew uint
+    	clock skew the gate allowed, seconds (default 30)
+  -timeout duration
+    	overall time limit of the run (default 5m0s)
+  -trusted string
+    	trusted header file
+  -tx-rpc value
+    	CometBFT RPC that serves the transaction the receipt names; the first is the primary, more are alternates tried in order
+edicta: flag: help requested
+-- stderr --
