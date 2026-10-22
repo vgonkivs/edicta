@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vgonkivs/edicta/fibre/fibrecommit"
+	"github.com/vgonkivs/edicta/celestia/fibrecommit"
 )
 
 func TestFibreCommitCheckBuildInCelestia(t *testing.T) {

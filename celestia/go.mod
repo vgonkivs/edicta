@@ -6,7 +6,6 @@ require (
 	github.com/celestiaorg/celestia-node v0.34.2-mocha
 	github.com/celestiaorg/go-square/v4 v4.0.1
 	github.com/stretchr/testify v1.12.1
-	github.com/vgonkivs/edicta/fibre v0.0.0
 )
 
 require (
@@ -366,8 +365,6 @@ require (
 )
 
 replace github.com/vgonkivs/edicta => ../
-
-replace github.com/vgonkivs/edicta/fibre => ../fibre
 
 replace (
 	cosmossdk.io/api => github.com/celestiaorg/cosmos-sdk/api v0.7.6

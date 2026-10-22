@@ -107,7 +107,7 @@ var narrow = []struct {
 }{
 	{
 		why:  "storage, verification and the DA committer must not depend on the authorizer",
-		from: []string{"archive", "archive/fsarchive", "archive/httparchive", "verifier", "fibre/fibrecommit"},
+		from: []string{"archive", "archive/fsarchive", "archive/httparchive", "verifier", "celestia/fibrecommit"},
 		to:   under("gate"),
 	},
 	{
@@ -148,10 +148,10 @@ var exceptions = map[string][]string{
 
 	// The archive and the verifier take the DA source interfaces, the
 	// committer interface and their sentinels from the gate package.
-	"archive":           {"gate"},
-	"archive/fsarchive": {"gate"},
-	"verifier":          {"gate"},
-	"fibre/fibrecommit": {"gate"},
+	"archive":              {"gate"},
+	"archive/fsarchive":    {"gate"},
+	"verifier":             {"gate"},
+	"celestia/fibrecommit": {"gate"},
 
 	// The agent HTTP client maps error codes to the gate's sentinels.
 	"edictaapi": {"gate"},

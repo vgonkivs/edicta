@@ -35,7 +35,7 @@ func TestCheckBuildInBinary(t *testing.T) {
 	require.Contains(t, string(out), "checkbuild=<nil>")
 }
 
-// goModReplaces returns the non-local replaces of fibre/go.mod as
+// goModReplaces returns the non-local replaces of celestia/go.mod as
 // old path -> "target@version". golang.org/x/mod is in the module graph only
 // at a version whose source is not in go.sum or the offline cache, so the file
 // is parsed by hand.

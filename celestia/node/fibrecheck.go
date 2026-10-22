@@ -9,8 +9,8 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/vgonkivs/edicta/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/celestia/heightcheck"
-	"github.com/vgonkivs/edicta/fibre/fibrecommit"
 )
 
 // Facts a da = 1 instance requires of the chain.

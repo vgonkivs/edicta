@@ -12,10 +12,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 
 	"github.com/vgonkivs/edicta/celestia/edictad"
+	"github.com/vgonkivs/edicta/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/recorder"
-	"github.com/vgonkivs/edicta/fibre/fibrecommit"
 )
 
 // fibreBridge is the bridge client the da = 1 gate needs.

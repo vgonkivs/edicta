@@ -50,9 +50,15 @@ func replaceSet(t *testing.T, path string) []string {
 	return out
 }
 
-func TestReplaceSetParityWithFibreModule(t *testing.T) {
+// heavyModules are the modules, relative to the repository root, that link
+// celestia-node or celestia-app and so need the fork replace block.
+var heavyModules = []string{"celestia"}
+
+func TestReplaceSetParityAcrossHeavyModules(t *testing.T) {
 	cel := replaceSet(t, "go.mod")
-	fib := replaceSet(t, testkit.RepoPath(t, "fibre/go.mod"))
 	require.NotEmpty(t, cel)
-	require.Equal(t, cel, fib, "fibre/go.mod and celestia/go.mod must carry identical non-local replaces")
+	for _, m := range heavyModules {
+		got := replaceSet(t, testkit.RepoPath(t, m+"/go.mod"))
+		require.Equal(t, cel, got, "%s/go.mod and celestia/go.mod must carry identical non-local replaces", m)
+	}
 }

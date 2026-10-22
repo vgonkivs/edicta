@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/vgonkivs/edicta/fibre/fibrecommit"
+	"github.com/vgonkivs/edicta/celestia/fibrecommit"
 )
 
 func main() {

@@ -165,8 +165,7 @@ Not production-ready.
 | Path | Contents |
 |---|---|
 | `/` (module `github.com/vgonkivs/edicta`) | Core: `commitment` (encoding, hashing, checks), `gate`, `policy` (mandates), `principalsig`, `archive`, `verifier`, `sdk`, `edictaapi` (HTTP API), `dacommit`, `test`; `cmd/edicta-principal` (the principal's mandate tool) |
-| `celestia/` (own module) | Recorder, chain client for the gate, `edictad` daemon, `edicta` CLI (demo, verify), `edicta-live` runner |
-| `fibre/` (own module) | Fibre blob commitment |
+| `celestia/` (own module) | Recorder, chain client for the gate, Fibre blob commitment (`fibrecommit`), `edictad` daemon, `edicta` CLI (demo, verify), `edicta-live` runner |
 | `examples/` | Profiles in use: `tia-transfer` (Cosmos `MsgSend` on a price trigger) and `dca-agent` (IBKR order, offline with a fake broker) |
 | `spec/` | Specification, profiles, test vectors and their generators |
 | `docs/` | User guides |

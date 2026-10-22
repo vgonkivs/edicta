@@ -6,7 +6,7 @@
 //
 // Regenerate with
 //
-//	go -C fibre generate ./fibrecommit
+//	go -C celestia generate ./fibrecommit
 //
 // Bumping a strict module changes what the commitment vectors were produced
 // with: re-run the vector generator and get human sign-off before committing

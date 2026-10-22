@@ -12,10 +12,10 @@ import (
 
 	fibretypes "github.com/celestiaorg/celestia-app/v10/x/fibre/types"
 
+	"github.com/vgonkivs/edicta/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/celestia/gatechain"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/commitment"
-	"github.com/vgonkivs/edicta/fibre/fibrecommit"
 	"github.com/vgonkivs/edicta/gate"
 )
 
