@@ -1,8 +1,6 @@
 module github.com/vgonkivs/edicta/services/signer
 
-go 1.26.0
-
-toolchain go1.26.6
+go 1.26.8
 
 require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1

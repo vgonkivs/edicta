@@ -157,3 +157,40 @@ func TestReplaceSetParityAcrossHeavyModules(t *testing.T) {
 		}
 	}
 }
+
+// releaseModules build shipped binaries. They must declare the same go and
+// toolchain lines, so that no binary is built with an older standard library
+// than the others just because its module sits in another directory.
+var releaseModules = []string{".", "examples", "plugins/celestia", "services/cli", "services/gate", "services/signer"}
+
+// goLines returns the go and toolchain directives of a go.mod; an absent
+// toolchain directive is the empty string.
+func goLines(t *testing.T, path string) (goVer, toolchain string) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) != 2 {
+			continue
+		}
+		switch f[0] {
+		case "go":
+			goVer = f[1]
+		case "toolchain":
+			toolchain = f[1]
+		}
+	}
+	require.NotEmptyf(t, goVer, "%s has no go directive", path)
+	return goVer, toolchain
+}
+
+func TestGoAndToolchainLinesMatchAcrossReleaseModules(t *testing.T) {
+	root := testkit.RepoRoot(t)
+	wantGo, wantTC := goLines(t, filepath.Join(root, releaseModules[0], "go.mod"))
+	for _, dir := range releaseModules[1:] {
+		g, tc := goLines(t, filepath.Join(root, dir, "go.mod"))
+		assert.Equalf(t, wantGo, g, "%s/go.mod go line differs from %s/go.mod", dir, releaseModules[0])
+		assert.Equalf(t, wantTC, tc, "%s/go.mod toolchain line differs from %s/go.mod", dir, releaseModules[0])
+	}
+}

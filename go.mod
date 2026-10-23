@@ -1,8 +1,6 @@
 module github.com/vgonkivs/edicta
 
-go 1.26.0
-
-toolchain go1.26.6
+go 1.26.8
 
 require (
 	filippo.io/edwards25519 v1.1.1
