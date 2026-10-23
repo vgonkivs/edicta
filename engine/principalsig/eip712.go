@@ -99,12 +99,5 @@ func EthereumAddress(pub []byte) ([20]byte, error) {
 	if err != nil {
 		return [20]byte{}, fmt.Errorf("%w: %v", ErrPrincipal, err)
 	}
-	return ethAddress(k), nil
-}
-
-func ethAddress(k *secp256k1.PublicKey) [20]byte {
-	h := evm.Keccak256(k.SerializeUncompressed()[1:])
-	var a [20]byte
-	copy(a[:], h[12:])
-	return a
+	return evm.Address(k), nil
 }

@@ -351,7 +351,7 @@ func TestX402PaymentSignatureDigests(t *testing.T) {
 			m := [32]byte(unhex(t, c.MessageHex))
 			require.Contains(t, want, c.Field)
 			assert.Equal(t, want[c.Field], m)
-			assert.Equal(t, c.PreimageHex, hex.EncodeToString(append([]byte(personalPrefix), m[:]...)))
+			assert.Equal(t, c.PreimageHex, hex.EncodeToString(append([]byte("\x19Ethereum Signed Message:\n32"), m[:]...)))
 			d := PersonalDigest(m)
 			assert.Equal(t, c.DigestHex, hex.EncodeToString(d[:]))
 

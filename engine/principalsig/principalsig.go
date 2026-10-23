@@ -15,6 +15,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/internal/evm"
 )
 
 // Scheme names a principal signature scheme. The values of Cosmos and EIP-712
@@ -184,15 +185,13 @@ func verifyEIP712(principal []byte, m EIP712Message, sig []byte) error {
 	if _, _, err := scalars(sig[:64]); err != nil {
 		return err
 	}
-	compact := make([]byte, 0, 65)
-	compact = append(compact, v)
-	compact = append(compact, sig[:64]...)
-	digest := EIP712Digest(m)
-	pub, _, err := ecdsa.RecoverCompact(compact, digest[:])
+	var rs [65]byte
+	copy(rs[:64], sig[:64])
+	rs[64] = v - 27
+	addr, err := evm.RecoverAddress(EIP712Digest(m), rs)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrSignature, err)
 	}
-	addr := ethAddress(pub)
 	if subtle.ConstantTimeCompare(addr[:], principal) != 1 {
 		return fmt.Errorf("%w: recovered address differs", ErrSignature)
 	}

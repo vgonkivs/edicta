@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 
 	"github.com/vgonkivs/edicta/internal/evm"
 )
@@ -26,16 +25,14 @@ func Sign(priv *secp256k1.PrivateKey, digest [32]byte) (Signature, error) {
 	if priv == nil {
 		return Signature{}, fmt.Errorf("%w: no key", ErrSignature)
 	}
-	c := ecdsa.SignCompact(priv, digest[:], false)
-	code := c[0] - 27
-	if code > 1 {
-		// r overflowed the group order: no y_parity can express it.
-		return Signature{}, fmt.Errorf("%w: recovery code %d", ErrSignature, code)
+	c, err := evm.Sign(priv, digest)
+	if err != nil {
+		return Signature{}, fmt.Errorf("%w: %v", ErrSignature, err)
 	}
 	var sig Signature
-	sig.YParity = code
-	copy(sig.R[:], c[1:33])
-	copy(sig.S[:], c[33:65])
+	sig.YParity = c[64]
+	copy(sig.R[:], c[:32])
+	copy(sig.S[:], c[32:64])
 	return sig, nil
 }
 
@@ -53,24 +50,19 @@ func RecoverPayer(digest [32]byte, sig Signature) ([20]byte, error) {
 	if s.SetBytes(&sig.S) != 0 || s.IsZero() || s.IsOverHalfOrder() {
 		return [20]byte{}, fmt.Errorf("%w: s not in 1..n/2", ErrSignature)
 	}
-	var compact [65]byte
-	compact[0] = 27 + sig.YParity
-	copy(compact[1:33], sig.R[:])
-	copy(compact[33:65], sig.S[:])
-	pub, _, err := ecdsa.RecoverCompact(compact[:], digest[:])
+	var rs [65]byte
+	copy(rs[:32], sig.R[:])
+	copy(rs[32:64], sig.S[:])
+	rs[64] = sig.YParity
+	a, err := evm.RecoverAddress(digest, rs)
 	if err != nil {
 		return [20]byte{}, fmt.Errorf("%w: %v", ErrSignature, err)
 	}
-	return Address(pub), nil
+	return a, nil
 }
 
 // Address is the Ethereum address of a public key.
-func Address(pub *secp256k1.PublicKey) [20]byte {
-	sum := evm.Keccak256(pub.SerializeUncompressed()[1:])
-	var a [20]byte
-	copy(a[:], sum[12:])
-	return a
-}
+func Address(pub *secp256k1.PublicKey) [20]byte { return evm.Address(pub) }
 
 // SignTx signs the action's SigHash with the payer key and splices the
 // signature in. It is the only path a signer needs: the signature is

@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 
 	"github.com/vgonkivs/edicta/internal/evm"
 )
@@ -185,16 +184,13 @@ func checkEntry(a TxAction, entry, extra *jsonValue) error {
 	return nil
 }
 
-// personalPrefix is the EIP-191 version 0x45 prefix for a 32-byte message.
-const personalPrefix = "\x19Ethereum Signed Message:\n" + "32"
-
 // PersonalDigest is the personal_sign digest of a 32-byte message:
 // keccak256(0x19 || "Ethereum Signed Message:\n32" || m). 0x19 lies in the
 // EIP-2718 type range but is neither 0x02, the only type the payer key
 // signs, nor an RLP list prefix (a legacy transaction), so the preimage
 // never stands for a transaction that key signs.
 func PersonalDigest(m [32]byte) [32]byte {
-	return evm.Keccak256([]byte(personalPrefix), m[:])
+	return evm.PersonalDigest32(m)
 }
 
 // PaymentProofMessage is the message a Payment-Signature covers for a
@@ -240,13 +236,11 @@ func RecoverPersonal(m [32]byte, sig [65]byte) ([20]byte, error) {
 	if s.SetByteSlice(sig[32:64]) || s.IsZero() {
 		return [20]byte{}, fmt.Errorf("%w: s not in 1..n-1", ErrSignature)
 	}
-	var compact [65]byte
-	compact[0] = 27 + v
-	copy(compact[1:], sig[:64])
-	digest := PersonalDigest(m)
-	pub, _, err := ecdsa.RecoverCompact(compact[:], digest[:])
+	rs := sig
+	rs[64] = v
+	a, err := evm.RecoverAddress(PersonalDigest(m), rs)
 	if err != nil {
 		return [20]byte{}, fmt.Errorf("%w: %v", ErrSignature, err)
 	}
-	return Address(pub), nil
+	return a, nil
 }

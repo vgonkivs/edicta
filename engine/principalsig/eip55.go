@@ -25,25 +25,8 @@ func ParseEthAddress(s string) ([]byte, error) {
 	if digits == lower || digits == strings.ToUpper(digits) {
 		return b, nil
 	}
-	if digits != eip55(lower) {
+	if digits != evm.ChecksumAddress([20]byte(b)) {
 		return nil, fmt.Errorf("%w: eth address checksum does not match", ErrPrincipal)
 	}
 	return b, nil
-}
-
-// eip55 is the checksummed form of 40 lowercase hex digits: a letter is
-// uppercased when the matching nibble of keccak256(digits) is 8 or more.
-func eip55(lower string) string {
-	h := evm.Keccak256([]byte(lower))
-	out := []byte(lower)
-	for i, c := range out {
-		nibble := h[i/2] >> 4
-		if i%2 == 1 {
-			nibble = h[i/2] & 0x0f
-		}
-		if c >= 'a' && c <= 'f' && nibble >= 8 {
-			out[i] = c - 'a' + 'A'
-		}
-	}
-	return string(out)
 }

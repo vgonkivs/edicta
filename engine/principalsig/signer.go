@@ -7,6 +7,8 @@ import (
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
+
+	"github.com/vgonkivs/edicta/internal/evm"
 )
 
 // Signer signs mandates with a raw key, for the CLI and tests. rendered is
@@ -78,7 +80,7 @@ func (s *secpSigner) Principal() []byte {
 	if s.scheme == CosmosADR036 {
 		return pub.SerializeCompressed()
 	}
-	a := ethAddress(pub)
+	a := evm.Address(pub)
 	return a[:]
 }
 
@@ -99,7 +101,9 @@ func (s *secpSigner) Sign(m EIP712Message, rendered []byte) ([]byte, error) {
 		ss.PutBytesUnchecked(out[32:])
 		return out[:], nil
 	}
-	digest := EIP712Digest(m)
-	c := ecdsa.SignCompact(s.sk, digest[:], false)
-	return append(append([]byte(nil), c[1:]...), c[0]), nil
+	sig, err := evm.Sign(s.sk, EIP712Digest(m))
+	if err != nil {
+		return nil, err
+	}
+	return append(append([]byte(nil), sig[:64]...), 27+sig[64]), nil
 }
