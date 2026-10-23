@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/policy"
+	"github.com/vgonkivs/edicta/internal/evm/rlp"
 )
 
 // f14 is the vector action tx_f14_714, valid in every build.
@@ -136,9 +137,9 @@ func f14Items(t testing.TB) [][]byte {
 	a, _ := f14(t)
 	var out [][]byte
 	for b := a.items; len(b) > 0; {
-		it, rest, err := rlpNext(b)
+		it, rest, err := rlp.Next(b)
 		require.NoError(t, err)
-		out = append(out, it.raw)
+		out = append(out, it.Raw)
 		b = rest
 	}
 	require.Len(t, out, txItems)
@@ -166,8 +167,8 @@ func TestTransactionRules(t *testing.T) {
 		{"access list nested too deep", replaced(it, 8, nested), "ET2"},
 		{"data as a list", replaced(it, 7, []byte{0xc0}), "ET2"},
 		{"to as a list", replaced(it, 5, []byte{0xc0}), "ET2"},
-		{"tip above the fee", replaced(it, 2, rlpString([]byte{0x08, 0xfc})), "ET4"},
-		{"to of 21 bytes", replaced(it, 5, rlpString(make([]byte, 21))), "ET5"},
+		{"tip above the fee", replaced(it, 2, rlp.AppendString(nil, []byte{0x08, 0xfc})), "ET4"},
+		{"to of 21 bytes", replaced(it, 5, rlp.AppendString(nil, make([]byte, 21))), "ET5"},
 		{"empty data", replaced(it, 7, []byte{0x80}), "ET8"},
 	}
 	for _, c := range cases {
@@ -313,4 +314,10 @@ func TestParseSignedRefusesAnotherAction(t *testing.T) {
 	require.NoError(t, err)
 	_, _, err = ParseSigned(a, signed)
 	require.ErrorIs(t, err, ErrSignedMismatch)
+}
+
+// rlpListHeader is the canonical header of a list whose payload has n bytes.
+func rlpListHeader(n int) []byte {
+	h := rlp.AppendList(nil, make([]byte, n))
+	return h[:len(h)-n]
 }

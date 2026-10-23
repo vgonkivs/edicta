@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"math/big"
 	"slices"
+
+	"github.com/vgonkivs/edicta/internal/evm/rlp"
 )
 
 // MaxBuildBodySize bounds a /deposit/build answer. A producer reads at most
@@ -100,10 +102,10 @@ func ActionFromDepositBuild(body []byte, resource string, requirementsHash [32]b
 		new(big.Int).SetUint64(chainID).Bytes(), new(big.Int).SetUint64(nonce).Bytes(),
 		tip.Bytes(), maxFee.Bytes(), gasLimit.Bytes(), to, value.Bytes(), data,
 	} {
-		p = append(p, rlpString(it)...)
+		p = rlp.AppendString(p, it)
 	}
 	p = append(p, 0xc0)
-	tx := append(append([]byte{txType}, rlpListHeader(len(p))...), p...)
+	tx := rlp.AppendList([]byte{txType}, p)
 	action, err := EncodeTxAction(tx, resource, requirementsHash)
 	if err != nil {
 		return nil, TxAction{}, err

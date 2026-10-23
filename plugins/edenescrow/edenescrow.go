@@ -15,6 +15,7 @@ import (
 	"strconv"
 
 	"github.com/vgonkivs/edicta/internal/evm"
+	"github.com/vgonkivs/edicta/internal/evm/rlp"
 )
 
 const (
@@ -180,19 +181,19 @@ func parseTx(a *TxAction) error {
 	if tx[0] != txType {
 		return malformed("ET1", "transaction type 0x%02x", tx[0])
 	}
-	top, rest, err := rlpNext(tx[1:])
+	top, rest, err := rlp.Next(tx[1:])
 	switch {
 	case err != nil:
 		return malformed("ET2", "%v", err)
-	case !top.list:
+	case !top.List:
 		return malformed("ET2", "the transaction is not an RLP list")
 	case len(rest) != 0:
 		return malformed("ET2", "%d bytes after the list", len(rest))
 	}
-	var items [txItems]rlpItem
+	var items [txItems]rlp.Item
 	count := 0
-	for body := top.payload; len(body) > 0; count++ {
-		it, r, err := rlpNext(body)
+	for body := top.Payload; len(body) > 0; count++ {
+		it, r, err := rlp.Next(body)
 		if err != nil {
 			return malformed("ET2", "item %d: %v", count, err)
 		}
@@ -206,14 +207,14 @@ func parseTx(a *TxAction) error {
 		return malformed("ET2", "%d items", count)
 	}
 	for i := range 8 {
-		if items[i].list {
+		if items[i].List {
 			return malformed("ET2", "item %d is a list", i)
 		}
 	}
-	if !items[8].list {
+	if !items[8].List {
 		return malformed("ET2", "access_list is not a list")
 	}
-	if err := rlpCheckNested(items[8].payload); err != nil {
+	if err := rlpCheckNested(items[8].Payload); err != nil {
 		return malformed("ET2", "access_list: %v", err)
 	}
 
@@ -238,17 +239,17 @@ func parseTx(a *TxAction) error {
 	if CompareUint(a.MaxPriorityFee, a.MaxFeePerGas) > 0 {
 		return malformed("ET4", "max_priority_fee_per_gas above max_fee_per_gas")
 	}
-	if len(items[5].payload) != 20 {
-		return malformed("ET5", "to of %d bytes", len(items[5].payload))
+	if len(items[5].Payload) != 20 {
+		return malformed("ET5", "to of %d bytes", len(items[5].Payload))
 	}
-	copy(a.To[:], items[5].payload)
+	copy(a.To[:], items[5].Payload)
 	if len(a.Value) == 0 {
 		return malformed("ET6", "value 0")
 	}
-	if len(items[8].payload) != 0 {
+	if len(items[8].Payload) != 0 {
 		return malformed("ET7", "access_list is not empty")
 	}
-	if a.Deposit, err = DecodeDepositCall(items[7].payload); err != nil {
+	if a.Deposit, err = DecodeDepositCall(items[7].Payload); err != nil {
 		var re *ruleError
 		if errors.As(err, &re) {
 			return malformed("ET8", "data: %s (rule %s)", re.msg, re.rule)
@@ -258,26 +259,26 @@ func parseTx(a *TxAction) error {
 	a.MaxPriorityFee = bytes.Clone(a.MaxPriorityFee)
 	a.MaxFeePerGas = bytes.Clone(a.MaxFeePerGas)
 	a.Value = bytes.Clone(a.Value)
-	a.items = top.payload
+	a.items = top.Payload
 	return nil
 }
 
 // intBytes reads a canonical integer: a string without a leading zero byte
 // of at most max bytes. RLP alone admits 0x00 as a one-byte string; as an
 // integer it is not canonical.
-func intBytes(it rlpItem, name string, max int) ([]byte, error) {
+func intBytes(it rlp.Item, name string, max int) ([]byte, error) {
 	switch {
-	case len(it.payload) > max:
-		return nil, malformed("ET3", "%s of %d bytes", name, len(it.payload))
-	case len(it.payload) > 0 && it.payload[0] == 0:
+	case len(it.Payload) > max:
+		return nil, malformed("ET3", "%s of %d bytes", name, len(it.Payload))
+	case len(it.Payload) > 0 && it.Payload[0] == 0:
 		return nil, malformed("ET3", "%s with a leading zero byte", name)
 	}
-	return it.payload, nil
+	return it.Payload, nil
 }
 
-func bigInt(it rlpItem, name string) ([]byte, error) { return intBytes(it, name, maxIntBytes) }
+func bigInt(it rlp.Item, name string) ([]byte, error) { return intBytes(it, name, maxIntBytes) }
 
-func smallInt(it rlpItem, name string) (uint64, error) {
+func smallInt(it rlp.Item, name string) (uint64, error) {
 	b, err := intBytes(it, name, maxSmallBytes)
 	if err != nil {
 		return 0, err

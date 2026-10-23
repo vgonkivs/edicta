@@ -17,6 +17,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/internal/evm/rlp"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
@@ -128,53 +129,15 @@ func (d Deposit) ActionTo(to [20]byte) ([]byte, error) {
 		value = new(big.Int)
 	}
 	items := [][]byte{
-		rlpUint(d.ChainID), rlpUint(d.Nonce), rlpUint(d.MaxPriorityFee), rlpUint(d.MaxFeePerGas),
-		rlpUint(d.GasLimit), rlpString(to[:]), rlpString(value.Bytes()), rlpString(data), {0xc0},
+		rlp.AppendUint64(nil, d.ChainID), rlp.AppendUint64(nil, d.Nonce), rlp.AppendUint64(nil, d.MaxPriorityFee), rlp.AppendUint64(nil, d.MaxFeePerGas),
+		rlp.AppendUint64(nil, d.GasLimit), rlp.AppendString(nil, to[:]), rlp.AppendString(nil, value.Bytes()), rlp.AppendString(nil, data), {0xc0},
 	}
-	unsigned := append([]byte{0x02}, rlpList(items...)...)
+	unsigned := rlp.AppendList([]byte{0x02}, items...)
 	r := d.Requirements
 	if r == nil {
 		r = []byte(`{"mock":true}`)
 	}
 	return edenescrow.EncodeTxAction(unsigned, d.Resource, edenescrow.RequirementsHash(r))
-}
-
-func rlpUint(v uint64) []byte {
-	var b [8]byte
-	binary.BigEndian.PutUint64(b[:], v)
-	i := 0
-	for i < 8 && b[i] == 0 {
-		i++
-	}
-	return rlpString(b[i:])
-}
-
-func rlpString(b []byte) []byte {
-	if len(b) == 1 && b[0] < 0x80 {
-		return []byte{b[0]}
-	}
-	return append(rlpHead(0x80, len(b)), b...)
-}
-
-func rlpList(items ...[]byte) []byte {
-	var p []byte
-	for _, it := range items {
-		p = append(p, it...)
-	}
-	return append(rlpHead(0xc0, len(p)), p...)
-}
-
-func rlpHead(base byte, n int) []byte {
-	if n <= 55 {
-		return []byte{base + byte(n)}
-	}
-	var b [8]byte
-	binary.BigEndian.PutUint64(b[:], uint64(n))
-	i := 0
-	for b[i] == 0 {
-		i++
-	}
-	return append([]byte{base + 55 + byte(8-i)}, b[i:]...)
 }
 
 // Decision is one agent decision with the gate's Authorization.

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/policy"
+	"github.com/vgonkivs/edicta/internal/evm/rlp"
 )
 
 func seedActions(f *testing.F) {
@@ -92,7 +93,7 @@ func reencodeTx(a TxAction) []byte {
 	var p []byte
 	for _, it := range [][]byte{uintBytes(a.ChainID), uintBytes(a.Nonce), a.MaxPriorityFee, a.MaxFeePerGas,
 		uintBytes(a.GasLimit), a.To[:], a.Value, data} {
-		p = append(p, rlpString(it)...)
+		p = rlp.AppendString(p, it)
 	}
 	p = append(p, 0xc0)
 	return append(append([]byte{txType}, rlpListHeader(len(p))...), p...)

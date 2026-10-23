@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/vgonkivs/edicta/internal/evm"
+	"github.com/vgonkivs/edicta/internal/evm/rlp"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 )
@@ -273,7 +274,7 @@ func recoverPayer(signed []byte, tv edenexec.TxView) ([20]byte, error) {
 	for _, x := range it[:9] {
 		p = append(p, x...)
 	}
-	unsigned := append([]byte{0x02}, rlpList(p)...)
+	unsigned := rlp.AppendList([]byte{0x02}, p)
 	return edenescrow.RecoverPayer(Keccak(unsigned), sig)
 }
 

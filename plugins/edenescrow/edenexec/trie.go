@@ -2,7 +2,10 @@
 
 package edenexec
 
-import "github.com/vgonkivs/edicta/internal/evm"
+import (
+	"github.com/vgonkivs/edicta/internal/evm"
+	"github.com/vgonkivs/edicta/internal/evm/rlp"
+)
 
 // DeriveSha is the root of the Merkle Patricia trie that maps rlp(i) to
 // items[i], as go-ethereum's types.DeriveSha computes transactionsRoot and
@@ -11,11 +14,11 @@ import "github.com/vgonkivs/edicta/internal/evm"
 // stores an empty value as no value, so such a root would differ.
 func DeriveSha(items [][]byte) [32]byte {
 	if len(items) == 0 {
-		return evm.Keccak256(rlpBytes(nil))
+		return evm.Keccak256(rlp.AppendString(nil, nil))
 	}
 	kvs := make([]trieKV, len(items))
 	for i, it := range items {
-		kvs[i] = trieKV{key: nibbles(rlpUint64(uint64(i))), value: it}
+		kvs[i] = trieKV{key: nibbles(rlp.AppendUint64(nil, uint64(i))), value: it}
 	}
 	return evm.Keccak256(trieNode(kvs, 0))
 }
@@ -37,11 +40,11 @@ func nibbles(b []byte) []byte {
 // their first depth nibbles. Keys are distinct.
 func trieNode(kvs []trieKV, depth int) []byte {
 	if len(kvs) == 1 {
-		return rlpList(rlpBytes(hexPrefix(kvs[0].key[depth:], true)), rlpBytes(kvs[0].value))
+		return rlp.AppendList(nil, rlp.AppendString(nil, hexPrefix(kvs[0].key[depth:], true)), rlp.AppendString(nil, kvs[0].value))
 	}
 	if cp := commonPrefix(kvs, depth); cp > 0 {
 		path := kvs[0].key[depth : depth+cp]
-		return rlpList(rlpBytes(hexPrefix(path, false)), childRef(trieNode(kvs, depth+cp)))
+		return rlp.AppendList(nil, rlp.AppendString(nil, hexPrefix(path, false)), childRef(trieNode(kvs, depth+cp)))
 	}
 	var groups [16][]trieKV
 	var value []byte
@@ -56,13 +59,13 @@ func trieNode(kvs []trieKV, depth int) []byte {
 	slots := make([][]byte, 17)
 	for i, g := range groups {
 		if len(g) == 0 {
-			slots[i] = rlpBytes(nil)
+			slots[i] = rlp.AppendString(nil, nil)
 			continue
 		}
 		slots[i] = childRef(trieNode(g, depth+1))
 	}
-	slots[16] = rlpBytes(value)
-	return rlpList(slots...)
+	slots[16] = rlp.AppendString(nil, value)
+	return rlp.AppendList(nil, slots...)
 }
 
 // commonPrefix is the number of nibbles after depth that every key shares,
@@ -91,7 +94,7 @@ func childRef(enc []byte) []byte {
 		return enc
 	}
 	h := evm.Keccak256(enc)
-	return rlpBytes(h[:])
+	return rlp.AppendString(nil, h[:])
 }
 
 // hexPrefix is the compact encoding of a nibble path with its leaf flag.

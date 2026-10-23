@@ -2,7 +2,11 @@
 
 package edenexec
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/vgonkivs/edicta/internal/evm/rlp"
+)
 
 // EIP-2718 transaction types the rebuild knows.
 const (
@@ -35,9 +39,9 @@ func RebuildSigned(tx TxView) ([]byte, error) {
 	q := &quantities{what: "transaction"}
 	to := func() []byte {
 		if tx.To == nil {
-			return rlpBytes(nil)
+			return rlp.AppendString(nil, nil)
 		}
-		return rlpBytes(tx.To[:])
+		return rlp.AppendString(nil, tx.To[:])
 	}
 	sig := func() [][]byte { return [][]byte{q.enc("v", tx.V), q.enc("r", tx.R), q.enc("s", tx.S)} }
 	var (
@@ -47,32 +51,32 @@ func RebuildSigned(tx TxView) ([]byte, error) {
 	switch tx.Type {
 	case TxLegacy:
 		items = [][]byte{q.enc("nonce", tx.Nonce), q.enc("gasPrice", tx.GasPrice), q.enc("gas", tx.Gas), to(),
-			q.enc("value", tx.Value), rlpBytes(tx.Input)}
+			q.enc("value", tx.Value), rlp.AppendString(nil, tx.Input)}
 	case TxAccessList:
 		items = [][]byte{q.enc("chainId", tx.ChainID), q.enc("nonce", tx.Nonce), q.enc("gasPrice", tx.GasPrice),
-			q.enc("gas", tx.Gas), to(), q.enc("value", tx.Value), rlpBytes(tx.Input), accessList(tx.AccessList)}
+			q.enc("gas", tx.Gas), to(), q.enc("value", tx.Value), rlp.AppendString(nil, tx.Input), accessList(tx.AccessList)}
 		prefix = true
 	case TxDynamicFee, TxBlob, TxSetCode:
 		if tx.Type != TxDynamicFee && tx.To == nil {
 			return nil, wrapf(ErrTxType, "type %d transaction without a recipient", tx.Type)
 		}
 		items = [][]byte{q.enc("chainId", tx.ChainID), q.enc("nonce", tx.Nonce), q.enc("maxPriorityFeePerGas", tx.MaxPriorityFee),
-			q.enc("maxFeePerGas", tx.MaxFee), q.enc("gas", tx.Gas), to(), q.enc("value", tx.Value), rlpBytes(tx.Input),
+			q.enc("maxFeePerGas", tx.MaxFee), q.enc("gas", tx.Gas), to(), q.enc("value", tx.Value), rlp.AppendString(nil, tx.Input),
 			accessList(tx.AccessList)}
 		switch tx.Type {
 		case TxBlob:
 			hashes := make([][]byte, len(tx.BlobHashes))
 			for i := range tx.BlobHashes {
-				hashes[i] = rlpBytes(tx.BlobHashes[i][:])
+				hashes[i] = rlp.AppendString(nil, tx.BlobHashes[i][:])
 			}
-			items = append(items, q.enc("maxFeePerBlobGas", tx.MaxFeePerBlobGas), rlpList(hashes...))
+			items = append(items, q.enc("maxFeePerBlobGas", tx.MaxFeePerBlobGas), rlp.AppendList(nil, hashes...))
 		case TxSetCode:
 			auths := make([][]byte, len(tx.AuthList))
 			for i, a := range tx.AuthList {
-				auths[i] = rlpList(q.enc("auth chainId", a.ChainID), rlpBytes(a.Address[:]), q.enc("auth nonce", a.Nonce),
+				auths[i] = rlp.AppendList(nil, q.enc("auth chainId", a.ChainID), rlp.AppendString(nil, a.Address[:]), q.enc("auth nonce", a.Nonce),
 					q.enc("auth yParity", a.YParity), q.enc("auth r", a.R), q.enc("auth s", a.S))
 			}
-			items = append(items, rlpList(auths...))
+			items = append(items, rlp.AppendList(nil, auths...))
 		}
 		prefix = true
 	default:
@@ -82,7 +86,7 @@ func RebuildSigned(tx TxView) ([]byte, error) {
 	if q.err != nil {
 		return nil, wrapf(ErrSourceUnavailable, "%v", q.err)
 	}
-	body := rlpList(items...)
+	body := rlp.AppendList(nil, items...)
 	if !prefix {
 		return body, nil
 	}
@@ -94,11 +98,11 @@ func accessList(al []AccessTuple) []byte {
 	for i, e := range al {
 		keys := make([][]byte, len(e.StorageKeys))
 		for j := range e.StorageKeys {
-			keys[j] = rlpBytes(e.StorageKeys[j][:])
+			keys[j] = rlp.AppendString(nil, e.StorageKeys[j][:])
 		}
-		entries[i] = rlpList(rlpBytes(e.Address[:]), rlpList(keys...))
+		entries[i] = rlp.AppendList(nil, rlp.AppendString(nil, e.Address[:]), rlp.AppendList(nil, keys...))
 	}
-	return rlpList(entries...)
+	return rlp.AppendList(nil, entries...)
 }
 
 // ReceiptEncoding is the consensus encoding of a served receipt, the leaf of
@@ -116,11 +120,11 @@ func ReceiptEncoding(r ReceiptView) ([]byte, error) {
 	for i, l := range r.Logs {
 		topics := make([][]byte, len(l.Topics))
 		for j := range l.Topics {
-			topics[j] = rlpBytes(l.Topics[j][:])
+			topics[j] = rlp.AppendString(nil, l.Topics[j][:])
 		}
-		logs[i] = rlpList(rlpBytes(l.Address[:]), rlpList(topics...), rlpBytes(l.Data))
+		logs[i] = rlp.AppendList(nil, rlp.AppendString(nil, l.Address[:]), rlp.AppendList(nil, topics...), rlp.AppendString(nil, l.Data))
 	}
-	body := rlpList(rlpUint64(r.Status), q.enc("cumulativeGasUsed", r.CumulativeGasUsed), rlpBytes(r.Bloom[:]), rlpList(logs...))
+	body := rlp.AppendList(nil, rlp.AppendUint64(nil, r.Status), q.enc("cumulativeGasUsed", r.CumulativeGasUsed), rlp.AppendString(nil, r.Bloom[:]), rlp.AppendList(nil, logs...))
 	if q.err != nil {
 		return nil, q.err
 	}
@@ -139,21 +143,21 @@ func HeaderRLP(h HeaderView) ([]byte, error) {
 	}
 	q := &quantities{what: "header"}
 	items := [][]byte{
-		rlpBytes(h.ParentHash[:]), rlpBytes(h.UncleHash[:]), rlpBytes(h.Coinbase[:]), rlpBytes(h.Root[:]),
-		rlpBytes(h.TxRoot[:]), rlpBytes(h.ReceiptRoot[:]), rlpBytes(h.Bloom[:]), q.enc("difficulty", h.Difficulty),
-		rlpUint64(h.Number), rlpUint64(h.GasLimit), rlpUint64(h.GasUsed), rlpUint64(h.Time), rlpBytes(h.Extra),
-		rlpBytes(h.MixDigest[:]), rlpBytes(h.Nonce[:]),
+		rlp.AppendString(nil, h.ParentHash[:]), rlp.AppendString(nil, h.UncleHash[:]), rlp.AppendString(nil, h.Coinbase[:]), rlp.AppendString(nil, h.Root[:]),
+		rlp.AppendString(nil, h.TxRoot[:]), rlp.AppendString(nil, h.ReceiptRoot[:]), rlp.AppendString(nil, h.Bloom[:]), q.enc("difficulty", h.Difficulty),
+		rlp.AppendUint64(nil, h.Number), rlp.AppendUint64(nil, h.GasLimit), rlp.AppendUint64(nil, h.GasUsed), rlp.AppendUint64(nil, h.Time), rlp.AppendString(nil, h.Extra),
+		rlp.AppendString(nil, h.MixDigest[:]), rlp.AppendString(nil, h.Nonce[:]),
 	}
 	optional := []struct {
 		set bool
 		enc func() []byte
 	}{
 		{h.HasBaseFee, func() []byte { return q.enc("baseFeePerGas", h.BaseFee) }},
-		{h.WithdrawalsHash != nil, func() []byte { return rlpBytes(h.WithdrawalsHash[:]) }},
-		{h.BlobGasUsed != nil, func() []byte { return rlpUint64(*h.BlobGasUsed) }},
-		{h.ExcessBlobGas != nil, func() []byte { return rlpUint64(*h.ExcessBlobGas) }},
-		{h.ParentBeaconRoot != nil, func() []byte { return rlpBytes(h.ParentBeaconRoot[:]) }},
-		{h.RequestsHash != nil, func() []byte { return rlpBytes(h.RequestsHash[:]) }},
+		{h.WithdrawalsHash != nil, func() []byte { return rlp.AppendString(nil, h.WithdrawalsHash[:]) }},
+		{h.BlobGasUsed != nil, func() []byte { return rlp.AppendUint64(nil, *h.BlobGasUsed) }},
+		{h.ExcessBlobGas != nil, func() []byte { return rlp.AppendUint64(nil, *h.ExcessBlobGas) }},
+		{h.ParentBeaconRoot != nil, func() []byte { return rlp.AppendString(nil, h.ParentBeaconRoot[:]) }},
+		{h.RequestsHash != nil, func() []byte { return rlp.AppendString(nil, h.RequestsHash[:]) }},
 	}
 	ended := false
 	for i, f := range optional {
@@ -169,5 +173,5 @@ func HeaderRLP(h HeaderView) ([]byte, error) {
 	if q.err != nil {
 		return nil, q.err
 	}
-	return rlpList(items...), nil
+	return rlp.AppendList(nil, items...), nil
 }

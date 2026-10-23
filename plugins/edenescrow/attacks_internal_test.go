@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/policy"
+	"github.com/vgonkivs/edicta/internal/evm/rlp"
 )
 
 func TestTransactionAttacksAreRefused(t *testing.T) {
@@ -30,26 +31,26 @@ func TestTransactionAttacksAreRefused(t *testing.T) {
 		require.ErrorIs(t, err, ErrMalformed)
 	})
 	t.Run("another escrow in to", func(t *testing.T) {
-		other := rlpString(append([]byte{0x01}, make([]byte, 19)...))
+		other := rlp.AppendString(nil, append([]byte{0x01}, make([]byte, 19)...))
 		_, err := DecodeTxAction(withTx(t, replaced(it, 5, other)...))
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, ErrUnknownDomain) || errors.Is(err, ErrMalformed))
 	})
 	t.Run("value of 33 bytes", func(t *testing.T) {
-		big33 := rlpString(append([]byte{0x01}, make([]byte, 32)...))
+		big33 := rlp.AppendString(nil, append([]byte{0x01}, make([]byte, 32)...))
 		_, err := DecodeTxAction(withTx(t, replaced(it, 6, big33)...))
 		require.ErrorIs(t, err, ErrMalformed)
 		assert.Equal(t, "ET3", ruleOf(t, err))
 	})
 	t.Run("value that overflows with the fee bound is refused by the facts", func(t *testing.T) {
-		max32 := rlpString(bytes.Repeat([]byte{0xff}, 32))
+		max32 := rlp.AppendString(nil, bytes.Repeat([]byte{0xff}, 32))
 		x, err := DecodeTxAction(withTx(t, replaced(it, 6, max32)...))
 		require.NoError(t, err)
 		_, err = x.Facts()
 		require.ErrorIs(t, err, policy.ErrFactsInvalid)
 	})
 	t.Run("a large value is never understated in the facts", func(t *testing.T) {
-		huge := rlpString([]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
+		huge := rlp.AppendString(nil, []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
 		x, err := DecodeTxAction(withTx(t, replaced(it, 6, huge)...))
 		require.NoError(t, err)
 		f, err := x.Facts()

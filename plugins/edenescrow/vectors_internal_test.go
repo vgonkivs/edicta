@@ -21,6 +21,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/internal/evm"
+	"github.com/vgonkivs/edicta/internal/evm/rlp"
 	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
@@ -305,8 +306,8 @@ func TestEscrowTableVectors(t *testing.T) {
 
 	// The mainnet address is keccak256(rlp([creator, nonce]))[12:].
 	creator := unhex(t, v.EscrowCode.Create.Creator)
-	nonce := rlpString(minimal(t, v.EscrowCode.Create.Nonce))
-	payload := append(rlpString(creator), nonce...)
+	nonce := rlp.AppendString(nil, minimal(t, v.EscrowCode.Create.Nonce))
+	payload := append(rlp.AppendString(nil, creator), nonce...)
 	sum := evm.Keccak256(rlpListHeader(len(payload)), payload)
 	assert.Equal(t, addr(t, v.EscrowCode.Create.Address), [20]byte(sum[12:]))
 	assert.Equal(t, escrowMainnet, [20]byte(sum[12:]))

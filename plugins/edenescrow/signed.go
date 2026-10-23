@@ -10,6 +10,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 
 	"github.com/vgonkivs/edicta/internal/evm"
+	"github.com/vgonkivs/edicta/internal/evm/rlp"
 )
 
 // Signature is a secp256k1 signature over a transaction's SigHash. R and S
@@ -103,14 +104,9 @@ func (a TxAction) Splice(sig Signature, payer [20]byte) ([]byte, error) {
 	if sig.YParity == 1 {
 		y = []byte{0x01}
 	}
-	rr := rlpString(trimZeros(sig.R[:]))
-	ss := rlpString(trimZeros(sig.S[:]))
-	n := len(a.items) + len(y) + len(rr) + len(ss)
-	out := append([]byte{txType}, rlpListHeader(n)...)
-	out = append(out, a.items...)
-	out = append(out, y...)
-	out = append(out, rr...)
-	return append(out, ss...), nil
+	rr := rlp.AppendString(nil, trimZeros(sig.R[:]))
+	ss := rlp.AppendString(nil, trimZeros(sig.S[:]))
+	return rlp.AppendList([]byte{txType}, a.items, y, rr, ss), nil
 }
 
 // ParseSigned checks that signed is exactly the action's transaction with one
@@ -128,25 +124,25 @@ func ParseSigned(a TxAction, signed []byte) (Signature, [20]byte, error) {
 	if len(signed) < 1 || signed[0] != txType {
 		return fail("not a type 2 transaction")
 	}
-	top, rest, err := rlpNext(signed[1:])
+	top, rest, err := rlp.Next(signed[1:])
 	switch {
 	case err != nil:
 		return fail("%v", err)
-	case !top.list:
+	case !top.List:
 		return fail("not an RLP list")
 	case len(rest) != 0:
 		return fail("%d bytes after the list", len(rest))
-	case !bytes.HasPrefix(top.payload, a.items):
+	case !bytes.HasPrefix(top.Payload, a.items):
 		return fail("the first 9 items differ from the authorized transaction")
 	}
-	var tail [3]rlpItem
-	b := top.payload[len(a.items):]
+	var tail [3]rlp.Item
+	b := top.Payload[len(a.items):]
 	for i := range tail {
-		it, r, err := rlpNext(b)
+		it, r, err := rlp.Next(b)
 		if err != nil {
 			return fail("signature item %d: %v", i, err)
 		}
-		if it.list {
+		if it.List {
 			return fail("signature item %d is a list", i)
 		}
 		tail[i], b = it, r
@@ -156,14 +152,14 @@ func ParseSigned(a TxAction, signed []byte) (Signature, [20]byte, error) {
 	}
 	var sig Signature
 	switch {
-	case bytes.Equal(tail[0].raw, []byte{0x80}):
-	case bytes.Equal(tail[0].raw, []byte{0x01}):
+	case bytes.Equal(tail[0].Raw, []byte{0x80}):
+	case bytes.Equal(tail[0].Raw, []byte{0x01}):
 		sig.YParity = 1
 	default:
-		return fail("y_parity encoded as %x", tail[0].raw)
+		return fail("y_parity encoded as %x", tail[0].Raw)
 	}
 	for i, dst := range []*[32]byte{&sig.R, &sig.S} {
-		v := tail[1+i].payload
+		v := tail[1+i].Payload
 		if len(v) > 32 || len(v) > 0 && v[0] == 0 {
 			return fail("signature item %d is not a canonical 256-bit integer", 1+i)
 		}
