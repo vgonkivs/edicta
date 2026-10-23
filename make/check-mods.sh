@@ -2,13 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Module hygiene of the code modules (the vector generators are independent
-# on purpose and not checked here):
+# on purpose; only their tidiness is checked):
 #   - the root go.mod has no replace;
 #   - every in-repo require of a nested module is v0.0.0 with a relative
 #     replace to its directory, the root one included;
 #   - nothing requires the examples module;
 #   - no go.work file is tracked;
-#   - go mod tidy leaves every go.mod and go.sum unchanged.
+#   - go mod tidy leaves every go.mod and go.sum unchanged, the vector
+#     generator modules under spec/vectors/tools included.
 # The fork replace block is compared across the heavy modules by
 # test/modparity, which the check-mods target runs too.
 set -eu
@@ -50,7 +51,8 @@ if git ls-files | grep -Eq '(^|/)go\.work(\.sum)?$'; then
 	err "a go.work file is tracked"
 fi
 
-for m in . $NESTED; do
+GENERATORS=$(git ls-files 'spec/vectors/tools/*/go.mod' | xargs -n1 dirname)
+for m in . $NESTED $GENERATORS; do
 	"$GO" -C "$m" mod tidy -diff >/dev/null || err "$m: go mod tidy would change go.mod or go.sum (go -C $m mod tidy -diff)"
 done
 

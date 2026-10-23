@@ -9,7 +9,7 @@
 #   - the command line pin (test/clipin);
 #   - the vector manifest;
 #   - no Cyrillic in tracked text, no event wording, and no built binary
-#     tracked outside the known generator binaries.
+#     tracked.
 # Every step runs; the script lists the failed ones and exits 1 if any did.
 set -u
 cd "$(dirname "$0")/.."
@@ -17,13 +17,6 @@ GO=${GO:-go}
 export GOWORK=off
 
 MODS=". plugins/celestia services/gate services/signer services/cli examples"
-
-# The vector generators are built by hand and committed so that the vectors
-# can be regenerated without the generator's own module graph.
-KNOWN_BINARIES="spec/vectors/tools/absence-gen/absence-gen
-spec/vectors/tools/edenescrow-gen/edenescrow-gen
-spec/vectors/tools/execresult-gen/execresult-gen
-spec/vectors/tools/principal-xcheck/principal-xcheck"
 
 failed=""
 step() {
@@ -107,10 +100,9 @@ tracked_binaries() {
 			close $fh;
 			print "$f\n" if $b =~ /^(\x7fELF|\xfe\xed\xfa[\xce\xcf]|[\xce\xcf]\xfa\xed\xfe|\xca\xfe\xba\xbe|MZ)/;
 		}') || return 1
-	new=$(printf '%s\n' "$found" | grep -vxF "$KNOWN_BINARIES" | grep -v '^$')
-	[ -z "$new" ] && return 0
-	echo "built binaries tracked outside the known list:" >&2
-	echo "$new" >&2
+	[ -z "$found" ] && return 0
+	echo "built binaries tracked:" >&2
+	echo "$found" >&2
 	return 1
 }
 
@@ -123,7 +115,7 @@ step "command line pin" clipin
 step "vector manifest" manifest
 step "no Cyrillic" no_cyrillic
 step "no event wording" no_event_wording
-step "no new tracked binaries" tracked_binaries
+step "no tracked binaries" tracked_binaries
 
 if [ -n "$failed" ]; then
 	echo "release-check FAILED:$failed"
