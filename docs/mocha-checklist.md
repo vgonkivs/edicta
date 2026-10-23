@@ -43,7 +43,7 @@ sections 5 and 6.
   ```
   go -C celestia build -o /tmp/edictad ./cmd/edictad
   go -C examples build -o /tmp/edicta-live ./tia-transfer/cmd/edicta-live
-  go -C celestia build -o /tmp/edicta-verify ./cmd/edicta-verify
+  go -C services/cli build -o /tmp/edicta-verify ./cmd/edicta-verify
   ```
 - The gate seed, agent, executor and principal keys from the normal demo
   setup. These are Ed25519 keys. The Recorder account below is a secp256k1

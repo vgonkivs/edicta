@@ -69,6 +69,7 @@ var classes = map[string]class{
 	"examples":  example,
 	"signer":    service,
 	"cmd":       service,
+	"services":  service,
 	"contracts": contracts,
 	"test":      testsupport,
 

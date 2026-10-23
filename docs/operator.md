@@ -14,8 +14,8 @@ example in `celestia/cmd/edictad/edictad.example.toml`. Spec:
 ```sh
 make build
 cp celestia/cmd/edictad/edictad.example.toml /etc/edictad/edictad.toml   # then edit
-celestia/bin/edictad -config /etc/edictad/edictad.toml -print-config      # parse only, prints no secrets
-celestia/bin/edictad -config /etc/edictad/edictad.toml
+bin/edictad -config /etc/edictad/edictad.toml -print-config      # parse only, prints no secrets
+bin/edictad -config /etc/edictad/edictad.toml
 ```
 
 `-config` takes either file format: the shared `edicta.toml` (next section)
@@ -59,7 +59,7 @@ path to a file.
 Print what `edictad` makes of it, without starting anything:
 
 ```sh
-celestia/bin/edictad -config ~/.edicta/edicta.toml -print-config
+bin/edictad -config ~/.edicta/edicta.toml -print-config
 ```
 
 ### Sections
@@ -107,7 +107,7 @@ replace a single key without editing the file: `section.key` with a TOML
 value on the right, a bare word being a string.
 
 ```sh
-celestia/bin/edicta doctor --set network.bridge.tls=true \
+bin/edicta doctor --set network.bridge.tls=true \
   --set 'network.comet_rpc=["https://rpc.example.org"]'
 ```
 
@@ -142,7 +142,7 @@ chain. See [verifier.md](verifier.md).
 ## Checking the setup: `edicta doctor`
 
 ```sh
-celestia/bin/edicta doctor [--config PATH] [--set key=value]... [--json]
+bin/edicta doctor [--config PATH] [--set key=value]... [--json]
 ```
 
 `doctor` loads `edicta.toml` (default: the Edicta home), applies the presets,

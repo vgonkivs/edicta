@@ -20,8 +20,8 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/vgonkivs/edicta/celestia/verifycli"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/demo"
+	"github.com/vgonkivs/edicta/services/cli/verifycli"
 )
 
 func main() { os.Exit(run(os.Args[1:])) }

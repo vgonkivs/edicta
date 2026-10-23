@@ -78,13 +78,14 @@ press Enter. Using your own funded key, the trust root, the verdicts and how
 to re-verify a run offline: [examples/tia-transfer/demo/README.md](examples/tia-transfer/demo/README.md).
 
 `make build` only builds (`edicta`, `edictad`, `edicta-verify`,
-`edicta-signer` into `celestia/bin/`; the example binaries `edicta-demo` and
-`edicta-live` into `bin/`); `make vet` and `make test` run every Go module. To
-run the tests directly, from the repository root:
+`edicta-signer` and the example binaries `edicta-demo` and `edicta-live` into
+`bin/`); `make vet` and `make test` run every Go module. To run the tests
+directly, from the repository root:
 
 ```sh
 go test ./...
 go -C celestia test ./...
+go -C services/cli test ./...
 go -C examples test ./...
 ```
 
@@ -168,7 +169,8 @@ Not production-ready.
 | Path | Contents |
 |---|---|
 | `/` (module `github.com/vgonkivs/edicta`) | Core: `engine/commitment` (encoding, hashing, checks), `engine/gate`, `engine/policy` (mandates), `engine/principalsig`, `engine/archive`, `engine/verifier`, `sdk`, `api/edictaapi` (HTTP API), `engine/dacommit`, `test`; `cmd/edicta-principal` (the principal's mandate tool) |
-| `celestia/` (own module) | Recorder, chain client for the gate, Fibre blob commitment (`fibrecommit`), `edictad` daemon, `edicta` CLI (init, doctor, commit, agent, verify) |
+| `celestia/` (own module) | Recorder, chain client for the gate, Fibre blob commitment (`fibrecommit`), `edictad` daemon, `edicta-signer` |
+| `services/cli/` (own module) | The `edicta` command line (init, doctor, commit, agent, verify) and `edicta-verify` |
 | `config/` (root module) | The `edicta.toml` schema, defaults and presets |
 | `plugins/banksend` (root module) | The bank-send rail: action format, message encoding, executor, policy extension |
 | `plugins/edenescrow` (root module) | The Eden escrow rail: action format, escrow table, executor-side checks (`edenexec`) and the JSON-RPC reader (`edenrpc`) |

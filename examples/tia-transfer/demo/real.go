@@ -16,9 +16,9 @@ import (
 	"github.com/vgonkivs/edicta/celestia/edictad/wire"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/railtx"
-	"github.com/vgonkivs/edicta/celestia/verifycli"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/pricefeed"
 	"github.com/vgonkivs/edicta/plugins/banksend/transfer"
+	"github.com/vgonkivs/edicta/services/cli/verifycli"
 )
 
 // realClients holds the connections to the funding node and the bridge.

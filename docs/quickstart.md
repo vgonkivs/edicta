@@ -47,9 +47,9 @@ it:
 
 ```sh
 make build
-celestia/bin/edicta init                         # flags: --home, --preset, --set, --max-per-payment, --max-per-hour
+bin/edicta init                         # flags: --home, --preset, --set, --max-per-payment, --max-per-hour
 # fund the addresses it prints, then:
-celestia/bin/edicta doctor
+bin/edicta doctor
 ```
 
 `init` first checks that the preset's endpoints answer and are on the
@@ -89,11 +89,10 @@ end to end, use the demo or the manual path below.
 make demo
 ```
 
-It builds `edicta`, `edictad`, `edicta-verify` and `edicta-signer` into
-`celestia/bin/` and the example binaries into `bin/`, then runs
-`bin/edicta-demo`. It needs a terminal,
-prints an address to fund with testnet TIA, and starts only after you press
-Enter. In 3 to 5 minutes it publishes a decision as a Celestia blob, has a
+It builds `edicta`, `edictad`, `edicta-verify`, `edicta-signer` and the
+example binaries into `bin/`, then runs `bin/edicta-demo`. It needs a
+terminal, prints an address to fund with testnet TIA, and starts only after
+you press Enter. In 3 to 5 minutes it publishes a decision as a Celestia blob, has a
 gate with a mandate authorize it, sends exactly the committed transfer,
 verifies everything from the archive and public RPCs, and then tries five
 ways to cheat. Details, flags, exit codes and offline re-verification:
@@ -114,7 +113,7 @@ ways to cheat. Details, flags, exit codes and offline re-verification:
    [../examples/tia-transfer/README.md](../examples/tia-transfer/README.md), section 4.
 3. Verify the decision:
    ```sh
-   celestia/bin/edicta verify <commitment hash> --gate-key <gate public key hex> \
+   bin/edicta verify <commitment hash> --gate-key <gate public key hex> \
      --archive <archive dir> --headers-rpc <CometBFT RPC> --checkpoint <HEIGHT>:<HASH>
    ```
    See [verifier.md](verifier.md).

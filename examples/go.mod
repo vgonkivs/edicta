@@ -310,6 +310,7 @@ require (
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/vgonkivs/edicta v0.0.0
 	github.com/vgonkivs/edicta/celestia v0.0.0
+	github.com/vgonkivs/edicta/services/cli v0.0.0
 	github.com/whyrusleeping/go-keyspace v0.0.0-20160322163242-5b898ac5add1 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
@@ -368,6 +369,8 @@ require (
 replace github.com/vgonkivs/edicta => ../
 
 replace github.com/vgonkivs/edicta/celestia => ../celestia
+
+replace github.com/vgonkivs/edicta/services/cli => ../services/cli
 
 replace (
 	cosmossdk.io/api => github.com/celestiaorg/cosmos-sdk/api v0.7.6

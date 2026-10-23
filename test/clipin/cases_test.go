@@ -9,13 +9,13 @@ import "regexp"
 // entries are today's entry points. The edictadev tag is what the dev image
 // builds edicta-devinit with; the binary does not exist without it.
 var entries = map[string]entry{
-	"edicta":           {module: "celestia", pkg: "./cmd/edicta"},
+	"edicta":           {module: "services/cli", pkg: "./cmd/edicta"},
 	"edictad":          {module: "celestia", pkg: "./cmd/edictad"},
-	"edicta-verify":    {module: "celestia", pkg: "./cmd/edicta-verify"},
+	"edicta-verify":    {module: "services/cli", pkg: "./cmd/edicta-verify"},
 	"edicta-signer":    {module: "celestia", pkg: "./cmd/edicta-signer"},
 	"edicta-live":      {module: "examples", pkg: "./tia-transfer/cmd/edicta-live"},
 	"edicta-demo":      {module: "examples", pkg: "./tia-transfer/cmd/edicta-demo"},
-	"edicta-devinit":   {module: "celestia", pkg: "./cmd/edicta-devinit", tags: "edictadev"},
+	"edicta-devinit":   {module: "services/cli", pkg: "./cmd/edicta-devinit", tags: "edictadev"},
 	"edicta-principal": {module: ".", pkg: "./cmd/edicta-principal"},
 }
 

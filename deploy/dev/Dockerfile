@@ -13,8 +13,9 @@ WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    cd celestia && go build -trimpath -tags edictadev -o /out/ \
-      ./cmd/edictad ./cmd/edicta ./cmd/edicta-devinit
+    go -C celestia build -trimpath -tags edictadev -o /out/ ./cmd/edictad && \
+    go -C services/cli build -trimpath -tags edictadev -o /out/ \
+      ./cmd/edicta ./cmd/edicta-devinit
 
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
 COPY --from=build /out/ /usr/local/bin/

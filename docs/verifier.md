@@ -10,8 +10,8 @@ one verdict. Spec: `spec/decision-commitment-v1.md`, section 20, and
 Build with `make build`. Two binaries carry the same verifier:
 
 ```
-celestia/bin/edicta        verify|replay <commitment_hash> [flags]
-celestia/bin/edicta-verify verify|replay|absence <commitment_hash> [flags]
+bin/edicta        verify|replay <commitment_hash> [flags]
+bin/edicta-verify verify|replay|absence <commitment_hash> [flags]
 ```
 
 `absence` exists only in `edicta-verify`. The hash may stand before, between
@@ -91,7 +91,7 @@ Flags that would have no effect are refused, for example `--tx-rpc` without
 ## Example
 
 ```sh
-celestia/bin/edicta verify <commitment hash> --gate-key <gate public key hex> \
+bin/edicta verify <commitment hash> --gate-key <gate public key hex> \
   --archive ~/.edicta-demo/runs/<timestamp>/archive \
   --headers-rpc https://rpc-mocha.pops.one \
   --checkpoint <HEIGHT>:<HASH> \
@@ -223,7 +223,7 @@ code has to be proven from block results. A trusted header below `H` leaves
 ### Absence proofs
 
 ```sh
-celestia/bin/edicta-verify absence <commitment hash> --gate-key <gate key hex> \
+bin/edicta-verify absence <commitment hash> --gate-key <gate key hex> \
   --archive <archive dir> --absence-source <bridge JSON-RPC URL> \
   --headers-rpc <CometBFT RPC> --checkpoint <HEIGHT>:<HASH>
 ```
@@ -291,7 +291,7 @@ the field. The core `execution` check does not cover Eden
 (`--check-execution` gives `unchecked`, `no_checker`).
 
 ```sh
-celestia/bin/edicta verify <commitment hash> --gate-key <hex> --archive <dir> \
+bin/edicta verify <commitment hash> --gate-key <hex> --archive <dir> \
   --trusted <file> --receipt receipt.cbor --json \
   --settlement --settlement-rpc https://rpc.eden.gateway.fm/
 ```

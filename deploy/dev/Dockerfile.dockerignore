@@ -3,7 +3,7 @@
 .idea
 .venv
 docs
-celestia/bin
+bin
 **/__pycache__
 **/*_test.go
 spec/vectors

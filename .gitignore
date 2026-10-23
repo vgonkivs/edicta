@@ -31,3 +31,5 @@ celestia/bin/
 /bin/
 examples/tia-transfer/cmd/*/edicta-*
 !examples/tia-transfer/cmd/*/*.go
+services/cli/cmd/*/edicta*
+!services/cli/cmd/*/*.go

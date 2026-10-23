@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/verifycli"
+	"github.com/vgonkivs/edicta/services/cli/verifycli"
 )
 
 // The fast-mode scene: the gate authorizes a pending decision in the block

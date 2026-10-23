@@ -9,15 +9,15 @@
 #   - nothing requires the examples module;
 #   - no go.work file is tracked;
 #   - go mod tidy leaves every go.mod and go.sum unchanged.
-# The fork replace block is compared across the heavy modules by the parity
-# test in celestia, which the check-mods target runs too.
+# The fork replace block is compared across the heavy modules by
+# test/modparity, which the check-mods target runs too.
 set -eu
 cd "$(dirname "$0")/.."
 GO=${GO:-go}
 export GOWORK=off
 
 ROOT=github.com/vgonkivs/edicta
-NESTED="celestia examples"
+NESTED="celestia services/cli examples"
 fail=0
 err() { echo "check-mods: $*" >&2; fail=1; }
 

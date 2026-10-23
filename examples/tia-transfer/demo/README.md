@@ -257,7 +257,7 @@ archive. The exact command with all flags is in `verify-step5.json` and printed
 at the end of the run:
 
 ```
-celestia/bin/edicta verify <commitment hash> --gate-key <gate public key hex> \
+bin/edicta verify <commitment hash> --gate-key <gate public key hex> \
   --archive ~/.edicta-demo/runs/<timestamp>/archive \
   --headers-rpc https://rpc-mocha.pops.one \
   --checkpoint <HEIGHT>:<HASH> \

@@ -79,7 +79,7 @@ decisions stay hidden. See [profiles.md](profiles.md).
 With an auditor key:
 
 ```sh
-celestia/bin/edicta verify <commitment hash> --gate-key <hex> --archive <dir> \
+bin/edicta verify <commitment hash> --gate-key <hex> --archive <dir> \
   --headers-rpc <RPC> --checkpoint <HEIGHT>:<HASH> \
   --principal cosmos:<celestia1...> --require-policy --policy-full \
   --auditor-key auditor.key

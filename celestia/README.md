@@ -9,9 +9,10 @@ Setting up a stack from scratch: `edicta init` creates the keys, a starter manda
 Everything here is Edicta wire version 1 (spec revision `v1.0`, tags `v1.0.0` and `v1.0.1`): `/v1/*` HTTP paths, `edicta/v1/*` tags, and a salted action hash whose 32-byte salt `edicta-live` carries from the agent to the gate and the executor.
 
 This module holds the Celestia side of Edicta: the Recorder, the chain client
-for the gate, the executor's transaction signer, the `edictad` daemon and the
-`edicta` command line. No network name, chain id or endpoint is built in; they
-come from your configuration.
+for the gate, the executor's transaction signer, the `edictad` daemon and
+`edicta-signer`. The `edicta` command line is the `services/cli` module. No
+network name, chain id or endpoint is built in; they come from your
+configuration.
 
 ## Configure and start edictad
 
