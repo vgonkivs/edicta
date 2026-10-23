@@ -85,13 +85,14 @@ directly, from the repository root:
 ```sh
 go test ./...
 go -C celestia test ./...
+go -C services/gate test ./...
 go -C services/cli test ./...
 go -C examples test ./...
 ```
 
 The older manual runner (`edicta-live`, with your own `edictad` and
 endpoints), step by step: [examples/tia-transfer/README.md](examples/tia-transfer/README.md).
-The `edictad` configuration reference: [celestia/README.md](celestia/README.md).
+The `edictad` configuration reference: [services/gate/README.md](services/gate/README.md).
 
 User guides (quickstart, operator, principal, profiles, private mode,
 verifier): [docs/](docs/README.md).
@@ -169,7 +170,8 @@ Not production-ready.
 | Path | Contents |
 |---|---|
 | `/` (module `github.com/vgonkivs/edicta`) | Core: `engine/commitment` (encoding, hashing, checks), `engine/gate`, `engine/policy` (mandates), `engine/principalsig`, `engine/archive`, `engine/verifier`, `sdk`, `api/edictaapi` (HTTP API), `engine/dacommit`, `test`; `cmd/edicta-principal` (the principal's mandate tool) |
-| `celestia/` (own module) | Recorder, chain client for the gate, Fibre blob commitment (`fibrecommit`), `edictad` daemon, `edicta-signer` |
+| `celestia/` (own module) | Recorder, chain client for the gate, Fibre blob commitment (`fibrecommit`), `edicta-signer` |
+| `services/gate/` (own module) | The `edictad` daemon and its wiring (`edictad/wire`) |
 | `services/cli/` (own module) | The `edicta` command line (init, doctor, commit, agent, verify) and `edicta-verify` |
 | `config/` (root module) | The `edicta.toml` schema, defaults and presets |
 | `plugins/banksend` (root module) | The bank-send rail: action format, message encoding, executor, policy extension |

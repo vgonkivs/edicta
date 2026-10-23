@@ -178,7 +178,7 @@ The attempt `policy-denies-over-limit` commits `2x amount + 1`. The gate answers
 `policy.ErrAmountAboveMax` with a signed deny verdict and issues no Authorization, so
 there is nothing to execute. The verify steps pass `--principal-key HEX --require-policy
 --policy-full`; offline, the same flags confirm the decision and the denial. See the
-policy section of `celestia/README.md`.
+policy section of `services/gate/README.md`.
 
 ## Trust root (demo mode only)
 

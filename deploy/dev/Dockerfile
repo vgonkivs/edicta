@@ -13,7 +13,7 @@ WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    go -C celestia build -trimpath -tags edictadev -o /out/ ./cmd/edictad && \
+    go -C services/gate build -trimpath -tags edictadev -o /out/ ./cmd/edictad && \
     go -C services/cli build -trimpath -tags edictadev -o /out/ \
       ./cmd/edicta ./cmd/edicta-devinit
 

@@ -41,7 +41,7 @@ sections 5 and 6.
 - `celestia-appd` at the version of your node, plus `jq`.
 - Build from the repo root:
   ```
-  go -C celestia build -o /tmp/edictad ./cmd/edictad
+  go -C services/gate build -o /tmp/edictad ./cmd/edictad
   go -C examples build -o /tmp/edicta-live ./tia-transfer/cmd/edicta-live
   go -C services/cli build -o /tmp/edicta-verify ./cmd/edicta-verify
   ```
@@ -97,7 +97,7 @@ the account is funded, then sequence 0.
 
 ## 3. Configuration
 
-Start from `celestia/cmd/edictad/edictad.example.toml` and the demo's gate
+Start from `services/gate/cmd/edictad/edictad.example.toml` and the demo's gate
 setup, with a mandate that sets `fast_mode_max_delay`. Add:
 
 ```toml

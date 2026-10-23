@@ -17,11 +17,11 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/config"
 	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/internal/keyfile"
 	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
+	"github.com/vgonkivs/edicta/services/gate/edictad"
 )
 
 // The dev chains. Their ids exist only in builds with the edictadev tag, so a

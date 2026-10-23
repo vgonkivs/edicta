@@ -2,7 +2,8 @@
 
 This example is a price-triggered agent and everything that runs it end to
 end against Celestia. It lives in its own Go module, `examples/`, which builds
-against the root module and `celestia/`; nothing else depends on it.
+against the root module, `celestia/` and the `services/` modules; nothing else
+depends on it.
 
 - `agent`, `pricefeed`, `pricetrigger`: the agent, its public price sources and
   the trigger that turns a price move into a transfer decision.
@@ -27,7 +28,7 @@ executor account sends the transfer with the commitment hash as memo, and the
 gate records a receipt. `edicta-live` prints the evidence and checks it.
 
 Working directory: the commands use `go -C examples ...` and
-`go -C celestia ...`, so run them from the repository root. Paths given to the
+`go -C services/gate ...`, so run them from the repository root. Paths given to the
 program (`-config`, key files) are resolved against your shell's current
 directory, not the module directory, so use absolute paths or `~`. Replace
 every placeholder in angle brackets. Never paste real keys or tokens into
@@ -99,7 +100,7 @@ head -c 24 /dev/urandom | base64 > ~/edicta-live/api.token; chmod 600 ~/edicta-l
 Copy the example and edit it:
 
 ```
-cp celestia/cmd/edictad/edictad.example.toml ~/edicta-live/edictad.toml
+cp services/gate/cmd/edictad/edictad.example.toml ~/edicta-live/edictad.toml
 ```
 
 Set, at least: the bridge and consensus addresses (and `tls`), `recorder.namespace`,
@@ -117,8 +118,8 @@ pubkey = "<agent public key, 64 hex characters>"
 Check that the config parses (it prints paths only, never secrets), then start:
 
 ```
-go -C celestia run ./cmd/edictad -config ~/edicta-live/edictad.toml -print-config
-go -C celestia run ./cmd/edictad -config ~/edicta-live/edictad.toml
+go -C services/gate run ./cmd/edictad -config ~/edicta-live/edictad.toml -print-config
+go -C services/gate run ./cmd/edictad -config ~/edicta-live/edictad.toml
 ```
 
 edictad refuses to start if the node fails the compatibility check, if a key
@@ -126,7 +127,7 @@ file is too permissive, or if the config has an unknown key. Leave it running.
 
 The keys of every section, the data availability modes, the spending policy
 and fast mode are described in the `edictad` reference,
-[../../celestia/README.md](../../celestia/README.md).
+[../../services/gate/README.md](../../services/gate/README.md).
 
 ## 4. Run edicta-live
 

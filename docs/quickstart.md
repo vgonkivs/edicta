@@ -102,10 +102,10 @@ ways to cheat. Details, flags, exit codes and offline re-verification:
 
 1. Write an `edictad` configuration (or an `edicta.toml`, which `edictad -config`
    also accepts, see [operator.md](operator.md)) from
-   `celestia/cmd/edictad/edictad.example.toml` and start it:
+   `services/gate/cmd/edictad/edictad.example.toml` and start it:
    ```sh
-   go -C celestia run ./cmd/edictad -config ~/edicta-live/edictad.toml -print-config
-   go -C celestia run ./cmd/edictad -config ~/edicta-live/edictad.toml
+   go -C services/gate run ./cmd/edictad -config ~/edicta-live/edictad.toml -print-config
+   go -C services/gate run ./cmd/edictad -config ~/edicta-live/edictad.toml
    ```
    See [operator.md](operator.md).
 2. Run the price agent and executor against it with `edicta-live`, first with

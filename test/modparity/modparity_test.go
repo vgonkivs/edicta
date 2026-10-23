@@ -23,7 +23,7 @@ import (
 // heavyModules are the module directories, relative to the repository root,
 // that link celestia-node or celestia-app and so need the fork replace
 // block. The test fails when this list and the go.mod files disagree.
-var heavyModules = []string{"celestia", "examples", "services/cli"}
+var heavyModules = []string{"celestia", "examples", "services/cli", "services/gate"}
 
 // heavyRequires are the requirements that make a module heavy, directly or
 // through the in-repo module that wraps them.

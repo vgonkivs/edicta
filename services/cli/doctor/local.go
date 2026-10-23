@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/config"
 	"github.com/vgonkivs/edicta/internal/keyfile"
 	"github.com/vgonkivs/edicta/internal/secret"
 	"github.com/vgonkivs/edicta/services/cli/internal/clearerr"
+	"github.com/vgonkivs/edicta/services/gate/edictad"
 )
 
 type keyringCheck struct{ env *Env }

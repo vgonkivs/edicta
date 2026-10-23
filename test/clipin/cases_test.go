@@ -10,7 +10,7 @@ import "regexp"
 // builds edicta-devinit with; the binary does not exist without it.
 var entries = map[string]entry{
 	"edicta":           {module: "services/cli", pkg: "./cmd/edicta"},
-	"edictad":          {module: "celestia", pkg: "./cmd/edictad"},
+	"edictad":          {module: "services/gate", pkg: "./cmd/edictad"},
 	"edicta-verify":    {module: "services/cli", pkg: "./cmd/edicta-verify"},
 	"edicta-signer":    {module: "celestia", pkg: "./cmd/edicta-signer"},
 	"edicta-live":      {module: "examples", pkg: "./tia-transfer/cmd/edicta-live"},

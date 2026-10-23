@@ -15,12 +15,12 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
-	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/celestia/railtx"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/pricefeed"
 	"github.com/vgonkivs/edicta/plugins/banksend/transfer"
 	"github.com/vgonkivs/edicta/sdk"
+	"github.com/vgonkivs/edicta/services/gate/edictad"
 )
 
 // GateHandle is a running gate.

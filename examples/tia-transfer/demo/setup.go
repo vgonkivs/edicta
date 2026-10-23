@@ -17,12 +17,12 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
-	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/celestia/railtx"
 	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/internal/secret"
 	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
 	"github.com/vgonkivs/edicta/sdk/blob"
+	"github.com/vgonkivs/edicta/services/gate/edictad"
 )
 
 const (

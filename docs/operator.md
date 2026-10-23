@@ -4,8 +4,8 @@
 writer and, optionally, a Recorder that publishes agents' payloads. One
 instance serves one data availability mode. This guide is the overview; the
 full key reference with every default and range is in
-[../celestia/README.md](../celestia/README.md), section "Configure and start edictad", and the commented
-example in `celestia/cmd/edictad/edictad.example.toml`. Spec:
+[../services/gate/README.md](../services/gate/README.md), section "Configure and start edictad", and the commented
+example in `services/gate/cmd/edictad/edictad.example.toml`. Spec:
 `spec/decision-commitment-v1.md`, sections 8 (gate), 13 (fast mode), 18
 (HTTP API) and 19 (archive).
 
@@ -13,7 +13,7 @@ example in `celestia/cmd/edictad/edictad.example.toml`. Spec:
 
 ```sh
 make build
-cp celestia/cmd/edictad/edictad.example.toml /etc/edictad/edictad.toml   # then edit
+cp services/gate/cmd/edictad/edictad.example.toml /etc/edictad/edictad.toml   # then edit
 bin/edictad -config /etc/edictad/edictad.toml -print-config      # parse only, prints no secrets
 bin/edictad -config /etc/edictad/edictad.toml
 ```
@@ -276,7 +276,7 @@ a PayForBlobs; in `fibre` mode it uploads to Fibre and submits a
 PayForFibre, only through your own consensus node (`recorder.own_node =
 true`), paying from the account's escrow. The Recorder's key must not be the
 mandate's principal in any mode (see Keys). Fibre keys and escrow:
-[../celestia/README.md](../celestia/README.md), sections "Fibre Recorder"
+[../services/gate/README.md](../services/gate/README.md), sections "Fibre Recorder"
 and "Fibre escrow".
 
 ### Recorder in fast mode
@@ -506,7 +506,7 @@ again by a Record retry or by the sweep after a restart.
 Height reads: at start each endpoint runs a height canary; a
 height-ignoring consensus endpoint does not stop the start but puts the gate
 in observations-only mode for Fibre retention. See
-[../celestia/README.md](../celestia/README.md), section "Endpoints".
+[../services/gate/README.md](../services/gate/README.md), section "Endpoints".
 
 ## What is verified, what is not
 
