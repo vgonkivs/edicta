@@ -54,8 +54,18 @@ func TestFastBlobHeadZeroDoesNotFinishTheRecovery(t *testing.T) {
 	rd.zero.Store(false)
 	_, err = r.Publish(bg, []byte("blob B"))
 	require.NoError(t, err)
-	sent := f.node.sends()
-	assert.EqualValues(t, 4, txSequence(t, innerTx(sent[len(sent)-1])), "B is signed above the archived intent at 3")
+	assert.EqualValues(t, 4, f.sentSeq([]byte("blob B")), "B is signed above the archived intent at 3")
+}
+
+// sentSeq is the sequence of the archived intent of blob, which must have
+// been broadcast. It does not read the newest send: a followed intent of an
+// earlier blob is sent again from its own loop once it has not been found
+// for a while, which may fall after the send of blob.
+func (f *blobFast) sentSeq(blob []byte) uint64 {
+	f.t.Helper()
+	tx := f.intentOf(blob).Tx
+	require.True(f.t, f.sentAfter(0, tx), "the intent was broadcast")
+	return txSequence(f.t, tx)
 }
 
 // sentAfter reports whether tx was broadcast after the first n sends.
@@ -147,7 +157,7 @@ func TestFastBlobRecoveryRetriesWithBackoff(t *testing.T) {
 	require.NoError(t, err, "a Publish asks for an attempt at once")
 	sent := f.node.sends()
 	require.Greater(t, len(sent), sends)
-	assert.EqualValues(t, 4, txSequence(t, innerTx(sent[len(sent)-1])), "B is signed above the recovered intent")
+	assert.EqualValues(t, 4, f.sentSeq([]byte("blob B")), "B is signed above the recovered intent")
 }
 
 func TestFastBlobCloseStopsAFailingRecovery(t *testing.T) {
@@ -211,8 +221,7 @@ func TestFastBlobRecoverySkipsARecordThatDoesNotDecode(t *testing.T) {
 	r := f.rec()
 	_, err = r.Publish(bg, []byte("blob B"))
 	require.NoError(t, err)
-	sent := f.node.sends()
-	assert.EqualValues(t, 4, txSequence(t, innerTx(sent[len(sent)-1])), "the readable intent at 3 is still followed")
+	assert.EqualValues(t, 4, f.sentSeq([]byte("blob B")), "the readable intent at 3 is still followed")
 }
 
 // payloadFail is an archive whose payload reads fail while fail is set, and
@@ -254,6 +263,5 @@ func TestFastBlobRecoveryKeepsItsProgressBetweenAttempts(t *testing.T) {
 	_, err = r.Publish(bg, []byte("blob B"))
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, st.lists.Load(), "listed once")
-	sent := f.node.sends()
-	assert.EqualValues(t, 4, txSequence(t, innerTx(sent[len(sent)-1])))
+	assert.EqualValues(t, 4, f.sentSeq([]byte("blob B")))
 }
