@@ -16,11 +16,12 @@ import (
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/gate/registry/boltreg"
+	"github.com/vgonkivs/edicta/engine/recorder"
 	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/fibrefix"
 	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/fibreworld"
 	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/nodefake"
 	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
-	"github.com/vgonkivs/edicta/plugins/celestia/recorder"
+	edrec "github.com/vgonkivs/edicta/plugins/celestia/recorder"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/services/gate/edictad"
 )
@@ -90,8 +91,8 @@ type fibreRecFakes struct {
 	closer *fakeSigningCloser
 	node   *nodefake.FibreNode
 	sub    *nodefake.FibreSubmitter
-	cfg    atomic.Pointer[recorder.FibreConfig]
-	deps   atomic.Pointer[recorder.FibreDeps]
+	cfg    atomic.Pointer[edrec.FibreConfig]
+	deps   atomic.Pointer[edrec.FibreDeps]
 	builds atomic.Int32
 }
 
@@ -107,7 +108,7 @@ func newFibreRecEnv(t *testing.T) (*env, *fibreFakes, *fibreRecFakes) {
 	require.NoError(t, err)
 	e.deps.Archive = st
 	ff.deps.Submitter, ff.deps.RecorderChain, ff.deps.SigningCloser = rf.sub, rf.node, rf.closer
-	ff.deps.NewFibre = func(cfg recorder.FibreConfig, d recorder.FibreDeps) (edictad.FibreRecorder, error) {
+	ff.deps.NewFibre = func(cfg edrec.FibreConfig, d edrec.FibreDeps) (recorder.Recorder, error) {
 		rf.builds.Add(1)
 		rf.cfg.Store(&cfg)
 		rf.deps.Store(&d)
@@ -167,7 +168,7 @@ func TestFibreRecorderStartRefusals(t *testing.T) {
 		"no submitter":      func(_ *env, ff *fibreFakes, _ *fibreRecFakes) { ff.deps.Submitter = nil },
 		"no recorder chain": func(_ *env, ff *fibreFakes, _ *fibreRecFakes) { ff.deps.RecorderChain = nil },
 		"NewFibre refuses": func(_ *env, ff *fibreFakes, _ *fibreRecFakes) {
-			ff.deps.NewFibre = func(recorder.FibreConfig, recorder.FibreDeps) (edictad.FibreRecorder, error) { return nil, errSeam }
+			ff.deps.NewFibre = func(edrec.FibreConfig, edrec.FibreDeps) (recorder.Recorder, error) { return nil, errSeam }
 		},
 		"listener fails": func(e *env, _ *fibreFakes, _ *fibreRecFakes) {
 			e.deps.Listen = func(string, string) (net.Listener, error) { return nil, errSeam }
@@ -203,7 +204,7 @@ func TestFibreRecorderStartFailureAfterTheBuildClosesEverythingOnce(t *testing.T
 
 func TestFibreRecorderBuildFailureClosesTheSigningClientOnce(t *testing.T) {
 	e, ff, rf := newFibreRecEnv(t)
-	ff.deps.NewFibre = func(recorder.FibreConfig, recorder.FibreDeps) (edictad.FibreRecorder, error) { return nil, errSeam }
+	ff.deps.NewFibre = func(edrec.FibreConfig, edrec.FibreDeps) (recorder.Recorder, error) { return nil, errSeam }
 	_, err := edictad.Start(bg, e.cfg(fibreRecEdits()...), e.deps)
 	require.ErrorIs(t, err, errSeam)
 	assert.EqualValues(t, 1, rf.closer.closes.Load())

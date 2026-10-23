@@ -14,6 +14,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/gate"
+	engrec "github.com/vgonkivs/edicta/engine/recorder"
 	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
 	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/plugins/celestia/node"
@@ -223,8 +224,8 @@ type FibreRecorder struct {
 }
 
 var (
-	_ sdk.Publisher = (*FibreRecorder)(nil)
-	_ backend       = (*FibreRecorder)(nil)
+	_ engrec.Recorder = (*FibreRecorder)(nil)
+	_ backend         = (*FibreRecorder)(nil)
 )
 
 // NewFibre validates cfg and the wiring. Submitting and reading must go to

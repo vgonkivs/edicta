@@ -21,20 +21,6 @@ import (
 	"github.com/vgonkivs/edicta/sdk"
 )
 
-var (
-	// ErrIntentStale means the anchor tx of an intent was signed for an
-	// account sequence the chain has passed, so it can never land. The intent
-	// stays archived and is never re-signed: the anchor tx is bound by its
-	// exact bytes. This blob is not published again by this Recorder.
-	ErrIntentStale = errors.New("recorder: anchor tx signed for a stale account sequence; publish a new blob")
-	// ErrAnchorTxRejected means the node refused the anchor tx, or the chain
-	// executed it with a nonzero code. It is sticky per blob.
-	ErrAnchorTxRejected = errors.New("recorder: the node refused the anchor tx")
-	// ErrAnchorExpired means the anchor of a pending reference did not land
-	// before the chain stopped accepting it. It is sticky per blob.
-	ErrAnchorExpired = errors.New("recorder: the anchor did not land in its window")
-)
-
 const (
 	accountPrefix = "celestia"
 	// intentProbeBack and intentProbeAhead bound where a restart looks for

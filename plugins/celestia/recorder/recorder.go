@@ -15,38 +15,31 @@ import (
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/dacommit/sharev1"
+	engrec "github.com/vgonkivs/edicta/engine/recorder"
 	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/sdk"
 )
 
+// The refusal reasons are those of the engine's recorder package, under
+// the names this package has always exported.
 var (
-	ErrTooLarge       = errors.New("recorder: blob above MaxBlobBytes")
-	ErrSignerMismatch = errors.New("recorder: anchored blob has another signer or share version")
-	ErrNotVisible     = errors.New("recorder: anchor not visible on the read node in time")
-	ErrOutcomeUnknown = errors.New("recorder: submit outcome unknown")
-	// ErrNodeUnavailable means the read node failed for a reason other than
-	// "not found"; the caller may retry.
-	ErrNodeUnavailable = errors.New("recorder: node unavailable")
-	ErrTooManyPending  = errors.New("recorder: too many blobs with an unresolved outcome")
+	ErrTooLarge           = engrec.ErrTooLarge
+	ErrSignerMismatch     = engrec.ErrSignerMismatch
+	ErrNotVisible         = engrec.ErrNotVisible
+	ErrOutcomeUnknown     = engrec.ErrOutcomeUnknown
+	ErrNodeUnavailable    = engrec.ErrNodeUnavailable
+	ErrTooManyPending     = engrec.ErrTooManyPending
+	ErrArchiveUnavailable = engrec.ErrArchiveUnavailable
+	ErrEscrowInsufficient = engrec.ErrEscrowInsufficient
+	ErrSubmitMismatch     = engrec.ErrSubmitMismatch
+	ErrAnchorRejected     = engrec.ErrAnchorRejected
+	ErrClockSkew          = engrec.ErrClockSkew
+	ErrIntentStale        = engrec.ErrIntentStale
+	ErrAnchorTxRejected   = engrec.ErrAnchorTxRejected
+	ErrAnchorExpired      = engrec.ErrAnchorExpired
+)
 
-	// ErrArchiveUnavailable means the archive write failed. Before a submit
-	// nothing was submitted; after one, a retry resumes without paying again.
-	ErrArchiveUnavailable = errors.New("recorder: archive unavailable")
-	// ErrEscrowInsufficient means the escrow cannot pay for the upload;
-	// nothing was submitted.
-	ErrEscrowInsufficient = errors.New("recorder: escrow balance too low for this upload")
-	// ErrSubmitMismatch means the node returned another blob id or promise
-	// fields than computed locally; a fee may have been spent. It is sticky
-	// per blob.
-	ErrSubmitMismatch = errors.New("recorder: node returned another blob id than computed")
-	// ErrAnchorRejected means a successful pay-for-fibre tx of the blob is on
-	// chain but fails the certificate rule. It is sticky per blob: the escrow
-	// was charged, so the blob is never submitted again.
-	ErrAnchorRejected = errors.New("recorder: anchor on chain fails the certificate rule")
-	// ErrClockSkew means the local clock, which dates the promise, is off the
-	// chain head time by more than the allowed skew; nothing was submitted.
-	ErrClockSkew = errors.New("recorder: local clock skewed against the chain")
-
+var (
 	errBlobDiffers  = errors.New("recorder: anchored blob differs from the submitted one")
 	errInvalidInput = errors.New("recorder: invalid configuration")
 	errClosed       = errors.New("recorder: closed")
@@ -117,7 +110,7 @@ type Recorder struct {
 	fast *fastCore
 }
 
-var _ sdk.Publisher = (*Recorder)(nil)
+var _ engrec.Recorder = (*Recorder)(nil)
 
 // SkippedIntents is the number of archived anchor intents this Recorder's
 // recovery could not follow; each may be a lost intent. Zero without fast

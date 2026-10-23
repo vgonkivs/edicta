@@ -56,6 +56,7 @@ var classes = map[string]class{
 	"engine/policy":                   engine,
 	"engine/gate":                     engine,
 	"engine/dasource":                 engine,
+	"engine/recorder":                 engine,
 	"engine/retention":                engine,
 	"engine/retention/retentionstore": testsupport,
 	"engine/archive":                  engine,

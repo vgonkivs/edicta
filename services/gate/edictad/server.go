@@ -27,6 +27,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/engine/gate/registry/boltreg"
 	"github.com/vgonkivs/edicta/engine/policy"
+	"github.com/vgonkivs/edicta/engine/recorder"
 	"github.com/vgonkivs/edicta/engine/retention"
 	"github.com/vgonkivs/edicta/internal/secret"
 	"github.com/vgonkivs/edicta/plugins/celestia/banksend/execcapture"
@@ -34,7 +35,7 @@ import (
 	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/plugins/celestia/node/heightcheck"
-	"github.com/vgonkivs/edicta/plugins/celestia/recorder"
+	edrec "github.com/vgonkivs/edicta/plugins/celestia/recorder"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/sdk"
 )
@@ -54,7 +55,7 @@ type Deps struct {
 	Consensus node.Consensus
 	// Submitter pays for the Recorder's blobs. It is required when the
 	// Recorder is enabled and never touched otherwise.
-	Submitter recorder.Submitter
+	Submitter edrec.Submitter
 	// Fibre is required with da = "fibre" and ignored otherwise.
 	Fibre *FibreDeps
 	// RecorderFast is required with recorder.fast and ignored otherwise.
@@ -110,10 +111,10 @@ type FibreDeps struct {
 	// node and RecorderChain reads that same node. Start owns SigningCloser:
 	// it closes it once, on a refused start or at Shutdown after the Recorder.
 	Submitter     node.FibreSubmitter
-	RecorderChain recorder.FibreChain
+	RecorderChain edrec.FibreChain
 	SigningCloser io.Closer
-	// NewFibre builds the Recorder; nil means recorder.NewFibre.
-	NewFibre func(recorder.FibreConfig, recorder.FibreDeps) (FibreRecorder, error)
+	// NewFibre builds the Recorder; nil means edrec.NewFibre.
+	NewFibre func(edrec.FibreConfig, edrec.FibreDeps) (recorder.Recorder, error)
 	// SelfTest, CheckBuild and CheckNMT replace the pin checks in tests; nil
 	// runs the real ones.
 	SelfTest, CheckBuild, CheckNMT func() error
@@ -132,18 +133,8 @@ type RecorderFastDeps struct {
 	Uploader node.FibreUploader
 }
 
-// FibreRecorder is the da = 1 Recorder the daemon publishes through.
-type FibreRecorder interface {
-	sdk.Publisher
-	// Close waits for draining uploads until ctx ends, then cancels them.
-	Close(ctx context.Context) error
-	// SkippedIntents counts the archived anchor intents a fast Recorder
-	// could not follow; health is degraded while it is not zero.
-	SkippedIntents() uint64
-}
-
-func newFibreRecorder(cfg recorder.FibreConfig, d recorder.FibreDeps) (FibreRecorder, error) {
-	r, err := recorder.NewFibre(cfg, d)
+func newFibreRecorder(cfg edrec.FibreConfig, d edrec.FibreDeps) (recorder.Recorder, error) {
+	r, err := edrec.NewFibre(cfg, d)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +169,7 @@ type Server struct {
 	// rec is the Recorder that has background work to close: the da = 1
 	// Recorder or a fast one. signing is the da = 1 signing client and
 	// uploader the fast da = 1 uploader; each is empty when not used.
-	rec          FibreRecorder
+	rec          recorder.Recorder
 	closeTimeout time.Duration
 	signing      *onceCloser
 	uploader     *ctxCloser
@@ -710,9 +701,9 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 		if err != nil {
 			return fail(cfgErr("recorder.fast_min_gas_price: %v", err))
 		}
-		rcfg := recorder.Config{Namespace: ns, MaxBlobBytes: cfg.Recorder.maxBlob(), Archive: store, Now: clock.Now,
+		rcfg := edrec.Config{Namespace: ns, MaxBlobBytes: cfg.Recorder.maxBlob(), Archive: store, Now: clock.Now,
 			FastTimeoutBlocks: cfg.Recorder.FastTimeoutBlocks}
-		rec, err := recorder.NewFast(rcfg, recorder.FastDeps{Signer: d.RecorderFast.Signer, Node: d.Consensus, GasPriceFloor: floor, Log: log}, d.Reader)
+		rec, err := edrec.NewFast(rcfg, edrec.FastDeps{Signer: d.RecorderFast.Signer, Node: d.Consensus, GasPriceFloor: floor, Log: log}, d.Reader)
 		if err != nil {
 			return fail(fmt.Errorf("edictad: fast recorder: %w", err))
 		}
@@ -735,8 +726,8 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 		if _, ok := d.Reader.(signedHeaderReader); !ok {
 			return fail(cfgErr("the recorder needs a node reader that can return signed headers"))
 		}
-		rcfg := recorder.Config{Namespace: ns, MaxBlobBytes: cfg.Recorder.maxBlob(), Archive: store, Now: clock.Now}
-		rec, err := recorder.New(rcfg, d.Submitter, d.Reader)
+		rcfg := edrec.Config{Namespace: ns, MaxBlobBytes: cfg.Recorder.maxBlob(), Archive: store, Now: clock.Now}
+		rec, err := edrec.New(rcfg, d.Submitter, d.Reader)
 		if err != nil {
 			return fail(fmt.Errorf("edictad: recorder: %w", err))
 		}
@@ -814,14 +805,14 @@ func recorderQuota(cfg Config, clock gate.Clock) edictaapi.Quota {
 // broadcast here.
 func buildFibreRecorder(cfg Config, d Deps, ns []byte, store archive.Store, clock gate.Clock,
 	reader node.FibreAnchorReader, chainID string, committer *fibrecommit.Committer, params *node.FibreParams,
-	log *slog.Logger) (FibreRecorder, error) {
+	log *slog.Logger) (recorder.Recorder, error) {
 	fc := cfg.FibreRecorderConfig(ns, store)
 	fc.Now = clock.Now
 	build := d.Fibre.NewFibre
 	if build == nil {
 		build = newFibreRecorder
 	}
-	fd := recorder.FibreDeps{
+	fd := edrec.FibreDeps{
 		Submitter: d.Fibre.Submitter,
 		Reader:    reader,
 		Chain:     d.Fibre.RecorderChain,
@@ -834,7 +825,7 @@ func buildFibreRecorder(cfg Config, d Deps, ns []byte, store archive.Store, cloc
 		if err != nil {
 			return nil, cfgErr("recorder.fast_min_gas_price: %v", err)
 		}
-		fd.Fast = &recorder.FastDeps{Signer: d.RecorderFast.Signer, Node: d.Consensus, Uploader: d.RecorderFast.Uploader, GasPriceFloor: floor, Log: log}
+		fd.Fast = &edrec.FastDeps{Signer: d.RecorderFast.Signer, Node: d.Consensus, Uploader: d.RecorderFast.Uploader, GasPriceFloor: floor, Log: log}
 		fd.Params = params
 	}
 	rec, err := build(fc, fd)
@@ -860,7 +851,7 @@ const (
 // retrying with a doubling wait. Without them the escrow hold and the anchor
 // window would rest on guesses, so a node that never answers refuses the
 // start.
-func readFastFibreParams(ctx context.Context, chain recorder.FibreChain, wait func(context.Context, time.Duration) error,
+func readFastFibreParams(ctx context.Context, chain edrec.FibreChain, wait func(context.Context, time.Duration) error,
 	timeout time.Duration, log *slog.Logger) (node.FibreParams, error) {
 	if wait == nil {
 		wait = sleepCtx
@@ -876,7 +867,7 @@ func readFastFibreParams(ctx context.Context, chain recorder.FibreChain, wait fu
 		p, err = chain.FibreParams(actx)
 		cancel()
 		if err == nil {
-			err = recorder.CheckFastFibreParams(p)
+			err = edrec.CheckFastFibreParams(p)
 		}
 		if err == nil {
 			return p, nil

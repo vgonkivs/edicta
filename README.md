@@ -170,7 +170,7 @@ Not production-ready.
 
 | Path | Contents |
 |---|---|
-| `/` (module `github.com/vgonkivs/edicta`) | Core: `engine/commitment` (encoding, hashing, checks), `engine/gate`, `engine/dasource` (DA read and recompute interfaces), `engine/policy` (mandates), `engine/principalsig`, `engine/archive`, `engine/verifier`, `sdk`, `api/edictaapi` (HTTP API), `engine/dacommit`, `test`; `cmd/edicta-principal` (the principal's mandate tool, also `edicta principal`) |
+| `/` (module `github.com/vgonkivs/edicta`) | Core: `engine/commitment` (encoding, hashing, checks), `engine/gate`, `engine/dasource` (DA read and recompute interfaces), `engine/recorder` (the Recorder interface and its refusal reasons), `engine/policy` (mandates), `engine/principalsig`, `engine/archive`, `engine/verifier`, `sdk`, `api/edictaapi` (HTTP API), `engine/dacommit`, `test`; `cmd/edicta-principal` (the principal's mandate tool, also `edicta principal`) |
 | `plugins/celestia/` (own module) | The Celestia plugin: node client (`node`), chain readers (`chain`), proof checks (`proof`), the Recorder (`recorder`), Fibre blob commitment (`fibrecommit`), the bank-send transaction signer and checker (`banksend`), and test fakes (`celestiatest`) |
 | `services/gate/` (own module) | The `edictad` daemon, its wiring (`edictad/wire`) and its command line (`gatecmd`, run as `edicta gate serve`) |
 | `services/signer/` (own module, links no Celestia node or chain code) | The payer key's service `edicta-signer` (also `edicta signer serve`): signing core, Eden escrow handler (`eden`), daemon (`signerd`), command line (`signercmd`) |
