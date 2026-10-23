@@ -43,6 +43,9 @@ func otherQuoteHeader(t *testing.T) string {
 
 const buyerText = "signer is neither the escrow buyer nor an authorized device key"
 
+// liveRefusalBody is the 403 answer a real payment server gave.
+const liveRefusalBody = `{"error":{"message":"` + buyerText + `","type":"inference_error"}}` + "\n"
+
 func TestRecognisedRefusal(t *testing.T) {
 	pid := [32]byte(mustHex(t, livePaymentID))
 	big := strings.Repeat("x", commitcmd.MaxRetryAnswer) + buyerText
@@ -56,6 +59,7 @@ func TestRecognisedRefusal(t *testing.T) {
 	}{
 		{"402 asking again for this paymentId", 402, liveHeader(t), "", commitcmd.RefusalAsksAgain},
 		{"403 with the buyer-check text", 403, "", `{"error":"` + buyerText + `"}`, commitcmd.RefusalBuyer},
+		{"403 with the recorded error envelope", 403, "", liveRefusalBody, commitcmd.RefusalBuyer},
 		{"403 with the text and a quote header", 403, liveHeader(t), buyerText, commitcmd.RefusalBuyer},
 		{"402 naming another paymentId", 402, otherQuoteHeader(t), "", ""},
 		{"402 without the header", 402, "", buyerText, ""},
@@ -119,8 +123,9 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 		defer f.mu.Unlock()
 		f.paths = append(f.paths, r.URL.Path)
 		f.bodies = append(f.bodies, b)
+		w.Header().Set("Deprecation", "true")
 		w.WriteHeader(f.status)
-		_, _ = io.WriteString(w, `{"deprecation":true}`)
+		_, _ = io.WriteString(w, `{}`)
 	}))
 	t.Cleanup(f.srv.Close)
 	return f

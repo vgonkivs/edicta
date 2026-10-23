@@ -87,6 +87,12 @@ func TestHoustonRelayLogsTheDeprecationMarkerOncePerProcess(t *testing.T) {
 	require.NoError(t, send(), "the marker changes nothing else")
 	set(func(w http.ResponseWriter) {
 		w.Header().Set("Deprecation", "true")
+		_, _ = io.WriteString(w, `{"txHash":"0x`+railRef+`"}`)
+	})
+	require.NoError(t, send(), "the header alone is the marker, the body carries none")
+	assert.Equal(t, 1, strings.Count(logs.String(), "marks its relay deprecated"), logs.String())
+	set(func(w http.ResponseWriter) {
+		w.Header().Set("Deprecation", "true")
 		http.Error(w, "failed to broadcast transaction", http.StatusBadRequest)
 	})
 	require.ErrorIs(t, send(), edenrelay.ErrRelayFault, "an error with the marker is still a fault")

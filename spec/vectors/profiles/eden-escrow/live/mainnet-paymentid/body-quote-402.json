@@ -1,0 +1,1 @@
+{"error":"Payment Required","message":"This endpoint requires x402 payment","paymentInfo":{"asset":"native","network":"eip155:714","scheme":"escrow-upto","x402Version":2},"price":{"amount":"0.000016","currency":"TIA"}}

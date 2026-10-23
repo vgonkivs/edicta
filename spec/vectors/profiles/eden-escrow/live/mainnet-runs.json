@@ -1,0 +1,101 @@
+{
+  "_note": "Index of three funded escrow-upto payments on Eden mainnet (chain 714) through the Houston payment server, recorded on the client side. Inputs of edenescrow-gen; never edited by hand. No key, credential or token is recorded. The deposits are settled and their paymentIds used, so nothing here can be replayed.",
+  "_recorded": "2026-10-22 and 2026-10-23",
+  "provenance": {
+    "wire": "The bytes as they went over the wire: an HTTP header value as the HTTP library returned it (no trailing newline), or the signed transaction as sent (0x and lower-case hex, no trailing newline).",
+    "reconstructed": "A JSON body re-serialized from the parsed answer or request: compact, member order kept, one LF at the end (Go encoding/json Encoder style). Every value is the one received or sent; the bytes are probably, not provably, the wire bytes. Where the answer was not compressed, content_length is the server's Content-Length and the file has exactly that length.",
+    "rpc": "An Eden JSON-RPC result as parsed, pretty-printed: values verbatim, layout ours.",
+    "observed": "A value read from an answer (status, header, a member of a parsed body) or from Eden RPC after the run, written in this index by hand."
+  },
+  "runs": [
+    {
+      "id": "mainnet-paymentid",
+      "dir": "mainnet-paymentid",
+      "summary": "Payment-Signature over the 32 raw bytes of paymentId; deposit sent through POST /v1/deposit/send; paid retry 200; settled by the facilitator.",
+      "started_at": "2026-10-23T00:13:49Z",
+      "chain_id": "714",
+      "resource_called": "https://inference.bot.fun/v1/chat/completions",
+      "buyer": "0x0577d1052177e2d0add39ef0c3620cbde30881c5",
+      "payment_id": "0x5b6d992c5e3090d174e4fedb3f1ab47ef2f9f6e5cc0f25abb425c56c79c1a9a5",
+      "tx_hash": "0xa99035d9722a158784459d9b1a69f26451b3ebbc8af3a4f5233e7fff2c0f7b75",
+      "deposit_block": "229300167",
+      "broadcast": "relay",
+      "payment_signature_message": "paymentId",
+      "observed": {
+        "quote": {"status": "402", "content_length": "219"},
+        "relay": {"status": "200", "deprecation_header": "true", "content_length": "161"},
+        "deposit_status": {"status": "200", "content_length": "101"},
+        "paid_retry": {"status": "200", "houston_cost_tia": "9155553483167", "houston_payment_id": "0x5b6d992c5e3090d174e4fedb3f1ab47ef2f9f6e5cc0f25abb425c56c79c1a9a5", "houston_mode": "x402"},
+        "settle": {"tx_hash": "0xc4f39de0e9a79d402861150b8fc5f511628bd5cb461951735d26e8790e614fe1", "block": "229300196", "from": "0xec7557ea26e646020b3c6c90f8af6fbf73460f45", "selector": "0x79f48d4c", "amount": "15618297118343", "actual_amount": "9155553483167", "refund_amount": "6462743635176"}
+      },
+      "files": [
+        {"file": "header-payment-required.b64", "provenance": "wire", "what": "payment-required header of the 402 quote"},
+        {"file": "body-quote-402.json", "provenance": "reconstructed", "content_length": "219", "what": "body of the 402 quote (not the requirements)"},
+        {"file": "body-deposit-build.json", "provenance": "reconstructed", "what": "answer of POST /v1/deposit/build (sent gzip-compressed, so its length cannot be compared)"},
+        {"file": "deposit-signed.hex", "provenance": "wire", "what": "the signed deposit transaction as sent"},
+        {"file": "body-deposit-send-request.json", "provenance": "reconstructed", "what": "the client's POST /v1/deposit/send request body"},
+        {"file": "body-deposit-send.json", "provenance": "reconstructed", "content_length": "161", "what": "answer of POST /v1/deposit/send (header deprecation: true)"},
+        {"file": "body-deposit-status.json", "provenance": "reconstructed", "content_length": "101", "what": "answer of GET /v1/deposit/status/<txHash>"},
+        {"file": "header-payment-signature.b64", "provenance": "wire", "what": "payment-signature header of the paid retry"},
+        {"file": "header-payment-response.b64", "provenance": "wire", "what": "payment-response header of the paid retry's 200"}
+      ]
+    },
+    {
+      "id": "mainnet-nonce-refused",
+      "dir": "mainnet-nonce-refused",
+      "summary": "Payment-Signature over the 32 raw bytes of extra.nonce instead of paymentId; deposit sent through POST /v1/deposit/send; paid retry 403. A Payment-Signature over paymentId for the same deposit, made by hand later, got 200 (its header value was not recorded); the deposit was settled.",
+      "started_at": "2026-10-22T23:58:48Z",
+      "chain_id": "714",
+      "resource_called": "https://inference.bot.fun/v1/chat/completions",
+      "buyer": "0x0577d1052177e2d0add39ef0c3620cbde30881c5",
+      "payment_id": "0x6cba341c3798488c48156cb82cfa9b6bb11557c8c974efa94acc30e5bfab9c49",
+      "tx_hash": "0xdd78098c6259e9f6de84f1a471f3379fd671fd8bc1e236ab32b41667d06c0f7e",
+      "deposit_block": null,
+      "broadcast": "relay",
+      "payment_signature_message": "nonce",
+      "observed": {
+        "relay": {"status": "200", "deprecation_header": "true", "content_length": "161"},
+        "paid_retry": {"status": "403", "content_type": "application/json", "content_length": "113"},
+        "paid_retry_resigned": {"at": "2026-10-22T23:59:46Z", "status": "200", "houston_cost_tia": "9147039588615", "houston_payment_id": "0x6cba341c3798488c48156cb82cfa9b6bb11557c8c974efa94acc30e5bfab9c49", "houston_mode": "x402"},
+        "settle": {"tx_hash": "0x70028cc0762fb14d3b075c2f442ad49cc343f77650aecb2ca5a38c885f7ca912"}
+      },
+      "files": [
+        {"file": "header-payment-required.b64", "provenance": "wire", "what": "payment-required header of the 402 quote"},
+        {"file": "deposit-signed.hex", "provenance": "wire", "what": "the signed deposit transaction as sent"},
+        {"file": "header-payment-signature.b64", "provenance": "wire", "what": "payment-signature header of the paid retry, signed over extra.nonce"},
+        {"file": "body-paid-retry-403.json", "provenance": "reconstructed", "content_length": "113", "what": "body of the paid retry's 403"},
+        {"file": "header-payment-response-resigned.b64", "provenance": "wire", "what": "payment-response header of the 200 to the later retry signed over paymentId"}
+      ]
+    },
+    {
+      "id": "mainnet-self-broadcast",
+      "dir": "mainnet-self-broadcast",
+      "summary": "Deposit sent only with eth_sendRawTransaction to an Eden RPC; POST /v1/deposit/send never called. Payment-Signature over paymentId; paid retry 200 on the first try; settled by the facilitator.",
+      "started_at": "2026-10-23T18:00:29Z",
+      "chain_id": "714",
+      "resource_called": "https://inference.bot.fun/v1/chat/completions",
+      "buyer": "0x0577d1052177e2d0add39ef0c3620cbde30881c5",
+      "payment_id": "0x042bbe35b097669cdf5bc6d36ab1ffb4c66870bffc43456db1b5c5c5ac857c97",
+      "tx_hash": "0x225d026ff2bacef5d0caf2690d38cc070fc3744b0a5413ab99acdfcac9da9f49",
+      "deposit_block": "229928452",
+      "broadcast": "direct",
+      "payment_signature_message": "paymentId",
+      "observed": {
+        "quote": {"status": "402", "content_length": "219"},
+        "send_raw_transaction": {"at": "2026-10-23T18:00:30Z", "result": "0x225d026ff2bacef5d0caf2690d38cc070fc3744b0a5413ab99acdfcac9da9f49"},
+        "deposit_status": {"at": "2026-10-23T18:01:33Z", "status": "200", "content_length": "101"},
+        "paid_retry": {"at": "2026-10-23T18:01:34Z", "status": "200", "houston_cost_tia": "5041457439514", "houston_payment_id": "0x042bbe35b097669cdf5bc6d36ab1ffb4c66870bffc43456db1b5c5c5ac857c97", "houston_mode": "x402"},
+        "settle": {"tx_hash": "0x7ac9aa9bdc5a7f1e084768cae173d883c5f29294b7684d03f5e5772aaf8e4201", "block": "229929089", "from": "0xec7557ea26e646020b3c6c90f8af6fbf73460f45", "selector": "0x79f48d4c", "amount": "14830287301237", "actual_amount": "5041457439514", "refund_amount": "9788829861723"}
+      },
+      "files": [
+        {"file": "header-payment-required.b64", "provenance": "wire", "what": "payment-required header of the 402 quote"},
+        {"file": "body-deposit-build.json", "provenance": "reconstructed", "what": "answer of POST /v1/deposit/build (sent gzip-compressed, so its length cannot be compared)"},
+        {"file": "deposit-signed.hex", "provenance": "wire", "what": "the signed deposit transaction as sent with eth_sendRawTransaction"},
+        {"file": "rpc-receipt.json", "provenance": "rpc", "what": "eth_getTransactionReceipt result of the deposit"},
+        {"file": "body-deposit-status.json", "provenance": "reconstructed", "content_length": "101", "what": "answer of GET /v1/deposit/status/<txHash>"},
+        {"file": "header-payment-signature.b64", "provenance": "wire", "what": "payment-signature header of the paid retry"},
+        {"file": "header-payment-response.b64", "provenance": "wire", "what": "payment-response header of the paid retry's 200"}
+      ]
+    }
+  ]
+}

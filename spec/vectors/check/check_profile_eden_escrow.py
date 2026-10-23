@@ -6,7 +6,7 @@ Re-derives every expectation the Go generator wrote: the strict decoders (deposi
 CBOR, form T transaction, domain table) and the rule each reject fails first; the EIP-1559 signing
 hash, facts, salted action hash; the signer's splice rule, RFC 6979 signatures (pure Python), payer recovery and
 rail_ref; EE1 and EE3; the rebuild of served transactions (EE2); the receipt encoding and bloom;
-EE7 and EE8; the header hash of the recorded block. The transactions root (a Merkle-Patricia trie)
+EE7 and EE8; the header hash of the recorded block; the recorded mainnet payments (x402_mainnet.json). The transactions root (a Merkle-Patricia trie)
 is checked by the generator only.
 
 Usage: python3 spec/vectors/check/check_profile_eden_escrow.py [--dir DIR]
@@ -23,13 +23,14 @@ from pathlib import Path
 
 import principal_crypto as pc
 import profile_eden_escrow as ee
+import profile_eden_escrow_mainnet as mn
 import profile_eden_escrow_x402 as xp
 from edicta import action_hash
 from policy_v1 import encode_facts
 
 HERE = Path(__file__).resolve().parent
 DEFAULT = HERE.parent / "profiles" / "eden-escrow"
-REVISION = "eden-escrow-v1-draft.10"
+REVISION = "eden-escrow-v1-draft.11"
 
 fails: list[str] = []
 
@@ -366,12 +367,14 @@ def main() -> int:
     check_settlement(load("settlement.json"), actions, load("live/f14.json"))
     check_x402(load("x402.json"), d, load("signed.json"))
     check_multi_source(load("multi_source.json"))
+    mn.check(load("x402_mainnet.json"), d, expect, header)
     if fails:
         for f in fails:
             print(f"FAIL (eden-escrow): {f}", file=sys.stderr)
         return 1
     print("OK (eden-escrow): deposit calls, actions and rejects, signatures, rail_ref, EE3, EE2 rebuild, "
-          "receipt, EE8, header hash, escrow code and table, x402 build, header and S4, Payment-Signature, multi-source and sequences")
+          "receipt, EE8, header hash, escrow code and table, x402 build, header and S4, Payment-Signature, multi-source and sequences, "
+          "recorded mainnet payments")
     return 0
 
 

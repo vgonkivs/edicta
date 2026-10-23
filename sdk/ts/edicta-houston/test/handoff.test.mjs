@@ -107,6 +107,8 @@ const quoteFor = (pid) =>
   Buffer.from(`{"x402Version":2,"accepts":[{"scheme":"escrow-upto","extra":{"paymentId":"0x${pid}"}}]}`).toString("base64");
 const rr1 = () => new Response("payment required", { status: 402, headers: { "payment-required": quoteFor(svPid) } });
 const rr2 = () => new Response(`{"error":"${BUYER}"}`, { status: 403 });
+const rr2Live = () =>
+  new Response(`{"error":{"message":"signer is neither the escrow buyer nor an authorized device key","type":"inference_error"}}\n`, { status: 403 });
 const ok = () => new Response(`{"choices":[]}`, { status: 200 });
 
 function world(answers, relay = () => new Response(`{"txHash":"0x${sv.rail_ref}","deprecation":true}`, { status: 200 })) {
@@ -335,4 +337,12 @@ test("edictaPay keeps its result when the paid retry or the handoff fails", asyn
     srv.closeAllConnections();
     await new Promise((r) => srv.close(r));
   }
+});
+
+test("the recorded 403 envelope and the deprecation header alone are recognised", async () => {
+  const w = world([rr2Live, rr1, ok], () => new Response(`{"txHash":"0x${sv.rail_ref}"}`, { status: 200, headers: { deprecation: "true" } }));
+  const out = await paidRetryWithHandoff(decision(), w.retry, w.opts({ pickupDelayMs: 15_000 }));
+  assert.equal(out.handoff, "sent");
+  assert.equal(out.relayDeprecated, true);
+  assert.deepEqual(out.refusals, ["RR2", "RR1"]);
 });
