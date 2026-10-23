@@ -287,8 +287,14 @@ func (s *Service) save(r *run) *Failure {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
 	// The paid-retry marks are written by their own reports, never by a
-	// run: a run that started before them keeps them.
-	if old, ok, err := s.State.Load(r.hexH); err == nil && ok && bytes.Equal(old.Envelope, r.st.Envelope) {
+	// run: a run that started before them keeps them. A stored state that
+	// cannot be read may hold them, so it is never overwritten.
+	old, ok, err := s.State.Load(r.hexH)
+	if err != nil {
+		return r.carry(&Failure{Exit: ExitUnavailable, Code: "state_unavailable", Retryable: true,
+			Message: fmt.Sprintf("the stored state could not be read and is not overwritten (continue with the resume fields): %v", err)})
+	}
+	if ok && bytes.Equal(old.Envelope, r.st.Envelope) {
 		r.st.RefusedAtMS = max(r.st.RefusedAtMS, old.RefusedAtMS)
 		r.st.HandoffAtMS = max(r.st.HandoffAtMS, old.HandoffAtMS)
 		if r.st.HandoffOutcome == "" {
