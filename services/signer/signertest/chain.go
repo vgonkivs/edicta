@@ -9,8 +9,7 @@ import (
 	"fmt"
 	"sync"
 
-	"golang.org/x/crypto/sha3"
-
+	"github.com/vgonkivs/edicta/internal/evm"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 )
@@ -19,13 +18,7 @@ import (
 var EmptyCodeHash = Keccak(nil)
 
 // Keccak is keccak-256.
-func Keccak(b []byte) [32]byte {
-	h := sha3.NewLegacyKeccak256()
-	h.Write(b)
-	var out [32]byte
-	h.Sum(out[:0])
-	return out
-}
+func Keccak(b []byte) [32]byte { return evm.Keccak256(b) }
 
 // Block is the block a landed transaction is put in.
 const Block = 1_000_000

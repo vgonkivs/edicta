@@ -2,8 +2,6 @@
 
 package edenexec
 
-import "golang.org/x/crypto/sha3"
-
 // rlpBytes is the canonical encoding of the byte string b.
 func rlpBytes(b []byte) []byte {
 	if len(b) == 1 && b[0] < 0x80 {
@@ -56,14 +54,4 @@ func rlpQuantity(b []byte) ([]byte, bool) {
 		return nil, false
 	}
 	return rlpBytes(b), true
-}
-
-func keccak256(parts ...[]byte) [32]byte {
-	h := sha3.NewLegacyKeccak256()
-	for _, p := range parts {
-		h.Write(p)
-	}
-	var out [32]byte
-	h.Sum(out[:0])
-	return out
 }

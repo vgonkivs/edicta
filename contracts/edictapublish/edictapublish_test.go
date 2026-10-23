@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/evm"
 )
 
 type buildInfo struct {
@@ -67,7 +69,7 @@ func TestRuntimeCodeContainsInterface(t *testing.T) {
 }
 
 func TestPublishSelectorMatchesSignature(t *testing.T) {
-	sum := keccak([]byte("publish(bytes)"))
+	sum := evm.Keccak256([]byte("publish(bytes)"))
 	sel := PublishSelector()
 	assert.Equal(t, sel[:], sum[:4])
 }

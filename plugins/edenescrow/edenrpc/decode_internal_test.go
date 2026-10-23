@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/internal/evm"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 )
 
@@ -100,7 +101,7 @@ func TestDecodeTransactionShapes(t *testing.T) {
 		require.NoError(t, err)
 		b, err := edenexec.RebuildSigned(tx)
 		require.NoError(t, err)
-		assert.Equal(t, tx.Hash, keccak(b))
+		assert.Equal(t, tx.Hash, evm.Keccak256(b))
 	})
 	t.Run("pending", func(t *testing.T) {
 		tx, err := DecodeTransaction(mutate(t, f.Deposit.RPCTx, func(m map[string]any) {
@@ -197,7 +198,7 @@ func TestDecodeBlockShapes(t *testing.T) {
 	assert.Nil(t, h.RequestsHash)
 	enc, err := edenexec.HeaderRLP(h)
 	require.NoError(t, err)
-	assert.NotEqual(t, h.Hash, keccak(enc), "an older fork's header shape hashes elsewhere")
+	assert.NotEqual(t, h.Hash, evm.Keccak256(enc), "an older fork's header shape hashes elsewhere")
 
 	for _, k := range []string{"hash", "parentHash", "number", "timestamp", "nonce", "mixHash", "logsBloom"} {
 		_, _, err := DecodeBlock(mutate(t, f.Block.RPCResult, func(m map[string]any) { delete(m, k) }))

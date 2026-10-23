@@ -2,6 +2,8 @@
 
 package edenexec
 
+import "github.com/vgonkivs/edicta/internal/evm"
+
 // DeriveSha is the root of the Merkle Patricia trie that maps rlp(i) to
 // items[i], as go-ethereum's types.DeriveSha computes transactionsRoot and
 // receiptsRoot. The root does not depend on the insertion order, so the
@@ -9,13 +11,13 @@ package edenexec
 // stores an empty value as no value, so such a root would differ.
 func DeriveSha(items [][]byte) [32]byte {
 	if len(items) == 0 {
-		return keccak256(rlpBytes(nil))
+		return evm.Keccak256(rlpBytes(nil))
 	}
 	kvs := make([]trieKV, len(items))
 	for i, it := range items {
 		kvs[i] = trieKV{key: nibbles(rlpUint64(uint64(i))), value: it}
 	}
-	return keccak256(trieNode(kvs, 0))
+	return evm.Keccak256(trieNode(kvs, 0))
 }
 
 type trieKV struct {
@@ -88,7 +90,7 @@ func childRef(enc []byte) []byte {
 	if len(enc) < 32 {
 		return enc
 	}
-	h := keccak256(enc)
+	h := evm.Keccak256(enc)
 	return rlpBytes(h[:])
 }
 

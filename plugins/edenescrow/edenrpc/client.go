@@ -18,8 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/crypto/sha3"
-
+	"github.com/vgonkivs/edicta/internal/evm"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 )
 
@@ -400,7 +399,7 @@ func (c *Client) BlockTransactions(ctx context.Context, blockHash [32]byte) ([][
 		if err != nil {
 			return nil, fmt.Errorf("transaction %d: %w", i, err)
 		}
-		if keccak(b) != tx.Hash {
+		if evm.Keccak256(b) != tx.Hash {
 			return nil, malformed("transaction %d does not rebuild to its hash", i)
 		}
 		out = append(out, b)
@@ -502,13 +501,5 @@ func (c *Client) CodeHash(ctx context.Context, addr [20]byte) ([32]byte, error) 
 	if err != nil {
 		return [32]byte{}, err
 	}
-	return keccak(code), nil
-}
-
-func keccak(b []byte) [32]byte {
-	h := sha3.NewLegacyKeccak256()
-	h.Write(b)
-	var out [32]byte
-	h.Sum(out[:0])
-	return out
+	return evm.Keccak256(code), nil
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/internal/evm"
 	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
@@ -162,7 +163,7 @@ func TestVectorsSignedCases(t *testing.T) {
 				t.Skip("action of another build")
 			}
 			signed := unhex(t, c.SignedHex)
-			assert.Equal(t, c.RailRef, hexOf(keccak256(signed)))
+			assert.Equal(t, c.RailRef, hexOf(evm.Keccak256(signed)))
 			payer, err := CheckExactTx(signed, a)
 			require.NoError(t, err)
 			assert.Equal(t, addr20(t, c.Payer), payer)
@@ -182,7 +183,7 @@ func TestVectorsExactTx(t *testing.T) {
 				t.Skip("action of another build")
 			}
 			signed := unhex(t, c.SignedHex)
-			assert.Equal(t, c.RailRef, hexOf(keccak256(signed)))
+			assert.Equal(t, c.RailRef, hexOf(evm.Keccak256(signed)))
 			payer, err := CheckExactTx(signed, a)
 			switch c.Expect {
 			case "pass":
@@ -237,7 +238,7 @@ func TestVectorsDepositEvent(t *testing.T) {
 	}
 	loadVector(t, "settlement.json", &f)
 	assert.Equal(t, f.Event.Topic0Hex, hex.EncodeToString(DepositTopic[:]))
-	assert.Equal(t, DepositTopic, keccak256([]byte("NativeEscrowDeposited(bytes32,address,address,address,uint256,uint256,uint256,uint256)")))
+	assert.Equal(t, DepositTopic, evm.Keccak256([]byte("NativeEscrowDeposited(bytes32,address,address,address,uint256,uint256,uint256,uint256)")))
 	acts := actions(t)
 	require.Len(t, f.DepositEvent, 22)
 	for _, c := range f.DepositEvent {

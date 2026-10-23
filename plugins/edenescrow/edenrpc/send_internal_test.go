@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/evm"
 )
 
 func TestPendingNonce(t *testing.T) {
@@ -44,7 +46,7 @@ func TestLatestNonceAsksForLatest(t *testing.T) {
 func TestSendRawTransactionNeedsTheHashOfTheBytesSent(t *testing.T) {
 	s, c := newRPCServer(t)
 	signed := []byte{0x02, 0xc0}
-	h := keccak(signed)
+	h := evm.Keccak256(signed)
 	var sentParam string
 	s.setAnswer(func(id json.RawMessage, method string, params []json.RawMessage) (string, bool) {
 		if method != "eth_sendRawTransaction" {

@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/internal/evm"
 	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 )
@@ -189,7 +190,7 @@ func TestClientReadsRecordedAnswers(t *testing.T) {
 	assert.Equal(t, uint64(1), tx.Index)
 	b, err := edenexec.RebuildSigned(tx)
 	require.NoError(t, err)
-	assert.Equal(t, R, keccak(b))
+	assert.Equal(t, R, evm.Keccak256(b))
 
 	rc, err := c.Receipt(ctx, R)
 	require.NoError(t, err)

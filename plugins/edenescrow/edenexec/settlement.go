@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/vgonkivs/edicta/internal/evm"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
@@ -244,7 +245,7 @@ func (r *run) probe(ctx context.Context, src Source) (p probe) {
 	if err != nil {
 		return fail(err)
 	}
-	if got := keccak256(signed); got != r.R {
+	if got := evm.Keccak256(signed); got != r.R {
 		return fail(wrapf(ErrHashMismatch, "rebuilt bytes hash to %x", got))
 	}
 	if r.signed == nil {

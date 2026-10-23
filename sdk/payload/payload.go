@@ -7,9 +7,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/fxamacker/cbor/v2"
-
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/internal/cborx"
 )
 
 const (
@@ -64,23 +63,9 @@ type Payload struct {
 	Metadata *Data  `cbor:"7,keyasint,omitempty"`
 }
 
-var encMode, encModeErr = func() (cbor.EncMode, error) {
-	o := cbor.CoreDetEncOptions()
-	o.IndefLength = cbor.IndefLengthForbidden
-	o.NilContainers = cbor.NilContainerAsEmpty
-	return o.EncMode()
-}()
+var encMode, encModeErr = cborx.CanonicalEncMode(true)
 
-var decMode, decModeErr = cbor.DecOptions{
-	DupMapKey:         cbor.DupMapKeyEnforcedAPF,
-	IndefLength:       cbor.IndefLengthForbidden,
-	TagsMd:            cbor.TagsForbidden,
-	UTF8:              cbor.UTF8RejectInvalid,
-	ExtraReturnErrors: cbor.ExtraDecErrorUnknownField,
-	MaxNestedLevels:   4,
-	MaxArrayElements:  16,
-	MaxMapPairs:       16,
-}.DecMode()
+var decMode, decModeErr = cborx.StrictDecMode(cborx.Limits{MaxNestedLevels: 4, MaxArrayElements: 16, MaxMapPairs: 16})
 
 // Encode returns the canonical CBOR of p after checking every rule Decode
 // applies, so Decode(Encode(p)) always succeeds.

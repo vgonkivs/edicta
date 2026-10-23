@@ -20,6 +20,7 @@ import (
 
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/policy"
+	"github.com/vgonkivs/edicta/internal/evm"
 	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
@@ -306,12 +307,12 @@ func TestEscrowTableVectors(t *testing.T) {
 	creator := unhex(t, v.EscrowCode.Create.Creator)
 	nonce := rlpString(minimal(t, v.EscrowCode.Create.Nonce))
 	payload := append(rlpString(creator), nonce...)
-	sum := keccak256(rlpListHeader(len(payload)), payload)
+	sum := evm.Keccak256(rlpListHeader(len(payload)), payload)
 	assert.Equal(t, addr(t, v.EscrowCode.Create.Address), [20]byte(sum[12:]))
 	assert.Equal(t, escrowMainnet, [20]byte(sum[12:]))
 
 	// The copy's address is keccak256(0xff || deployer || salt || keccak256(init_code))[12:].
-	sum = keccak256([]byte{0xff}, unhex(t, v.EscrowCode.Create2.Deployer), unhex(t, v.EscrowCode.Create2.SaltHex),
+	sum = evm.Keccak256([]byte{0xff}, unhex(t, v.EscrowCode.Create2.Deployer), unhex(t, v.EscrowCode.Create2.SaltHex),
 		unhex(t, v.EscrowCode.InitCodeHash))
 	assert.Equal(t, addr(t, v.EscrowCode.Create2.Address), [20]byte(sum[12:]))
 	assert.Equal(t, escrowCreate2, [20]byte(sum[12:]))

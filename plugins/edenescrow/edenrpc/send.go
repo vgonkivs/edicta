@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+
+	"github.com/vgonkivs/edicta/internal/evm"
 )
 
 // maxRawTx bounds a transaction this client sends; a form T deposit is a few
@@ -62,7 +64,7 @@ func (c *Client) SendRawTransaction(ctx context.Context, signed []byte) ([32]byt
 	if err := fixed(s, got[:]); err != nil {
 		return [32]byte{}, err
 	}
-	if want := keccak(signed); got != want {
+	if want := evm.Keccak256(signed); got != want {
 		return [32]byte{}, malformed("eth_sendRawTransaction answered hash %x, not %x", got, want)
 	}
 	return got, nil

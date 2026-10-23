@@ -4,6 +4,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+
+	"github.com/vgonkivs/edicta/internal/evm"
 )
 
 // ParseEthAddress parses a 20-byte address given as 40 hex digits, with or
@@ -32,7 +34,7 @@ func ParseEthAddress(s string) ([]byte, error) {
 // eip55 is the checksummed form of 40 lowercase hex digits: a letter is
 // uppercased when the matching nibble of keccak256(digits) is 8 or more.
 func eip55(lower string) string {
-	h := keccak256([]byte(lower))
+	h := evm.Keccak256([]byte(lower))
 	out := []byte(lower)
 	for i, c := range out {
 		nibble := h[i/2] >> 4

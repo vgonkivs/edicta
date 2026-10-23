@@ -12,8 +12,7 @@ import (
 	"math/bits"
 	"unicode/utf8"
 
-	"github.com/fxamacker/cbor/v2"
-
+	"github.com/vgonkivs/edicta/internal/cborx"
 	"github.com/vgonkivs/edicta/plugins/banksend/bankmsg"
 )
 
@@ -63,22 +62,9 @@ type Payload struct {
 	Reason       string        `cbor:"9,keyasint,omitempty"`
 }
 
-var encMode, encModeErr = func() (cbor.EncMode, error) {
-	o := cbor.CoreDetEncOptions()
-	o.IndefLength = cbor.IndefLengthForbidden
-	return o.EncMode()
-}()
+var encMode, encModeErr = cborx.CanonicalEncMode(false)
 
-var decMode, decModeErr = cbor.DecOptions{
-	DupMapKey:         cbor.DupMapKeyEnforcedAPF,
-	IndefLength:       cbor.IndefLengthForbidden,
-	TagsMd:            cbor.TagsForbidden,
-	UTF8:              cbor.UTF8RejectInvalid,
-	ExtraReturnErrors: cbor.ExtraDecErrorUnknownField,
-	MaxNestedLevels:   4,
-	MaxArrayElements:  16,
-	MaxMapPairs:       16,
-}.DecMode()
+var decMode, decModeErr = cborx.StrictDecMode(cborx.Limits{MaxNestedLevels: 4, MaxArrayElements: 16, MaxMapPairs: 16})
 
 func bad(what string) error { return fmt.Errorf("%w: %s", ErrMalformed, what) }
 

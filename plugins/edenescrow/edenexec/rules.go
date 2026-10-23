@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/vgonkivs/edicta/internal/evm"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
@@ -123,7 +124,7 @@ func VerifyBlock(h HeaderView, blockHash [32]byte, txs, receipts [][]byte, index
 	if err != nil {
 		return wrapf(ErrBlockProof, "%v", err)
 	}
-	if got := keccak256(enc); got != blockHash {
+	if got := evm.Keccak256(enc); got != blockHash {
 		return wrapf(ErrBlockProof, "header hashes to %x, not the block hash %x", got, blockHash)
 	}
 	for i := range txs {

@@ -14,7 +14,7 @@ import (
 	"math"
 	"strconv"
 
-	"golang.org/x/crypto/sha3"
+	"github.com/vgonkivs/edicta/internal/evm"
 )
 
 const (
@@ -305,7 +305,7 @@ func CompareUint(a, b []byte) int {
 
 // SigHash is keccak256 of the unsigned transaction: the digest the payer key
 // signs.
-func (a TxAction) SigHash() [32]byte { return keccak256(a.unsigned) }
+func (a TxAction) SigHash() [32]byte { return evm.Keccak256(a.unsigned) }
 
 // RequirementsHash binds the exact PaymentRequirements bytes the server sent.
 func RequirementsHash(raw []byte) [32]byte {
@@ -359,13 +359,3 @@ func cborHeadBytes(major byte, n uint64) []byte {
 // caipChain is the "eip155:<chain_id>" prefix of the facts' asset and
 // recipient.
 func caipChain(chainID uint64) string { return "eip155:" + strconv.FormatUint(chainID, 10) }
-
-func keccak256(parts ...[]byte) [32]byte {
-	h := sha3.NewLegacyKeccak256()
-	for _, p := range parts {
-		h.Write(p)
-	}
-	var out [32]byte
-	h.Sum(out[:0])
-	return out
-}

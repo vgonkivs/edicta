@@ -4,15 +4,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/fxamacker/cbor/v2"
+	"github.com/vgonkivs/edicta/internal/cborx"
 )
 
-var encMode, encModeErr = func() (cbor.EncMode, error) {
-	o := cbor.CoreDetEncOptions()
-	o.IndefLength = cbor.IndefLengthForbidden
-	o.NilContainers = cbor.NilContainerAsEmpty
-	return o.EncMode()
-}()
+var encMode, encModeErr = cborx.CanonicalEncMode(true)
 
 var errNilCommitment = errors.New("commitment: nil commitment")
 

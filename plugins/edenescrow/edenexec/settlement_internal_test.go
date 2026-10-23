@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/evm"
 )
 
 func settle(t testing.TB, cfg Config, tg Target, srcs ...Source) Report {
@@ -305,7 +307,7 @@ func TestSettlementWrongTxIsViolated(t *testing.T) {
 		}
 	}
 	other := unhex(t, otherHex)
-	R := keccak256(other)
+	R := evm.Keccak256(other)
 	tx := txViewOf(t, other)
 	tx.Included, tx.BlockHash, tx.BlockNumber = true, s.blockHash, scnNumber
 

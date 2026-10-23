@@ -10,6 +10,8 @@ import (
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
+
+	"github.com/vgonkivs/edicta/internal/evm"
 )
 
 // MaxRequirementsSize bounds R, the decoded PAYMENT-REQUIRED document.
@@ -192,7 +194,7 @@ const personalPrefix = "\x19Ethereum Signed Message:\n" + "32"
 // signs, nor an RLP list prefix (a legacy transaction), so the preimage
 // never stands for a transaction that key signs.
 func PersonalDigest(m [32]byte) [32]byte {
-	return keccak256([]byte(personalPrefix), m[:])
+	return evm.Keccak256([]byte(personalPrefix), m[:])
 }
 
 // PaymentProofMessage is the message a Payment-Signature covers for a

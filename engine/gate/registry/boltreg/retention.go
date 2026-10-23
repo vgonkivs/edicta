@@ -9,6 +9,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 
 	"github.com/vgonkivs/edicta/engine/retention"
+	"github.com/vgonkivs/edicta/internal/cborx"
 )
 
 var (
@@ -25,7 +26,7 @@ const retentionSchema = uint64(1)
 var retEnc, retDec, retCodecErr = newRetentionCodecs()
 
 func newRetentionCodecs() (cbor.EncMode, cbor.DecMode, error) {
-	enc, err := cbor.CoreDetEncOptions().EncMode()
+	enc, err := cborx.CanonicalEncMode(false)
 	if err != nil {
 		return nil, nil, fmt.Errorf("boltreg: retention encoder: %w", err)
 	}

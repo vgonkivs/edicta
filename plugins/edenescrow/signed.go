@@ -9,6 +9,8 @@ import (
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
+
+	"github.com/vgonkivs/edicta/internal/evm"
 )
 
 // Signature is a secp256k1 signature over a transaction's SigHash. R and S
@@ -64,7 +66,7 @@ func RecoverPayer(digest [32]byte, sig Signature) ([20]byte, error) {
 
 // Address is the Ethereum address of a public key.
 func Address(pub *secp256k1.PublicKey) [20]byte {
-	sum := keccak256(pub.SerializeUncompressed()[1:])
+	sum := evm.Keccak256(pub.SerializeUncompressed()[1:])
 	var a [20]byte
 	copy(a[:], sum[12:])
 	return a
@@ -185,7 +187,7 @@ func ParseSigned(a TxAction, signed []byte) (Signature, [20]byte, error) {
 // RailRef is the receipt's rail_ref of a signed transaction: its Eden
 // transaction hash as 64 lower-case hex characters, without 0x.
 func RailRef(signed []byte) string {
-	h := keccak256(signed)
+	h := evm.Keccak256(signed)
 	return hex.EncodeToString(h[:])
 }
 

@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/internal/evm"
 )
 
 // fakeClock advances only when the checker sleeps.
@@ -311,7 +313,7 @@ func TestAwaitStopsAtOnce(t *testing.T) {
 		// action: the rail_ref is the hash of these other bytes.
 		other, err := RebuildSigned(tx)
 		require.NoError(t, err)
-		tx.Hash = keccak256(other)
+		tx.Hash = evm.Keccak256(other)
 		src.Txs = map[[32]byte]TxView{tx.Hash: tx}
 		chk, clk := awaitChecker(t, src)
 		tg := s.target

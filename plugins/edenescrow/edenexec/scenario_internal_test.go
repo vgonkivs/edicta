@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/internal/evm"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 
@@ -64,7 +65,7 @@ func txViewOf(t testing.TB, signed []byte) TxView {
 	var to [20]byte
 	copy(to[:], it[5])
 	return TxView{
-		Type: TxDynamicFee, Hash: keccak256(signed), ChainID: it[0], Nonce: it[1], MaxPriorityFee: it[2], MaxFee: it[3],
+		Type: TxDynamicFee, Hash: evm.Keccak256(signed), ChainID: it[0], Nonce: it[1], MaxPriorityFee: it[2], MaxFee: it[3],
 		Gas: it[4], To: &to, Value: it[6], Input: it[7], V: it[9], R: it[10], S: it[11],
 	}
 }
@@ -109,7 +110,7 @@ func newScenario(t testing.TB) *scenario {
 	otherSigned := unhex(t, other.SignedHex)
 	s.blockTxs = [][]byte{otherSigned, s.signed}
 
-	otherRcpt := ReceiptView{Type: TxDynamicFee, Status: 1, CumulativeGasUsed: []byte{0x52, 0x08}, TxHash: keccak256(otherSigned)}
+	otherRcpt := ReceiptView{Type: TxDynamicFee, Status: 1, CumulativeGasUsed: []byte{0x52, 0x08}, TxHash: evm.Keccak256(otherSigned)}
 	s.receipt = ReceiptView{
 		Type: TxDynamicFee, Status: 1, CumulativeGasUsed: []byte{0x01, 0x00, 0x00}, TxHash: s.R, Index: 1,
 		Logs: []LogView{s.depositLog()},
@@ -139,7 +140,7 @@ func (s *scenario) seal(t testing.TB, otherRcpt ReceiptView) {
 	s.header.ReceiptRoot = DeriveSha(s.blockRcpt)
 	enc, err := HeaderRLP(s.header)
 	require.NoError(t, err)
-	s.blockHash = keccak256(enc)
+	s.blockHash = evm.Keccak256(enc)
 	s.header.Hash = s.blockHash
 	// The receipts name the block, which their root does not cover.
 	s.receipt.BlockHash, s.receipt.BlockNumber = s.blockHash, scnNumber

@@ -9,6 +9,7 @@ import (
 	"github.com/fxamacker/cbor/v2"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/internal/cborx"
 )
 
 // Tags of the policy v1 family.
@@ -41,26 +42,12 @@ var (
 
 func init() {
 	var err error
-	encMode, err = cbor.EncOptions{
-		Sort:          cbor.SortCoreDeterministic,
-		ShortestFloat: cbor.ShortestFloat16,
-		NilContainers: cbor.NilContainerAsEmpty,
-		IndefLength:   cbor.IndefLengthForbidden,
-	}.EncMode()
+	encMode, err = cborx.CanonicalEncMode(true)
 	if err != nil {
 		codecErr = fmt.Errorf("policy: encoder: %w", err)
 		return
 	}
-	decMode, err = cbor.DecOptions{
-		DupMapKey:         cbor.DupMapKeyEnforcedAPF,
-		IndefLength:       cbor.IndefLengthForbidden,
-		TagsMd:            cbor.TagsForbidden,
-		ExtraReturnErrors: cbor.ExtraDecErrorUnknownField,
-		MaxNestedLevels:   6,
-		MaxArrayElements:  1024,
-		MaxMapPairs:       1024,
-		UTF8:              cbor.UTF8RejectInvalid,
-	}.DecMode()
+	decMode, err = cborx.StrictDecMode(cborx.Limits{MaxNestedLevels: 6, MaxArrayElements: 1024, MaxMapPairs: 1024})
 	if err != nil {
 		codecErr = fmt.Errorf("policy: decoder: %w", err)
 	}

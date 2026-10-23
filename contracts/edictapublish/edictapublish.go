@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"strings"
 
-	"golang.org/x/crypto/sha3"
+	"github.com/vgonkivs/edicta/internal/evm"
 )
 
 //go:embed runtime.hex
@@ -59,7 +59,7 @@ func RuntimeCode() []byte { return decodeHex(runtimeHex) }
 func InitCode() []byte { return decodeHex(initHex) }
 
 // EventTopic is topic 0 of EdictaPayload(bytes32).
-func EventTopic() [32]byte { return keccak([]byte("EdictaPayload(bytes32)")) }
+func EventTopic() [32]byte { return evm.Keccak256([]byte("EdictaPayload(bytes32)")) }
 
 // PayloadTopic is topic 1 of the event for a blob: sha256(blob).
 func PayloadTopic(blob []byte) [32]byte { return sha256.Sum256(blob) }
@@ -77,13 +77,13 @@ func DeployCalldata() []byte {
 // the checked-in init code.
 func Create2Address() [20]byte {
 	s := Salt()
-	h := keccak(InitCode())
+	h := evm.Keccak256(InitCode())
 	buf := make([]byte, 0, 1+20+32+32)
 	buf = append(buf, 0xff)
 	buf = append(buf, decodeHex(DeterministicDeployer)...)
 	buf = append(buf, s[:]...)
 	buf = append(buf, h[:]...)
-	sum := keccak(buf)
+	sum := evm.Keccak256(buf)
 	var out [20]byte
 	copy(out[:], sum[12:])
 	return out
@@ -125,14 +125,6 @@ func Check() error {
 		return fmt.Errorf("%w: CREATE2 address differs from the pinned address", ErrArtifact)
 	}
 	return nil
-}
-
-func keccak(b []byte) [32]byte {
-	h := sha3.NewLegacyKeccak256()
-	h.Write(b)
-	var out [32]byte
-	copy(out[:], h.Sum(nil))
-	return out
 }
 
 func decodeHex(s string) []byte {

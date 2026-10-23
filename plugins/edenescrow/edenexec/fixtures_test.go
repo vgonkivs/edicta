@@ -13,8 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/sha3"
 
+	"github.com/vgonkivs/edicta/internal/evm"
 	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
@@ -48,14 +48,6 @@ func h32(t testing.TB, s string) [32]byte {
 	require.Len(t, b, 32)
 	copy(h[:], b)
 	return h
-}
-
-func keccak(b []byte) [32]byte {
-	h := sha3.NewLegacyKeccak256()
-	h.Write(b)
-	var out [32]byte
-	h.Sum(out[:0])
-	return out
 }
 
 type f14File struct {
@@ -101,7 +93,7 @@ func loadRecorded(t testing.TB) (edenexec.HeaderView, [][]byte, [][]byte, []eden
 		require.NoError(t, err)
 		b, err := edenexec.RebuildSigned(tx)
 		require.NoError(t, err)
-		require.Equal(t, tx.Hash, keccak(b))
+		require.Equal(t, tx.Hash, evm.Keccak256(b))
 		txs = append(txs, b)
 	}
 	var rcpts [][]byte
@@ -126,7 +118,7 @@ func TestRecordedBlockProof(t *testing.T) {
 	require.Len(t, rcpts, 2)
 	enc, err := edenexec.HeaderRLP(h)
 	require.NoError(t, err)
-	assert.Equal(t, h.Hash, keccak(enc))
+	assert.Equal(t, h.Hash, evm.Keccak256(enc))
 	assert.Equal(t, h.TxRoot, edenexec.DeriveSha(txs))
 	assert.Equal(t, h.ReceiptRoot, edenexec.DeriveSha(rcpts))
 
@@ -203,7 +195,7 @@ func TestSettlementVectors(t *testing.T) {
 			b, err := edenexec.RebuildSigned(tx)
 			require.NoError(t, err)
 			assert.Equal(t, unhex(t, c.RebuiltHex), b)
-			got := keccak(b)
+			got := evm.Keccak256(b)
 			assert.Equal(t, h32(t, c.RebuiltHsh), got)
 			switch c.Expect {
 			case "match":
@@ -227,7 +219,7 @@ func TestSettlementVectors(t *testing.T) {
 	hdr, err := edenexec.HeaderRLP(h)
 	require.NoError(t, err)
 	assert.Equal(t, unhex(t, f.Block.HeaderRLPHex), hdr)
-	assert.Equal(t, h32(t, f.Block.HeaderHash), keccak(hdr))
+	assert.Equal(t, h32(t, f.Block.HeaderHash), evm.Keccak256(hdr))
 	var txs [][]byte
 	for _, raw := range f.Block.TxsRawHex {
 		txs = append(txs, unhex(t, raw))
@@ -255,7 +247,7 @@ func TestEscrowCreationRebuilds(t *testing.T) {
 	assert.Nil(t, tx.To)
 	b, err := edenexec.RebuildSigned(tx)
 	require.NoError(t, err)
-	assert.Equal(t, tx.Hash, keccak(b))
+	assert.Equal(t, tx.Hash, evm.Keccak256(b))
 
 	row, ok := edenescrow.Lookup(714)
 	require.True(t, ok)
@@ -269,7 +261,7 @@ func TestEscrowCreationRebuilds(t *testing.T) {
 		}
 		var code string
 		require.NoError(t, json.Unmarshal(r.Result, &code))
-		assert.Equal(t, row.CodeHash, keccak(unhex(t, code)))
+		assert.Equal(t, row.CodeHash, evm.Keccak256(unhex(t, code)))
 		found = true
 	}
 	assert.True(t, found, "the recorded eth_getCode of the 714 escrow")
@@ -366,7 +358,7 @@ func TestDeriveShaAgainstGoEthereum(t *testing.T) {
 			var b [16]byte
 			binary.BigEndian.PutUint64(b[:8], c.N)
 			binary.BigEndian.PutUint64(b[8:], i)
-			k := keccak(append([]byte(f.Tag), b[:]...))
+			k := evm.Keccak256(append([]byte(f.Tag), b[:]...))
 			l := 1 + (i*37+c.N)%90
 			var it []byte
 			for uint64(len(it)) < l {

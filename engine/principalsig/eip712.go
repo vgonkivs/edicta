@@ -8,7 +8,8 @@ import (
 	"strconv"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-	"golang.org/x/crypto/sha3"
+
+	"github.com/vgonkivs/edicta/internal/evm"
 )
 
 const (
@@ -18,28 +19,17 @@ const (
 	eip712MandateType   = "Mandate(bytes32 mandateHash,bytes16 mandateId,uint64 version,string gateId)"
 )
 
-// keccak256 is Keccak-256 as Ethereum uses it, not SHA3-256.
-func keccak256(parts ...[]byte) [32]byte {
-	h := sha3.NewLegacyKeccak256()
-	for _, p := range parts {
-		h.Write(p)
-	}
-	var out [32]byte
-	h.Sum(out[:0])
-	return out
-}
-
 // EIP712DomainSeparator has no chainId, verifyingContract or salt: a mandate
 // binds a gate, not a chain.
 func EIP712DomainSeparator() [32]byte {
-	t := keccak256([]byte(eip712DomainType))
-	n := keccak256([]byte(eip712DomainName))
-	v := keccak256([]byte(eip712DomainVersion))
-	return keccak256(t[:], n[:], v[:])
+	t := evm.Keccak256([]byte(eip712DomainType))
+	n := evm.Keccak256([]byte(eip712DomainName))
+	v := evm.Keccak256([]byte(eip712DomainVersion))
+	return evm.Keccak256(t[:], n[:], v[:])
 }
 
 // EIP712TypeHash is keccak256 of the Mandate type string.
-func EIP712TypeHash() [32]byte { return keccak256([]byte(eip712MandateType)) }
+func EIP712TypeHash() [32]byte { return evm.Keccak256([]byte(eip712MandateType)) }
 
 // EIP712HashStruct is hashStruct(Mandate): bytes16 is right-padded, uint64
 // left-padded to 32 bytes and the string hashed.
@@ -48,15 +38,15 @@ func EIP712HashStruct(m EIP712Message) [32]byte {
 	var id, ver [32]byte
 	copy(id[:], m.MandateID[:])
 	binary.BigEndian.PutUint64(ver[24:], m.Version)
-	g := keccak256([]byte(m.GateID))
-	return keccak256(th[:], m.MandateHash[:], id[:], ver[:], g[:])
+	g := evm.Keccak256([]byte(m.GateID))
+	return evm.Keccak256(th[:], m.MandateHash[:], id[:], ver[:], g[:])
 }
 
 // EIP712Digest is keccak256(0x19 0x01 || domain_separator || hash_struct).
 func EIP712Digest(m EIP712Message) [32]byte {
 	ds := EIP712DomainSeparator()
 	hs := EIP712HashStruct(m)
-	return keccak256([]byte{0x19, 0x01}, ds[:], hs[:])
+	return evm.Keccak256([]byte{0x19, 0x01}, ds[:], hs[:])
 }
 
 type typedField struct {
@@ -113,7 +103,7 @@ func EthereumAddress(pub []byte) ([20]byte, error) {
 }
 
 func ethAddress(k *secp256k1.PublicKey) [20]byte {
-	h := keccak256(k.SerializeUncompressed()[1:])
+	h := evm.Keccak256(k.SerializeUncompressed()[1:])
 	var a [20]byte
 	copy(a[:], h[12:])
 	return a
