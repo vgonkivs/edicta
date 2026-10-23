@@ -350,7 +350,7 @@ Vectors: `action_from_tx.json` (the signed transactions of `tx.json`; the
 minimal one reconstructs exactly `action.json` `action_minimal_mocha`; rejects
 for another type URL, a trailing byte and a missing signature).
 
-## 4. Executor (`plugins/banksend/transfer`)
+## 4. Executor (`examples/tia-transfer/transfer`)
 
 ### 4.1 Configuration
 
@@ -644,7 +644,7 @@ recipient of the payload (core 9.1); it is never public in clear text.
 | `railverify.ErrResultUnconfirmed` | BX9 row 7 (unchecked) | `unchecked_code_unproven`, `unchecked_code_cross_confirmed_only` |
 | `railverify.ErrResultsProof` | RP4 (unchecked, source skipped) | `unchecked_result_root_mismatch`; live `result_proof.mutations` |
 
-The prefix is the Go package under `plugins/banksend/`, except
+The prefix is the Go package under `examples/tia-transfer/`, except
 `railverify`, which is the verifier's package in the `celestia` module. The
 core sentinels of T1 keep their core names. Each `railverify` sentinel of
 class `unchecked` wraps the verifier's unchecked class
