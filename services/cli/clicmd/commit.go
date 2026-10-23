@@ -276,6 +276,17 @@ func runAgent(ctx context.Context, args []string, out io.Writer) int {
 		}
 		handoff = h
 	}
+	if o.stateDir != "" {
+		unlock, err := commitcmd.LockStateDir(o.stateDir)
+		if err != nil {
+			fmt.Fprintf(out, "edicta agent serve: %v\n", err)
+			if errors.Is(err, commitcmd.ErrStateDirInUse) {
+				return commitcmd.ExitUnavailable
+			}
+			return commitcmd.ExitUsage
+		}
+		defer unlock()
+	}
 	svc, closeFn, err := newCommitService(ctx, o)
 	if err != nil {
 		return failErr(out, err)

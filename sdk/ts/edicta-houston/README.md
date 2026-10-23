@@ -89,6 +89,9 @@ offers the same rules to clients in other languages: `POST /v1/paid-retry`
 with `commitment_hash`, `payment_signature`, `status`, `payment_required` and
 `body` (base64) of each paid retry's answer returns `next` (`none`, `retry`
 after `retry_after_ms`, or `operator`) and makes the one handoff itself.
+The once mark lives in the state directory, so `edicta agent serve` holds it
+locked while it runs and a second one on the same directory refuses to start;
+run one per state directory, on a local filesystem.
 
 ## Resume: never start over
 
