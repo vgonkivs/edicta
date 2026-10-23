@@ -31,6 +31,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/retention"
 	"github.com/vgonkivs/edicta/internal/secret"
 	"github.com/vgonkivs/edicta/plugins/celestia/banksend/execcapture"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/anchor"
 	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
 	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/plugins/celestia/node"
@@ -585,7 +586,7 @@ func start(ctx context.Context, cfg Config, d Deps, signing *onceCloser, uploade
 
 		opts := cfg.FibreAnchorOptions()
 		opts.Log = log
-		anchors := gatechain.NewFibreAnchors(reader, head.ChainID, opts)
+		anchors := anchor.NewFibreAnchors(reader, head.ChainID, opts)
 		gdeps.Params = gatechain.NewFibreParams(obsParams)
 		gdeps.Headers = gatechain.NewFibreHeaders(d.Fibre.Chain)
 		gdeps.Anchors = anchors
@@ -1084,7 +1085,7 @@ func (a *archivingGate) Authorize(ctx context.Context, envelope, action, salt []
 	}
 	// One scope per request: the anchor stage and the payload stage read the
 	// block once between them.
-	res, err := a.g.Authorize(gatechain.WithAnchorScope(ctx), envelope, action, salt)
+	res, err := a.g.Authorize(anchor.WithAnchorScope(ctx), envelope, action, salt)
 	a.after(ctx, res, err, validUntil)
 	// The PrivatePart is archive data sealed to the auditors, never part of
 	// an answer.

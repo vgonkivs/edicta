@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/nodefake"
-	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/anchor"
 	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/services/gate/edictad"
 )
@@ -196,7 +196,7 @@ func TestBridgeCompatNeverPassesWithoutAnAnchoredBlob(t *testing.T) {
 		require.NoError(t, err)
 		defer closeAll()
 		err = fd.BridgeCompat(context.Background())
-		require.ErrorIs(t, err, gatechain.ErrProbeInconclusive)
+		require.ErrorIs(t, err, anchor.ErrProbeInconclusive)
 		assert.NotErrorIs(t, err, node.ErrBridgeIncompatible)
 		assert.Zero(t, fs.bridge.raw.Load(), "no blob was found, so nothing is downloaded")
 		assert.NotContains(t, logs.String(), "probe passed")
@@ -208,7 +208,7 @@ func TestBridgeCompatNeverPassesWithoutAnAnchoredBlob(t *testing.T) {
 		fd, closeAll, err := fibreAdapters(context.Background(), fibreCfg(t, true), cons, log)
 		require.NoError(t, err)
 		defer closeAll()
-		require.ErrorIs(t, fd.BridgeCompat(context.Background()), gatechain.ErrProbeInconclusive)
+		require.ErrorIs(t, fd.BridgeCompat(context.Background()), anchor.ErrProbeInconclusive)
 	})
 	t.Run("unreadable chain id is an error", func(t *testing.T) {
 		stubFibreSeams(t)

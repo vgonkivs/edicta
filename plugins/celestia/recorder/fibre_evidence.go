@@ -15,7 +15,7 @@ import (
 
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/anchor"
 	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/plugins/celestia/proof/anchorverify"
 	"github.com/vgonkivs/edicta/plugins/celestia/proof/fibreproof"
@@ -56,7 +56,7 @@ func bindSignedHeader(raw []byte, h uint64) (*cmtproto.Header, error) {
 // the own node, checks every part against its header, and runs the verifier's
 // own anchor check on the result before anything is written: records are
 // write-once, so a bad one could not be repaired.
-func (r *FibreRecorder) buildEvidence(ctx context.Context, ref commitment.PayloadRef, fa gatechain.FibreAnchor) (sdk.Published, *archive.EvidenceRecord, error) {
+func (r *FibreRecorder) buildEvidence(ctx context.Context, ref commitment.PayloadRef, fa anchor.FibreAnchor) (sdk.Published, *archive.EvidenceRecord, error) {
 	h := ref.Height
 	c := r.d.Chain
 
@@ -141,7 +141,7 @@ func (r *FibreRecorder) buildEvidence(ctx context.Context, ref commitment.Payloa
 
 // anchorTxOf returns the tx of the anchor from the namespace data, after
 // checking the data against the block's data hash.
-func anchorTxOf(fa gatechain.FibreAnchor, dataHash []byte) ([]byte, error) {
+func anchorTxOf(fa anchor.FibreAnchor, dataHash []byte) ([]byte, error) {
 	dahProto, stream, err := fibreproof.DecodeProof(fa.Proof)
 	if err != nil {
 		return nil, err

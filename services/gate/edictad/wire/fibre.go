@@ -11,7 +11,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 
-	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/anchor"
 	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/plugins/celestia/recorder"
@@ -148,8 +148,8 @@ func bridgeCompat(cfg edictad.Config, cons node.Consensus, chain node.FibreChain
 		}
 		opts := cfg.FibreAnchorOptions()
 		opts.Log = log
-		res, err := gatechain.BridgeProbe{
-			Anchors:      gatechain.NewFibreAnchors(reader, chainID, opts),
+		res, err := anchor.BridgeProbe{
+			Anchors:      anchor.NewFibreAnchors(reader, chainID, opts),
 			Raw:          bridge,
 			Committer:    committer,
 			LatestHeight: cons.LatestHeight,

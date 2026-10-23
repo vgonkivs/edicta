@@ -15,7 +15,7 @@ import (
 
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/anchor"
 	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/plugins/celestia/recorder"
@@ -317,7 +317,7 @@ func (f FibreConfig) withDefaults() FibreConfig {
 		f.MaxDataBytes = fibrecommit.DefaultMaxDataSize
 	}
 	if f.MaxReadBytes == 0 {
-		f.MaxReadBytes = gatechain.DefaultFibreMaxReadBytes
+		f.MaxReadBytes = anchor.DefaultFibreMaxReadBytes
 	}
 	if f.LookupTimeoutS == 0 {
 		f.LookupTimeoutS = defaultLookupTimeoutS
@@ -341,8 +341,8 @@ func (c Config) DA() commitment.DA {
 
 // FibreAnchorOptions are the options of the da = 1 anchor lookup; the caller
 // adds the logger.
-func (c Config) FibreAnchorOptions() gatechain.FibreAnchorOptions {
-	return gatechain.FibreAnchorOptions{
+func (c Config) FibreAnchorOptions() anchor.FibreAnchorOptions {
+	return anchor.FibreAnchorOptions{
 		MaxReadBytes:  c.Fibre.MaxReadBytes,
 		CacheBytes:    c.Fibre.AnchorCacheBytes,
 		LookupTimeout: time.Duration(c.Fibre.LookupTimeoutS) * time.Second,

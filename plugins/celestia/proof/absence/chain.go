@@ -17,7 +17,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/verifier"
-	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/anchor"
 	"github.com/vgonkivs/edicta/plugins/celestia/proof/fibrecert"
 )
 
@@ -333,7 +333,7 @@ func (c *Chain) IntentSigner(ctx context.Context, ref commitment.PayloadRef, pay
 		if !bytes.Equal(rec.Signer, ref.Signer) {
 			return "", nil
 		}
-		if _, err := gatechain.CheckPFB(rec.Tx, ref); err != nil {
+		if _, err := anchor.CheckPFB(rec.Tx, ref); err != nil {
 			return "", nil
 		}
 		return hex.EncodeToString(ref.Signer), nil

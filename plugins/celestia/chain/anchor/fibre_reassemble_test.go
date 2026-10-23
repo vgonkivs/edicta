@@ -1,4 +1,6 @@
-package gatechain
+// SPDX-License-Identifier: Apache-2.0
+
+package anchor
 
 import (
 	"crypto/sha256"

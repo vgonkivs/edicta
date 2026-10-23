@@ -15,7 +15,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/gate"
 	engrec "github.com/vgonkivs/edicta/engine/recorder"
-	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/anchor"
 	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/sdk"
@@ -201,8 +201,8 @@ type FibreRecorder struct {
 	eng *engine
 	// scanner skips the certificate: it only finds candidates. confirmer
 	// applies the certificate rule the gate applies.
-	scanner   *gatechain.FibreAnchors
-	confirmer *gatechain.FibreAnchors
+	scanner   *anchor.FibreAnchors
+	confirmer *anchor.FibreAnchors
 	slots     chan struct{}
 
 	mu       sync.Mutex
@@ -275,8 +275,8 @@ func NewFibre(cfg FibreConfig, d FibreDeps) (*FibreRecorder, error) {
 	r := &FibreRecorder{
 		cfg: cfg, d: d,
 		eng:       newEngine(cfg.Archive, cfg.Now, cfg.MaxPending, cfg.ScanBlocks),
-		scanner:   gatechain.NewFibreAnchors(d.Reader, d.ChainID, gatechain.FibreAnchorOptions{SkipCertificate: true, Log: d.Log}),
-		confirmer: gatechain.NewFibreAnchors(d.Reader, d.ChainID, gatechain.FibreAnchorOptions{Log: d.Log}),
+		scanner:   anchor.NewFibreAnchors(d.Reader, d.ChainID, anchor.FibreAnchorOptions{SkipCertificate: true, Log: d.Log}),
+		confirmer: anchor.NewFibreAnchors(d.Reader, d.ChainID, anchor.FibreAnchorOptions{Log: d.Log}),
 		slots:     make(chan struct{}, cfg.MaxDraining),
 		cancels:   map[int]context.CancelFunc{},
 	}
@@ -549,7 +549,7 @@ func (r *FibreRecorder) submit(ctx context.Context, comm, blob []byte, release f
 
 func (r *FibreRecorder) confirm(ctx context.Context, comm, _ []byte, height uint64, claimed bool) (sdk.Published, error) {
 	ref := r.ref(comm, height)
-	var fa gatechain.FibreAnchor
+	var fa anchor.FibreAnchor
 	var err error
 	if claimed {
 		fa, err = r.awaitVisible(ctx, ref)
@@ -581,7 +581,7 @@ func (r *FibreRecorder) confirm(ctx context.Context, comm, _ []byte, height uint
 // awaitVisible waits until the node's claim of the height holds on the read
 // nodes. A claim that does not hold is not an absent anchor: the settle scan
 // decides.
-func (r *FibreRecorder) awaitVisible(ctx context.Context, ref commitment.PayloadRef) (gatechain.FibreAnchor, error) {
+func (r *FibreRecorder) awaitVisible(ctx context.Context, ref commitment.PayloadRef) (anchor.FibreAnchor, error) {
 	deadline := time.Now().Add(r.cfg.VisibleTimeout)
 	for {
 		fa, err := r.confirmer.Lookup(ctx, ref)
@@ -589,13 +589,13 @@ func (r *FibreRecorder) awaitVisible(ctx context.Context, ref commitment.Payload
 			return fa, nil
 		}
 		if errors.Is(err, gate.ErrAnchorNotFound) {
-			return gatechain.FibreAnchor{}, fmt.Errorf("%w: the node's height claim does not hold", ErrOutcomeUnknown)
+			return anchor.FibreAnchor{}, fmt.Errorf("%w: the node's height claim does not hold", ErrOutcomeUnknown)
 		}
 		if cerr := ctx.Err(); cerr != nil {
-			return gatechain.FibreAnchor{}, fmt.Errorf("%w: %w", ErrNodeUnavailable, cerr)
+			return anchor.FibreAnchor{}, fmt.Errorf("%w: %w", ErrNodeUnavailable, cerr)
 		}
 		if !time.Now().Before(deadline) {
-			return gatechain.FibreAnchor{}, fmt.Errorf("%w: %w", ErrNotVisible, err)
+			return anchor.FibreAnchor{}, fmt.Errorf("%w: %w", ErrNotVisible, err)
 		}
 		t := time.NewTimer(r.cfg.PollInterval)
 		select {

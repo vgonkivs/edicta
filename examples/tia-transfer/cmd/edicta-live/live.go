@@ -26,6 +26,7 @@ import (
 	"github.com/vgonkivs/edicta/plugins/banksend/bankmsg"
 	"github.com/vgonkivs/edicta/plugins/banksend/transfer"
 	"github.com/vgonkivs/edicta/plugins/celestia/banksend/railtx"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/anchor"
 	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
 	"github.com/vgonkivs/edicta/plugins/celestia/chain/inclusion"
 	"github.com/vgonkivs/edicta/plugins/celestia/node"
@@ -545,7 +546,7 @@ func buildFibreVerifier(cfg Config, chainID string, r node.FibreAnchorReader) (s
 	if chainID == "" {
 		return nil, 0, "", cfgErr("da=fibre needs the chain id")
 	}
-	v, err := inclusion.NewFibre(inclusion.FibreConfig{Anchors: gatechain.NewFibreAnchors(r, chainID, gatechain.FibreAnchorOptions{})})
+	v, err := inclusion.NewFibre(inclusion.FibreConfig{Anchors: anchor.NewFibreAnchors(r, chainID, anchor.FibreAnchorOptions{})})
 	if err != nil {
 		return nil, 0, "", err
 	}

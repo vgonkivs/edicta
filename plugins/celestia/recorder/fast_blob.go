@@ -12,7 +12,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/dacommit/sharev1"
-	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/anchor"
 	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/sdk"
 )
@@ -118,7 +118,7 @@ func (b fastBlob) draft(ctx context.Context, comm, blob []byte, head uint64, hea
 		if err != nil {
 			return nil, fmt.Errorf("recorder: sign: %w", err)
 		}
-		if _, err := gatechain.CheckPFB(tx, b.ref(rec)); err != nil {
+		if _, err := anchor.CheckPFB(tx, b.ref(rec)); err != nil {
 			return nil, fmt.Errorf("%w: the signed PFB does not pay for this blob: %w", ErrSubmitMismatch, err)
 		}
 		return tx, nil
@@ -137,7 +137,7 @@ func (b fastBlob) restore(ctx context.Context, comm, _ []byte, rec *archive.Anch
 	if !bytes.Equal(rec.Commitment, comm) || !bytes.Equal(rec.Namespace, b.r.cfg.Namespace) || !bytes.Equal(rec.Signer, b.blobBackend.signer) {
 		return nil, archiveFault("anchor intent", archive.ErrConflict)
 	}
-	timeout, err := gatechain.CheckPFB(rec.Tx, b.ref(rec))
+	timeout, err := anchor.CheckPFB(rec.Tx, b.ref(rec))
 	if err != nil {
 		return nil, archiveFault("anchor intent", err)
 	}

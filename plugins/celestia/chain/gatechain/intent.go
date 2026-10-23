@@ -1,21 +1,18 @@
 package gatechain
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math"
 
-	blobtypes "github.com/celestiaorg/celestia-app/v10/x/blob/types"
 	libshare "github.com/celestiaorg/go-square/v4/share"
 	squaretx "github.com/celestiaorg/go-square/v4/tx"
-	"github.com/cosmos/cosmos-sdk/types/bech32"
-	cosmostx "github.com/cosmos/cosmos-sdk/types/tx"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/anchor"
 	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/plugins/celestia/node/heightcheck"
 	"github.com/vgonkivs/edicta/plugins/celestia/proof/fibrecert"
@@ -135,7 +132,7 @@ func (v *FibreIntents) VerifyIntent(ctx context.Context, ref commitment.PayloadR
 // chain recorded at h0. Evidence that is missing, for another height or does
 // not bind to the header is the endpoint's failure, not the certificate's.
 func certify(tx []byte, b fibrecert.Binding, hist, signedHeader []byte, h0 uint64) (fibrecert.Report, error) {
-	hdr, err := evidenceHeights(hist, signedHeader, h0)
+	hdr, err := anchor.EvidenceHeights(hist, signedHeader, h0)
 	if err != nil {
 		return fibrecert.Report{}, unavailable(err)
 	}
@@ -217,7 +214,7 @@ func (v *BlobIntents) VerifyIntent(ctx context.Context, ref commitment.PayloadRe
 	if ref.DA != commitment.DACelestiaBlob || rec == nil {
 		return gate.IntentFacts{}, invalidIntent("not a da = 2 intent")
 	}
-	timeout, err := CheckPFB(rec.Tx, ref)
+	timeout, err := anchor.CheckPFB(rec.Tx, ref)
 	if err != nil {
 		return gate.IntentFacts{}, err
 	}
@@ -243,60 +240,6 @@ func (v *BlobIntents) VerifyIntent(ctx context.Context, ref commitment.PayloadRe
 		DA: commitment.DACelestiaBlob, RefTime: refTime, Head: head.Height, HeadTime: blockUnix(head.Time),
 		TimeoutHeight: timeout,
 	}, nil
-}
-
-const pfbTypeURL = "/celestia.blob.v1.MsgPayForBlobs"
-
-// CheckPFB requires tx to be a signed Cosmos tx with exactly one message, a
-// MsgPayForBlobs that pays for the reference's blob (namespace, share
-// commitment, share version 1) with the reference's signer, and a
-// timeout_height of 0 or above h0. It returns the timeout_height.
-func CheckPFB(tx []byte, ref commitment.PayloadRef) (uint64, error) {
-	if _, isBlob, _ := squaretx.UnmarshalBlobTx(tx); isBlob {
-		return 0, invalidIntent("the intent holds a BlobTx, not the bare tx")
-	}
-	var raw cosmostx.TxRaw
-	if err := raw.Unmarshal(tx); err != nil {
-		return 0, invalidIntent("tx: %v", err)
-	}
-	var body cosmostx.TxBody
-	if err := body.Unmarshal(raw.BodyBytes); err != nil {
-		return 0, invalidIntent("tx body: %v", err)
-	}
-	if len(body.Messages) != 1 || body.Messages[0] == nil || body.Messages[0].TypeUrl != pfbTypeURL {
-		return 0, invalidIntent("tx must hold exactly one MsgPayForBlobs")
-	}
-	var msg blobtypes.MsgPayForBlobs
-	if err := msg.Unmarshal(body.Messages[0].Value); err != nil {
-		return 0, invalidIntent("MsgPayForBlobs: %v", err)
-	}
-	found := false
-	for i := range msg.Namespaces {
-		if i < len(msg.ShareCommitments) && i < len(msg.ShareVersions) &&
-			bytes.Equal(msg.Namespaces[i], ref.Namespace) && bytes.Equal(msg.ShareCommitments[i], ref.Commitment) &&
-			msg.ShareVersions[i] == uint32(libshare.ShareVersionOne) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return 0, invalidIntent("MsgPayForBlobs pays for no blob of the reference")
-	}
-	_, signer, err := bech32.DecodeAndConvert(msg.Signer)
-	if err != nil || !bytes.Equal(signer, ref.Signer) {
-		return 0, invalidIntent("MsgPayForBlobs signer is not the reference's signer")
-	}
-	if body.TimeoutHeight != 0 && body.TimeoutHeight <= ref.Height {
-		return 0, invalidIntent("timeout_height %d at or below h0 %d", body.TimeoutHeight, ref.Height)
-	}
-	var auth cosmostx.AuthInfo
-	if err := auth.Unmarshal(raw.AuthInfoBytes); err != nil {
-		return 0, invalidIntent("auth info: %v", err)
-	}
-	if len(auth.SignerInfos) == 0 || len(raw.Signatures) == 0 {
-		return 0, invalidIntent("tx is not signed")
-	}
-	return body.TimeoutHeight, nil
 }
 
 // IntentNode is the gate's own consensus node: the tx lookup and the

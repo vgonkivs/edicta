@@ -9,7 +9,7 @@ import (
 
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/nodefake"
-	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/anchor"
 	"github.com/vgonkivs/edicta/plugins/celestia/chain/inclusion"
 	"github.com/vgonkivs/edicta/plugins/celestia/proof/fibrecert"
 	"github.com/vgonkivs/edicta/sdk"
@@ -19,7 +19,7 @@ var _ sdk.InclusionVerifier = (*inclusion.Fibre)(nil)
 
 func fibreVerifier(t *testing.T, c *nodefake.FibreChain, chain string) *inclusion.Fibre {
 	t.Helper()
-	v, err := inclusion.NewFibre(inclusion.FibreConfig{Anchors: gatechain.NewFibreAnchors(c, chain, gatechain.FibreAnchorOptions{})})
+	v, err := inclusion.NewFibre(inclusion.FibreConfig{Anchors: anchor.NewFibreAnchors(c, chain, anchor.FibreAnchorOptions{})})
 	require.NoError(t, err)
 	return v
 }

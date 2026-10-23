@@ -14,7 +14,7 @@ import (
 
 	"github.com/vgonkivs/edicta/engine/gate/registry/boltreg"
 	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/nodefake"
-	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/anchor"
 	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/plugins/celestia/node/heightcheck"
@@ -275,7 +275,7 @@ func TestBridgeFallbackIsEnabledOnlyByAPassingCapabilityProbe(t *testing.T) {
 		assert.NotEmpty(t, e.logLines("level=WARN", "bridge download fallback"))
 	})
 	for name, probeErr := range map[string]error{
-		"inconclusive": fmt.Errorf("%w: no anchored blob", gatechain.ErrProbeInconclusive),
+		"inconclusive": fmt.Errorf("%w: no anchored blob", anchor.ErrProbeInconclusive),
 		"incompatible": fmt.Errorf("%w: method not found", node.ErrBridgeIncompatible),
 	} {
 		t.Run("a "+name+" probe is a warning, never a refusal", func(t *testing.T) {

@@ -18,7 +18,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/nodefake"
-	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/anchor"
 	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/plugins/celestia/recorder"
 )
@@ -126,7 +126,7 @@ func TestFastBlobArchivesTheIntentBeforeTheBroadcast(t *testing.T) {
 	rec := f.intent(genesis)
 	assert.Equal(t, f.addr, rec.Signer)
 	assert.Equal(t, ns, rec.Namespace)
-	timeout, err := gatechain.CheckPFB(rec.Tx, pub.Ref)
+	timeout, err := anchor.CheckPFB(rec.Tx, pub.Ref)
 	require.NoError(t, err, "the intent passes the gate's PFB check")
 	assert.Equal(t, genesis+20, timeout)
 	assert.EqualValues(t, 3, txSequence(t, rec.Tx), "signed at the chain's sequence")

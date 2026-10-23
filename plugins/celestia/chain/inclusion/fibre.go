@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/anchor"
 	"github.com/vgonkivs/edicta/sdk"
 )
 
@@ -13,7 +13,7 @@ import (
 type FibreConfig struct {
 	// Anchors reads the PayForFibre anchor through the consensus endpoint and
 	// the bridge the operator chose for verification.
-	Anchors *gatechain.FibreAnchors
+	Anchors *anchor.FibreAnchors
 }
 
 // ValidateBasic checks the stateless fields.
@@ -27,7 +27,7 @@ func (c FibreConfig) ValidateBasic() error {
 // Fibre is an sdk.InclusionVerifier for da = 1: the reference must be anchored
 // by a PayForFibre tx at its height with a valid certificate, on this chain,
 // as the operator's consensus endpoint reports it.
-type Fibre struct{ a *gatechain.FibreAnchors }
+type Fibre struct{ a *anchor.FibreAnchors }
 
 var _ sdk.InclusionVerifier = (*Fibre)(nil)
 
