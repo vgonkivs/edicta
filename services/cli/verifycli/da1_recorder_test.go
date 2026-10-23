@@ -12,7 +12,7 @@ import (
 )
 
 // The evidence the da = 1 Recorder archived is accepted by the verifier as it
-// is: nothing between the Recorder and edicta-verify repairs or reshapes it.
+// is: nothing between the Recorder and edicta verify repairs or reshapes it.
 func TestDA1EvidenceArchivedByTheRecorderVerifies(t *testing.T) {
 	w := fibreworld.New(t)
 	pub, err := w.Rec.Publish(context.Background(), w.Live.Payload)

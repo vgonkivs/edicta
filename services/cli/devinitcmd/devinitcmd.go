@@ -23,6 +23,9 @@ import (
 	"github.com/vgonkivs/edicta/services/cli/initcmd"
 )
 
+// self is the command's name in its usage and error messages.
+const self = "edicta dev init"
+
 // Main runs the one-shot. args is the command line as in os.Args; args[0] is
 // not used. It returns 0, or 1 after printing the error.
 func Main(args []string, stdout, stderr io.Writer) int {
@@ -30,14 +33,14 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		args = args[1:]
 	}
 	if err := run(args, stdout, stderr); err != nil {
-		fmt.Fprintln(stderr, "edicta-devinit:", err)
+		fmt.Fprintln(stderr, self+":", err)
 		return 1
 	}
 	return 0
 }
 
 func run(args []string, out, errOut io.Writer) error {
-	fs := flag.NewFlagSet("edicta-devinit", flag.ContinueOnError)
+	fs := flag.NewFlagSet(self, flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	home := fs.String("home", "", "the dev home directory (required)")
 	escrowAddr := fs.String("escrow-address", "", "CREATE2 address of NativeEscrow in the Eden genesis")

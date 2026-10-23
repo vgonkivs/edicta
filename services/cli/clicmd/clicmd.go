@@ -59,11 +59,12 @@ func Verify(args []string, stdout io.Writer) int {
 }
 
 // withoutNoConfig removes every --no-config switch before the "--" that ends
-// the flags and reports whether the last one was on. --no-config is not a flag
-// of the verify flag set, so that without the config the command parses,
-// prints its usage and fails exactly as it does with no config support at
-// all: --config is then an unknown flag. A value that is not a boolean is
-// left in place, and the flag set refuses it as an unknown flag.
+// the flags and reports whether the last one was on. With it on, the command
+// runs without the config support at all, so it parses, prints its usage and
+// fails exactly as the verifier that never read a config did: --config is
+// then an unknown flag. The config-reading flag set lists --no-config only for
+// its help; a value that is not a boolean is left in place, and that flag set
+// refuses it.
 func withoutNoConfig(args []string) ([]string, bool) {
 	if len(args) == 0 {
 		return args, false

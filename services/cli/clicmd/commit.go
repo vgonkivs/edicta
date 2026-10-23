@@ -65,7 +65,7 @@ func (o *commonOpts) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.tokenFile, "token-file", "", "file holding the bearer token of the API")
 	fs.BoolVar(&o.cbor, "cbor", false, "speak application/cbor to the API instead of application/json")
 	fs.StringVar(&o.stateDir, "state-dir", "", "directory that keeps each run by commitment hash, for resume")
-	fs.StringVar(&o.signerURL, "signer-url", "", "base URL of edicta-signer (eden sign, record and payment-signature)")
+	fs.StringVar(&o.signerURL, "signer-url", "", "base URL of the signer, edicta signer serve or edicta-signer (eden sign, record and payment-signature)")
 	fs.StringVar(&o.signerTokenFile, "signer-token-file", "", "file holding the agent's API token at the signer")
 }
 

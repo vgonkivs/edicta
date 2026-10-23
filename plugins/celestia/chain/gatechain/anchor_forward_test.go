@@ -21,8 +21,8 @@ import (
 func TestAnchorNamesForward(t *testing.T) {
 	assert.Same(t, anchor.ErrInvalidConfig, gatechain.ErrInvalidConfig)
 	assert.Same(t, anchor.ErrProbeInconclusive, gatechain.ErrProbeInconclusive)
-	assert.EqualError(t, gatechain.ErrInvalidConfig, "gatechain: invalid config")
-	assert.EqualError(t, gatechain.ErrProbeInconclusive, "gatechain: bridge probe inconclusive")
+	assert.EqualError(t, gatechain.ErrInvalidConfig, "anchor: invalid config")
+	assert.EqualError(t, gatechain.ErrProbeInconclusive, "anchor: bridge probe inconclusive")
 
 	assert.Equal(t, reflect.TypeFor[anchor.FibreAnchors](), reflect.TypeFor[gatechain.FibreAnchors]())
 	assert.Equal(t, reflect.TypeFor[anchor.FibreAnchor](), reflect.TypeFor[gatechain.FibreAnchor]())

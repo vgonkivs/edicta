@@ -1,4 +1,4 @@
 exit 1
 -- stdout --
 -- stderr --
-edictad: -config is required
+edicta gate serve: -config is required

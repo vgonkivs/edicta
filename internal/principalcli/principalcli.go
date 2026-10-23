@@ -80,20 +80,43 @@ adding a newline, as the data argument of Keplr signArbitrary(chainId,
 address, data), then pass the returned signature to sign --scheme cosmos
 --signature.`
 
+// The tool's two names: the standalone binary and the edicta subcommand. They
+// have the same length, so the usage text keeps its alignment under either.
+const (
+	standalone = "edicta-principal"
+	subcommand = "edicta principal"
+)
+
 // Main runs the tool. args is the command line as in os.Args: args[0] names
 // the program and args[1] the command. It returns the exit code.
 func Main(args []string, stdout, stderr io.Writer) int {
+	self := standalone
 	if len(args) > 0 {
+		self = selfName(args[0])
 		args = args[1:]
 	}
-	return run(args, stdout, stderr)
+	return runAs(self, args, stdout, stderr)
+}
+
+// selfName is the name the tool gives itself in usage and error messages: the
+// subcommand when the edicta command runs it, the standalone binary otherwise.
+func selfName(argv0 string) string {
+	if strings.HasSuffix(argv0, " principal") {
+		return subcommand
+	}
+	return standalone
 }
 
 type usageError struct{ error }
 
 func run(args []string, out, errOut io.Writer) int {
+	return runAs(standalone, args, out, errOut)
+}
+
+func runAs(self string, args []string, out, errOut io.Writer) int {
+	use := strings.ReplaceAll(usage, standalone+" ", self+" ")
 	if len(args) == 0 {
-		fmt.Fprintln(errOut, usage)
+		fmt.Fprintln(errOut, use)
 		return exitUsage
 	}
 	err := dispatch(args[0], args[1:], out, errOut)
@@ -102,10 +125,10 @@ func run(args []string, out, errOut io.Writer) int {
 	case err == nil:
 		return exitOK
 	case errors.As(err, &ue):
-		fmt.Fprintf(errOut, "edicta-principal: %v\n%s\n", err, usage)
+		fmt.Fprintf(errOut, "%s: %v\n%s\n", self, err, use)
 		return exitUsage
 	default:
-		fmt.Fprintf(errOut, "edicta-principal: %v\n", err)
+		fmt.Fprintf(errOut, "%s: %v\n", self, err)
 		return exitInvalid
 	}
 }

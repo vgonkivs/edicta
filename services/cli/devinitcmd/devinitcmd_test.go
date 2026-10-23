@@ -130,3 +130,15 @@ func TestRunRefusesBadFlags(t *testing.T) {
 	assert.Error(t, run([]string{"--home", t.TempDir(), "--escrow-address", escrow}, &out, io.Discard), "address without code")
 	assert.Error(t, run([]string{"--home", t.TempDir(), "extra"}, &out, io.Discard))
 }
+
+// The command names itself as the edicta subcommand that runs it, in usage and
+// error messages alike.
+func TestMainSelfName(t *testing.T) {
+	var errOut bytes.Buffer
+	assert.Equal(t, 1, Main([]string{"x"}, io.Discard, &errOut))
+	assert.True(t, strings.HasPrefix(errOut.String(), "edicta dev init: "), errOut.String())
+
+	errOut.Reset()
+	assert.Equal(t, 1, Main([]string{"x", "-h"}, io.Discard, &errOut))
+	assert.True(t, strings.HasPrefix(errOut.String(), "Usage of edicta dev init:\n"), errOut.String())
+}

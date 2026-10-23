@@ -108,3 +108,46 @@ func TestNoConfigAndNoFlagsStillNeedsTheSources(t *testing.T) {
 	_, err := parseFlagsWith([]string{"verify", dHash}, &bytes.Buffer{}, loader(Defaults{}, nil))
 	require.Error(t, err)
 }
+
+// With a loader the help lists both switches of the configuration; without
+// one it lists neither, as the command that never read a configuration did.
+func TestHelpListsTheConfigSwitchesOnlyWithALoader(t *testing.T) {
+	var out bytes.Buffer
+	_, err := parseFlagsWith([]string{"verify", "-h"}, &out, loader(Defaults{}, nil))
+	require.Error(t, err)
+	assert.Contains(t, out.String(), "\n  -config string\n")
+	assert.Contains(t, out.String(), "\n  -no-config\n")
+
+	out.Reset()
+	_, err = parseFlags([]string{"verify", "-h"}, &out)
+	require.Error(t, err)
+	assert.NotContains(t, out.String(), "-config")
+}
+
+// --no-config reaching the flag set skips the loader, so the configuration
+// cannot stand in for a flag, and it cannot be combined with --config.
+func TestNoConfigFlagSkipsTheLoader(t *testing.T) {
+	called := false
+	load := func(string) (Defaults, error) {
+		called = true
+		return Defaults{GateKeys: dKey, ArchiveDir: "/cfg"}, nil
+	}
+	_, err := parseFlagsWith([]string{"verify", dHash, "--no-config"}, &bytes.Buffer{}, load)
+	require.Error(t, err, "without the configuration the gate key and the archive are missing")
+	assert.False(t, called)
+
+	f, err := parseFlagsWith([]string{"verify", dHash, "--no-config", "--gate-key", dKey2, "--archive", "/a"}, &bytes.Buffer{}, load)
+	require.NoError(t, err)
+	assert.False(t, called)
+	assert.Equal(t, "/a", f.archiveDir)
+
+	_, err = parseFlagsWith([]string{"verify", dHash, "--no-config", "--config", "/x/edicta.toml"}, &bytes.Buffer{}, load)
+	var u usageError
+	require.ErrorAs(t, err, &u)
+	assert.ErrorContains(t, err, "--config and --no-config exclude each other")
+	assert.False(t, called)
+
+	_, err = parseFlagsWith([]string{"verify", dHash, "--no-config=false"}, &bytes.Buffer{}, load)
+	require.NoError(t, err)
+	assert.True(t, called)
+}

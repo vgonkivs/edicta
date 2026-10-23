@@ -19,7 +19,7 @@ import (
 // ErrProbeInconclusive means the capability probe could not decide: no usable
 // blob, a timeout or a transport error. A bridge that answered wrongly is
 // node.ErrBridgeIncompatible instead.
-var ErrProbeInconclusive = errors.New("gatechain: bridge probe inconclusive")
+var ErrProbeInconclusive = errors.New("anchor: bridge probe inconclusive")
 
 // Defaults of the probe window and margin.
 const (

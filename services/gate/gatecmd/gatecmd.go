@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package gatecmd is the command line of the gate and optional Recorder
 // daemon: edicta gate serve.
 package gatecmd
@@ -20,11 +22,14 @@ import (
 	"github.com/vgonkivs/edicta/services/gate/edictad/wire"
 )
 
+// self is the command's name in its error messages.
+const self = "edicta gate serve"
+
 // Main runs the daemon until SIGINT or SIGTERM. args is the command line as in
 // os.Args: args[0] names the command in the usage text. It returns the exit
 // code: 0 after a clean stop or -h, 2 on a flag error, 1 otherwise.
 func Main(args []string, stdout, stderr io.Writer) int {
-	name, rest := "edictad", args
+	name, rest := self, args
 	if len(args) > 0 {
 		name, rest = args[0], args[1:]
 	}
@@ -41,7 +46,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if err := run(*path, *printCfg, stdout, stderr); err != nil {
-		fmt.Fprintln(stderr, "edictad:", err)
+		fmt.Fprintln(stderr, self+":", err)
 		return 1
 	}
 	return 0

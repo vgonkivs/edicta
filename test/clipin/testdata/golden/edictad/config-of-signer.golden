@@ -1,4 +1,4 @@
 exit 1
 -- stdout --
 -- stderr --
-edictad: edictad: invalid configuration: unknown keys ["listen" "store_path" "gate_id" "gate_pubkey" "agent_pubkeys" "skew_s" "refuse_fast" "payment_signature_field" "check_server_signature" "credential" "caps" "record" "settlement" "broadcast" "chain"]; secrets are read from files named by *_file keys, never inline
+edicta gate serve: edictad: invalid configuration: unknown keys ["listen" "store_path" "gate_id" "gate_pubkey" "agent_pubkeys" "skew_s" "refuse_fast" "payment_signature_field" "check_server_signature" "credential" "caps" "record" "settlement" "broadcast" "chain"]; secrets are read from files named by *_file keys, never inline

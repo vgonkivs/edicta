@@ -1,4 +1,4 @@
 exit 1
 -- stdout --
 -- stderr --
-edicta-devinit: unexpected argument "extra"
+edicta dev init: unexpected argument "extra"

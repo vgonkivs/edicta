@@ -52,7 +52,7 @@ func defaultHome() string {
 
 func parseDemo(args []string, out io.Writer) (demo.Config, error) {
 	var c demo.Config
-	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
+	fs := flag.NewFlagSet("edicta-demo", flag.ContinueOnError)
 	fs.SetOutput(out)
 	demoFlags(fs, &c)
 	if err := fs.Parse(args); err != nil {
@@ -66,7 +66,7 @@ func parseDemo(args []string, out io.Writer) (demo.Config, error) {
 
 func parseFastLive(args []string, out io.Writer) (demo.FastLiveConfig, error) {
 	var c demo.FastLiveConfig
-	fs := flag.NewFlagSet("demo fast-live", flag.ContinueOnError)
+	fs := flag.NewFlagSet("edicta-demo fast-live", flag.ContinueOnError)
 	fs.SetOutput(out)
 	demoFlags(fs, &c.Config)
 	fs.BoolVar(&c.Restart, "restart", false, "stop the in-process edictad before the anchor lands and start it again")
@@ -120,29 +120,29 @@ func runDemo(ctx context.Context, args []string, out io.Writer, in *os.File) int
 	}
 	cfg, err := parseDemo(args, out)
 	if err != nil {
-		fmt.Fprintf(out, "edicta: %v\n%s\n", err, demoUsage)
+		fmt.Fprintf(out, "edicta-demo: %v\n%s\n", err, demoUsage)
 		return demo.ExitUsage
 	}
 	cfg = cfg.WithDefaults()
 	if err := cfg.ValidateBasic(); err != nil {
-		fmt.Fprintf(out, "edicta: %v\n", err)
+		fmt.Fprintf(out, "edicta-demo: %v\n", err)
 		return demo.ExitUsage
 	}
 	console, err := demo.NewTerminalConsole(in, out)
 	if err != nil {
-		fmt.Fprintf(out, "edicta: %v\n", err)
+		fmt.Fprintf(out, "edicta-demo: %v\n", err)
 		return demo.ExitUsage
 	}
 	screen := demo.NewScreen(out, isTTY(out), cfg.JSON)
 	deps, closeDeps, err := demo.RealDeps(cfg, console, screen)
 	if err != nil {
-		fmt.Fprintf(out, "edicta: %v\n", err)
+		fmt.Fprintf(out, "edicta-demo: %v\n", err)
 		return demo.ExitCodeOf(err)
 	}
 	defer closeDeps()
 	r, err := demo.New(cfg, deps)
 	if err != nil {
-		fmt.Fprintf(out, "edicta: %v\n", err)
+		fmt.Fprintf(out, "edicta-demo: %v\n", err)
 		return demo.ExitCodeOf(err)
 	}
 	res, _ := r.Run(ctx)
@@ -154,28 +154,28 @@ func runDemo(ctx context.Context, args []string, out io.Writer, in *os.File) int
 func runFastLive(ctx context.Context, args []string, out io.Writer, in *os.File) int {
 	cfg, err := parseFastLive(args, out)
 	if err != nil {
-		fmt.Fprintf(out, "edicta: %v\n%s\n", err, fastLiveUsage)
+		fmt.Fprintf(out, "edicta-demo: %v\n%s\n", err, fastLiveUsage)
 		return demo.ExitUsage
 	}
 	cfg = cfg.WithDefaults()
 	if err := cfg.ValidateBasic(); err != nil {
-		fmt.Fprintf(out, "edicta: %v\n", err)
+		fmt.Fprintf(out, "edicta-demo: %v\n", err)
 		return demo.ExitUsage
 	}
 	console, err := demo.NewTerminalConsole(in, out)
 	if err != nil {
-		fmt.Fprintf(out, "edicta: %v\n", err)
+		fmt.Fprintf(out, "edicta-demo: %v\n", err)
 		return demo.ExitUsage
 	}
 	deps, closeDeps, err := demo.RealDeps(cfg.Config, console, demo.NewScreen(out, isTTY(out), cfg.JSON))
 	if err != nil {
-		fmt.Fprintf(out, "edicta: %v\n", err)
+		fmt.Fprintf(out, "edicta-demo: %v\n", err)
 		return demo.ExitCodeOf(err)
 	}
 	defer closeDeps()
 	f, err := demo.NewFastLive(cfg, deps)
 	if err != nil {
-		fmt.Fprintf(out, "edicta: %v\n", err)
+		fmt.Fprintf(out, "edicta-demo: %v\n", err)
 		return demo.ExitCodeOf(err)
 	}
 	res, _ := f.Run(ctx)
@@ -187,7 +187,7 @@ func runFastLive(ctx context.Context, args []string, out io.Writer, in *os.File)
 func runFastDemo(ctx context.Context, args []string, out io.Writer) int {
 	var cfg demo.FastSceneConfig
 	var jsonOut bool
-	fs := flag.NewFlagSet("demo fast-mode", flag.ContinueOnError)
+	fs := flag.NewFlagSet("edicta-demo fast-mode", flag.ContinueOnError)
 	fs.SetOutput(out)
 	fs.StringVar(&cfg.Dir, "dir", "", "where the kept run directory is created; default the system temp directory")
 	fs.BoolVar(&jsonOut, "json", false, "print one JSON event per line")

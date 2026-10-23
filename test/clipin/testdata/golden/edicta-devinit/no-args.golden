@@ -1,4 +1,4 @@
 exit 1
 -- stdout --
 -- stderr --
-edicta-devinit: init: invalid options: home directory is required
+edicta dev init: init: invalid options: home directory is required

@@ -111,7 +111,7 @@ func TestVerifyAndReplayEndToEnd(t *testing.T) {
 		assert.Contains(t, out, "verdict: valid")
 		assert.Contains(t, out, "[ok] header_trust")
 	})
-	t.Run("flags first, as edicta-verify took them", func(t *testing.T) {
+	t.Run("flags first, before the hash", func(t *testing.T) {
 		code, out := edicta(t, "verify", "--gate-key", d.GateKeyHex, "--archive", d.Dir, "--trusted", trusted, h)
 		require.Equal(t, exitValid, code, out)
 	})

@@ -31,7 +31,7 @@ import (
 )
 
 // ErrInvalidConfig means an options struct failed its stateless checks.
-var ErrInvalidConfig = errors.New("gatechain: invalid config")
+var ErrInvalidConfig = errors.New("anchor: invalid config")
 
 // DefaultFibreMaxReadBytes is the answer size limit WithDefaults sets.
 const DefaultFibreMaxReadBytes = 16 << 20

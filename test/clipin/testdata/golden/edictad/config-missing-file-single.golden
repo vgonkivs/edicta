@@ -1,4 +1,4 @@
 exit 1
 -- stdout --
 -- stderr --
-edictad: reading config: open <fix>/missing.toml: no such file or directory
+edicta gate serve: reading config: open <fix>/missing.toml: no such file or directory

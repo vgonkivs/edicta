@@ -26,9 +26,9 @@ func TestMainExitCodes(t *testing.T) {
 		{[]string{"x", "-help"}, 0, "", "Usage of x:"},
 		{[]string{"x", "--bogus"}, 2, "", "flag provided but not defined: -bogus\nUsage of x:"},
 		{[]string{"x", "--print-config=maybe"}, 2, "", "invalid boolean value"},
-		{[]string{"x"}, 1, "", "edictad: -config is required\n"},
-		{nil, 1, "", "edictad: -config is required\n"},
-		{[]string{"x", "-config", "/nonexistent"}, 1, "", "edictad: reading config:"},
+		{[]string{"x"}, 1, "", "edicta gate serve: -config is required\n"},
+		{nil, 1, "", "edicta gate serve: -config is required\n"},
+		{[]string{"x", "-config", "/nonexistent"}, 1, "", "edicta gate serve: reading config:"},
 		{[]string{"x", "-config", cfg, "-print-config"}, 0, "gate_id = 'g'", ""},
 	}
 	for _, tc := range tests {

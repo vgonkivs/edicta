@@ -2,11 +2,11 @@ exit 1
 -- stdout --
 -- stderr --
 flag provided but not defined: -bogus
-Usage of edicta-devinit:
+Usage of edicta dev init:
   -escrow-address string
     	CREATE2 address of NativeEscrow in the Eden genesis
   -escrow-code-file string
     	file with the NativeEscrow runtime code, hex; absent keeps the slot a placeholder
   -home string
     	the dev home directory (required)
-edicta-devinit: flag provided but not defined: -bogus
+edicta dev init: flag provided but not defined: -bogus

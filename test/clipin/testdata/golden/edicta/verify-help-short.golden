@@ -35,6 +35,8 @@ Usage of verify:
     	print one JSON document
   -max-walk-steps int
     	most steps the policy walk takes toward genesis (at least 1) (default 10000)
+  -no-config
+    	read no edicta.toml: only the flags given count, and --config is refused
   -policy-depth int
     	alias of --max-walk-steps (default 10000)
   -policy-evidence value

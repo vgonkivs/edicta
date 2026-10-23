@@ -288,7 +288,7 @@ func signDevMandate(res DevResult, keys string, c DevConfig) ([]byte, error) {
 
 func devEdictadConfig(root string, res DevResult, c DevConfig) ([]byte, error) {
 	q := strconv.Quote
-	b := fmt.Appendf(nil, `# DEV ONLY. Written by edicta-devinit; see DEV-ONLY.txt. Fast mode needs this
+	b := fmt.Appendf(nil, `# DEV ONLY. Written by edicta dev init; see DEV-ONLY.txt. Fast mode needs this
 # legacy layout: edicta.toml cannot enable it yet.
 
 [network]
@@ -409,7 +409,7 @@ func devEdictaConfig(root string, res DevResult, c DevConfig) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init: edicta.toml: %w", err)
 	}
-	b := append([]byte("# DEV ONLY. Written by edicta-devinit; see DEV-ONLY.txt.\n\n"), body...)
+	b := append([]byte("# DEV ONLY. Written by edicta dev init; see DEV-ONLY.txt.\n\n"), body...)
 	cfg, err := config.Parse(b, nil)
 	if err == nil {
 		err = cfg.ApplyDefaults(config.Builtin{})

@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/vgonkivs/edicta/services/signer/signerd"
@@ -44,10 +45,19 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if err := run(*path, *check, stdout, stderr); err != nil {
-		fmt.Fprintln(stderr, "edicta-signer:", err)
+		fmt.Fprintln(stderr, selfName(name)+":", err)
 		return 1
 	}
 	return 0
+}
+
+// selfName is the name the signer gives itself in its error messages: the
+// subcommand when the edicta command runs it, the standalone binary otherwise.
+func selfName(argv0 string) string {
+	if strings.HasSuffix(argv0, " signer serve") {
+		return "edicta signer serve"
+	}
+	return "edicta-signer"
 }
 
 func run(path string, check bool, stdout, stderr io.Writer) error {

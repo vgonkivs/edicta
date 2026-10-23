@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -240,4 +241,27 @@ func TestSignWarnsOnModeSwitch(t *testing.T) {
 	code, _, errOut = call("sign", "--mandate", priv, "--scheme", "ed25519", "--key", key, "--replaces", public)
 	require.Equal(t, exitOK, code, errOut)
 	assert.Contains(t, errOut, "switches between public and private mode")
+}
+
+// The tool names itself after the entry point that runs it; both names have
+// the same length, so the usage keeps its alignment.
+func TestMainSelfName(t *testing.T) {
+	for argv0, self := range map[string]string{
+		"/usr/local/bin/edicta principal": "edicta principal",
+		"/usr/local/bin/edicta-principal": "edicta-principal",
+		"edicta-principal":                "edicta-principal",
+	} {
+		var out, errOut bytes.Buffer
+		assert.Equal(t, exitUsage, Main([]string{argv0}, &out, &errOut))
+		assert.Equal(t, strings.ReplaceAll(usage, "edicta-principal ", self+" ")+"\n", errOut.String())
+		assert.Contains(t, errOut.String(), "\n  "+self+" render     --mandate FILE")
+
+		errOut.Reset()
+		assert.Equal(t, exitUsage, Main([]string{argv0, "bogus"}, &out, &errOut))
+		assert.True(t, strings.HasPrefix(errOut.String(), self+": unknown command \"bogus\"\nusage:\n  "+self+" render"), errOut.String())
+		assert.Empty(t, out.String())
+	}
+	var errOut bytes.Buffer
+	assert.Equal(t, exitUsage, Main(nil, io.Discard, &errOut))
+	assert.Equal(t, usage+"\n", errOut.String())
 }

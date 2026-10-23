@@ -111,9 +111,10 @@ func Run(ctx context.Context, args []string, out io.Writer) int {
 	return RunWith(ctx, args, out, nil)
 }
 
-// RunWith is Run with a loader of defaults. A non-nil load adds --config PATH;
-// load is called with the path (empty when the flag is absent) and returns the
-// defaults of the flags the user did not pass.
+// RunWith is Run with a loader of defaults. A non-nil load adds --config PATH
+// and --no-config, which skips the loader. load is called with the path (empty
+// when the flag is absent) and returns the defaults of the flags the user did
+// not pass.
 func RunWith(ctx context.Context, args []string, out io.Writer, load DefaultsLoader) int {
 	code, err := execute(ctx, args, out, load)
 	if err != nil {
@@ -241,8 +242,10 @@ func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, e
 	var auditorKeys multiFlag
 	fs.Var(&auditorKeys, "auditor-key", "file with an X25519 auditor private key, hex, mode 0600, that opens private mandates (repeatable)")
 	var cfgPath *string
+	var noConfig *bool
 	if load != nil {
 		cfgPath = fs.String("config", "", "path of edicta.toml; its values stand in for the flags not given (default: the Edicta home, skipped when absent)")
+		noConfig = fs.Bool("no-config", false, "read no edicta.toml: only the flags given count, and --config is refused")
 	}
 	fs.BoolVar(&f.settle.on, "settlement", false, "add the Eden settlement report of the transaction the receipt names; it never changes the verdict")
 	var settleRPC, settleOwn multiFlag
@@ -287,6 +290,12 @@ func parseFlagsWith(args []string, out io.Writer, load DefaultsLoader) (flags, e
 	}
 	given := map[string]bool{}
 	fs.Visit(func(fl *flag.Flag) { given[fl.Name] = true })
+	if load != nil && *noConfig {
+		if given["config"] {
+			return f, usagef("--config and --no-config exclude each other")
+		}
+		load = nil
+	}
 	var d Defaults
 	if load != nil {
 		if d, err = load(*cfgPath); err != nil {

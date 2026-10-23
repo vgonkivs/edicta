@@ -1,6 +1,6 @@
 exit 4
 -- stdout --
-Usage of demo fast-mode:
+Usage of edicta-demo fast-mode:
   -dir string
     	where the kept run directory is created; default the system temp directory
   -json

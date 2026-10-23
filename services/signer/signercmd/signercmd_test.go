@@ -29,6 +29,8 @@ func TestMainExitCodes(t *testing.T) {
 		{[]string{"x", "-config", "/nonexistent", "-check-config"}, 1, "", "edicta-signer: reading config:"},
 		{[]string{"x", "-config", example, "-check-config"}, 0, "configuration ok\n", ""},
 		{[]string{"x", "extra", "-config", example, "-check-config"}, 1, "", "-config is required"},
+		{[]string{"/usr/local/bin/edicta signer serve"}, 1, "", "edicta signer serve: -config is required\n"},
+		{[]string{"/usr/local/bin/edicta-signer"}, 1, "", "edicta-signer: -config is required\n"},
 	}
 	for _, tc := range tests {
 		var out, errOut bytes.Buffer

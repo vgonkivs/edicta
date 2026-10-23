@@ -1,6 +1,6 @@
 exit 4
 -- stdout --
-Usage of demo:
+Usage of edicta-demo:
   -address string
     	expected funder address; must equal the key's address
   -amount uint
@@ -39,6 +39,6 @@ Usage of demo:
     	CometBFT RPC for the transaction and its proofs
   -yes
     	confirm --max-total-funding without asking; does not start the run
-edicta: flag: help requested
+edicta-demo: flag: help requested
 usage: edicta-demo [--network mocha] [--home DIR] [--amount UTIA] [--json] [--funder-keyring-dir DIR --funder-key NAME [--funder-passphrase-file FILE] [--address ADDR]] [--max-total-funding UTIA [--yes]] [--trusted-header H:HASH]
 -- stderr --

@@ -245,7 +245,7 @@ func hintsFor(e *Evidence) []string {
 	anchor := fmt.Sprintf("blob: ask a bridge node for blob.Get(height=%d, namespace=%s, commitment=%s); its signer must be %s",
 		e.BlobHeight, e.Namespace, e.ShareCommitment, e.SignerBech32)
 	if e.fibre() {
-		anchor = fmt.Sprintf("anchor: the PayForFibre tx of namespace %s and commitment %s is in the block at height %d; edicta-verify checks it from the archived evidence",
+		anchor = fmt.Sprintf("anchor: the PayForFibre tx of namespace %s and commitment %s is in the block at height %d; edicta verify checks it from the archived evidence",
 			e.Namespace, e.ShareCommitment, e.BlobHeight)
 	}
 	return []string{
