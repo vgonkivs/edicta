@@ -19,11 +19,11 @@ or `cd deploy/dev && docker compose --profile dev up -d --build --wait`.
 
 | Service | Image | Role |
 |---|---|---|
-| `genesis-init` | `edicta-dev-tools` (built from `Dockerfile`, tag `edictadev`) | one shot: DEV keys, dev mandate, `edictad.toml`, `edicta.toml`, Eden genesis, JWT secret. Never overwrites. |
+| `genesis-init` | `edicta-dev-tools` (built from `Dockerfile`, tag `edictadev`) | one shot (`edicta dev init`): DEV keys, dev mandate, `edictad.toml`, `edicta.toml`, Eden genesis, JWT secret. Never overwrites. |
 | `celestia-init` | celestia-app | one shot: devnet genesis funding the Recorder and a demo funder |
 | `celestia` | celestia-app v10.4.0-mocha | one validator, app version 10, about 2.5 s blocks |
 | `celestia-bridge` | celestia-node v0.34.2-mocha | bridge node on a private network; `edictad` reads blobs and proofs through it |
-| `edictad` | `edicta-dev-tools` | gate and Recorder, celestia_blob, fast mode (`da = 2`), published on `127.0.0.1:18480` |
+| `edictad` | `edicta-dev-tools` | gate and Recorder (`edicta gate serve`), celestia_blob, fast mode (`da = 2`), published on `127.0.0.1:18480` |
 | `eden-da` | built from ev-node v1.1.4 source (`Dockerfile.local-da`) | in-memory local DA, ev-node only |
 | `eden-reth` | ev-reth v0.4.1 | EVM, chain id 31337, Prague and Osaka from genesis, RPC on `127.0.0.1:18545` |
 | `eden-node` | ev-node-evm v1.1.4 | single sequencer, 100 ms blocks (`EDEN_BLOCK_TIME` in `.env`) |

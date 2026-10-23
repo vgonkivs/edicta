@@ -22,6 +22,7 @@ Other documents:
 - [../examples/tia-transfer/README.md](../examples/tia-transfer/README.md): the manual `edicta-live` run.
 - [../examples/tia-transfer/demo/README.md](../examples/tia-transfer/demo/README.md): the one-command demo.
 - [../examples/dca-agent/README.md](../examples/dca-agent/README.md): an off-chain profile (IBKR order).
+- [code-locations.md](code-locations.md): where the packages and binaries named by older text are now.
 
 Source of truth. When a guide and the specification disagree, the
 specification wins: `spec/decision-commitment-v1.md` (core),

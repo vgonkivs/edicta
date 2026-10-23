@@ -7,11 +7,14 @@ denies anything outside it; it can never allow what the core checks refuse.
 Spec: `spec/policy-v1.md`, sections 6 (mandate), 7 (rendered text) and 9
 (private mode).
 
-The tool is `edicta-principal` in the root module:
+The tool is `edicta-principal` in the root module. It links no Celestia node
+or chain code, which keeps the machine that holds the principal key small:
 
 ```sh
 go build -o edicta-principal ./cmd/edicta-principal
 ```
+
+The `edicta` binary runs the same commands as `edicta principal ...`.
 
 ```
 edicta-principal render     --mandate FILE [--book FILE] [--accept-new-key]

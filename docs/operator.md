@@ -1,7 +1,8 @@
 # Operator guide: edictad
 
 `edictad` is the gate (verify and authorize, never execute), the archive
-writer and, optionally, a Recorder that publishes agents' payloads. One
+writer and, optionally, a Recorder that publishes agents' payloads. It runs as
+`edicta gate serve`. One
 instance serves one data availability mode. This guide is the overview; the
 full key reference with every default and range is in
 [../services/gate/README.md](../services/gate/README.md), section "Configure and start edictad", and the commented

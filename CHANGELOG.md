@@ -1,5 +1,35 @@
 # Changelog
 
+## v1.2.0 (2026-10-23, spec revision v1.1)
+
+A code layout and command line release. No wire byte, archive record, domain
+tag, test vector, API code or gate check changed.
+
+- Layout by component: the core under `engine/`, the HTTP wire formats under
+  `api/`, the rails and the Celestia adapter under `plugins/`, the gate, the
+  signer and the command line under `services/`, the demos under `examples/`,
+  shared helpers under `internal/`, the `edicta.toml` schema in `config/` and
+  the user guides in `docs/`. Package names are unchanged; import paths moved
+  without compatibility shims. `docs/code-locations.md` maps every old path
+  and binary to the new one.
+- Modules: the root module `github.com/vgonkivs/edicta`, and the nested
+  modules `plugins/celestia` (the former `celestia` and `fibre` modules),
+  `services/gate`, `services/signer`, `services/cli` and `examples`.
+- One `edicta` binary: `edicta gate serve` replaces `edictad`, `edicta
+  verify|replay|absence --no-config` replaces `edicta-verify`, `edicta dev
+  init` replaces `edicta-devinit` (builds with the `edictadev` tag), and
+  `edicta signer serve` and `edicta principal` run the signer and the
+  principal tool. Flags, defaults, outputs and exit codes of every command
+  are those of the binary it replaces, except that each command names itself
+  by its new name in usage and error messages. `edicta verify -h` lists
+  `--no-config`. Build output goes to `bin/`.
+- Light standalones: `edicta-signer` (in `services/signer`) and
+  `edicta-principal` (in the root module) link no Celestia node or chain
+  code, so the processes that hold the payer key and the principal key stay
+  small; a guard test keeps them so.
+- The demo is an example binary: `edicta-demo` (`make demo`) replaces
+  `edicta demo`; `edicta-live` moved to `examples/tia-transfer`.
+
 ## v1.1 (spec revision v1.1)
 
 An additive minor revision. No byte of a frozen v1.0 object, archive record,

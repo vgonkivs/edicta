@@ -53,6 +53,46 @@ trading bot, a keeper, a cron script. The core makes no AI assumptions.
 Gate modes: **strict** waits for the anchor on L1; **fast** authorizes on
 verified availability evidence before the anchor lands (see below).
 
+## Code layout
+
+The repository is grouped by component. The root module
+`github.com/vgonkivs/edicta` holds everything that does not link a Celestia
+node; the Celestia plugin, the services and the examples are nested modules
+that build against it.
+
+| Directory | Module | Holds |
+|---|---|---|
+| `engine/` | root | The core: `commitment` (encoding, hashing, checks), `principalsig`, `policy` (mandates), `gate` and its nonce registries, `dacommit`, `dasource` (DA read interfaces), `recorder` (the Recorder interface), `retention`, `archive`, `verifier` |
+| `api/` | root | Wire formats over HTTP: `edictaapi` (the gate and Recorder API), `signerapi` (the signer's API) |
+| `sdk/` | root | The Go SDK for agents (`sdk/ts` holds the TypeScript client) |
+| `config/` | root | The `edicta.toml` schema, defaults, presets and their checks; data only |
+| `internal/` | root | Shared helpers: CBOR modes, EVM hashing, signing and RLP, key files, file locks, the principal tool's command line |
+| `plugins/banksend`, `plugins/edenescrow`, `plugins/ibkr` | root | Rails: an action format, its encoding and the executor-side checks |
+| `plugins/celestia/` | own | The Celestia DA and chain adapter: node client, chain readers, proofs, the Recorder, Fibre blob commitment, the bank-send transaction signer and test fakes |
+| `services/gate/` | own | The gate daemon `edictad`, its wiring and its command line |
+| `services/signer/` | own, light | The payer key's executor, with no Celestia node or chain code |
+| `services/cli/` | own | The `edicta` binary: every subcommand, including `gate serve` and `signer serve` |
+| `examples/` | own | Profiles in use and their demos: `tia-transfer` (`edicta-demo`, `edicta-live`) and `dca-agent` |
+| `cmd/` | root | `edicta-principal`, the light standalone principal tool |
+| `contracts/`, `deploy/`, `test/`, `spec/`, `docs/` | | Contracts, the local dev stack, cross-package tests and guards, the specification and vectors, the user guides |
+
+Dependencies point one way. The engine imports only the format packages, the
+SDK and `internal/`; it knows no plugin, service or example. `api/` adds the
+engine. Plugins implement engine interfaces; services wire plugins into the
+engine; the `edicta` binary in `services/cli` is the only place where all of
+them meet. Nothing imports `examples/`. `test/layering` checks these rules,
+and `test/importguard` keeps the signer and `edicta-principal` free of the
+Celestia node and chain stack, so a process that holds a spendable or a
+mandate key links as little as possible.
+
+Entry points: `edicta` (with `gate serve`, `signer serve`, `principal`,
+`verify`, `replay`, `absence`, `init`, `doctor`, `commit`, `agent serve`, and
+`dev init` in builds with the `edictadev` tag), the standalones
+`edicta-signer` and `edicta-principal`, and the example binaries
+`edicta-demo` and `edicta-live`. Where older text names a package path or a
+binary from before this layout, [docs/code-locations.md](docs/code-locations.md)
+gives the current one.
+
 ## Gate invariants
 
 One line each. The normative text is

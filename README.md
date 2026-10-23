@@ -176,12 +176,20 @@ Not production-ready.
 | `services/signer/` (own module, links no Celestia node or chain code) | The payer key's service `edicta-signer` (also `edicta signer serve`): rail-agnostic signing core, Eden escrow handler (`eden`), daemon (`signerd`), command line (`signercmd`) |
 | `services/cli/` (own module) | The `edicta` binary: init, doctor, commit, agent serve, verify, replay, absence, gate serve, signer serve, principal, and dev init in edictadev builds |
 | `config/` (root module) | The `edicta.toml` schema, defaults and presets |
+| `internal/` (root module) | Shared helpers: CBOR modes, EVM hashing, signing and RLP, key files, file locks, the principal tool's command line |
 | `plugins/banksend` (root module) | The bank-send rail: action format, message encoding, executor, policy extension |
 | `plugins/edenescrow` (root module) | The Eden escrow rail: action format, escrow table, executor-side checks (`edenexec`) and the JSON-RPC reader (`edenrpc`) |
 | `plugins/ibkr` (root module) | The IBKR rail: order format (`ibkrorder`), executor, and a fake broker (`brokerfake`) |
 | `examples/` (own module) | Profiles in use: `tia-transfer` (Cosmos `MsgSend` on a price trigger, with the `edicta-demo` demo and the `edicta-live` runner) and `dca-agent` (IBKR order, offline with a fake broker) |
+| `contracts/` | The `EdictaPublish` contract and its deploy tool |
+| `deploy/dev/` | The local docker compose stack (DEV ONLY keys) |
+| `test/` | Cross-package tests: attacks, fixtures, the command line pin and the layering, import and doc guards |
 | `spec/` | Specification, profiles, test vectors and their generators |
 | `docs/` | User guides |
+
+Where older text, including the frozen specification, names a package path
+or a binary from before this layout, [docs/code-locations.md](docs/code-locations.md)
+gives the current one.
 
 ## License
 
