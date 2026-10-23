@@ -46,7 +46,8 @@ poll_interval_ms = 500
 await_grace_s = 300
 resend_every_s = 5
 
-# The payment server's relay (/deposit/send): its answers are never evidence.
+# Only for chains with broadcaster = "houston-relay": the payment server's
+# relay (/deposit/send). Its answers are never evidence.
 [broadcast]
 server_timeout_s = 10
 relay_grace_s = 30     # after it, a relayed deposit no source shows is also sent directly
@@ -58,8 +59,11 @@ chain_id = 714
 rpc = "own=http://127.0.0.1:8545"
 own_node = true
 settlement_rpc = ["gateway=https://rpc.eden.gateway.fm/"]
-broadcaster = "houston-relay"   # or "direct": eth_sendRawTransaction only
-relay_url = "https://pay.example"
+broadcaster = "direct"          # the default: eth_sendRawTransaction on rpc
+# Optional fallback for a payment server that must see the deposit through
+# its relay, which the server marks deprecated:
+# broadcaster = "houston-relay"
+# relay_url = "https://pay.example"
 payer_key_file = "/var/lib/edicta-signer/payer-714.key"
 payer_address = "0x0000000000000000000000000000000000000001"
 facilitators = ["0x0000000000000000000000000000000000000002"]

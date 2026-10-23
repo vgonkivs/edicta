@@ -30,11 +30,12 @@ const r = await edictaPay({
 2. `POST /deposit/build` with `from` = the signer's payer address (`GET /v1/payer`).
    Wrap steps 2 and 3 in `PayQueues.for(payer).run(...)` so two builds for one payer never overlap.
 3. `edictaPay(...)` replaces "sign the unsigned tx", "POST /deposit/send" and the
-   wait for confirmation: the signer sends the signed deposit itself and the
-   call returns only after the deposit is executed. For a server that needs
-   `/deposit/send`, the signer must run with the Houston relay broadcaster
-   (direct broadcast after its relay grace period). `signedTx` is returned for
-   callers who want to relay it themselves.
+   wait for confirmation: the signer sends the signed deposit itself, directly
+   to Eden by default, and the call returns only after the deposit is
+   executed. The signer's `broadcaster = "houston-relay"` is an optional
+   fallback for a server that must see the deposit through `/deposit/send`
+   (deprecated by the server). `signedTx` is returned for callers who want to
+   relay it themselves.
 4. Retry the original request with `Payment-Signature`, built from
    `r.paymentSignature` by the starter's existing encoder.
 

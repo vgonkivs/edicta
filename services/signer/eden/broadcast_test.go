@@ -43,14 +43,18 @@ func relayHandler(t *testing.T, w *world, relay eden.Relay, mut ...func(*eden.Co
 	return h
 }
 
-func TestRelayIsTheDefaultAndNeedsARelay(t *testing.T) {
+func TestDirectIsTheDefaultAndTheRelayNeedsARelay(t *testing.T) {
 	w := newWorld(t)
 	p := w.pins
 	p.Broadcast = ""
 	cfg := eden.Config{Chains: []eden.ChainPins{p}, PaymentSignatureField: eden.FieldOff}
 	cfg.ApplyDefaults()
-	assert.Equal(t, eden.BroadcastRelay, cfg.Chains[0].Broadcast)
+	assert.Equal(t, eden.BroadcastDirect, cfg.Chains[0].Broadcast)
 	_, err := eden.New(cfg, deps(w.chain, newChecker(t, w.chain), nil))
+	require.NoError(t, err, "a direct chain needs no relay")
+
+	cfg.Chains[0].Broadcast = eden.BroadcastRelay
+	_, err = eden.New(cfg, deps(w.chain, newChecker(t, w.chain), nil))
 	require.ErrorContains(t, err, "relay")
 
 	cfg.Chains[0].Broadcast = "mempool"

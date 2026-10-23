@@ -62,9 +62,11 @@ type Relay interface {
 const (
 	// BroadcastRelay sends through the payment server's relay once, when
 	// signed, and directly when the relay fails and on every resend after
-	// RelayGrace.
+	// RelayGrace. Only by explicit configuration: the server deprecates the
+	// relay, and its answers are never evidence.
 	BroadcastRelay = "houston-relay"
-	// BroadcastDirect sends with eth_sendRawTransaction on the chain's RPC.
+	// BroadcastDirect, the default, sends with eth_sendRawTransaction on the
+	// chain's RPC.
 	BroadcastDirect = "direct"
 )
 
@@ -91,7 +93,7 @@ type ChainPins struct {
 	MaxGas         uint64
 	// MaxFeePerAction bounds max_fee_per_gas * gas_limit.
 	MaxFeePerAction *big.Int
-	// Broadcast is BroadcastRelay (the default) or BroadcastDirect.
+	// Broadcast is BroadcastDirect (the default) or BroadcastRelay.
 	Broadcast string
 }
 
@@ -156,7 +158,7 @@ func (c *Config) ApplyDefaults() {
 	}
 	for i := range c.Chains {
 		if c.Chains[i].Broadcast == "" {
-			c.Chains[i].Broadcast = BroadcastRelay
+			c.Chains[i].Broadcast = BroadcastDirect
 		}
 	}
 }

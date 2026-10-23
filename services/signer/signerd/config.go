@@ -72,7 +72,8 @@ type Credential struct {
 	TokenFile   string `toml:"token_file"`
 }
 
-// Broadcast configures the payment server's relay.
+// Broadcast configures the payment server's relay, for the chains that
+// opt into it.
 type Broadcast struct {
 	// ServerTimeoutS bounds one relay call.
 	ServerTimeoutS uint64 `toml:"server_timeout_s"`
@@ -129,10 +130,12 @@ type Chain struct {
 	OwnNode bool   `toml:"own_node"`
 	// SettlementRPC are more settlement sources, distinct hosts.
 	SettlementRPC []string `toml:"settlement_rpc"`
-	// Broadcaster is "houston-relay" (the default) or "direct".
+	// Broadcaster is "direct" (the default: eth_sendRawTransaction on the
+	// chain's RPC) or "houston-relay", an optional fallback for a payment
+	// server that must see the deposit through its deprecated relay.
 	Broadcaster string `toml:"broadcaster"`
 	// RelayURL is the payment server (https) whose /deposit/send relays
-	// the deposit.
+	// the deposit; only with broadcaster = "houston-relay".
 	RelayURL        string   `toml:"relay_url"`
 	PayerKeyFile    string   `toml:"payer_key_file"`
 	PayerAddress    string   `toml:"payer_address"`
@@ -202,7 +205,7 @@ func (c *Config) ApplyDefaults() {
 	for i := range c.Chains {
 		c.Chains[i].applyPreset()
 		if c.Chains[i].Broadcaster == "" {
-			c.Chains[i].Broadcaster = eden.BroadcastRelay
+			c.Chains[i].Broadcaster = eden.BroadcastDirect
 		}
 	}
 }
