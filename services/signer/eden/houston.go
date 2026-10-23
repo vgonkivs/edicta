@@ -10,9 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -73,18 +75,22 @@ type HoustonRelay struct {
 	endpoint string
 	timeout  time.Duration
 	hc       *http.Client
+	log      *slog.Logger
 }
 
 var _ Relay = (*HoustonRelay)(nil)
 
 // NewHoustonRelay checks the configuration; hc nil is a client that follows
-// no redirect.
-func NewHoustonRelay(cfg HoustonConfig, hc *http.Client) (*HoustonRelay, error) {
+// no redirect, log nil the default logger.
+func NewHoustonRelay(cfg HoustonConfig, hc *http.Client, log *slog.Logger) (*HoustonRelay, error) {
 	if err := cfg.ValidateBasic(); err != nil {
 		return nil, err
 	}
 	if hc == nil {
 		hc = &http.Client{}
+	}
+	if log == nil {
+		log = slog.Default()
 	}
 	// A redirect could lead off https or to another host; the answer to the
 	// first request is the answer.
@@ -92,8 +98,26 @@ func NewHoustonRelay(cfg HoustonConfig, hc *http.Client) (*HoustonRelay, error) 
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &HoustonRelay{
 		endpoint: strings.TrimSuffix(cfg.BaseURL, "/") + RelayPath,
-		timeout:  cfg.Timeout, hc: &c,
+		timeout:  cfg.Timeout, hc: &c, log: log,
 	}, nil
+}
+
+// deprecationLogged makes the relay's deprecation marker a single log line
+// per process, however many answers carry it.
+var deprecationLogged atomic.Bool
+
+// Deprecated reports whether a relay answer carries the server's
+// deprecation marker: a Deprecation header, or a top-level member
+// "deprecation" that is JSON true. It is logged and changes nothing else.
+func Deprecated(h http.Header, answer []byte) bool {
+	if h.Get("Deprecation") != "" {
+		return true
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(answer, &top) != nil {
+		return false
+	}
+	return string(bytes.TrimSpace(top["deprecation"])) == "true"
 }
 
 type relayBody struct {
@@ -130,6 +154,10 @@ func (r *HoustonRelay) Send(ctx context.Context, signed []byte, railRef string, 
 	}
 	if len(answer) > MaxRelayAnswer {
 		return fmt.Errorf("%w: answer above %d bytes", ErrRelayFault, MaxRelayAnswer)
+	}
+	if Deprecated(resp.Header, answer) && deprecationLogged.CompareAndSwap(false, true) {
+		r.log.Warn("signer/eden: the payment server marks its relay deprecated; direct broadcast is the default",
+			"endpoint", r.endpoint)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("%w: status %d", ErrRelayFault, resp.StatusCode)

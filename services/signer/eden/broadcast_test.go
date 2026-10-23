@@ -297,7 +297,7 @@ func TestHoustonRelay(t *testing.T) {
 		answer(w)
 	}))
 	defer srv.Close()
-	rl, err := eden.NewHoustonRelay(eden.HoustonConfig{BaseURL: srv.URL + "/base/", Timeout: 200 * time.Millisecond}, srv.Client())
+	rl, err := eden.NewHoustonRelay(eden.HoustonConfig{BaseURL: srv.URL + "/base/", Timeout: 200 * time.Millisecond}, srv.Client(), nil)
 	require.NoError(t, err)
 	set := func(f func(w http.ResponseWriter)) {
 		mu.Lock()

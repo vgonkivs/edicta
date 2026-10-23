@@ -105,7 +105,7 @@ func Build(ctx context.Context, cfg Config, log *slog.Logger) (_ *Daemon, err er
 				"chain", ch.ChainID)
 		}
 		if ch.Broadcaster == eden.BroadcastRelay {
-			r, err := eden.NewHoustonRelay(ch.relayConfig(cfg.Broadcast), nil)
+			r, err := eden.NewHoustonRelay(ch.relayConfig(cfg.Broadcast), nil, log)
 			if err != nil {
 				return nil, fmt.Errorf("signerd: chain %d: %w", ch.ChainID, err)
 			}
