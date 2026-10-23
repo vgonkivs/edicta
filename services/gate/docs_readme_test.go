@@ -19,10 +19,10 @@ func TestReadmeRunCommands(t *testing.T) {
 	for i, line := range strings.Split(s, "\n") {
 		l := strings.TrimSpace(line)
 		if strings.HasPrefix(l, "go run ") {
-			t.Errorf("line %d: use `go -C services/gate run ...`: %q", i+1, l)
+			t.Errorf("line %d: use `go -C services/cli run ./cmd/edicta gate serve ...`: %q", i+1, l)
 		}
 	}
-	require.Contains(t, s, "go -C services/gate run")
+	require.Contains(t, s, "go -C services/cli run ./cmd/edicta gate serve")
 	require.NotContains(t, strings.ToLower(s), "itrocket", "the itrocket gRPC host uses an origin cert and is not listed")
 }
 

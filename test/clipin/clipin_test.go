@@ -108,7 +108,9 @@ func TestCLIPin(t *testing.T) {
 }
 
 // buildAll builds every entry point into one directory, one go build per
-// module and tag set.
+// module and tag set. Each group builds into its own directory first, since
+// a binary takes the name of its package directory and two entries may build
+// the same package with other tags.
 func buildAll(t *testing.T, repo string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -119,28 +121,35 @@ func buildAll(t *testing.T, repo string) string {
 	}
 	groups := map[[2]string][]string{}
 	for name, e := range entries {
-		require.Equal(t, name, filepath.Base(e.pkg), "the binary takes the name of its package directory")
 		k := [2]string{e.module, e.tags}
-		groups[k] = append(groups[k], e.pkg)
+		groups[k] = append(groups[k], name)
 	}
 	keys := make([][2]string, 0, len(groups))
 	for k := range groups {
 		keys = append(keys, k)
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i][0]+keys[i][1] < keys[j][0]+keys[j][1] })
-	for _, k := range keys {
-		pkgs := groups[k]
-		sort.Strings(pkgs)
-		args := []string{"-C", filepath.Join(repo, filepath.FromSlash(k[0])), "build", "-o", dir + string(filepath.Separator)}
+	for i, k := range keys {
+		names := groups[k]
+		sort.Strings(names)
+		out := filepath.Join(dir, fmt.Sprintf("group%d", i))
+		require.NoError(t, os.Mkdir(out, 0o755))
+		args := []string{"-C", filepath.Join(repo, filepath.FromSlash(k[0])), "build", "-o", out + string(filepath.Separator)}
 		if k[1] != "" {
 			args = append(args, "-tags", k[1])
 		}
-		cmd := exec.Command(goBin, append(args, pkgs...)...)
+		for _, name := range names {
+			args = append(args, entries[name].pkg)
+		}
+		cmd := exec.Command(goBin, args...)
 		// A GOROOT inherited from the shell may name another toolchain than
 		// the go binary chosen here.
 		cmd.Env = slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "GOROOT=") })
-		out, err := cmd.CombinedOutput()
-		require.NoErrorf(t, err, "go %s\n%s", strings.Join(args, " "), out)
+		b, err := cmd.CombinedOutput()
+		require.NoErrorf(t, err, "go %s\n%s", strings.Join(args, " "), b)
+		for _, name := range names {
+			require.NoError(t, os.Rename(filepath.Join(out, filepath.Base(entries[name].pkg)), filepath.Join(dir, name)))
+		}
 	}
 	return dir
 }

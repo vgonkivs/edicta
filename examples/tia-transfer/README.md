@@ -100,7 +100,7 @@ head -c 24 /dev/urandom | base64 > ~/edicta-live/api.token; chmod 600 ~/edicta-l
 Copy the example and edit it:
 
 ```
-cp services/gate/cmd/edictad/edictad.example.toml ~/edicta-live/edictad.toml
+cp services/gate/edictad.example.toml ~/edicta-live/edictad.toml
 ```
 
 Set, at least: the bridge and consensus addresses (and `tls`), `recorder.namespace`,
@@ -118,8 +118,8 @@ pubkey = "<agent public key, 64 hex characters>"
 Check that the config parses (it prints paths only, never secrets), then start:
 
 ```
-go -C services/gate run ./cmd/edictad -config ~/edicta-live/edictad.toml -print-config
-go -C services/gate run ./cmd/edictad -config ~/edicta-live/edictad.toml
+go -C services/cli run ./cmd/edicta gate serve -config ~/edicta-live/edictad.toml -print-config
+go -C services/cli run ./cmd/edicta gate serve -config ~/edicta-live/edictad.toml
 ```
 
 edictad refuses to start if the node fails the compatibility check, if a key

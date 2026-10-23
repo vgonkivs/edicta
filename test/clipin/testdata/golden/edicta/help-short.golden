@@ -1,5 +1,27 @@
-exit 4
+exit 0
 -- stdout --
-edicta: unknown subcommand "-h"
-usage: edicta init [--home DIR] [--preset CELESTIA+SETTLEMENT] [--set network.key=value]... [--max-per-payment USDC] [--max-per-hour USDC] | doctor [--config PATH] [--set key=value]... [--json] | commit [--request FILE|-] [flags] | agent serve [--listen ADDR] [flags] | verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) [--config PATH] [flags]
+Edicta commits an agent's decision before the action, authorizes exactly
+the committed action bytes and lets anyone verify the decision later.
+
+Usage:
+  edicta [flags]
+  edicta [command]
+
+Available Commands:
+  absence     Prove a fast-mode anchor absent and archive the proofs
+  agent       agent serve: the local commit service for agents
+  commit      Publish and commit one decision and print the gate's Authorization
+  doctor      Check the configuration and every endpoint it names
+  gate        The gate daemon
+  help        Help about any command
+  init        Create the Edicta home: keys, mandate and edicta.toml
+  principal   The principal's mandate tool: render, sign, verify, publish
+  replay      Verify an archived decision as of its reference time
+  signer      The executor that holds the payer key
+  verify      Verify an archived decision
+
+Flags:
+  -h, --help   help for edicta
+
+Use "edicta [command] --help" for more information about a command.
 -- stderr --

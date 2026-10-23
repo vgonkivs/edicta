@@ -41,7 +41,7 @@ func TestReadmeCarryOverWording(t *testing.T) {
 }
 
 func TestExampleConfigListsTheFibreRecorderKeys(t *testing.T) {
-	b, err := os.ReadFile("cmd/edictad/edictad.example.toml")
+	b, err := os.ReadFile("edictad.example.toml")
 	require.NoError(t, err)
 	doc := string(b)
 	for _, k := range fibreRecorderKeys {

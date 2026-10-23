@@ -7,7 +7,10 @@ MODS := plugins/celestia services/gate services/signer services/cli examples
 
 .PHONY: build demo test test-clipin test-q vet vectors clean contracts contracts-check dev-up dev-down dev-smoke test-dev check-mods
 
+# edicta-principal is the root module's light standalone; the modules build
+# edicta, edicta-signer, edicta-demo and edicta-live.
 build:
+	go build -o $(BIN)/edicta-principal ./cmd/edicta-principal
 	@for m in $(MODS); do $(MAKE) -C $$m build || exit 1; done
 
 # The demo is an example binary: make demo ARGS="fast-mode --json" runs bin/edicta-demo fast-mode --json.

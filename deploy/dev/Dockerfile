@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# The Edicta tools image of the local dev stack: edictad, edicta and
-# edicta-devinit, built with the edictadev tag. DEV ONLY: do not publish this
+# The Edicta tools image of the local dev stack: the edicta binary built with
+# the edictadev tag, which adds edicta dev init. DEV ONLY: do not publish this
 # image or run it against a public chain.
 #
 # Build context is the repository root:
@@ -13,9 +13,7 @@ WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    go -C services/gate build -trimpath -tags edictadev -o /out/ ./cmd/edictad && \
-    go -C services/cli build -trimpath -tags edictadev -o /out/ \
-      ./cmd/edicta ./cmd/edicta-devinit
+    go -C services/cli build -trimpath -tags edictadev -o /out/ ./cmd/edicta
 
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
 COPY --from=build /out/ /usr/local/bin/

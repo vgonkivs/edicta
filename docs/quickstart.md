@@ -89,8 +89,8 @@ end to end, use the demo or the manual path below.
 make demo
 ```
 
-It builds `edicta`, `edictad`, `edicta-verify`, `edicta-signer` and the
-example binaries into `bin/`, then runs `bin/edicta-demo`. It needs a
+It builds `edicta`, `edicta-signer`, `edicta-principal` and the example
+binaries into `bin/`, then runs `bin/edicta-demo`. It needs a
 terminal, prints an address to fund with testnet TIA, and starts only after
 you press Enter. In 3 to 5 minutes it publishes a decision as a Celestia blob, has a
 gate with a mandate authorize it, sends exactly the committed transfer,
@@ -100,12 +100,12 @@ ways to cheat. Details, flags, exit codes and offline re-verification:
 
 ## Run your own gate and agent (strict mode)
 
-1. Write an `edictad` configuration (or an `edicta.toml`, which `edictad -config`
+1. Write an `edictad` configuration (or an `edicta.toml`, which `edicta gate serve -config`
    also accepts, see [operator.md](operator.md)) from
-   `services/gate/cmd/edictad/edictad.example.toml` and start it:
+   `services/gate/edictad.example.toml` and start it:
    ```sh
-   go -C services/gate run ./cmd/edictad -config ~/edicta-live/edictad.toml -print-config
-   go -C services/gate run ./cmd/edictad -config ~/edicta-live/edictad.toml
+   go -C services/cli run ./cmd/edicta gate serve -config ~/edicta-live/edictad.toml -print-config
+   go -C services/cli run ./cmd/edicta gate serve -config ~/edicta-live/edictad.toml
    ```
    See [operator.md](operator.md).
 2. Run the price agent and executor against it with `edicta-live`, first with
@@ -175,7 +175,7 @@ executor may refuse fast mode (`refuse_fast_mode`, see
 4. Gate: authorizes with `mode = 2` and `anchor_deadline`.
 5. Recorder: writes the anchor evidence at `H` when the anchor lands.
 6. Auditor: `verify` reports `mode: fast`, `h0`, `anchor_deadline` and the
-   anchor height, or proves the anchor absent with `edicta-verify absence`
+   anchor height, or proves the anchor absent with `edicta absence`
    (see [verifier.md](verifier.md)).
 
 `edicta-live --fast --mandate-hash <64 hex> --archive-url <URL>` runs the

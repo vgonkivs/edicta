@@ -1,0 +1,4 @@
+exit 4
+-- stdout --
+usage: edicta init [--home DIR] [--preset CELESTIA+SETTLEMENT] [--set network.key=value]... [--max-per-payment USDC] [--max-per-hour USDC] | doctor [--config PATH] [--set key=value]... [--json] | commit [--request FILE|-] [flags] | agent serve [--listen ADDR] [flags] | verify|replay|absence <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) [--config PATH | --no-config] [flags] | gate serve -config PATH [-print-config] | signer serve -config PATH [-check-config] | principal render|typed-data|signdoc|private|sign|verify|publish [flags] | dev init --home DIR [flags]
+-- stderr --

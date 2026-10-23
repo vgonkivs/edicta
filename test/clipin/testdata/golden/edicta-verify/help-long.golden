@@ -1,5 +1,0 @@
-exit 4
--- stdout --
-edicta: usage: verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL) [--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)] [--cross-check URL]... [--exclude-host HOST]... [--timeout DURATION] [--receipt FILE --tx-rpc URL... --check-execution [--exec-chain-id ID] [--result-archive DIR|URL]...] [--principal-key HEX]... [--principal ed25519:HEX|cosmos:BECH32|eth:0xHEX]... [--require-policy] [--policy-full] [--max-walk-steps N] [--policy-evidence FILE]... [--auditor-key FILE]... [--absence-source URL] [--json] [--settlement (--settlement-rpc URL | --settlement-own-rpc URL)... [--settlement-da URL] [--settlement-level L0|L1|L2] [--settlement-min-sources N] [--settlement-confirm-depth N] [--settlement-preset eden-mainnet|eden-testnet]]
-       absence <commitment_hash> --gate-key HEX --archive DIR --absence-source URL (--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)) [--json]
--- stderr --

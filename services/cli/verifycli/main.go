@@ -1,5 +1,4 @@
-// Package verifycli is the verify and replay command line, shared by the
-// edicta and edicta-verify commands.
+// Package verifycli is the verify, replay and absence command line of edicta.
 //
 //	verify|replay <commitment_hash> --gate-key HEX (--archive DIR | --archive-url URL)
 //	    [--trusted FILE | --headers-rpc URL (--checkpoint H:HASH | --checkpoint-rpc URL...)]

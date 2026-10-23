@@ -1,0 +1,24 @@
+exit 0
+-- stdout --
+commitment: 09c7433a33ca17e4d00ac93df7284ab3e8a31e6167edc435b8c03b4161ce6f63
+state: authorized
+parameters: skew 30s, blob retention 14400s, fibre retention 14400s
+gate: gate-paper-1  action type: application/vnd.edicta.ibkr.order.v0+cbor  da: 1  height: 1402819
+[ok] decision
+[ok] envelope
+[ok] action
+[ok] authorization
+[ok] payload
+[ok] anchor
+[ok] anchor_time
+[ok] header_trust
+authorization: path da, expires 1791197102, issued at 1791196802
+anchor block time: 1791196782
+settlement: node-attested
+Informational: anchor tx result: code 0, node-reported, not part of the claim
+certificate: signed 282969545202534 of 371550350184936 (0.7616), token precision "robust"
+anchor proof form: 1, earlier candidates: 0
+header trust: valid, mode file, checkpoint 1402819 0dd99f73fda3f2e8f989368567bb729acd9198b1edf1f21819ad4aa05a0dedf2, cross-check off
+trust model: trusted header from the file the auditor gave; headers are linked by hash only, no validator signatures are checked
+verdict: valid
+-- stderr --

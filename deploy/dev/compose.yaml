@@ -30,7 +30,7 @@ services:
       context: ../..
       dockerfile: deploy/dev/Dockerfile
     image: edicta-dev-tools:local
-    entrypoint: ["edicta-devinit"]
+    entrypoint: ["edicta", "dev", "init"]
     command: ["--home", "/dev-home"]
     volumes:
       - dev-home:/dev-home
@@ -90,7 +90,7 @@ services:
   edictad:
     profiles: [dev]
     image: edicta-dev-tools:local
-    entrypoint: ["edictad"]
+    entrypoint: ["edicta", "gate", "serve"]
     command: ["-config", "/dev-home/edictad.toml"]
     volumes:
       - dev-home:/dev-home

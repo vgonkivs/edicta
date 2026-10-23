@@ -5,7 +5,7 @@ writer and, optionally, a Recorder that publishes agents' payloads. One
 instance serves one data availability mode. This guide is the overview; the
 full key reference with every default and range is in
 [../services/gate/README.md](../services/gate/README.md), section "Configure and start edictad", and the commented
-example in `services/gate/cmd/edictad/edictad.example.toml`. Spec:
+example in `services/gate/edictad.example.toml`. Spec:
 `spec/decision-commitment-v1.md`, sections 8 (gate), 13 (fast mode), 18
 (HTTP API) and 19 (archive).
 
@@ -13,9 +13,9 @@ example in `services/gate/cmd/edictad/edictad.example.toml`. Spec:
 
 ```sh
 make build
-cp services/gate/cmd/edictad/edictad.example.toml /etc/edictad/edictad.toml   # then edit
-bin/edictad -config /etc/edictad/edictad.toml -print-config      # parse only, prints no secrets
-bin/edictad -config /etc/edictad/edictad.toml
+cp services/gate/edictad.example.toml /etc/edictad/edictad.toml   # then edit
+bin/edicta gate serve -config /etc/edictad/edictad.toml -print-config      # parse only, prints no secrets
+bin/edicta gate serve -config /etc/edictad/edictad.toml
 ```
 
 `-config` takes either file format: the shared `edicta.toml` (next section)
@@ -50,7 +50,7 @@ address unless `http.allow_insecure` or TLS is set.
 ## The shared configuration: `edicta.toml`
 
 One file describes a self-hosted stack for every tool: `edicta init` writes
-it, `edicta doctor` checks it, `edictad -config` serves it and
+it, `edicta doctor` checks it, `edicta gate serve -config` serves it and
 `edicta verify|replay --config` take their defaults from it. It lives in the
 Edicta home, `$EDICTA_HOME` or else `~/.edicta`. Loading is strict: an
 unknown key is an error (so an inline secret is too), and every secret is a
@@ -59,7 +59,7 @@ path to a file.
 Print what `edictad` makes of it, without starting anything:
 
 ```sh
-bin/edictad -config ~/.edicta/edicta.toml -print-config
+bin/edicta gate serve -config ~/.edicta/edicta.toml -print-config
 ```
 
 ### Sections
@@ -117,7 +117,7 @@ and refuses the keys that `--preset` or its own bookkeeping decide
 versions, the EVM chain id and the USDC token). `doctor` accepts any key and
 checks the result.
 
-### `edictad -config edicta.toml`
+### `edicta gate serve -config edicta.toml`
 
 `edictad` projects the file onto its own configuration: the gate keys and
 paths, the archive directory, the mandate, the Recorder (blob or Fibre), the

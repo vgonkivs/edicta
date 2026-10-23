@@ -6,16 +6,15 @@ package clipin
 
 import "regexp"
 
-// entries are today's entry points. The edictadev tag is what the dev image
-// builds edicta-devinit with; the binary does not exist without it.
+// entries are the entry points, keyed by the name of the built binary.
+// edicta-dev is the edicta binary as the dev image builds it, with the
+// edictadev tag that adds edicta dev init.
 var entries = map[string]entry{
 	"edicta":           {module: "services/cli", pkg: "./cmd/edicta"},
-	"edictad":          {module: "services/gate", pkg: "./cmd/edictad"},
-	"edicta-verify":    {module: "services/cli", pkg: "./cmd/edicta-verify"},
+	"edicta-dev":       {module: "services/cli", pkg: "./cmd/edicta", tags: "edictadev"},
 	"edicta-signer":    {module: "services/signer", pkg: "./cmd/edicta-signer"},
 	"edicta-live":      {module: "examples", pkg: "./tia-transfer/cmd/edicta-live"},
 	"edicta-demo":      {module: "examples", pkg: "./tia-transfer/cmd/edicta-demo"},
-	"edicta-devinit":   {module: "services/cli", pkg: "./cmd/edicta-devinit", tags: "edictadev"},
 	"edicta-principal": {module: ".", pkg: "./cmd/edicta-principal"},
 }
 
@@ -100,46 +99,58 @@ var cases = []tcase{
 	{id: "edicta/demo-fast-live-unknown-flag", argv: []string{"edicta-demo", "fast-live", "--bogus"}},
 	{id: "edicta/demo-fast-live-extra-arg", argv: []string{"edicta-demo", "fast-live", "extra"}},
 
-	// edictad
-	{id: "edictad/help-short", argv: []string{"edictad", "-h"}},
-	{id: "edictad/help-long", argv: []string{"edictad", "--help"}},
-	{id: "edictad/help-word", argv: []string{"edictad", "-help"}},
-	{id: "edictad/no-args", argv: []string{"edictad"}},
-	{id: "edictad/unknown-flag", argv: []string{"edictad", "--bogus"}},
-	{id: "edictad/unknown-flag-single", argv: []string{"edictad", "-bogus"}},
-	{id: "edictad/config-missing-value", argv: []string{"edictad", "-config"}},
-	{id: "edictad/config-missing-file-single", argv: []string{"edictad", "-config", "{fix}/missing.toml"}},
-	{id: "edictad/config-missing-file-eq", argv: []string{"edictad", "--config={fix}/missing.toml"}},
-	{id: "edictad/config-invalid", argv: []string{"edictad", "-config", "{fix}/bad.toml", "-print-config"}},
-	{id: "edictad/config-of-signer", argv: []string{"edictad", "-config", "{fix}/signer.toml", "-print-config"}},
-	{id: "edictad/print-config-single", argv: []string{"edictad", "-config", "{fix}/edictad.toml", "-print-config"}},
-	{id: "edictad/print-config-double-eq", argv: []string{"edictad", "--config={fix}/edictad.toml", "--print-config=true"}},
-	{id: "edictad/print-config-flag-first", argv: []string{"edictad", "--print-config", "--config", "{fix}/edictad.toml"}},
-	{id: "edictad/print-config-bad-bool", argv: []string{"edictad", "--config", "{fix}/edictad.toml", "--print-config=maybe"}},
-	{id: "edictad/flag-after-positional", argv: []string{"edictad", "extra", "-config", "{fix}/edictad.toml", "-print-config"}},
+	// the subcommands that came with the single binary
+	{id: "edicta/verify-no-config-hash-first", argv: []string{"edicta", "verify", "{hash}", "--no-config", "--gate-key", "{gatekey}", "--archive", "{fix}/verify/archive", "--trusted", "{fix}/verify/trusted.json"}},
+	{id: "edicta/absence-help-long", argv: []string{"edicta", "absence", "--help"}},
+	{id: "edicta/gate-alone", argv: []string{"edicta", "gate"}},
+	{id: "edicta/gate-unknown-flag", argv: []string{"edicta", "gate", "--bogus"}},
+	{id: "edicta/signer-serve-help-short", argv: []string{"edicta", "signer", "serve", "-h"}},
+	{id: "edicta/signer-serve-check-config", argv: []string{"edicta", "signer", "serve", "-config", "{fix}/signer.toml", "-check-config"}},
+	{id: "edicta/principal-help-short", argv: []string{"edicta", "principal", "-h"}},
+	{id: "edicta/principal-render", argv: []string{"edicta", "principal", "render", "--mandate", "{fix}/mandate-m_full.hex"}},
+	{id: "edicta/dev-without-tag", argv: []string{"edicta", "dev", "init"}},
+	{id: "edicta/dev-help-long", argv: []string{"edicta-dev", "--help"}},
+	{id: "edicta/dev-no-args", argv: []string{"edicta-dev"}},
 
-	// edicta-verify
-	{id: "edicta-verify/no-args", argv: []string{"edicta-verify"}},
-	{id: "edicta-verify/help-short", argv: []string{"edicta-verify", "-h"}},
-	{id: "edicta-verify/help-long", argv: []string{"edicta-verify", "--help"}},
-	{id: "edicta-verify/unknown-subcommand", argv: []string{"edicta-verify", "bogus"}},
-	{id: "edicta-verify/verify-help-short", argv: []string{"edicta-verify", "verify", "-h"}},
-	{id: "edicta-verify/verify-help-long", argv: []string{"edicta-verify", "verify", "--help"}},
-	{id: "edicta-verify/replay-help-long", argv: []string{"edicta-verify", "replay", "--help"}},
-	{id: "edicta-verify/absence-help-long", argv: []string{"edicta-verify", "absence", "--help"}},
-	{id: "edicta-verify/verify-no-args", argv: []string{"edicta-verify", "verify"}},
-	{id: "edicta-verify/verify-unknown-flag", argv: []string{"edicta-verify", "verify", "{hash}", "--bogus"}},
-	{id: "edicta-verify/verify-unknown-flag-json", argv: []string{"edicta-verify", "verify", "{hash}", "--bogus", "--json"}},
-	{id: "edicta-verify/verify-config-flag", argv: []string{"edicta-verify", "verify", "{hash}", "--config", "{fix}/missing.toml"}},
-	{id: "edicta-verify/verify-missing-gate-key", argv: []string{"edicta-verify", "verify", "{hash}", "--archive", "{fix}/verify/archive", "--trusted", "{fix}/verify/trusted.json"}},
-	{id: "edicta-verify/verify-missing-archive", argv: []string{"edicta-verify", "verify", "{hash}", "--gate-key", "{gatekey}"}},
-	{id: "edicta-verify/verify-archive-not-found", argv: []string{"edicta-verify", "verify", "{hash}", "--gate-key", "{gatekey}", "--archive", "{fix}/nonexistent"}},
-	{id: "edicta-verify/verify-hash-first", argv: []string{"edicta-verify", "verify", "{hash}", "--gate-key", "{gatekey}", "--archive", "{fix}/verify/archive", "--trusted", "{fix}/verify/trusted.json"}},
-	{id: "edicta-verify/verify-hash-last-single-dash", argv: []string{"edicta-verify", "verify", "-archive", "{fix}/verify/archive", "-gate-key", "{gatekey}", "-trusted", "{fix}/verify/trusted.json", "{hash}"}},
-	{id: "edicta-verify/verify-eq-json", argv: []string{"edicta-verify", "verify", "--archive={fix}/verify/archive", "--gate-key={gatekey}", "--trusted={fix}/verify/trusted.json", "--json=true", "{hash}"}},
-	{id: "edicta-verify/verify-no-trust-root", argv: []string{"edicta-verify", "verify", "{hash}", "--gate-key", "{gatekey}", "--archive", "{fix}/verify/archive"}},
-	{id: "edicta-verify/replay-hash-first", argv: []string{"edicta-verify", "replay", "{hash}", "--gate-key", "{gatekey}", "--archive", "{fix}/verify/archive", "--trusted", "{fix}/verify/trusted.json"}},
-	{id: "edicta-verify/absence-missing-source", argv: []string{"edicta-verify", "absence", "{hash}", "--gate-key", "{gatekey}", "--archive", "{fix}/verify/archive", "--trusted", "{fix}/verify/trusted.json"}},
+	// edictad, now edicta gate serve
+	{id: "edictad/help-short", argv: []string{"edicta", "gate", "serve", "-h"}},
+	{id: "edictad/help-long", argv: []string{"edicta", "gate", "serve", "--help"}},
+	{id: "edictad/help-word", argv: []string{"edicta", "gate", "serve", "-help"}},
+	{id: "edictad/no-args", argv: []string{"edicta", "gate", "serve"}},
+	{id: "edictad/unknown-flag", argv: []string{"edicta", "gate", "serve", "--bogus"}},
+	{id: "edictad/unknown-flag-single", argv: []string{"edicta", "gate", "serve", "-bogus"}},
+	{id: "edictad/config-missing-value", argv: []string{"edicta", "gate", "serve", "-config"}},
+	{id: "edictad/config-missing-file-single", argv: []string{"edicta", "gate", "serve", "-config", "{fix}/missing.toml"}},
+	{id: "edictad/config-missing-file-eq", argv: []string{"edicta", "gate", "serve", "--config={fix}/missing.toml"}},
+	{id: "edictad/config-invalid", argv: []string{"edicta", "gate", "serve", "-config", "{fix}/bad.toml", "-print-config"}},
+	{id: "edictad/config-of-signer", argv: []string{"edicta", "gate", "serve", "-config", "{fix}/signer.toml", "-print-config"}},
+	{id: "edictad/print-config-single", argv: []string{"edicta", "gate", "serve", "-config", "{fix}/edictad.toml", "-print-config"}},
+	{id: "edictad/print-config-double-eq", argv: []string{"edicta", "gate", "serve", "--config={fix}/edictad.toml", "--print-config=true"}},
+	{id: "edictad/print-config-flag-first", argv: []string{"edicta", "gate", "serve", "--print-config", "--config", "{fix}/edictad.toml"}},
+	{id: "edictad/print-config-bad-bool", argv: []string{"edicta", "gate", "serve", "--config", "{fix}/edictad.toml", "--print-config=maybe"}},
+	{id: "edictad/flag-after-positional", argv: []string{"edicta", "gate", "serve", "extra", "-config", "{fix}/edictad.toml", "-print-config"}},
+
+	// edicta-verify, merged into edicta verify|replay|absence; --no-config
+	// keeps its contract of reading no edicta.toml. Its root cases (no
+	// arguments, -h, --help, an unknown subcommand) have no counterpart: the
+	// edicta root cases pin those paths.
+	{id: "edicta-verify/verify-help-short", argv: []string{"edicta", "verify", "--no-config", "-h"}},
+	{id: "edicta-verify/verify-help-long", argv: []string{"edicta", "verify", "--no-config", "--help"}},
+	{id: "edicta-verify/replay-help-long", argv: []string{"edicta", "replay", "--no-config", "--help"}},
+	{id: "edicta-verify/absence-help-long", argv: []string{"edicta", "absence", "--no-config", "--help"}},
+	{id: "edicta-verify/verify-no-args", argv: []string{"edicta", "verify", "--no-config"}},
+	{id: "edicta-verify/verify-unknown-flag", argv: []string{"edicta", "verify", "--no-config", "{hash}", "--bogus"}},
+	{id: "edicta-verify/verify-unknown-flag-json", argv: []string{"edicta", "verify", "--no-config", "{hash}", "--bogus", "--json"}},
+	{id: "edicta-verify/verify-config-flag", argv: []string{"edicta", "verify", "--no-config", "{hash}", "--config", "{fix}/missing.toml"}},
+	{id: "edicta-verify/verify-missing-gate-key", argv: []string{"edicta", "verify", "--no-config", "{hash}", "--archive", "{fix}/verify/archive", "--trusted", "{fix}/verify/trusted.json"}},
+	{id: "edicta-verify/verify-missing-archive", argv: []string{"edicta", "verify", "--no-config", "{hash}", "--gate-key", "{gatekey}"}},
+	{id: "edicta-verify/verify-archive-not-found", argv: []string{"edicta", "verify", "--no-config", "{hash}", "--gate-key", "{gatekey}", "--archive", "{fix}/nonexistent"}},
+	{id: "edicta-verify/verify-hash-first", argv: []string{"edicta", "verify", "--no-config", "{hash}", "--gate-key", "{gatekey}", "--archive", "{fix}/verify/archive", "--trusted", "{fix}/verify/trusted.json"}},
+	{id: "edicta-verify/verify-hash-last-single-dash", argv: []string{"edicta", "verify", "--no-config", "-archive", "{fix}/verify/archive", "-gate-key", "{gatekey}", "-trusted", "{fix}/verify/trusted.json", "{hash}"}},
+	{id: "edicta-verify/verify-eq-json", argv: []string{"edicta", "verify", "--no-config", "--archive={fix}/verify/archive", "--gate-key={gatekey}", "--trusted={fix}/verify/trusted.json", "--json=true", "{hash}"}},
+	{id: "edicta-verify/verify-no-trust-root", argv: []string{"edicta", "verify", "--no-config", "{hash}", "--gate-key", "{gatekey}", "--archive", "{fix}/verify/archive"}},
+	{id: "edicta-verify/replay-hash-first", argv: []string{"edicta", "replay", "--no-config", "{hash}", "--gate-key", "{gatekey}", "--archive", "{fix}/verify/archive", "--trusted", "{fix}/verify/trusted.json"}},
+	{id: "edicta-verify/absence-missing-source", argv: []string{"edicta", "absence", "--no-config", "{hash}", "--gate-key", "{gatekey}", "--archive", "{fix}/verify/archive", "--trusted", "{fix}/verify/trusted.json"}},
 
 	// edicta-signer
 	{id: "edicta-signer/help-short", argv: []string{"edicta-signer", "-h"}},
@@ -170,17 +181,17 @@ var cases = []tcase{
 	{id: "edicta-live/pubkey-missing-file", argv: []string{"edicta-live", "pubkey", "{fix}/missing"}},
 	{id: "edicta-live/pubkey", argv: []string{"edicta-live", "pubkey", "{fix}/seed"}},
 
-	// edicta-devinit
-	{id: "edicta-devinit/help-short", argv: []string{"edicta-devinit", "-h"}},
-	{id: "edicta-devinit/help-long", argv: []string{"edicta-devinit", "--help"}},
-	{id: "edicta-devinit/no-args", argv: []string{"edicta-devinit"}},
-	{id: "edicta-devinit/unknown-flag", argv: []string{"edicta-devinit", "--bogus"}},
-	{id: "edicta-devinit/extra-arg", argv: []string{"edicta-devinit", "--home", "{work}/dev", "extra"}},
-	{id: "edicta-devinit/flag-after-positional", argv: []string{"edicta-devinit", "extra", "--home", "{work}/dev"}},
-	{id: "edicta-devinit/escrow-address-alone", argv: []string{"edicta-devinit", "-home", "{work}/dev", "-escrow-address", "0x0000000000000000000000000000000000000001"}},
-	{id: "edicta-devinit/escrow-code-missing", argv: []string{"edicta-devinit", "--home={work}/dev", "--escrow-code-file={fix}/missing.hex"}},
-	{id: "edicta-devinit/escrow-code-empty", argv: []string{"edicta-devinit", "--home", "{work}/dev", "--escrow-code-file", "{fix}/escrow-empty.hex"}},
-	{id: "edicta-devinit/fresh-home", argv: []string{"edicta-devinit", "--home={work}/dev"}, masks: random},
+	// edicta-devinit, now edicta dev init in the edictadev build
+	{id: "edicta-devinit/help-short", argv: []string{"edicta-dev", "dev", "init", "-h"}},
+	{id: "edicta-devinit/help-long", argv: []string{"edicta-dev", "dev", "init", "--help"}},
+	{id: "edicta-devinit/no-args", argv: []string{"edicta-dev", "dev", "init"}},
+	{id: "edicta-devinit/unknown-flag", argv: []string{"edicta-dev", "dev", "init", "--bogus"}},
+	{id: "edicta-devinit/extra-arg", argv: []string{"edicta-dev", "dev", "init", "--home", "{work}/dev", "extra"}},
+	{id: "edicta-devinit/flag-after-positional", argv: []string{"edicta-dev", "dev", "init", "extra", "--home", "{work}/dev"}},
+	{id: "edicta-devinit/escrow-address-alone", argv: []string{"edicta-dev", "dev", "init", "-home", "{work}/dev", "-escrow-address", "0x0000000000000000000000000000000000000001"}},
+	{id: "edicta-devinit/escrow-code-missing", argv: []string{"edicta-dev", "dev", "init", "--home={work}/dev", "--escrow-code-file={fix}/missing.hex"}},
+	{id: "edicta-devinit/escrow-code-empty", argv: []string{"edicta-dev", "dev", "init", "--home", "{work}/dev", "--escrow-code-file", "{fix}/escrow-empty.hex"}},
+	{id: "edicta-devinit/fresh-home", argv: []string{"edicta-dev", "dev", "init", "--home={work}/dev"}, masks: random},
 
 	// edicta-principal
 	{id: "edicta-principal/no-args", argv: []string{"edicta-principal"}},

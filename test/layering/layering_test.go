@@ -69,6 +69,10 @@ var classes = map[string]class{
 	// The Celestia fakes and fixtures, whatever their package names.
 	"plugins/celestia/celestiatest": testsupport,
 
+	// The principal's command line, shared by cmd/edicta-principal and the
+	// edicta binary.
+	"internal/principalcli": service,
+
 	"examples":  example,
 	"cmd":       service,
 	"services":  service,

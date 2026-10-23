@@ -4,7 +4,7 @@ The one-command demo and the manual `edicta-live` runner are examples:
 [../../examples/tia-transfer/demo/README.md](../../examples/tia-transfer/demo/README.md) (`make demo`) and
 [../../examples/tia-transfer/README.md](../../examples/tia-transfer/README.md). This page is the full `edictad` configuration reference. The user guides, including fast mode and mandates, are in [../../docs/](../../docs/README.md).
 
-Setting up a stack from scratch: `edicta init` creates the keys, a starter mandate and `edicta.toml` in the Edicta home, and `edicta doctor` checks it. `edictad -config` accepts that `edicta.toml` as well as the `edictad.toml` described below. See [../../docs/quickstart.md](../../docs/quickstart.md) and the "The shared configuration" and "Checking the setup" parts of [../../docs/operator.md](../../docs/operator.md).
+Setting up a stack from scratch: `edicta init` creates the keys, a starter mandate and `edicta.toml` in the Edicta home, and `edicta doctor` checks it. `edicta gate serve -config` accepts that `edicta.toml` as well as the `edictad.toml` described below. See [../../docs/quickstart.md](../../docs/quickstart.md) and the "The shared configuration" and "Checking the setup" parts of [../../docs/operator.md](../../docs/operator.md).
 
 Everything here is Edicta wire version 1 (spec revision `v1.0`, tags `v1.0.0` and `v1.0.1`): `/v1/*` HTTP paths, `edicta/v1/*` tags, and a salted action hash whose 32-byte salt `edicta-live` carries from the agent to the gate and the executor.
 
@@ -17,13 +17,13 @@ your configuration.
 
 ## Configure and start edictad
 
-Start from the commented example, `cmd/edictad/edictad.example.toml`. Check
+Start from the commented example, `edictad.example.toml`. Check
 that the config parses (it prints paths only, never secrets), then start it,
 from the repository root:
 
 ```
-go -C services/gate run ./cmd/edictad -config <absolute path>/edictad.toml -print-config
-go -C services/gate run ./cmd/edictad -config <absolute path>/edictad.toml
+go -C services/cli run ./cmd/edicta gate serve -config <absolute path>/edictad.toml -print-config
+go -C services/cli run ./cmd/edicta gate serve -config <absolute path>/edictad.toml
 ```
 
 edictad refuses to start if the node fails the compatibility check, if a key
@@ -97,7 +97,7 @@ At start edictad verifies the mandate, logs its rendered text, and writes the ma
 record and the genesis closed set to the archive before it listens; a failed write
 refuses the start. To replace a mandate, sign a higher `version` with the same
 `mandate_id` (counters continue) and restart. Auditors verify with
-`edicta-verify --principal ed25519:HEX|cosmos:BECH32|eth:0xHEX --require-policy`
+`edicta verify --principal ed25519:HEX|cosmos:BECH32|eth:0xHEX --require-policy`
 (`--principal-key HEX` is the Ed25519-only form).
 
 The principal builds and signs the mandate with `cmd/edicta-principal` (Ed25519,

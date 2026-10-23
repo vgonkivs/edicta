@@ -1,0 +1,16 @@
+exit 4
+-- stdout --
+Usage:
+  edicta gate [flags]
+  edicta gate [command]
+
+Available Commands:
+  serve       Run the gate and the optional Recorder
+
+Flags:
+  -h, --help   help for gate
+
+Use "edicta gate [command] --help" for more information about a command.
+
+-- stderr --
+Error: unknown flag: --bogus

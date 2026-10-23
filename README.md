@@ -77,9 +77,9 @@ The demo prints an address to fund with testnet TIA and starts only after you
 press Enter. Using your own funded key, the trust root, the verdicts and how
 to re-verify a run offline: [examples/tia-transfer/demo/README.md](examples/tia-transfer/demo/README.md).
 
-`make build` only builds (`edicta`, `edictad`, `edicta-verify`,
-`edicta-signer` and the example binaries `edicta-demo` and `edicta-live` into
-`bin/`); `make vet` and `make test` run every Go module. To run the tests
+`make build` only builds (`edicta`, the standalones `edicta-signer` and
+`edicta-principal`, and the example binaries `edicta-demo` and `edicta-live`
+into `bin/`); `make vet` and `make test` run every Go module. To run the tests
 directly, from the repository root:
 
 ```sh
@@ -151,7 +151,7 @@ Cross-language test vectors (with an independent Python checker): [spec/vectors/
 
 Wire version 1 (the earlier v0 drafts are superseded and unsupported). The gate, the Go SDK, the Recorder, the
 `edictad` daemon, the archive and the verifier (`edicta verify`, `edicta
-replay`, `edicta-verify absence`) work end to end; the demo above, with the
+replay`, `edicta absence`) work end to end; the demo above, with the
 `celestia_blob` mode and a mandate, ran live on Celestia Mocha.
 
 - Mandates (spending limits, recipients, private mode with auditors) are
@@ -170,11 +170,11 @@ Not production-ready.
 
 | Path | Contents |
 |---|---|
-| `/` (module `github.com/vgonkivs/edicta`) | Core: `engine/commitment` (encoding, hashing, checks), `engine/gate`, `engine/policy` (mandates), `engine/principalsig`, `engine/archive`, `engine/verifier`, `sdk`, `api/edictaapi` (HTTP API), `engine/dacommit`, `test`; `cmd/edicta-principal` (the principal's mandate tool) |
+| `/` (module `github.com/vgonkivs/edicta`) | Core: `engine/commitment` (encoding, hashing, checks), `engine/gate`, `engine/policy` (mandates), `engine/principalsig`, `engine/archive`, `engine/verifier`, `sdk`, `api/edictaapi` (HTTP API), `engine/dacommit`, `test`; `cmd/edicta-principal` (the principal's mandate tool, also `edicta principal`) |
 | `plugins/celestia/` (own module) | The Celestia plugin: node client (`node`), chain readers (`chain`), proof checks (`proof`), the Recorder (`recorder`), Fibre blob commitment (`fibrecommit`), the bank-send transaction signer and checker (`banksend`), and test fakes (`celestiatest`) |
-| `services/gate/` (own module) | The `edictad` daemon and its wiring (`edictad/wire`) |
-| `services/signer/` (own module, links no Celestia node or chain code) | The payer key's service `edicta-signer`: signing core, Eden escrow handler (`eden`), daemon (`signerd`) |
-| `services/cli/` (own module) | The `edicta` command line (init, doctor, commit, agent, verify) and `edicta-verify` |
+| `services/gate/` (own module) | The `edictad` daemon, its wiring (`edictad/wire`) and its command line (`gatecmd`, run as `edicta gate serve`) |
+| `services/signer/` (own module, links no Celestia node or chain code) | The payer key's service `edicta-signer` (also `edicta signer serve`): signing core, Eden escrow handler (`eden`), daemon (`signerd`), command line (`signercmd`) |
+| `services/cli/` (own module) | The `edicta` binary: init, doctor, commit, agent serve, verify, replay, absence, gate serve, signer serve, principal, and dev init in edictadev builds |
 | `config/` (root module) | The `edicta.toml` schema, defaults and presets |
 | `plugins/banksend` (root module) | The bank-send rail: action format, message encoding, executor, policy extension |
 | `plugins/edenescrow` (root module) | The Eden escrow rail: action format, escrow table, executor-side checks (`edenexec`) and the JSON-RPC reader (`edenrpc`) |

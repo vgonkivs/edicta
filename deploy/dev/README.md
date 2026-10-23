@@ -32,7 +32,7 @@ Ports are in `.env`.
 
 ## Placeholders
 
-- NativeEscrow is not in the Eden genesis yet. `edicta-devinit` takes
+- NativeEscrow is not in the Eden genesis yet. `edicta dev init` takes
   `--escrow-address` and `--escrow-code-file` (runtime code, hex) and puts the
   code in the alloc; until then the slot is absent and `genesis-init` prints
   `PLACEHOLDER`.

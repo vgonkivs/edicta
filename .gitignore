@@ -30,7 +30,7 @@ examples/tia-transfer/cmd/*/edicta-*
 !examples/tia-transfer/cmd/*/*.go
 services/cli/cmd/*/edicta*
 !services/cli/cmd/*/*.go
-services/gate/cmd/*/edictad
-!services/gate/cmd/*/*.go
+cmd/*/edicta-*
+!cmd/*/*.go
 services/signer/cmd/*/edicta-signer
 !services/signer/cmd/*/*.go

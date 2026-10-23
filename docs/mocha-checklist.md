@@ -41,9 +41,8 @@ sections 5 and 6.
 - `celestia-appd` at the version of your node, plus `jq`.
 - Build from the repo root:
   ```
-  go -C services/gate build -o /tmp/edictad ./cmd/edictad
+  go -C services/cli build -o /tmp/edicta ./cmd/edicta
   go -C examples build -o /tmp/edicta-live ./tia-transfer/cmd/edicta-live
-  go -C services/cli build -o /tmp/edicta-verify ./cmd/edicta-verify
   ```
 - The gate seed, agent, executor and principal keys from the normal demo
   setup. These are Ed25519 keys. The Recorder account below is a secp256k1
@@ -97,7 +96,7 @@ the account is funded, then sequence 0.
 
 ## 3. Configuration
 
-Start from `services/gate/cmd/edictad/edictad.example.toml` and the demo's gate
+Start from `services/gate/edictad.example.toml` and the demo's gate
 setup, with a mandate that sets `fast_mode_max_delay`. Add:
 
 ```toml
@@ -135,7 +134,7 @@ Expected refusals: try each change once and keep the error line.
 
 Start:
 ```
-/tmp/edictad -config /etc/edictad/edictad.toml 2>&1 | tee edictad.log
+/tmp/edicta gate serve -config /etc/edictad/edictad.toml 2>&1 | tee edictad.log
 ```
 Expected lines: `edictad: fast mode on ...` and
 `edictad: recorder fast mode on; this account must sign nothing else account=<hex of ADDR> da=<mode> ...`.
@@ -172,7 +171,7 @@ may appear: `grep -c "<passphrase>" edictad.log` must print 0.
 6. Evidence at H: within a few polls of H, the archive gains the evidence
    record. Its height is H, not h0. No `recorder:` warning other than "anchor
    evidence not written yet" appears.
-7. `/tmp/edicta-verify verify <ref>` (flags as in [verifier.md](verifier.md)) reports the decision
+7. `/tmp/edicta verify --no-config <ref>` (flags as in [verifier.md](verifier.md)) reports the decision
    as published, with the anchor at H inside its window.
 8. fibre: after the promise timeout, the escrow balance went down by exactly
    one upload cost per decision.
@@ -232,7 +231,7 @@ This deliberately breaks the dedicated-account rule, so use a throwaway blob.
    least 10 blocks past the Authorization's deadline, the gate logs
    `edictad: anchor_missing: no anchor evidence after the deadline of a
    fast-mode Authorization`. It is at-least-once: it repeats after a restart.
-6. `/tmp/edicta-verify absence <ref>` (with `--archive`, `--gate-key` and
+6. `/tmp/edicta absence --no-config <ref>` (with `--archive`, `--gate-key` and
    `--absence-source`, see [verifier.md](verifier.md)) writes the absence
    proof, and `verify` reports `anchor_absent`, attributed to ADDR, the
    intent's signer.

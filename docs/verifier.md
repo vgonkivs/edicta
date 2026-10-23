@@ -7,15 +7,16 @@ one verdict. Spec: `spec/decision-commitment-v1.md`, section 20, and
 
 ## Commands
 
-Build with `make build`. Two binaries carry the same verifier:
+Build with `make build`:
 
 ```
-bin/edicta        verify|replay <commitment_hash> [flags]
-bin/edicta-verify verify|replay|absence <commitment_hash> [flags]
+bin/edicta verify|replay|absence <commitment_hash> [flags]
 ```
 
-`absence` exists only in `edicta-verify`. The hash may stand before, between
-or after the flags.
+The hash may stand before, between or after the flags. The flags you do not
+pass take their defaults from `edicta.toml` (`--config PATH`, or the file in
+the Edicta home when it exists). `--no-config` reads no file: the run then
+depends on its flags alone, and `--config` is refused.
 
 - `verify`: every check of the decision.
 - `replay`: the same, plus `retention_replay`, which recomputes the gate's
@@ -170,7 +171,7 @@ ones you will meet most:
 | `policy_walk_truncated` | Raise `--max-walk-steps` above the target's seq. |
 | `gate_equivocation`, `gate_signed_inconsistent_private_part` | The gate is at fault; the report attaches the signed evidence. Exit 5. |
 | `anchor_pending` | Fast mode, your trusted header is too low for the evidence. Retry later or with a newer checkpoint. If the anchor evidence is in the archive and verifies at height `H`, a trusted header at or above `H` is enough for a pass (see "Presence and absence need different headers"); below `H` the report says `evidence ties at H; verdict needs a checkpoint >= H`. A header trust that cannot name its checkpoint height leaves `header_trust` unchecked (`no_trusted_header`). |
-| `absence_unproven` | Fast mode, no anchor in the window and absence not proven. Run `edicta-verify absence` or pass `--absence-source`. |
+| `absence_unproven` | Fast mode, no anchor in the window and absence not proven. Run `edicta absence` or pass `--absence-source`. |
 | `anchor_unpaid` | The anchor PFF was included with a non-zero result code: the payload was published, but `valid` requires a paid anchor (result code 0). An unpaid anchor is an operator funding failure, surfaced by the escrow alert; nothing to fix on the verifier side. The report names `unpaid_height`. It stays `unchecked` for good and is never `invalid`. Another archive copy or `--absence-source` only helps if a paid anchor may sit at a height not proven. |
 | `unsupported_revision` | The commitment hashes to the reference, but its `payload_ref.da` is a value this verifier does not define (for now anything outside 1 and 2); the rest of that `payload_ref` is read as opaque. A later revision may define it, so this is not a verdict on the decision and never `invalid`. Use a verifier of a revision that defines this `da`; the gate keeps refusing such commitments. |
 
@@ -223,7 +224,7 @@ code has to be proven from block results. A trusted header below `H` leaves
 ### Absence proofs
 
 ```sh
-bin/edicta-verify absence <commitment hash> --gate-key <gate key hex> \
+bin/edicta absence <commitment hash> --gate-key <gate key hex> \
   --archive <archive dir> --absence-source <bridge JSON-RPC URL> \
   --headers-rpc <CometBFT RPC> --checkpoint <HEIGHT>:<HASH>
 ```
