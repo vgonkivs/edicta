@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package eden_test
+package edenrelay_test
 
 import (
 	"bytes"
@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
-	"github.com/vgonkivs/edicta/services/signer/eden"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrelay"
 )
 
 type syncBuffer struct {
@@ -41,7 +41,7 @@ func (s *syncBuffer) String() string {
 func TestDeprecated(t *testing.T) {
 	header := http.Header{}
 	header.Set("Deprecation", "true")
-	assert.True(t, eden.Deprecated(header, nil), "the header")
+	assert.True(t, edenrelay.Deprecated(header, nil), "the header")
 	for body, want := range map[string]bool{
 		`{"deprecation":true}`:                     true,
 		`{"txHash":"0x12", "deprecation" : true }`: true,
@@ -51,7 +51,7 @@ func TestDeprecated(t *testing.T) {
 		`deprecation: true`:                        false,
 		``:                                         false,
 	} {
-		assert.Equal(t, want, eden.Deprecated(http.Header{}, []byte(body)), body)
+		assert.Equal(t, want, edenrelay.Deprecated(http.Header{}, []byte(body)), body)
 	}
 }
 
@@ -73,12 +73,12 @@ func TestHoustonRelayLogsTheDeprecationMarkerOncePerProcess(t *testing.T) {
 		answer = f
 	}
 	var logs syncBuffer
-	rl, err := eden.NewHoustonRelay(eden.HoustonConfig{BaseURL: srv.URL, Timeout: time.Second}, srv.Client(),
+	rl, err := edenrelay.NewHoustonRelay(edenrelay.HoustonConfig{BaseURL: srv.URL, Timeout: time.Second}, srv.Client(),
 		slog.New(slog.NewTextHandler(&logs, nil)))
 	require.NoError(t, err)
 	send := func() error { return rl.Send(context.Background(), signed, railRef, [32]byte{0xab}) }
 
-	eden.ResetDeprecationLog()
+	edenrelay.ResetDeprecationLog()
 	set(func(w http.ResponseWriter) { _, _ = io.WriteString(w, `{"txHash":"0x`+railRef+`"}`) })
 	require.NoError(t, send())
 	assert.NotContains(t, logs.String(), "deprecated", "no marker, no line")
@@ -89,7 +89,7 @@ func TestHoustonRelayLogsTheDeprecationMarkerOncePerProcess(t *testing.T) {
 		w.Header().Set("Deprecation", "true")
 		http.Error(w, "failed to broadcast transaction", http.StatusBadRequest)
 	})
-	require.ErrorIs(t, send(), eden.ErrRelayFault, "an error with the marker is still a fault")
+	require.ErrorIs(t, send(), edenrelay.ErrRelayFault, "an error with the marker is still a fault")
 	set(func(w http.ResponseWriter) { _, _ = io.WriteString(w, `{"deprecation":true}`) })
 	require.NoError(t, send())
 	assert.Equal(t, 1, strings.Count(logs.String(), "marks its relay deprecated"), logs.String())

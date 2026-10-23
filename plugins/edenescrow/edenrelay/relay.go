@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package eden
+// Package edenrelay is the client of the payment server's relay route,
+// /deposit/send: it posts a signed deposit and reads the answer, which is
+// never evidence that the deposit landed.
+package edenrelay
 
 import (
 	"bytes"
@@ -77,8 +80,6 @@ type HoustonRelay struct {
 	hc       *http.Client
 	log      *slog.Logger
 }
-
-var _ Relay = (*HoustonRelay)(nil)
 
 // NewHoustonRelay checks the configuration; hc nil is a client that follows
 // no redirect, log nil the default logger.

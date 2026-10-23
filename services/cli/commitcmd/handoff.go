@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
-	"github.com/vgonkivs/edicta/services/signer/eden"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrelay"
 )
 
 // Pickup delay bounds: the wait between two paid retries that must both be
@@ -89,12 +89,12 @@ func (c *HandoffConfig) ApplyDefaults() {
 		c.PickupDelay = DefaultPickupDelay
 	}
 	if c.ServerTimeout == 0 {
-		c.ServerTimeout = eden.DefaultServerTimeout
+		c.ServerTimeout = edenrelay.DefaultServerTimeout
 	}
 }
 
-func (c HandoffConfig) relay() eden.HoustonConfig {
-	return eden.HoustonConfig{BaseURL: c.PaymentServer, Timeout: c.ServerTimeout}
+func (c HandoffConfig) relay() edenrelay.HoustonConfig {
+	return edenrelay.HoustonConfig{BaseURL: c.PaymentServer, Timeout: c.ServerTimeout}
 }
 
 // ValidateBasic checks the fields alone.
@@ -114,7 +114,7 @@ func (c HandoffConfig) ValidateBasic() error {
 // the ones the signer already signed and the chain already executed.
 type Handoff struct {
 	cfg   HandoffConfig
-	relay *eden.HoustonRelay
+	relay *edenrelay.HoustonRelay
 	log   *slog.Logger
 }
 
@@ -127,7 +127,7 @@ func NewHandoff(cfg HandoffConfig, hc *http.Client, log *slog.Logger) (*Handoff,
 	if log == nil {
 		log = slog.Default()
 	}
-	r, err := eden.NewHoustonRelay(cfg.relay(), hc, log)
+	r, err := edenrelay.NewHoustonRelay(cfg.relay(), hc, log)
 	if err != nil {
 		return nil, err
 	}

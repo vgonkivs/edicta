@@ -207,7 +207,7 @@ Not production-ready.
 | `config/` (root module) | The `edicta.toml` schema, defaults and presets |
 | `internal/` (root module) | Shared helpers: CBOR modes, EVM hashing, signing and RLP, key files, file locks, the principal tool's command line |
 | `plugins/banksend` (root module) | The bank-send rail: action format, message encoding, executor, policy extension |
-| `plugins/edenescrow` (root module) | The Eden escrow rail: action format, escrow table, executor-side checks (`edenexec`) and the JSON-RPC reader (`edenrpc`) |
+| `plugins/edenescrow` (root module) | The Eden escrow rail: action format, escrow table, executor-side checks (`edenexec`), the JSON-RPC reader (`edenrpc`) and the payment server's relay client (`edenrelay`) |
 | `plugins/ibkr` (root module) | The IBKR rail: order format (`ibkrorder`), executor, and a fake broker (`brokerfake`) |
 | `examples/` (own module) | Profiles in use: `tia-transfer` (Cosmos `MsgSend` on a price trigger, with the `edicta-demo` demo and the `edicta-live` runner) and `dca-agent` (IBKR order, offline with a fake broker) |
 | `sdk/ts/edicta-houston/` | `@edicta/houston`, the TypeScript wrapper for the escrow-upto payment flow (npm package, not a Go module) |

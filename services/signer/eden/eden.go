@@ -19,6 +19,7 @@ import (
 	"github.com/vgonkivs/edicta/api/signerapi"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrelay"
 	"github.com/vgonkivs/edicta/services/signer"
 )
 
@@ -57,6 +58,8 @@ type paymentProofSetup interface {
 type Relay interface {
 	Send(ctx context.Context, signed []byte, railRef string, paymentID [32]byte) error
 }
+
+var _ Relay = (*edenrelay.HoustonRelay)(nil)
 
 // Broadcast modes.
 const (

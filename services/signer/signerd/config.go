@@ -20,6 +20,7 @@ import (
 
 	"github.com/vgonkivs/edicta/config"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrelay"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrpc"
 	"github.com/vgonkivs/edicta/services/signer"
 	"github.com/vgonkivs/edicta/services/signer/eden"
@@ -211,7 +212,7 @@ func (c *Config) ApplyDefaults() {
 	}
 	b := &c.Broadcast
 	if b.ServerTimeoutS == 0 {
-		b.ServerTimeoutS = uint64(eden.DefaultServerTimeout / time.Second)
+		b.ServerTimeoutS = uint64(edenrelay.DefaultServerTimeout / time.Second)
 	}
 	if b.RelayGraceS == 0 {
 		b.RelayGraceS = min(uint64(eden.DefaultRelayGrace/time.Second), s.AwaitGraceS)
@@ -498,8 +499,8 @@ func (c Config) checkCredentials() error {
 	return nil
 }
 
-func (ch Chain) relayConfig(b Broadcast) eden.HoustonConfig {
-	hc := eden.HoustonConfig{BaseURL: ch.RelayURL, Timeout: time.Duration(b.ServerTimeoutS) * time.Second}
+func (ch Chain) relayConfig(b Broadcast) edenrelay.HoustonConfig {
+	hc := edenrelay.HoustonConfig{BaseURL: ch.RelayURL, Timeout: time.Duration(b.ServerTimeoutS) * time.Second}
 	hc.ApplyDefaults()
 	return hc
 }
