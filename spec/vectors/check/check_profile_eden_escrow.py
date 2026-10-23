@@ -29,7 +29,7 @@ from policy_v1 import encode_facts
 
 HERE = Path(__file__).resolve().parent
 DEFAULT = HERE.parent / "profiles" / "eden-escrow"
-REVISION = "eden-escrow-v1-draft.9"
+REVISION = "eden-escrow-v1-draft.10"
 
 fails: list[str] = []
 
