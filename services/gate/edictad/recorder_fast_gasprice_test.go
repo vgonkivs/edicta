@@ -40,15 +40,15 @@ func TestRecorderFastMinGasPriceIsAbsentWithoutFast(t *testing.T) {
 
 func TestRecorderFastMinGasPriceRefusals(t *testing.T) {
 	for name, v := range map[string]string{
-		"zero":        "0",
-		"zero dotted": "0.000",
-		"negative":    "-0.1",
-		"exponent":    "1e-3",
-		"fraction":    "1/500",
-		"word":        "cheap",
-		"leading dot": ".5",
-		"two dots":    "0.0.2",
-		"unit suffix": "0.002utia",
+		"zero":              "0",
+		"zero dotted":       "0.000",
+		"negative":          "-0.1",
+		"exponent":          "1e-3",
+		"fraction":          "1/500",
+		"word":              "cheap",
+		"leading dot":       ".5",
+		"two dots":          "0.0.2",
+		"unit suffix":       "0.002utia",
 		"above the ceiling": "2",
 		"far above":         "1000",
 	} {
