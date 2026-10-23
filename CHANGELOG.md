@@ -19,16 +19,19 @@ tag, test vector, API code or gate check changed.
   verify|replay|absence --no-config` replaces `edicta-verify`, `edicta dev
   init` replaces `edicta-devinit` (builds with the `edictadev` tag), and
   `edicta signer serve` and `edicta principal` run the signer and the
-  principal tool. Flags, defaults, outputs and exit codes of every command
-  are those of the binary it replaces, except that each command names itself
-  by its new name in usage and error messages. `edicta verify -h` lists
-  `--no-config`. Build output goes to `bin/`.
+  principal tool. Flags, defaults and exit codes of every command are those
+  of the binary it replaces; usage and error messages name the new command,
+  `edicta verify -h` lists `--no-config`, and the help no longer lists test
+  flags of linked dependencies. Build output goes to `bin/`.
 - Light standalones: `edicta-signer` (in `services/signer`) and
   `edicta-principal` (in the root module) link no Celestia node or chain
   code, so the processes that hold the payer key and the principal key stay
   small; a guard test keeps them so.
 - The demo is an example binary: `edicta-demo` (`make demo`) replaces
   `edicta demo`; `edicta-live` moved to `examples/tia-transfer`.
+- `make release-check` builds, vets and checks every module, the guard
+  tests, the command line pin, the vector manifest, the documentation links
+  and repository hygiene, without running the full test suite.
 
 ## v1.1 (spec revision v1.1)
 

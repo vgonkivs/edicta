@@ -5,7 +5,7 @@ export GOWORK := off
 BIN := bin
 MODS := plugins/celestia services/gate services/signer services/cli examples
 
-.PHONY: build demo test test-clipin test-q vet vectors clean contracts contracts-check dev-up dev-down dev-smoke test-dev check-mods
+.PHONY: build demo test test-clipin test-q vet vectors clean contracts contracts-check dev-up dev-down dev-smoke test-dev check-mods release-check
 
 # edicta-principal is the root module's light standalone; the modules build
 # edicta, edicta-signer, edicta-demo and edicta-live.
@@ -53,6 +53,12 @@ clean:
 check-mods:
 	make/check-mods.sh
 	go test -count=1 ./test/modparity
+
+# Before a release: build and vet every module with and without edictadev,
+# gofmt, module hygiene, the guard tests, the command line pin, the vector
+# manifest and repository hygiene. It runs no full test suite (make test).
+release-check:
+	make/release-check.sh
 
 # Quiet test run: package summary lines that failed, plus failure output only.
 # PKGS defaults to everything; pass PKGS="./engine/policy/... ./engine/gate/..." to narrow.

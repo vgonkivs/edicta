@@ -24,7 +24,6 @@ spec/vectors/tools/*/fibrecert-gen
 
 # Built command binaries
 spec/vectors/tools/*/fibreanchor-gen
-celestia/bin/
 /bin/
 examples/tia-transfer/cmd/*/edicta-*
 !examples/tia-transfer/cmd/*/*.go
