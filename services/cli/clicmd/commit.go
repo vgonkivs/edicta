@@ -183,6 +183,16 @@ func runCommit(ctx context.Context, args []string, out io.Writer, stdin io.Reade
 		req.ResumeHash = *resumeHash
 	}
 
+	if o.stateDir != "" {
+		unlock, err := commitcmd.LockStateDir(o.stateDir)
+		if errors.Is(err, commitcmd.ErrStateDirInUse) {
+			return fail(out, &commitcmd.Failure{Exit: commitcmd.ExitUnavailable, Code: "busy", Message: err.Error(), Retryable: true})
+		}
+		if err != nil {
+			return fail(out, usageErr("%v", err))
+		}
+		defer unlock()
+	}
 	svc, closeFn, err := newCommitService(ctx, o)
 	if err != nil {
 		return failErr(out, err)
