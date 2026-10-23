@@ -69,7 +69,8 @@ func (s *Service) PaymentProof(ctx context.Context, req PaymentProofRequest, cal
 	}
 	wallet := s.wallets[wk]
 	if wallet == nil || s.payer(wk) != e.Payer {
-		return PaymentProof{}, fmt.Errorf("%w: no payer key %x of this agent for chain %d", ErrPinMismatch, e.Payer, e.Key)
+		return PaymentProof{}, fmt.Errorf("%w: the deposit's payer %x is not this agent's payer on chain %d now; only that key signs its Payment-Signature",
+			ErrPinMismatch, e.Payer, e.Key)
 	}
 	sig, err := wallet.SignDigest(ctx, digest)
 	if err != nil {

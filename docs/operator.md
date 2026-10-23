@@ -529,6 +529,34 @@ that the anchor lands (it makes a missing anchor provable afterwards). Your
 own consensus node is trusted for header time and, in fast mode, for mempool
 acceptance.
 
+## Eden signer: moving to one payer key per agent
+
+`edicta-signer` refuses the old shared `payer_key_file` and `payer_address`
+keys of a chain; each served agent now has its own `[[chain.payer]]` table
+(see `services/signer/signer.example.toml`). A decision keeps the payer it
+was reserved under. When that payer is no longer its agent's, a repeat sign
+request and its Payment-Signature are refused (`signer.ErrPinMismatch`), so
+an executed deposit stays in the escrow until its refund, which goes to the
+old payer.
+
+Before switching:
+
+1. Drain: stop sending new decisions and let every decision in flight
+   settle and get its Payment-Signature, with the old binary and
+   configuration.
+2. If one agent made all the decisions still in flight, the switch may go
+   ahead without the drain: give that agent the old shared key as its
+   `[[chain.payer]]`, and give the other agents new keys.
+
+At start the signer logs one warning per decision in flight (reserved,
+signed, executed without its Payment-Signature yet, or held for the
+operator) whose stored payer is not its agent's payer now, with
+`commitment_hash`, `agent`, `chain`, `stored_payer` and `configured_payer`.
+The start goes on and other agents are not affected. Give `stored_payer`'s
+key back to that agent and restart to release those decisions. Decisions
+already recorded are not listed: their Payment-Signature request is refused
+with the same reason.
+
 ## API error codes added in v1.1
 
 `POST /v1/record` answers two cases with their own codes; before, they came

@@ -74,7 +74,9 @@ max_fee_per_action = "30000000000"
 # One payer key per served agent on this chain (mode 0600), used for that
 # agent's deposits and Payment-Signatures here and for nothing else: it is
 # the escrow's buyer. A key file or address under two agents or two chains
-# refuses to start; so does a served agent without one.
+# refuses to start; so does a served agent without one. A decision keeps the
+# payer it was reserved under: drain the decisions in flight before you move
+# a key to another agent or replace it (docs/operator.md).
 [[chain.payer]]
 agent_pubkey = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
 key_file = "/var/lib/edicta-signer/payer-714-agent-1.key"

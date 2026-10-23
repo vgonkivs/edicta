@@ -122,6 +122,8 @@ type env struct {
 type envOpts struct {
 	// wrap replaces the handler the service sees.
 	wrap func(signer.Handler) signer.Handler
+	// log, when set, receives the service's log instead of nothing.
+	log *slog.Logger
 	// payment turns the Payment-Signature on: two explicitly labelled
 	// operators at L1, the quote's facilitator allowed, R required.
 	payment bool
@@ -225,9 +227,13 @@ func (e *env) open() {
 	if e.opts.wrap != nil {
 		hd = e.opts.wrap(h)
 	}
+	log := quiet
+	if e.opts.log != nil {
+		log = e.opts.log
+	}
 	svc, err := signer.New(e.cfg, signer.Deps{
 		Store: st, Wallets: wallets, Handlers: []signer.Handler{hd},
-		Executor: exec, Recorder: signer.GateRecorder{C: e.gate}, Clock: e.clk, Log: quiet,
+		Executor: exec, Recorder: signer.GateRecorder{C: e.gate}, Clock: e.clk, Log: log,
 	})
 	require.NoError(t, err)
 	require.NoError(t, svc.Start(context.Background()))

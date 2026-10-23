@@ -305,6 +305,9 @@ func (s *Service) Start(ctx context.Context) error {
 	if err := s.indexOldSlots(ctx); err != nil {
 		return err
 	}
+	if err := s.warnForeignPayers(ctx, payers); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	s.payers, s.started = payers, true
 	s.mu.Unlock()
@@ -334,6 +337,47 @@ func (s *Service) indexOldSlots(ctx context.Context) error {
 		if err := s.st.IndexSlot(ctx, e.CommitmentHash, slot); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// warnForeignPayers names every decision still in flight whose stored payer
+// is not the payer its agent has on that chain now, as after a change of
+// the payer configuration. Such a decision fails closed: no repeat signs
+// it and its Payment-Signature is refused, so an executed deposit sits in
+// escrow until its refund. The start goes on; the operator gives the
+// stored payer key back to that agent, or lets the decision run out first.
+func (s *Service) warnForeignPayers(ctx context.Context, payers map[WalletKey][20]byte) error {
+	entries, err := s.st.Unfinished(ctx, StateReserved, StateSigned, StateWrong, StateExecuted)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.State == StateExecuted && (!e.PaymentProofAllowed || len(e.PaymentProof) > 0) {
+			continue
+		}
+		hash := hex.EncodeToString(e.CommitmentHash[:])
+		sc, err := commitment.DecodeSigned(e.Envelope)
+		var wk WalletKey
+		if err == nil {
+			wk, err = NewWalletKey(sc.Commitment.AgentPubKey, e.Key)
+		}
+		if err != nil {
+			s.log.Warn("signer: a stored decision in flight names no agent; its payer is not checked", "commitment_hash", hash, "err", err)
+			continue
+		}
+		now, ok := payers[wk]
+		if ok && now == e.Payer {
+			continue
+		}
+		configured := "none"
+		if ok {
+			configured = hex.EncodeToString(now[:])
+		}
+		s.log.Warn("signer: a decision in flight was reserved under a payer its agent no longer has; "+
+			"it is not signed again and gets no Payment-Signature until that key is the agent's payer again",
+			"commitment_hash", hash, "state", e.State, "agent", hex.EncodeToString(wk.Agent[:]), "chain", e.Key,
+			"stored_payer", hex.EncodeToString(e.Payer[:]), "configured_payer", configured)
 	}
 	return nil
 }
@@ -413,7 +457,8 @@ func (s *Service) SignAs(ctx context.Context, req Request, caller []byte) (Outpu
 			return Output{}, ErrDigestConflict
 		}
 		if stored.Payer != plan.Payer {
-			return Output{}, fmt.Errorf("%w: the decision was reserved for payer %x", ErrPinMismatch, stored.Payer)
+			return Output{}, fmt.Errorf("%w: the decision was reserved for payer %x, not this agent's payer %x on chain %d now",
+				ErrPinMismatch, stored.Payer, plan.Payer, plan.Key)
 		}
 		if len(stored.Signed) > 0 {
 			s.wake()
