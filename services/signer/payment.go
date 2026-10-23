@@ -61,9 +61,15 @@ func (s *Service) PaymentProof(ctx context.Context, req PaymentProofRequest, cal
 		out.Signature, out.Repeat = bytes.Clone(e.PaymentProof), true
 		return out, nil
 	}
-	wallet := s.wallets[e.Key]
-	if wallet == nil || s.payer(e.Key) != e.Payer {
-		return PaymentProof{}, fmt.Errorf("%w: no payer key %x for chain %d", ErrPinMismatch, e.Payer, e.Key)
+	// The payer that signed the deposit is the escrow's buyer; only its own
+	// key may sign the proof, and only while it is still this agent's.
+	wk, err := NewWalletKey(v.Commitment.AgentPubKey, e.Key)
+	if err != nil {
+		return PaymentProof{}, fmt.Errorf("%w: %w", ErrNotAuthorized, err)
+	}
+	wallet := s.wallets[wk]
+	if wallet == nil || s.payer(wk) != e.Payer {
+		return PaymentProof{}, fmt.Errorf("%w: no payer key %x of this agent for chain %d", ErrPinMismatch, e.Payer, e.Key)
 	}
 	sig, err := wallet.SignDigest(ctx, digest)
 	if err != nil {

@@ -113,6 +113,9 @@ type env struct {
 	opts  envOpts
 	// second is the second operator's source in payment mode.
 	second *signertest.Chain
+	// keys2 are the second agent's keys (envOpts.agent2): its own agent
+	// and payer, the same gate.
+	keys2 signertest.Keys
 }
 
 // envOpts change how the service is built.
@@ -122,6 +125,8 @@ type envOpts struct {
 	// payment turns the Payment-Signature on: two explicitly labelled
 	// operators at L1, the quote's facilitator allowed, R required.
 	payment bool
+	// agent2 serves a second agent with its own payer on the same chain.
+	agent2 bool
 }
 
 // labelled gives a fake chain an operator label.
@@ -165,6 +170,12 @@ func newEnvOpts(t testing.TB, o envOpts, mut ...func(*signer.Config)) *env {
 		e.second.Host = "second-operator"
 	}
 	e.cfg = defaultConfig(k)
+	if o.agent2 {
+		other := signertest.NewKeys(t.Name() + "/agent2")
+		e.keys2 = k
+		e.keys2.Agent, e.keys2.Payer = other.Agent, other.Payer
+		e.cfg.AgentKeys = append(e.cfg.AgentKeys, e.keys2.AgentPub())
+	}
 	for _, m := range mut {
 		m(&e.cfg)
 	}
@@ -182,9 +193,14 @@ func (e *env) open() {
 	e.store = st
 
 	pins := eden.ChainPins{
-		ChainID: 714, Payer: e.keys.PayerAddress(), Facilitators: [][20]byte{signertest.Facilitator},
+		ChainID: 714, Payers: payerPins(e.keys), Facilitators: [][20]byte{signertest.Facilitator},
 		MaxRefundDelay: 7200, MaxFeePerGas: big.NewInt(10_000), MaxGas: 300_000, MaxFeePerAction: big.NewInt(3e9),
 		Broadcast: eden.BroadcastDirect,
+	}
+	wallets := map[signer.WalletKey]signer.WalletBackend{walletKey(t, e.keys, 714): mustWallet(t, e.keys)}
+	if e.opts.agent2 {
+		pins.Payers[[32]byte(e.keys2.AgentPub())] = e.keys2.PayerAddress()
+		wallets[walletKey(t, e.keys2, 714)] = mustWallet(t, e.keys2)
 	}
 	hcfg := eden.Config{Chains: []eden.ChainPins{pins}, ResendEvery: 20 * time.Millisecond, PaymentSignatureField: eden.FieldOff}
 	ccfg := edenexec.Config{MinLevel: edenexec.LevelNodeAttested, PollInterval: 5 * time.Millisecond}
@@ -203,8 +219,6 @@ func (e *env) open() {
 		Chains: map[uint64]eden.Chain{714: e.chain}, Settlers: map[uint64]eden.Settler{714: checker}, Log: quiet,
 	})
 	require.NoError(t, err)
-	wallet, err := signer.NewKeyWallet(e.keys.Payer)
-	require.NoError(t, err)
 	exec, err := signer.NewEd25519Executor(e.keys.Executor)
 	require.NoError(t, err)
 	var hd signer.Handler = h
@@ -212,12 +226,24 @@ func (e *env) open() {
 		hd = e.opts.wrap(h)
 	}
 	svc, err := signer.New(e.cfg, signer.Deps{
-		Store: st, Wallets: map[uint64]signer.WalletBackend{714: wallet}, Handlers: []signer.Handler{hd},
+		Store: st, Wallets: wallets, Handlers: []signer.Handler{hd},
 		Executor: exec, Recorder: signer.GateRecorder{C: e.gate}, Clock: e.clk, Log: quiet,
 	})
 	require.NoError(t, err)
 	require.NoError(t, svc.Start(context.Background()))
 	e.h, e.svc = h, svc
+}
+
+// payerPins pins the keys' payer for the keys' agent.
+func payerPins(k signertest.Keys) map[[32]byte][20]byte {
+	return map[[32]byte][20]byte{[32]byte(k.AgentPub()): k.PayerAddress()}
+}
+
+func walletKey(t testing.TB, k signertest.Keys, chain uint64) signer.WalletKey {
+	t.Helper()
+	wk, err := signer.NewWalletKey(k.AgentPub(), chain)
+	require.NoError(t, err)
+	return wk
 }
 
 func mustWallet(t testing.TB, k signertest.Keys) *signer.KeyWallet {

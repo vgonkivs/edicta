@@ -17,7 +17,8 @@ type Entry struct {
 	// Digest is what the payer key signs; one per decision.
 	Digest     [32]byte `json:"digest"`
 	ActionType string   `json:"action_type"`
-	// Key selects the wallet: the chain id.
+	// Key is the chain id; with the envelope's agent key it selects the
+	// wallet.
 	Key   uint64   `json:"key"`
 	Payer [20]byte `json:"payer"`
 	// Value and Fee are what the caps count, big-endian.

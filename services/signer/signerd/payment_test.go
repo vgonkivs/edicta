@@ -52,14 +52,17 @@ own_node = true
 settlement_rpc = ["gateway=%s"]
 broadcaster = "houston-relay"
 relay_url = "https://pay.example/"
-payer_key_file = %q
-payer_address = "0x%x"
 facilitators = ["0xfac1117a70400000000000000000000000000000"]
 max_refund_delay_s = 7200
 max_fee_per_gas = "10000"
 max_gas = 300000
 max_fee_per_action = "3000000000"
-`, f.store, edPub(gate), edPub(agent), edPub(agent), cred, own, second, f.payer, payer)
+
+[[chain.payer]]
+agent_pubkey = %q
+key_file = %q
+address = "0x%x"
+`, f.store, edPub(gate), edPub(agent), edPub(agent), cred, own, second, edPub(agent), f.payer, payer)
 }
 
 func validate(text string) error {

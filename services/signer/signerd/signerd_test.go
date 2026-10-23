@@ -127,14 +127,17 @@ chain_id = 714
 rpc = %q
 own_node = true
 broadcaster = "direct"
-payer_key_file = %q
-payer_address = "0x%x"
 facilitators = ["0xfac1117a70400000000000000000000000000000"]
 max_refund_delay_s = 7200
 max_fee_per_gas = "10000"
 max_gas = 300000
 max_fee_per_action = "3000000000"
-`, f.token, f.store, edPub(gate), edPub(agent), f.executor, rpc, f.payer, payer)
+
+[[chain.payer]]
+agent_pubkey = %q
+key_file = %q
+address = "0x%x"
+`, f.token, f.store, edPub(gate), edPub(agent), f.executor, rpc, edPub(agent), f.payer, payer)
 }
 
 func TestBuildServesAfterTheStartupChecks(t *testing.T) {

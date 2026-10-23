@@ -27,7 +27,8 @@ const r = await edictaPay({
 ## Where it plugs into the flow
 
 1. `POST /v1/chat/completions` returns 402 with the `payment-required` header.
-2. `POST /deposit/build` with `from` = the signer's payer address (`GET /v1/payer`).
+2. `POST /deposit/build` with `from` = your agent's own payer address on that
+   chain (the signer pins one payer key per agent per chain; ask its operator).
    Wrap steps 2 and 3 in `PayQueues.for(payer).run(...)` so two builds for one payer never overlap.
 3. `edictaPay(...)` replaces "sign the unsigned tx", "POST /deposit/send" and the
    wait for confirmation: the signer sends the signed deposit itself, directly
