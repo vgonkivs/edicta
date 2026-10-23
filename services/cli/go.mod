@@ -309,7 +309,7 @@ require (
 	github.com/tidwall/btree v1.7.0 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/vgonkivs/edicta v0.0.0
-	github.com/vgonkivs/edicta/celestia v0.0.0
+	github.com/vgonkivs/edicta/plugins/celestia v0.0.0
 	github.com/vgonkivs/edicta/services/gate v0.0.0
 	github.com/vgonkivs/edicta/services/signer v0.0.0
 	github.com/whyrusleeping/go-keyspace v0.0.0-20160322163242-5b898ac5add1 // indirect
@@ -369,7 +369,7 @@ require (
 
 replace github.com/vgonkivs/edicta => ../../
 
-replace github.com/vgonkivs/edicta/celestia => ../../celestia
+replace github.com/vgonkivs/edicta/plugins/celestia => ../../plugins/celestia
 
 replace github.com/vgonkivs/edicta/services/gate => ../../services/gate
 

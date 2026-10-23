@@ -7,7 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/vgonkivs/edicta/celestia/test/fibrefix"
+	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/fibrefix"
 	"os"
 	"path/filepath"
 	"testing"

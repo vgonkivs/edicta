@@ -10,7 +10,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/vgonkivs/edicta/celestia/inclusion"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/inclusion"
 )
 
 //go:embed presets/mocha.toml

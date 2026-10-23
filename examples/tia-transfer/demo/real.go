@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/celestia/railtx"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/pricefeed"
 	"github.com/vgonkivs/edicta/plugins/banksend/transfer"
+	"github.com/vgonkivs/edicta/plugins/celestia/banksend/railtx"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/services/cli/verifycli"
 	"github.com/vgonkivs/edicta/services/gate/edictad"
 	"github.com/vgonkivs/edicta/services/gate/edictad/wire"

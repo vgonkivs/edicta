@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/pricefeed"
 	"github.com/vgonkivs/edicta/internal/secret"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
 )
 
 // End-to-end run against a real edictad and a real network. It skips unless

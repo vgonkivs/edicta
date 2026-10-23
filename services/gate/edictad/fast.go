@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/vgonkivs/edicta/celestia/gatechain"
-	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
 )
 
 // IntentSourceArchive is the one source of anchor intents: the archive the

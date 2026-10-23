@@ -12,15 +12,15 @@ import (
 
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 
-	"github.com/vgonkivs/edicta/celestia/cometrpc"
-	"github.com/vgonkivs/edicta/celestia/headertrust"
-	"github.com/vgonkivs/edicta/celestia/inclusion"
-	"github.com/vgonkivs/edicta/celestia/railverify"
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
+	"github.com/vgonkivs/edicta/plugins/celestia/banksend/railverify"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/cometrpc"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/inclusion"
+	"github.com/vgonkivs/edicta/plugins/celestia/proof/headertrust"
 )
 
 // bankHRP is the address prefix of the chains the bank-send checker serves.

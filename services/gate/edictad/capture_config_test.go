@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/execcapture"
-	"github.com/vgonkivs/edicta/celestia/railverify"
 	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
+	"github.com/vgonkivs/edicta/plugins/celestia/banksend/execcapture"
+	"github.com/vgonkivs/edicta/plugins/celestia/banksend/railverify"
 	"github.com/vgonkivs/edicta/services/gate/edictad"
 )
 

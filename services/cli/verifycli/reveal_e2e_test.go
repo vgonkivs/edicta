@@ -12,12 +12,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/test/cometfake"
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/engine/policy/privatebox"
+	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/cometfake"
 )
 
 // privatize turns the bank world's public decision record into the private

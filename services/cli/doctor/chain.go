@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vgonkivs/edicta/celestia/fibrecommit"
-	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/config"
+	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
+	"github.com/vgonkivs/edicta/plugins/celestia/recorder"
 	"github.com/vgonkivs/edicta/services/cli/internal/clearerr"
 )
 

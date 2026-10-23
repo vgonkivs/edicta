@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/internal/testkit"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/services/cli/doctor"
 )
 
@@ -130,7 +130,7 @@ func TestSystemKeyring(t *testing.T) {
 	dir := t.TempDir()
 	pass := filepath.Join(dir, "pass")
 	require.NoError(t, os.WriteFile(pass, []byte("fixture-passphrase\n"), 0o600))
-	fixture := testkit.RepoPath(t, "celestia/node/testdata/file-keyring")
+	fixture := testkit.RepoPath(t, "plugins/celestia/node/testdata/file-keyring")
 	kr := filepath.Join(dir, "kr")
 	require.NoError(t, os.CopyFS(kr, os.DirFS(fixture)))
 

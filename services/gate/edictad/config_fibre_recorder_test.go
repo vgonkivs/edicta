@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/test/fibrefix"
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
+	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/fibrefix"
 	"github.com/vgonkivs/edicta/services/gate/edictad"
 )
 

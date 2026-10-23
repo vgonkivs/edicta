@@ -15,9 +15,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 
-	"github.com/vgonkivs/edicta/celestia/gatechain"
-	"github.com/vgonkivs/edicta/celestia/inclusion"
-	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
@@ -27,6 +24,9 @@ import (
 	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
 	"github.com/vgonkivs/edicta/plugins/banksend/bankmsg"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/inclusion"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/blob"
 	"github.com/vgonkivs/edicta/sdk/payload"

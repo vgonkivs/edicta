@@ -12,7 +12,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
@@ -20,6 +19,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/engine/gate/registry"
 	"github.com/vgonkivs/edicta/engine/gate/registry/boltreg"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
 

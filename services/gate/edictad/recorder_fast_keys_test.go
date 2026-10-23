@@ -19,13 +19,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/celestia/nodefake"
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/engine/principalsig"
+	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/nodefake"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/services/gate/edictad"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )

@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/test/fibreworld"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/fibreworld"
 )
 
 // The evidence the da = 1 Recorder archived is accepted by the verifier as it

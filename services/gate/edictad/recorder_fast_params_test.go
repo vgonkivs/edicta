@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/celestia/recorder"
-	"github.com/vgonkivs/edicta/celestia/test/fibreworld"
+	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/fibreworld"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
+	"github.com/vgonkivs/edicta/plugins/celestia/recorder"
 	"github.com/vgonkivs/edicta/services/gate/edictad"
 )
 

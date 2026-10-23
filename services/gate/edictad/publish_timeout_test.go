@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
-	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/celestia/recorder"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
+	"github.com/vgonkivs/edicta/plugins/celestia/recorder"
 )
 
 type timeoutSubmitter struct{ *landing }

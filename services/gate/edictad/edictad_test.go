@@ -18,10 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
-	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/engine/gate/registry/boltreg"
 	"github.com/vgonkivs/edicta/internal/secret"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/services/gate/edictad"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )

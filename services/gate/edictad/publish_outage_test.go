@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
-	"github.com/vgonkivs/edicta/celestia/node"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
 )
 
 // A node outage seen by the Recorder is answered 503 with retryable = 1,

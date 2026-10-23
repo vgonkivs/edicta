@@ -13,12 +13,12 @@ import (
 
 	"golang.org/x/crypto/ripemd160" //nolint:staticcheck // Cosmos addresses are RIPEMD-160 by definition.
 
-	"github.com/vgonkivs/edicta/celestia/fibrecommit"
-	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/engine/principalsig"
+	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
+	"github.com/vgonkivs/edicta/plugins/celestia/recorder"
 )
 
 // defaultFastTimeoutBlocks is the recorder's own default, repeated here so the

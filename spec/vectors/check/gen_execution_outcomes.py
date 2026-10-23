@@ -33,8 +33,8 @@ HERE = Path(__file__).resolve().parent
 VECTORS = HERE.parent
 REPO = VECTORS.parent.parent
 OUT = VECTORS / "verifier" / "execution_outcomes.json"
-LIVE_TX = REPO / "celestia" / "railverify" / "testdata" / "tx_prove_1442606.json"
-LIVE_HEADER = REPO / "celestia" / "railverify" / "testdata" / "header_1442606.json"
+LIVE_TX = REPO / "plugins" / "celestia" / "banksend" / "railverify" / "testdata" / "tx_prove_1442606.json"
+LIVE_HEADER = REPO / "plugins" / "celestia" / "banksend" / "railverify" / "testdata" / "header_1442606.json"
 
 ANCHOR = 6543200
 TX_H = 6543290

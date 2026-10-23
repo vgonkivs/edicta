@@ -16,11 +16,11 @@ import (
 	"github.com/celestiaorg/celestia-node/share/shwap"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 
-	"github.com/vgonkivs/edicta/celestia/nodefake"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/gate/gatetest"
 	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/plugins/banksend/transfer"
+	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/nodefake"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/test/gatefix"
 	"github.com/vgonkivs/edicta/test/sdkfix"

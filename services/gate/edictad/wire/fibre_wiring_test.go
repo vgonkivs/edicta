@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/celestia/nodefake"
+	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/nodefake"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
 )
 
 func stubFibreCheck(t *testing.T, err error) *int {

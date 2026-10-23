@@ -67,7 +67,7 @@ func TestSignerModuleIsLight(t *testing.T) {
 // The guard is only as good as its prefixes: each must name a module the
 // heavy celestia module actually links, or a typo would pass silently.
 func TestHeavyPrefixesNameLinkedModules(t *testing.T) {
-	out := goOutIn(t, "celestia", "list", "-m", "all")
+	out := goOutIn(t, "plugins/celestia", "list", "-m", "all")
 	for _, p := range heavyPrefixes {
 		assert.NotEmptyf(t, heavyLines(out, p), "%s is not in the celestia module graph", p)
 	}

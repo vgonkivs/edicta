@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/test/cometfake"
+	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/cometfake"
 )
 
 // An archive that answers a missing exec/ key with an access error is a

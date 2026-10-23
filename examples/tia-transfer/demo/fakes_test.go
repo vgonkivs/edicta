@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/celestia/railtx"
-	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/internal/secret"
+	"github.com/vgonkivs/edicta/plugins/celestia/banksend/railtx"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
+	"github.com/vgonkivs/edicta/plugins/celestia/recorder"
 )
 
 type fakeChain struct {

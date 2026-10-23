@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/vgonkivs/edicta/celestia/railtx"
 	"github.com/vgonkivs/edicta/internal/secret"
+	"github.com/vgonkivs/edicta/plugins/celestia/banksend/railtx"
 )
 
 // writeNew creates path with mode 0600 and never overwrites.

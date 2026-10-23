@@ -18,10 +18,10 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 
-	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/config"
 	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/internal/secret"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/services/cli/internal/clearerr"
 )
 

@@ -17,7 +17,7 @@ GO=${GO:-go}
 export GOWORK=off
 
 ROOT=github.com/vgonkivs/edicta
-NESTED="celestia services/gate services/signer services/cli examples"
+NESTED="plugins/celestia services/gate services/signer services/cli examples"
 fail=0
 err() { echo "check-mods: $*" >&2; fail=1; }
 

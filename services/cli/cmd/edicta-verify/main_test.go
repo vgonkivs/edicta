@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/test/fibrefix"
+	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/fibrefix"
 )
 
 func exec(t *testing.T, args ...string) (int, string) {

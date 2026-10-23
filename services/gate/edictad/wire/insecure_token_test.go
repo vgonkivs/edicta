@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/celestia/nodefake"
+	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/nodefake"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
 )
 
 // Every node.BridgeConfig and node.GRPCConfig literal built here must set

@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/plugins/celestia/recorder"
 )
 
 func TestRecorderErrorRulesV11(t *testing.T) {

@@ -4,10 +4,10 @@ import (
 	"context"
 	"sync/atomic"
 
-	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/celestia/railtx"
-	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/plugins/banksend/transfer"
+	"github.com/vgonkivs/edicta/plugins/celestia/banksend/railtx"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
+	"github.com/vgonkivs/edicta/plugins/celestia/recorder"
 )
 
 type guardedSubmitter struct {

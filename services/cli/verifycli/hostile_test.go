@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/test/cometfake"
+	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/cometfake"
 )
 
 // A header source that tells /header another story than /blockchain can make

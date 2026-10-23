@@ -19,9 +19,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/config"
 	"github.com/vgonkivs/edicta/internal/keyfile"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/services/cli/doctor"
 	"github.com/vgonkivs/edicta/services/cli/initcmd"
 )

@@ -310,7 +310,7 @@ require (
 	github.com/tidwall/btree v1.7.0 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/vgonkivs/edicta v0.0.0
-	github.com/vgonkivs/edicta/celestia v0.0.0
+	github.com/vgonkivs/edicta/plugins/celestia v0.0.0
 	github.com/whyrusleeping/go-keyspace v0.0.0-20160322163242-5b898ac5add1 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
@@ -368,7 +368,7 @@ require (
 
 replace github.com/vgonkivs/edicta => ../../
 
-replace github.com/vgonkivs/edicta/celestia => ../../celestia
+replace github.com/vgonkivs/edicta/plugins/celestia => ../../plugins/celestia
 
 replace (
 	cosmossdk.io/api => github.com/celestiaorg/cosmos-sdk/api v0.7.6

@@ -128,7 +128,7 @@ configuration (`edictad` knows only the bank-send profile).
 `ActionFromTx` is the bank-send reconstruction a verifier uses on the reveal
 path: from the transaction bytes that hash to the receipt's `rail_ref`, it
 takes the `MsgSend` verbatim and rebuilds the action bytes with the chain id
-the checker is configured for (`celestia/railverify.ActionFromTx`;
+the checker is configured for (`plugins/celestia/banksend/railverify.ActionFromTx`;
 `spec/profiles/bank-send-v0.md`, section 3.5). The core accepts the result
 only if it hashes, with the revealed salt, to the agent-signed
 `action_hash`, so a wrong chain id or a wrong transaction gives `unchecked`,

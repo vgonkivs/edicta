@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/railverify"
-	"github.com/vgonkivs/edicta/celestia/test/cometfake"
+	"github.com/vgonkivs/edicta/plugins/celestia/banksend/railverify"
+	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/cometfake"
 )
 
 func decodeReport(t *testing.T, out string) map[string]any {

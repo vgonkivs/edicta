@@ -24,12 +24,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
-	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/celestia/nodefake"
-	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/dacommit/sharev1"
 	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/plugins/celestia/celestiatest/nodefake"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
+	"github.com/vgonkivs/edicta/plugins/celestia/recorder"
 	"github.com/vgonkivs/edicta/services/gate/edictad"
 )
 

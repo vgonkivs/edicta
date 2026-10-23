@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/railtx"
 	"github.com/vgonkivs/edicta/plugins/banksend/transfer"
+	"github.com/vgonkivs/edicta/plugins/celestia/banksend/railtx"
 )
 
 type countingRail struct {

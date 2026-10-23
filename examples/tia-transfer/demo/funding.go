@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vgonkivs/edicta/celestia/railtx"
+	"github.com/vgonkivs/edicta/plugins/celestia/banksend/railtx"
 )
 
 const (

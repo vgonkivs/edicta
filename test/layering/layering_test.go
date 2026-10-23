@@ -66,6 +66,9 @@ var classes = map[string]class{
 	"plugins/edenescrow": plugin + "edenescrow",
 	"plugins/ibkr":       plugin + "ibkr",
 
+	// The Celestia fakes and fixtures, whatever their package names.
+	"plugins/celestia/celestiatest": testsupport,
+
 	"examples":  example,
 	"cmd":       service,
 	"services":  service,
@@ -99,7 +102,7 @@ var narrow = []struct {
 }{
 	{
 		why:  "storage, verification and the DA committer must not depend on the authorizer",
-		from: []string{"engine/archive", "engine/archive/fsarchive", "engine/archive/httparchive", "engine/verifier", "celestia/fibrecommit"},
+		from: []string{"engine/archive", "engine/archive/fsarchive", "engine/archive/httparchive", "engine/verifier", "plugins/celestia/fibrecommit"},
 		to:   under("engine/gate"),
 	},
 	{
@@ -119,10 +122,10 @@ var narrow = []struct {
 var exceptions = map[string][]string{
 	// The archive and the verifier take the DA source interfaces, the
 	// committer interface and their sentinels from the gate package.
-	"engine/archive":           {"engine/gate"},
-	"engine/archive/fsarchive": {"engine/gate"},
-	"engine/verifier":          {"engine/gate"},
-	"celestia/fibrecommit":     {"engine/gate"},
+	"engine/archive":               {"engine/gate"},
+	"engine/archive/fsarchive":     {"engine/gate"},
+	"engine/verifier":              {"engine/gate"},
+	"plugins/celestia/fibrecommit": {"engine/gate"},
 
 	// The agent HTTP client maps error codes to the gate's sentinels.
 	"api/edictaapi": {"engine/gate"},

@@ -52,11 +52,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vgonkivs/edicta/celestia/absence"
-	"github.com/vgonkivs/edicta/celestia/anchorverify"
-	"github.com/vgonkivs/edicta/celestia/cometrpc"
-	"github.com/vgonkivs/edicta/celestia/fibrecommit"
-	"github.com/vgonkivs/edicta/celestia/inclusion"
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/archive/httparchive"
@@ -68,6 +63,11 @@ import (
 	"github.com/vgonkivs/edicta/internal/secret"
 	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
 	"github.com/vgonkivs/edicta/plugins/banksend/tiatransfer"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/cometrpc"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/inclusion"
+	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
+	"github.com/vgonkivs/edicta/plugins/celestia/proof/absence"
+	"github.com/vgonkivs/edicta/plugins/celestia/proof/anchorverify"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/sdk/blob"
 )

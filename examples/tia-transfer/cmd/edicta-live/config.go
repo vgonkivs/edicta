@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vgonkivs/edicta/celestia/inclusion"
-	"github.com/vgonkivs/edicta/celestia/node"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/inclusion"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
 	"github.com/vgonkivs/edicta/sdk/blob"
 )
 

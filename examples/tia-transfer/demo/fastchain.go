@@ -16,9 +16,9 @@ import (
 	cmtversion "github.com/cometbft/cometbft/proto/tendermint/version"
 	core "github.com/cometbft/cometbft/types"
 
-	"github.com/vgonkivs/edicta/celestia/absence"
-	"github.com/vgonkivs/edicta/celestia/heightcheck"
-	"github.com/vgonkivs/edicta/celestia/node"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
+	"github.com/vgonkivs/edicta/plugins/celestia/node/heightcheck"
+	"github.com/vgonkivs/edicta/plugins/celestia/proof/absence"
 )
 
 var (

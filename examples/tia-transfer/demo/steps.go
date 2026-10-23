@@ -13,12 +13,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/vgonkivs/edicta/celestia/inclusion"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/examples/tia-transfer/pricefeed"
 	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
 	"github.com/vgonkivs/edicta/plugins/banksend/bankmsg"
 	"github.com/vgonkivs/edicta/plugins/banksend/transfer"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/inclusion"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/blob"
 	"github.com/vgonkivs/edicta/sdk/payload"

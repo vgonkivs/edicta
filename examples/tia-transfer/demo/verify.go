@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vgonkivs/edicta/celestia/inclusion"
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/archive/httparchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/dacommit/blobv1"
 	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/engine/verifier"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/inclusion"
 )
 
 // verifyView is the part of the verifier's JSON report the demo reads.

@@ -2,7 +2,7 @@
 
 This example is a price-triggered agent and everything that runs it end to
 end against Celestia. It lives in its own Go module, `examples/`, which builds
-against the root module, `celestia/` and the `services/` modules; nothing else
+against the root module, `plugins/celestia/` and the `services/` modules; nothing else
 depends on it.
 
 - `agent`, `pricefeed`, `pricetrigger`: the agent, its public price sources and

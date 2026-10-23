@@ -19,13 +19,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/absence"
-	"github.com/vgonkivs/edicta/celestia/headertrust"
-	"github.com/vgonkivs/edicta/celestia/railverify"
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/internal/testkit"
+	"github.com/vgonkivs/edicta/plugins/celestia/banksend/railverify"
+	"github.com/vgonkivs/edicta/plugins/celestia/proof/absence"
+	"github.com/vgonkivs/edicta/plugins/celestia/proof/headertrust"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
 

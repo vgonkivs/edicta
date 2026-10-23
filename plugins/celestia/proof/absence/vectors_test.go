@@ -1,0 +1,316 @@
+package absence_test
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+	"strconv"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/vgonkivs/edicta/engine/archive"
+	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/internal/testkit"
+	"github.com/vgonkivs/edicta/plugins/celestia/proof/absence"
+)
+
+const (
+	absencePath     = "vectors/da/absence.json"
+	absenceV103Path = "vectors/da/absence_v1.0.3.json"
+	supersededPath  = "vectors/SUPERSEDED.json"
+	absenceFileName = "da/absence.json"
+	absenceV103Name = "da/absence_v1.0.3.json"
+)
+
+type vQuery struct {
+	DA             string `json:"da"`
+	Namespace      string `json:"namespace"`
+	Commitment     string `json:"commitment"`
+	Signer         string `json:"signer"`
+	ChainID        string `json:"chain_id"`
+	H0             string `json:"h0"`
+	AnchorDeadline string `json:"anchor_deadline"`
+}
+
+type vCandidate struct {
+	Position    string `json:"position"`
+	ResultIndex string `json:"result_index"`
+	Code        string `json:"code"`
+}
+
+type vBlob struct {
+	ShareVersion string `json:"share_version"`
+	Signer       string `json:"signer"`
+	Commitment   string `json:"commitment"`
+}
+
+type vHeight struct {
+	Height     string       `json:"height"`
+	Result     string       `json:"result"`
+	Rule       string       `json:"rule"`
+	Rows       []string     `json:"rows"`
+	PFFTxs     string       `json:"pff_txs"`
+	Candidates []vCandidate `json:"candidates"`
+	Blobs      []vBlob      `json:"blobs"`
+}
+
+type vWindow struct {
+	Result        string `json:"result"`
+	AnchorHeight  string `json:"anchor_height"`
+	UnpaidHeight  string `json:"unpaid_height"`
+	FirstUnproven string `json:"first_unproven"`
+}
+
+type vCase struct {
+	ID             string            `json:"id"`
+	Query          vQuery            `json:"query"`
+	TrustedHeaders map[string]string `json:"trusted_headers"`
+	Records        []struct {
+		Height    string `json:"height"`
+		RecordHex string `json:"record_hex"`
+		SHA256    string `json:"sha256"`
+		Size      string `json:"size"`
+	} `json:"records"`
+	Expect struct {
+		Heights []vHeight `json:"heights"`
+		Window  vWindow   `json:"window"`
+	} `json:"expect"`
+}
+
+type vFile struct {
+	Revision  string  `json:"revision"`
+	ChainID   string  `json:"chain_id"`
+	Synthetic []vCase `json:"synthetic"`
+	Live      []vCase `json:"live"`
+	Source    struct {
+		ChainID string `json:"chain_id"`
+	} `json:"live_source"`
+}
+
+func u64(t *testing.T, s string) uint64 {
+	t.Helper()
+	v, err := strconv.ParseUint(s, 10, 64)
+	require.NoError(t, err)
+	return v
+}
+
+func unhex(t *testing.T, s string) []byte {
+	t.Helper()
+	if s == "" {
+		return nil
+	}
+	b, err := hex.DecodeString(s)
+	require.NoError(t, err)
+	return b
+}
+
+func loadAbsence(t *testing.T) vFile {
+	t.Helper()
+	b, err := os.ReadFile(testkit.SpecPath(t, absencePath))
+	require.NoError(t, err)
+	var f vFile
+	require.NoError(t, json.Unmarshal(b, &f))
+	require.Equal(t, "v1.0", f.Revision)
+	return f
+}
+
+// gotHeight renders an outcome in the vector's notation.
+func gotHeight(o absence.Outcome) vHeight {
+	g := vHeight{Height: strconv.FormatUint(o.Height, 10), Result: o.Result.String(), Rule: string(o.Rule)}
+	if o.Result == absence.Unproven {
+		return g
+	}
+	g.Rows = []string{}
+	for _, r := range o.Rows {
+		g.Rows = append(g.Rows, strconv.Itoa(r))
+	}
+	if o.Rule == absence.RuleCandidates || o.Rule == absence.RuleResults {
+		g.PFFTxs = strconv.Itoa(o.PFFTxs)
+	}
+	for _, c := range o.Candidates {
+		vc := vCandidate{Position: strconv.Itoa(c.Position), Code: strconv.FormatUint(uint64(c.Code), 10)}
+		if c.IndexBound {
+			vc.ResultIndex = strconv.Itoa(c.ResultIndex)
+		}
+		g.Candidates = append(g.Candidates, vc)
+	}
+	for _, b := range o.Blobs {
+		g.Blobs = append(g.Blobs, vBlob{ShareVersion: strconv.Itoa(int(b.ShareVersion)),
+			Signer: hex.EncodeToString(b.Signer), Commitment: hex.EncodeToString(b.Commitment)})
+	}
+	return g
+}
+
+func normWant(w vHeight) vHeight {
+	if w.Result != "unproven" && w.Rows == nil {
+		w.Rows = []string{}
+	}
+	return w
+}
+
+func runCase(t *testing.T, c vCase, chainID string) {
+	q := absence.Query{
+		DA:         commitment.DA(u64(t, c.Query.DA)),
+		Namespace:  unhex(t, c.Query.Namespace),
+		Commitment: unhex(t, c.Query.Commitment),
+		Signer:     unhex(t, c.Query.Signer),
+	}
+	require.Equal(t, chainID, c.Query.ChainID)
+	if q.DA == commitment.DAFibre {
+		q.ChainID = c.Query.ChainID
+	}
+	trusted := absence.TrustedHashes{}
+	for h, x := range c.TrustedHeaders {
+		trusted[u64(t, h)] = unhex(t, x)
+	}
+	recs := map[uint64]*archive.AbsenceProofRecord{}
+	for _, r := range c.Records {
+		b := unhex(t, r.RecordHex)
+		sum := sha256.Sum256(b)
+		require.Equal(t, r.SHA256, hex.EncodeToString(sum[:]))
+		require.Equal(t, r.Size, strconv.Itoa(len(b)))
+		rec := decodeAt(t, q, u64(t, r.Height), b)
+		again, err := archive.Encode(rec)
+		require.NoError(t, err)
+		require.Equal(t, b, again)
+		recs[rec.Height] = rec
+	}
+	w, err := absence.VerifyWindow(q, u64(t, c.Query.H0), u64(t, c.Query.AnchorDeadline), recs, trusted)
+	require.NoError(t, err)
+	require.Len(t, w.Heights, len(c.Expect.Heights))
+	for i, o := range w.Heights {
+		assert.Equal(t, normWant(c.Expect.Heights[i]), gotHeight(o), "height %d: %v", o.Height, o.Err)
+		assert.Equal(t, o.Result == absence.Unproven, o.Err != nil)
+	}
+	gw := vWindow{Result: w.Result.String()}
+	if w.Result == absence.Present {
+		gw.AnchorHeight = strconv.FormatUint(w.AnchorHeight, 10)
+	}
+	if w.Result == absence.PresentUnpaid {
+		gw.UnpaidHeight = strconv.FormatUint(w.UnpaidHeight, 10)
+	}
+	if w.Result == absence.Unproven {
+		gw.FirstUnproven = strconv.FormatUint(w.FirstUnproven, 10)
+	}
+	assert.Equal(t, c.Expect.Window, gw)
+}
+
+// decodeAt decodes a kind 14 record and requires it to carry the key of
+// height h, as the archive readers do.
+func decodeAt(t *testing.T, q absence.Query, h uint64, b []byte) *archive.AbsenceProofRecord {
+	t.Helper()
+	r, err := archive.Decode(b)
+	require.NoError(t, err, "record at %d", h)
+	rec, ok := r.(*archive.AbsenceProofRecord)
+	require.True(t, ok, "kind %d", r.Kind())
+	want, err := archive.AbsencePath(q.DA, q.Commitment, h)
+	require.NoError(t, err)
+	got, err := archive.KeyPath(rec)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+	return rec
+}
+
+type supersededEntry struct {
+	File       string `json:"file"`
+	Case       string `json:"case"`
+	Revision   string `json:"revision"`
+	Type       string `json:"type"`
+	ReplacedBy string `json:"replaced_by"`
+}
+
+// superseded returns the cases of file that a later revision replaced, by
+// case id, with the reference of the replacing case. A frozen case is skipped
+// only through this list.
+func superseded(t *testing.T, file string) map[string]string {
+	t.Helper()
+	b, err := os.ReadFile(testkit.SpecPath(t, supersededPath))
+	require.NoError(t, err)
+	var f struct {
+		Entries []supersededEntry `json:"entries"`
+	}
+	require.NoError(t, json.Unmarshal(b, &f))
+	out := map[string]string{}
+	for _, e := range f.Entries {
+		if e.File == file {
+			out[e.Case] = e.ReplacedBy
+		}
+	}
+	return out
+}
+
+type v103File struct {
+	Revision string  `json:"revision"`
+	ChainID  string  `json:"chain_id"`
+	Cases    []vCase `json:"cases"`
+}
+
+func loadAbsenceV103(t *testing.T) v103File {
+	t.Helper()
+	b, err := os.ReadFile(testkit.SpecPath(t, absenceV103Path))
+	require.NoError(t, err)
+	var f v103File
+	require.NoError(t, json.Unmarshal(b, &f))
+	require.Equal(t, "v1.0.3", f.Revision)
+	return f
+}
+
+func runFrozen(t *testing.T, cases []vCase, chainID string, skip map[string]string) {
+	for _, c := range cases {
+		t.Run(c.ID, func(t *testing.T) {
+			if by, ok := skip[c.ID]; ok {
+				t.Skipf("superseded by %s", by)
+			}
+			runCase(t, c, chainID)
+		})
+	}
+}
+
+func TestVectorsSynthetic(t *testing.T) {
+	f := loadAbsence(t)
+	require.NotEmpty(t, f.Synthetic)
+	runFrozen(t, f.Synthetic, f.ChainID, superseded(t, absenceFileName))
+}
+
+func TestVectorsLive(t *testing.T) {
+	f := loadAbsence(t)
+	require.NotEmpty(t, f.Live)
+	runFrozen(t, f.Live, f.Source.ChainID, superseded(t, absenceFileName))
+}
+
+func TestVectorsV103(t *testing.T) {
+	f := loadAbsenceV103(t)
+	require.NotEmpty(t, f.Cases)
+	for _, c := range f.Cases {
+		t.Run(c.ID, func(t *testing.T) { runCase(t, c, f.ChainID) })
+	}
+}
+
+// Every superseded case has its replacement in the new file, on
+// byte-identical inputs, so skipping the frozen case loses no coverage.
+func TestSupersededCasesAreReplaced(t *testing.T) {
+	skip := superseded(t, absenceFileName)
+	require.NotEmpty(t, skip)
+	old := loadAbsence(t)
+	frozen := map[string]vCase{}
+	for _, c := range append(append([]vCase{}, old.Synthetic...), old.Live...) {
+		frozen[c.ID] = c
+	}
+	repl := map[string]vCase{}
+	for _, c := range loadAbsenceV103(t).Cases {
+		repl[absenceV103Name+"#"+c.ID] = c
+	}
+	for id, by := range skip {
+		oc, ok := frozen[id]
+		require.True(t, ok, "superseded case %s is not in %s", id, absenceFileName)
+		nc, ok := repl[by]
+		require.True(t, ok, "replacement %s of %s not found", by, id)
+		assert.Equal(t, oc.Query, nc.Query, id)
+		assert.Equal(t, oc.Records, nc.Records, id)
+		assert.Equal(t, oc.TrustedHeaders, nc.TrustedHeaders, id)
+		assert.NotEqual(t, oc.Expect, nc.Expect, id)
+	}
+}

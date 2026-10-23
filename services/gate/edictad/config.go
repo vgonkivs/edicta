@@ -13,12 +13,12 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/vgonkivs/edicta/celestia/fibrecommit"
-	"github.com/vgonkivs/edicta/celestia/gatechain"
-	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/celestia/recorder"
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/plugins/celestia/chain/gatechain"
+	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
+	"github.com/vgonkivs/edicta/plugins/celestia/node"
+	"github.com/vgonkivs/edicta/plugins/celestia/recorder"
 )
 
 // ErrConfig wraps every configuration refusal. Messages name keys, never values.
