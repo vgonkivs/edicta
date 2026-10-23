@@ -14,7 +14,7 @@ require (
 )
 
 require (
-	filippo.io/edwards25519 v1.1.0 // indirect
+	filippo.io/edwards25519 v1.1.1 // indirect
 	github.com/celestiaorg/go-square/v4 v4.0.1 // indirect
 	github.com/celestiaorg/nmt v0.24.5 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.4 // indirect
