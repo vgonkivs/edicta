@@ -85,7 +85,7 @@ export interface HandoffOptions {
   paymentServerUrl: string;
   /** Wait between the two refused paid retries, and between the handoff and the last retry (default 10000, at most 120000). */
   pickupDelayMs?: number;
-  /** Bound of the relay call (default 10000, at most 60000). */
+  /** Bound of the relay call and of reading each paid retry's answer (default 10000, at most 60000). */
   serverTimeoutMs?: number;
   /** The once mark; default new FileHandoffStore(defaultHandoffDir()). */
   store?: HandoffStore;
@@ -216,21 +216,43 @@ export function depositPaymentId(tx: Uint8Array): string | undefined {
   }
 }
 
-/** Reads at most limit + 1 bytes of a body; the stream is cancelled after. */
-async function readCapped(body: ReadableStream<Uint8Array> | null, limit: number): Promise<Uint8Array> {
-  if (body === null) return new Uint8Array(0);
+interface CappedBody {
+  bytes: Uint8Array;
+  /** The body did not end, or could not be read, within the time given. */
+  unread: boolean;
+}
+
+/**
+ * Reads at most limit + 1 bytes of a body within ms. The reader is cancelled
+ * after without waiting for it: cancelling one branch of a cloned body settles
+ * only once the other branch is cancelled too, which the caller may never do.
+ */
+async function readCapped(body: ReadableStream<Uint8Array> | null, limit: number, ms: number): Promise<CappedBody> {
+  if (body === null) return { bytes: new Uint8Array(0), unread: false };
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let n = 0;
+  let unread = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), ms);
+  });
   try {
     while (n <= limit) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      n += value.byteLength;
+      const step = await Promise.race([reader.read(), deadline]);
+      if (step === "timeout") {
+        unread = true;
+        break;
+      }
+      if (step.done) break;
+      chunks.push(step.value);
+      n += step.value.byteLength;
     }
+  } catch {
+    unread = true;
   } finally {
-    await reader.cancel().catch(() => undefined);
+    clearTimeout(timer);
+    reader.cancel().catch(() => undefined);
   }
   const all = new Uint8Array(n);
   let o = 0;
@@ -238,7 +260,7 @@ async function readCapped(body: ReadableStream<Uint8Array> | null, limit: number
     all.set(c, o);
     o += c.byteLength;
   }
-  return all;
+  return { bytes: all, unread };
 }
 
 /**
@@ -264,11 +286,14 @@ export function recognisedRefusal(
   return undefined;
 }
 
-async function classify(res: Response, paymentIdHex: string): Promise<Refusal | undefined> {
+// The caller gets the answer unread, so the refusal is read from a clone. An
+// answer that does not end in time is not a recognised refusal.
+async function classify(res: Response, paymentIdHex: string, ms: number): Promise<Refusal | undefined> {
   if (res.status !== 402 && res.status !== 403) return undefined;
-  const body = await readCapped(res.clone().body, MAX_RETRY_ANSWER);
+  const body = await readCapped(res.clone().body, MAX_RETRY_ANSWER, ms);
+  if (body.unread) return undefined;
   // Headers.get trims the value, as the HTTP library the profile assumes does.
-  return recognisedRefusal(res.status, res.headers.get("payment-required"), body, paymentIdHex);
+  return recognisedRefusal(res.status, res.headers.get("payment-required"), body.bytes, paymentIdHex);
 }
 
 function relayHashes(answer: Uint8Array): { fault?: string; deprecated: boolean; hashes: string[] } {
@@ -340,7 +365,7 @@ export async function paidRetryWithHandoff(d: HandoffDecision, retry: PaidRetryF
   };
   const attempt = async (): Promise<Refusal | undefined> => {
     out.response = await retry(d.paymentSignature);
-    const r = await classify(out.response, paymentId);
+    const r = await classify(out.response, paymentId, timeoutMs);
     if (r !== undefined) out.refusals.push(r);
     return r;
   };
@@ -375,10 +400,11 @@ export async function paidRetryWithHandoff(d: HandoffDecision, retry: PaidRetryF
       cache: "no-store",
       signal: opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout,
     });
-    const answer = await readCapped(res.body, MAX_RETRY_ANSWER);
-    const read = relayHashes(answer.length > MAX_RETRY_ANSWER ? new Uint8Array(0) : answer);
+    const { bytes: answer, unread } = await readCapped(res.body, MAX_RETRY_ANSWER, timeoutMs);
+    const read = relayHashes(unread || answer.length > MAX_RETRY_ANSWER ? new Uint8Array(0) : answer);
     out.relayDeprecated = read.deprecated || res.headers.get("deprecation") !== null;
-    if (answer.length > MAX_RETRY_ANSWER) out.relayFault = "answer above 16384 bytes";
+    if (unread) out.relayFault = "the answer was not read in time";
+    else if (answer.length > MAX_RETRY_ANSWER) out.relayFault = "answer above 16384 bytes";
     else if (!res.ok) out.relayFault = `status ${res.status}`;
     else if (read.fault !== undefined) out.relayFault = read.fault;
     else if (read.hashes.some((h) => h.toLowerCase() !== "0x" + railRef)) out.relayFault = "the relay names another transaction";

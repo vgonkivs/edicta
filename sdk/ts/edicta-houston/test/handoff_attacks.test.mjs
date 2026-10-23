@@ -87,13 +87,11 @@ test("an ambiguous answer, first or second, never triggers the handoff", async (
   }
 });
 
-// classify reads the refusal through res.clone(); cancelling one branch of
-// the tee'd body resolves only once the other branch is cancelled too, so a
-// 402 or 403 answer longer than 16384 bytes leaves paidRetryWithHandoff
-// pending forever instead of returning "none".
+// The refusal is read through res.clone(); cancelling one branch of a cloned
+// body settles only once the other branch is cancelled too, so a reader that
+// waited for it would stall on an answer over the cap.
 test(
   "an answer over 16384 bytes is not a refusal and does not stall the client",
-  { skip: "production bug: classify hangs on a 402/403 body over 16384 bytes (readCapped cancels a cloned body)" },
   async () => {
     const big = {
       "403 with the text": () => new Response("x".repeat(16384) + BUYER, { status: 403 }),
@@ -114,6 +112,46 @@ test(
     }
   },
 );
+
+// A body that sends part of a refusal and then never ends.
+const dribble = (status, text, headers = {}) => () =>
+  new Response(
+    new ReadableStream({
+      start(c) {
+        c.enqueue(new TextEncoder().encode(text));
+      },
+    }),
+    { status, headers },
+  );
+
+test("a paid retry's answer that never ends is not a refusal and does not stall the client", async () => {
+  const slow = {
+    "403 with the text": dribble(403, `{"error":"${BUYER}`),
+    "402 with the quote": dribble(402, "payment required", { "payment-required": quoteFor(svPid) }),
+  };
+  for (const [name, a] of Object.entries(slow)) {
+    for (const answers of [[a], [rr2, a]]) {
+      const w = world([...answers]);
+      const started = Date.now();
+      const out = await paidRetryWithHandoff(decision(), w.retry, w.opts({ serverTimeoutMs: 200 }));
+      assert.ok(Date.now() - started < 2000, `${name}: answered promptly`);
+      assert.equal(out.handoff, "none", name);
+      assert.equal(w.relayCalls.length, 0, name);
+      assert.equal(w.markCount(), 0, name);
+    }
+  }
+});
+
+test("a relay answer that never ends is a relay fault and the last retry is still made", async () => {
+  const w = world([rr2, rr2, rr2], dribble(200, `{"txHash":"0x${sv.rail_ref}"`));
+  const started = Date.now();
+  const out = await paidRetryWithHandoff(decision(), w.retry, w.opts({ serverTimeoutMs: 200 }));
+  assert.ok(Date.now() - started < 2000, "answered promptly");
+  assert.equal(out.handoff, "relay_fault");
+  assert.match(out.relayFault, /not read in time/);
+  assert.equal(out.needsOperator, true);
+  assert.equal(w.relayCalls.length, 1);
+});
 
 test("a timeout or transport error of a paid retry never triggers the handoff", async () => {
   const timeout = () => Promise.reject(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
