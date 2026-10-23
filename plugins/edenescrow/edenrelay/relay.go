@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package eden
+// Package edenrelay is the client of the payment server's relay route,
+// /deposit/send: it posts a signed deposit and reads the answer, which is
+// never evidence that the deposit landed.
+package edenrelay
 
 import (
 	"bytes"
@@ -10,9 +13,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,7 +26,13 @@ import (
 // other transaction: an error status, a timeout, an oversized or unreadable
 // answer, or a hash other than the rail_ref. The caller then sends the same
 // bytes directly. A success is not evidence either.
-var ErrRelayFault = errors.New("signer/eden: relay fault")
+var ErrRelayFault = errors.New("edenrelay: relay fault")
+
+// ErrNotSent marks a relay fault where the request was never completely
+// written to the connection: the payment server cannot have read the
+// bytes from this call. It always comes wrapped together with
+// ErrRelayFault.
+var ErrNotSent = errors.New("the request did not leave this process")
 
 // Relay limits.
 const (
@@ -54,13 +66,13 @@ func (c HoustonConfig) ValidateBasic() error {
 	u, err := url.Parse(c.BaseURL)
 	switch {
 	case err != nil:
-		return errors.New("signer/eden: relay URL does not parse")
+		return errors.New("edenrelay: relay URL does not parse")
 	case u.Scheme != "https":
-		return fmt.Errorf("signer/eden: relay URL %q is not https: the signed deposit would travel in clear", c.BaseURL)
+		return fmt.Errorf("edenrelay: relay URL %q is not https: the signed deposit would travel in clear", c.BaseURL)
 	case u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "":
-		return fmt.Errorf("signer/eden: relay URL %q must be https://host[/path] only", c.BaseURL)
+		return fmt.Errorf("edenrelay: relay URL %q must be https://host[/path] only", c.BaseURL)
 	case c.Timeout <= 0 || c.Timeout > MaxServerTimeout:
-		return fmt.Errorf("signer/eden: relay timeout %v is not in (0, %v]", c.Timeout, MaxServerTimeout)
+		return fmt.Errorf("edenrelay: relay timeout %v is not in (0, %v]", c.Timeout, MaxServerTimeout)
 	}
 	return nil
 }
@@ -73,18 +85,20 @@ type HoustonRelay struct {
 	endpoint string
 	timeout  time.Duration
 	hc       *http.Client
+	log      *slog.Logger
 }
 
-var _ Relay = (*HoustonRelay)(nil)
-
 // NewHoustonRelay checks the configuration; hc nil is a client that follows
-// no redirect.
-func NewHoustonRelay(cfg HoustonConfig, hc *http.Client) (*HoustonRelay, error) {
+// no redirect, log nil the default logger.
+func NewHoustonRelay(cfg HoustonConfig, hc *http.Client, log *slog.Logger) (*HoustonRelay, error) {
 	if err := cfg.ValidateBasic(); err != nil {
 		return nil, err
 	}
 	if hc == nil {
 		hc = &http.Client{}
+	}
+	if log == nil {
+		log = slog.Default()
 	}
 	// A redirect could lead off https or to another host; the answer to the
 	// first request is the answer.
@@ -92,8 +106,26 @@ func NewHoustonRelay(cfg HoustonConfig, hc *http.Client) (*HoustonRelay, error) 
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &HoustonRelay{
 		endpoint: strings.TrimSuffix(cfg.BaseURL, "/") + RelayPath,
-		timeout:  cfg.Timeout, hc: &c,
+		timeout:  cfg.Timeout, hc: &c, log: log,
 	}, nil
+}
+
+// deprecationLogged makes the relay's deprecation marker a single log line
+// per process, however many answers carry it.
+var deprecationLogged atomic.Bool
+
+// Deprecated reports whether a relay answer carries the server's
+// deprecation marker: a Deprecation header, or a top-level member
+// "deprecation" that is JSON true. It is logged and changes nothing else.
+func Deprecated(h http.Header, answer []byte) bool {
+	if h.Get("Deprecation") != "" {
+		return true
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(answer, &top) != nil {
+		return false
+	}
+	return string(bytes.TrimSpace(top["deprecation"])) == "true"
 }
 
 type relayBody struct {
@@ -102,25 +134,37 @@ type relayBody struct {
 }
 
 // Send posts {signedTx, paymentId}. Any answer but a 2xx whose body names
-// no other transaction is ErrRelayFault.
+// no other transaction is ErrRelayFault; a call whose request was never
+// completely written is also ErrNotSent.
 func (r *HoustonRelay) Send(ctx context.Context, signed []byte, railRef string, paymentID [32]byte) error {
 	body, err := json.Marshal(relayBody{
 		SignedTx:  "0x" + hex.EncodeToString(signed),
 		PaymentID: "0x" + hex.EncodeToString(paymentID[:]),
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w: %v", ErrRelayFault, ErrNotSent, err)
 	}
+	var wrote atomic.Bool
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteRequest: func(i httptrace.WroteRequestInfo) {
+			if i.Err == nil {
+				wrote.Store(true)
+			}
+		},
+	})
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrRelayFault, err)
+		return fmt.Errorf("%w: %w: %v", ErrRelayFault, ErrNotSent, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	resp, err := r.hc.Do(req)
 	if err != nil {
+		if !wrote.Load() {
+			return fmt.Errorf("%w: %w: %v", ErrRelayFault, ErrNotSent, err)
+		}
 		return fmt.Errorf("%w: %v", ErrRelayFault, err)
 	}
 	defer resp.Body.Close()
@@ -130,6 +174,10 @@ func (r *HoustonRelay) Send(ctx context.Context, signed []byte, railRef string, 
 	}
 	if len(answer) > MaxRelayAnswer {
 		return fmt.Errorf("%w: answer above %d bytes", ErrRelayFault, MaxRelayAnswer)
+	}
+	if Deprecated(resp.Header, answer) && deprecationLogged.CompareAndSwap(false, true) {
+		r.log.Warn("edenrelay: the payment server marks its relay deprecated",
+			"endpoint", r.endpoint)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("%w: status %d", ErrRelayFault, resp.StatusCode)

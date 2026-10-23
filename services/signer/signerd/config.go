@@ -20,6 +20,7 @@ import (
 
 	"github.com/vgonkivs/edicta/config"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrelay"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrpc"
 	"github.com/vgonkivs/edicta/services/signer"
 	"github.com/vgonkivs/edicta/services/signer/eden"
@@ -72,7 +73,8 @@ type Credential struct {
 	TokenFile   string `toml:"token_file"`
 }
 
-// Broadcast configures the payment server's relay.
+// Broadcast configures the payment server's relay, for the chains that
+// opt into it.
 type Broadcast struct {
 	// ServerTimeoutS bounds one relay call.
 	ServerTimeoutS uint64 `toml:"server_timeout_s"`
@@ -129,11 +131,18 @@ type Chain struct {
 	OwnNode bool   `toml:"own_node"`
 	// SettlementRPC are more settlement sources, distinct hosts.
 	SettlementRPC []string `toml:"settlement_rpc"`
-	// Broadcaster is "houston-relay" (the default) or "direct".
+	// Broadcaster is "direct" (the default: eth_sendRawTransaction on the
+	// chain's RPC) or "houston-relay", an optional fallback for a payment
+	// server that must see the deposit through its deprecated relay.
 	Broadcaster string `toml:"broadcaster"`
 	// RelayURL is the payment server (https) whose /deposit/send relays
-	// the deposit.
-	RelayURL        string   `toml:"relay_url"`
+	// the deposit; only with broadcaster = "houston-relay".
+	RelayURL string `toml:"relay_url"`
+	// Payers are the chain's payer keys, one per served agent.
+	Payers []Payer `toml:"payer"`
+	// PayerKeyFile and PayerAddress are the earlier one-payer-per-chain
+	// form. They are read only to refuse them by name: a payer shared by
+	// several agents is never used.
 	PayerKeyFile    string   `toml:"payer_key_file"`
 	PayerAddress    string   `toml:"payer_address"`
 	Facilitators    []string `toml:"facilitators"`
@@ -141,6 +150,15 @@ type Chain struct {
 	MaxFeePerGas    string   `toml:"max_fee_per_gas"`
 	MaxGas          uint64   `toml:"max_gas"`
 	MaxFeePerAction string   `toml:"max_fee_per_action"`
+}
+
+// Payer is one agent's own payer key on one chain: it signs that agent's
+// deposits and Payment-Signatures there and nothing else.
+type Payer struct {
+	AgentPubKey string `toml:"agent_pubkey"`
+	KeyFile     string `toml:"key_file"`
+	// Address is the key's address, checked at start.
+	Address string `toml:"address"`
 }
 
 // DefaultListen is the loopback port of the signer API.
@@ -194,7 +212,7 @@ func (c *Config) ApplyDefaults() {
 	}
 	b := &c.Broadcast
 	if b.ServerTimeoutS == 0 {
-		b.ServerTimeoutS = uint64(eden.DefaultServerTimeout / time.Second)
+		b.ServerTimeoutS = uint64(edenrelay.DefaultServerTimeout / time.Second)
 	}
 	if b.RelayGraceS == 0 {
 		b.RelayGraceS = min(uint64(eden.DefaultRelayGrace/time.Second), s.AwaitGraceS)
@@ -202,7 +220,7 @@ func (c *Config) ApplyDefaults() {
 	for i := range c.Chains {
 		c.Chains[i].applyPreset()
 		if c.Chains[i].Broadcaster == "" {
-			c.Chains[i].Broadcaster = eden.BroadcastRelay
+			c.Chains[i].Broadcaster = eden.BroadcastDirect
 		}
 	}
 }
@@ -316,6 +334,9 @@ func (c Config) ValidateBasic() error {
 			return errors.New("signerd: record.executor_key_file is required")
 		}
 	}
+	if err := c.checkPayers(); err != nil {
+		return err
+	}
 	sc, err := c.SignerConfig()
 	if err != nil {
 		return err
@@ -332,7 +353,6 @@ func (c Config) ValidateBasic() error {
 			return fmt.Errorf("signerd: chain %d: max_fee_per_action above caps.max_fee_per_hour refuses every deposit", p.ChainID)
 		}
 	}
-	seen := map[string]uint64{}
 	for _, ch := range c.Chains {
 		sp, err := ch.escrowPreset()
 		if err != nil {
@@ -346,13 +366,6 @@ func (c Config) ValidateBasic() error {
 				return fmt.Errorf("signerd: chain %d: %q is a placeholder: set your own node in rpc (own_node = true) and real settlement_rpc sources", ch.ChainID, src)
 			}
 		}
-		if ch.PayerKeyFile == "" {
-			return fmt.Errorf("signerd: chain %d: payer_key_file is required", ch.ChainID)
-		}
-		if other, dup := seen[ch.PayerKeyFile]; dup {
-			return fmt.Errorf("signerd: chains %d and %d share one payer key file: use one payer key per chain", other, ch.ChainID)
-		}
-		seen[ch.PayerKeyFile] = ch.ChainID
 		ops := map[string]bool{}
 		for _, src := range ch.awaitSources() {
 			op, u := edenrpc.SplitSource(src)
@@ -386,11 +399,73 @@ func (c Config) ValidateBasic() error {
 		} else if ch.RelayURL != "" {
 			return fmt.Errorf("signerd: chain %d: relay_url set but broadcaster is %q", ch.ChainID, ch.Broadcaster)
 		}
-		if c.Record != nil && ch.PayerKeyFile == c.Record.ExecutorKeyFile {
-			return fmt.Errorf("signerd: chain %d: the payer key file is the executor key file", ch.ChainID)
+	}
+	return nil
+}
+
+// checkPayers: on every chain each served agent has exactly one payer, and
+// no key file or address serves two agents or two chains. A shared payer
+// would make one escrow buyer for several agents and share one nonce
+// sequence among them.
+func (c Config) checkPayers() error {
+	files := map[string]string{}
+	addrs := map[[20]byte]string{}
+	for _, ch := range c.Chains {
+		if ch.PayerKeyFile != "" || ch.PayerAddress != "" {
+			return fmt.Errorf("signerd: chain %d: payer_key_file and payer_address are replaced by one [[chain.payer]] per agent (agent_pubkey, key_file, address): a payer key serves one agent on one chain", ch.ChainID)
+		}
+		if len(ch.Payers) == 0 {
+			return fmt.Errorf("signerd: chain %d: no [[chain.payer]]: each served agent needs its own payer key on each chain", ch.ChainID)
+		}
+		agents := map[[32]byte]bool{}
+		for i, p := range ch.Payers {
+			where := fmt.Sprintf("chain %d payer %d", ch.ChainID, i)
+			k, err := hexKey(where+" agent_pubkey", p.AgentPubKey)
+			if err != nil {
+				return err
+			}
+			if !c.serves(k) {
+				return fmt.Errorf("signerd: %s is for an agent key not in agent_pubkeys", where)
+			}
+			if agents[[32]byte(k)] {
+				return fmt.Errorf("signerd: %s: agent %x has two payers on this chain", where, k)
+			}
+			agents[[32]byte(k)] = true
+			if p.KeyFile == "" {
+				return fmt.Errorf("signerd: %s: key_file is required", where)
+			}
+			if other, dup := files[p.KeyFile]; dup {
+				return fmt.Errorf("signerd: %s and %s share one key file: one payer key per agent per chain", other, where)
+			}
+			files[p.KeyFile] = where
+			a, err := address(where+" address", p.Address)
+			if err != nil {
+				return err
+			}
+			if other, dup := addrs[a]; dup {
+				return fmt.Errorf("signerd: %s and %s share payer address %s: one payer key per agent per chain", other, where, p.Address)
+			}
+			addrs[a] = where
+			if c.Record != nil && p.KeyFile == c.Record.ExecutorKeyFile {
+				return fmt.Errorf("signerd: %s: the payer key file is the executor key file", where)
+			}
+		}
+		for _, s := range c.AgentPubKeys {
+			if k, err := hexKey("agent_pubkeys", s); err == nil && !agents[[32]byte(k)] {
+				return fmt.Errorf("signerd: chain %d: agent %s has no [[chain.payer]]", ch.ChainID, s)
+			}
 		}
 	}
 	return nil
+}
+
+func (c Config) serves(agent []byte) bool {
+	for _, a := range c.AgentPubKeys {
+		if b, err := hexKey("agent_pubkeys", a); err == nil && bytes.Equal(b, agent) {
+			return true
+		}
+	}
+	return false
 }
 
 // checkCredentials: each credential has its own token file and is pinned
@@ -417,21 +492,15 @@ func (c Config) checkCredentials() error {
 		if err != nil {
 			return err
 		}
-		served := false
-		for _, a := range c.AgentPubKeys {
-			if b, err := hexKey("agent_pubkeys", a); err == nil && bytes.Equal(b, k) {
-				served = true
-			}
-		}
-		if !served {
+		if !c.serves(k) {
 			return fmt.Errorf("signerd: credential %d is pinned to an agent key not in agent_pubkeys", i)
 		}
 	}
 	return nil
 }
 
-func (ch Chain) relayConfig(b Broadcast) eden.HoustonConfig {
-	hc := eden.HoustonConfig{BaseURL: ch.RelayURL, Timeout: time.Duration(b.ServerTimeoutS) * time.Second}
+func (ch Chain) relayConfig(b Broadcast) edenrelay.HoustonConfig {
+	hc := edenrelay.HoustonConfig{BaseURL: ch.RelayURL, Timeout: time.Duration(b.ServerTimeoutS) * time.Second}
 	hc.ApplyDefaults()
 	return hc
 }
@@ -519,12 +588,21 @@ func (c Config) HandlerConfig() (eden.Config, error) {
 		CheckServerSignature:  c.CheckServerSignature,
 	}
 	for _, ch := range c.Chains {
-		payer, err := address(fmt.Sprintf("chain %d payer_address", ch.ChainID), ch.PayerAddress)
-		if err != nil {
-			return eden.Config{}, err
-		}
 		p := eden.ChainPins{
-			ChainID: ch.ChainID, Payer: payer, MaxRefundDelay: ch.MaxRefundDelayS, MaxGas: ch.MaxGas, Broadcast: ch.Broadcaster,
+			ChainID: ch.ChainID, Payers: map[[32]byte][20]byte{}, MaxRefundDelay: ch.MaxRefundDelayS, MaxGas: ch.MaxGas, Broadcast: ch.Broadcaster,
+		}
+		var err error
+		for i, py := range ch.Payers {
+			where := fmt.Sprintf("chain %d payer %d", ch.ChainID, i)
+			agent, err := hexKey(where+" agent_pubkey", py.AgentPubKey)
+			if err != nil {
+				return eden.Config{}, err
+			}
+			payer, err := address(where+" address", py.Address)
+			if err != nil {
+				return eden.Config{}, err
+			}
+			p.Payers[[32]byte(agent)] = payer
 		}
 		for i, f := range ch.Facilitators {
 			a, err := address(fmt.Sprintf("chain %d facilitators[%d]", ch.ChainID, i), f)

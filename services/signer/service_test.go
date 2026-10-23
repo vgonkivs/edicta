@@ -296,7 +296,7 @@ func TestKeyRolesNeverOverlap(t *testing.T) {
 		exec, err := signer.NewEd25519Executor(priv)
 		require.NoError(t, err)
 		_, err = signer.New(defaultConfig(k), signer.Deps{
-			Store: e.store, Wallets: map[uint64]signer.WalletBackend{714: mustWallet(t, k)}, Handlers: []signer.Handler{e.h},
+			Store: e.store, Wallets: map[signer.WalletKey]signer.WalletBackend{walletKey(t, k, 714): mustWallet(t, k)}, Handlers: []signer.Handler{e.h},
 			Executor: exec, Recorder: signer.GateRecorder{C: e.gate},
 		})
 		require.ErrorContains(t, err, "executor key")
@@ -306,7 +306,7 @@ func TestKeyRolesNeverOverlap(t *testing.T) {
 func TestSignBeforeStartIsRefused(t *testing.T) {
 	e := newEnv(t)
 	svc, err := signer.New(e.cfg, signer.Deps{
-		Store: e.store, Wallets: map[uint64]signer.WalletBackend{714: mustWallet(t, e.keys)}, Handlers: []signer.Handler{e.h},
+		Store: e.store, Wallets: map[signer.WalletKey]signer.WalletBackend{walletKey(t, e.keys, 714): mustWallet(t, e.keys)}, Handlers: []signer.Handler{e.h},
 	})
 	require.NoError(t, err)
 	_, err = svc.Sign(context.Background(), request(e.decision(signertest.DecisionOpts{})))

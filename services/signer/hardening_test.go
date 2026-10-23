@@ -65,10 +65,37 @@ func TestOnePayerKeyForTwoChainsIsRefused(t *testing.T) {
 	e := newEnv(t)
 	svc, err := signer.New(e.cfg, signer.Deps{
 		Store: e.store, Handlers: []signer.Handler{e.h},
-		Wallets: map[uint64]signer.WalletBackend{714: mustWallet(t, e.keys), 3735928814: mustWallet(t, e.keys)},
+		Wallets: map[signer.WalletKey]signer.WalletBackend{
+			walletKey(t, e.keys, 714): mustWallet(t, e.keys), walletKey(t, e.keys, 3735928814): mustWallet(t, e.keys),
+		},
 	})
 	require.NoError(t, err)
-	require.ErrorContains(t, svc.Start(context.Background()), "serves chains")
+	require.ErrorContains(t, svc.Start(context.Background()), "serves agent")
+}
+
+func TestOnePayerKeyForTwoAgentsIsRefused(t *testing.T) {
+	e := newEnv(t)
+	other := signertest.NewKeys(t.Name() + "/other")
+	cfg := e.cfg
+	cfg.AgentKeys = append(cfg.AgentKeys, other.AgentPub())
+	svc, err := signer.New(cfg, signer.Deps{
+		Store: e.store, Handlers: []signer.Handler{e.h},
+		Wallets: map[signer.WalletKey]signer.WalletBackend{
+			walletKey(t, e.keys, 714): mustWallet(t, e.keys), walletKey(t, other, 714): mustWallet(t, e.keys),
+		},
+	})
+	require.NoError(t, err)
+	require.ErrorContains(t, svc.Start(context.Background()), "serves agent")
+}
+
+func TestWalletForAnAgentNotServedIsRefused(t *testing.T) {
+	e := newEnv(t)
+	other := signertest.NewKeys(t.Name() + "/other")
+	_, err := signer.New(e.cfg, signer.Deps{
+		Store: e.store, Handlers: []signer.Handler{e.h},
+		Wallets: map[signer.WalletKey]signer.WalletBackend{walletKey(t, other, 714): mustWallet(t, other)},
+	})
+	require.ErrorContains(t, err, "not served")
 }
 
 const adminToken = "fedcba9876543210-admin"

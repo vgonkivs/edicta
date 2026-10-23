@@ -5,6 +5,7 @@ package eden_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -31,7 +32,7 @@ type world struct {
 
 func pins(k signertest.Keys) eden.ChainPins {
 	return eden.ChainPins{
-		ChainID: 714, Payer: k.PayerAddress(), Facilitators: [][20]byte{signertest.Facilitator},
+		ChainID: 714, Payers: map[[32]byte][20]byte{[32]byte(k.AgentPub()): k.PayerAddress()}, Facilitators: [][20]byte{signertest.Facilitator},
 		MaxRefundDelay: 7200, MaxFeePerGas: big.NewInt(10_000), MaxGas: 300_000,
 		MaxFeePerAction: big.NewInt(10_000 * 300_000), Broadcast: eden.BroadcastDirect,
 	}
@@ -79,6 +80,7 @@ func (w *world) verified(t testing.TB, d signertest.Deposit) signer.Verified {
 func (w *world) verifiedAction(action []byte) signer.Verified {
 	return signer.Verified{
 		Authorization: commitment.Authorization{Version: 1, Expires: uint64(w.now.Unix()) + 600, Mode: commitment.ModeFast},
+		Commitment:    commitment.Commitment{AgentPubKey: w.keys.AgentPub()},
 		Action:        action, SkewS: 30,
 	}
 }
@@ -266,11 +268,19 @@ func TestFinishSplicesIntoTheActionBytes(t *testing.T) {
 func TestStartChecksPayerChainAndCode(t *testing.T) {
 	ctx := context.Background()
 	w := newWorld(t)
-	payers := map[uint64][20]byte{714: w.keys.PayerAddress()}
+	agent := [32]byte(w.keys.AgentPub())
+	own := signer.WalletKey{Agent: agent, Key: 714}
+	payers := map[signer.WalletKey][20]byte{own: w.keys.PayerAddress()}
 	require.NoError(t, w.h.Start(ctx, payers))
 
-	require.Error(t, w.h.Start(ctx, map[uint64][20]byte{}), "no payer key for a served chain")
-	require.Error(t, w.h.Start(ctx, map[uint64][20]byte{714: {0x01}}), "the key is not the pinned payer")
+	require.Error(t, w.h.Start(ctx, map[signer.WalletKey][20]byte{}), "no payer key for a served chain")
+	require.Error(t, w.h.Start(ctx, map[signer.WalletKey][20]byte{own: {0x01}}), "the key is not the pinned payer")
+	require.Error(t, w.h.Start(ctx, map[signer.WalletKey][20]byte{{Agent: [32]byte{0x0a}, Key: 714}: w.keys.PayerAddress()}),
+		"the agent's key is missing and another agent has a key without a pin")
+	extra := map[signer.WalletKey][20]byte{own: w.keys.PayerAddress(), {Agent: [32]byte{0x0a}, Key: 714}: {0x02}}
+	require.ErrorContains(t, w.h.Start(ctx, extra), "no pinned payer", "a wallet on a served chain without a pin")
+	require.NoError(t, w.h.Start(ctx, map[signer.WalletKey][20]byte{own: w.keys.PayerAddress(), {Agent: agent, Key: 1}: {0x02}}),
+		"a wallet on a chain this handler does not serve is not its concern")
 
 	w.chain.Set(func(c *signertest.Chain) { c.ID = 3735928814 })
 	require.Error(t, w.h.Start(ctx, payers), "the RPC serves another chain")
@@ -288,7 +298,9 @@ func TestConfigRefusesUnsafePins(t *testing.T) {
 		mut  func(*eden.ChainPins)
 	}{
 		{"chain not in the table", func(p *eden.ChainPins) { p.ChainID = 1 }},
-		{"no payer", func(p *eden.ChainPins) { p.Payer = [20]byte{} }},
+		{"no payer", func(p *eden.ChainPins) { p.Payers = nil }},
+		{"zero payer", func(p *eden.ChainPins) { p.Payers = map[[32]byte][20]byte{{0x0a}: {}} }},
+		{"one payer for two agents", func(p *eden.ChainPins) { p.Payers = map[[32]byte][20]byte{{0x0a}: {0x01}, {0x0b}: {0x01}} }},
 		{"no facilitator", func(p *eden.ChainPins) { p.Facilitators = nil }},
 		{"zero facilitator", func(p *eden.ChainPins) { p.Facilitators = [][20]byte{{}} }},
 		{"no refund delay", func(p *eden.ChainPins) { p.MaxRefundDelay = 0 }},
@@ -309,6 +321,38 @@ func TestConfigRefusesUnsafePins(t *testing.T) {
 	cfg := eden.Config{Chains: []eden.ChainPins{p, p}}
 	cfg.ApplyDefaults()
 	require.Error(t, cfg.ValidateBasic(), "one chain pinned twice")
+
+	testnet := pins(k)
+	testnet.ChainID = 3735928814
+	cfg = eden.Config{Chains: []eden.ChainPins{p, testnet}}
+	cfg.ApplyDefaults()
+	require.ErrorContains(t, cfg.ValidateBasic(), "one payer per agent per chain", "one payer on two chains")
+	testnet.Payers = map[[32]byte][20]byte{[32]byte(k.AgentPub()): {0x7e}}
+	cfg = eden.Config{Chains: []eden.ChainPins{p, testnet}}
+	cfg.ApplyDefaults()
+	require.NoError(t, cfg.ValidateBasic())
+}
+
+func TestCheckSignsWithTheEnvelopesAgentsPayer(t *testing.T) {
+	other := signertest.NewKeys(t.Name() + "/other")
+	w := newWorld(t, func(p *eden.ChainPins) { p.Payers[[32]byte(other.AgentPub())] = other.PayerAddress() })
+	d := signertest.NewDeposit(w.now)
+	v := w.verified(t, d)
+
+	plan, err := w.h.Check(context.Background(), v, w.now)
+	require.NoError(t, err)
+	assert.Equal(t, w.keys.PayerAddress(), plan.Payer)
+
+	v.Commitment.AgentPubKey = other.AgentPub()
+	plan, err = w.h.Check(context.Background(), v, w.now)
+	require.NoError(t, err)
+	assert.Equal(t, other.PayerAddress(), plan.Payer)
+	assert.Contains(t, plan.Slot, fmt.Sprintf("%x", other.PayerAddress()), "the nonce slot is the agent's payer's")
+
+	stranger := signertest.NewKeys(t.Name() + "/stranger")
+	v.Commitment.AgentPubKey = stranger.AgentPub()
+	_, err = w.h.Check(context.Background(), v, w.now)
+	require.ErrorIs(t, err, signer.ErrPinMismatch, "an agent without a payer on the chain")
 }
 
 // signedEntry is the store entry of a signed deposit.

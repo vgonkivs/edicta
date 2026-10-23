@@ -27,19 +27,94 @@ const r = await edictaPay({
 ## Where it plugs into the flow
 
 1. `POST /v1/chat/completions` returns 402 with the `payment-required` header.
-2. `POST /deposit/build` with `from` = the signer's payer address (`GET /v1/payer`).
+2. `POST /deposit/build` with `from` = your agent's own payer address on that
+   chain (the signer pins one payer key per agent per chain; ask its operator).
    Wrap steps 2 and 3 in `PayQueues.for(payer).run(...)` so two builds for one payer never overlap.
 3. `edictaPay(...)` replaces "sign the unsigned tx", "POST /deposit/send" and the
-   wait for confirmation: the signer sends the signed deposit itself and the
-   call returns only after the deposit is executed. For a server that needs
-   `/deposit/send`, the signer must run with the Houston relay broadcaster
-   (direct broadcast after its relay grace period). `signedTx` is returned for
-   callers who want to relay it themselves.
+   wait for confirmation: the signer sends the signed deposit itself, directly
+   to Eden by default, and the call returns only after the deposit is
+   executed. The signer's `broadcaster = "houston-relay"` is an optional
+   fallback for a server that must see the deposit through `/deposit/send`
+   (deprecated by the server). `signedTx` is returned for callers who want to
+   relay it themselves.
 4. Retry the original request with `Payment-Signature`, built from
    `r.paymentSignature` by the starter's existing encoder.
 
 The decision committed is the decoded deposit transaction, not the server's
 description of it; a quote that does not match the transaction is refused.
+
+## Paid retry and relay handoff
+
+A payment server may not pick up a deposit the signer sent directly to Eden.
+Give `edictaPay` the paid retry and the handoff settings and it makes the
+retry itself; or call `paidRetryWithHandoff(result, retry, handoff)` with the
+result of an earlier `edictaPay`.
+
+```ts
+const r = await edictaPay({
+  ...options,
+  paidRetry: (paymentSignature) => fetch(resourceUrl, retryInit(paymentSignature)), // your existing encoder
+  handoff: { paymentServerUrl: "https://pay.example" },   // the base you called /deposit/build on
+});
+// r.paidRetry.response is the last answer, unread.
+// r.paidRetry.needsOperator: still refused after the handoff; do not pay a new quote under this decision.
+// r.paidRetryError: the paid retry or the handoff failed; r itself (paymentSignature, signedTx) still stands.
+```
+
+`paidRetryWithHandoff` takes the result as `edictaPay` returned it: the
+handoff reads the committed action from `raw.action`.
+
+What it does, and nothing else:
+
+- It retries with the same Payment-Signature. Only two refusals are acted on:
+  a 402 whose `payment-required` quote names this deposit's `paymentId`
+  (RR1), and a 403 whose body contains `neither the escrow buyer` (RR2). A
+  success, any other status, a quote for another `paymentId`, or an answer
+  over 16384 bytes is returned as it is.
+- After a recognised refusal it waits `pickupDelayMs` (default 10 s, at most
+  120 s) and retries once. Refused in a recognised way again, it checks that
+  keccak256 of the stored signed deposit equals `railRef`, that the bytes are
+  the committed transaction with one low-s signature appended, and that the
+  Payment-Signature over the committed `paymentId` recovers to the key that
+  signed them (and to `raw.payer`, when present). Only then it records the
+  handoff in the store and posts exactly those bytes, with the committed
+  `paymentId`, to `{paymentServerUrl}/deposit/send`. It never signs,
+  rebuilds or pays anything: the deposit already executed. The relay's
+  answer is never evidence; a relay error is reported in `relayFault` and
+  not retried.
+- It waits `pickupDelayMs` once more and makes one last retry.
+- `signal` stops the flow before a paid retry or before the handoff is
+  recorded. Once it is recorded, the relay call runs to `serverTimeoutMs`
+  whatever the signal says, and an abort after it returns the outcome with
+  `needsOperator` set.
+- At most one handoff per commitment hash, across restarts. The default store
+  is `FileHandoffStore` in `$EDICTA_HOME/handoff` (else `~/.edicta/handoff`):
+  one file per commitment hash, created exclusively and synced before the
+  bytes are sent. Pass your own `store` (any `{ claim(commitmentHash):
+  Promise<boolean> }` that is atomic and durable; `true` only for the first
+  claim) when the agent runs in more than one process or on more than one
+  host.
+- Use one handoff path per deployment: this function or the agent serve's
+  `POST /v1/paid-retry` below. Each keeps its own once mark, so using both
+  for one decision can hand the same bytes over twice (harmless, but not
+  once).
+
+`edicta agent serve --state-dir DIR --payment-server https://... [--pickup-delay 10s]`
+(`--payment-server` is the base the client calls `/deposit/build` on; the
+serve never calls it, so the operator keeps the two the same) offers the same
+rules to clients in other languages: `POST /v1/paid-retry`
+with `commitment_hash`, `payment_signature`, `status`, `payment_required` and
+`body` (base64) of each paid retry's answer returns `next` (`none`, `retry`
+after `retry_after_ms`, or `operator`) and makes the one handoff itself.
+The handoff call runs to its own timeout even if the client disconnects. The
+answer that made it, and every later one, carries `handoff_outcome`: `sent`,
+`relay_fault`, `not_sent` (the request never left the serve; the operator
+decides how to hand the bytes over) or `unknown` (the call is still running,
+or the serve stopped during it). None of them allows a second handoff.
+The once mark lives in the state directory, so `edicta agent serve` holds it
+locked while it runs: a second serve on the same directory refuses to start,
+and `edicta commit --state-dir` on it fails with `busy`. Run one serve per
+state directory, on a local filesystem.
 
 ## Resume: never start over
 

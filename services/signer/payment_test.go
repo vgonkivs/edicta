@@ -238,7 +238,7 @@ func TestPaymentSignatureNeedsTwoLabelledOperators(t *testing.T) {
 	one, two := signertest.NewChain(714), signertest.NewChain(714)
 	two.Host = "second-host"
 	pins := eden.ChainPins{
-		ChainID: 714, Payer: k.PayerAddress(), Facilitators: [][20]byte{signertest.QuoteFacilitator()},
+		ChainID: 714, Payers: payerPins(k), Facilitators: [][20]byte{signertest.QuoteFacilitator()},
 		MaxRefundDelay: 7200, MaxFeePerGas: big.NewInt(10_000), MaxGas: 300_000, MaxFeePerAction: big.NewInt(3e9), Broadcast: eden.BroadcastDirect,
 	}
 	build := func(level edenexec.Level, srcs ...edenexec.Source) error {

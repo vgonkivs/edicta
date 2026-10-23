@@ -15,6 +15,7 @@ import (
 	"github.com/vgonkivs/edicta/internal/keyfile"
 	"github.com/vgonkivs/edicta/internal/secret"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrelay"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrpc"
 	"github.com/vgonkivs/edicta/services/signer"
 	"github.com/vgonkivs/edicta/services/signer/eden"
@@ -66,21 +67,31 @@ func Build(ctx context.Context, cfg Config, log *slog.Logger) (_ *Daemon, err er
 		opts.Credentials = append(opts.Credentials, signer.Credential{Token: tok.Reveal(), Agent: agent})
 	}
 
-	wallets := map[uint64]signer.WalletBackend{}
+	wallets := map[signer.WalletKey]signer.WalletBackend{}
 	chains := map[uint64]eden.Chain{}
 	settlers := map[uint64]eden.Settler{}
 	relays := map[uint64]eden.Relay{}
 	for _, ch := range cfg.Chains {
-		k, err := keyfile.ReadSecp256k1(ch.PayerKeyFile, "payer")
-		if err != nil {
-			return nil, fmt.Errorf("signerd: chain %d: %w", ch.ChainID, err)
+		for i, p := range ch.Payers {
+			agent, err := hexKey("agent_pubkey", p.AgentPubKey)
+			if err != nil {
+				return nil, err
+			}
+			wk, err := signer.NewWalletKey(agent, ch.ChainID)
+			if err != nil {
+				return nil, err
+			}
+			k, err := keyfile.ReadSecp256k1(p.KeyFile, "payer")
+			if err != nil {
+				return nil, fmt.Errorf("signerd: chain %d payer %d: %w", ch.ChainID, i, err)
+			}
+			w, err := signer.NewKeyWallet(k)
+			clear(k)
+			if err != nil {
+				return nil, fmt.Errorf("signerd: chain %d payer %d: %w", ch.ChainID, i, err)
+			}
+			wallets[wk] = w
 		}
-		w, err := signer.NewKeyWallet(k)
-		clear(k)
-		if err != nil {
-			return nil, fmt.Errorf("signerd: chain %d: %w", ch.ChainID, err)
-		}
-		wallets[ch.ChainID] = w
 
 		class := edenexec.ClassPublicRPC
 		if ch.OwnNode {
@@ -95,7 +106,7 @@ func Build(ctx context.Context, cfg Config, log *slog.Logger) (_ *Daemon, err er
 				"chain", ch.ChainID)
 		}
 		if ch.Broadcaster == eden.BroadcastRelay {
-			r, err := eden.NewHoustonRelay(ch.relayConfig(cfg.Broadcast), nil)
+			r, err := edenrelay.NewHoustonRelay(ch.relayConfig(cfg.Broadcast), nil, log)
 			if err != nil {
 				return nil, fmt.Errorf("signerd: chain %d: %w", ch.ChainID, err)
 			}

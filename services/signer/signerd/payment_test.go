@@ -22,7 +22,8 @@ import (
 const agentToken = "agent-one-token-0123456789"
 
 // paymentText is a configuration with the Payment-Signature on (the
-// defaults): one credential per agent, labelled sources, the relay.
+// defaults): one credential per agent, labelled sources, the relay chosen
+// explicitly.
 func paymentText(t *testing.T, f files, payer [20]byte, own, second string) string {
 	t.Helper()
 	cred := writeFile(t, filepath.Dir(f.token), "agent.token", []byte(agentToken+"\n"), 0o600)
@@ -49,15 +50,19 @@ chain_id = 714
 rpc = "own=%s"
 own_node = true
 settlement_rpc = ["gateway=%s"]
+broadcaster = "houston-relay"
 relay_url = "https://pay.example/"
-payer_key_file = %q
-payer_address = "0x%x"
 facilitators = ["0xfac1117a70400000000000000000000000000000"]
 max_refund_delay_s = 7200
 max_fee_per_gas = "10000"
 max_gas = 300000
 max_fee_per_action = "3000000000"
-`, f.store, edPub(gate), edPub(agent), edPub(agent), cred, own, second, f.payer, payer)
+
+[[chain.payer]]
+agent_pubkey = %q
+key_file = %q
+address = "0x%x"
+`, f.store, edPub(gate), edPub(agent), edPub(agent), cred, own, second, edPub(agent), f.payer, payer)
 }
 
 func validate(text string) error {
@@ -80,7 +85,7 @@ func TestConfigWithThePaymentSignature(t *testing.T) {
 	assert.True(t, cfg.PaymentSignatureEnabled(), "on by default")
 	assert.Equal(t, "L1", cfg.Settlement.AwaitLevel)
 	assert.Equal(t, "L1", cfg.SettlementConfig().MinLevel.String())
-	assert.Equal(t, "houston-relay", cfg.Chains[0].Broadcaster)
+	assert.Equal(t, "houston-relay", cfg.Chains[0].Broadcaster, "as written")
 
 	other := sha256.Sum256([]byte("other agent"))
 	want := map[string]string{
@@ -146,10 +151,20 @@ func TestConfigWithThePaymentSignature(t *testing.T) {
 	oneSource := strings.Replace(off, `settlement_rpc = ["gateway=https://rpc.eden.gateway.fm/"]`, "", 1)
 	assert.ErrorContains(t, validate(oneSource), "distinct operators", "L1 with one operator would never reach an outcome")
 	require.NoError(t, validate(strings.Replace(oneSource, "[caps]", "[settlement]\nawait_level = \"L0\"\n\n[caps]", 1)))
-	direct := strings.Replace(base, `relay_url = "https://pay.example/"`, `broadcaster = "direct"`, 1)
+	direct := strings.Replace(base, "broadcaster = \"houston-relay\"\nrelay_url = \"https://pay.example/\"", `broadcaster = "direct"`, 1)
+	require.NotEqual(t, base, direct)
 	require.NoError(t, validate(direct))
 	assert.ErrorContains(t, validate(strings.Replace(direct, `broadcaster = "direct"`, "broadcaster = \"direct\"\nrelay_url = \"https://pay.example/\"", 1)),
 		"relay_url set but broadcaster")
+	unset := strings.Replace(base, "broadcaster = \"houston-relay\"\nrelay_url = \"https://pay.example/\"\n", "", 1)
+	require.NotEqual(t, base, unset)
+	require.NoError(t, validate(unset))
+	cfg, err = signerd.ParseConfig([]byte(unset))
+	require.NoError(t, err)
+	cfg.ApplyDefaults()
+	assert.Equal(t, "direct", cfg.Chains[0].Broadcaster, "an unset broadcaster sends directly")
+	assert.ErrorContains(t, validate(strings.Replace(unset, "[[chain]]", "[[chain]]\nrelay_url = \"https://pay.example/\"", 1)),
+		"relay_url set but broadcaster", "a relay URL alone does not select the relay")
 }
 
 func TestBuildWithThePaymentSignature(t *testing.T) {

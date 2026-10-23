@@ -19,6 +19,7 @@ import (
 	"github.com/vgonkivs/edicta/api/signerapi"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrelay"
 	"github.com/vgonkivs/edicta/services/signer"
 )
 
@@ -58,13 +59,17 @@ type Relay interface {
 	Send(ctx context.Context, signed []byte, railRef string, paymentID [32]byte) error
 }
 
+var _ Relay = (*edenrelay.HoustonRelay)(nil)
+
 // Broadcast modes.
 const (
 	// BroadcastRelay sends through the payment server's relay once, when
 	// signed, and directly when the relay fails and on every resend after
-	// RelayGrace.
+	// RelayGrace. Only by explicit configuration: the server deprecates the
+	// relay, and its answers are never evidence.
 	BroadcastRelay = "houston-relay"
-	// BroadcastDirect sends with eth_sendRawTransaction on the chain's RPC.
+	// BroadcastDirect, the default, sends with eth_sendRawTransaction on the
+	// chain's RPC.
 	BroadcastDirect = "direct"
 )
 
@@ -82,8 +87,10 @@ const (
 // here.
 type ChainPins struct {
 	ChainID uint64
-	// Payer is the address of the chain's payer key, checked at start.
-	Payer        [20]byte
+	// Payers maps each agent key served on this chain to the address of its
+	// own payer key, checked at start. A request is signed with the payer of
+	// its envelope's agent.
+	Payers       map[[32]byte][20]byte
 	Facilitators [][20]byte
 	// MaxRefundDelay bounds refundAfter - expiresAt, in seconds.
 	MaxRefundDelay uint64
@@ -91,7 +98,7 @@ type ChainPins struct {
 	MaxGas         uint64
 	// MaxFeePerAction bounds max_fee_per_gas * gas_limit.
 	MaxFeePerAction *big.Int
-	// Broadcast is BroadcastRelay (the default) or BroadcastDirect.
+	// Broadcast is BroadcastDirect (the default) or BroadcastRelay.
 	Broadcast string
 }
 
@@ -156,7 +163,7 @@ func (c *Config) ApplyDefaults() {
 	}
 	for i := range c.Chains {
 		if c.Chains[i].Broadcast == "" {
-			c.Chains[i].Broadcast = BroadcastRelay
+			c.Chains[i].Broadcast = BroadcastDirect
 		}
 	}
 }
@@ -175,6 +182,7 @@ func (c Config) ValidateBasic() error {
 	if len(c.Chains) == 0 {
 		return errors.New("signer/eden: no served chain")
 	}
+	payers := map[[20]byte]string{}
 	for i, p := range c.Chains {
 		if _, ok := edenescrow.Lookup(p.ChainID); !ok {
 			return fmt.Errorf("signer/eden: chain %d is not in this build's escrow table", p.ChainID)
@@ -184,9 +192,20 @@ func (c Config) ValidateBasic() error {
 				return fmt.Errorf("signer/eden: chain %d pinned twice", p.ChainID)
 			}
 		}
-		switch {
-		case p.Payer == [20]byte{}:
+		if len(p.Payers) == 0 {
 			return fmt.Errorf("signer/eden: chain %d: no payer address", p.ChainID)
+		}
+		for agent, payer := range p.Payers {
+			where := fmt.Sprintf("agent %x on chain %d", agent, p.ChainID)
+			if payer == [20]byte{} {
+				return fmt.Errorf("signer/eden: %s: no payer address", where)
+			}
+			if other, dup := payers[payer]; dup {
+				return fmt.Errorf("signer/eden: payer %x is pinned for %s and for %s: one payer per agent per chain", payer, other, where)
+			}
+			payers[payer] = where
+		}
+		switch {
 		case len(p.Facilitators) == 0:
 			return fmt.Errorf("signer/eden: chain %d: no allowed facilitator", p.ChainID)
 		case slices.Contains(p.Facilitators, [20]byte{}):
@@ -316,17 +335,28 @@ func UnpackSig(b [65]byte) edenescrow.Signature {
 	return s
 }
 
-// Start checks, for every served chain: the RPC serves that chain, the
-// chain's wallet is the pinned payer, the escrow code is the table's, and
-// the payer has no code.
-func (h *Handler) Start(ctx context.Context, payers map[uint64][20]byte) error {
-	for id, p := range h.pins {
-		got, ok := payers[id]
-		if !ok {
-			return fmt.Errorf("signer/eden: chain %d: no payer key", id)
+// Start checks, for every served chain: each pinned agent's wallet is its
+// pinned payer and no wallet on the chain lacks a pin, the RPC serves that
+// chain, the escrow code is the table's, and no payer has code.
+func (h *Handler) Start(ctx context.Context, payers map[signer.WalletKey][20]byte) error {
+	for k := range payers {
+		p, served := h.pins[k.Key]
+		if !served {
+			continue
 		}
-		if got != p.Payer {
-			return fmt.Errorf("signer/eden: chain %d: the payer key's address is %x, the pin %x", id, got, p.Payer)
+		if _, pinned := p.Payers[k.Agent]; !pinned {
+			return fmt.Errorf("signer/eden: chain %d: a payer key for agent %x, which has no pinned payer", k.Key, k.Agent)
+		}
+	}
+	for id, p := range h.pins {
+		for agent, want := range p.Payers {
+			got, ok := payers[signer.WalletKey{Agent: agent, Key: id}]
+			if !ok {
+				return fmt.Errorf("signer/eden: chain %d: no payer key for agent %x", id, agent)
+			}
+			if got != want {
+				return fmt.Errorf("signer/eden: chain %d agent %x: the payer key's address is %x, the pin %x", id, agent, got, want)
+			}
 		}
 		c := h.chains[id]
 		served, err := c.ChainID(ctx)
@@ -340,8 +370,10 @@ func (h *Handler) Start(ctx context.Context, payers map[uint64][20]byte) error {
 		if err := h.escrowCode(ctx, c, row); err != nil {
 			return err
 		}
-		if err := h.payerCode(ctx, c, p.Payer); err != nil {
-			return err
+		for _, payer := range p.Payers {
+			if err := h.payerCode(ctx, c, payer); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -394,6 +426,14 @@ func (h *Handler) Check(ctx context.Context, v signer.Verified, now time.Time) (
 	if !ok {
 		return signer.Plan{}, fmt.Errorf("%w: chain %d is not served", signer.ErrPinMismatch, a.ChainID)
 	}
+	agent := v.Commitment.AgentPubKey
+	if len(agent) != 32 {
+		return signer.Plan{}, fmt.Errorf("%w: agent key of %d bytes", signer.ErrNotAuthorized, len(agent))
+	}
+	payer, ok := p.Payers[[32]byte(agent)]
+	if !ok {
+		return signer.Plan{}, fmt.Errorf("%w: agent %x has no payer on chain %d", signer.ErrPinMismatch, agent, a.ChainID)
+	}
 	d := a.Deposit
 	feePerGas := new(big.Int).SetBytes(a.MaxFeePerGas)
 	feeBound := new(big.Int).Mul(feePerGas, new(big.Int).SetUint64(a.GasLimit))
@@ -413,11 +453,11 @@ func (h *Handler) Check(ctx context.Context, v signer.Verified, now time.Time) (
 	if err := h.escrowCode(ctx, c, a.Row); err != nil {
 		return signer.Plan{}, err
 	}
-	if err := h.payerCode(ctx, c, p.Payer); err != nil {
+	if err := h.payerCode(ctx, c, payer); err != nil {
 		return signer.Plan{}, err
 	}
 	if !v.Repeat {
-		n, err := c.PendingNonce(ctx, p.Payer)
+		n, err := c.PendingNonce(ctx, payer)
 		if err != nil {
 			return signer.Plan{}, fmt.Errorf("%w: %w: pending nonce: %w", signer.ErrPinMismatch, signer.ErrUnavailable, err)
 		}
@@ -455,9 +495,9 @@ func (h *Handler) Check(ctx context.Context, v signer.Verified, now time.Time) (
 
 	until := time.Unix(int64(d.ExpiresAt), 0).Add(h.cfg.AwaitGrace)
 	return signer.Plan{
-		Key: a.ChainID, Payer: p.Payer, Digest: a.SigHash(),
+		Key: a.ChainID, Payer: payer, Digest: a.SigHash(),
 		Value: new(big.Int).SetBytes(a.Value), Fee: feeBound, Until: until.Unix(),
-		Slot: nonceSlot(a.ChainID, p.Payer, a.Nonce),
+		Slot: nonceSlot(a.ChainID, payer, a.Nonce),
 	}, nil
 }
 

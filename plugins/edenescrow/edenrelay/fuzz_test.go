@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package eden_test
+package edenrelay_test
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/services/signer/eden"
+	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrelay"
 )
 
 // FuzzCheckRelayAnswer: the relay answer reader never panics, and an
@@ -23,7 +23,7 @@ func FuzzCheckRelayAnswer(f *testing.F) {
 	f.Add([]byte(``))
 	f.Add([]byte(`[1,2]`))
 	f.Fuzz(func(t *testing.T, b []byte) {
-		if eden.CheckRelayAnswer(b, rail) != nil {
+		if edenrelay.CheckRelayAnswer(b, rail) != nil {
 			return
 		}
 		var top map[string]json.RawMessage

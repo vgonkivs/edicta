@@ -214,6 +214,24 @@ func TestAgentServeRefusesANonLoopbackBind(t *testing.T) {
 	assert.Contains(t, out.String(), "loopback")
 }
 
+func TestAgentServeChecksTheHandoffFlags(t *testing.T) {
+	fakeService(t, newCLIGate(t), sdktest.NewPublisher(commitment.DACelestiaBlob))
+	dir := filepath.Join(t.TempDir(), "state")
+	for name, tc := range map[string]struct {
+		args []string
+		want string
+	}{
+		"no state directory": {[]string{"--payment-server", "https://pay.example"}, "needs --state-dir"},
+		"plain http server":  {[]string{"--state-dir", dir, "--payment-server", "http://pay.example"}, "not https"},
+		"pickup above 2m":    {[]string{"--state-dir", dir, "--payment-server", "https://pay.example", "--pickup-delay", "3m"}, "pickup delay"},
+	} {
+		var out bytes.Buffer
+		code := runAgent(context.Background(), append([]string{"serve", "--listen", "127.0.0.1:0"}, tc.args...), &out)
+		assert.Equal(t, commitcmd.ExitUsage, code, name)
+		assert.Contains(t, out.String(), tc.want, name)
+	}
+}
+
 func TestAgentNeedsTheServeSubcommand(t *testing.T) {
 	var out bytes.Buffer
 	assert.Equal(t, commitcmd.ExitUsage, runAgent(context.Background(), nil, &out))

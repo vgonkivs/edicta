@@ -50,7 +50,8 @@ type Verified struct {
 
 // Plan is what a handler decided may be signed for a verified request.
 type Plan struct {
-	// Key selects the wallet: the chain id.
+	// Key is the chain id; with the envelope's agent key it selects the
+	// wallet.
 	Key   uint64
 	Payer [20]byte
 	// Digest is exactly what the payer key signs.
@@ -83,7 +84,7 @@ type Handler interface {
 	ActionType() string
 	// Start checks the handler's pins against the chain and the wallets
 	// before the service accepts a request.
-	Start(ctx context.Context, payers map[uint64][20]byte) error
+	Start(ctx context.Context, payers map[WalletKey][20]byte) error
 	// Check runs the profile's checks on the exact action bytes and returns
 	// what may be signed.
 	Check(ctx context.Context, v Verified, now time.Time) (Plan, error)
@@ -152,11 +153,28 @@ type Recorder interface {
 	Record(ctx context.Context, envelope []byte, railRef string, executorPub, executorSig []byte) ([]byte, error)
 }
 
+// WalletKey names one payer key: the agent key it pays for and the chain
+// (a plan's Key). A payer is dedicated to one agent on one chain, so that
+// the escrow's buyer, the deposit and the payment proof name one agent, and
+// one agent's stuck nonce never blocks another's.
+type WalletKey struct {
+	Agent [ed25519.PublicKeySize]byte
+	Key   uint64
+}
+
+// NewWalletKey is the WalletKey of an agent public key and a chain.
+func NewWalletKey(agent []byte, key uint64) (WalletKey, error) {
+	if len(agent) != ed25519.PublicKeySize {
+		return WalletKey{}, fmt.Errorf("signer: agent key of %d bytes", len(agent))
+	}
+	return WalletKey{Agent: [ed25519.PublicKeySize]byte(agent), Key: key}, nil
+}
+
 // Deps are the service's collaborators.
 type Deps struct {
 	Store Store
-	// Wallets holds one payer key per served chain.
-	Wallets  map[uint64]WalletBackend
+	// Wallets holds one payer key per served agent per served chain.
+	Wallets  map[WalletKey]WalletBackend
 	Handlers []Handler
 	// Executor and Recorder enable the record request; both or neither.
 	Executor ExecutorKey
@@ -169,7 +187,7 @@ type Deps struct {
 type Service struct {
 	cfg      Config
 	st       Store
-	wallets  map[uint64]WalletBackend
+	wallets  map[WalletKey]WalletBackend
 	handlers map[string]Handler
 	ordered  []Handler // as in Deps: the order of the handlers' error rules
 	provers  map[string]PaymentProver
@@ -178,7 +196,7 @@ type Service struct {
 	clk      Clock
 	log      *slog.Logger
 
-	payers  map[uint64][20]byte
+	payers  map[WalletKey][20]byte
 	started bool
 
 	kick     chan struct{}
@@ -203,7 +221,10 @@ func New(cfg Config, d Deps) (*Service, error) {
 	}
 	for k, w := range d.Wallets {
 		if w == nil {
-			return nil, fmt.Errorf("signer: wallet of chain %d is nil", k)
+			return nil, fmt.Errorf("signer: wallet of agent %x chain %d is nil", k.Agent, k.Key)
+		}
+		if !agentIn(cfg.AgentKeys, k.Agent[:]) {
+			return nil, fmt.Errorf("signer: wallet for agent %x, which is not served", k.Agent)
 		}
 	}
 	hs := make(map[string]Handler, len(d.Handlers))
@@ -259,17 +280,19 @@ func checkExecutorKey(cfg Config, pub ed25519.PublicKey) error {
 // Start reads every wallet's address and runs each handler's startup checks.
 // The service refuses requests until it succeeds.
 func (s *Service) Start(ctx context.Context) error {
-	payers := make(map[uint64][20]byte, len(s.wallets))
-	seen := map[[20]byte]uint64{}
+	payers := make(map[WalletKey][20]byte, len(s.wallets))
+	seen := map[[20]byte]WalletKey{}
 	for k, w := range s.wallets {
 		a, err := w.Address(ctx)
 		if err != nil {
-			return fmt.Errorf("signer: wallet of chain %d: %w", k, err)
+			return fmt.Errorf("signer: wallet of agent %x chain %d: %w", k.Agent, k.Key, err)
 		}
-		// One key per chain keeps a mistake or a compromise on one chain
-		// from reaching another; two files may hold one key.
+		// One key per agent per chain keeps a mistake or a compromise on one
+		// chain or of one agent from reaching another; two files may hold
+		// one key.
 		if other, dup := seen[a]; dup {
-			return fmt.Errorf("signer: one payer key %x serves chains %d and %d", a, other, k)
+			return fmt.Errorf("signer: one payer key %x serves agent %x chain %d and agent %x chain %d",
+				a, other.Agent, other.Key, k.Agent, k.Key)
 		}
 		seen[a] = k
 		payers[k] = a
@@ -280,6 +303,9 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 	}
 	if err := s.indexOldSlots(ctx); err != nil {
+		return err
+	}
+	if err := s.warnForeignPayers(ctx, payers); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -311,6 +337,47 @@ func (s *Service) indexOldSlots(ctx context.Context) error {
 		if err := s.st.IndexSlot(ctx, e.CommitmentHash, slot); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// warnForeignPayers names every decision still in flight whose stored payer
+// is not the payer its agent has on that chain now, as after a change of
+// the payer configuration. Such a decision fails closed: no repeat signs
+// it and its Payment-Signature is refused, so an executed deposit sits in
+// escrow until its refund. The start goes on; the operator gives the
+// stored payer key back to that agent, or lets the decision run out first.
+func (s *Service) warnForeignPayers(ctx context.Context, payers map[WalletKey][20]byte) error {
+	entries, err := s.st.Unfinished(ctx, StateReserved, StateSigned, StateWrong, StateExecuted)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.State == StateExecuted && (!e.PaymentProofAllowed || len(e.PaymentProof) > 0) {
+			continue
+		}
+		hash := hex.EncodeToString(e.CommitmentHash[:])
+		sc, err := commitment.DecodeSigned(e.Envelope)
+		var wk WalletKey
+		if err == nil {
+			wk, err = NewWalletKey(sc.Commitment.AgentPubKey, e.Key)
+		}
+		if err != nil {
+			s.log.Warn("signer: a stored decision in flight names no agent; its payer is not checked", "commitment_hash", hash, "err", err)
+			continue
+		}
+		now, ok := payers[wk]
+		if ok && now == e.Payer {
+			continue
+		}
+		configured := "none"
+		if ok {
+			configured = hex.EncodeToString(now[:])
+		}
+		s.log.Warn("signer: a decision in flight was reserved under a payer its agent no longer has; "+
+			"it is not signed again and gets no Payment-Signature until that key is the agent's payer again",
+			"commitment_hash", hash, "state", e.State, "agent", hex.EncodeToString(wk.Agent[:]), "chain", e.Key,
+			"stored_payer", hex.EncodeToString(e.Payer[:]), "configured_payer", configured)
 	}
 	return nil
 }
@@ -353,9 +420,13 @@ func (s *Service) SignAs(ctx context.Context, req Request, caller []byte) (Outpu
 	if v.Authorization.Mode == commitment.ModeFast && s.cfg.RefuseFast {
 		return Output{}, ErrFastModeRefused
 	}
-	wallet := s.wallets[plan.Key]
-	if wallet == nil || s.payer(plan.Key) != plan.Payer {
-		return Output{}, fmt.Errorf("%w: no payer key for chain %d", ErrPinMismatch, plan.Key)
+	wk, err := NewWalletKey(v.Commitment.AgentPubKey, plan.Key)
+	if err != nil {
+		return Output{}, fmt.Errorf("%w: %w", ErrNotAuthorized, err)
+	}
+	wallet := s.wallets[wk]
+	if wallet == nil || s.payer(wk) != plan.Payer {
+		return Output{}, fmt.Errorf("%w: no payer key of this agent for chain %d", ErrPinMismatch, plan.Key)
 	}
 	if plan.Value == nil || plan.Fee == nil || plan.Value.Sign() < 0 || plan.Fee.Sign() < 0 {
 		return Output{}, errors.New("signer: handler returned no amounts")
@@ -386,7 +457,8 @@ func (s *Service) SignAs(ctx context.Context, req Request, caller []byte) (Outpu
 			return Output{}, ErrDigestConflict
 		}
 		if stored.Payer != plan.Payer {
-			return Output{}, fmt.Errorf("%w: the decision was reserved for payer %x", ErrPinMismatch, stored.Payer)
+			return Output{}, fmt.Errorf("%w: the decision was reserved for payer %x, not this agent's payer %x on chain %d now",
+				ErrPinMismatch, stored.Payer, plan.Payer, plan.Key)
 		}
 		if len(stored.Signed) > 0 {
 			s.wake()
@@ -433,7 +505,7 @@ func sendAllowed(now time.Time, skew, expires uint64) bool {
 	return n >= 0 && uint64(n)+skew < expires
 }
 
-func (s *Service) payer(key uint64) [20]byte {
+func (s *Service) payer(key WalletKey) [20]byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.payers[key]
@@ -530,8 +602,10 @@ func (s *Service) verify(req Request, now time.Time) (Verified, Handler, error) 
 	}, hd, nil
 }
 
-func (s *Service) agentPinned(pub []byte) bool {
-	for _, k := range s.cfg.AgentKeys {
+func (s *Service) agentPinned(pub []byte) bool { return agentIn(s.cfg.AgentKeys, pub) }
+
+func agentIn(keys [][]byte, pub []byte) bool {
+	for _, k := range keys {
 		if bytes.Equal(k, pub) {
 			return true
 		}
