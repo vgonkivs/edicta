@@ -3,6 +3,7 @@ module github.com/vgonkivs/edicta/spec/vectors/tools/fibrecert-gen
 go 1.26.6
 
 require (
+	cosmossdk.io/math v1.5.3
 	github.com/celestiaorg/celestia-app/v10 v10.4.0-mocha
 	github.com/cometbft/cometbft v1.0.1
 	github.com/cosmos/cosmos-sdk v0.50.13
@@ -16,7 +17,6 @@ require (
 	cosmossdk.io/depinject v1.2.1 // indirect
 	cosmossdk.io/errors v1.0.2 // indirect
 	cosmossdk.io/log v1.6.0 // indirect
-	cosmossdk.io/math v1.5.3 // indirect
 	cosmossdk.io/store v1.1.2 // indirect
 	cosmossdk.io/x/feegrant v0.1.1 // indirect
 	cosmossdk.io/x/tx v0.13.8 // indirect

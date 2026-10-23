@@ -34,3 +34,7 @@ cmd/*/edicta-*
 !cmd/*/*.go
 services/signer/cmd/*/edicta-signer
 !services/signer/cmd/*/*.go
+
+# Built generator binaries (any tools module)
+spec/vectors/tools/*/*-gen
+spec/vectors/tools/*/principal-xcheck
