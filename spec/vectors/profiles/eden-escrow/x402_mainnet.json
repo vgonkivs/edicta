@@ -1,0 +1,488 @@
+{
+  "format": "edicta-vectors/v0",
+  "profile": "eden-escrow",
+  "revision": "eden-escrow-v1-draft.11",
+  "generator": "spec/vectors/tools/edenescrow-gen",
+  "upstream": {
+    "go-ethereum": "github.com/ethereum/go-ethereum v1.17.8"
+  },
+  "note": "Three funded escrow-upto payments on Eden mainnet, recorded on the client side (index live/mainnet-runs.json). Every expectation below is derived from the recorded files; wire files are exact, reconstructed bodies are checked by value only.",
+  "inputs": [
+    {
+      "file": "live/mainnet-runs.json",
+      "provenance": "index",
+      "sha256": "f9e4e5fb255c9245ce76a2ed4162d1bd19ae6ffbe70e09952fce22f1ac3adc6d"
+    },
+    {
+      "file": "live/mainnet-paymentid/header-payment-required.b64",
+      "provenance": "wire",
+      "sha256": "bc7fa7dfb3dee25331b8c3bac3746ef4b2286c033e878b1257ec748782453db1",
+      "length": "1140"
+    },
+    {
+      "file": "live/mainnet-paymentid/body-quote-402.json",
+      "provenance": "reconstructed",
+      "sha256": "b1a3fe736cee701c8477054ac71a3065c53d6c6029893f949997da90f58398ab",
+      "length": "219",
+      "content_length": "219"
+    },
+    {
+      "file": "live/mainnet-paymentid/body-deposit-build.json",
+      "provenance": "reconstructed",
+      "sha256": "f4f7adce8a09207e4b8d939d5f0c64773c579a2fb4ce1213882c868123041442",
+      "length": "666"
+    },
+    {
+      "file": "live/mainnet-paymentid/deposit-signed.hex",
+      "provenance": "wire",
+      "sha256": "54b154d7faacd27ba17214ad6ba1357781836f21f2f551336d4a2c154753d3e3",
+      "length": "622"
+    },
+    {
+      "file": "live/mainnet-paymentid/body-deposit-send-request.json",
+      "provenance": "reconstructed",
+      "sha256": "db77d25725bde87347f2c7692c1e00d352cf88c065836c5ac6d260ced0cf377f",
+      "length": "719"
+    },
+    {
+      "file": "live/mainnet-paymentid/body-deposit-send.json",
+      "provenance": "reconstructed",
+      "sha256": "ae07e03b212c406ebba15e2441afaadfe308be1b4b659d90fa890d5142e24b04",
+      "length": "161",
+      "content_length": "161"
+    },
+    {
+      "file": "live/mainnet-paymentid/body-deposit-status.json",
+      "provenance": "reconstructed",
+      "sha256": "77d21350fde87bce2a238cfe968dfdd7b0a7cd448faa09479261c2e7fec63fe1",
+      "length": "101",
+      "content_length": "101"
+    },
+    {
+      "file": "live/mainnet-paymentid/header-payment-signature.b64",
+      "provenance": "wire",
+      "sha256": "b3acad6d224d94d19ea4e6aee7d9bef78e7b40a99e3aae910d0dc5522639ec44",
+      "length": "1500"
+    },
+    {
+      "file": "live/mainnet-paymentid/header-payment-response.b64",
+      "provenance": "wire",
+      "sha256": "9011a06cb63593b07fd29478379a39310ebfa4fac8619591c32131b1cccc1db4",
+      "length": "124"
+    },
+    {
+      "file": "live/mainnet-nonce-refused/header-payment-required.b64",
+      "provenance": "wire",
+      "sha256": "59b77a95e02a0cb0e290b24264e6967965355a29bc0eb4e0ac8ec9f8f2ebe9b9",
+      "length": "1140"
+    },
+    {
+      "file": "live/mainnet-nonce-refused/deposit-signed.hex",
+      "provenance": "wire",
+      "sha256": "1d1abf62fdaf2c6d7a67ba6099d894b0ed3629084651d933e6f542ec0292a27f",
+      "length": "622"
+    },
+    {
+      "file": "live/mainnet-nonce-refused/header-payment-signature.b64",
+      "provenance": "wire",
+      "sha256": "42cf7450a4e2b93d3db68508921e8dc2ab0026d39bdfdb83c511219c21151779",
+      "length": "1500"
+    },
+    {
+      "file": "live/mainnet-nonce-refused/body-paid-retry-403.json",
+      "provenance": "reconstructed",
+      "sha256": "d4882cb397587b9ca4e13d987404e3df2453126a67793654aae605262bca41e2",
+      "length": "113",
+      "content_length": "113"
+    },
+    {
+      "file": "live/mainnet-nonce-refused/header-payment-response-resigned.b64",
+      "provenance": "wire",
+      "sha256": "9011a06cb63593b07fd29478379a39310ebfa4fac8619591c32131b1cccc1db4",
+      "length": "124"
+    },
+    {
+      "file": "live/mainnet-self-broadcast/header-payment-required.b64",
+      "provenance": "wire",
+      "sha256": "88fb9a2709b083a49c81c9291530f7cd06c836f5c2aba91d1e9f38cfe13bb1d4",
+      "length": "1140"
+    },
+    {
+      "file": "live/mainnet-self-broadcast/body-deposit-build.json",
+      "provenance": "reconstructed",
+      "sha256": "992c2b5e55e3ad6034a99a1819b6743088de09128f87c9b60f5a49942c028752",
+      "length": "666"
+    },
+    {
+      "file": "live/mainnet-self-broadcast/deposit-signed.hex",
+      "provenance": "wire",
+      "sha256": "015d17fb2ba9687646c685b1c6fbfbe5ecd1dc014b5a2ae563da4bf5e5305620",
+      "length": "622"
+    },
+    {
+      "file": "live/mainnet-self-broadcast/rpc-receipt.json",
+      "provenance": "rpc",
+      "sha256": "643a77b19e4bf6e7927fd678f2b4486f770f43d5b11a01f2a5901c17700b00d9",
+      "length": "2141"
+    },
+    {
+      "file": "live/mainnet-self-broadcast/body-deposit-status.json",
+      "provenance": "reconstructed",
+      "sha256": "9edf332e72b7cd9f8fdd10bebf0a252b46b80f0ea8f609c8f763d486934c5fd7",
+      "length": "101",
+      "content_length": "101"
+    },
+    {
+      "file": "live/mainnet-self-broadcast/header-payment-signature.b64",
+      "provenance": "wire",
+      "sha256": "d45b703e21249b40ce9a05fdfc4f4b60eebe598007a8096273352888168359cc",
+      "length": "1500"
+    },
+    {
+      "file": "live/mainnet-self-broadcast/header-payment-response.b64",
+      "provenance": "wire",
+      "sha256": "9011a06cb63593b07fd29478379a39310ebfa4fac8619591c32131b1cccc1db4",
+      "length": "124"
+    }
+  ],
+  "runs": [
+    {
+      "id": "mainnet-paymentid",
+      "broadcast": "relay",
+      "requirements": {
+        "header_file": "live/mainnet-paymentid/header-payment-required.b64",
+        "wire_bytes": true,
+        "r_length": "855",
+        "r_sha256": "c58bad27b54a0435aa32b52c3d036fb07b0a1d3da8a072fd8f52f732bdc3d806",
+        "requirements_hash_hex": "d863b2b894fc456c5b4410cf9d12216025d30c5a6b182a66b764fa5700f926d3",
+        "resource_url": "http://inference.bot.fun/v1/chat/completions",
+        "s4": "pass",
+        "asks_for_payment": true,
+        "refund_delay": "604500",
+        "server_signature": {
+          "signature_hex": "9d847ad6d9422c69a0b3ef926c38254420c5a98a9ba63a440bf59b244541aa1d317aa766309caa9e43a0d03f185650bb79bf5a3ecbe0dbc1f1c02c8e177262d001",
+          "v": "1",
+          "recovered": "0xec7557ea26e646020b3c6c90f8af6fbf73460f45",
+          "facilitator_w2": "0xec7557ea26e646020b3c6c90f8af6fbf73460f45"
+        }
+      },
+      "deposit": {
+        "signed_file": "live/mainnet-paymentid/deposit-signed.hex",
+        "signed_length": "310",
+        "rail_ref": "a99035d9722a158784459d9b1a69f26451b3ebbc8af3a4f5233e7fff2c0f7b75",
+        "unsigned_tx_hex": "02f8ef8202ca01808205fd83036b919465d77c98e73dfbea91ecb72b27c9753e186a94c8860e346b0d3e87b8c4b707d8605b6d992c5e3090d174e4fedb3f1ab47ef2f9f6e5cc0f25abb425c56c79c1a9a5000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006adaa7ea000000000000000000000000000000000000000000000000000000006ae3e13e00000000000000000000000000000000000000000000000007bcfa9b942dc000c0",
+        "sighash_hex": "45276c89f77847ee40622d116dcebfafa1bf8e6886cc8f4b61175829ac43187e",
+        "y_parity": "1",
+        "r_hex": "cc0538b9151234fe5c21f229d23e51f2720c1d6b520277fc3397ef675357aa95",
+        "s_hex": "02915154e14cc8430f96d174cbffe3e4506c5391fa41f6cec39a50cf05b29652",
+        "payer": "0x0577d1052177e2d0add39ef0c3620cbde30881c5",
+        "input": {
+          "chain_id": "714",
+          "nonce": "1",
+          "max_priority_fee_per_gas": "0",
+          "max_fee_per_gas": "1533",
+          "gas_limit": "224145",
+          "to": "0x65d77c98e73dfbea91ecb72b27c9753e186a94c8",
+          "value": "15618297118343",
+          "data_hex": "b707d8605b6d992c5e3090d174e4fedb3f1ab47ef2f9f6e5cc0f25abb425c56c79c1a9a5000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006adaa7ea000000000000000000000000000000000000000000000000000000006ae3e13e00000000000000000000000000000000000000000000000007bcfa9b942dc000"
+        },
+        "profile_fields": {
+          "payment_id_hex": "5b6d992c5e3090d174e4fedb3f1ab47ef2f9f6e5cc0f25abb425c56c79c1a9a5",
+          "pay_to": "0xc5aaa301b580d31e64b3bf546846586d934416dc",
+          "facilitator": "0xec7557ea26e646020b3c6c90f8af6fbf73460f45",
+          "escrow": "0x65d77c98e73dfbea91ecb72b27c9753e186a94c8",
+          "expires_at": "1792714730",
+          "refund_after": "1793319230",
+          "value": "15618297118343",
+          "fee_bound": "343614285",
+          "tia_price_usd_hex": "00000000000000000000000000000000000000000000000007bcfa9b942dc000"
+        }
+      },
+      "action": {
+        "resource": "https://inference.bot.fun/v1/chat/completions",
+        "cbor_hex": "a401010258f202f8ef8202ca01808205fd83036b919465d77c98e73dfbea91ecb72b27c9753e186a94c8860e346b0d3e87b8c4b707d8605b6d992c5e3090d174e4fedb3f1ab47ef2f9f6e5cc0f25abb425c56c79c1a9a5000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006adaa7ea000000000000000000000000000000000000000000000000000000006ae3e13e00000000000000000000000000000000000000000000000007bcfa9b942dc000c003782d68747470733a2f2f696e666572656e63652e626f742e66756e2f76312f636861742f636f6d706c6574696f6e73045820d863b2b894fc456c5b4410cf9d12216025d30c5a6b182a66b764fa5700f926d3",
+        "action_length": "331",
+        "extractor_ids": [
+          "eden/escrow-deposit-tx/v1",
+          "eden/escrow-deposit-tx-dev/v1"
+        ],
+        "facts": {
+          "kind": "x402-payment",
+          "asset": "eip155:714/native",
+          "amount": "0e347f8861d4",
+          "scale": "18",
+          "recipient": "eip155:714:0xc5aaa301b580d31e64b3bf546846586d934416dc"
+        },
+        "facts_cbor_hex": "a5016c783430322d7061796d656e7402716569703135353a3731342f6e617469766503460e347f8861d404120578356569703135353a3731343a307863356161613330316235383064333165363462336266353436383436353836643933343431366463"
+      },
+      "build": {
+        "file": "live/mainnet-paymentid/body-deposit-build.json",
+        "payment_id_hex": "5b6d992c5e3090d174e4fedb3f1ab47ef2f9f6e5cc0f25abb425c56c79c1a9a5",
+        "cbor_hex": "a401010258f202f8ef8202ca01808205fd83036b919465d77c98e73dfbea91ecb72b27c9753e186a94c8860e346b0d3e87b8c4b707d8605b6d992c5e3090d174e4fedb3f1ab47ef2f9f6e5cc0f25abb425c56c79c1a9a5000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006adaa7ea000000000000000000000000000000000000000000000000000000006ae3e13e00000000000000000000000000000000000000000000000007bcfa9b942dc000c003782d68747470733a2f2f696e666572656e63652e626f742e66756e2f76312f636861742f636f6d706c6574696f6e73045820d863b2b894fc456c5b4410cf9d12216025d30c5a6b182a66b764fa5700f926d3"
+      },
+      "payment_signature": {
+        "header_file": "live/mainnet-paymentid/header-payment-signature.b64",
+        "decoded_length": "1124",
+        "shape": "base64 (standard, padded) of {\"x402Version\":2,\"resource\":\u003cR resource\u003e,\"accepted\":\u003cR accepts entry\u003e,\"payload\":{\"signature\",\"paymentId\",\"nonce\"}}, compact, R's members verbatim",
+        "message": "paymentId",
+        "signature_hex": "75d756fd21ca604d2297b8b391737d192ae7894c31d7de9a6ee343052e3ddb7a404dce30041c18a84b75e8072e79a9028d177a5c38f3945c9d293a508a0704eb1c",
+        "v": "28",
+        "payment_id_hex": "5b6d992c5e3090d174e4fedb3f1ab47ef2f9f6e5cc0f25abb425c56c79c1a9a5",
+        "nonce_hex": "8be25e796e96f3681cb10f6f557a437d6fdc386934f204864a55a089890e754a",
+        "recovered_over_payment_id": "0x0577d1052177e2d0add39ef0c3620cbde30881c5",
+        "recovered_over_nonce": "0x4b1ec5e2c90623fb21f3de712660621440238134",
+        "signer_is_buyer": true
+      },
+      "paid_retry": {
+        "status": "200",
+        "refusal": null,
+        "payment_response": {
+          "file": "live/mainnet-paymentid/header-payment-response.b64",
+          "success": true,
+          "network": "eip155:714",
+          "payer": "0x0577d1052177e2d0add39ef0c3620cbde30881c5"
+        }
+      },
+      "relay": {
+        "request_file": "live/mainnet-paymentid/body-deposit-send-request.json",
+        "answer_file": "live/mainnet-paymentid/body-deposit-send.json",
+        "answer_tx_hash": "a99035d9722a158784459d9b1a69f26451b3ebbc8af3a4f5233e7fff2c0f7b75",
+        "answer_names_rail_ref": true,
+        "deprecation_header": "true",
+        "deprecation_in_body": false
+      },
+      "deposit_status": {
+        "file": "live/mainnet-paymentid/body-deposit-status.json",
+        "status": "confirmed",
+        "evidence": false
+      },
+      "receipt": null,
+      "settle": {
+        "amount": "15618297118343",
+        "actual_amount": "9155553483167",
+        "refund_amount": "6462743635176",
+        "amount_is_value": true,
+        "actual_plus_refund_is_amount": true,
+        "actual_is_cost": true
+      }
+    },
+    {
+      "id": "mainnet-nonce-refused",
+      "broadcast": "relay",
+      "requirements": {
+        "header_file": "live/mainnet-nonce-refused/header-payment-required.b64",
+        "wire_bytes": true,
+        "r_length": "855",
+        "r_sha256": "8ccfbf7a63196e151abe263da1d5951cd7d640a8fcf43e5dfe5c5e3dd7480b50",
+        "requirements_hash_hex": "6bd68293788311c961fa828a28dfc28ed1d7470d879ccbabf47631d791b6f6c6",
+        "resource_url": "http://inference.bot.fun/v1/chat/completions",
+        "s4": "pass",
+        "asks_for_payment": true,
+        "refund_delay": "604500",
+        "server_signature": {
+          "signature_hex": "b4a16a62829293c393471ff0937f4593160b1d9ab709b696ee8bdfd7c0a9e51d35feba6586ee6bec2349b9a77afc1b15116fabdae5bc6e43a5e34769d877a71601",
+          "v": "1",
+          "recovered": "0xec7557ea26e646020b3c6c90f8af6fbf73460f45",
+          "facilitator_w2": "0xec7557ea26e646020b3c6c90f8af6fbf73460f45"
+        }
+      },
+      "deposit": {
+        "signed_file": "live/mainnet-nonce-refused/deposit-signed.hex",
+        "signed_length": "310",
+        "rail_ref": "dd78098c6259e9f6de84f1a471f3379fd671fd8bc1e236ab32b41667d06c0f7e",
+        "unsigned_tx_hex": "02f8ef8202ca80808205fd83036b919465d77c98e73dfbea91ecb72b27c9753e186a94c8860e31095f21c1b8c4b707d8606cba341c3798488c48156cb82cfa9b6bb11557c8c974efa94acc30e5bfab9c49000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006adaa464000000000000000000000000000000000000000000000000000000006ae3ddb800000000000000000000000000000000000000000000000007bed2a2aed13000c0",
+        "sighash_hex": "971136878381a4e155855245390ad7ff006b81fb939cdcead3212bfdff160e7c",
+        "y_parity": "1",
+        "r_hex": "aa1d23cf08ed62d43f798126cdcee4c402ce6cd59703f86bf1b5c2a11b663a75",
+        "s_hex": "0ecc4bba9790169a3b173d8602a59cd0f8dd893a53ae73fd3a8bd71a3e41c41a",
+        "payer": "0x0577d1052177e2d0add39ef0c3620cbde30881c5",
+        "input": {
+          "chain_id": "714",
+          "nonce": "0",
+          "max_priority_fee_per_gas": "0",
+          "max_fee_per_gas": "1533",
+          "gas_limit": "224145",
+          "to": "0x65d77c98e73dfbea91ecb72b27c9753e186a94c8",
+          "value": "15603773415873",
+          "data_hex": "b707d8606cba341c3798488c48156cb82cfa9b6bb11557c8c974efa94acc30e5bfab9c49000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006adaa464000000000000000000000000000000000000000000000000000000006ae3ddb800000000000000000000000000000000000000000000000007bed2a2aed13000"
+        },
+        "profile_fields": {
+          "payment_id_hex": "6cba341c3798488c48156cb82cfa9b6bb11557c8c974efa94acc30e5bfab9c49",
+          "pay_to": "0xc5aaa301b580d31e64b3bf546846586d934416dc",
+          "facilitator": "0xec7557ea26e646020b3c6c90f8af6fbf73460f45",
+          "escrow": "0x65d77c98e73dfbea91ecb72b27c9753e186a94c8",
+          "expires_at": "1792713828",
+          "refund_after": "1793318328",
+          "value": "15603773415873",
+          "fee_bound": "343614285",
+          "tia_price_usd_hex": "00000000000000000000000000000000000000000000000007bed2a2aed13000"
+        }
+      },
+      "action": {
+        "resource": "https://inference.bot.fun/v1/chat/completions",
+        "cbor_hex": "a401010258f202f8ef8202ca80808205fd83036b919465d77c98e73dfbea91ecb72b27c9753e186a94c8860e31095f21c1b8c4b707d8606cba341c3798488c48156cb82cfa9b6bb11557c8c974efa94acc30e5bfab9c49000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006adaa464000000000000000000000000000000000000000000000000000000006ae3ddb800000000000000000000000000000000000000000000000007bed2a2aed13000c003782d68747470733a2f2f696e666572656e63652e626f742e66756e2f76312f636861742f636f6d706c6574696f6e730458206bd68293788311c961fa828a28dfc28ed1d7470d879ccbabf47631d791b6f6c6",
+        "action_length": "331",
+        "extractor_ids": [
+          "eden/escrow-deposit-tx/v1",
+          "eden/escrow-deposit-tx-dev/v1"
+        ],
+        "facts": {
+          "kind": "x402-payment",
+          "asset": "eip155:714/native",
+          "amount": "0e311dda450e",
+          "scale": "18",
+          "recipient": "eip155:714:0xc5aaa301b580d31e64b3bf546846586d934416dc"
+        },
+        "facts_cbor_hex": "a5016c783430322d7061796d656e7402716569703135353a3731342f6e617469766503460e311dda450e04120578356569703135353a3731343a307863356161613330316235383064333165363462336266353436383436353836643933343431366463"
+      },
+      "build": null,
+      "payment_signature": {
+        "header_file": "live/mainnet-nonce-refused/header-payment-signature.b64",
+        "decoded_length": "1124",
+        "shape": "base64 (standard, padded) of {\"x402Version\":2,\"resource\":\u003cR resource\u003e,\"accepted\":\u003cR accepts entry\u003e,\"payload\":{\"signature\",\"paymentId\",\"nonce\"}}, compact, R's members verbatim",
+        "message": "nonce",
+        "signature_hex": "9906aea944c8649c696c2b8f8d860298978dbcc764444b2ff3796d87180f653735293ea7ee3f303a11cf50e0888586ddb51bcad2a94e28d927481630cb50e7e41c",
+        "v": "28",
+        "payment_id_hex": "6cba341c3798488c48156cb82cfa9b6bb11557c8c974efa94acc30e5bfab9c49",
+        "nonce_hex": "2f7df05a2ea8931d14a0fe8440e700ee61d1d6420c21e058acdf27691a5ca61e",
+        "recovered_over_payment_id": "0x7166d5973aef5c17d1c1fc0dbad2b3489a8d085a",
+        "recovered_over_nonce": "0x0577d1052177e2d0add39ef0c3620cbde30881c5",
+        "signer_is_buyer": false
+      },
+      "paid_retry": {
+        "status": "403",
+        "body_file": "live/mainnet-nonce-refused/body-paid-retry-403.json",
+        "refusal": "RR2",
+        "resigned_payment_response": {
+          "file": "live/mainnet-nonce-refused/header-payment-response-resigned.b64",
+          "success": true,
+          "network": "eip155:714",
+          "payer": "0x0577d1052177e2d0add39ef0c3620cbde30881c5"
+        }
+      },
+      "relay": null,
+      "deposit_status": null,
+      "receipt": null,
+      "settle": null
+    },
+    {
+      "id": "mainnet-self-broadcast",
+      "broadcast": "direct",
+      "requirements": {
+        "header_file": "live/mainnet-self-broadcast/header-payment-required.b64",
+        "wire_bytes": true,
+        "r_length": "855",
+        "r_sha256": "978978fd77d2191b73464a03105a85b10013d2ae8c660a5d5db378f02c1c2376",
+        "requirements_hash_hex": "999cbc3e1db6e70ee593611b80219ab0ac235fff4e234a1957344741d6d56499",
+        "resource_url": "http://inference.bot.fun/v1/chat/completions",
+        "s4": "pass",
+        "asks_for_payment": true,
+        "refund_delay": "604500",
+        "server_signature": {
+          "signature_hex": "8906daf2a3839b3b13f172036f3b59aa1d96f91474161ebf42d566835ccce4e47a64450781f40f4dfa916b37fa30fb2dbe885a434cca79c7026c71c47ae138d201",
+          "v": "1",
+          "recovered": "0xec7557ea26e646020b3c6c90f8af6fbf73460f45",
+          "facilitator_w2": "0xec7557ea26e646020b3c6c90f8af6fbf73460f45"
+        }
+      },
+      "deposit": {
+        "signed_file": "live/mainnet-self-broadcast/deposit-signed.hex",
+        "signed_length": "310",
+        "rail_ref": "225d026ff2bacef5d0caf2690d38cc070fc3744b0a5413ab99acdfcac9da9f49",
+        "unsigned_tx_hex": "02f8ef8202ca02808205fd83036b919465d77c98e73dfbea91ecb72b27c9753e186a94c8860d7cf201aa75b8c4b707d860042bbe35b097669cdf5bc6d36ab1ffb4c66870bffc43456db1b5c5c5ac857c97000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006adba1e9000000000000000000000000000000000000000000000000000000006ae4db3d00000000000000000000000000000000000000000000000007a16d79eff21000c0",
+        "sighash_hex": "4d74c64ea659e46724b7a9759e1f46cf5babefc948fb4545b91659cf8cc874a2",
+        "y_parity": "0",
+        "r_hex": "dc284645a9264faa9d233533c4f0e4df539f4e9321d9e08ade30cd1285adc954",
+        "s_hex": "3c781d49ecb097094a00aedf3f4a5aa0d9bb72b77c36dc82bbee81b213f8dd10",
+        "payer": "0x0577d1052177e2d0add39ef0c3620cbde30881c5",
+        "input": {
+          "chain_id": "714",
+          "nonce": "2",
+          "max_priority_fee_per_gas": "0",
+          "max_fee_per_gas": "1533",
+          "gas_limit": "224145",
+          "to": "0x65d77c98e73dfbea91ecb72b27c9753e186a94c8",
+          "value": "14830287301237",
+          "data_hex": "b707d860042bbe35b097669cdf5bc6d36ab1ffb4c66870bffc43456db1b5c5c5ac857c97000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006adba1e9000000000000000000000000000000000000000000000000000000006ae4db3d00000000000000000000000000000000000000000000000007a16d79eff21000"
+        },
+        "profile_fields": {
+          "payment_id_hex": "042bbe35b097669cdf5bc6d36ab1ffb4c66870bffc43456db1b5c5c5ac857c97",
+          "pay_to": "0xc5aaa301b580d31e64b3bf546846586d934416dc",
+          "facilitator": "0xec7557ea26e646020b3c6c90f8af6fbf73460f45",
+          "escrow": "0x65d77c98e73dfbea91ecb72b27c9753e186a94c8",
+          "expires_at": "1792778729",
+          "refund_after": "1793383229",
+          "value": "14830287301237",
+          "fee_bound": "343614285",
+          "tia_price_usd_hex": "00000000000000000000000000000000000000000000000007a16d79eff21000"
+        }
+      },
+      "action": {
+        "resource": "https://inference.bot.fun/v1/chat/completions",
+        "cbor_hex": "a401010258f202f8ef8202ca02808205fd83036b919465d77c98e73dfbea91ecb72b27c9753e186a94c8860d7cf201aa75b8c4b707d860042bbe35b097669cdf5bc6d36ab1ffb4c66870bffc43456db1b5c5c5ac857c97000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006adba1e9000000000000000000000000000000000000000000000000000000006ae4db3d00000000000000000000000000000000000000000000000007a16d79eff21000c003782d68747470733a2f2f696e666572656e63652e626f742e66756e2f76312f636861742f636f6d706c6574696f6e73045820999cbc3e1db6e70ee593611b80219ab0ac235fff4e234a1957344741d6d56499",
+        "action_length": "331",
+        "extractor_ids": [
+          "eden/escrow-deposit-tx/v1",
+          "eden/escrow-deposit-tx-dev/v1"
+        ],
+        "facts": {
+          "kind": "x402-payment",
+          "asset": "eip155:714/native",
+          "amount": "0d7d067ccdc2",
+          "scale": "18",
+          "recipient": "eip155:714:0xc5aaa301b580d31e64b3bf546846586d934416dc"
+        },
+        "facts_cbor_hex": "a5016c783430322d7061796d656e7402716569703135353a3731342f6e617469766503460d7d067ccdc204120578356569703135353a3731343a307863356161613330316235383064333165363462336266353436383436353836643933343431366463"
+      },
+      "build": {
+        "file": "live/mainnet-self-broadcast/body-deposit-build.json",
+        "payment_id_hex": "042bbe35b097669cdf5bc6d36ab1ffb4c66870bffc43456db1b5c5c5ac857c97",
+        "cbor_hex": "a401010258f202f8ef8202ca02808205fd83036b919465d77c98e73dfbea91ecb72b27c9753e186a94c8860d7cf201aa75b8c4b707d860042bbe35b097669cdf5bc6d36ab1ffb4c66870bffc43456db1b5c5c5ac857c97000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006adba1e9000000000000000000000000000000000000000000000000000000006ae4db3d00000000000000000000000000000000000000000000000007a16d79eff21000c003782d68747470733a2f2f696e666572656e63652e626f742e66756e2f76312f636861742f636f6d706c6574696f6e73045820999cbc3e1db6e70ee593611b80219ab0ac235fff4e234a1957344741d6d56499"
+      },
+      "payment_signature": {
+        "header_file": "live/mainnet-self-broadcast/header-payment-signature.b64",
+        "decoded_length": "1124",
+        "shape": "base64 (standard, padded) of {\"x402Version\":2,\"resource\":\u003cR resource\u003e,\"accepted\":\u003cR accepts entry\u003e,\"payload\":{\"signature\",\"paymentId\",\"nonce\"}}, compact, R's members verbatim",
+        "message": "paymentId",
+        "signature_hex": "05a2cf5706653336738cdb6ee4d75d442a11b2503e8ab58bd6b9d232704b429229966cca8980fa725204d1e7d673ce0bedf12895162723289572b0d31a6b3c261c",
+        "v": "28",
+        "payment_id_hex": "042bbe35b097669cdf5bc6d36ab1ffb4c66870bffc43456db1b5c5c5ac857c97",
+        "nonce_hex": "f368409381b75185228d418091544c333edf42392e5d7326a0ff7c6ce8c64f3a",
+        "recovered_over_payment_id": "0x0577d1052177e2d0add39ef0c3620cbde30881c5",
+        "recovered_over_nonce": "0x8e78b02ce8bcab7752ac59ecb90bdcad110cd407",
+        "signer_is_buyer": true
+      },
+      "paid_retry": {
+        "status": "200",
+        "refusal": null,
+        "payment_response": {
+          "file": "live/mainnet-self-broadcast/header-payment-response.b64",
+          "success": true,
+          "network": "eip155:714",
+          "payer": "0x0577d1052177e2d0add39ef0c3620cbde30881c5"
+        }
+      },
+      "relay": null,
+      "deposit_status": {
+        "file": "live/mainnet-self-broadcast/body-deposit-status.json",
+        "status": "confirmed",
+        "evidence": false
+      },
+      "receipt": {
+        "file": "live/mainnet-self-broadcast/rpc-receipt.json",
+        "consensus_hex": "02f9024b018302cf5fb9010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000200000000040000000000000000800000040000000000000000000000000000000000000000000080000000000000000000000000000000008000000000000000000000800000000000000000000000000000000001000000000000000000000002000004000000000000000000000000000000000000000000008000000000000000000000000000000000000000004000000000000000000000040000000000000000000000800000000000000000000000000000000000000000000000000f90140f9013d9465d77c98e73dfbea91ecb72b27c9753e186a94c8f884a04e8468b036003985396bfb5e6fc36f0e8395146648e829557ea1fd48d2b9a6ffa0042bbe35b097669cdf5bc6d36ab1ffb4c66870bffc43456db1b5c5c5ac857c97a00000000000000000000000000577d1052177e2d0add39ef0c3620cbde30881c5a0000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dcb8a0000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f4500000000000000000000000000000000000000000000000000000d7cf201aa75000000000000000000000000000000000000000000000000000000006adba1e9000000000000000000000000000000000000000000000000000000006ae4db3d00000000000000000000000000000000000000000000000007a16d79eff21000",
+        "bloom_matches": true,
+        "deposit_event": "executed",
+        "buyer": "0x0577d1052177e2d0add39ef0c3620cbde30881c5"
+      },
+      "settle": {
+        "amount": "14830287301237",
+        "actual_amount": "5041457439514",
+        "refund_amount": "9788829861723",
+        "amount_is_value": true,
+        "actual_plus_refund_is_amount": true,
+        "actual_is_cost": true
+      }
+    }
+  ]
+}

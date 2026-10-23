@@ -6,7 +6,7 @@ escrow deposit that a facilitator later settles. Eden is only the payment
 rail. Commitments use any core `da` (the first Eden release uses `da = 2`,
 fast or strict mode), and nothing in this profile touches the anchoring.
 
-Status: revision `eden-escrow-v1-draft.10` (2026-10-23), **draft, not
+Status: revision `eden-escrow-v1-draft.11` (2026-10-23), **draft, not
 frozen**. Built on the core spec `spec/decision-commitment-v1.md`, revision
 `v1.2`, and on `spec/policy-v1.md` (`policy-v1.0`). Section numbers prefixed
 "core" refer to the core spec; "policy" refers to the policy spec. The `v1`
@@ -16,12 +16,15 @@ the core's.
 Keywords MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Items marked
 `UNVERIFIED` are facts about Eden, Evolve, the escrow or the Houston payment
 server that no read-only record (2026-10-21) settled and no funded
-test has confirmed yet; the maintainer or the requester confirms them. The
-funded mainnet test of 2026-10-23 observed the paid retry once, with a
-deposit sent through `/deposit/send` and a `Payment-Signature` over
-`paymentId` (RF27, RF28); every other statement about what the Houston
-server does with a signed deposit or a `Payment-Signature` stays
-`UNVERIFIED`. Open items before the freeze are listed in section 12.
+test has confirmed yet; the maintainer or the requester confirms them.
+Three funded mainnet payments of 2026-10-22 and 2026-10-23 are recorded
+byte for byte on the client side (vectors `x402_mainnet.json`): a paid
+retry with a `Payment-Signature` over `paymentId` accepted for a deposit
+sent through `/deposit/send` and for one sent directly, and a
+`Payment-Signature` over `extra.nonce` refused with HTTP 403 (RF27, RF28,
+RF33). Every other statement about what the Houston server does with a
+signed deposit or a `Payment-Signature` stays `UNVERIFIED`. Open items
+before the freeze are listed in section 12.
 Everything else is normative for this profile.
 
 This profile adds no core rule, no wire byte, no tag of the core or policy
@@ -41,8 +44,8 @@ Freeze conditions: the requester settled which networks and the escrow-upto
 flow (answered 2026-10-21: form T, Eden testnet for development, 714 as the
 target); the requester's funded tests settled the
 `UNVERIFIED` server items of section 9 (RF27 to RF29, RF33); one raw
-`PAYMENT-REQUIRED` header is recorded for a wire-byte `R` vector; and the
-maintainer approved.
+`PAYMENT-REQUIRED` header is recorded for a wire-byte `R` vector (met:
+three are, `x402_mainnet.json`); and the maintainer approved.
 
 Freeze condition on the server (for the requester; Edicta cannot enforce
 it): on the paid retry the payment server checks that the address
@@ -52,9 +55,11 @@ each `Payment-Signature` (each `paymentId`) at most once (RF27). Without
 the first check, the quote's own `serverSignature` is a valid payment
 proof for anyone who saw the quote, because both sign the same 32-byte
 message (5.1, S11 threat notes). Without the second, anyone who sees the
-header can spend the payment again. The funded test observed the first
-(a wrong signer is refused, RF33); single use is not confirmed. The
-requester confirms it in writing or by a funded test before the freeze.
+header can spend the payment again. The funded tests observed the first
+(a wrong signer is refused, RF33); single use is not confirmed (a refused
+signature does not use the payment up, RF27, which says nothing about a
+second accepted one). The requester confirms it in writing or by a funded
+test before the freeze.
 
 | Revision | Change | Vectors |
 |---|---|---|
@@ -68,6 +73,7 @@ requester confirms it in writing or by a funded test before the freeze.
 | `eden-escrow-v1-draft.8` | Wording only, to match the landed signer; no change to any encoding, action bytes, table, extractor or fact. (1) 5.3 row "two decisions with identical action bytes": the signer refuses the second (S3n in-flight nonce); S3's refusal of a nonce signed for another `commitment_hash` that is not final is a MUST. (2) RH counts the 21848 limit in bytes. (3) B3: the relay gets the bytes once at signing (direct send if it faults); after `RelayGrace` every resend goes directly, even once a source showed the deposit. | None in the decoder or the checks; the signer refuses a second decision on the same nonce. | All files regenerated (`revision` draft.8), no other change. |
 | `eden-escrow-v1-draft.9` | Signer and report wording; no change to any encoding, action bytes, table, extractor or fact. (1) The signer's durable "seen" mark survives restarts: MUST (was SHOULD), because a lost mark lets a restarted signer read `not_executed` for a deposit that showed up, release the nonce and sign again, a Payment-Signature included (5.5). (2) S11 states its rule outright: a Payment-Signature is signed only for the `paymentId` inside the action bytes of an authorized decision (MUST). (3) The per-agent API credential is transport authentication only; what may be signed is bound by the Authorization. The wording that an agent signature over the S11 request would need a core change is withdrawn: such a signature adds nothing the envelope and the Authorization do not already bind, and the core's one-key-one-role rule does not forbid several tag-separated message types (S11b, section 12). (4) `not_executed` stays inconclusive about the world until the Eden RPC retention window is known; this draft has no finality bound (5.5). (5) Production builds refuse extractor ids ending in `-dev` (section 3). (6) The verifier prints `rail_settlement` beside the core report until a later minor revision of the core adds a profile-results section (7.1). | None in the decoder or the checks. | All files regenerated (`revision` draft.9), no other change. |
 | `eden-escrow-v1-draft.10` | Signer and broadcaster rules; no change to any encoding, action bytes, table, extractor or fact. (1) The Payment-Signature is settled: EIP-191 `personal_sign` over the 32 raw bytes of `paymentId`; the payment server refuses one over `nonce`, and the contingency wording about a server that verifies `nonce` is removed (S11g, 5.6, RF27). (2) New rail fact RF33: the server accepts a Payment-Signature only from the escrow's `buyer` or a device key authorized for it; device keys are out of scope; the freeze condition of section 0 names it. (3) Broadcaster: `direct` (`eth_sendRawTransaction` on the configured Eden RPC) is the default; `houston-relay` is an optional fallback that the server marks deprecated (B6 logs the marker); B1 to B5 unchanged; whether the server accepts a Payment-Signature for a directly sent deposit is open (RF28). (4) New 5.4a, relay handoff: when the paid retry for a deposit that executed at L1 is refused twice in a recognised way (RR1, RR2), the client hands the same stored signed bytes to `/deposit/send` once (H1 to H7); the signer is unchanged. (5) S1: the payer key is dedicated, one per agent per served chain (MUST, was one per chain, SHOULD), used for the deposit and the Payment-Signature only and not reused in other applications. Outcome changes: a signer configuration without `broadcaster` sends directly (was the relay); a payer key or address configured for two agents or two chains refuses to start; a client may make one relay handoff after a recognised refusal. | All files regenerated (`revision` draft.10), no other change. |
+| `eden-escrow-v1-draft.11` | Rail facts from three recorded mainnet payments; no change to any encoding, action bytes, table, extractor, fact or signer rule. (1) Verified: the server accepts the `Payment-Signature` for a deposit sent directly with `eth_sendRawTransaction`, never through `/deposit/send` (paid retry 200, settled; RF28), so `direct` is confirmed as the default for this server and the handoff of 5.4a remains a fallback. (2) The exact 403 body of the buyer check, which RR2 matches (RF33, 5.4a); a refused signature does not use the payment up (RF27). (3) The deprecation marker of `/deposit/send` is the response header `Deprecation: true`; the answer body carries none (B6, RF28); the relay's success body is `{txHash, paymentId}`. (4) The `Payment-Signature` header shape: standard padded base64 of compact JSON `{x402Version, resource, accepted, payload: {signature, paymentId, nonce}}` with `resource` and `accepted` copied verbatim from `R` (5.6, RF23). (5) `serverSignature` uses `v` 0 or 1 (RF26). (6) New rail fact RF34: the quotes set `refundAfter - expiresAt = 604500` s, so a `MaxRefundDelay` below that refuses every quote of this server (S3 threat notes). (7) The freeze condition on a raw `PAYMENT-REQUIRED` capture is met. RR1 stays `UNVERIFIED`. | All files regenerated (`revision` draft.11). New inputs under `live/`: the index `mainnet-runs.json` and the directories `mainnet-paymentid/`, `mainnet-nonce-refused/`, `mainnet-self-broadcast/` (wire headers and signed transactions; re-serialized bodies and an RPC receipt, each labelled). New `x402_mainnet.json`: per payment the wire `R` and its `requirements_hash`, S4 passing with `serverSignature`, the signed transaction (hash, unsigned bytes, splice, payer), the action and facts, the build answer giving the signed transaction, the `Payment-Signature` shape and signer, the paid retry (200, or 403 recognised as RR2), the relay request and answer, the receipt (EE7, EE8) and the settle amounts. No earlier vector changes. |
 
 ## 1. Threat model
 
@@ -191,7 +197,10 @@ bytes (with the `https://` resource); the decoder and both extractors
 accept it as is. The server picks the nonce, so a client builds one
 deposit at a time per payer (two concurrent builds get the same nonce; the
 second signed transaction fails at the chain or is refused by S3's
-pending-nonce check).
+pending-nonce check). The two build answers of the recorded mainnet
+payments (`x402_mainnet.json`, 2026-10-23) have the same shape and gas
+terms, nonces 1 and 2 of a fresh payer; each converts to exactly the
+transaction that was then signed and executed.
 
 ### 2.3 Deposit calldata (`data`)
 
@@ -317,8 +326,11 @@ contain them.
   `"mock":true`). `x402.json` uses the requester's saved document
   (`live/houston-payment-required.json`) as `R`: real values, but a
   pretty-printed re-serialization, not the header's wire bytes
-  (`wire_bytes: false`). A raw header capture replaces it before the
-  freeze. The `build` action commits the `https://` form of `R`'s URL
+  (`wire_bytes: false`); its reject cases are anchored on that text and
+  stay as they are. `x402_mainnet.json` uses three raw header captures:
+  on the wire `R` is compact JSON without a trailing newline (855 bytes
+  each), the header is padded standard base64, and S4 passes on each. The
+  `build` action commits the `https://` form of `R`'s URL
   (`resource`), the URL the requester's client calls; `R`'s own
   `http://` URL is kept as `requirements_resource_url`.
 
@@ -558,6 +570,11 @@ Threat notes:
   plain transfer. Before the testnet copy is deployed (section 3), a
   deposit to the CREATE2 address would move the money to an address no one
   controls and record no escrow; the code check refuses it.
+- S3 `MaxRefundDelay`: the payment server's quotes set `refundAfter -
+  expiresAt` to 604500 s (RF34), so a deposit the facilitator never
+  settles stays locked for about a week. A pin below 604500 refuses every
+  quote of that server with `ErrPinMismatch`; the operator chooses between
+  that lock-up and not paying this server.
 - S3e: the escrow refunds the remainder to the buyer with a 30,000 gas
   stipend and, if that fails, pays it to the facilitator (RF6). An EOA
   without code always accepts it; an EIP-7702 delegated account may not.
@@ -740,7 +757,7 @@ stored `signed` bytes and nothing else. It is pluggable:
 | Mode | Send | Use |
 |---|---|---|
 | `direct` | `eth_sendRawTransaction(signed)` to the configured Eden RPC (the signer's own, S1), optionally to more configured Eden RPCs | the default, for every server; also the path every relay fault and every resend after `RelayGrace` takes (B3) |
-| `houston-relay` | `POST {base}/deposit/send` with JSON `{"signedTx": "0x" + lower-case hex of signed, "paymentId": "0x" + lower-case hex of w0}`, then `direct` as B3 says | optional fallback, only by explicit configuration, for a server that needs to see the deposit through its relay (RF28). The server marks the endpoint deprecated: its answers carry a deprecation marker (RF28) |
+| `houston-relay` | `POST {base}/deposit/send` with JSON `{"signedTx": "0x" + lower-case hex of signed, "paymentId": "0x" + lower-case hex of w0}`, then `direct` as B3 says | optional fallback, only by explicit configuration, for a server that needs to see the deposit through its relay (RF28). The server marks the endpoint deprecated: its answers carry the response header `Deprecation: true` (RF28) |
 
 Rules:
 - B1 Bytes: only the stored `signed` bytes, byte-identical on every send
@@ -771,19 +788,25 @@ Rules:
   sources, whatever the mode.
 - B6 A relay answer that carries the deprecation marker SHOULD be logged
   as such (once per process is enough); it is read as any other answer
-  under B3 and changes nothing else. A relay that stops answering, or
+  under B3 and changes nothing else. The marker is the response header
+  `Deprecation` with any value (observed: `true`, not the date form of
+  RFC 9745); the observed answer body carries none. A broadcaster MAY
+  also read a top-level body member `deprecation` that is JSON `true` as
+  the marker. A relay that stops answering, or
   answers an error, costs nothing but the fallback: B3 sends directly.
 
 Why direct is the default: it needs nothing from the payment server, the
 server deprecates the relay, and the relay never added evidence (B3).
-`UNVERIFIED` (RF28): whether the server accepts the `Payment-Signature`
-for a deposit it did not relay (the funded test went through the relay).
-The escrow stores `buyer = msg.sender` per `paymentId` and exposes it
-(`getEscrow`, `isFunded`, event `NativeEscrowDeposited`), so the server
-can find a deposit by the `paymentId` it issued, whoever sent it; whether
-it does is not confirmed. If it does not, a directly sent deposit sits in
-escrow without the paid call until `refundAfter` (or until the
-facilitator settles it, RF6); the handoff of 5.4a covers that case.
+The server accepts the `Payment-Signature` for a deposit it did not
+relay (RF28, observed 2026-10-23: a deposit sent only with
+`eth_sendRawTransaction`, a paid retry answered 200 on the first try about
+a minute later, and the facilitator settled it). The escrow stores
+`buyer = msg.sender` per `paymentId` and exposes it (`getEscrow`,
+`isFunded`, event `NativeEscrowDeposited`), which is how the server can
+find a deposit by the `paymentId` it issued, whoever sent it. How quickly
+it sees a direct deposit is not measured (the recorded retry came after
+the deposit had executed); a retry before that is what the handoff of
+5.4a absorbs.
 
 Threat note: in mode `houston-relay` the relay sees the signed bytes before inclusion. It can
 delay, withhold or front-run them only as any public mempool observer
@@ -793,9 +816,10 @@ make a different transaction count (EE3, S6). Withholding costs at most
 
 ### 5.4a Relay handoff after a refused paid retry
 
-A fallback for a server that does not pick up a directly sent deposit. It
-hands the stored signed bytes of a deposit that already executed to
-`/deposit/send` once. It signs nothing and moves no new money: the same
+A fallback for a server that does not pick up a directly sent deposit
+(the Houston server does, RF28: the fallback covers a server that lags or
+changes). It hands the stored signed bytes of a deposit that already
+executed to `/deposit/send` once. It signs nothing and moves no new money: the same
 transaction, the same nonce, already on chain.
 
 Who: the client, the process that makes the paid retry (the TS wrapper,
@@ -825,12 +849,18 @@ answer over 16384 bytes, or a refusal that does not match exactly):
 - **RR2** HTTP 403 whose body contains the ASCII text `neither the escrow
   buyer` (the server's buyer-check refusal, RF33). For a Payment-Signature
   from S11 the payer is the buyer (H1), so the remaining reading is a
-  server that does not see the deposit.
+  server that does not see the deposit. The recorded body (113 bytes,
+  `Content-Type: application/json`, vector `x402_mainnet.json` run
+  `mainnet-nonce-refused`) is
+  `{"error":{"message":"signer is neither the escrow buyer nor an authorized device key","type":"inference_error"}}`
+  followed by a line feed; RR2 matches it.
 
 `UNVERIFIED`: how the server answers a paid retry for a deposit it does
-not know (RF28); RR1 and RR2 are this profile's conservative reading of
-the answers it can produce. The list changes only by a profile revision,
-never by configuration, once a real answer is recorded.
+not know (RF28). RR1 is this profile's conservative reading of that
+answer; RR2 is the recorded answer of the buyer check, which a server
+that does not see the deposit would also reach. The list changes only by
+a profile revision, never by configuration, once a real answer is
+recorded.
 
 Threat notes:
 - Nothing new is signed or paid: the bytes are signed already, public on
@@ -993,15 +1023,19 @@ signature = r || s || v                                             ; 65 bytes
   key, RFC 6979 nonce, low `s`, `v = 27 + y_parity`, sent as `"0x"` and
   130 lower-case hex digits. The server accepts this form (RF27); whether
   it also accepts `v` in {0, 1} is `UNVERIFIED`.
-- S4f input: `v` in {0, 1, 27, 28} (the server's own signature uses `v = 0`,
-  RF26), `r` and `s` in `1..n-1`; high `s` is accepted, since only the
-  signer's identity matters, not the signature's uniqueness.
-- The client builds the header itself: `PAYMENT-SIGNATURE` = base64 of JSON
-  `{x402Version: 2, resource, accepted: <quote entry>, payload: {signature,
-  paymentId, nonce}}` (the requester's client shape). The signer returns
-  only the signature. The server verifies it over `paymentId` and refuses
-  a signature over `nonce` (RF27); the signer never signs `nonce` (S11
-  threat notes).
+- S4f input: `v` in {0, 1, 27, 28} (the server's own signature uses `v`
+  0 or 1, RF26), `r` and `s` in `1..n-1`; high `s` is accepted, since only
+  the signer's identity matters, not the signature's uniqueness.
+- The client builds the header itself; the signer returns only the
+  signature. Recorded form (three accepted or refused retries,
+  `x402_mainnet.json`): `PAYMENT-SIGNATURE` = padded standard base64 of
+  the compact JSON
+  `{"x402Version":2,"resource":<R's resource>,"accepted":<R's escrow-upto entry>,"payload":{"signature":"0x…","paymentId":"0x…","nonce":"0x…"}}`,
+  members in this order, `resource` and `accepted` copied byte for byte
+  from `R` (so `resource.url` is the quote's `http://` URL), `paymentId`
+  and `nonce` equal to the entry's `extra` members. The server verifies the
+  signature over `paymentId` and refuses one over `nonce` (RF27); the
+  signer never signs `nonce` (S11 threat notes).
 
 Vectors: `x402.json` `payment_signature` (field `paymentId`: message,
 preimage, digest, the `payer1` signature; `refused_fields`; `requests`,
@@ -1250,17 +1284,18 @@ transaction is `wrong_tx` against a form T action with the same deposit
 | RF20 | The escrow has no immutables and no constructor-set storage | verified: the creation code is a 26-byte constructor without `SSTORE` followed by the runtime code verbatim | Blockscout creation bytecode, creation tx input |
 | RF21 | EIP-7702 delegations exist on Eden (an EOA can carry code) | verified (the recorded account is delegated, `0xef0100 \|\| ...`) | F14 account read |
 | RF22 | History depth of the public RPC and of an own ev-reth node: how long blocks and receipts stay available, and how long `eth_getTransactionByHash` keeps finding a hash (reth can prune its transaction-lookup index separately from blocks; a pruned lookup answers `null`, which reads as `not_found`, 5.5) | `UNVERIFIED` | ev-reth prune configuration, the Eden team, each RPC operator |
-| RF23 | The requester's flow is x402 v2 over HTTP with a non-public scheme `escrow-upto`: requirements in the `PAYMENT-REQUIRED` header (base64 JSON), `network eip155:714`, `asset native`, `amount` = the deposit cap in wei, `extra` {`paymentId`, `escrowContract`, `facilitator`, `refundAfter`, `expiresAt`, `nonce`, `chainId`, `tiaPriceUsd`, `serverSignature`}; no `maxTimeoutSeconds` (required by x402 v2); `resource.url` names `http://` while the client calls `https://`. That F14 itself was this scheme stays `UNVERIFIED` | verified from the client code and its saved fixtures; the server code is not public | requester's client, x402 v2 spec |
-| RF24 | `/deposit/build` chooses `nonce` (observed: the pending nonce of `from`), gas limit and fees; it returns JSON without `type`, `accessList` or `from` | observed on one fixture; nonce choice `UNVERIFIED` | fixture |
-| RF25 | `GET /deposit/status/:txHash` answers `pending` for an unknown hash and `confirmed` for any hash already on Eden | observed by the client's author; on the funded mainnet test (2026-10-23) it answered `confirmed` at once. Server-attested, never evidence (5.4 B4) | the requester's client fixtures, funded test |
-| RF26 | `serverSignature` is the facilitator's `personal_sign` over the 32 bytes of `paymentId` only, `r \|\| s \|\| v` with `v = 0`, low `s` | verified on the fixture (recovers to `extra.facilitator`, the facilitator of the F14 settle) | fixture, F14 |
-| RF27 | The server verifies the `Payment-Signature` as EIP-191 `personal_sign` over the 32 raw bytes of `paymentId` (`0x19 \|\| "Ethereum Signed Message:\n32" \|\| paymentId`) and refuses a signature over `extra.nonce` (HTTP 403); `v` 27 or 28 is accepted. Not settled: the amount and expiry checks, single use, `v` 0 or 1 | message, `nonce` refusal and `v` 27/28: observed on the funded mainnet test (2026-10-23). The rest `UNVERIFIED`; single use is a freeze condition (section 0) | funded test |
-| RF28 | `/deposit/send` relays a valid deposit (observed on the funded mainnet test, 2026-10-23); its answers carry a deprecation marker, `deprecation: true`, and the server calls the endpoint deprecated. Earlier observations: a body without `paymentId` is refused; a bogus transaction gives `failed to broadcast transaction`. Not settled: whether the server accepts the `Payment-Signature` for a deposit it did not relay (sent directly, 5.4), although the escrow lets it find the deposit by `paymentId` (`getEscrow`, `isFunded`); how it answers a paid retry for a deposit it does not know (5.4a RR1, RR2); the exact success body | relay and marker: observed. Direct-send acceptance: `UNVERIFIED` (the funded test used the relay) | funded test, requester |
+| RF23 | The requester's flow is x402 v2 over HTTP with a non-public scheme `escrow-upto`: requirements in the `PAYMENT-REQUIRED` header (base64 JSON), `network eip155:714`, `asset native`, `amount` = the deposit cap in wei, `extra` {`paymentId`, `escrowContract`, `facilitator`, `refundAfter`, `expiresAt`, `nonce`, `chainId`, `tiaPriceUsd`, `serverSignature`}; no `maxTimeoutSeconds` (required by x402 v2); `resource.url` names `http://` while the client calls `https://`. On the wire the header is padded standard base64 of compact JSON without a trailing newline; the 402 body is a separate summary (`{error, message, paymentInfo, price}`) and not `R`. The paid retry carries `PAYMENT-SIGNATURE` (shape in 5.6) and a 200 carries `PAYMENT-RESPONSE`, base64 of `{success, network, payer}`. That F14 itself was this scheme stays `UNVERIFIED` | verified from the client code and its saved fixtures; wire form observed on three funded payments (2026-10-22, 2026-10-23, `x402_mainnet.json`); the server code is not public | requester's client, x402 v2 spec, recorded payments |
+| RF24 | `/deposit/build` chooses `nonce` (observed: the pending nonce of `from`), gas limit and fees; it returns JSON without `type`, `accessList` or `from` | observed on three answers (the saved fixture and two recorded mainnet payments: nonces 1 and 2 of a fresh payer, gas 224145, max fee 1533 wei, tip 0); nonce choice `UNVERIFIED` | fixture, recorded payments |
+| RF25 | `GET /deposit/status/:txHash` answers `pending` for an unknown hash and `confirmed` for any hash already on Eden | observed by the client's author; on the recorded payments it answered `{"txHash":…,"status":"confirmed"}` on the first poll, for a relayed deposit and for a directly sent one. Server-attested, never evidence (5.4 B4) | the requester's client fixtures, recorded payments |
+| RF26 | `serverSignature` is the facilitator's `personal_sign` over the 32 bytes of `paymentId` only, `r \|\| s \|\| v` with `v` 0 or 1 (the raw recovery id), low `s` | verified on the fixture (`v = 0`) and on the three recorded quotes (`v = 1`; each recovers to `extra.facilitator`, the facilitator of the F14 settle) | fixture, F14, recorded payments |
+| RF27 | The server verifies the `Payment-Signature` as EIP-191 `personal_sign` over the 32 raw bytes of `paymentId` (`0x19 \|\| "Ethereum Signed Message:\n32" \|\| paymentId`) and refuses a signature over `extra.nonce` (HTTP 403, RF33); `v` 27 or 28 is accepted. A refused signature does not use the payment up: a later signature over `paymentId` for the same deposit was accepted (200) and the deposit settled. Not settled: the amount and expiry checks, single use of an accepted signature, `v` 0 or 1 | message, `nonce` refusal, `v` 27/28 and the accepted retry after a refusal: observed on the recorded payments (2026-10-22, 2026-10-23; the header of the accepted retry after the refusal was not recorded, only its answer). The rest `UNVERIFIED`; single use is a freeze condition (section 0) | recorded payments |
+| RF28 | The server accepts the `Payment-Signature` for a deposit sent directly to an Eden RPC with `eth_sendRawTransaction`, never given to `/deposit/send`: paid retry 200, `PAYMENT-RESPONSE` naming the buyer as payer, and the facilitator settled it (5.4). `/deposit/send` relays a valid deposit unchanged (`keccak256` of the posted `signedTx` is the executed transaction's hash) and answers 200 with `{"txHash":…,"paymentId":…}` and the response header `Deprecation: true`; the body carries no marker; the server calls the endpoint deprecated. Earlier observations: a body without `paymentId` is refused; a bogus transaction gives `failed to broadcast transaction`. Not settled: how quickly the server sees a direct deposit, and how it answers a paid retry for a deposit it does not know (5.4a RR1) | direct-send acceptance, relay answer and marker: observed on the recorded payments (2026-10-22, 2026-10-23; vectors `x402_mainnet.json`). RR1: `UNVERIFIED` | recorded payments, requester |
 | RF29 | Eden charges the sender only `gas_used * effective_gas_price` (no separate data or L1 fee), so `value + gas_limit * max_fee_per_gas` bounds the payer's loss | `UNVERIFIED` (ev-reth fee model not checked) | |
 | RF30 | Independence of the candidate sources: Blockscout's `https://eden.blockscout.com/api/eth-rpc` serves `eth_chainId`, `eth_getCode`, `eth_getTransactionByHash`, `eth_getTransactionReceipt` (observed 2026-10-21); whether it reads a node other than `rpc.eden.gateway.fm` | serving observed; independence `UNVERIFIED` | our own observation of the explorer, 2026-10-21 |
 | RF31 | The quote's `amount` equals the deposit `value` (the cap), and the client's own spend check counts `amount + gasLimit * maxFeePerGas` | verified on the fixture and the client code | fixture, client |
 | RF32 | `eth_getTransactionCount(payer, "pending")` on the signer's own Eden node counts the payer's transactions still in the sequencer's private pool (RF16), so S3n sees a nonce the signer already used | `UNVERIFIED`; if it does not, two signatures in flight can share a nonce until one lands (the second fails at the chain, gas only), and S3n's SHOULD (the signer's own in-flight nonces) is what prevents it | ev-reth, Eden team |
-| RF33 | On the paid retry the server accepts a `Payment-Signature` only when the recovered signer is the escrow's `buyer` of that `paymentId` (the deposit's signer, the payer of S1) or a device key authorized for that buyer. Device keys are out of scope for this draft: the signer neither registers nor uses one, and the payer key signs both the deposit and the `Payment-Signature`. | observed on the funded mainnet test (2026-10-23): a signature over `extra.nonce` recovers, over the `paymentId` message, to another address and was refused with HTTP 403, text "signer is neither the escrow buyer nor an authorized device key". How a device key is authorized, and whether the check reads the escrow on chain: `UNVERIFIED`. A freeze condition (section 0) | funded test |
+| RF33 | On the paid retry the server accepts a `Payment-Signature` only when the recovered signer is the escrow's `buyer` of that `paymentId` (the deposit's signer, the payer of S1) or a device key authorized for that buyer. Device keys are out of scope for this draft: the signer neither registers nor uses one, and the payer key signs both the deposit and the `Payment-Signature`. | observed on the recorded payments (2026-10-22): a signature over `extra.nonce` recovers, over the `paymentId` message, to another address and was refused with HTTP 403, `Content-Type: application/json`, body `{"error":{"message":"signer is neither the escrow buyer nor an authorized device key","type":"inference_error"}}` and a line feed (113 bytes, re-serialized from the parsed answer; its length equals the server's `Content-Length`). How a device key is authorized, and whether the check reads the escrow on chain: `UNVERIFIED`. A freeze condition (section 0) | recorded payments |
+| RF34 | The payment server's quotes set `expiresAt` about 300 s after the quote and `refundAfter = expiresAt + 604500` (604500 s = 7 days minus 300 s), so an unsettled deposit is refundable only after about a week | observed on four quotes (the saved fixture and the three recorded payments); the server's rule `UNVERIFIED` | fixture, recorded payments |
 
 ## 10. Sentinels
 
@@ -1276,7 +1311,7 @@ transaction is `wrong_tx` against a form T action with the same deposit
 
 Location `spec/vectors/profiles/eden-escrow/`. Every file has `format`
 `edicta-vectors/v0`, `profile` `eden-escrow`, `revision`
-`eden-escrow-v1-draft.10`; uints are decimal strings, bytes lower-case hex.
+`eden-escrow-v1-draft.11`; uints are decimal strings, bytes lower-case hex.
 Written by `spec/vectors/tools/edenescrow-gen` (go-ethereum v1.17.8, its own
 module, no network: recorded data comes only from `live/`);
 checked independently, without go-ethereum, by
@@ -1291,7 +1326,9 @@ if a file differs from a fresh generation.
 | `deposit_call.json` | Section 2.3. `cases`: `data_hex` and the decoded fields (the F14 call and two synthetic bounds). `reject`: `data_hex`, `expect_error`, `rule`, `cause`. 3 cases, 16 rejects. |
 | `action.json` | Sections 2, 3, 4. `extractors` (per ID: build, kind, scale, rows with code hash), `escrow_code` (code hash, constructor prefix, init code hash, CREATE and CREATE2 derivations, recorded code on both networks), `requirements_tag`, `limits`. `cases`: `build`, `extractor_ids` (the IDs that accept it, with equal facts), the transaction fields, `data_ref`, `resource`, `requirements_hex` (mock), `requirements_hash_hex`, `tx_hex`, `sighash_hex` (equal to go-ethereum's), `cbor_hex`, `action_salt_hex`, `action_hash_hex` (core 5.1), `facts` and `facts_cbor_hex` (`null` when the extractor refuses), `extractor_expect_error` and `extractor_rule` (`null` unless EF3 refuses), `profile_fields` (4.1). `reject`: `build`, `extractor_id`, `cbor_hex`, `expect_error`, `extractor_expect_error`, `rule`, `cause`, and for transaction-level rejects `geth_rlp_decodes` (informative). 8 cases (one testnet, one `edictadev`; `tx_max_714` and `tx_amount_overflow_714` refused by EF3, `tx_amount_max_714` at the 32-byte limit), 66 rejects. |
 | `live/houston-deposit-build.json`, `live/houston-payment-required.json` | The requester's client fixtures, byte for byte (SHA-256 in `x402.json` `inputs`): a `/deposit/build` answer (never signed) and the decoded `payment-required` header of a live 402, as saved (pretty-printed; not wire bytes). Input only. |
+| `live/mainnet-runs.json`, `live/mainnet-paymentid/`, `live/mainnet-nonce-refused/`, `live/mainnet-self-broadcast/` | Three funded escrow-upto payments on Eden mainnet through the Houston server, recorded on the client side (2026-10-22 and 2026-10-23); no key, credential or token. The index names each file and its provenance: `wire` (the `payment-required`, `payment-signature` and `payment-response` header values as the HTTP library returned them, and the signed deposit as sent, all without a trailing newline), `reconstructed` (JSON bodies re-serialized compact from the parsed answer, member order kept, one line feed; values exact, bytes probable: where the answer was not compressed the length equals the server's `Content-Length`; the `/deposit/build` answers were compressed and are unchecked as bytes) or `rpc` (an `eth_getTransactionReceipt` result as parsed). Observed statuses, headers, the server's cost and the settle amounts are values in the index. Input only. |
 | `x402.json` | Sections 2.2a, 2.5, 2.7, 4, 5.1 S4 and S11, 5.6. `build`: the fixture's transaction fields, `tx_hex` (245 bytes), `sighash_hex` (equal to go-ethereum's), `resource` (the `https://` form), `requirements_resource_url` (`R`'s own URL), `requirements_hash_hex` over the saved `R`, `cbor_hex` (334 bytes), salt, `action_hash_hex`, `facts`, `facts_cbor_hex`, `profile_fields`. `build_limits` (16384 bytes, depth 16). `build_accept` (11 bodies: `type 2`, empty `accessList`, unknown top-level member, upper-case hex, escaped member name, escaped value, whitespace, exactly 16384 bytes, depth 16 give the fixture's action; `nonce` 2^53-1 gives the action in its own `cbor_hex`) and `build_reject` (58, with the first failing rule BJ0 to BJ7 or the 2.4 rule; `type` written as `2.0`, `2e0` or `20e-1` is BJ5). A body is in `json`, or in `json_hex` when it is not valid UTF-8. `requirements`: `max_length`, `max_depth`, `server_signature` (message, digest, signature, recovered = `w2`); `accept` (9) and `reject` (43) `R` byte strings with the `requirements_hash` the action carries and the S4 rule (S4a to S4f); `header` (RH: `max_chars`, 6 accepted header values with the decoded `r_hex`, 11 refused with the rule RH or S4a). `payment_signature`: field `paymentId` with the message, the EIP-191 preimage and digest, and the `payer1` signature (`v` 27 or 28); `refused_fields` (`nonce`); `requests` (9 cases of the stateless S11 steps: field, `check_server_signature`, the action's `resource`, `requirements_ref` (the `R` the action commits), `cbor_hex`, `r_ref` (the `R` stored or presented, or `null`), and `pass` with `message_hex` or the step, sentinel and S4 rule). |
+| `x402_mainnet.json` | Sections 2.2a, 2.5, 5.1 S4 and S11, 5.2, 5.4, 5.4a RR2, 5.6, 7.3 EE7 and EE8, rail facts RF23 to RF28, RF33, RF34; from the recorded payments. `inputs` (every file of the index with its provenance, SHA-256 and length). Per run (`mainnet-paymentid`, `mainnet-nonce-refused`, `mainnet-self-broadcast`): `requirements` (the wire `R`: length, SHA-256, `requirements_hash_hex`, S4 `pass`, `asks_for_payment`, `refund_delay`, the `serverSignature` and its recovered address = `w2`); `deposit` (`rail_ref` = `keccak256` of the wire bytes = the recorded hash, the unsigned transaction rebuilt from its first nine items, `sighash_hex`, the signature, the recovered payer = the buyer, the fields and profile fields; the wire bytes equal the splice rule's output); `action` (the `https://` resource called, `cbor_hex`, facts); `build` (the build answer converts to the same action) or `null`; `payment_signature` (the header shape of 5.6, byte for byte; the message field; the addresses recovered over `paymentId` and over `extra.nonce`); `paid_retry` (status, the `PAYMENT-RESPONSE` payer, or for the 403 the body file and `refusal` `RR2`); `relay` (the request equals `{"signedTx","paymentId"}` with `w0`, the answer names the `rail_ref`, the `Deprecation` header, no body marker) or `null`; `deposit_status` (never evidence); `receipt` (consensus encoding, bloom, EE7 and EE8 `executed` with the buyer as sender) or `null`; `settle` (`actual + refund = amount = value`, `actual` = the server's cost). |
 | `multi_source.json` | Section 5.5. 26 cases: sources (host, operator, `operator_label`, result, outcome and binding label, set-aside reason), `min_sources`, `min_level`, phase (`polling` or `until_passed`), and the expected report (`status`, `level` or `reason`), Await state, `record_allowed`, `payment_signature_allowed`, `nonce_release_allowed`. No case is `violated`. 5 `sequences`: `min_level`, `min_sources`, `polls` (oldest first; each with `phase`, `sources`, the Await state `await` and the sticky `seen` after that poll), and the allowed flags of the last poll. |
 | `signed.json` | Sections 5.2, 6, 7.3. `keys.payer1` (label, private key, public key, address; vector-only). `cases`: the signature `(y_parity, r, s)` (RFC 6979, low `s`), `signed_hex` (splice rule, equal to go-ethereum's), `rail_ref`, `payer`. `rail_ref`: EE1 cases (8; `status` `unchecked` on each malformed one). `exact_tx`: EE3 and EE4 cases (8 pass, 21 `wrong_tx`, including the recorded form A transaction, `r = n`, `s = 0`, an `r` off the curve, `y_parity` as `0x00`, `s` as a list). |
 | `settlement.json` | Section 7.3, recorded data. `event` (signature, topic0, equality with the recorded log). `rebuild`: EE2 on the recorded deposit and settle answers (bytes equal the Celestia copy) and one lying answer. `receipt`: consensus encoding and bloom of the recorded receipt. `deposit_event`: EE7 and EE8 on the recorded escrow log (22 cases: 1 executed, 1 reverted, 20 `settlement_log_mismatch`). `block`: header RLP and hash, transactions root of block 227899844. |
@@ -1305,8 +1342,9 @@ with agent B asking for agent A's `commitment_hash`, S11e, and the
 startup refusals of S1), the per-source sequencing of 7.3 (the settlement report's tests in `edenexec` cover it
 with fakes and recorded answers; 5.5 combination is in `multi_source.json`),
 L2 receipts (RF13), the S3c code check (needs an RPC), the broadcaster
-(5.4, needs a server), and the handoff of 5.4a (needs a server; RR1 and
-RR2 get vectors once a real refusal is recorded).
+(5.4, needs a server), and the handoff of 5.4a (needs a server; RR2 is
+checked on the recorded 403 body in `x402_mainnet.json`, RR1 gets a vector
+once a real 402 for a known `paymentId` is recorded).
 
 The `build_reject` and `requirements` reject labels are written by the
 generator by hand (one defect each, anchored on the fixture text) and
@@ -1318,12 +1356,11 @@ re-derived by the independent Python checker
 | Item | Needs | Blocks |
 |---|---|---|
 | Testnet use and the copy's deployment | one CREATE2 transaction (the maintainer's go) | use of the testnet row |
-| Raw `PAYMENT-REQUIRED` header capture (wire bytes) for a non-mock `R` vector | the requester (said to be sent; not received) | freeze |
 | Whether the server accepts `v` 0 or 1 (RF27) | the requester | none (the signer emits 27 or 28) |
 | The server accepts each `Payment-Signature` once (RF27; section 0) | the requester, in writing or by a funded test | freeze |
 | How a device key is authorized for a buyer (RF33) | the server's operator | none for this draft (device keys out of scope) |
 | `eth_getTransactionCount` `pending` and the sequencer's private pool (RF32) | the Eden team or a funded test | S3n's strength |
-| Whether the server accepts a `Payment-Signature` for a deposit sent directly, and how it answers a paid retry for a deposit it does not know (RF28) | a funded test with mode `direct`, or the server's operator | the `direct` default for that server (the handoff of 5.4a covers a refusal); RR1 and RR2 of 5.4a until a real answer is recorded |
+| How the server answers a paid retry for a deposit it does not know (RF28), and how quickly it sees a directly sent deposit | a recorded answer (a paid retry before the deposit executed), or the server's operator | RR1 of 5.4a until a real answer is recorded |
 | Eden fee model beyond gas (RF29) | ev-reth source or the Eden team | EF2's bound |
 | Independence of a second public Eden RPC operator (RF30) | the Eden team or the operator | L1 with public sources only |
 | Fee-only caps, refund release | policy v2 | none for this release |
