@@ -40,7 +40,7 @@ var _ gate.IntentVerifier = (*FibreIntents)(nil)
 // NewFibreIntents accepts only promises for chainID.
 func NewFibreIntents(c FibreIntentChain, chainID string) (*FibreIntents, error) {
 	if c == nil || chainID == "" {
-		return nil, fmt.Errorf("%w: fibre intents need a chain reader and a chain id", ErrInvalidConfig)
+		return nil, invalidConfig("fibre intents need a chain reader and a chain id")
 	}
 	return &FibreIntents{c: c, chainID: chainID}, nil
 }
@@ -204,7 +204,7 @@ var _ gate.IntentVerifier = (*BlobIntents)(nil)
 
 func NewBlobIntents(r BlobHeaders) (*BlobIntents, error) {
 	if r == nil {
-		return nil, fmt.Errorf("%w: blob intents need a header reader", ErrInvalidConfig)
+		return nil, invalidConfig("blob intents need a header reader")
 	}
 	return &BlobIntents{r: r}, nil
 }
@@ -256,7 +256,7 @@ var _ gate.IntentBroadcaster = (*Broadcaster)(nil)
 
 func NewBroadcaster(n IntentNode) (*Broadcaster, error) {
 	if n == nil {
-		return nil, fmt.Errorf("%w: the broadcaster needs a node", ErrInvalidConfig)
+		return nil, invalidConfig("the broadcaster needs a node")
 	}
 	return &Broadcaster{n: n}, nil
 }

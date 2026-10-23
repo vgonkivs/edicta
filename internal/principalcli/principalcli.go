@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package principalcli is the principal's tool for mandates, shared by the
 // edicta-principal command and edicta principal: it renders a mandate, prints
 // what a wallet signs, signs with a raw key or attaches a wallet signature,

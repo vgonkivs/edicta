@@ -21,7 +21,7 @@ func NewFibreHeaders(r node.FibreChainReader) gate.HeaderSource { return fibreHe
 
 func (h fibreHeaders) BlockTime(ctx context.Context, height uint64) (uint64, error) {
 	if h.r == nil {
-		return 0, unavailable(fmt.Errorf("%w: no consensus reader", ErrInvalidConfig))
+		return 0, unavailable(invalidConfig("no consensus reader"))
 	}
 	if err := ctx.Err(); err != nil {
 		return 0, unavailable(err)

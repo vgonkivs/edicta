@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package gatechain
 
 import (
@@ -32,7 +34,7 @@ func (s *fibreBlobs) Fetch(ctx context.Context, ref commitment.PayloadRef, maxSi
 		return nil, fmt.Errorf("%w: da %d", gate.ErrBlobNotFound, ref.DA)
 	}
 	if s.a == nil || s.direct == nil || s.c == nil {
-		return nil, unavailable(fmt.Errorf("%w: incomplete blob source", ErrInvalidConfig))
+		return nil, unavailable(invalidConfig("incomplete blob source"))
 	}
 	fa, err := s.a.Lookup(ctx, ref)
 	if err != nil {

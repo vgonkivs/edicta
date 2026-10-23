@@ -118,7 +118,7 @@ var narrow = []struct {
 		to:   under("engine/gate"),
 	},
 	{
-		why:  "the signer core must stay rail-agnostic",
+		why:  "the signer core (this package alone, not signerd or signercmd, which wire plugins) must stay rail-agnostic",
 		from: []string{"services/signer"},
 		to:   func(rel string) bool { return strings.HasPrefix(string(classify(rel, false)), plugin) },
 	},
