@@ -1,5 +1,6 @@
 # edicta-signer: the executor after the gate. It holds the payer key; the
-# agent and the gate never do. Amounts are decimal strings in wei; keys hex.
+# agent and the gate never do. Run it as this standalone binary in production;
+# `edicta signer serve` is for development and demos. Amounts are decimal strings in wei; keys hex.
 
 listen = "127.0.0.1:8402"      # loopback only unless allow_remote = true
 store_path = "/var/lib/edicta-signer/signer.db"

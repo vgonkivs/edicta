@@ -83,6 +83,11 @@ refused as not available). `recorder.da = "fibre"` needs `recorder.own_node`
 and the Fibre keys described under Recorder below. Paths are not resolved
 against the home: `init` writes absolute paths.
 
+A deployment that holds a real payer key runs the light standalone
+`edicta-signer` binary, which links far fewer dependencies than `edicta`.
+`edicta signer serve` runs the same service inside the full `edicta` binary
+and is for development and demos.
+
 ### Presets
 
 A preset fills the endpoints and constants of a network, so the file holds

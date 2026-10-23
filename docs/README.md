@@ -8,7 +8,7 @@ earlier v0 drafts are superseded and unsupported.
 | Guide | For | Covers |
 |---|---|---|
 | [quickstart.md](quickstart.md) | everyone | The v1 flow, `init` and `doctor`, the one-command demo, strict and fast mode |
-| [operator.md](operator.md) | gate operators | `edictad`: gate, archive, mandate, fast mode, Recorder, startup refusals; `edicta.toml`, `doctor`, key and home permissions |
+| [operator.md](operator.md) | gate operators | `edicta gate serve`: gate, archive, mandate, fast mode, Recorder, startup refusals; `edicta.toml`, `doctor`, key and home permissions |
 | [principal.md](principal.md) | principals | Mandates: Ed25519, Keplr (ADR-036), MetaMask (EIP-712), auditors, versions |
 | [profiles.md](profiles.md) | integrators | Executor side: Authorization check, salt, fast-mode policy, public execution |
 | [private-mode.md](private-mode.md) | principals, auditors | What a private mandate hides and what it does not |
@@ -18,7 +18,7 @@ earlier v0 drafts are superseded and unsupported.
 Other documents:
 - [../README.md](../README.md): what Edicta is and is not.
 - [../ARCHITECTURE.md](../ARCHITECTURE.md): architecture and the reasons behind the main design decisions.
-- [../services/gate/README.md](../services/gate/README.md): the full `edictad` reference.
+- [../services/gate/README.md](../services/gate/README.md): the full `edicta gate serve` reference.
 - [../examples/tia-transfer/README.md](../examples/tia-transfer/README.md): the manual `edicta-live` run.
 - [../examples/tia-transfer/demo/README.md](../examples/tia-transfer/demo/README.md): the one-command demo.
 - [../examples/dca-agent/README.md](../examples/dca-agent/README.md): an off-chain profile (IBKR order).

@@ -143,7 +143,7 @@ the old path: the vector file is frozen.
 | Before | Now |
 |---|---|
 | `edictad -config FILE [-print-config]` | `edicta gate serve -config FILE [-print-config]` |
-| `edicta-signer -config FILE [-check-config]` | unchanged, and also `edicta signer serve -config FILE [-check-config]` |
+| `edicta-signer -config FILE [-check-config]` | unchanged, and also `edicta signer serve -config FILE [-check-config]`; a deployment that holds a real payer key runs the light standalone `edicta-signer`, and `edicta signer serve` is for development and demos |
 | `edicta-verify verify\|replay\|absence ...` | `edicta verify\|replay\|absence --no-config ...` (without `--no-config` the command also reads `edicta.toml`) |
 | `edicta-devinit --home DIR` | `edicta dev init --home DIR`, in builds with the `edictadev` tag |
 | `edicta-principal COMMAND ...` | unchanged, and also `edicta principal COMMAND ...` |
