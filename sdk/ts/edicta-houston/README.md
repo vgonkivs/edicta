@@ -43,6 +43,53 @@ const r = await edictaPay({
 The decision committed is the decoded deposit transaction, not the server's
 description of it; a quote that does not match the transaction is refused.
 
+## Paid retry and relay handoff
+
+A payment server may not pick up a deposit the signer sent directly to Eden.
+Give `edictaPay` the paid retry and the handoff settings and it makes the
+retry itself; or call `paidRetryWithHandoff(result, retry, handoff)` with the
+result of an earlier `edictaPay`.
+
+```ts
+const r = await edictaPay({
+  ...options,
+  paidRetry: (paymentSignature) => fetch(resourceUrl, retryInit(paymentSignature)), // your existing encoder
+  handoff: { paymentServerUrl: "https://pay.example" },   // the base you called /deposit/build on
+});
+// r.paidRetry.response is the last answer, unread.
+// r.paidRetry.needsOperator: still refused after the handoff; do not pay a new quote under this decision.
+```
+
+What it does, and nothing else:
+
+- It retries with the same Payment-Signature. Only two refusals are acted on:
+  a 402 whose `payment-required` quote names this deposit's `paymentId`
+  (RR1), and a 403 whose body contains `neither the escrow buyer` (RR2). A
+  success, any other status, a quote for another `paymentId`, or an answer
+  over 16384 bytes is returned as it is.
+- After a recognised refusal it waits `pickupDelayMs` (default 10 s, at most
+  120 s) and retries once. Refused in a recognised way again, it checks that
+  keccak256 of the stored signed deposit equals `railRef`, records the
+  handoff in the store, and posts exactly those bytes, with the `paymentId`
+  of their calldata, to `{paymentServerUrl}/deposit/send`. It never signs,
+  rebuilds or pays anything: the deposit already executed. The relay's
+  answer is never evidence; a relay error is reported in `relayFault` and
+  not retried.
+- It waits `pickupDelayMs` once more and makes one last retry.
+- At most one handoff per commitment hash, across restarts. The default store
+  is `FileHandoffStore` in `$EDICTA_HOME/handoff` (else `~/.edicta/handoff`):
+  one file per commitment hash, created exclusively and synced before the
+  bytes are sent. Pass your own `store` (any `{ claim(commitmentHash):
+  Promise<boolean> }` that is atomic and durable; `true` only for the first
+  claim) when the agent runs in more than one process or on more than one
+  host.
+
+`edicta agent serve --state-dir DIR --payment-server https://... [--pickup-delay 10s]`
+offers the same rules to clients in other languages: `POST /v1/paid-retry`
+with `commitment_hash`, `payment_signature`, `status`, `payment_required` and
+`body` (base64) of each paid retry's answer returns `next` (`none`, `retry`
+after `retry_after_ms`, or `operator`) and makes the one handoff itself.
+
 ## Resume: never start over
 
 `edicta agent serve` must run with `--state-dir` for resume by hash. Without it

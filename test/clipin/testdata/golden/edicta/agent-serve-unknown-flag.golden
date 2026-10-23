@@ -2,4 +2,5 @@ exit 64
 -- stdout --
 edicta agent serve: flag provided but not defined: -bogus
 usage: edicta agent serve [--config PATH] [--gate-id ID] [--gate-key HEX]... [--recipient X25519_HEX]... [--mandate-ref HEX] [--token-file FILE] [--cbor] [--state-dir DIR] [--signer-url URL --signer-token-file FILE] [--listen 127.0.0.1:8500] [--allow-remote --serve-token-file FILE --allowed-host HOST:PORT... [--allowed-origin URL]...]
+  relay handoff (POST /v1/paid-retry, needs --state-dir): --payment-server https://URL [--pickup-delay 10s]
 -- stderr --

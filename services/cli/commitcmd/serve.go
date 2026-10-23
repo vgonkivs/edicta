@@ -84,11 +84,11 @@ func tokenOK(want []byte, header string) bool {
 	return subtle.ConstantTimeCompare(a[:], b[:]) == 1
 }
 
-// Handler serves POST /v1/commit. In loopback mode it refuses a Host header
-// that is not loopback, which stops a web page from reaching the service
-// through DNS rebinding. In remote mode it requires the bearer token, a Host
-// from the allowlist and no foreign Origin. A Handler built from invalid
-// remote options refuses every request.
+// Handler serves POST /v1/commit and POST /v1/paid-retry. In loopback mode
+// it refuses a Host header that is not loopback, which stops a web page from
+// reaching the service through DNS rebinding. In remote mode it requires the
+// bearer token, a Host from the allowlist and no foreign Origin. A Handler
+// built from invalid remote options refuses every request.
 func Handler(s *Service, o Options) http.Handler {
 	n := o.MaxConcurrent
 	if n <= 0 {
@@ -97,42 +97,54 @@ func Handler(s *Service, o Options) http.Handler {
 	sem := make(chan struct{}, n)
 	valid := o.ValidateBasic() == nil
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/commit", func(w http.ResponseWriter, r *http.Request) {
-		if !valid {
-			writeFailure(w, &Failure{Exit: ExitUsage, Status: http.StatusForbidden, Code: "forbidden", Message: "the service is misconfigured"})
-			return
-		}
-		if f := checkCaller(r, o); f != nil {
-			writeFailure(w, f)
-			return
-		}
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", http.MethodPost)
-			writeFailure(w, &Failure{Exit: ExitUsage, Status: http.StatusMethodNotAllowed, Code: "method_not_allowed", Message: "use POST"})
-			return
-		}
-		if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
-			writeFailure(w, &Failure{Exit: ExitUsage, Status: http.StatusUnsupportedMediaType, Code: "media_type", Message: "content type must be application/json"})
-			return
-		}
-		select {
-		case sem <- struct{}{}:
-			defer func() { <-sem }()
-		default:
-			writeFailure(w, &Failure{Exit: ExitUnavailable, Status: http.StatusTooManyRequests, Code: "busy", Message: "too many requests in flight", Retryable: true})
-			return
-		}
-		req, err := DecodeRequest(http.MaxBytesReader(w, r.Body, MaxRequestBytes))
+	route := func(path string, serve func(r *http.Request) (any, error)) {
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			if !valid {
+				writeFailure(w, &Failure{Exit: ExitUsage, Status: http.StatusForbidden, Code: "forbidden", Message: "the service is misconfigured"})
+				return
+			}
+			if f := checkCaller(r, o); f != nil {
+				writeFailure(w, f)
+				return
+			}
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
+				writeFailure(w, &Failure{Exit: ExitUsage, Status: http.StatusMethodNotAllowed, Code: "method_not_allowed", Message: "use POST"})
+				return
+			}
+			if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
+				writeFailure(w, &Failure{Exit: ExitUsage, Status: http.StatusUnsupportedMediaType, Code: "media_type", Message: "content type must be application/json"})
+				return
+			}
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			default:
+				writeFailure(w, &Failure{Exit: ExitUnavailable, Status: http.StatusTooManyRequests, Code: "busy", Message: "too many requests in flight", Retryable: true})
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBytes)
+			resp, err := serve(r)
+			if err != nil {
+				writeFailure(w, classify(err))
+				return
+			}
+			writeJSON(w, http.StatusOK, resp)
+		})
+	}
+	route("/v1/commit", func(r *http.Request) (any, error) {
+		req, err := DecodeRequest(r.Body)
 		if err != nil {
-			writeFailure(w, classify(err))
-			return
+			return nil, err
 		}
-		resp, err := s.Commit(r.Context(), req)
+		return s.Commit(r.Context(), req)
+	})
+	route("/v1/paid-retry", func(r *http.Request) (any, error) {
+		rep, err := DecodePaidRetry(r.Body)
 		if err != nil {
-			writeFailure(w, classify(err))
-			return
+			return nil, err
 		}
-		writeJSON(w, http.StatusOK, resp)
+		return s.PaidRetry(r.Context(), rep)
 	})
 	return mux
 }

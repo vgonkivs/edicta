@@ -8,6 +8,8 @@ import {
   classifyFailure,
 } from "./errors.js";
 import type { ResumeMaterial } from "./errors.js";
+import { paidRetryWithHandoff } from "./handoff.js";
+import type { HandoffOptions, PaidRetryFn, PaidRetryOutcome } from "./handoff.js";
 
 export interface Named {
   id: string;
@@ -54,6 +56,14 @@ export interface PayOptions {
   signal?: AbortSignal;
   /** Replaces globalThis.fetch (tests, proxies). It must refuse redirects itself: the bearer token would follow them. */
   fetch?: typeof fetch;
+  /**
+   * When set, edictaPay also makes the paid retry: it calls paidRetry with the
+   * Payment-Signature and, on two recognised refusals, makes the one relay
+   * handoff that `handoff` configures (see paidRetryWithHandoff). Needs
+   * `handoff`.
+   */
+  paidRetry?: PaidRetryFn;
+  handoff?: HandoffOptions;
 }
 
 export interface PayResult {
@@ -75,6 +85,8 @@ export interface PayResult {
   warning: string | undefined;
   /** The service's full answer. */
   raw: Record<string, unknown>;
+  /** What the paid retry did, when the paidRetry option was given. */
+  paidRetry?: PaidRetryOutcome;
 }
 
 const MAX_HEADER = 64 * 1024;
@@ -208,6 +220,9 @@ export async function edictaPay(opts: PayOptions): Promise<PayResult> {
     throw bad("marginMs must be a number from 0 to 3600000");
   }
   if (opts.validFor !== undefined && (parseDurationMs(opts.validFor) ?? 0) <= 0) throw bad("validFor must be a positive Go duration");
+  if (opts.paidRetry !== undefined && (typeof opts.paidRetry !== "function" || opts.handoff === undefined)) {
+    throw bad("paidRetry must be a function and needs the handoff options");
+  }
 
   const eden: Record<string, unknown> = { payment_required: header };
   const body: Record<string, unknown> = {
@@ -280,7 +295,11 @@ export async function edictaPay(opts: PayOptions): Promise<PayResult> {
     throw new EdictaProtocolError("protocol", "answer is not JSON", { code: "bad_response", status: res.status });
   }
   if (!res.ok) throw classifyFailure(res.status, json);
-  return checkResult(json, resume, res.status);
+  const result = checkResult(json, resume, res.status);
+  if (opts.paidRetry !== undefined && opts.handoff !== undefined) {
+    result.paidRetry = await paidRetryWithHandoff(result, opts.paidRetry, opts.handoff);
+  }
+  return result;
 }
 
 async function readBounded(res: Response): Promise<string> {

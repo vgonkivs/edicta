@@ -79,41 +79,14 @@ func CheckRequirements(a TxAction, r []byte, checkServerSignature bool) (Quote, 
 	if RequirementsHash(r) != a.RequirementsHash {
 		return Quote{}, requirements("S4b", "R does not hash to the action's requirements_hash")
 	}
-	doc, err := parseJSON(r)
-	switch {
-	case err != nil:
-		return Quote{}, requirements("S4c", "%v", err)
-	case doc.kind != jsonObject:
-		return Quote{}, requirements("S4c", "R is not an object")
+	accepts, err := requirementsDocument(r)
+	if err != nil {
+		return Quote{}, err
 	}
-	if v := doc.member("x402Version"); v == nil || v.kind != jsonNumber || v.text != "2" {
-		return Quote{}, requirements("S4c", "x402Version is not the number 2")
-	}
-	accepts := doc.member("accepts")
-	if accepts == nil || accepts.kind != jsonArray {
-		return Quote{}, requirements("S4c", "accepts is not an array")
-	}
-
 	d := a.Deposit
-	var entry *jsonValue
-	for _, e := range accepts.elems {
-		if s := e.member("scheme"); !s.isString() || s.text != Scheme {
-			continue
-		}
-		extra := e.member("extra")
-		if extra == nil || extra.kind != jsonObject {
-			continue
-		}
-		if pid, ok := hexString(extra.member("paymentId"), 32); !ok || [32]byte(pid) != d.PaymentID {
-			continue
-		}
-		if entry != nil {
-			return Quote{}, requirements("S4d", "two %s entries for the action's paymentId", Scheme)
-		}
-		entry = e
-	}
-	if entry == nil {
-		return Quote{}, requirements("S4d", "no %s entry for the action's paymentId", Scheme)
+	entry, err := selectEntry(accepts, d.PaymentID)
+	if err != nil {
+		return Quote{}, err
 	}
 	extra := entry.member("extra")
 
@@ -142,6 +115,71 @@ func CheckRequirements(a TxAction, r []byte, checkServerSignature bool) (Quote, 
 		}
 	}
 	return q, nil
+}
+
+// requirementsDocument checks that R is one strict JSON document, an
+// object with x402Version the token 2 and an accepts array, and returns
+// accepts.
+func requirementsDocument(r []byte) (*jsonValue, error) {
+	doc, err := parseJSON(r)
+	switch {
+	case err != nil:
+		return nil, requirements("S4c", "%v", err)
+	case doc.kind != jsonObject:
+		return nil, requirements("S4c", "R is not an object")
+	}
+	if v := doc.member("x402Version"); v == nil || v.kind != jsonNumber || v.text != "2" {
+		return nil, requirements("S4c", "x402Version is not the number 2")
+	}
+	accepts := doc.member("accepts")
+	if accepts == nil || accepts.kind != jsonArray {
+		return nil, requirements("S4c", "accepts is not an array")
+	}
+	return accepts, nil
+}
+
+// selectEntry returns the one escrow-upto element of accepts whose
+// extra.paymentId is paymentID; other elements are ignored.
+func selectEntry(accepts *jsonValue, paymentID [32]byte) (*jsonValue, error) {
+	var entry *jsonValue
+	for _, e := range accepts.elems {
+		if s := e.member("scheme"); !s.isString() || s.text != Scheme {
+			continue
+		}
+		extra := e.member("extra")
+		if extra == nil || extra.kind != jsonObject {
+			continue
+		}
+		if pid, ok := hexString(extra.member("paymentId"), 32); !ok || [32]byte(pid) != paymentID {
+			continue
+		}
+		if entry != nil {
+			return nil, requirements("S4d", "two %s entries for the action's paymentId", Scheme)
+		}
+		entry = e
+	}
+	if entry == nil {
+		return nil, requirements("S4d", "no %s entry for the action's paymentId", Scheme)
+	}
+	return entry, nil
+}
+
+// CheckAsksForPayment reads R from a 402 answer to a paid retry: nil when
+// it passes the size and document checks and has exactly one escrow-upto
+// entry whose extra.paymentId is paymentID, the server asking again for
+// that very payment. R is not bound to any requirements_hash here, and no
+// other field is read: a 402 naming another paymentId is a new quote.
+// Every failure is ErrRequirements.
+func CheckAsksForPayment(r []byte, paymentID [32]byte) error {
+	if len(r) < 1 || len(r) > MaxRequirementsSize {
+		return requirements("S4a", "R of %d bytes", len(r))
+	}
+	accepts, err := requirementsDocument(r)
+	if err != nil {
+		return err
+	}
+	_, err = selectEntry(accepts, paymentID)
+	return err
 }
 
 // checkEntry holds every quoted field of the entry to the action, in a

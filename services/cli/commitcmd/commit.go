@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
@@ -99,6 +100,14 @@ type Service struct {
 	PollInterval time.Duration
 	// Sleep pauses between settlement polls; nil uses a timer.
 	Sleep func(ctx context.Context, d time.Duration) error
+	// Handoff enables the relay handoff after a refused paid retry; nil
+	// refuses paid-retry reports.
+	Handoff *Handoff
+
+	// stateMu orders the writes of one process to the state store, so that
+	// a run saved by a commit never drops the handoff marks a paid-retry
+	// report wrote meanwhile.
+	stateMu sync.Mutex
 }
 
 // Named is a model or policy identity.
@@ -371,6 +380,7 @@ func (s *Service) Commit(ctx context.Context, req Request) (Response, error) {
 			return Response{}, run.carry(&Failure{Exit: ExitUnavailable, Code: "state_unavailable", Retryable: true, Message: err.Error()})
 		} else if ok && bytes.Equal(old.Envelope, run.st.Envelope) {
 			run.st.Authorization, run.st.Signed, run.st.RailRef = old.Authorization, old.Signed, old.RailRef
+			run.st.PaymentSignature, run.st.RefusedAtMS, run.st.HandoffAtMS = old.PaymentSignature, old.RefusedAtMS, old.HandoffAtMS
 			if len(run.rr) == 0 {
 				run.rr = old.Requirements
 			}

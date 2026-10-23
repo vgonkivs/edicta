@@ -26,7 +26,8 @@ const commitUsage = "usage: edicta commit " + commitFlags +
 	"\n  eden: --eden-build FILE|- --payment-required HEADER_B64|@FILE [--resource https://URL] [--sign --broadcast] [--record] [--payment-signature] [--wait 5m]" +
 	"\n  resume: --resume-hash HEX (needs --state-dir)"
 
-const serveUsage = "usage: edicta agent serve " + commitFlags + " [--listen 127.0.0.1:8500] [--allow-remote --serve-token-file FILE --allowed-host HOST:PORT... [--allowed-origin URL]...]"
+const serveUsage = "usage: edicta agent serve " + commitFlags + " [--listen 127.0.0.1:8500] [--allow-remote --serve-token-file FILE --allowed-host HOST:PORT... [--allowed-origin URL]...]" +
+	"\n  relay handoff (POST /v1/paid-retry, needs --state-dir): --payment-server https://URL [--pickup-delay 10s]"
 
 // commonOpts are the flags `commit` and `agent serve` share.
 type commonOpts struct {
@@ -234,6 +235,8 @@ func runAgent(ctx context.Context, args []string, out io.Writer) int {
 	fs.StringVar(&o.serveTokenFile, "serve-token-file", "", "file holding the bearer token callers must present (remote mode)")
 	fs.Var(&o.allowedHosts, "allowed-host", "accepted Host header value, host:port (remote mode, repeatable)")
 	fs.Var(&o.allowedOrigins, "allowed-origin", "accepted Origin value (remote mode, repeatable)")
+	paymentServer := fs.String("payment-server", "", "https base URL the agent calls /deposit/build on; enables the one relay handoff after refused paid retries")
+	pickupDelay := fs.Duration("pickup-delay", commitcmd.DefaultPickupDelay, "wait between the paid retries that lead to the relay handoff (at most 2m)")
 	if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
 		if err == nil {
 			err = fmt.Errorf("unexpected argument %q", fs.Arg(0))
@@ -258,13 +261,29 @@ func runAgent(ctx context.Context, args []string, out io.Writer) int {
 		fmt.Fprintf(out, "edicta agent serve: %v\n", err)
 		return commitcmd.ExitUsage
 	}
+	var handoff *commitcmd.Handoff
+	if *paymentServer != "" {
+		if o.stateDir == "" {
+			fmt.Fprintf(out, "edicta agent serve: --payment-server needs --state-dir: the handoff's once mark must survive a restart\n")
+			return commitcmd.ExitUsage
+		}
+		hc := commitcmd.HandoffConfig{PaymentServer: *paymentServer, PickupDelay: *pickupDelay}
+		hc.ApplyDefaults()
+		h, err := commitcmd.NewHandoff(hc, nil, nil)
+		if err != nil {
+			fmt.Fprintf(out, "edicta agent serve: %v\n", err)
+			return commitcmd.ExitUsage
+		}
+		handoff = h
+	}
 	svc, closeFn, err := newCommitService(ctx, o)
 	if err != nil {
 		return failErr(out, err)
 	}
 	defer closeFn()
+	svc.Handoff = handoff
 	err = commitcmd.Serve(ctx, *listen, svc, sopts, func(a net.Addr) {
-		fmt.Fprintf(out, "edicta agent serve: listening on %s (POST /v1/commit)\n", a)
+		fmt.Fprintf(out, "edicta agent serve: listening on %s (POST /v1/commit, POST /v1/paid-retry)\n", a)
 	})
 	if err != nil {
 		fmt.Fprintf(out, "edicta agent serve: %v\n", err)

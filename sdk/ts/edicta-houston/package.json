@@ -12,14 +12,20 @@
       "import": "./dist/src/index.js"
     }
   },
-  "files": ["dist/src", "LICENSE"],
-  "engines": { "node": ">=20.3" },
+  "files": [
+    "dist/src",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.3"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepack": "npm run build",
     "test": "npm run build && node --test test/*.test.mjs"
   },
   "devDependencies": {
+    "@types/node": "^20.19.43",
     "typescript": "^5.6.0"
   }
 }

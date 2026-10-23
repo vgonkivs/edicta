@@ -56,6 +56,15 @@ type State struct {
 	Signed        []byte `json:"signed_tx,omitempty"`
 	RailRef       string `json:"rail_ref,omitempty"`
 	Mode          string `json:"mode"`
+	// PaymentSignature is the signer's Payment-Signature, once released and
+	// checked here.
+	PaymentSignature string `json:"payment_signature,omitempty"`
+	// RefusedAtMS is when the first recognised refusal of a paid retry was
+	// reported, Unix milliseconds.
+	RefusedAtMS int64 `json:"refused_at_ms,omitempty"`
+	// HandoffAtMS marks the one relay handoff; it is stored before the bytes
+	// are sent.
+	HandoffAtMS int64 `json:"handoff_at_ms,omitempty"`
 }
 
 // StateStore persists a State by commitment hash (64 lower-case hex). Save
@@ -271,6 +280,17 @@ func (s *Service) save(r *run) *Failure {
 	}
 	r.st.Requirements = r.rr
 	r.st.Mode = r.mode
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	// The paid-retry marks are written by their own reports, never by a
+	// run: a run that started before them keeps them.
+	if old, ok, err := s.State.Load(r.hexH); err == nil && ok && bytes.Equal(old.Envelope, r.st.Envelope) {
+		r.st.RefusedAtMS = max(r.st.RefusedAtMS, old.RefusedAtMS)
+		r.st.HandoffAtMS = max(r.st.HandoffAtMS, old.HandoffAtMS)
+		if r.st.PaymentSignature == "" {
+			r.st.PaymentSignature = old.PaymentSignature
+		}
+	}
 	if err := s.State.Save(r.hexH, r.st); err != nil {
 		return r.carry(&Failure{Exit: ExitUnavailable, Code: "state_unavailable", Retryable: true,
 			Message: fmt.Sprintf("the state could not be stored (continue with the resume fields): %v", err)})
@@ -483,6 +503,12 @@ func (s *Service) settle(ctx context.Context, req Request, r *run, resp *Respons
 		resp.Warning = "the signed transaction is not known here: the payer is taken from the payment proof and was not cross-checked"
 	}
 	resp.Settled = true
+	if r.st.PaymentSignature != string(proof.Signature) {
+		r.st.PaymentSignature = string(proof.Signature)
+		if f := s.save(r); f != nil {
+			return f
+		}
+	}
 	if req.PaymentSignature {
 		resp.PaymentSignature = string(proof.Signature)
 	}
