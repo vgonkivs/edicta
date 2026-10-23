@@ -88,6 +88,15 @@ A deployment that holds a real payer key runs the light standalone
 `edicta signer serve` runs the same service inside the full `edicta` binary
 and is for development and demos.
 
+The signer's dedicated payer key builds and signs the deposit (it is the
+escrow buyer) and signs the Payment-Signature over `paymentId`; the payment
+server accepts exactly this, and no device or session keys are used. The
+payer key is a hot key. The gate holds no keys and checks spend limits
+before the signer pays, but keep each payer wallet to a working float, for
+example a few tens of dollars' worth of TIA per team, and top it up as
+needed. Deposits are broadcast directly to Eden RPC by default; the payment
+server's relay is only a fallback.
+
 ### Presets
 
 A preset fills the endpoints and constants of a network, so the file holds
