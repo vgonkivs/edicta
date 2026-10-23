@@ -185,9 +185,11 @@ Mocha. The HTTP API speaks CBOR and, alongside it, JSON.
 - Fibre support is implemented but has not run live yet.
 - Eden escrow payment profile (x402 escrow-upto on Eden, chain 714): a draft
   profile, [spec/profiles/eden-escrow-v1.md](spec/profiles/eden-escrow-v1.md),
-  not frozen. Its signer service (`edicta signer serve` or `edicta-signer`)
-  holds the dedicated payer key behind the gate, so the gate stays keyless,
-  and the TypeScript wrapper `@edicta/houston`
+  not frozen. Its signer service holds the dedicated payer key behind the
+  gate, so the gate stays keyless. A deployment with a real payer key should
+  run the light standalone `edicta-signer`, which does not link the Celestia
+  stack; `edicta signer serve` is a convenience for development and demos.
+  The TypeScript wrapper `@edicta/houston`
   ([sdk/ts/edicta-houston](sdk/ts/edicta-houston/README.md)) puts it into the
   payment flow. The Eden flow has not yet run live end to end through Edicta.
 
@@ -197,7 +199,7 @@ Not production-ready.
 
 | Path | Contents |
 |---|---|
-| `/` (module `github.com/vgonkivs/edicta`) | Core: `engine/commitment` (encoding, hashing, checks), `engine/gate`, `engine/dasource` (DA read and recompute interfaces), `engine/recorder` (the Recorder interface and its refusal reasons), `engine/policy` (mandates), `engine/principalsig`, `engine/archive`, `engine/verifier`, `sdk`, `api/edictaapi` (HTTP API), `api/signerapi` (the signer's HTTP wire format), `engine/dacommit`, `test`; `cmd/edicta-principal` (the principal's mandate tool, also `edicta principal`) |
+| `/` (module `github.com/vgonkivs/edicta`) | Core: `engine/commitment` (encoding, hashing, checks), `engine/gate`, `engine/dasource` (DA read and recompute interfaces), `engine/recorder` (the Recorder interface and its refusal reasons), `engine/policy` (mandates), `engine/principalsig`, `engine/archive`, `engine/verifier`, `sdk`, `api/edictaapi` (HTTP API), `api/signerapi` (the signer's HTTP wire format), `engine/dacommit`, `engine/retention`, `config`, `internal`, `test`; `cmd/edicta-principal` (the principal's mandate tool, also `edicta principal`) |
 | `plugins/celestia/` (own module) | The Celestia plugin: node client (`node`), chain readers (`chain`), proof checks (`proof`), the Recorder (`recorder`), Fibre blob commitment (`fibrecommit`), the bank-send transaction signer and checker (`banksend`), and test fakes (`celestiatest`) |
 | `services/gate/` (own module) | The gate daemon (package `edictad`), its wiring (`edictad/wire`) and its command line (`gatecmd`, run as `edicta gate serve`) |
 | `services/signer/` (own module, links no Celestia node or chain code) | The payer key's service `edicta-signer` (also `edicta signer serve`): rail-agnostic signing core, Eden escrow handler (`eden`), daemon (`signerd`), command line (`signercmd`) |
