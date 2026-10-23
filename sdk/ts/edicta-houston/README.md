@@ -58,7 +58,11 @@ const r = await edictaPay({
 });
 // r.paidRetry.response is the last answer, unread.
 // r.paidRetry.needsOperator: still refused after the handoff; do not pay a new quote under this decision.
+// r.paidRetryError: the paid retry or the handoff failed; r itself (paymentSignature, signedTx) still stands.
 ```
+
+`paidRetryWithHandoff` takes the result as `edictaPay` returned it: the
+handoff reads the committed action from `raw.action`.
 
 What it does, and nothing else:
 
@@ -69,9 +73,12 @@ What it does, and nothing else:
   over 16384 bytes is returned as it is.
 - After a recognised refusal it waits `pickupDelayMs` (default 10 s, at most
   120 s) and retries once. Refused in a recognised way again, it checks that
-  keccak256 of the stored signed deposit equals `railRef`, records the
-  handoff in the store, and posts exactly those bytes, with the `paymentId`
-  of their calldata, to `{paymentServerUrl}/deposit/send`. It never signs,
+  keccak256 of the stored signed deposit equals `railRef`, that the bytes are
+  the committed transaction with one low-s signature appended, and that the
+  Payment-Signature over the committed `paymentId` recovers to the key that
+  signed them (and to `raw.payer`, when present). Only then it records the
+  handoff in the store and posts exactly those bytes, with the committed
+  `paymentId`, to `{paymentServerUrl}/deposit/send`. It never signs,
   rebuilds or pays anything: the deposit already executed. The relay's
   answer is never evidence; a relay error is reported in `relayFault` and
   not retried.
@@ -87,9 +94,15 @@ What it does, and nothing else:
   Promise<boolean> }` that is atomic and durable; `true` only for the first
   claim) when the agent runs in more than one process or on more than one
   host.
+- Use one handoff path per deployment: this function or the agent serve's
+  `POST /v1/paid-retry` below. Each keeps its own once mark, so using both
+  for one decision can hand the same bytes over twice (harmless, but not
+  once).
 
 `edicta agent serve --state-dir DIR --payment-server https://... [--pickup-delay 10s]`
-offers the same rules to clients in other languages: `POST /v1/paid-retry`
+(`--payment-server` is the base the client calls `/deposit/build` on; the
+serve never calls it, so the operator keeps the two the same) offers the same
+rules to clients in other languages: `POST /v1/paid-retry`
 with `commitment_hash`, `payment_signature`, `status`, `payment_required` and
 `body` (base64) of each paid retry's answer returns `next` (`none`, `retry`
 after `retry_after_ms`, or `operator`) and makes the one handoff itself.

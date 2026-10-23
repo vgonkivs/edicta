@@ -92,12 +92,15 @@ test("only RR1 and RR2 are recognised", () => {
 // A decision whose signed deposit is the first signed vector.
 const sv = signedVec.cases[0];
 const svPid = depositPaymentId(unhex(sv.signed_hex));
+const svAction = Buffer.from(unhex(vec("action.json").cases.find((c) => c.id === sv.action_ref).cbor_hex)).toString("base64");
+// The vector key's personal_sign over svPid (v = 27 + y_parity), as the signer releases it.
+const svProof = "0x06ca9a1c1571faefad19ada013c4e64815e56913f23a1dabd32f4525395975cc46d97c6eb47610bfff455f9a232a57850e49413d55e4dc07fc7757fe1e1fc5481c";
 const decision = (over = {}) => ({
   commitmentHash: "ab".repeat(32),
-  paymentSignature: "0x" + "11".repeat(65),
+  paymentSignature: svProof,
   signedTx: Buffer.from(unhex(sv.signed_hex)).toString("base64"),
   railRef: sv.rail_ref,
-  raw: { deposit: { payment_id_hex: svPid } },
+  raw: { action: svAction, deposit: { payment_id_hex: svPid, escrow: "0x65d77c98e73dfbea91ecb72b27c9753e186a94c8" }, payer: sv.payer },
   ...over,
 });
 const quoteFor = (pid) =>
@@ -215,13 +218,27 @@ test("the payment server URL, the delays and the decision are checked first", as
   ]) {
     await assert.rejects(paidRetryWithHandoff(decision(), w.retry, w.opts(over)), EdictaInputError, why);
   }
-  await assert.rejects(paidRetryWithHandoff(decision({ signedTx: undefined }), w.retry, w.opts()), EdictaRefusedError, "no signed bytes");
   await assert.rejects(
     paidRetryWithHandoff(decision({ raw: { deposit: { payment_id_hex: "22".repeat(32) } } }), w.retry, w.opts()),
     EdictaRefusedError,
     "the service's deposit names another paymentId",
   );
   assert.equal(w.sigs.length, 0, "no paid retry was made");
+});
+
+test("without signed bytes the paid retry still runs, and only a due handoff is refused", async () => {
+  const fine = world([ok]);
+  const out = await paidRetryWithHandoff(decision({ signedTx: undefined, railRef: undefined }), fine.retry, fine.opts());
+  assert.equal(out.handoff, "none");
+  assert.equal(out.response.status, 200);
+
+  const w = world([rr1, rr2]);
+  await assert.rejects(
+    paidRetryWithHandoff(decision({ signedTx: undefined, railRef: undefined }), w.retry, w.opts()),
+    (e) => e instanceof EdictaRefusedError && e.code === "handoff_unavailable",
+  );
+  assert.equal(w.sigs.length, 2, "the quote is read with the committed paymentId");
+  assert.equal(w.relayCalls.length, 0);
 });
 
 test("FileHandoffStore claims once per hash", async () => {
@@ -241,8 +258,8 @@ test("edictaPay makes the paid retry with the handoff when asked", async () => {
     req.on("end", () => {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
-        commitment_hash: hash, settled: true, payment_signature: "0x" + "11".repeat(65), authorization: "QUJD",
-        rail_ref: sv.rail_ref, signed_tx: decision().signedTx, deposit: { payment_id_hex: svPid },
+        commitment_hash: hash, settled: true, payment_signature: svProof, authorization: "QUJD",
+        rail_ref: sv.rail_ref, signed_tx: decision().signedTx, action: svAction, deposit: { payment_id_hex: svPid },
       }));
     });
   });
@@ -262,6 +279,58 @@ test("edictaPay makes the paid retry with the handoff when asked", async () => {
       EdictaInputError,
       "paidRetry needs the handoff options",
     );
+  } finally {
+    srv.closeAllConnections();
+    await new Promise((r) => srv.close(r));
+  }
+});
+
+test("edictaPay keeps its result when the paid retry or the handoff fails", async () => {
+  const hash = "ab".repeat(32);
+  let answer = {};
+  const srv = http.createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        commitment_hash: hash, settled: true, payment_signature: svProof, authorization: "QUJD",
+        action: svAction, deposit: { payment_id_hex: svPid }, ...answer,
+      }));
+    });
+  });
+  await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+  try {
+    const url = `http://127.0.0.1:${srv.address().port}`;
+    const header = Buffer.from(liveR).toString("base64");
+    const pay = (w) => edictaPay({ agentServeUrl: url, paymentRequiredHeader: header, resumeHash: hash, paidRetry: w.retry, handoff: w.opts() });
+
+    // The service did not know the signed bytes: the paid retry still runs.
+    const fine = world([ok]);
+    const r1 = await pay(fine);
+    assert.equal(r1.paidRetry.handoff, "none");
+    assert.equal(r1.paidRetryError, undefined);
+    assert.equal(fine.sigs.length, 1);
+
+    // Refused twice, and no signed bytes to hand over.
+    const refused = world([rr2, rr2]);
+    const r2 = await pay(refused);
+    assert.equal(r2.paymentSignature, svProof, "the result is kept");
+    assert.equal(r2.commitmentHash, hash);
+    assert.equal(r2.paidRetry, undefined);
+    assert.ok(r2.paidRetryError instanceof EdictaRefusedError);
+    assert.equal(r2.paidRetryError.code, "handoff_unavailable");
+
+    // Signed bytes that are not this decision's.
+    answer = { signed_tx: decision().signedTx, rail_ref: "00".repeat(32) };
+    const r3 = await pay(world([rr2, rr2]));
+    assert.equal(r3.signedTx, decision().signedTx);
+    assert.equal(r3.paidRetryError.code, "handoff_hash_mismatch");
+
+    // The paid call itself fails in transport.
+    const broken = world([() => { throw new TypeError("fetch failed"); }]);
+    const r4 = await pay(broken);
+    assert.equal(r4.paymentSignature, svProof);
+    assert.match(r4.paidRetryError.message, /fetch failed/);
   } finally {
     srv.closeAllConnections();
     await new Promise((r) => srv.close(r));

@@ -20,12 +20,16 @@ const other = signedVec.cases.find((c) => depositPaymentId(unhex(c.signed_hex)) 
 const svPid = depositPaymentId(unhex(sv.signed_hex));
 const EVIL = "https://evil.example/deposit/send";
 
+const actionVec = JSON.parse(readFileSync(new URL("action.json", vectors), "utf8"));
+const actionOf = (c) => b64(actionVec.cases.find((a) => a.id === c.action_ref).cbor_hex);
+// The vector key's personal_sign over svPid (v = 27 + y_parity), as the signer releases it.
+const svProof = "0x06ca9a1c1571faefad19ada013c4e64815e56913f23a1dabd32f4525395975cc46d97c6eb47610bfff455f9a232a57850e49413d55e4dc07fc7757fe1e1fc5481c";
 const decision = (over = {}) => ({
   commitmentHash: "ab".repeat(32),
-  paymentSignature: "0x" + "11".repeat(65),
+  paymentSignature: svProof,
   signedTx: b64(sv.signed_hex),
   railRef: sv.rail_ref,
-  raw: { deposit: { payment_id_hex: svPid } },
+  raw: { action: actionOf(sv), deposit: { payment_id_hex: svPid } },
   ...over,
 });
 const quoteFor = (...pids) =>
@@ -253,6 +257,75 @@ test("bytes of another decision are never posted", async () => {
     assert.equal(w.markCount(), 0, name);
     assert.equal(w.events.filter((e) => e === "retry").length, retries, name);
   }
+});
+
+// The committed transaction of sv signed by another key (sha256 of "edicta ts
+// handoff test: another payer"), made with the Go signer code.
+const SIGNED_BY_OTHER =
+  "02f901338202ca07808208fb83030d409465d77c98e73dfbea91ecb72b27c9753e186a94c8873972f538a8081db8c4b707d860e7b0fe0c168a34ec93cfca6752955af23bbe002de0d16d399f35ff910b160f35000000000000000000000000c5aaa301b580d31e64b3bf546846586d934416dc000000000000000000000000ec7557ea26e646020b3c6c90f8af6fbf73460f45000000000000000000000000000000000000000000000000000000006ad87b94000000000000000000000000000000000000000000000000000000006ae1b4e800000000000000000000000000000000000000000000000008c9da13856cd000c001a014cc1ec05a132bb7470a17aec1ea30f28be5562703f54d8b78a1533275f1def1a02d00a2fefc6a768625da0edd69aae34262dfd32e56d852bc2a480de7d1f3dada";
+// That key's personal_sign over svPid, and the vector key's over paymentId 0.
+const PROOF_BY_OTHER =
+  "0x6d08f19d561c897c48dab3e8740eadb7d43eb474a2ebd6c15407a0c498c745ee0bbd434a7ad61ae16769565735729277d04b32d48747de832dac1d83c3f326a21b";
+const PROOF_OTHER_PID =
+  "0xe7cf3dfb92d71dc67ccc212c2cc3de383ed668fd9ac2aa72726d944f9bd284ec48ef638ecc9e709f96130e3389221003446e393953f6a9091ae6c3c2a84433e91b";
+const keccakHex = async (h) => Buffer.from((await import("../dist/src/index.js")).keccak256(unhex(h))).toString("hex");
+
+// sv with s replaced by n - s and the parity flipped: the same signer, a
+// malleated signature.
+const N = BigInt("0x" + signedVec.secp256k1_n_hex);
+const highS = (() => {
+  const s = sv.s_hex;
+  const hs = (N - BigInt("0x" + s)).toString(16).padStart(64, "0");
+  const tail = `80a0${sv.r_hex}a0${s}`;
+  assert.ok(sv.signed_hex.endsWith(tail) && sv.y_parity === "0");
+  return sv.signed_hex.slice(0, -tail.length) + `01a0${sv.r_hex}a0${hs}`;
+})();
+
+test("bytes or a Payment-Signature not tied to the decision are never posted", async () => {
+  const cases = [
+    ["the committed tx signed by another key", { signedTx: b64(SIGNED_BY_OTHER), railRef: await keccakHex(SIGNED_BY_OTHER) }],
+    ["the committed tx signed by another key, with that key's Payment-Signature",
+      { signedTx: b64(SIGNED_BY_OTHER), railRef: await keccakHex(SIGNED_BY_OTHER), paymentSignature: PROOF_BY_OTHER, raw: { action: actionOf(sv), payer: sv.payer } }],
+    ["a Payment-Signature of another payer", { paymentSignature: PROOF_BY_OTHER }],
+    ["a Payment-Signature over another paymentId", { paymentSignature: PROOF_OTHER_PID }],
+    ["a Payment-Signature that is not hex", { paymentSignature: "0x" + "zz".repeat(65) }],
+    ["a Payment-Signature of 64 bytes", { paymentSignature: svProof.slice(0, -2) }],
+    ["a high-s signature of the payer", { signedTx: b64(highS), railRef: await keccakHex(highS) }],
+    ["no committed action", { raw: { deposit: { payment_id_hex: svPid } } }],
+    ["the service names another payer", { raw: { action: actionOf(sv), payer: "0x" + "11".repeat(20) } }],
+    ["the service names another escrow", { raw: { action: actionOf(sv), deposit: { payment_id_hex: svPid, escrow: "0x" + "22".repeat(20) } } }],
+  ];
+  for (const [name, over] of cases) {
+    const w = world([rr2, rr2]);
+    await assert.rejects(
+      paidRetryWithHandoff(decision(over), w.retry, w.opts()),
+      (e) => e instanceof EdictaRefusedError && e.code === "handoff_unbound",
+      name,
+    );
+    assert.equal(w.relayCalls.length, 0, name);
+    assert.equal(w.markCount(), 0, name);
+    assert.equal(w.events.filter((e) => e === "retry").length, 2, name);
+  }
+
+  const w = world([rr2, rr2, rr2]);
+  const ok = await paidRetryWithHandoff(decision({ paymentSignature: svProof.slice(0, -2) + "01" }), w.retry, w.opts());
+  assert.equal(ok.handoff, "sent", "a Payment-Signature with v as y_parity is the same proof");
+});
+
+test("the committed action of another decision is refused before any paid retry", async () => {
+  assert.ok(other, "a signed vector with another paymentId");
+  const w = world([]);
+  await assert.rejects(
+    paidRetryWithHandoff(decision({ raw: { action: actionOf(other), deposit: { payment_id_hex: svPid } } }), w.retry, w.opts()),
+    (e) => e instanceof EdictaRefusedError && e.code === "handoff_unavailable",
+  );
+  await assert.rejects(
+    paidRetryWithHandoff(decision({ raw: { action: actionOf(other) } }), w.retry, w.opts()),
+    (e) => e instanceof EdictaRefusedError && e.code === "handoff_unavailable",
+    "the signed bytes name another paymentId than the committed action",
+  );
+  await assert.rejects(paidRetryWithHandoff(decision({ raw: { action: "AAEC" } }), w.retry, w.opts()), /not an Eden escrow deposit/);
+  assert.equal(w.events.length, 0);
 });
 
 test("two concurrent handoffs for one decision post once", async () => {

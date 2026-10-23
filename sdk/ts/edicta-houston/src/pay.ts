@@ -87,6 +87,12 @@ export interface PayResult {
   raw: Record<string, unknown>;
   /** What the paid retry did, when the paidRetry option was given. */
   paidRetry?: PaidRetryOutcome;
+  /**
+   * Set instead of paidRetry when the paid retry or its handoff failed (a
+   * transport error of the paid call, a refused handoff, a store error). The
+   * payment above stands: keep paymentSignature, signedTx and railRef.
+   */
+  paidRetryError?: Error;
 }
 
 const MAX_HEADER = 64 * 1024;
@@ -297,7 +303,13 @@ export async function edictaPay(opts: PayOptions): Promise<PayResult> {
   if (!res.ok) throw classifyFailure(res.status, json);
   const result = checkResult(json, resume, res.status);
   if (opts.paidRetry !== undefined && opts.handoff !== undefined) {
-    result.paidRetry = await paidRetryWithHandoff(result, opts.paidRetry, opts.handoff);
+    // The deposit executed and its Payment-Signature is released: a failure
+    // from here on must not cost the caller the result.
+    try {
+      result.paidRetry = await paidRetryWithHandoff(result, opts.paidRetry, opts.handoff);
+    } catch (e) {
+      result.paidRetryError = e instanceof Error ? e : new Error(String(e));
+    }
   }
   return result;
 }

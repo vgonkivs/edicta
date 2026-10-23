@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { EdictaInputError, EdictaRefusedError } from "./errors.js";
 import { keccak256 } from "./keccak.js";
 import { asksForPayment, decodePaymentRequired } from "./quote.js";
+import { SECP256K1_N, personalDigest32, recoverAddress } from "./secp256k1.js";
 
 export const DEFAULT_PICKUP_DELAY_MS = 10_000;
 export const MAX_PICKUP_DELAY_MS = 120_000;
@@ -101,7 +102,12 @@ export interface HandoffOptions {
   signal?: AbortSignal;
 }
 
-/** The decision the paid retry pays for, as edictaPay returned it. */
+/**
+ * The decision the paid retry pays for: pass edictaPay's result as it is.
+ * The handoff ties the signed bytes to it: they must be the committed
+ * transaction (raw.action) with one signature, and the Payment-Signature
+ * must come from the key that signed them.
+ */
 export interface HandoffDecision {
   commitmentHash: string;
   paymentSignature: string;
@@ -109,7 +115,11 @@ export interface HandoffDecision {
   signedTx: string | undefined;
   /** keccak256 of the signed deposit, 64 hex digits. */
   railRef: string | undefined;
-  /** The service's answer; its deposit.payment_id_hex, when present, must name the same paymentId. */
+  /**
+   * The service's answer. Its action (base64) is the committed action, which
+   * the handoff needs; its deposit.payment_id_hex and deposit.escrow, and its
+   * payer, must agree with it when present.
+   */
   raw?: Record<string, unknown>;
 }
 
@@ -163,6 +173,9 @@ function relayEndpoint(raw: string): URL {
 
 interface RlpItem {
   list: boolean;
+  /** Where the item's encoding starts. */
+  off: number;
+  /** Where its payload starts and ends. */
   start: number;
   end: number;
 }
@@ -200,7 +213,149 @@ function rlpItem(b: Uint8Array, off: number): RlpItem {
     ({ start, len } = long(0xf7));
   }
   if (start + len > b.length) throw new Error("truncated");
-  return { list, start, end: start + len };
+  return { list, off, start, end: start + len };
+}
+
+/** The items of a type-2 transaction's list, or undefined when tx is not one list after the type byte. */
+function txItems(tx: Uint8Array): { top: RlpItem; items: RlpItem[] } | undefined {
+  try {
+    if (tx[0] !== 0x02) return undefined;
+    const top = rlpItem(tx, 1);
+    if (!top.list || top.end !== tx.length) return undefined;
+    const items: RlpItem[] = [];
+    for (let off = top.start; off < top.end; ) {
+      const it = rlpItem(tx, off);
+      if (it.end > top.end) return undefined;
+      items.push(it);
+      off = it.end;
+    }
+    return { top, items };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The unsigned transaction (key 2) of a committed action, a deterministic
+ * CBOR map; the service checked the rest of it when it committed it.
+ */
+function actionTx(action: Uint8Array): Uint8Array | undefined {
+  let off = 0;
+  const head = (): { major: number; arg: number } | undefined => {
+    const b = action[off++];
+    if (b === undefined) return undefined;
+    const major = b >> 5;
+    const ai = b & 31;
+    if (ai < 24) return { major, arg: ai };
+    const n = ai === 24 ? 1 : ai === 25 ? 2 : ai === 26 ? 4 : 0;
+    if (n === 0) return undefined;
+    let arg = 0;
+    for (let i = 0; i < n; i++) {
+      const x = action[off++];
+      if (x === undefined) return undefined;
+      arg = arg * 256 + x;
+    }
+    return { major, arg };
+  };
+  const map = head();
+  if (map === undefined || map.major !== 5) return undefined;
+  let tx: Uint8Array | undefined;
+  for (let i = 0; i < map.arg; i++) {
+    const k = head();
+    const v = head();
+    if (k === undefined || k.major !== 0 || v === undefined) return undefined;
+    if (v.major === 2 || v.major === 3) {
+      if (off + v.arg > action.length) return undefined;
+      if (k.arg === 2) {
+        if (v.major !== 2 || tx !== undefined) return undefined;
+        tx = action.subarray(off, off + v.arg);
+      }
+      off += v.arg;
+    } else if (v.major !== 0) {
+      return undefined;
+    }
+  }
+  return off === action.length ? tx : undefined;
+}
+
+/** The committed deposit transaction, as far as the handoff reads it. */
+interface Committed {
+  unsigned: Uint8Array;
+  paymentId: string;
+  /** The escrow, 40 hex digits. */
+  to: string;
+}
+
+function committedDeposit(raw: Record<string, unknown> | undefined): Committed | undefined {
+  const a = raw?.action;
+  if (a === undefined) return undefined;
+  if (typeof a !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(a)) throw bad("raw.action is not base64");
+  const unsigned = actionTx(new Uint8Array(Buffer.from(a, "base64")));
+  const parts = unsigned && txItems(unsigned);
+  const paymentId = unsigned && depositPaymentId(unsigned);
+  const to = parts?.items[5];
+  if (unsigned === undefined || parts?.items.length !== 9 || paymentId === undefined || to === undefined || to.list || to.end - to.start !== 20) {
+    throw bad("raw.action is not an Eden escrow deposit");
+  }
+  return { unsigned, paymentId, to: hex(unsigned.subarray(to.start, to.end)) };
+}
+
+/** A canonical RLP integer of at most 32 bytes, or undefined. */
+function rlpUint(b: Uint8Array, it: RlpItem): bigint | undefined {
+  const v = b.subarray(it.start, it.end);
+  if (it.list || v.length > 32 || (v.length > 0 && v[0] === 0)) return undefined;
+  if (v.length === 1 && (v[0] as number) < 0x80 && it.off !== it.start) return undefined;
+  return v.length === 0 ? 0n : BigInt("0x" + hex(v));
+}
+
+/**
+ * Ties the signed bytes and the Payment-Signature to the decision: the bytes
+ * are the committed transaction with one low-s signature appended, the
+ * Payment-Signature over the committed paymentId recovers to the same
+ * signer, and the service's view (deposit escrow, payer) agrees.
+ */
+function bindToDecision(d: HandoffDecision, signed: Uint8Array, c: Committed | undefined): void {
+  const fail = (why: string) =>
+    new EdictaRefusedError("refused", `${why}: nothing is sent`, { code: "handoff_unbound", commitmentHash: d.commitmentHash });
+  if (c === undefined) throw fail("the committed action (raw.action) is not known, so the signed deposit cannot be tied to the decision");
+  const sp = txItems(signed);
+  const up = txItems(c.unsigned);
+  if (sp === undefined || up === undefined || sp.items.length !== 12) throw fail("the signed deposit is not a signed type 2 transaction");
+  const want = c.unsigned.subarray(up.top.start, up.top.end);
+  const got = signed.subarray(sp.top.start, sp.top.start + want.length);
+  if (!Buffer.from(got).equals(Buffer.from(want)) || sp.items[9]?.off !== sp.top.start + want.length) {
+    throw fail("the signed deposit is not the committed transaction");
+  }
+  const [yi, ri, si] = sp.items.slice(9) as [RlpItem, RlpItem, RlpItem];
+  const yb = yi.end - yi.off === 1 ? signed[yi.off] : undefined;
+  const y = yb === 0x80 ? 0 : yb === 0x01 ? 1 : undefined;
+  const r = rlpUint(signed, ri);
+  const s = rlpUint(signed, si);
+  if (y === undefined || r === undefined || s === undefined || s > SECP256K1_N / 2n) throw fail("the signed deposit's signature is not canonical");
+  const signer = recoverAddress(keccak256(c.unsigned), r, s, y);
+  if (signer === undefined) throw fail("the signed deposit's signature recovers no key");
+  const payer = "0x" + hex(signer);
+
+  const raw = d.raw ?? {};
+  if (raw.payer !== undefined && (typeof raw.payer !== "string" || raw.payer.toLowerCase() !== payer)) {
+    throw fail("the service names another payer than the signer of the deposit");
+  }
+  const dep = raw.deposit as Record<string, unknown> | undefined;
+  if (dep?.escrow !== undefined && (typeof dep.escrow !== "string" || dep.escrow.toLowerCase() !== "0x" + c.to)) {
+    throw fail("the service names another escrow than the committed transaction");
+  }
+
+  const ps = d.paymentSignature;
+  if (!/^0x[0-9a-fA-F]{130}$/.test(ps)) throw fail("the Payment-Signature is not 65 bytes of hex");
+  const sig = new Uint8Array(Buffer.from(ps.slice(2), "hex"));
+  const v = sig[64] as number;
+  const proofSigner = recoverAddress(
+    personalDigest32(new Uint8Array(Buffer.from(c.paymentId, "hex"))),
+    BigInt("0x" + hex(sig.subarray(0, 32))),
+    BigInt("0x" + hex(sig.subarray(32, 64))),
+    v >= 27 ? v - 27 : v,
+  );
+  if (proofSigner === undefined || "0x" + hex(proofSigner) !== payer) throw fail("the Payment-Signature is not the deposit payer's");
 }
 
 /** w0, the paymentId in the calldata of a type-2 deposit transaction (signed or not), as 64 hex digits. */
@@ -293,12 +448,12 @@ export function recognisedRefusal(
 
 // The caller gets the answer unread, so the refusal is read from a clone. An
 // answer that does not end in time is not a recognised refusal.
-async function classify(res: Response, paymentIdHex: string, ms: number): Promise<Refusal | undefined> {
-  if (res.status !== 402 && res.status !== 403) return undefined;
+async function classify(res: Response, paymentIdHex: string | undefined, ms: number): Promise<Refusal | undefined> {
+  if (res.status !== 403 && (res.status !== 402 || paymentIdHex === undefined)) return undefined;
   const body = await readCapped(res.clone().body, MAX_RETRY_ANSWER, ms);
   if (body.unread) return undefined;
   // Headers.get trims the value, as the HTTP library the profile assumes does.
-  return recognisedRefusal(res.status, res.headers.get("payment-required"), body.bytes, paymentIdHex);
+  return recognisedRefusal(res.status, res.headers.get("payment-required"), body.bytes, paymentIdHex ?? "");
 }
 
 function relayHashes(answer: Uint8Array): { fault?: string; deprecated: boolean; hashes: string[] } {
@@ -332,9 +487,10 @@ const sleepTimer = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  * hands the stored signed deposit once to the configured payment server's
  * /deposit/send, then retries once more after pickupDelayMs. It signs
  * nothing and pays nothing new: the bytes are the ones the signer signed
- * and the chain already executed, checked to hash to railRef before they
- * are posted. The once mark is claimed in the store before the post; the
- * relay's answer is never evidence.
+ * and the chain already executed, checked before they are posted to hash to
+ * railRef, to be the committed transaction, and to be signed by the key
+ * that made the Payment-Signature. The once mark is claimed in the store
+ * before the post; the relay's answer is never evidence.
  */
 export async function paidRetryWithHandoff(d: HandoffDecision, retry: PaidRetryFn, opts: HandoffOptions): Promise<PaidRetryOutcome> {
   if (typeof retry !== "function") throw bad("retry must be a function");
@@ -344,20 +500,27 @@ export async function paidRetryWithHandoff(d: HandoffDecision, retry: PaidRetryF
   const timeoutMs = checkMs(opts.serverTimeoutMs, DEFAULT_SERVER_TIMEOUT_MS, MAX_SERVER_TIMEOUT_MS, "serverTimeoutMs");
   if (!/^[0-9a-f]{64}$/.test(d.commitmentHash)) throw bad("commitmentHash must be 64 lowercase hex characters");
   if (typeof d.paymentSignature !== "string" || d.paymentSignature === "") throw bad("the Payment-Signature is required");
-  if (typeof d.signedTx !== "string" || typeof d.railRef !== "string") {
-    throw new EdictaRefusedError("refused", "no signed deposit is known for this decision: no handoff is possible", {
-      code: "handoff_unavailable",
-      commitmentHash: d.commitmentHash,
-    });
-  }
-  const signed = new Uint8Array(Buffer.from(d.signedTx, "base64"));
-  const paymentId = depositPaymentId(signed);
-  if (paymentId === undefined) {
-    throw new EdictaRefusedError("refused", "the signed deposit carries no escrow paymentId", { code: "handoff_unavailable", commitmentHash: d.commitmentHash });
-  }
+  if (d.signedTx !== undefined && typeof d.signedTx !== "string") throw bad("signedTx must be base64");
+  if (d.railRef !== undefined && typeof d.railRef !== "string") throw bad("railRef must be a string");
+  const unavailable = (why: string) =>
+    new EdictaRefusedError("refused", why, { code: "handoff_unavailable", commitmentHash: d.commitmentHash });
+
+  // What the decision says about its paymentId must agree before any paid
+  // retry; what only the handoff needs is checked when it is due, so the
+  // paid retry itself always runs.
+  const committed = committedDeposit(d.raw);
   const dep = d.raw?.deposit as Record<string, unknown> | undefined;
-  if (dep !== undefined && dep.payment_id_hex !== paymentId) {
-    throw new EdictaRefusedError("refused", "the signed deposit is not for the decision's paymentId", { code: "handoff_unavailable", commitmentHash: d.commitmentHash });
+  let paymentId = committed?.paymentId;
+  if (dep?.payment_id_hex !== undefined) {
+    if (paymentId !== undefined && dep.payment_id_hex !== paymentId) throw unavailable("the service's deposit names another paymentId than the committed action");
+    if (typeof dep.payment_id_hex === "string" && /^[0-9a-f]{64}$/.test(dep.payment_id_hex)) paymentId ??= dep.payment_id_hex;
+  }
+  const signed = d.signedTx === undefined ? undefined : new Uint8Array(Buffer.from(d.signedTx, "base64"));
+  if (signed !== undefined) {
+    const sp = depositPaymentId(signed);
+    if (sp === undefined) throw unavailable("the signed deposit carries no escrow paymentId");
+    if (paymentId !== undefined && sp !== paymentId) throw unavailable("the signed deposit is not for the decision's paymentId");
+    paymentId ??= sp;
   }
   const sleep = opts.sleep ?? sleepTimer;
   const out: PaidRetryOutcome = {
@@ -380,6 +543,7 @@ export async function paidRetryWithHandoff(d: HandoffDecision, retry: PaidRetryF
   await sleep(pickup);
   if ((await attempt()) === undefined) return out;
 
+  if (signed === undefined || d.railRef === undefined) throw unavailable("no signed deposit is known for this decision: no handoff is possible");
   if (hex(keccak256(signed)) !== d.railRef.toLowerCase().replace(/^0x/, "")) {
     throw new EdictaRefusedError("refused", "the stored signed deposit does not hash to its rail_ref: nothing is sent", {
       code: "handoff_hash_mismatch",
@@ -387,6 +551,7 @@ export async function paidRetryWithHandoff(d: HandoffDecision, retry: PaidRetryF
       railRef: d.railRef,
     });
   }
+  bindToDecision(d, signed, committed);
   const railRef = hex(keccak256(signed));
   const store = opts.store ?? new FileHandoffStore(defaultHandoffDir());
   opts.signal?.throwIfAborted();
@@ -403,7 +568,7 @@ export async function paidRetryWithHandoff(d: HandoffDecision, retry: PaidRetryF
     const res = await (opts.fetch ?? globalThis.fetch)(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ signedTx: "0x" + hex(signed), paymentId: "0x" + paymentId }),
+      body: JSON.stringify({ signedTx: "0x" + hex(signed), paymentId: "0x" + (committed as Committed).paymentId }),
       redirect: "error",
       cache: "no-store",
       signal: timeout,
