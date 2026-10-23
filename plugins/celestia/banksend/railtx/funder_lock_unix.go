@@ -3,9 +3,12 @@
 package railtx
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"syscall"
+
+	"github.com/vgonkivs/edicta/internal/flock"
 )
 
 // lockState takes an exclusive advisory lock on the file at path so two
@@ -13,15 +16,12 @@ import (
 // returned release function has not run. It is not reliable on network
 // filesystems.
 func lockState(path string) (release func(), err error) {
-	fh, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|noFollow, 0o600)
-	if err != nil {
-		return nil, err
+	release, err = flock.TryLock(path)
+	var errno syscall.Errno
+	if errors.Is(err, flock.ErrLocked) && errors.As(err, &errno) {
+		return nil, fmt.Errorf("held by another process: %w", errno)
 	}
-	if err := syscall.Flock(int(fh.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = fh.Close()
-		return nil, fmt.Errorf("held by another process: %w", err)
-	}
-	return func() { _ = fh.Close() }, nil
+	return release, err
 }
 
 // ownedByCaller reports whether fi belongs to the effective user.
