@@ -1,4 +1,4 @@
 exit 4
 -- stdout --
-usage: edicta demo fast-mode [--dir DIR] [--json]
+usage: edicta-demo fast-mode [--dir DIR] [--json]
 -- stderr --

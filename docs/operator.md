@@ -4,7 +4,7 @@
 writer and, optionally, a Recorder that publishes agents' payloads. One
 instance serves one data availability mode. This guide is the overview; the
 full key reference with every default and range is in
-[../celestia/README.md](../celestia/README.md), section 3, and the commented
+[../celestia/README.md](../celestia/README.md), section "Configure and start edictad", and the commented
 example in `celestia/cmd/edictad/edictad.example.toml`. Spec:
 `spec/decision-commitment-v1.md`, sections 8 (gate), 13 (fast mode), 18
 (HTTP API) and 19 (archive).

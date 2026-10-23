@@ -3,7 +3,8 @@
 # Rules shared by the module and rail Makefiles. A Makefile sets the
 # variables it needs, then includes this file:
 #
-#   CMDS     binaries under ./cmd to build into BINDIR
+#   CMDS     binaries under CMDDIR to build into BINDIR
+#   CMDDIR   directory of the command packages (default ./cmd)
 #   DEVPKGS  packages that have files behind the edictadev build tag
 #   PKGS     packages to test (default ./...)
 #   BINDIR   output directory of build (default <repo root>/bin)
@@ -15,6 +16,7 @@ export GOWORK := off
 
 GO ?= go
 PKGS ?= ./...
+CMDDIR ?= ./cmd
 MAKE_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 BINDIR ?= $(abspath $(MAKE_DIR)../bin)
 
@@ -40,4 +42,4 @@ ifneq ($(strip $(DEVPKGS)),)
 endif
 
 build:
-	@for c in $(CMDS); do echo "go build $$c"; $(GO) build -o $(BINDIR)/$$c ./cmd/$$c || exit 1; done
+	@for c in $(CMDS); do echo "go build $$c"; $(GO) build -o $(BINDIR)/$$c $(CMDDIR)/$$c || exit 1; done

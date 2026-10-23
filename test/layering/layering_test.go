@@ -117,14 +117,6 @@ var narrow = []struct {
 // exceptions are today's known violations, as importer -> imported paths
 // relative to the root module. Each entry must still occur.
 var exceptions = map[string][]string{
-	// The demo and edicta-live drive the tia-transfer example agent and
-	// its price feed.
-	"celestia/demo": {"examples/tia-transfer/pricefeed"},
-	"celestia/cmd/edicta-live": {
-		"examples/tia-transfer/agent", "examples/tia-transfer/pricefeed",
-		"examples/tia-transfer/pricetrigger",
-	},
-
 	// The archive and the verifier take the DA source interfaces, the
 	// committer interface and their sentinels from the gate package.
 	"engine/archive":           {"engine/gate"},

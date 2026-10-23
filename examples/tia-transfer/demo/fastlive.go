@@ -52,7 +52,7 @@ const (
 	fastLiveRecorder = "recorder-fast"
 )
 
-// FastLiveConfig is the command line of `edicta demo fast-live`.
+// FastLiveConfig is the command line of `edicta-demo fast-live`.
 type FastLiveConfig struct {
 	Config
 	// Restart stops the in-process daemon right after the publish, before

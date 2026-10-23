@@ -52,7 +52,7 @@ func replaceSet(t *testing.T, path string) []string {
 
 // heavyModules are the modules, relative to the repository root, that link
 // celestia-node or celestia-app and so need the fork replace block.
-var heavyModules = []string{"celestia"}
+var heavyModules = []string{"celestia", "examples"}
 
 func TestReplaceSetParityAcrossHeavyModules(t *testing.T) {
 	cel := replaceSet(t, "go.mod")

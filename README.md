@@ -69,25 +69,28 @@ amount, a reused decision, an amount above the mandate's limit, a tampered
 archive, a rogue executor) and shows each attempt refused or caught.
 
 ```sh
-make demo                      # builds everything into celestia/bin, then runs the demo
+make demo                      # builds everything, then runs bin/edicta-demo
 make demo ARGS="--json"        # pass demo flags through ARGS
 ```
 
 The demo prints an address to fund with testnet TIA and starts only after you
 press Enter. Using your own funded key, the trust root, the verdicts and how
-to re-verify a run offline: [celestia/demo/README.md](celestia/demo/README.md).
+to re-verify a run offline: [examples/tia-transfer/demo/README.md](examples/tia-transfer/demo/README.md).
 
-`make build` only builds (`edicta`, `edictad`, `edicta-live`, `edicta-verify`
-into `celestia/bin/`); `make vet` and `make test` run both Go modules. To run
-the tests directly, from the repository root:
+`make build` only builds (`edicta`, `edictad`, `edicta-verify`,
+`edicta-signer` into `celestia/bin/`; the example binaries `edicta-demo` and
+`edicta-live` into `bin/`); `make vet` and `make test` run every Go module. To
+run the tests directly, from the repository root:
 
 ```sh
 go test ./...
 go -C celestia test ./...
+go -C examples test ./...
 ```
 
 The older manual runner (`edicta-live`, with your own `edictad` and
-endpoints), step by step: [celestia/README.md](celestia/README.md).
+endpoints), step by step: [examples/tia-transfer/README.md](examples/tia-transfer/README.md).
+The `edictad` configuration reference: [celestia/README.md](celestia/README.md).
 
 User guides (quickstart, operator, principal, profiles, private mode,
 verifier): [docs/](docs/README.md).
@@ -165,12 +168,12 @@ Not production-ready.
 | Path | Contents |
 |---|---|
 | `/` (module `github.com/vgonkivs/edicta`) | Core: `engine/commitment` (encoding, hashing, checks), `engine/gate`, `engine/policy` (mandates), `engine/principalsig`, `engine/archive`, `engine/verifier`, `sdk`, `api/edictaapi` (HTTP API), `engine/dacommit`, `test`; `cmd/edicta-principal` (the principal's mandate tool) |
-| `celestia/` (own module) | Recorder, chain client for the gate, Fibre blob commitment (`fibrecommit`), `edictad` daemon, `edicta` CLI (demo, verify), `edicta-live` runner |
+| `celestia/` (own module) | Recorder, chain client for the gate, Fibre blob commitment (`fibrecommit`), `edictad` daemon, `edicta` CLI (init, doctor, commit, agent, verify) |
 | `config/` (root module) | The `edicta.toml` schema, defaults and presets |
 | `plugins/banksend` (root module) | The bank-send rail: action format, message encoding, executor, policy extension |
 | `plugins/edenescrow` (root module) | The Eden escrow rail: action format, escrow table, executor-side checks (`edenexec`) and the JSON-RPC reader (`edenrpc`) |
 | `plugins/ibkr` (root module) | The IBKR rail: order format (`ibkrorder`), executor, and a fake broker (`brokerfake`) |
-| `examples/` | Profiles in use: `tia-transfer` (Cosmos `MsgSend` on a price trigger) and `dca-agent` (IBKR order, offline with a fake broker) |
+| `examples/` (own module) | Profiles in use: `tia-transfer` (Cosmos `MsgSend` on a price trigger, with the `edicta-demo` demo and the `edicta-live` runner) and `dca-agent` (IBKR order, offline with a fake broker) |
 | `spec/` | Specification, profiles, test vectors and their generators |
 | `docs/` | User guides |
 

@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+
+// Command edicta-demo runs the tia-transfer demo end to end.
+//
+//	edicta-demo [flags]
+//	edicta-demo fast-mode [--dir DIR] [--json]
+//	edicta-demo fast-live [--restart] [flags]
 package main
 
 import (
@@ -6,22 +13,32 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"golang.org/x/term"
 
-	"github.com/vgonkivs/edicta/celestia/demo"
 	"github.com/vgonkivs/edicta/celestia/verifycli"
+	"github.com/vgonkivs/edicta/examples/tia-transfer/demo"
 )
 
-const fastUsage = "usage: edicta demo fast-mode [--dir DIR] [--json]"
+func main() { os.Exit(run(os.Args[1:])) }
 
-const fastLiveUsage = "usage: edicta demo fast-live [--restart] [--max-recorder-funding UTIA] [--network mocha] [--home DIR] [--json] " +
+func run(args []string) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runDemo(ctx, args, os.Stdout, os.Stdin)
+}
+
+const fastUsage = "usage: edicta-demo fast-mode [--dir DIR] [--json]"
+
+const fastLiveUsage = "usage: edicta-demo fast-live [--restart] [--max-recorder-funding UTIA] [--network mocha] [--home DIR] [--json] " +
 	"[--funder-keyring-dir DIR --funder-key NAME [--funder-passphrase-file FILE] [--address ADDR]] " +
 	"[--max-total-funding UTIA [--yes]] [--trusted-header H:HASH]"
 
-const demoUsage = "usage: edicta demo [--network mocha] [--home DIR] [--amount UTIA] [--json] " +
+const demoUsage = "usage: edicta-demo [--network mocha] [--home DIR] [--amount UTIA] [--json] " +
 	"[--funder-keyring-dir DIR --funder-key NAME [--funder-passphrase-file FILE] [--address ADDR]] " +
 	"[--max-total-funding UTIA [--yes]] [--trusted-header H:HASH]"
 

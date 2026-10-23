@@ -1,4 +1,4 @@
-# `edicta demo`
+# `edicta-demo`
 
 One command, one Enter, about 3 to 5 minutes on the Mocha testnet. The demo
 runs the whole Edicta flow with a real agent decision, a real gate, a real
@@ -6,7 +6,7 @@ transfer on chain and an independent verifier, then tries to cheat five ways, gr
 Testnet TIA only; keep the amounts small. It runs Edicta wire version 1 in strict
 mode (the payload is anchored on L1 before the gate authorizes) with the
 `celestia_blob` data availability mode; the user guides are in
-[../../docs/](../../docs/README.md).
+[../../../docs/](../../../docs/README.md).
 
 ## What it proves
 
@@ -44,7 +44,7 @@ decided, on what context, before the action, and that exactly that action ran.
 
 ## Offline scene: fast mode
 
-`celestia/bin/edicta demo fast-mode [--dir DIR] [--json]` runs in about a second,
+`bin/edicta-demo fast-mode [--dir DIR] [--json]` runs in about a second,
 with no network, no funds and no Enter. An in-process chain stands in for
 Celestia; the gate, the Recorder's fast path, the absence proofs and the
 verifier are the real code. The mandate consents to fast mode
@@ -61,10 +61,10 @@ The run directory (archive, trusted headers, config) is kept, and the printed
 
 ## Live scene: fast mode on Mocha
 
-`celestia/bin/edicta demo fast-live [--restart] [funder and endpoint flags]`
-runs section 4 of [the Mocha checklist](../../docs/mocha-checklist.md) (and
+`bin/edicta-demo fast-live [--restart] [funder and endpoint flags]`
+runs section 4 of [the Mocha checklist](../../../docs/mocha-checklist.md) (and
 section 7 with `--restart`) in one command, with `da = celestia_blob` and the
-same funder flags, caps, endpoints and `--trusted-header` as `edicta demo`.
+same funder flags, caps, endpoints and `--trusted-header` as `edicta-demo`.
 It:
 1. creates a fresh Recorder account (a new secp256k1 key in
    `<run>/recorder-fast/`, never the demo's own Recorder key) and funds it
@@ -84,7 +84,7 @@ It:
    intent, with no second signature.
 
 The step report names each row by its checklist section; it is also written
-to `<run>/fast-live.json`. Exit codes are those of `edicta demo`. Sections 5
+to `<run>/fast-live.json`. Exit codes are those of `edicta-demo`. Sections 5
 and 6 of the checklist (stale sequence, killed anchor) stay manual.
 
 ## Build and run
@@ -98,11 +98,11 @@ make demo
 or, step by step:
 
 ```
-make build                 # or: go -C celestia build -o bin/edicta ./cmd/edicta
-celestia/bin/edicta demo
+make build                 # or: go -C examples build -o ../bin/edicta-demo ./tia-transfer/cmd/edicta-demo
+bin/edicta-demo
 ```
 
-Flags go after `demo`, or through `make demo ARGS="..."`.
+Flags go after `edicta-demo`, or through `make demo ARGS="..."`.
 
 The demo needs a terminal. It refuses to start without one, before any key is
 created. Nothing is broadcast until you press Enter at the start prompt, and no
@@ -118,7 +118,7 @@ The demo uses three distinct chain accounts: a **funder** (yours), and a
 
 Default flow, with one account:
 
-1. Run `edicta demo`. On first run it generates the funder key and prints its
+1. Run `edicta-demo`. On first run it generates the funder key and prints its
    address and the faucet link.
 2. It reads balances and computes what is missing. Leftovers from earlier runs
    are kept and counted, so a rerun often sends nothing.
@@ -133,7 +133,7 @@ Use your own funded account instead of the generated one, from a Cosmos SDK
 file keyring:
 
 ```
-celestia/bin/edicta demo \
+bin/edicta-demo \
   --funder-keyring-dir <keyring dir> --funder-key <key name> \
   --funder-passphrase-file <file> \
   --address <celestia1... address>
@@ -224,7 +224,7 @@ A hostile source can cause at most INCONCLUSIVE, never VALID or INVALID.
 `edicta verify` prints the verdict in lower case (`valid`, `invalid`,
 `unchecked`, `not_authorized`) and exits 0 VALID, 1 INVALID, 2 INCONCLUSIVE
 (`unchecked`), 3 NOT AUTHORIZED, 4 usage or I/O error, 5 INCONCLUSIVE with the
-gate's integrity violated. `edicta demo` exits:
+gate's integrity violated. `edicta-demo` exits:
 
 | Code | Meaning |
 |---|---|

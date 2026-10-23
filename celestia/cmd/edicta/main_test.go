@@ -42,13 +42,14 @@ func edicta(t *testing.T, args ...string) (int, string) {
 func TestNoSubcommandIsAUsageError(t *testing.T) {
 	code, out := edicta(t)
 	assert.Equal(t, exitUsage, code)
-	for _, sub := range []string{"demo", "fast-mode", "verify", "replay"} {
+	for _, sub := range []string{"init", "doctor", "commit", "agent serve", "verify", "replay"} {
 		assert.Contains(t, out, sub, "the usage names the subcommand")
 	}
+	assert.NotContains(t, out, "demo", "the demo is an example binary, not a subcommand")
 }
 
 func TestUnknownSubcommandIsAUsageError(t *testing.T) {
-	for _, sub := range []string{"frobnicate", "VERIFY", "--verify", "-"} {
+	for _, sub := range []string{"frobnicate", "VERIFY", "--verify", "-", "demo"} {
 		code, out := edicta(t, sub)
 		assert.Equal(t, exitUsage, code, "%q: %s", sub, out)
 		assert.NotEmpty(t, out)

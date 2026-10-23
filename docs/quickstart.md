@@ -89,14 +89,15 @@ end to end, use the demo or the manual path below.
 make demo
 ```
 
-It builds `edicta`, `edictad`, `edicta-live` and `edicta-verify` into
-`celestia/bin/`, then runs `celestia/bin/edicta demo`. It needs a terminal,
+It builds `edicta`, `edictad`, `edicta-verify` and `edicta-signer` into
+`celestia/bin/` and the example binaries into `bin/`, then runs
+`bin/edicta-demo`. It needs a terminal,
 prints an address to fund with testnet TIA, and starts only after you press
 Enter. In 3 to 5 minutes it publishes a decision as a Celestia blob, has a
 gate with a mandate authorize it, sends exactly the committed transfer,
 verifies everything from the archive and public RPCs, and then tries five
 ways to cheat. Details, flags, exit codes and offline re-verification:
-[../celestia/demo/README.md](../celestia/demo/README.md).
+[../examples/tia-transfer/demo/README.md](../examples/tia-transfer/demo/README.md).
 
 ## Run your own gate and agent (strict mode)
 
@@ -110,7 +111,7 @@ ways to cheat. Details, flags, exit codes and offline re-verification:
    See [operator.md](operator.md).
 2. Run the price agent and executor against it with `edicta-live`, first with
    `--dry-run`. The full command and every flag:
-   [../celestia/README.md](../celestia/README.md), section 4.
+   [../examples/tia-transfer/README.md](../examples/tia-transfer/README.md), section 4.
 3. Verify the decision:
    ```sh
    celestia/bin/edicta verify <commitment hash> --gate-key <gate public key hex> \

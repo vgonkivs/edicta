@@ -32,7 +32,7 @@ what `edictad` reads.
 
 No command builds a mandate from scratch yet. Build the `policy.Mandate`
 value in Go and encode it (the demo does the same in
-`celestia/demo/policy.go`):
+`examples/tia-transfer/demo/policy.go`):
 
 ```go
 m := &policy.Mandate{

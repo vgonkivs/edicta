@@ -28,3 +28,6 @@ celestia/cmd/*/edictad
 !celestia/cmd/*/*.go
 spec/vectors/tools/*/fibreanchor-gen
 celestia/bin/
+/bin/
+examples/tia-transfer/cmd/*/edicta-*
+!examples/tia-transfer/cmd/*/*.go
