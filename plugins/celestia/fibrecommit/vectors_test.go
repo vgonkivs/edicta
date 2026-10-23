@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
 )
@@ -111,7 +111,7 @@ func TestVectorsReject(t *testing.T) {
 			err := cm.Check(ref(t, c.CommitmentHex), blob)
 			require.Error(t, err)
 
-			require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
+			require.ErrorIs(t, err, dasource.ErrDACommitmentMismatch)
 			if uint64(len(blob)) > fibrecommit.DefaultMaxDataSize {
 				require.ErrorIs(t, err, fibrecommit.ErrTooLarge)
 			}
@@ -148,7 +148,7 @@ func TestCheckRejectsOtherDA(t *testing.T) {
 	r.DA = commitment.DACelestiaBlob
 
 	err = cm.Check(r, []byte{0x65})
-	require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
+	require.ErrorIs(t, err, dasource.ErrDACommitmentMismatch)
 	require.NotErrorIs(t, err, fibrecommit.ErrTooLarge)
 }
 
@@ -162,7 +162,7 @@ func TestCheckRejectsMalformedCommitment(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := cm.Check(commitment.PayloadRef{DA: commitment.DAFibre, Commitment: c}, []byte{0x65})
-			require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
+			require.ErrorIs(t, err, dasource.ErrDACommitmentMismatch)
 		})
 	}
 }
@@ -208,10 +208,10 @@ func TestConfiguredCapApplies(t *testing.T) {
 
 	err = cm.Check(r, make([]byte, 301))
 	require.ErrorIs(t, err, fibrecommit.ErrTooLarge)
-	require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
+	require.ErrorIs(t, err, dasource.ErrDACommitmentMismatch)
 
 	err = cm.Check(r, make([]byte, 300))
-	require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
+	require.ErrorIs(t, err, dasource.ErrDACommitmentMismatch)
 }
 
 func TestCheckDoesNotModifyInput(t *testing.T) {

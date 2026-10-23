@@ -14,7 +14,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/dacommit/blobv1"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/test/archivefix"
 	"github.com/vgonkivs/edicta/test/gatefix"
@@ -136,7 +136,7 @@ type fibreBlobCommitter struct{}
 
 func (fibreBlobCommitter) Check(_ commitment.PayloadRef, blob []byte) error {
 	if !bytes.Equal(blob, gatefix.FibreBlob()) {
-		return gate.ErrDACommitmentMismatch
+		return dasource.ErrDACommitmentMismatch
 	}
 	return nil
 }
@@ -253,8 +253,8 @@ func newFibreParts(t testing.TB) *parts {
 	return p
 }
 
-func (p *parts) committers() map[commitment.DA]gate.DACommitter {
-	return map[commitment.DA]gate.DACommitter{
+func (p *parts) committers() map[commitment.DA]dasource.DACommitter {
+	return map[commitment.DA]dasource.DACommitter{
 		commitment.DACelestiaBlob: blobv1.New(),
 		commitment.DAFibre:        fibreBlobCommitter{},
 	}
@@ -264,7 +264,7 @@ func (p *parts) write(t testing.TB) *fsarchive.Store {
 	t.Helper()
 	cm := p.committers()
 	if p.permissive {
-		cm = map[commitment.DA]gate.DACommitter{commitment.DACelestiaBlob: acceptAll{}, commitment.DAFibre: acceptAll{}}
+		cm = map[commitment.DA]dasource.DACommitter{commitment.DACelestiaBlob: acceptAll{}, commitment.DAFibre: acceptAll{}}
 	}
 	s, err := fsarchive.Open(t.TempDir(), cm)
 	require.NoError(t, err)

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/internal/testkit"
 )
 
@@ -21,7 +21,7 @@ func TestWrongDAWrapsBoth(t *testing.T) {
 	r := commitment.PayloadRef{DA: commitment.DACelestiaBlob, Commitment: make([]byte, 32)}
 
 	err = cm.Check(r, []byte{0x65})
-	require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
+	require.ErrorIs(t, err, dasource.ErrDACommitmentMismatch)
 	require.ErrorIs(t, err, errWrongDA)
 }
 
@@ -32,7 +32,7 @@ func TestEmptyDataWrapsMismatch(t *testing.T) {
 
 	for _, data := range [][]byte{nil, {}} {
 		err = cm.Check(r, data)
-		require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
+		require.ErrorIs(t, err, dasource.ErrDACommitmentMismatch)
 		require.ErrorIs(t, err, errEmpty)
 	}
 }

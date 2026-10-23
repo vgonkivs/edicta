@@ -21,7 +21,7 @@ import (
 
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/engine/policy"
 )
 
@@ -57,7 +57,7 @@ func WithStaleAge(d time.Duration) Option {
 type Store struct {
 	staleAge   time.Duration
 	dir        string
-	committers map[commitment.DA]gate.DACommitter
+	committers map[commitment.DA]dasource.DACommitter
 	before     func(string) error
 	readOnly   bool
 	syncHook   func(string)
@@ -76,7 +76,7 @@ var (
 // Open uses dir as the archive, creating it if needed. A payload is accepted
 // only for a da that has a committer. Temp files left by a crashed writer
 // are removed once older than the stale age. Open fails on a platform without directory locks.
-func Open(dir string, committers map[commitment.DA]gate.DACommitter, opts ...Option) (*Store, error) {
+func Open(dir string, committers map[commitment.DA]dasource.DACommitter, opts ...Option) (*Store, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, fmt.Errorf("fsarchive: %w", err)
@@ -87,7 +87,7 @@ func Open(dir string, committers map[commitment.DA]gate.DACommitter, opts ...Opt
 	if err := checkPlatform(); err != nil {
 		return nil, err
 	}
-	s := &Store{staleAge: time.Hour, dir: abs, committers: make(map[commitment.DA]gate.DACommitter, len(committers))}
+	s := &Store{staleAge: time.Hour, dir: abs, committers: make(map[commitment.DA]dasource.DACommitter, len(committers))}
 	for da, c := range committers {
 		s.committers[da] = c
 	}
@@ -104,7 +104,7 @@ func Open(dir string, committers map[commitment.DA]gate.DACommitter, opts ...Opt
 // locks, writes or deletes anything, so it works on a read-only mount and
 // beside a live writer; Put fails with ErrReadOnly. Readers need no lock
 // because a record is published whole by a hard link.
-func OpenReadOnly(dir string, committers map[commitment.DA]gate.DACommitter) (*Store, error) {
+func OpenReadOnly(dir string, committers map[commitment.DA]dasource.DACommitter) (*Store, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, fmt.Errorf("fsarchive: %w", err)
@@ -116,7 +116,7 @@ func OpenReadOnly(dir string, committers map[commitment.DA]gate.DACommitter) (*S
 	if !st.IsDir() {
 		return nil, fmt.Errorf("fsarchive: %s is not a directory", abs)
 	}
-	s := &Store{dir: abs, readOnly: true, committers: make(map[commitment.DA]gate.DACommitter, len(committers))}
+	s := &Store{dir: abs, readOnly: true, committers: make(map[commitment.DA]dasource.DACommitter, len(committers))}
 	for da, c := range committers {
 		s.committers[da] = c
 	}
@@ -294,7 +294,7 @@ func (s *Store) checkK2(h commitment.Hash, a *archive.AuthorizationRecord) error
 func (s *Store) checkDA(p *archive.PayloadRecord) error {
 	c, ok := s.committers[p.DA]
 	if !ok {
-		return fmt.Errorf("%w: da %d", gate.ErrArchiveRecomputeUnsupported, p.DA)
+		return fmt.Errorf("%w: da %d", dasource.ErrArchiveRecomputeUnsupported, p.DA)
 	}
 	ref := commitment.PayloadRef{DA: p.DA, Namespace: p.Namespace, Commitment: p.Commitment, Signer: p.Signer}
 	if err := c.Check(ref, p.Blob); err != nil {

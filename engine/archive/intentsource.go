@@ -4,21 +4,21 @@ import (
 	"context"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 )
 
 // NewIntentSource serves the gate's stage K-fast from r. The reader checks
 // the key of what it returns, so the record is the one the reference names.
-func NewIntentSource(r IntentReader) gate.IntentSource { return intentSource{r: r} }
+func NewIntentSource(r IntentReader) dasource.IntentSource { return intentSource{r: r} }
 
 type intentSource struct{ r IntentReader }
 
-func (s intentSource) Intent(ctx context.Context, da commitment.DA, commit []byte, refHeight uint64) (*gate.AnchorIntent, error) {
+func (s intentSource) Intent(ctx context.Context, da commitment.DA, commit []byte, refHeight uint64) (*dasource.AnchorIntent, error) {
 	rec, err := s.r.Intent(ctx, da, commit, refHeight)
 	if err != nil {
 		return nil, err
 	}
-	return &gate.AnchorIntent{
+	return &dasource.AnchorIntent{
 		DA: rec.DA, Commitment: rec.Commitment, Namespace: rec.Namespace, RefHeight: rec.RefHeight,
 		Tx: rec.Tx, Signer: rec.Signer, CreatedAt: rec.CreatedAt,
 	}, nil

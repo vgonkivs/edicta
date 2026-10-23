@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/engine/gate/registry"
 	"github.com/vgonkivs/edicta/engine/policy"
 )
@@ -109,17 +110,10 @@ type AnchorSource interface {
 	FindAnchor(ctx context.Context, ref commitment.PayloadRef) (Anchor, error)
 }
 
-type BlobSource interface {
-	// Fetch returns the blob bytes and reads at most maxSize+1 bytes. It
-	// returns ErrBlobNotFound when the source knows the blob is absent.
-	Fetch(ctx context.Context, ref commitment.PayloadRef, maxSize uint64) ([]byte, error)
-}
-
-type DACommitter interface {
-	// Check recomputes the DA commitment of blob and compares it with
-	// ref.Commitment; it returns ErrDACommitmentMismatch on any difference.
-	Check(ref commitment.PayloadRef, blob []byte) error
-}
+type (
+	BlobSource  = dasource.BlobSource
+	DACommitter = dasource.DACommitter
+)
 
 type Signer interface {
 	PublicKey() ed25519.PublicKey

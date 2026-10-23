@@ -16,7 +16,7 @@ import (
 
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/test/archivefix"
 )
 
@@ -82,7 +82,7 @@ func TestFetchTruncatedBlobIsCorrupt(t *testing.T) {
 
 	_, err = archive.NewGateSource(s).Fetch(bg, refOf(p), 1<<20)
 	require.ErrorIs(t, err, archive.ErrCorrupt)
-	assert.NotErrorIs(t, err, gate.ErrBlobNotFound)
+	assert.NotErrorIs(t, err, dasource.ErrBlobNotFound)
 }
 
 func TestFetchHeaderMismatchIsCorrupt(t *testing.T) {
@@ -246,13 +246,13 @@ func TestFetchTrailingGarbageIsCorrupt(t *testing.T) {
 
 			_, err = archive.NewGateSource(s).Fetch(bg, refOf(p), 1<<20)
 			require.ErrorIs(t, err, archive.ErrCorrupt)
-			assert.NotErrorIs(t, err, gate.ErrBlobNotFound)
+			assert.NotErrorIs(t, err, dasource.ErrBlobNotFound)
 
 			src, err := archive.NewStreamGateSource(s)
 			require.NoError(t, err)
 			_, err = src.Fetch(bg, refOf(p), 1<<20)
 			require.ErrorIs(t, err, archive.ErrCorrupt)
-			assert.ErrorIs(t, err, gate.ErrArchiveUnavailable)
+			assert.ErrorIs(t, err, dasource.ErrArchiveUnavailable)
 		})
 	}
 }
@@ -312,8 +312,8 @@ func TestFetchTailMustBeTheShortestNonZeroIntentHeight(t *testing.T) {
 				return
 			}
 			require.ErrorIs(t, err, archive.ErrCorrupt)
-			assert.ErrorIs(t, err, gate.ErrArchiveUnavailable)
-			assert.NotErrorIs(t, err, gate.ErrBlobNotFound)
+			assert.ErrorIs(t, err, dasource.ErrArchiveUnavailable)
+			assert.NotErrorIs(t, err, dasource.ErrBlobNotFound)
 		})
 	}
 }
@@ -327,9 +327,9 @@ func TestGateSourceReportsEveryFaultAsAnArchiveFault(t *testing.T) {
 	missing := refOf(p)
 	missing.Commitment = bytes.Repeat([]byte{0xee}, 32)
 
-	build := map[string]func(archive.Store) gate.BlobSource{
-		"decoded": func(st archive.Store) gate.BlobSource { return archive.NewGateSource(plainStore{st}) },
-		"stream": func(st archive.Store) gate.BlobSource {
+	build := map[string]func(archive.Store) dasource.BlobSource{
+		"decoded": func(st archive.Store) dasource.BlobSource { return archive.NewGateSource(plainStore{st}) },
+		"stream": func(st archive.Store) dasource.BlobSource {
 			src, err := archive.NewStreamGateSource(st)
 			require.NoError(t, err)
 			return src
@@ -340,14 +340,14 @@ func TestGateSourceReportsEveryFaultAsAnArchiveFault(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			src := mk(s)
 			_, err := src.Fetch(bg, missing, 1<<20)
-			require.ErrorIs(t, err, gate.ErrBlobNotFound, "an absent record is the only verdict")
-			assert.NotErrorIs(t, err, gate.ErrArchiveUnavailable)
+			require.ErrorIs(t, err, dasource.ErrBlobNotFound, "an absent record is the only verdict")
+			assert.NotErrorIs(t, err, dasource.ErrArchiveUnavailable)
 
 			plant(t, dir, key, []byte("not a record"))
 			_, err = src.Fetch(bg, refOf(p), 1<<20)
-			require.ErrorIs(t, err, gate.ErrArchiveUnavailable)
+			require.ErrorIs(t, err, dasource.ErrArchiveUnavailable)
 			assert.ErrorIs(t, err, archive.ErrCorrupt)
-			assert.NotErrorIs(t, err, gate.ErrBlobNotFound)
+			assert.NotErrorIs(t, err, dasource.ErrBlobNotFound)
 			_, enc := plantBlob(t, fx, dir, make([]byte, 100))
 			require.NotEmpty(t, enc)
 		})
@@ -357,16 +357,16 @@ func TestGateSourceReportsEveryFaultAsAnArchiveFault(t *testing.T) {
 		boom := errors.New("disk on fire")
 		src := archive.NewGateSource(failingStore{Store: s, err: boom})
 		_, err := src.Fetch(bg, refOf(p), 1<<20)
-		require.ErrorIs(t, err, gate.ErrArchiveUnavailable)
+		require.ErrorIs(t, err, dasource.ErrArchiveUnavailable)
 		assert.ErrorIs(t, err, boom)
-		assert.NotErrorIs(t, err, gate.ErrBlobNotFound)
+		assert.NotErrorIs(t, err, dasource.ErrBlobNotFound)
 	})
 	t.Run("a finished caller context stays as it is", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(bg)
 		cancel()
 		_, err := archive.NewGateSource(failingStore{Store: s, err: context.Canceled}).Fetch(ctx, refOf(p), 1<<20)
 		require.ErrorIs(t, err, context.Canceled)
-		assert.NotErrorIs(t, err, gate.ErrArchiveUnavailable)
+		assert.NotErrorIs(t, err, dasource.ErrArchiveUnavailable)
 	})
 }
 

@@ -15,7 +15,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/archive/httparchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/dacommit/blobv1"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/test/archivefix"
 )
 
@@ -28,8 +28,8 @@ type acceptAll struct{}
 
 func (acceptAll) Check(commitment.PayloadRef, []byte) error { return nil }
 
-func committers(fx *archivefix.Fixture) map[commitment.DA]gate.DACommitter {
-	return map[commitment.DA]gate.DACommitter{
+func committers(fx *archivefix.Fixture) map[commitment.DA]dasource.DACommitter {
+	return map[commitment.DA]dasource.DACommitter{
 		commitment.DAFibre:        fx.FibreCommitter(),
 		commitment.DACelestiaBlob: blobv1.New(),
 	}
@@ -156,7 +156,7 @@ func path(t *testing.T, c archivefix.Case) string {
 }
 
 func openPermissive(dir string) (*fsarchive.Store, error) {
-	return fsarchive.Open(dir, map[commitment.DA]gate.DACommitter{
+	return fsarchive.Open(dir, map[commitment.DA]dasource.DACommitter{
 		commitment.DAFibre:        acceptAll{},
 		commitment.DACelestiaBlob: acceptAll{},
 	})

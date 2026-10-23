@@ -13,7 +13,7 @@ import (
 
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/engine/principalsig"
 	"github.com/vgonkivs/edicta/internal/testkit"
@@ -25,7 +25,7 @@ import (
 // The embedded nil interfaces satisfy New's non-nil checks; these tests
 // never reach them.
 type unusedReader struct{ Reader }
-type unusedCommitter struct{ gate.DACommitter }
+type unusedCommitter struct{ dasource.DACommitter }
 type unusedAnchor struct{ AnchorVerifier }
 
 func newForTest(t *testing.T, cfg Config) *Verifier {
@@ -33,7 +33,7 @@ func newForTest(t *testing.T, cfg Config) *Verifier {
 	v, err := New(Deps{
 		Config:     cfg,
 		Archive:    unusedReader{},
-		Committers: map[commitment.DA]gate.DACommitter{commitment.DACelestiaBlob: unusedCommitter{}},
+		Committers: map[commitment.DA]dasource.DACommitter{commitment.DACelestiaBlob: unusedCommitter{}},
 		Anchors:    map[commitment.DA]AnchorVerifier{commitment.DACelestiaBlob: unusedAnchor{}},
 	})
 	require.NoError(t, err)

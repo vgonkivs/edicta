@@ -55,6 +55,7 @@ var classes = map[string]class{
 	"sdk":                             sdk,
 	"engine/policy":                   engine,
 	"engine/gate":                     engine,
+	"engine/dasource":                 engine,
 	"engine/retention":                engine,
 	"engine/retention/retentionstore": testsupport,
 	"engine/archive":                  engine,
@@ -106,7 +107,7 @@ var narrow = []struct {
 }{
 	{
 		why:  "storage, verification and the DA committer must not depend on the authorizer",
-		from: []string{"engine/archive", "engine/archive/fsarchive", "engine/archive/httparchive", "engine/verifier", "plugins/celestia/fibrecommit"},
+		from: []string{"engine/dasource", "engine/archive", "engine/archive/fsarchive", "engine/archive/httparchive", "engine/verifier", "plugins/celestia/fibrecommit"},
 		to:   under("engine/gate"),
 	},
 	{
@@ -124,13 +125,6 @@ var narrow = []struct {
 // exceptions are today's known violations, as importer -> imported paths
 // relative to the root module. Each entry must still occur.
 var exceptions = map[string][]string{
-	// The archive and the verifier take the DA source interfaces, the
-	// committer interface and their sentinels from the gate package.
-	"engine/archive":               {"engine/gate"},
-	"engine/archive/fsarchive":     {"engine/gate"},
-	"engine/verifier":              {"engine/gate"},
-	"plugins/celestia/fibrecommit": {"engine/gate"},
-
 	// The agent HTTP client maps error codes to the gate's sentinels.
 	"api/edictaapi": {"engine/gate"},
 

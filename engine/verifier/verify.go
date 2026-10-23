@@ -11,7 +11,7 @@ import (
 
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/payload"
@@ -434,7 +434,7 @@ func (r *run) payload() error {
 	}
 	committer := r.v.committers[ref.DA]
 	if committer == nil {
-		r.unchecked(CheckPayload, ReasonDAUnsupported, fmt.Errorf("%w: %w: da %d", ErrPayloadInvalid, gate.ErrArchiveRecomputeUnsupported, ref.DA))
+		r.unchecked(CheckPayload, ReasonDAUnsupported, fmt.Errorf("%w: %w: da %d", ErrPayloadInvalid, dasource.ErrArchiveRecomputeUnsupported, ref.DA))
 		return nil
 	}
 	if err := committer.Check(ref, rec.Blob); err != nil {

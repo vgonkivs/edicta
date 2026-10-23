@@ -7,7 +7,7 @@ import (
 	"io"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 )
 
 type gateSource struct{ r Store }
@@ -16,9 +16,9 @@ type gateSource struct{ r Store }
 // It ignores the namespace and signer of the reference: the gate's recompute
 // with the reference fails on any difference. When r is a PayloadStreamer
 // the record is read as a stream and never decoded whole. A record that is
-// unreadable or damaged is reported as gate.ErrArchiveUnavailable, never as a
+// unreadable or damaged is reported as dasource.ErrArchiveUnavailable, never as a
 // missing blob.
-func NewGateSource(r Store) gate.BlobSource {
+func NewGateSource(r Store) dasource.BlobSource {
 	return gateSource{r}
 }
 
@@ -38,7 +38,7 @@ func (s gateSource) Fetch(ctx context.Context, ref commitment.PayloadRef, maxSiz
 func fetchDecoded(ctx context.Context, r Store, ref commitment.PayloadRef, maxSize uint64) ([]byte, error) {
 	p, err := r.Payload(ctx, ref.DA, ref.Commitment)
 	if errors.Is(err, ErrNotFound) {
-		return nil, fmt.Errorf("%w: %w", gate.ErrBlobNotFound, err)
+		return nil, fmt.Errorf("%w: %w", dasource.ErrBlobNotFound, err)
 	}
 	if err != nil {
 		return nil, err
@@ -53,10 +53,10 @@ func fetchDecoded(ctx context.Context, r Store, ref commitment.PayloadRef, maxSi
 // as they are and reports every other failure as an archive fault.
 func sourceFault(ctx context.Context, err error) error {
 	switch {
-	case err == nil, errors.Is(err, gate.ErrBlobNotFound), errors.Is(err, gate.ErrArchiveUnavailable), ctx.Err() != nil:
+	case err == nil, errors.Is(err, dasource.ErrBlobNotFound), errors.Is(err, dasource.ErrArchiveUnavailable), ctx.Err() != nil:
 		return err
 	}
-	return fmt.Errorf("%w: %w", gate.ErrArchiveUnavailable, err)
+	return fmt.Errorf("%w: %w", dasource.ErrArchiveUnavailable, err)
 }
 
 // ErrNoStreamer means the store cannot stream payload records.
@@ -66,7 +66,7 @@ type streamSource struct{ st PayloadStreamer }
 
 // NewStreamGateSource is NewGateSource for a store that must stream: the
 // record is never decoded whole.
-func NewStreamGateSource(r Store) (gate.BlobSource, error) {
+func NewStreamGateSource(r Store) (dasource.BlobSource, error) {
 	st, ok := r.(PayloadStreamer)
 	if !ok {
 		return nil, ErrNoStreamer
@@ -87,7 +87,7 @@ func fetchStream(ctx context.Context, st PayloadStreamer, ref commitment.Payload
 	}
 	rc, err := st.PayloadReader(ctx, ref.DA, ref.Commitment)
 	if errors.Is(err, ErrNotFound) {
-		return nil, fmt.Errorf("%w: %w", gate.ErrBlobNotFound, err)
+		return nil, fmt.Errorf("%w: %w", dasource.ErrBlobNotFound, err)
 	}
 	if err != nil {
 		return nil, err

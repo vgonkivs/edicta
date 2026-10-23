@@ -18,7 +18,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/engine/dacommit/blobv1"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/test/archivefix"
 )
 
@@ -26,8 +26,8 @@ var _ archive.Store = (*fsarchive.Store)(nil)
 
 var bg = context.Background()
 
-func committers(fx *archivefix.Fixture) map[commitment.DA]gate.DACommitter {
-	return map[commitment.DA]gate.DACommitter{
+func committers(fx *archivefix.Fixture) map[commitment.DA]dasource.DACommitter {
+	return map[commitment.DA]dasource.DACommitter{
 		commitment.DAFibre:        fx.FibreCommitter(),
 		commitment.DACelestiaBlob: blobv1.New(),
 	}
@@ -181,12 +181,12 @@ func TestDACheckRefusalWritesNothing(t *testing.T) {
 
 	bad2 := fx.Cases["payload_da2_wrong_commitment"].Record
 	_, err := s.Put(bg, bad2)
-	require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
+	require.ErrorIs(t, err, dasource.ErrDACommitmentMismatch)
 
 	bad1 := *fx.Cases["payload_da1_live"].Record.(*archive.PayloadRecord)
 	bad1.Blob = []byte{0x66}
 	_, err = s.Put(bg, &bad1)
-	require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
+	require.ErrorIs(t, err, dasource.ErrDACommitmentMismatch)
 
 	assert.Empty(t, archivefix.Files(t, dir))
 	p := bad2.(*archive.PayloadRecord)
@@ -203,13 +203,13 @@ func TestDACheckUsesNamespaceAndSigner(t *testing.T) {
 	ns.Namespace = append([]byte(nil), base.Namespace...)
 	ns.Namespace[len(ns.Namespace)-1] ^= 1
 	_, err := s.Put(bg, &ns)
-	require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
+	require.ErrorIs(t, err, dasource.ErrDACommitmentMismatch)
 
 	sg := *base
 	sg.Signer = append([]byte(nil), base.Signer...)
 	sg.Signer[0] ^= 1
 	_, err = s.Put(bg, &sg)
-	require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
+	require.ErrorIs(t, err, dasource.ErrDACommitmentMismatch)
 
 	assert.Empty(t, archivefix.Files(t, dir))
 }
@@ -217,10 +217,10 @@ func TestDACheckUsesNamespaceAndSigner(t *testing.T) {
 func TestPayloadForUnconfiguredDAUnsupported(t *testing.T) {
 	fx := archivefix.Load(t)
 	dir := t.TempDir()
-	s, err := fsarchive.Open(dir, map[commitment.DA]gate.DACommitter{commitment.DACelestiaBlob: blobv1.New()})
+	s, err := fsarchive.Open(dir, map[commitment.DA]dasource.DACommitter{commitment.DACelestiaBlob: blobv1.New()})
 	require.NoError(t, err)
 	_, err = s.Put(bg, fx.Cases["payload_da1_live"].Record)
-	require.ErrorIs(t, err, gate.ErrArchiveRecomputeUnsupported)
+	require.ErrorIs(t, err, dasource.ErrArchiveRecomputeUnsupported)
 	assert.Empty(t, archivefix.Files(t, dir))
 }
 
@@ -447,7 +447,7 @@ func TestGateSource(t *testing.T) {
 	fx := archivefix.Load(t)
 	s, dir := open(t, fx)
 	src := archive.NewGateSource(s)
-	var _ gate.BlobSource = src
+	var _ dasource.BlobSource = src
 
 	c := fx.Cases["payload_da2_minimal_lmt"]
 	p := c.Record.(*archive.PayloadRecord)
@@ -456,7 +456,7 @@ func TestGateSource(t *testing.T) {
 	}
 
 	_, err := src.Fetch(bg, ref, 1<<20)
-	require.ErrorIs(t, err, gate.ErrBlobNotFound)
+	require.ErrorIs(t, err, dasource.ErrBlobNotFound)
 
 	_, err = s.Put(bg, p)
 	require.NoError(t, err)
@@ -475,17 +475,17 @@ func TestGateSource(t *testing.T) {
 	other := ref
 	other.Commitment = fx.Cases["payload_da2_256k"].Record.(*archive.PayloadRecord).Commitment
 	_, err = src.Fetch(bg, other, 1<<20)
-	require.ErrorIs(t, err, gate.ErrBlobNotFound)
+	require.ErrorIs(t, err, dasource.ErrBlobNotFound)
 
 	otherDA := ref
 	otherDA.DA = commitment.DAFibre
 	_, err = src.Fetch(bg, otherDA, 1<<20)
-	require.ErrorIs(t, err, gate.ErrBlobNotFound)
+	require.ErrorIs(t, err, dasource.ErrBlobNotFound)
 
 	plant(t, dir, c.Key, c.CBOR[:40])
 	_, err = src.Fetch(bg, ref, 1<<20)
 	require.ErrorIs(t, err, archive.ErrCorrupt)
-	assert.NotErrorIs(t, err, gate.ErrBlobNotFound)
+	assert.NotErrorIs(t, err, dasource.ErrBlobNotFound)
 }
 
 func TestGateSourceIgnoresNamespaceAndSigner(t *testing.T) {

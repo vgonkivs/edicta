@@ -11,7 +11,7 @@ import (
 
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/test/gatefix"
 )
@@ -91,7 +91,7 @@ func TestVerifyTamperedItems(t *testing.T) {
 				p.payloadRef = c.PayloadRef.Commitment
 				p.ev.Commitment = c.PayloadRef.Commitment
 			},
-			check: verifier.CheckPayload, want: verifier.ErrPayloadInvalid, also: gate.ErrDACommitmentMismatch, reason: verifier.ReasonSourceCorrupt,
+			check: verifier.CheckPayload, want: verifier.ErrPayloadInvalid, also: dasource.ErrDACommitmentMismatch, reason: verifier.ReasonSourceCorrupt,
 		},
 		{
 			name: "envelope signature",

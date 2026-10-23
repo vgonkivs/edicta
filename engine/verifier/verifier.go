@@ -18,7 +18,7 @@ import (
 
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/engine/policy"
 	"github.com/vgonkivs/edicta/engine/principalsig"
 	"github.com/vgonkivs/edicta/sdk/blob"
@@ -355,7 +355,7 @@ type Reader interface {
 type Deps struct {
 	Config     Config
 	Archive    Reader
-	Committers map[commitment.DA]gate.DACommitter
+	Committers map[commitment.DA]dasource.DACommitter
 	Anchors    map[commitment.DA]AnchorVerifier
 	Trust      HeaderTrust
 	// Executions are the rail checkers by action type.
@@ -380,7 +380,7 @@ const archiveCopyName = "archive"
 type Verifier struct {
 	cfg         Config
 	archive     Reader
-	committers  map[commitment.DA]gate.DACommitter
+	committers  map[commitment.DA]dasource.DACommitter
 	anchors     map[commitment.DA]AnchorVerifier
 	trust       HeaderTrust
 	executions  map[string]ExecutionChecker
@@ -410,7 +410,7 @@ func New(d Deps) (*Verifier, error) {
 		},
 		extractors: d.Extractors,
 		archive:    d.Archive,
-		committers: make(map[commitment.DA]gate.DACommitter, len(d.Committers)),
+		committers: make(map[commitment.DA]dasource.DACommitter, len(d.Committers)),
 		anchors:    make(map[commitment.DA]AnchorVerifier, len(d.Anchors)),
 		trust:      d.Trust,
 		pending:    d.Pending,

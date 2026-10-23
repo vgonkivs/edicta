@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
 )
 
@@ -26,7 +26,7 @@ func TestOversizeDoesNotAllocateEncoding(t *testing.T) {
 	runtime.ReadMemStats(&after)
 
 	require.ErrorIs(t, err, fibrecommit.ErrTooLarge)
-	require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
+	require.ErrorIs(t, err, dasource.ErrDACommitmentMismatch)
 	const bound = 1 << 20
 	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(bound))
 

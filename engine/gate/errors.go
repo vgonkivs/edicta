@@ -3,6 +3,8 @@ package gate
 import (
 	"errors"
 	"fmt"
+
+	"github.com/vgonkivs/edicta/engine/dasource"
 )
 
 // Stateful rejection reasons. Decoding, validation, signature, time and scope reasons are sentinels of package
@@ -18,7 +20,7 @@ var (
 	// ErrArchiveUnavailable means the decision record could not be written
 	// durably, or the archive could not serve the payload record (unreadable
 	// or damaged); nothing was signed and the nonce is unused.
-	ErrArchiveUnavailable = errors.New("gate: archive unavailable")
+	ErrArchiveUnavailable = dasource.ErrArchiveUnavailable
 
 	ErrNonceUsed           = errors.New("gate: nonce already used")
 	ErrBeforeRegistryEpoch = errors.New("gate: issued_at not after the registry epoch")
@@ -26,15 +28,15 @@ var (
 	ErrAnchorNotFound       = errors.New("gate: anchor not found")
 	ErrRetentionUnavailable = errors.New("gate: retention at the anchor height unreadable")
 
-	ErrDACommitmentMismatch        = errors.New("gate: DA commitment mismatch")
-	ErrArchiveRecomputeUnsupported = errors.New("gate: archive path needs a DA commitment recompute that is not available")
+	ErrDACommitmentMismatch        = dasource.ErrDACommitmentMismatch
+	ErrArchiveRecomputeUnsupported = dasource.ErrArchiveRecomputeUnsupported
 	ErrPayloadUnavailable          = errors.New("gate: payload unavailable")
 
 	// ErrAnchorTooOld also matches ErrPayloadUnavailable.
 	ErrAnchorTooOld = fmt.Errorf("gate: anchor too old, archive did not return the blob: %w", ErrPayloadUnavailable)
 
 	// ErrBlobNotFound is returned by a BlobSource, never by Authorize.
-	ErrBlobNotFound = errors.New("gate: blob not found")
+	ErrBlobNotFound = dasource.ErrBlobNotFound
 
 	ErrChainUnavailable     = errors.New("gate: chain data unavailable")
 	ErrRegistryUnavailable  = errors.New("gate: registry unavailable")

@@ -10,7 +10,7 @@ import (
 	"github.com/celestiaorg/celestia-app/v10/fibre"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 )
 
 const (
@@ -33,7 +33,7 @@ var errEmpty = errors.New("fibrecommit: empty blob")
 
 var errWrongDA = errors.New("fibrecommit: reference is not a Fibre reference")
 
-// Committer implements gate.DACommitter for da = 1.
+// Committer implements dasource.DACommitter for da = 1.
 type Committer struct {
 	max uint64
 }
@@ -54,23 +54,23 @@ func (c *Committer) MaxDataSize() uint64 { return c.max }
 // The size is checked first so an oversize input never reaches the encoder.
 func (c *Committer) Check(ref commitment.PayloadRef, blob []byte) error {
 	if uint64(len(blob)) > c.max {
-		return fmt.Errorf("%w: %w: %d bytes, cap %d", gate.ErrDACommitmentMismatch, ErrTooLarge, len(blob), c.max)
+		return fmt.Errorf("%w: %w: %d bytes, cap %d", dasource.ErrDACommitmentMismatch, ErrTooLarge, len(blob), c.max)
 	}
 	if ref.DA != commitment.DAFibre {
-		return fmt.Errorf("%w: %w: da %d", gate.ErrDACommitmentMismatch, errWrongDA, ref.DA)
+		return fmt.Errorf("%w: %w: da %d", dasource.ErrDACommitmentMismatch, errWrongDA, ref.DA)
 	}
 	if len(ref.Commitment) != fibre.CommitmentSize {
-		return fmt.Errorf("%w: commitment is %d bytes", gate.ErrDACommitmentMismatch, len(ref.Commitment))
+		return fmt.Errorf("%w: commitment is %d bytes", dasource.ErrDACommitmentMismatch, len(ref.Commitment))
 	}
 	if len(blob) == 0 {
-		return fmt.Errorf("%w: %w", gate.ErrDACommitmentMismatch, errEmpty)
+		return fmt.Errorf("%w: %w", dasource.ErrDACommitmentMismatch, errEmpty)
 	}
 	got, err := CommitmentWithCap(blob, c.max)
 	if err != nil {
-		return fmt.Errorf("%w: %w", gate.ErrDACommitmentMismatch, err)
+		return fmt.Errorf("%w: %w", dasource.ErrDACommitmentMismatch, err)
 	}
 	if !bytes.Equal(got[:], ref.Commitment) {
-		return gate.ErrDACommitmentMismatch
+		return dasource.ErrDACommitmentMismatch
 	}
 	return nil
 }

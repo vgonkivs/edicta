@@ -11,6 +11,7 @@ import (
 
 	"github.com/vgonkivs/edicta/engine/archive"
 	"github.com/vgonkivs/edicta/engine/archive/fsarchive"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/engine/gate"
 	"github.com/vgonkivs/edicta/test/archivefix"
 )
@@ -113,9 +114,9 @@ func TestStreamGateSourceCorruptRecordIsOperational(t *testing.T) {
 
 			_, err = src.Fetch(bg, refOf(p), 1<<20)
 			require.Error(t, err)
-			assert.ErrorIs(t, err, gate.ErrArchiveUnavailable)
+			assert.ErrorIs(t, err, dasource.ErrArchiveUnavailable)
 			assert.ErrorIs(t, err, archive.ErrCorrupt, "the cause stays visible")
-			assert.NotErrorIs(t, err, gate.ErrBlobNotFound)
+			assert.NotErrorIs(t, err, dasource.ErrBlobNotFound)
 			assert.NotErrorIs(t, err, gate.ErrPayloadUnavailable)
 		})
 	}
@@ -128,6 +129,6 @@ func TestStreamGateSourceMissingRecordIsBlobNotFound(t *testing.T) {
 	require.NoError(t, err)
 	p := fx.Cases["payload_da2_minimal_lmt"].Record.(*archive.PayloadRecord)
 	_, err = src.Fetch(bg, refOf(p), 1<<20)
-	require.ErrorIs(t, err, gate.ErrBlobNotFound)
-	assert.NotErrorIs(t, err, gate.ErrArchiveUnavailable)
+	require.ErrorIs(t, err, dasource.ErrBlobNotFound)
+	assert.NotErrorIs(t, err, dasource.ErrArchiveUnavailable)
 }

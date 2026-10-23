@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/blob"
@@ -52,7 +52,7 @@ func sealedParts(t *testing.T, payloadSalt []byte) (*parts, blob.RecipientKey) {
 func sealedRig(t *testing.T, p *parts, keys ...blob.RecipientKey) *rig {
 	t.Helper()
 	r := newRig(t, p)
-	r.deps.Committers = map[commitment.DA]gate.DACommitter{commitment.DACelestiaBlob: acceptAll{}}
+	r.deps.Committers = map[commitment.DA]dasource.DACommitter{commitment.DACelestiaBlob: acceptAll{}}
 	r.deps.Config.PayloadKeys = keys
 	return r
 }

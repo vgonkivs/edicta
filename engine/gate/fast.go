@@ -7,20 +7,11 @@ import (
 	"fmt"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/engine/dasource"
 )
 
-// AnchorIntent is the archived anchor intent of a pending reference: the
-// signed anchor tx, without the blob. Signer is set for da = 2 only.
-// CreatedAt is floor(promise creation) for da = 1.
-type AnchorIntent struct {
-	DA         commitment.DA
-	Commitment []byte
-	Namespace  []byte
-	RefHeight  uint64
-	Tx         []byte
-	Signer     []byte
-	CreatedAt  uint64
-}
+// AnchorIntent is the archived anchor intent of a pending reference.
+type AnchorIntent = dasource.AnchorIntent
 
 // IntentFacts is what an intent verifier established from the record and
 // the chain. The Fibre-only fields are zero for da = 2 and TimeoutHeight is
@@ -66,9 +57,7 @@ type IntentBroadcaster interface {
 // IntentSource reads the anchor intent of (da, commitment, ref_height). The
 // gate answers any failure, an absent record included, with the retryable
 // ErrAnchorIntentUnavailable.
-type IntentSource interface {
-	Intent(ctx context.Context, da commitment.DA, commit []byte, refHeight uint64) (*AnchorIntent, error)
-}
+type IntentSource = dasource.IntentSource
 
 // Deadline computes the anchor deadline of a pending reference from the
 // head, the facts, the gate configuration and the mandate's bound, all in

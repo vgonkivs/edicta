@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/engine/dasource"
 	"github.com/vgonkivs/edicta/plugins/celestia/fibrecommit"
 )
 
@@ -43,7 +43,7 @@ func FuzzCheck(f *testing.F) {
 			return
 		}
 		if da == uint64(commitment.DAFibre) {
-			require.ErrorIs(t, err, gate.ErrDACommitmentMismatch)
+			require.ErrorIs(t, err, dasource.ErrDACommitmentMismatch)
 		}
 	})
 }
