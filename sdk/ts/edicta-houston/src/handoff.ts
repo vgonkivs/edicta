@@ -19,7 +19,10 @@ export const MAX_RETRY_ANSWER = 16384;
 const BUYER_REFUSAL = "neither the escrow buyer";
 const DEPOSIT_SELECTOR = "b707d860";
 
-/** A recognised refusal of a paid retry: RR1 (402 asking again for this paymentId) or RR2 (403 buyer check). */
+/**
+ * A recognised refusal of a paid retry: "RR1" is a 402 that asks again for
+ * this paymentId, "RR2" a 403 with the payment server's buyer-check text.
+ */
 export type Refusal = "RR1" | "RR2";
 
 /**
@@ -425,10 +428,10 @@ async function readCapped(body: ReadableStream<Uint8Array> | null, limit: number
 
 /**
  * Classifies a paid retry's answer, given its status, PAYMENT-REQUIRED
- * header and body. RR1: a 402 whose header decodes and whose quote names
- * paymentIdHex in exactly one escrow-upto entry. RR2: a 403 whose body
- * contains the ASCII text "neither the escrow buyer". Anything else,
- * including a body over 16384 bytes, is undefined.
+ * header and body: "RR1" for a 402 whose header decodes and whose quote
+ * names paymentIdHex in exactly one escrow-upto entry, "RR2" for a 403
+ * whose body contains the ASCII text "neither the escrow buyer", and
+ * undefined for anything else, a body over 16384 bytes included.
  */
 export function recognisedRefusal(
   status: number,

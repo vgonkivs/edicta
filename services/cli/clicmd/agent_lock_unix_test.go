@@ -49,7 +49,7 @@ func TestAgentServeHoldsTheStateDirectory(t *testing.T) {
 	case code := <-done:
 		assert.Equal(t, commitcmd.ExitOK, code)
 	case <-time.After(10 * time.Second):
-		t.Fatal("serve did not stop")
+		require.FailNow(t, "serve did not stop")
 	}
 
 	unlock, err := commitcmd.LockStateDir(dir)
@@ -115,7 +115,7 @@ func TestCommitRefusesAStateDirectoryAServeHolds(t *testing.T) {
 	case code := <-done:
 		assert.Equal(t, commitcmd.ExitOK, code)
 	case <-time.After(10 * time.Second):
-		t.Fatal("serve did not stop")
+		require.FailNow(t, "serve did not stop")
 	}
 
 	code, out := commit(t, goodRequest, "--request", "-", "--recipient", "00", "--state-dir", dir)
