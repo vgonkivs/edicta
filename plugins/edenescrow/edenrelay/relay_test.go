@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -97,6 +98,50 @@ func TestHoustonRelay(t *testing.T) {
 		err := send()
 		require.ErrorIs(t, err, edenrelay.ErrRelayFault, name)
 	}
+}
+
+func TestHoustonRelayTellsWhetherTheRequestLeft(t *testing.T) {
+	signed := []byte{0x02, 0xc0, 0x01}
+	railRef := edenescrow.RailRef(signed)
+	var reads atomic.Int32
+	var answer atomic.Value
+	answer.Store(func(http.ResponseWriter) {})
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body)
+		reads.Add(1)
+		answer.Load().(func(http.ResponseWriter))(w)
+	}))
+	defer srv.Close()
+	relay := func(base string) *edenrelay.HoustonRelay {
+		rl, err := edenrelay.NewHoustonRelay(edenrelay.HoustonConfig{BaseURL: base, Timeout: 200 * time.Millisecond}, srv.Client(), nil)
+		require.NoError(t, err)
+		return rl
+	}
+
+	answer.Store(func(w http.ResponseWriter) { time.Sleep(400 * time.Millisecond) })
+	err := relay(srv.URL).Send(context.Background(), signed, railRef, [32]byte{})
+	require.ErrorIs(t, err, edenrelay.ErrRelayFault)
+	assert.NotErrorIs(t, err, edenrelay.ErrNotSent, "the server read the request; only the answer is missing")
+	assert.Equal(t, int32(1), reads.Load())
+
+	answer.Store(func(w http.ResponseWriter) { w.WriteHeader(http.StatusBadGateway) })
+	err = relay(srv.URL).Send(context.Background(), signed, railRef, [32]byte{})
+	require.ErrorIs(t, err, edenrelay.ErrRelayFault)
+	assert.NotErrorIs(t, err, edenrelay.ErrNotSent, "an error status is an answer")
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = relay(srv.URL).Send(cancelled, signed, railRef, [32]byte{})
+	require.ErrorIs(t, err, edenrelay.ErrRelayFault)
+	assert.ErrorIs(t, err, edenrelay.ErrNotSent, "a call cancelled before it started")
+	assert.Equal(t, int32(2), reads.Load())
+
+	gone := httptest.NewTLSServer(http.NotFoundHandler())
+	base := gone.URL
+	gone.Close()
+	err = relay(base).Send(context.Background(), signed, railRef, [32]byte{})
+	require.ErrorIs(t, err, edenrelay.ErrRelayFault)
+	assert.ErrorIs(t, err, edenrelay.ErrNotSent, "no connection")
 }
 
 func TestCheckRelayAnswer(t *testing.T) {

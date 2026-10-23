@@ -76,6 +76,10 @@ What it does, and nothing else:
   answer is never evidence; a relay error is reported in `relayFault` and
   not retried.
 - It waits `pickupDelayMs` once more and makes one last retry.
+- `signal` stops the flow before a paid retry or before the handoff is
+  recorded. Once it is recorded, the relay call runs to `serverTimeoutMs`
+  whatever the signal says, and an abort after it returns the outcome with
+  `needsOperator` set.
 - At most one handoff per commitment hash, across restarts. The default store
   is `FileHandoffStore` in `$EDICTA_HOME/handoff` (else `~/.edicta/handoff`):
   one file per commitment hash, created exclusively and synced before the
@@ -89,6 +93,11 @@ offers the same rules to clients in other languages: `POST /v1/paid-retry`
 with `commitment_hash`, `payment_signature`, `status`, `payment_required` and
 `body` (base64) of each paid retry's answer returns `next` (`none`, `retry`
 after `retry_after_ms`, or `operator`) and makes the one handoff itself.
+The handoff call runs to its own timeout even if the client disconnects. The
+answer that made it, and every later one, carries `handoff_outcome`: `sent`,
+`relay_fault`, `not_sent` (the request never left the serve; the operator
+decides how to hand the bytes over) or `unknown` (the call is still running,
+or the serve stopped during it). None of them allows a second handoff.
 The once mark lives in the state directory, so `edicta agent serve` holds it
 locked while it runs: a second serve on the same directory refuses to start,
 and `edicta commit --state-dir` on it fails with `busy`. Run one serve per

@@ -65,6 +65,10 @@ type State struct {
 	// HandoffAtMS marks the one relay handoff; it is stored before the bytes
 	// are sent.
 	HandoffAtMS int64 `json:"handoff_at_ms,omitempty"`
+	// HandoffOutcome is what became of that handoff, stored after the call:
+	// a HandoffOutcome constant. Empty with HandoffAtMS set means the
+	// process stopped before it was stored.
+	HandoffOutcome string `json:"handoff_outcome,omitempty"`
 }
 
 // StateStore persists a State by commitment hash (64 lower-case hex). Save
@@ -287,6 +291,9 @@ func (s *Service) save(r *run) *Failure {
 	if old, ok, err := s.State.Load(r.hexH); err == nil && ok && bytes.Equal(old.Envelope, r.st.Envelope) {
 		r.st.RefusedAtMS = max(r.st.RefusedAtMS, old.RefusedAtMS)
 		r.st.HandoffAtMS = max(r.st.HandoffAtMS, old.HandoffAtMS)
+		if r.st.HandoffOutcome == "" {
+			r.st.HandoffOutcome = old.HandoffOutcome
+		}
 		if r.st.PaymentSignature == "" {
 			r.st.PaymentSignature = old.PaymentSignature
 		}

@@ -93,6 +93,11 @@ export interface HandoffOptions {
   fetch?: typeof fetch;
   /** Replaces the timer between paid retries (tests). */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Stops the flow before a paid retry or before the once mark is claimed.
+   * It never cuts the relay call: once the mark is claimed, the one call it
+   * allows runs to serverTimeoutMs.
+   */
   signal?: AbortSignal;
 }
 
@@ -364,6 +369,7 @@ export async function paidRetryWithHandoff(d: HandoffDecision, retry: PaidRetryF
     needsOperator: false,
   };
   const attempt = async (): Promise<Refusal | undefined> => {
+    opts.signal?.throwIfAborted();
     out.response = await retry(d.paymentSignature);
     const r = await classify(out.response, paymentId, timeoutMs);
     if (r !== undefined) out.refusals.push(r);
@@ -383,6 +389,7 @@ export async function paidRetryWithHandoff(d: HandoffDecision, retry: PaidRetryF
   }
   const railRef = hex(keccak256(signed));
   const store = opts.store ?? new FileHandoffStore(defaultHandoffDir());
+  opts.signal?.throwIfAborted();
   if (!(await store.claim(d.commitmentHash))) {
     out.handoff = "already_used";
     out.needsOperator = true;
@@ -391,6 +398,7 @@ export async function paidRetryWithHandoff(d: HandoffDecision, retry: PaidRetryF
 
   out.handoff = "sent";
   try {
+    // The mark is spent: only the timeout may cut the one call it allows.
     const timeout = AbortSignal.timeout(timeoutMs);
     const res = await (opts.fetch ?? globalThis.fetch)(endpoint, {
       method: "POST",
@@ -398,7 +406,7 @@ export async function paidRetryWithHandoff(d: HandoffDecision, retry: PaidRetryF
       body: JSON.stringify({ signedTx: "0x" + hex(signed), paymentId: "0x" + paymentId }),
       redirect: "error",
       cache: "no-store",
-      signal: opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout,
+      signal: timeout,
     });
     const { bytes: answer, unread } = await readCapped(res.body, MAX_RETRY_ANSWER, timeoutMs);
     const read = relayHashes(unread || answer.length > MAX_RETRY_ANSWER ? new Uint8Array(0) : answer);
@@ -413,7 +421,9 @@ export async function paidRetryWithHandoff(d: HandoffDecision, retry: PaidRetryF
   }
   if (out.relayFault !== undefined) out.handoff = "relay_fault";
 
-  await sleep(pickup);
-  out.needsOperator = (await attempt()) !== undefined;
+  // After the handoff an abort still returns what happened: the last answer
+  // was a recognised refusal, so the operator decides.
+  if (!opts.signal?.aborted) await sleep(pickup);
+  out.needsOperator = opts.signal?.aborted === true || (await attempt()) !== undefined;
   return out;
 }

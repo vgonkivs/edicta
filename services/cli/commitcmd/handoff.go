@@ -172,9 +172,31 @@ type PaidRetryResult struct {
 	// RelayFault is the relay's error, if the handoff call failed; it is
 	// not retried.
 	RelayFault string `json:"relay_fault,omitempty"`
+	// HandoffOutcome is what became of the one handoff, once it was made:
+	// one of the HandoffOutcome constants.
+	HandoffOutcome string `json:"handoff_outcome,omitempty"`
 	// PaymentSignature is the stored one, for the retry; never another.
 	PaymentSignature string `json:"payment_signature,omitempty"`
 }
+
+// What became of the one relay handoff. None of them is evidence that the
+// deposit landed, and none allows a second handoff.
+const (
+	// HandoffOutcomeSent: the relay answered with a success that names no
+	// other transaction.
+	HandoffOutcomeSent = "sent"
+	// HandoffOutcomeRelayFault: the request was written to the relay, and
+	// its answer was an error, never came, or named another transaction.
+	HandoffOutcomeRelayFault = "relay_fault"
+	// HandoffOutcomeNotSent: the request never completely left this
+	// process, so the payment server cannot have read the bytes from it.
+	// The operator decides whether to hand them over by other means.
+	HandoffOutcomeNotSent = "not_sent"
+	// HandoffOutcomeUnknown: the mark is stored but no outcome yet. Either
+	// the call is still running or the process stopped during it, so the
+	// bytes may or may not have left.
+	HandoffOutcomeUnknown = "unknown"
+)
 
 func handoffRefused(format string, a ...any) *Failure {
 	return &Failure{Exit: ExitRefused, Code: "handoff_refused", Message: fmt.Sprintf(format, a...)}
@@ -198,12 +220,42 @@ func (s *Service) PaidRetry(ctx context.Context, rep PaidRetry) (PaidRetryResult
 		return out, err
 	}
 	out.HandedOff = true
-	if err := h.relay.Send(ctx, send.signed, send.railRef, send.paymentID); err != nil {
-		out.RelayFault = err.Error()
+	// The mark is spent already, so the caller going away must not cancel
+	// the one call it allows; the relay bounds the call with its own
+	// timeout.
+	err = h.relay.Send(context.WithoutCancel(ctx), send.signed, send.railRef, send.paymentID)
+	switch {
+	case err == nil:
+		out.HandoffOutcome = HandoffOutcomeSent
+	case errors.Is(err, edenrelay.ErrNotSent):
+		out.HandoffOutcome, out.RelayFault = HandoffOutcomeNotSent, err.Error()
+		h.log.Warn("commitcmd: the relay handoff never left this process; it is not repeated, the operator decides",
+			"commitment_hash", rep.CommitmentHash, "rail_ref", send.railRef, "err", err)
+	default:
+		out.HandoffOutcome, out.RelayFault = HandoffOutcomeRelayFault, err.Error()
 		h.log.Warn("commitcmd: relay handoff failed; it is not repeated", "commitment_hash", rep.CommitmentHash,
 			"rail_ref", send.railRef, "err", err)
 	}
+	if err := s.recordHandoffOutcome(rep.CommitmentHash, out.HandoffOutcome); err != nil {
+		h.log.Warn("commitcmd: the relay handoff's outcome could not be stored; it reads as unknown",
+			"commitment_hash", rep.CommitmentHash, "outcome", out.HandoffOutcome, "err", err)
+	}
 	return out, nil
+}
+
+// recordHandoffOutcome stores what became of the handoff next to its mark.
+func (s *Service) recordHandoffOutcome(hexHash, outcome string) error {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	st, ok, err := s.State.Load(hexHash)
+	if err != nil {
+		return err
+	}
+	if !ok || st.HandoffAtMS == 0 {
+		return errors.New("commitcmd: the stored state lost the handoff mark")
+	}
+	st.HandoffOutcome = outcome
+	return s.State.Save(hexHash, st)
 }
 
 type handoffSend struct {
@@ -249,6 +301,12 @@ func (s *Service) decideRetry(rep PaidRetry, pickup time.Duration) (PaidRetryRes
 			return &Failure{Exit: ExitUnavailable, Code: "state_unavailable", Retryable: true, Message: err.Error()}
 		}
 		return nil
+	}
+	if st.HandoffAtMS != 0 {
+		out.HandoffOutcome = st.HandoffOutcome
+		if out.HandoffOutcome == "" {
+			out.HandoffOutcome = HandoffOutcomeUnknown
+		}
 	}
 	switch {
 	case st.HandoffAtMS != 0 && now-st.HandoffAtMS < delay:

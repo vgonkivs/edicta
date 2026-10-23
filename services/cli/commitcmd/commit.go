@@ -381,6 +381,7 @@ func (s *Service) Commit(ctx context.Context, req Request) (Response, error) {
 		} else if ok && bytes.Equal(old.Envelope, run.st.Envelope) {
 			run.st.Authorization, run.st.Signed, run.st.RailRef = old.Authorization, old.Signed, old.RailRef
 			run.st.PaymentSignature, run.st.RefusedAtMS, run.st.HandoffAtMS = old.PaymentSignature, old.RefusedAtMS, old.HandoffAtMS
+			run.st.HandoffOutcome = old.HandoffOutcome
 			if len(run.rr) == 0 {
 				run.rr = old.Requirements
 			}

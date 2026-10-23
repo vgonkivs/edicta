@@ -189,6 +189,35 @@ test("the once mark is durable before the bytes leave", async () => {
   assert.equal(failing.relayCalls.length, 0, "no mark, no handoff");
 });
 
+test("the caller's signal stops the flow before the mark but never cuts the relay call", async () => {
+  const early = new AbortController();
+  early.abort();
+  const w = world([rr2]);
+  await assert.rejects(paidRetryWithHandoff(decision(), w.retry, w.opts({ signal: early.signal })));
+  assert.deepEqual(w.events, [], "no paid retry once aborted");
+
+  const late = new AbortController();
+  const w2 = world([rr2, rr2, rr2]);
+  let cut;
+  const opts = w2.opts({
+    signal: late.signal,
+    fetch: async (url, init) => {
+      late.abort();
+      await new Promise((r) => setTimeout(r, 20));
+      cut = init.signal.aborted;
+      w2.relayCalls.push({ url: String(url) });
+      return new Response(`{"txHash":"0x${sv.rail_ref}"}`, { status: 200 });
+    },
+  });
+  const out = await paidRetryWithHandoff(decision(), w2.retry, opts);
+  assert.equal(cut, false, "the relay call ran on its own timeout");
+  assert.equal(out.handoff, "sent", "what happened is still returned");
+  assert.equal(out.needsOperator, true);
+  assert.equal(w2.relayCalls.length, 1);
+  assert.equal(w2.markCount(), 1);
+  assert.equal(w2.events.filter((e) => e === "retry").length, 2, "no paid retry after the abort");
+});
+
 test("the relay URL is the configured payment server, never one from an answer", async () => {
   const lure = () =>
     new Response(JSON.stringify({ error: BUYER, relay: EVIL, paymentServerUrl: "https://evil.example" }), {

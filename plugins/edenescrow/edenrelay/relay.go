@@ -15,6 +15,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
 	"sync/atomic"
@@ -26,6 +27,12 @@ import (
 // answer, or a hash other than the rail_ref. The caller then sends the same
 // bytes directly. A success is not evidence either.
 var ErrRelayFault = errors.New("signer/eden: relay fault")
+
+// ErrNotSent marks a relay fault where the request was never completely
+// written to the connection: the payment server cannot have read the
+// bytes from this call. It always comes wrapped together with
+// ErrRelayFault.
+var ErrNotSent = errors.New("the request did not leave this process")
 
 // Relay limits.
 const (
@@ -127,25 +134,37 @@ type relayBody struct {
 }
 
 // Send posts {signedTx, paymentId}. Any answer but a 2xx whose body names
-// no other transaction is ErrRelayFault.
+// no other transaction is ErrRelayFault; a call whose request was never
+// completely written is also ErrNotSent.
 func (r *HoustonRelay) Send(ctx context.Context, signed []byte, railRef string, paymentID [32]byte) error {
 	body, err := json.Marshal(relayBody{
 		SignedTx:  "0x" + hex.EncodeToString(signed),
 		PaymentID: "0x" + hex.EncodeToString(paymentID[:]),
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w: %v", ErrRelayFault, ErrNotSent, err)
 	}
+	var wrote atomic.Bool
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteRequest: func(i httptrace.WroteRequestInfo) {
+			if i.Err == nil {
+				wrote.Store(true)
+			}
+		},
+	})
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrRelayFault, err)
+		return fmt.Errorf("%w: %w: %v", ErrRelayFault, ErrNotSent, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	resp, err := r.hc.Do(req)
 	if err != nil {
+		if !wrote.Load() {
+			return fmt.Errorf("%w: %w: %v", ErrRelayFault, ErrNotSent, err)
+		}
 		return fmt.Errorf("%w: %v", ErrRelayFault, err)
 	}
 	defer resp.Body.Close()
