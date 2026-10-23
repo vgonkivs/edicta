@@ -75,7 +75,8 @@ func SelfTest() error {
 
 const appModule = "github.com/celestiaorg/celestia-app/v10"
 
-// pinnedReplaces are the replace targets the vectors were produced under.
+// pinnedReplaces are the replace targets of the build that reproduces the
+// vectors.
 // A linked module with a replace must match this table; modules in
 // pinnedModules are additionally checked for version and sum.
 var pinnedReplaces = map[string]string{
