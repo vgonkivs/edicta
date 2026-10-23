@@ -14,6 +14,7 @@ import (
 	"github.com/celestiaorg/go-square/v4"
 	"github.com/celestiaorg/go-square/v4/share"
 	blobtx "github.com/celestiaorg/go-square/v4/tx"
+	"github.com/cometbft/cometbft/crypto/merkle"
 	cmtjson "github.com/cometbft/cometbft/libs/json"
 	core "github.com/cometbft/cometbft/types"
 	"github.com/stretchr/testify/assert"
@@ -176,8 +177,9 @@ func TestVerifyShareProofTamperedLive(t *testing.T) {
 }
 
 // The rows of a share proof are only valid for a block when they are rows of
-// the original square, counted from the first row the proof names. Validate
-// does not look at StartRow.
+// the original square, counted from the first row the proof names. The
+// verifier checks this itself: older celestia-core releases of ShareProof.Validate
+// do not look at StartRow, and the outcome must not depend on the linked one.
 func TestVerifyShareProofChecksTheRowPosition(t *testing.T) {
 	txs := [][]byte{bytes.Repeat([]byte{1}, 1300), bytes.Repeat([]byte{2}, 3000), bytes.Repeat([]byte{3}, 1300)}
 	p, root := proofOf(t, txs, 1)
@@ -198,9 +200,6 @@ func TestVerifyShareProofChecksTheRowPosition(t *testing.T) {
 			rp := m["row_proof"].(map[string]any)
 			rp["start_row"], rp["end_row"] = start+shift, end+shift
 		})
-		var sp core.ShareProof
-		require.NoError(t, cmtjson.Unmarshal(bad, &sp))
-		require.NoError(t, sp.Validate(root), "core's own validation still accepts the shifted position (shift %v)", shift)
 		assert.ErrorIs(t, railverify.VerifyShareProof(bad, txs[1], root), railverify.ErrTxProof, "shift %v", shift)
 	}
 	t.Run("rows swapped", func(t *testing.T) {
@@ -222,6 +221,67 @@ func TestVerifyShareProofChecksTheRowPosition(t *testing.T) {
 		})
 		assert.ErrorIs(t, railverify.VerifyShareProof(bad, txs[1], root), railverify.ErrTxProof)
 	})
+}
+
+// relocate moves the row proofs of p to rows at.. of a data root over total
+// leaves, whose other leaves are filler. Core's own validation accepts the
+// result, so a refusal comes from the verifier's own row checks.
+func relocate(t *testing.T, p json.RawMessage, total, at int) (json.RawMessage, []byte) {
+	t.Helper()
+	var sp core.ShareProof
+	require.NoError(t, cmtjson.Unmarshal(p, &sp))
+	leaves := make([][]byte, total)
+	for j := range leaves {
+		sum := sha256.Sum256([]byte{byte(j), byte(j >> 8)})
+		leaves[j] = sum[:]
+	}
+	for i, r := range sp.RowProof.RowRoots {
+		leaves[at+i] = r
+	}
+	root, proofs := merkle.ProofsFromByteSlices(leaves)
+	for i := range sp.RowProof.RowRoots {
+		sp.RowProof.Proofs[i] = proofs[at+i]
+	}
+	sp.RowProof.StartRow = uint32(at)
+	sp.RowProof.EndRow = uint32(at + len(sp.RowProof.RowRoots) - 1)
+	require.NoError(t, sp.Validate(root), "core's own validation accepts the relocated proof")
+	out, err := cmtjson.Marshal(sp)
+	require.NoError(t, err)
+	return out, root
+}
+
+// Core's validation binds each row proof to its claimed row and keeps it in
+// the row half of the data root, but a parity row or a data root that is not
+// over a square still passes it. The verifier refuses both itself.
+func TestVerifyShareProofRowChecksBeyondCore(t *testing.T) {
+	txs := [][]byte{bytes.Repeat([]byte{1}, 1300), bytes.Repeat([]byte{2}, 3000), bytes.Repeat([]byte{3}, 1300)}
+	p, _ := proofOf(t, txs, 1)
+	var sp core.ShareProof
+	require.NoError(t, cmtjson.Unmarshal(p, &sp))
+	total := int(sp.RowProof.Proofs[0].Total)
+	k := total / 4
+	start := int(sp.RowProof.StartRow)
+	require.Greater(t, len(sp.RowProof.RowRoots), 1, "the transaction spans rows")
+
+	moved, root := relocate(t, p, total, start)
+	require.NoError(t, railverify.VerifyShareProof(moved, txs[1], root), "the same rows over filler roots still verify")
+
+	for _, tc := range []struct {
+		name      string
+		total, at int
+		why       string
+	}{
+		{"parity rows", total, k + start, "not a row of the original square"},
+		{"a total that is not a multiple of four", total + 2, start, "total"},
+		{"a square side that is not a power of two", 3 * total, start, "total"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bad, root := relocate(t, p, tc.total, tc.at)
+			err := railverify.VerifyShareProof(bad, txs[1], root)
+			require.ErrorIs(t, err, railverify.ErrTxProof)
+			assert.ErrorContains(t, err, tc.why)
+		})
+	}
 }
 
 func TestVerifyShareProofOnGeneratedBlocks(t *testing.T) {

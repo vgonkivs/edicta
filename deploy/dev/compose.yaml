@@ -39,7 +39,7 @@ services:
   celestia-init:
     <<: *dev-root
     profiles: [dev]
-    image: ghcr.io/celestiaorg/celestia-app:v10.4.0-mocha@sha256:8c51312c9d86ad57643b3fb0af4ee25ac7fae30f89c5b0e5f74f72f68524d011
+    image: ghcr.io/celestiaorg/celestia-app:v10.4.0@sha256:d4330125c64132496e7ae41b42b92f163d72cd62372811a3f5676cbaf0fa9afb
     entrypoint: ["/bin/sh", "/scripts/celestia-init.sh"]
     volumes:
       - dev-home:/dev-home:ro
@@ -53,7 +53,7 @@ services:
   celestia:
     <<: *dev-root
     profiles: [dev]
-    image: ghcr.io/celestiaorg/celestia-app:v10.4.0-mocha@sha256:8c51312c9d86ad57643b3fb0af4ee25ac7fae30f89c5b0e5f74f72f68524d011
+    image: ghcr.io/celestiaorg/celestia-app:v10.4.0@sha256:d4330125c64132496e7ae41b42b92f163d72cd62372811a3f5676cbaf0fa9afb
     command: ["start", "--home", "/celestia-home", "--force-no-bbr"]
     volumes:
       - celestia-data:/celestia-home
@@ -71,7 +71,7 @@ services:
   celestia-bridge:
     <<: *dev-root
     profiles: [dev]
-    image: ghcr.io/celestiaorg/celestia-node:v0.34.2-mocha@sha256:d66a22770edaeb0bcadafa3e40b88ff86422d38f51eb07dd3e34566520ecdf2b
+    image: ghcr.io/celestiaorg/celestia-node:v0.34.3@sha256:384e7bbab1623e7162a8c1cc623ddc9d288822b5cd41f8ef03e60032d0214e1d
     entrypoint: ["/bin/bash", "/scripts/celestia-bridge.sh"]
     volumes:
       - bridge-data:/bridge-home

@@ -5,8 +5,9 @@ Edicta — verifiable decision layer for autonomous agents.
 Status: revision `v1.0` (2026-10-09), spec revision `v1.2` (2026-10-21,
 minor revision, section 0; provisional until the maintainer confirms it
 and creates the tag `spec-v1.2`; the previous minor revision is `v1.1` of
-2026-10-15, the last patch revision of `v1.0` is `v1.0.4`, and the security
-patch revisions `v1.0.5` and `v1.1.1` are pending). The wire format is
+2026-10-15, the last patch revision of `v1.0` is `v1.0.4`, the security
+patch revisions `v1.0.5` and `v1.1.1` are pending, and so is the
+clarification `v1.2.1` of 2026-10-23, the re-pin of section 10.1). The wire format is
 frozen. Wire version: `version = 1`. Text marked "since `v1.1`" binds `v1.1`
 and later implementations; text marked "since `v1.2`", section 18.4
 included, binds `v1.2` implementations; text marked "since `v1.0.5` and
@@ -195,6 +196,7 @@ INCONCLUSIVE.
 | `v1.1` | 2026-10-15 | Type `minor` (amendment above). (1) Presence trust up to `H`: for a pending reference whose evidence verifies at `h0 <= H <= D`, header trust needs to reach `H` only, not `D`; every other row of 20.6 still needs `max(D, H)`, and `D + 1` with an AB5 results proof (sections 10.6.2 HT1, 20.6, new 20.6.1). Outcome move: `anchor` `unchecked` `anchor_pending` to `pass` only. (2) The paid-anchor requirement stays (it withdraws the removal of CV8's code clause that `v1.0.2` announced for `v1.1`). Clarification only, no check outcome changes: "Inclusion proves publication; a VALID verdict additionally requires a paid anchor (`tx_code == 0`). Unpaid anchors are an operator funding failure, surfaced by the escrow alert." CV8 keeps its code clause; evidence key 12 keeps admitting only 0; `anchor_unpaid` stays `unchecked` for good, never `fail` (sections 1, 10.6.1, 10.6.3, 20.1.1, 20.6.1, 20.9). "Not part of the claim" in the frozen text means not part of the publication claim ("anchored"); the `valid` verdict needs CV8 as well (10.6.3). Superseded wording in frozen files, which keep their bytes: the `anchor_unpaid` meaning ("not confirmable by v1.0 verifiers") and advice ("a v1.1 verifier confirms inclusion without the code") of `verifier/reasons_v1.0.3.json`, and the quote "this requirement is removed in v1.1" in the E2 addendum of `spec/ERRATA.md`. No `v1.N` removes the requirement; the wording of `verifier/reasons_v1.1.json` replaces those strings for a `v1.1` verifier's text output. This is not an erratum: no frozen expectation is wrong, only an announcement that was withdrawn. (3) Archive kind 19 `execution_result`: one record per captured ordinary rail tx, key `(chain_id, rail_ref)`, with the headers at the execution height and the next one, complete proofs of the transaction namespaces, the result and its RFC 6962 path; the verifier's rules XR1 to XR8 (new 20.2.2) and its place among the execution sources (EX10); the migration of the gate's capture store, MG1 to MG7 (sections 19.1 to 19.4, 19.7, 20.3; bank-send profile 3.4). Outcome move: `execution` `unchecked` to `pass` or `fail` once nodes have pruned the block, where the archived record proves what an online source with proofs used to (amendment above); the migration drops a capture only when the archive holds an equivalent record (MG5). Kind 19 is read only under an `exec/` path; the general reader keeps the `v1.0` kind set, so the frozen rejects `rec_kind_19` and `kind_19_undefined` keep `ErrInvalidEnum` and need no `SUPERSEDED.json` entry (19.1 step 3). An archive answers a missing `exec/` key as absent; a fault there stops the verification (20.3). The gate's capture store may keep a done-index of moved references, never read by a verifier (19.7). (4) API codes `recorder.ErrAnchorRejected` (502, matched first) and `recorder.ErrClockSkew` (503, retryable) (sections 18.3, 21). Before, a server reported `recorder.ErrClockSkew` as 500 `edictaapi.ErrInternal` and `recorder.ErrAnchorRejected`, which wraps `ErrAnchorNotFound`, as 425 `ErrAnchorNotFound` (retryable). Gate checks, signed objects, tags and the invariants of section 1.1 are unchanged. | Frozen files byte-identical. New: `archive/execution_result_v1.1.json` (kind 19 records, rejects, XR cases, migration; built from synthetic blocks of the new tool `tools/execresult-gen`), `api/errors_v1.1.json` (the two codes, the merged match order), `v1/verify_v1.1.json` (presence with header trust in `[H, D)`, with the `v1.0` outcome of each case), `verifier/reasons_v1.1.json` (the `anchor_unpaid` wording that keeps the paid-anchor requirement; the reason, its checks and every outcome unchanged). |
 | `v1.0.5`, `v1.1.1` | 2026-10-21 | Type `security`, pending the maintainer's approval and the tags `spec-v1.0.5` and `spec-v1.1.1` (closes a path to a false `invalid`; amendment above). A verifier reads the `payload_ref` of a `da` its revision does not define (outside `{1, 2}`) as an opaque map (stage D checks its canonical form and its `da` entry, not D15 to D18 on its other keys; S2 applies to `da` only), the archive reader accepts such an envelope at 19.1 step 8 (writers may refuse it), an envelope-level defect outside the commitment with such a `da` is `source_corrupt`, and an envelope that hashes to the reference and whose first failure is then S3 on `payload_ref.da` is `envelope` `unchecked` with the new reason `unsupported_revision` (20.1, 20.1.1), not `fail`. The report prints the `da` value. Gates keep refusing at stage D or S3. Outcome move: `envelope` `fail` to `unchecked` only. The reason enum has 45 reasons. `spec/ERRATA.md` records the revision. | Frozen files byte-identical; no frozen case expects an envelope `fail` on S3 or inside an undefined `da`'s `payload_ref`, so nothing is superseded. New: `verifier/reasons_v1.0.5.json` (the reason, its cases, boundary cases and archive reader cases), `v1/unknown_da_v1.0.5.json` (the commitments they name). |
 | `v1.2` | 2026-10-21 | Type `minor` (amendment above; provisional). (1) JSON transport over the HTTP API (new section 18.4, rules JT1 to JT11): every route also accepts `application/json` as a transport for the same wrapper maps, signed and hashed objects travel as base64 of their exact CBOR bytes; `ErrMediaType` now answers every type other than CBOR and JSON (JT1). (2) Superseded cases of a minor revision go into `SUPERSEDED_<revision>.json`; `SUPERSEDED.json` is never edited (amendment above). Outcome move: for a request with `Content-Type: application/json`, 415 to the JSON path (a body that is not JSON is now 400 `ErrMalformed`). Gate checks, signed objects, archive records, tags, reasons and the invariants of section 1.1 are unchanged. | Frozen files byte-identical, `SUPERSEDED.json` included. New: `SUPERSEDED_v1.2.json` (`api/errors.json#publish_wrong_media_type`, type `minor`, replaced by `api/errors_v1.2.json#publish_wrong_media_type`), `api/errors_v1.2.json`, `api/json_v1.2.json`; generator `gen_v1_2.py`, checker `check_v1_2.py`, JSON rules module `json_transport.py`. |
+| `v1.2.1` | 2026-10-23 | Type `clarification`, pending the maintainer's confirmation and the tag `spec-v1.2.1`. E4 (`spec/ERRATA.md`): re-pin (section 10.1) to the releases celestia-app `v10.4.0` (the same commit as the earlier pin `v10.4.0-mocha`) and celestia-node `v0.34.3`, with the replace set of the node pin (celestia-core `v0.42.3`, cosmos-sdk `v0.52.12`, store `v1.1.3-celestia.3`, api `v0.7.7`); go-square `v4.0.1` and nmt `v0.24.5` unchanged; celestia-core gets its own row in the pin table. The items of section 23.2 and every fact the text cites from celestia-node and celestia-core were re-verified at the new commits; the upstream changes on read paths only refuse more (10.1). SC1 names the node version the nmt pin comes from; the bridge facts of 10.8 name the new node pin; the `UNVERIFIED` index (23) replaces the pre-release item by Fibre on mainnet. No check outcome, wire byte, tag or invariant changes; an implementation of an earlier revision built at the earlier pins stays conforming to its revision. | Frozen files byte-identical, manifest unchanged; every generator under `tools/` that links celestia-app reproduces its file under the new set (`fibre_commit.json`, `fibre_cert.json`, `fibre_anchor.json`, `absence.json`, `execution_result_v1.1.json`). The `upstream` fields of the frozen files keep naming the pins they were produced with. |
 
 Editorial note, no revision: the post-freeze rows of the first table and the
 revision scheme above were amended on 2026-10-10. The
@@ -1698,36 +1700,76 @@ W5.
 
 | Repo | Tag | Commit | Why |
 |---|---|---|---|
-| celestiaorg/celestia-app | `v10.4.0-mocha` | `5187d2fb5eb8bc4b534c74724882943c54253ae9` | Latest v10 tag on 2026-10-03; contains `x/fibre`, `fibre/`, `x/blob`. Same commit as `v10.4.0-corto`. |
-| celestiaorg/go-square | `v4.0.1` | `948e81207e45d7daa9b4c68a8a4931b9118eae9f` | Version required by the app pin's `go.mod`. Namespace and share commitment code. |
-| celestiaorg/celestia-node | `v0.34.2-mocha` | `cd6cd46f00a572a7010fecc7e0dacf8a456982d2` | Latest node tag; pruning windows; Fibre and blob client APIs. |
-| celestiaorg/nmt | `v0.24.5` | `a2ba47691cbda955ca24fb9fa97b2a12ceb2ff91` | The version the node pin resolves; NMT namespace proofs for the `da = 1` anchor lookup (section 10.4). SHA from the Go module proxy's origin record, 2026-10-06. |
+| celestiaorg/celestia-app | `v10.4.0` | `5187d2fb5eb8bc4b534c74724882943c54253ae9` | Release of 2026-10-07; contains `x/fibre`, `fibre/`, `x/blob`. Same commit as `v10.4.0-mocha` (the tag pinned up to `v1.2`) and `v10.4.0-corto`. |
+| celestiaorg/go-square | `v4.0.1` | `948e81207e45d7daa9b4c68a8a4931b9118eae9f` | Version required by the app pin's and the node pin's `go.mod`. Namespace and share commitment code. |
+| celestiaorg/celestia-node | `v0.34.3` | `7909f857dbbe35bb9fca75dc01fb6181997ad7f3` | Release of 2026-10-07; pruning windows; Fibre and blob client APIs. Up to `v1.2` the pin was `v0.34.2-mocha` (`cd6cd46f00a572a7010fecc7e0dacf8a456982d2`). |
+| celestiaorg/celestia-core | `v0.42.3` | `a5537d84a008d566abc503d2ea41e30f2301403d` | The replace target of `github.com/cometbft/cometbft` in both the app pin's and the node pin's `go.mod`: headers, commits, validator sets, `ShareProof`, the light client. Up to `v1.2` Edicta modules linked `v0.42.0` (`83b0f76b15258c1b3695db495b9148f849e63c6a`), the target of the node pin of that time. |
+| celestiaorg/nmt | `v0.24.5` | `a2ba47691cbda955ca24fb9fa97b2a12ceb2ff91` | The version the node pin resolves (as `v0.34.2-mocha` did); NMT namespace proofs for the `da = 1` anchor lookup (section 10.4). SHA from the Go module proxy's origin record, 2026-10-06. |
 
-The SHAs come from `git ls-remote` against GitHub on 2026-10-03; the tags are
-lightweight, so each SHA is the tagged commit. `UNVERIFIED`: the pins are a
-proposal pending confirmation.
+The SHAs come from `git ls-remote` against GitHub, on 2026-10-03 for the app,
+go-square and the earlier node pin and on 2026-10-23 for node `v0.34.3` and
+both celestia-core tags; the tags are lightweight, so each SHA is the tagged
+commit. `UNVERIFIED`: the pins are a proposal pending confirmation.
 
-`UNVERIFIED`: `v10` is a pre-release line. The latest non-pre-release app tag
-is `v9.0.8`, which has no `x/fibre`. Fibre exists on the Mocha and Corto
-testnets only. Mainnet parameters may differ.
+The app and node pins are releases, not pre-releases (GitHub release flags;
+up to `v1.2` both pins were testnet tags of the `v10` pre-release line).
+`UNVERIFIED`: whether Fibre (`x/fibre`) is active on Celestia mainnet, and
+with which parameters. The `da = 1` chain allowlist of SC3 (section 10.8)
+is unchanged by the re-pin; adding a chain stays an operator decision after
+checking that the pins and `fibre_commit.json` hold there.
 
-Note: `celestia-node v0.34.2-mocha` imports `celestia-app/v10 v10.1.0-mocha`
-(`fa5b523b7e3b2b83bd16bc072a45cbd3819fa369`). The files cited below for the
+Note: `celestia-node v0.34.3` requires `celestia-app/v10 v10.4.0`, the app
+pin itself. (`v0.34.2-mocha` required `v10.1.0-mocha`,
+`fa5b523b7e3b2b83bd16bc072a45cbd3819fa369`; the files cited below for the
 Fibre commitment, BlobID, params, protos, namespace validation and blob
-header are byte-identical between `v10.1.0-mocha` and `v10.4.0-mocha`.
+header are byte-identical between `v10.1.0-mocha` and `v10.4.0`.)
 
-Replace set: every Edicta module that imports
-celestia-app uses the replace directives of celestia-node `v0.34.2-mocha`
-verbatim. celestia-app `v10.4.0-mocha` itself pins newer forks (celestia-core
-`v0.42.3` instead of `v0.42.0`, cosmos-sdk `v0.52.12` instead of `v0.52.8`,
-store `v1.1.3-celestia.3`, api `v0.7.7`, an x/evidence fork). The Fibre
-vectors are identical under both sets (generator run, 2026-10-05); any
-runtime difference elsewhere is `UNVERIFIED`.
+Replace set: every Edicta module that imports celestia-app uses the replace
+directives of celestia-node `v0.34.3` verbatim. They agree with
+celestia-app `v10.4.0`'s own on every fork both name (celestia-core
+`v0.42.3`, cosmos-sdk `v0.52.12`, store `v1.1.3-celestia.3`, api `v0.7.7`,
+x/tx, x/upgrade, ibc-go, hyperlane-cosmos, ledger-cosmos-go, goleveldb and
+the `v0.34.x` tendermint fork). Only the app pins an x/evidence fork
+(`v0.1.2-celestia`: equivocation evidence for a deleted validator is
+ignored in `FinalizeBlock`); it is state-machine code of a running chain,
+which no check of this specification executes. Up to `v1.2` the replace set
+was the one of celestia-node `v0.34.2-mocha` (celestia-core `v0.42.0`,
+cosmos-sdk `v0.52.8`, store `v1.1.3-celestia.1`, api `v0.7.6`). The Fibre
+vectors are identical under both sets and under the app's (generator runs,
+2026-10-05 and 2026-10-23).
+
+Re-pin of 2026-10-23 (spec revision `v1.2.1`, type `clarification`).
+The items of section 23.2 hold: the app pin is the same commit and
+go-square the same version, so PC1 to PC5 are unchanged code. Every
+celestia-node file cited with the `NODE` prefix, and the node code named in
+sections 10.4, 10.6 and 10.8 (`shwap.NamespaceData` read, write and
+`Verify`, `blob.CommitmentProof`, `node.Info` and its permission,
+`fibre.Download`), is byte-identical between the two node pins, except the
+row decoder under `NamespaceData` read (below); so are the
+celestia-core files the text cites (`state/validation.go`,
+`state/execution.go`, `state/store.go`, `types/results.go`, `crypto/merkle`,
+`light/verifier.go`, the vote and sign-bytes code). The changes on read
+paths only refuse more: celestia-core `types.RowProof.Validate` now requires
+`index == start_row + i`, one `total` for all rows and `index < total / 2`
+(a row root, not a column root), and `ShareProof.Validate` sums the share
+ranges without overflow; `Commit.ValidateBasic` checks the `BlockID`;
+`ValidatorSetFromExistingValidators` refuses duplicate addresses; the light
+client's RPC wrapper binds a block, header or tx answer to the requested
+hash; the JSON-RPC client refuses a response body above 512 MiB.
+celestia-node refuses, while decoding row namespace data, range namespace
+data or a sample, an NMT proof of more than `2 * bits.Len(2 * 512) = 22`
+nodes (an honest proof in a row of the 512 x 512 bound has at most 20), and
+a JSON row whose side is unknown. Nothing the earlier pins refused is
+accepted, every vector reproduces byte for byte under the new set, and no
+check of this specification changes outcome. The `ShareProof` threat note
+of section 10.4 keeps its requirements: the new core check binds the row
+index but neither `total == 4k` nor an original row (`< k`), and the
+celestia-app `pkg/proof` copy that the note cites is unchanged.
 
 Sources below use these prefixes:
 `APP = https://github.com/celestiaorg/celestia-app/blob/5187d2fb5eb8bc4b534c74724882943c54253ae9`,
 `SQ = https://github.com/celestiaorg/go-square/blob/948e81207e45d7daa9b4c68a8a4931b9118eae9f`,
-`NODE = https://github.com/celestiaorg/celestia-node/blob/cd6cd46f00a572a7010fecc7e0dacf8a456982d2`.
+`NODE = https://github.com/celestiaorg/celestia-node/blob/7909f857dbbe35bb9fca75dc01fb6181997ad7f3` (the files cited are byte-identical at `cd6cd46f00a572a7010fecc7e0dacf8a456982d2`, the node pin up to `v1.2`).
 
 ### 10.2 Fact table
 
@@ -2509,7 +2551,7 @@ error, not a sentinel.
 
 | Check | Requirement |
 |---|---|
-| SC1 Build pin | The linked celestia-app module is exactly the pinned version (section 10.1, read from the build information). Also the linked nmt module: `v0.24.5`, the version celestia-node `v0.34.2-mocha` resolves (NA3 needs the completeness fix of `v0.24.3`). |
+| SC1 Build pin | The linked celestia-app module is exactly the pinned version (section 10.1, read from the build information). Also the linked nmt module: `v0.24.5`, the version celestia-node `v0.34.3` resolves, as `v0.34.2-mocha` did (NA3 needs the completeness fix of `v0.24.3`). |
 | SC2 Known answers | The `da = 1` committer reproduces the commitments of `fibre_commit.json` it embeds: at least `fibre_live_mocha_popsmin1`, `fibre_size_262139`, `fibre_size_262140` and one row size above 128. |
 | SC3 Chain | The node's chain id is in the configured `da = 1` chain allowlist, and the app version in the latest header is 10. The allowlist is configuration; its default, and the only value validated for v1, is `["mocha-5"]`. Adding a chain (for example Arabica or Corto) is an operator decision after checking that the pins and `fibre_commit.json` hold there. |
 | SC4 Parameters | x/fibre `Params` is readable and `shard_retention` is within the governance bounds (10 min to 168 h). |
@@ -2526,7 +2568,7 @@ any difference turns a silent divergence (accepting bytes the network never
 committed, rejecting every anchor) into a visible configuration error.
 
 Bridge fallback compatibility (normative). Facts at the
-pin (celestia-node `v0.34.2-mocha`, go-jsonrpc `v0.10.2`; VERIFIED in code,
+pin (celestia-node `v0.34.3`, unchanged from `v0.34.2-mocha`, go-jsonrpc `v0.10.2`; VERIFIED in code,
 not probed live): the only method that returns the node version is
 `node.Info`, tagged `perm:"admin"`; its `api_version` is set from build
 flags (UNVERIFIED: the exact string a release build of the pinned tag
@@ -5664,7 +5706,7 @@ moves.
 
 | Item | Section | How to settle |
 |---|---|---|
-| The pins are a proposal; app `v10` is a pre-release line; runtime differences between the two replace sets | 10.1 | confirm the pins |
+| The pins are a proposal; Fibre on Celestia mainnet (activation, parameters) | 10.1 | confirm the pins |
 | Exact usable maximum blob size of a PFB | 10.2 | read the square builder at the pin |
 | The square builder never lays out `PFF_NS` differently (NA4) as a protocol guarantee | 10.4 | read go-square at the pin |
 | The order of anchor candidates equals their order in `data.txs` | 10.4 | read square construction |

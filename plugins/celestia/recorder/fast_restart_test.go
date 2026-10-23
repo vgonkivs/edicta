@@ -32,10 +32,7 @@ func TestFastBlobRestartKeepsTheSequenceOfAnArchivedLiveIntent(t *testing.T) {
 	r := f.rec()
 	_, err = r.Publish(bg, []byte("blob B"))
 	require.NoError(t, err)
-	sent := f.node.sends()
-	last := innerTx(sent[len(sent)-1])
-	require.NotEqual(t, a, last)
-	assert.EqualValues(t, 4, txSequence(t, last), "B must not take the sequence of A, whose reference was returned")
+	assert.EqualValues(t, 4, f.sentSeq([]byte("blob B")), "B must not take the sequence of A, whose reference was returned")
 
 	h := genesis + 1
 	f.ch.AddHeader(blockAt(h))
@@ -89,8 +86,8 @@ func TestFastBlobRefusalFloorOutlivesTheNextIntent(t *testing.T) {
 
 	_, err = r.Publish(bg, []byte("blob C"))
 	require.NoError(t, err)
+	assert.EqualValues(t, 10, f.sentSeq([]byte("blob C")), "C is never signed at the sequence of B")
 	sent = f.node.sends()
-	assert.EqualValues(t, 10, txSequence(t, innerTx(sent[len(sent)-1])), "C is never signed at the sequence of B")
 
 	n := len(sent)
 	assert.Eventually(t, func() bool {

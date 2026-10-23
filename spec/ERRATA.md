@@ -248,3 +248,84 @@ the bound: every case of `v1/verify.json` and `v1/verify_v1.0.3.json` whose
 `anchor` is `pass` has `trusted_head` 4200127 with `anchor_deadline`
 4200126; the cases with `trusted_head` below `D` (or below `D + 1` with a
 results proof) expect `unchecked` `anchor_pending`. No erratum is needed.
+
+## E4. Re-pin to the celestia-app and celestia-node releases
+
+- Type: clarification. Spec revision `v1.2.1`, tag `spec-v1.2.1` (the
+  maintainer creates it); pending the maintainer's confirmation.
+- Date: 2026-10-23.
+- Basis: section 23.2 (frozen since `v1.0.2`) lets a pin move once its
+  items are re-verified at the new commit; only an item that no longer
+  holds is a spec change. All hold, so the move is recorded, not decided
+  as a rule change. The `UNVERIFIED` pre-release item of 10.1 is settled.
+- Files: `spec/decision-commitment-v1.md` sections 0 (status line,
+  changelog row), 10.1 (pin table, notes, `NODE` prefix), 10.8 (SC1 nmt
+  sentence, bridge facts sentence) and 23 (index row). No vector file
+  changes; the manifest is unchanged.
+
+| Pin | Before (up to `v1.2`) | After |
+|---|---|---|
+| celestia-app | `v10.4.0-mocha`, `5187d2f` | `v10.4.0`, `5187d2f` (same commit, a release) |
+| celestia-node | `v0.34.2-mocha`, `cd6cd46` | `v0.34.3`, `7909f85` (a release) |
+| celestia-core (replace of cometbft) | `v0.42.0`, `83b0f76` (node pin's set) | `v0.42.3`, `a5537d8` (node and app agree) |
+| cosmos-sdk fork, store, api | `v0.52.8`, `v1.1.3-celestia.1`, `v0.7.6` | `v0.52.12`, `v1.1.3-celestia.3`, `v0.7.7` |
+| go-square, nmt | `v4.0.1`, `v0.24.5` | unchanged |
+
+Scope check. No wire byte, hash, domain tag, limit, archive layout,
+invariant or check outcome changes. SC1 keeps its rule (the linked app is
+exactly the pinned version); only the value it refers to moves, and the
+new value is the same commit. An implementation of `v1.2` or earlier built
+at `v10.4.0-mocha` stays conforming to its revision.
+
+Re-verification (2026-10-23, code read from the Go module cache):
+
+- PC1 to PC5 (section 23.2): app commit and go-square version unchanged,
+  so the code they cite is unchanged.
+- celestia-node: every file cited under `NODE` is byte-identical between
+  the two pins (`nodebuilder/blob/blob.go`, `nodebuilder/fibre/fibre.go`,
+  `nodebuilder/fibre/types.go`, `nodebuilder/pruner/module.go`,
+  `share/availability/window.go`), as are `blob/`, `nodebuilder/node/`
+  (`node.Info` stays `perm:"admin"`) and `share/shwap/namespace_data.go`.
+  Changes on read paths: `share/shwap/row_namespace_data.go`,
+  `range_namespace_data.go` and `sample.go` refuse an NMT proof of more
+  than 22 nodes when decoding; `row.go` refuses an unknown JSON row side
+  instead of panicking. go-jsonrpc stays `v0.10.2`, nmt `v0.24.5`.
+- celestia-core `v0.42.0` to `v0.42.3`: `types/row_proof.go` (index bound
+  to `start_row + i`, one total, row-root half), `types/share_proof.go`
+  (overflow-safe share count, nil proofs), `types/block.go`
+  (`Commit.ValidateBasic` checks the `BlockID`), `types/validator_set.go`
+  (duplicate addresses refused when rebuilding a set),
+  `light/rpc/client.go` (answers bound to the requested hash),
+  `rpc/jsonrpc/client` (512 MiB response cap); the rest is node, mempool,
+  privval, indexer and config code. The files the text cites are
+  byte-identical: `state/validation.go`, `state/execution.go`,
+  `state/store.go`, `types/results.go`, `crypto/merkle`,
+  `light/verifier.go`, `types/vote.go`, `types/canonical.go`,
+  `types/priv_validator.go`.
+- Every change above only refuses more. Honest inputs stay inside the new
+  bounds: a namespace proof in a row of the 512 x 512 bound has at most 20
+  nodes; a share proof built from a square binds its row indices.
+
+Sweep (whole class). Mentions of the earlier pins elsewhere in the core
+text are dated statements of what was verified at that pin (10.4
+determinism and nmt rows, 10.6.1 CV7 note, rule W5 facts list, 23.1 tail
+rule) and stay true; the facts they name were re-checked above. The
+bank-send profile (own version) cites celestia-core `v0.42.0` and
+`v0.42.3` for the result hashing (byte-identical) and celestia-app
+`v10.4.0-mocha` (same commit as `v10.4.0`); it is unchanged. The frozen
+vector files keep their `upstream` fields, which name the pins they were
+produced with.
+
+Vector check. Run under the new set (celestia-app `v10.4.0`, celestia-node
+`v0.34.3`, the node's replace set): `fibrecommit-gen`, `fibrecert-gen`,
+`fibreanchor-gen`, `absence-gen` and `execresult-gen` in `-check` mode all
+reproduce their files; the Python checkers pass; `MANIFEST.sha256` passes.
+The generators in `tools/` keep the set they were run with when the files
+were written. The da = 1 committer's known answers (SC2) pass under the new
+build pins.
+
+Prevention. The re-pin checklist of section 23.2 was the guard; the build
+pin check (SC1) refuses a build whose app module is not the pinned
+version; the reference implementation's Fibre committer also refuses a
+build whose replace set differs from the pinned one, so no build mixes the
+two sets unnoticed.

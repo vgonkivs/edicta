@@ -1,7 +1,6 @@
 package recorder_test
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"testing"
@@ -44,10 +43,7 @@ func TestFastBlobNextIntentSkipsTheSequenceOfALiveIntent(t *testing.T) {
 
 			_, err := r.Publish(bg, []byte("blob B"))
 			require.NoError(t, err)
-			sent := f.node.sends()
-			last := innerTx(sent[len(sent)-1])
-			require.False(t, bytes.Equal(last, f.intent(genesis).Tx))
-			assert.EqualValues(t, 4, txSequence(t, last), "B must not reuse A's sequence while A is live")
+			assert.EqualValues(t, 4, f.sentSeq([]byte("blob B")), "B must not reuse A's sequence while A is live")
 		})
 	}
 }

@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased
+
+No v1 wire byte, archive record, domain tag, core test vector or gate check
+changed.
+
+- Celestia mainnet releases: the Celestia modules build against
+  celestia-node v0.34.3, celestia-app v10.4.0 and celestia-core v0.42.3
+  (with cosmos-sdk v0.52.12) instead of the testnet tags. celestia-app
+  v10.4.0 is the commit the Fibre commitment vectors were generated at, and
+  they reproduce byte for byte; the Fibre build check pins the new set. The
+  new releases only refuse more on the read paths Edicta uses, and the
+  share proof verifier keeps its own row checks. Spec revision v1.2.1
+  (clarification E4) records the new pins. The dev network runs the
+  release images, pinned by digest.
+- Eden escrow profile drafts 10 and 11:
+  - The signer broadcasts a deposit directly to the chain's Eden RPC by
+    default. The payment server's relay is an explicit fallback
+    (`broadcaster = "houston-relay"`); `relay_url` alone is refused. A
+    relay deprecation marker is logged once.
+  - One payer key per agent per chain: `[[chain.payer]]` entries
+    (`agent_pubkey`, `key_file`, `address`) replace `payer_key_file` and
+    `payer_address`, which are refused by name at start, as are a served
+    agent without a payer on a chain and a key or address shared by two
+    agents or chains.
+  - Client relay handoff: after the paid retry is refused twice in a
+    recognised way, the client hands the stored signed deposit once to its
+    payment server's relay and retries with the same Payment-Signature.
+    Nothing is signed again; the relay's answer is never evidence. Go:
+    `POST /v1/paid-retry` on `edicta agent serve` (`--payment-server`,
+    `--pickup-delay`); TypeScript: `paidRetryWithHandoff`.
+  - `edicta agent serve` and `edicta commit --state-dir` hold an exclusive
+    lock on the state directory; a second process is refused (busy,
+    retryable).
+  - Recorded Eden mainnet payments are profile inputs, with a vector file
+    derived from them.
+  - The example signer configuration bounds the refund delay at one week
+    (`max_refund_delay_s = 604800`), since payment server quotes carry about
+    604500 s.
+- Operator guidance: the payer key is a hot key; keep each payer wallet to
+  a small working float and top it up.
+
 ## v1.2.0 (2026-10-23, spec revision v1.1)
 
 A code layout and command line release. No wire byte, archive record, domain

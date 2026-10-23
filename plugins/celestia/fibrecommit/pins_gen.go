@@ -3,7 +3,7 @@
 package fibrecommit
 
 var pinnedModules = []pinnedModule{
-	{path: "github.com/celestiaorg/celestia-app/v10", version: "v10.4.0-mocha", sum: "h1:l9FzxWI3Gfn9RfKMwpaZUE07g0NCvK3Y2RkNJdKp2Ds=", replacePath: ""},
-	{path: "github.com/cometbft/cometbft", version: "v0.42.0", sum: "h1:lXRYTaUxv/vCRGNsS2Z+WnlGy/zBW7P11MlFISAz+0U=", replacePath: "github.com/celestiaorg/celestia-core"},
+	{path: "github.com/celestiaorg/celestia-app/v10", version: "v10.4.0", sum: "h1:jfFFC7fpBgqsCPEcJjfnfqG3j4ooi0UCNRNIuhx3okI=", replacePath: ""},
+	{path: "github.com/cometbft/cometbft", version: "v0.42.3", sum: "h1:kdXKlSiEqEWl87EyxNB9ryx1aQJq/8RyBdgfYy2rdYM=", replacePath: "github.com/celestiaorg/celestia-core"},
 	{path: "github.com/klauspost/reedsolomon", version: "v1.14.2", sum: "h1:SafJYwpBBQBI6amHUygcjxZjXeN2HpiENHQDwuPWCCQ=", replacePath: ""},
 }
