@@ -26,7 +26,7 @@ import (
 // other transaction: an error status, a timeout, an oversized or unreadable
 // answer, or a hash other than the rail_ref. The caller then sends the same
 // bytes directly. A success is not evidence either.
-var ErrRelayFault = errors.New("signer/eden: relay fault")
+var ErrRelayFault = errors.New("edenrelay: relay fault")
 
 // ErrNotSent marks a relay fault where the request was never completely
 // written to the connection: the payment server cannot have read the
@@ -66,13 +66,13 @@ func (c HoustonConfig) ValidateBasic() error {
 	u, err := url.Parse(c.BaseURL)
 	switch {
 	case err != nil:
-		return errors.New("signer/eden: relay URL does not parse")
+		return errors.New("edenrelay: relay URL does not parse")
 	case u.Scheme != "https":
-		return fmt.Errorf("signer/eden: relay URL %q is not https: the signed deposit would travel in clear", c.BaseURL)
+		return fmt.Errorf("edenrelay: relay URL %q is not https: the signed deposit would travel in clear", c.BaseURL)
 	case u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "":
-		return fmt.Errorf("signer/eden: relay URL %q must be https://host[/path] only", c.BaseURL)
+		return fmt.Errorf("edenrelay: relay URL %q must be https://host[/path] only", c.BaseURL)
 	case c.Timeout <= 0 || c.Timeout > MaxServerTimeout:
-		return fmt.Errorf("signer/eden: relay timeout %v is not in (0, %v]", c.Timeout, MaxServerTimeout)
+		return fmt.Errorf("edenrelay: relay timeout %v is not in (0, %v]", c.Timeout, MaxServerTimeout)
 	}
 	return nil
 }
@@ -176,7 +176,7 @@ func (r *HoustonRelay) Send(ctx context.Context, signed []byte, railRef string, 
 		return fmt.Errorf("%w: answer above %d bytes", ErrRelayFault, MaxRelayAnswer)
 	}
 	if Deprecated(resp.Header, answer) && deprecationLogged.CompareAndSwap(false, true) {
-		r.log.Warn("signer/eden: the payment server marks its relay deprecated; direct broadcast is the default",
+		r.log.Warn("edenrelay: the payment server marks its relay deprecated",
 			"endpoint", r.endpoint)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
