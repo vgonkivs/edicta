@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/api/signerapi"
 	"github.com/vgonkivs/edicta/services/signer"
 )
 
@@ -76,11 +77,11 @@ func TestHTTPStatus(t *testing.T) {
 		require.NoError(t, err)
 		return resp.StatusCode, b
 	}
-	path := signer.RouteStatusPrefix + hex.EncodeToString(d.Hash[:])
+	path := signerapi.RouteStatusPrefix + hex.EncodeToString(d.Hash[:])
 
 	status, b := get(agentToken, path)
 	require.Equal(t, http.StatusOK, status, string(b))
-	st, err := signer.DecodeStatusResponse(b)
+	st, err := signerapi.DecodeStatusResponse(b)
 	require.NoError(t, err)
 	assert.Equal(t, signer.StateRecorded, st.State)
 	assert.Equal(t, out.Signed, st.Signed)
@@ -88,14 +89,14 @@ func TestHTTPStatus(t *testing.T) {
 
 	status, other := get(otherToken, path)
 	assert.Equal(t, http.StatusNotFound, status)
-	status, missing := get(otherToken, signer.RouteStatusPrefix+hex.EncodeToString(make([]byte, 32)))
+	status, missing := get(otherToken, signerapi.RouteStatusPrefix+hex.EncodeToString(make([]byte, 32)))
 	assert.Equal(t, http.StatusNotFound, status)
 	assert.Equal(t, string(other), string(missing), "another agent's decision reads like an unknown one")
 
 	status, _ = get("not-a-token-0123456789", path)
 	assert.Equal(t, http.StatusUnauthorized, status)
 	for _, bad := range []string{"zz", hex.EncodeToString(make([]byte, 31)), "", "x", hex.EncodeToString(d.Hash[:])[:63] + "G"} {
-		status, _ = get(agentToken, signer.RouteStatusPrefix+bad)
+		status, _ = get(agentToken, signerapi.RouteStatusPrefix+bad)
 		assert.Equal(t, http.StatusNotFound, status, bad)
 	}
 

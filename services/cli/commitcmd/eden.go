@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgonkivs/edicta/api/signerapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
-	"github.com/vgonkivs/edicta/services/signer"
 )
 
 // PaymentField is the Payment-Signature field `edicta commit` asks for. It is
@@ -315,7 +315,7 @@ const routeAbsent = "edictaapi.ErrRouteNotFound"
 
 // unknownDecision is the code of a hash the signer holds nothing for (or does
 // not show to this credential).
-const unknownDecision = "signer.ErrUnknownDecision"
+const unknownDecision = signerapi.CodeUnknownDecision
 
 func signerCode(err error) string {
 	var se *SignerError
@@ -407,7 +407,7 @@ func (s *Service) settle(ctx context.Context, req Request, r *run, resp *Respons
 				Message: "the quote's expiresAt is after the Authorization's expiry: commit again with a longer valid_for"})
 		}
 		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), signTimeout)
-		out, err := s.Signer.Sign(sctx, signer.Request{
+		out, err := s.Signer.Sign(sctx, signerapi.Request{
 			Envelope: r.st.Envelope, Action: r.st.Action, Salt: r.st.Salt, Authorization: r.st.Authorization, Requirements: r.rr,
 		})
 		cancel()
@@ -452,7 +452,7 @@ func (s *Service) settle(ctx context.Context, req Request, r *run, resp *Respons
 			return err
 		}
 		if !absent {
-			resp.Settled, resp.Recorded = true, st.State == signer.StateRecorded
+			resp.Settled, resp.Recorded = true, st.State == signerapi.StateRecorded
 			if resp.Recorded {
 				resp.Receipt = st.Receipt
 			}
@@ -551,8 +551,8 @@ func (s *Service) poll(ctx context.Context, r *run, wait time.Duration, step fun
 
 // awaitSettled follows the decision through the signer's status route until
 // the deposit executed. absent is set when the signer has no such route.
-func (s *Service) awaitSettled(ctx context.Context, r *run, wait time.Duration) (signer.Status, bool, error) {
-	var out signer.Status
+func (s *Service) awaitSettled(ctx context.Context, r *run, wait time.Duration) (signerapi.Status, bool, error) {
+	var out signerapi.Status
 	absent := false
 	err := s.poll(ctx, r, wait, func(c context.Context) error {
 		st, err := s.Signer.Status(c, r.hash)
@@ -570,28 +570,28 @@ func (s *Service) awaitSettled(ctx context.Context, r *run, wait time.Duration) 
 			return final{&Failure{Exit: ExitRefused, Code: "signer_response_invalid", Message: "the signer's signed transaction differs from the stored one"}}
 		}
 		switch st.State {
-		case signer.StateExecuted, signer.StateRecorded:
+		case signerapi.StateExecuted, signerapi.StateRecorded:
 			out = st
 			return nil
-		case signer.StateReverted:
+		case signerapi.StateReverted:
 			return final{&Failure{Exit: ExitRefused, Code: "deposit_reverted", Message: "the deposit was included and reverted"}}
-		case signer.StateNotExecuted:
+		case signerapi.StateNotExecuted:
 			return final{&Failure{Exit: ExitRefused, Code: "deposit_not_executed", Message: "the deposit was not executed before its deadline: " + st.Detail}}
-		case signer.StateWrong:
+		case signerapi.StateWrong:
 			return final{&Failure{Exit: ExitRefused, Code: "settlement_wrong", Message: "the signer needs its operator: " + st.Detail}}
 		}
-		return &SignerError{Status: 409, Code: "signer.ErrNotExecuted", Message: "state " + string(st.State), Retryable: true}
+		return &SignerError{Status: 409, Code: signerapi.CodeNotExecuted, Message: "state " + string(st.State), Retryable: true}
 	})
 	return out, absent, err
 }
 
 // awaitProof asks for the payment proof until the signer releases it, which
 // it does only once the deposit executed at its configured level.
-func (s *Service) awaitProof(ctx context.Context, r *run, wait time.Duration) (signer.PaymentProof, error) {
-	req := signer.PaymentProofRequest{CommitmentHash: r.hash, Field: PaymentField, Request: signer.Request{
+func (s *Service) awaitProof(ctx context.Context, r *run, wait time.Duration) (signerapi.PaymentProof, error) {
+	req := signerapi.PaymentProofRequest{CommitmentHash: r.hash, Field: PaymentField, Request: signerapi.Request{
 		Envelope: r.st.Envelope, Action: r.st.Action, Salt: r.st.Salt, Authorization: r.st.Authorization, Requirements: r.rr,
 	}}
-	var proof signer.PaymentProof
+	var proof signerapi.PaymentProof
 	err := s.poll(ctx, r, wait, func(c context.Context) error {
 		p, err := s.Signer.PaymentSignature(c, req)
 		proof = p

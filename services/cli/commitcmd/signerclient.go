@@ -16,20 +16,20 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
+	"github.com/vgonkivs/edicta/api/signerapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/internal/secret"
-	"github.com/vgonkivs/edicta/services/signer"
 )
 
 // Signer is the agent's view of edicta-signer: the two routes `edicta commit`
 // uses. The signer, not this program, holds the wallet key and sends the
 // transaction.
 type Signer interface {
-	Sign(ctx context.Context, req signer.Request) (signer.Output, error)
-	PaymentSignature(ctx context.Context, req signer.PaymentProofRequest) (signer.PaymentProof, error)
+	Sign(ctx context.Context, req signerapi.Request) (signerapi.Output, error)
+	PaymentSignature(ctx context.Context, req signerapi.PaymentProofRequest) (signerapi.PaymentProof, error)
 	// Status shows the caller's own decision. A signer without the route
 	// answers a SignerError with the route-not-found code.
-	Status(ctx context.Context, h commitment.Hash) (signer.Status, error)
+	Status(ctx context.Context, h commitment.Hash) (signerapi.Status, error)
 }
 
 // SignerError is a refusal or failure the signer answered with.
@@ -94,40 +94,40 @@ func loopbackHost(host string) bool {
 }
 
 // Sign calls POST /v1/sign.
-func (c *SignerClient) Sign(ctx context.Context, req signer.Request) (signer.Output, error) {
-	body, err := c.post(ctx, signer.RouteSign, signer.EncodeSignRequest(req))
+func (c *SignerClient) Sign(ctx context.Context, req signerapi.Request) (signerapi.Output, error) {
+	body, err := c.post(ctx, signerapi.RouteSign, signerapi.EncodeSignRequest(req))
 	if err != nil {
-		return signer.Output{}, err
+		return signerapi.Output{}, err
 	}
-	out, err := signer.DecodeSignResponse(body)
+	out, err := signerapi.DecodeSignResponse(body)
 	if err != nil {
-		return signer.Output{}, fmt.Errorf("commitcmd: signer sign response: %w", err)
+		return signerapi.Output{}, fmt.Errorf("commitcmd: signer sign response: %w", err)
 	}
 	return out, nil
 }
 
 // PaymentSignature calls POST /v1/payment-signature.
-func (c *SignerClient) PaymentSignature(ctx context.Context, req signer.PaymentProofRequest) (signer.PaymentProof, error) {
-	body, err := c.post(ctx, signer.RoutePaymentSignature, signer.EncodePaymentRequest(req))
+func (c *SignerClient) PaymentSignature(ctx context.Context, req signerapi.PaymentProofRequest) (signerapi.PaymentProof, error) {
+	body, err := c.post(ctx, signerapi.RoutePaymentSignature, signerapi.EncodePaymentRequest(req))
 	if err != nil {
-		return signer.PaymentProof{}, err
+		return signerapi.PaymentProof{}, err
 	}
-	out, err := signer.DecodePaymentResponse(body)
+	out, err := signerapi.DecodePaymentResponse(body)
 	if err != nil {
-		return signer.PaymentProof{}, fmt.Errorf("commitcmd: signer payment-signature response: %w", err)
+		return signerapi.PaymentProof{}, fmt.Errorf("commitcmd: signer payment-signature response: %w", err)
 	}
 	return out, nil
 }
 
 // Status calls GET /v1/status/{hash}.
-func (c *SignerClient) Status(ctx context.Context, h commitment.Hash) (signer.Status, error) {
-	body, err := c.do(ctx, http.MethodGet, signer.RouteStatusPrefix+hex.EncodeToString(h[:]), nil)
+func (c *SignerClient) Status(ctx context.Context, h commitment.Hash) (signerapi.Status, error) {
+	body, err := c.do(ctx, http.MethodGet, signerapi.RouteStatusPrefix+hex.EncodeToString(h[:]), nil)
 	if err != nil {
-		return signer.Status{}, err
+		return signerapi.Status{}, err
 	}
-	st, err := signer.DecodeStatusResponse(body)
+	st, err := signerapi.DecodeStatusResponse(body)
 	if err != nil {
-		return signer.Status{}, fmt.Errorf("commitcmd: signer status response: %w", err)
+		return signerapi.Status{}, fmt.Errorf("commitcmd: signer status response: %w", err)
 	}
 	return st, nil
 }

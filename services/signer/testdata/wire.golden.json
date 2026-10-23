@@ -1,0 +1,1599 @@
+[
+  {
+    "name": "codec/sign-request",
+    "cbor_hex": "a40143010101024402020202035820030303030303030303030303030303030303030303030303030303030303030304450404040404",
+    "json": "{\"envelope\":\"AQEB\",\"action\":\"AgICAg==\",\"action_salt\":\"AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=\",\"signed_authorization\":\"BAQEBAQ=\"}"
+  },
+  {
+    "name": "codec/sign-request-requirements",
+    "cbor_hex": "a5014301010102440202020203582003030303030303030303030303030303030303030303030303030303030303030445040404040405517b227834303256657273696f6e223a327d",
+    "json": "{\"envelope\":\"AQEB\",\"action\":\"AgICAg==\",\"action_salt\":\"AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=\",\"signed_authorization\":\"BAQEBAQ=\",\"payment_required\":\"eyJ4NDAyVmVyc2lvbiI6Mn0=\"}"
+  },
+  {
+    "name": "codec/payment-request",
+    "cbor_hex": "a6015820050505050505050505050505050505050505050505050505050505050505050502697061796d656e7449640343010101044402020202055820030303030303030303030303030303030303030303030303030303030303030306450404040404",
+    "json": "{\"commitment_hash\":\"BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU=\",\"field\":\"paymentId\",\"envelope\":\"AQEB\",\"action\":\"AgICAg==\",\"action_salt\":\"AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=\",\"signed_authorization\":\"BAQEBAQ=\"}"
+  },
+  {
+    "name": "codec/payment-request-requirements",
+    "cbor_hex": "a7015820050505050505050505050505050505050505050505050505050505050505050502697061796d656e744964034301010104440202020205582003030303030303030303030303030303030303030303030303030303030303030645040404040407517b227834303256657273696f6e223a327d",
+    "json": "{\"commitment_hash\":\"BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU=\",\"field\":\"paymentId\",\"envelope\":\"AQEB\",\"action\":\"AgICAg==\",\"action_salt\":\"AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=\",\"signed_authorization\":\"BAQEBAQ=\",\"payment_required\":\"eyJ4NDAyVmVyc2lvbiI6Mn0=\"}"
+  },
+  {
+    "name": "codec/sign-response-repeat-false",
+    "cbor_hex": "a4014706060606060606026930787261696c72656603582005050505050505050505050505050505050505050505050505050505050505050400",
+    "json": "{\"signed_tx\":\"BgYGBgYGBg==\",\"rail_ref\":\"0xrailref\",\"commitment_hash\":\"BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU=\",\"repeat\":0}"
+  },
+  {
+    "name": "codec/sign-response-repeat-true",
+    "cbor_hex": "a4014706060606060606026930787261696c72656603582005050505050505050505050505050505050505050505050505050505050505050401",
+    "json": "{\"signed_tx\":\"BgYGBgYGBg==\",\"rail_ref\":\"0xrailref\",\"commitment_hash\":\"BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU=\",\"repeat\":1}"
+  },
+  {
+    "name": "codec/payment-response",
+    "cbor_hex": "a30167307870726f6f6602582007070707070707070707070707070707070707070707070707070707070707070301",
+    "json": "{\"signature\":\"0xproof\",\"message\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\",\"repeat\":1}"
+  },
+  {
+    "name": "codec/status-response-full",
+    "cbor_hex": "a901687265636f7264656402582005050505050505050505050505050505050505050505050505050505050505050301046930787261696c72656605470606060606060606686578656375746564076664657461696c08010949080808080808080808",
+    "json": "{\"state\":\"recorded\",\"commitment_hash\":\"BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU=\",\"sent\":1,\"rail_ref\":\"0xrailref\",\"signed_tx\":\"BgYGBgYGBg==\",\"outcome\":\"executed\",\"detail\":\"detail\",\"payment_proof_allowed\":1,\"receipt\":\"CAgICAgICAgI\"}"
+  },
+  {
+    "name": "codec/status-response-minimal",
+    "cbor_hex": "a401687265736572766564025820050505050505050505050505050505050505050505050505050505050505050503000800",
+    "json": "{\"state\":\"reserved\",\"commitment_hash\":\"BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU=\",\"sent\":0,\"payment_proof_allowed\":0}"
+  },
+  {
+    "name": "codec/requeue-request",
+    "cbor_hex": "a10158200505050505050505050505050505050505050505050505050505050505050505",
+    "json": "{\"commitment_hash\":\"BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU=\"}"
+  },
+  {
+    "name": "codec/requeue-response",
+    "cbor_hex": "a101667369676e6564",
+    "json": "{\"state\":\"signed\"}"
+  },
+  {
+    "name": "codec/health-response",
+    "cbor_hex": "a101626f6b",
+    "json": "{\"status\":\"ok\"}"
+  },
+  {
+    "name": "constants",
+    "json": "{\"limits\":[16384,84432,84512],\"routes\":[\"/v1/sign\",\"/v1/health\",\"/v1/admin/requeue\",\"/v1/payment-signature\",\"/v1/status/\"],\"states\":[\"reserved\",\"signed\",\"executed\",\"reverted\",\"recorded\",\"not_executed\",\"wrong\"]}"
+  },
+  {
+    "name": "http/flow/status-before/cbor",
+    "status": 404,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178197369676e65722e457272556e6b6e6f776e4465636973696f6e0278187369676e65723a20756e6b6e6f776e206465636973696f6e0300"
+  },
+  {
+    "name": "http/flow/status-before/json",
+    "status": 404,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrUnknownDecision\",\"message\":\"signer: unknown decision\",\"retryable\":0}"
+  },
+  {
+    "name": "http/flow/sign/cbor",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a40159013702f901338202ca07018208fb83030d409465d77c98e73dfbea91ecb72b27c9753e186a94c8873972f538a8081db8c4b707d860040ffd5925d40e11c67b7238a7fc9957850b8b9a46e9729fab88c24d6a98aff20000000000000000000000009a700000000000000000000000000000000000000000000000000000000000005e12882e55e356765175a732c2fdd16aa6a753b3000000000000000000000000000000000000000000000000000000006b49d32c000000000000000000000000000000000000000000000000000000006b49e13c000000000000000000000000000000000000000000000000000000000000002ac001a0a27d5d1280d9ef76fb619cbf39fbe017b8d0a221a2666160fde383eded80be57a06eb82d3cd20e72bde9d7a6f4d24dc903366c9245b2496578463d2ab38d4e819702784034326366626463326231346364346533636636643931663261386333663965376563383837383565303534383366323662383238643665376638386362343564035820291ae518a396c1d5a72543a95df899c5ba03d2fc968a3b1d4abc5c69ec1886c40400"
+  },
+  {
+    "name": "http/flow/sign/json",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"signed_tx\":\"AvkBM4ICygcBggj7gwMNQJRl13yY5z376pHstysnyXU+GGqUyIc5cvU4qAgduMS3B9hgBA/9WSXUDhHGe3I4p/yZV4ULi5pG6XKfq4jCTWqYr/IAAAAAAAAAAAAAAACacAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAF4SiC5V41Z2UXWnMsL90Wqmp1OzAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGtJ0ywAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAa0nhPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAqwAGgon1dEoDZ73b7YZy/OfvgF7jQoiGiZmFg/eOD7e2AvlegbrgtPNIOcr3p16b00k3JAzZskkWySWV4Rj0qs41OgZc=\",\"rail_ref\":\"42cfbdc2b14cd4e3cf6d91f2a8c3f9e7ec88785e05483f26b828d6e7f88cb45d\",\"commitment_hash\":\"KRrlGKOWwdWnJUOpXfiZxboD0vyWijsdSrxcaewYhsQ=\",\"repeat\":1}"
+  },
+  {
+    "name": "http/flow/status-signed/cbor",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a601667369676e6564025820291ae518a396c1d5a72543a95df899c5ba03d2fc968a3b1d4abc5c69ec1886c40301047840343263666264633262313463643465336366366439316632613863336639653765633838373835653035343833663236623832386436653766383863623435640559013702f901338202ca07018208fb83030d409465d77c98e73dfbea91ecb72b27c9753e186a94c8873972f538a8081db8c4b707d860040ffd5925d40e11c67b7238a7fc9957850b8b9a46e9729fab88c24d6a98aff20000000000000000000000009a700000000000000000000000000000000000000000000000000000000000005e12882e55e356765175a732c2fdd16aa6a753b3000000000000000000000000000000000000000000000000000000006b49d32c000000000000000000000000000000000000000000000000000000006b49e13c000000000000000000000000000000000000000000000000000000000000002ac001a0a27d5d1280d9ef76fb619cbf39fbe017b8d0a221a2666160fde383eded80be57a06eb82d3cd20e72bde9d7a6f4d24dc903366c9245b2496578463d2ab38d4e81970800"
+  },
+  {
+    "name": "http/flow/status-signed/json",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"state\":\"signed\",\"commitment_hash\":\"KRrlGKOWwdWnJUOpXfiZxboD0vyWijsdSrxcaewYhsQ=\",\"sent\":1,\"rail_ref\":\"42cfbdc2b14cd4e3cf6d91f2a8c3f9e7ec88785e05483f26b828d6e7f88cb45d\",\"signed_tx\":\"AvkBM4ICygcBggj7gwMNQJRl13yY5z376pHstysnyXU+GGqUyIc5cvU4qAgduMS3B9hgBA/9WSXUDhHGe3I4p/yZV4ULi5pG6XKfq4jCTWqYr/IAAAAAAAAAAAAAAACacAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAF4SiC5V41Z2UXWnMsL90Wqmp1OzAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGtJ0ywAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAa0nhPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAqwAGgon1dEoDZ73b7YZy/OfvgF7jQoiGiZmFg/eOD7e2AvlegbrgtPNIOcr3p16b00k3JAzZskkWySWV4Rj0qs41OgZc=\",\"payment_proof_allowed\":0}"
+  },
+  {
+    "name": "http/flow/payment-before-execution/cbor",
+    "status": 409,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301757369676e65722e4572724e6f74457865637574656402783b7369676e65723a206e6f742065786563757465643a206465636973696f6e20696e207374617465207369676e656420286f7574636f6d65202222290301"
+  },
+  {
+    "name": "http/flow/payment-before-execution/json",
+    "status": 409,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrNotExecuted\",\"message\":\"signer: not executed: decision in state signed (outcome \\\"\\\")\",\"retryable\":1}"
+  },
+  {
+    "name": "http/flow/status-recorded/cbor",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a901687265636f72646564025820291ae518a396c1d5a72543a95df899c5ba03d2fc968a3b1d4abc5c69ec1886c40301047840343263666264633262313463643465336366366439316632613863336639653765633838373835653035343833663236623832386436653766383863623435640559013702f901338202ca07018208fb83030d409465d77c98e73dfbea91ecb72b27c9753e186a94c8873972f538a8081db8c4b707d860040ffd5925d40e11c67b7238a7fc9957850b8b9a46e9729fab88c24d6a98aff20000000000000000000000009a700000000000000000000000000000000000000000000000000000000000005e12882e55e356765175a732c2fdd16aa6a753b3000000000000000000000000000000000000000000000000000000006b49d32c000000000000000000000000000000000000000000000000000000006b49e13c000000000000000000000000000000000000000000000000000000000000002ac001a0a27d5d1280d9ef76fb619cbf39fbe017b8d0a221a2666160fde383eded80be57a06eb82d3cd20e72bde9d7a6f4d24dc903366c9245b2496578463d2ab38d4e81970668657865637574656407781e626c6f636b203130303030303020696e6465782030206c6576656c204c31080109590144a201a80101025820291ae518a396c1d5a72543a95df899c5ba03d2fc968a3b1d4abc5c69ec1886c403656761746531045820bc1e61921d8c0dffa72a0c29b2fde31e5b1b42865e7d0a29cd112d72facd1f3e06784034326366626463326231346364346533636636643931663261386333663965376563383837383565303534383366323662383238643665376638386362343564081a6b49d2000958206604a3a49f4eb255f88767a2e4a8b343facbabbace3f9173ac1377c0c6cda9e50a58408dab02299de38dde591b2c3bc879238b89ebdfd3bb0f18b6acdd6da389ddd726697ec827a9e0c259b4d11a7802574eecab85b302cf862116c46952da3230f40b025840f01109d9dd4502a5a8e7830740a9583c0e82c6a1426d3f04a2b12f38220f3843a7c9945cb7c4f379a90638d8fd5f3c35bed1dccd26c698d8987bef14b236e60b"
+  },
+  {
+    "name": "http/flow/status-recorded/json",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"state\":\"recorded\",\"commitment_hash\":\"KRrlGKOWwdWnJUOpXfiZxboD0vyWijsdSrxcaewYhsQ=\",\"sent\":1,\"rail_ref\":\"42cfbdc2b14cd4e3cf6d91f2a8c3f9e7ec88785e05483f26b828d6e7f88cb45d\",\"signed_tx\":\"AvkBM4ICygcBggj7gwMNQJRl13yY5z376pHstysnyXU+GGqUyIc5cvU4qAgduMS3B9hgBA/9WSXUDhHGe3I4p/yZV4ULi5pG6XKfq4jCTWqYr/IAAAAAAAAAAAAAAACacAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAF4SiC5V41Z2UXWnMsL90Wqmp1OzAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGtJ0ywAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAa0nhPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAqwAGgon1dEoDZ73b7YZy/OfvgF7jQoiGiZmFg/eOD7e2AvlegbrgtPNIOcr3p16b00k3JAzZskkWySWV4Rj0qs41OgZc=\",\"outcome\":\"executed\",\"detail\":\"block 1000000 index 0 level L1\",\"payment_proof_allowed\":1,\"receipt\":\"ogGoAQECWCApGuUYo5bB1aclQ6ld+JnFugPS/JaKOx1KvFxp7BiGxANlZ2F0ZTEEWCC8HmGSHYwN/6cqDCmy/eMeWxtChl59CinNES1y+s0fPgZ4QDQyY2ZiZGMyYjE0Y2Q0ZTNjZjZkOTFmMmE4YzNmOWU3ZWM4ODc4NWUwNTQ4M2YyNmI4MjhkNmU3Zjg4Y2I0NWQIGmtJ0gAJWCBmBKOkn06yVfiHZ6LkqLND+surus4/kXOsE3fAxs2p5QpYQI2rAimd443eWRssO8h5I4uJ69/Tuw8YtqzdbaOJ3dcmaX7IJ6ngwlm00Rp4AldO7KuFswLPhiEWxGlS2jIw9AsCWEDwEQnZ3UUCpajngwdAqVg8DoLGoUJtPwSisS84Ig84Q6fJlFy3xPN5qQY42P1fPDW+0dzNJsaY2Jh77xSyNuYL\"}"
+  },
+  {
+    "name": "http/flow/status-other-agent/cbor",
+    "status": 404,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178197369676e65722e457272556e6b6e6f776e4465636973696f6e0278187369676e65723a20756e6b6e6f776e206465636973696f6e0300"
+  },
+  {
+    "name": "http/flow/status-other-agent/json",
+    "status": 404,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrUnknownDecision\",\"message\":\"signer: unknown decision\",\"retryable\":0}"
+  },
+  {
+    "name": "http/flow/payment/cbor",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3017884307863383032376237383166633831326536653732363866303539303065663466373463393930623632393265643436623935643262333665336534393662326364343530356263346364306661333063383238616362613861663637313837396331633066613236303631363934346134346362383564323334613433336538653162025820040ffd5925d40e11c67b7238a7fc9957850b8b9a46e9729fab88c24d6a98aff20300"
+  },
+  {
+    "name": "http/flow/payment/json",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"signature\":\"0xc8027b781fc812e6e7268f05900ef4f74c990b6292ed46b95d2b36e3e496b2cd4505bc4cd0fa30c828acba8af671879c1c0fa260616944a44cb85d234a433e8e1b\",\"message\":\"BA/9WSXUDhHGe3I4p/yZV4ULi5pG6XKfq4jCTWqYr/I=\",\"repeat\":1}"
+  },
+  {
+    "name": "http/flow/payment-other-agent/cbor",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301777369676e65722e4572724e6f74417574686f72697a65640278487369676e65723a206e6f7420617574686f72697a65643a20746865204150492063726564656e7469616c206973206e6f7420746865206465636973696f6e2773206167656e7427730300"
+  },
+  {
+    "name": "http/flow/payment-other-agent/json",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrNotAuthorized\",\"message\":\"signer: not authorized: the API credential is not the decision's agent's\",\"retryable\":0}"
+  },
+  {
+    "name": "http/flow/payment-field/cbor",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301757369676e65722e45727250696e4d69736d6174636802784d7369676e65723a20616374696f6e206f75747369646520746865207369676e657227732070696e733a206e6f207061796d656e742070726f6f66206f766572206669656c6420226e6f6e6365220300"
+  },
+  {
+    "name": "http/flow/payment-field/json",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrPinMismatch\",\"message\":\"signer: action outside the signer's pins: no payment proof over field \\\"nonce\\\"\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/unavailable/cbor",
+    "status": 503,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301757369676e65722e457272556e617661696c61626c650278267369676e65723a20646570656e64656e637920756e617661696c61626c653a2070696e6e65640301"
+  },
+  {
+    "name": "http/refusal/unavailable/json",
+    "status": 503,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrUnavailable\",\"message\":\"signer: dependency unavailable: pinned\",\"retryable\":1}"
+  },
+  {
+    "name": "http/refusal/expired/cbor",
+    "status": 410,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301717369676e65722e4572724578706972656402777369676e65723a20657870697265643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/expired/json",
+    "status": 410,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrExpired\",\"message\":\"signer: expired: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/not-authorized/cbor",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301777369676e65722e4572724e6f74417574686f72697a656402781e7369676e65723a206e6f7420617574686f72697a65643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/not-authorized/json",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrNotAuthorized\",\"message\":\"signer: not authorized: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/pin-mismatch/cbor",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301757369676e65722e45727250696e4d69736d617463680278307369676e65723a20616374696f6e206f75747369646520746865207369676e657227732070696e733a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/pin-mismatch/json",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrPinMismatch\",\"message\":\"signer: action outside the signer's pins: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/escrow-code/cbor",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301747369676e65722e457272457363726f77436f646502782e7369676e65723a20657363726f7720636f6465206973206e6f7420746865207461626c6527733a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/escrow-code/json",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrEscrowCode\",\"message\":\"signer: escrow code is not the table's: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/fast-mode-refused/cbor",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178197369676e65722e457272466173744d6f6465526566757365640278217369676e65723a2066617374206d6f646520726566757365643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/fast-mode-refused/json",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrFastModeRefused\",\"message\":\"signer: fast mode refused: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/digest-conflict/cbor",
+    "status": 409,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178187369676e65722e457272446967657374436f6e666c6963740278417369676e65723a20616e6f74686572207472616e73616374696f6e20697320726573657276656420666f722074686973206465636973696f6e3a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/digest-conflict/json",
+    "status": 409,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrDigestConflict\",\"message\":\"signer: another transaction is reserved for this decision: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/not-requeueable/cbor",
+    "status": 409,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178187369676e65722e4572724e6f745265717565756561626c6502782c7369676e65723a206465636973696f6e2063616e6e6f742062652072652d7175657565643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/not-requeueable/json",
+    "status": 409,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrNotRequeueable\",\"message\":\"signer: decision cannot be re-queued: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/unknown-decision/cbor",
+    "status": 404,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178197369676e65722e457272556e6b6e6f776e4465636973696f6e0278207369676e65723a20756e6b6e6f776e206465636973696f6e3a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/unknown-decision/json",
+    "status": 404,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrUnknownDecision\",\"message\":\"signer: unknown decision: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/shared-credential/cbor",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301781a7369676e65722e45727253686172656443726564656e7469616c02783d7369676e65723a207468652073746174757320726f757465206e656564732061207065722d6167656e742063726564656e7469616c3a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/shared-credential/json",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrSharedCredential\",\"message\":\"signer: the status route needs a per-agent credential: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/risk-limit/cbor",
+    "status": 429,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301737369676e65722e4572725269736b4c696d697402782b7369676e65723a206f70657261746f72207269736b206c696d697420726561636865643a2070696e6e65640301"
+  },
+  {
+    "name": "http/refusal/risk-limit/json",
+    "status": 429,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrRiskLimit\",\"message\":\"signer: operator risk limit reached: pinned\",\"retryable\":1}"
+  },
+  {
+    "name": "http/refusal/not-executed/cbor",
+    "status": 409,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301757369676e65722e4572724e6f74457865637574656402781c7369676e65723a206e6f742065786563757465643a2070696e6e65640301"
+  },
+  {
+    "name": "http/refusal/not-executed/json",
+    "status": 409,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrNotExecuted\",\"message\":\"signer: not executed: pinned\",\"retryable\":1}"
+  },
+  {
+    "name": "http/refusal/requirements/cbor",
+    "status": 422,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301767369676e65722e457272526571756972656d656e747302782c7369676e65723a207061796d656e7420726571756972656d656e747320726566757365643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/requirements/json",
+    "status": 422,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrRequirements\",\"message\":\"signer: payment requirements refused: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/edenescrow-requirements/cbor",
+    "status": 422,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301767369676e65722e457272526571756972656d656e74730278406564656e657363726f773a207061796d656e7420726571756972656d656e747320646f206e6f74206d617463682074686520616374696f6e3a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/edenescrow-requirements/json",
+    "status": 422,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrRequirements\",\"message\":\"edenescrow: payment requirements do not match the action: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/edenescrow-malformed/cbor",
+    "status": 422,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301776564656e657363726f772e4572724d616c666f726d656402781d6564656e657363726f773a206d616c666f726d65643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/edenescrow-malformed/json",
+    "status": 422,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"edenescrow.ErrMalformed\",\"message\":\"edenescrow: malformed: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/edenescrow-unknown-domain/cbor",
+    "status": 422,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301781b6564656e657363726f772e457272556e6b6e6f776e446f6d61696e02782b6564656e657363726f773a20756e6b6e6f776e20636861696e206f7220657363726f773a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/edenescrow-unknown-domain/json",
+    "status": 422,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"edenescrow.ErrUnknownDomain\",\"message\":\"edenescrow: unknown chain or escrow: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/token-invalid/cbor",
+    "status": 401,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178196564696374616170692e457272546f6b656e496e76616c69640278326564696374616170693a2062656172657220746f6b656e206d697373696e67206f7220696e76616c69643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/token-invalid/json",
+    "status": 401,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"edictaapi.ErrTokenInvalid\",\"message\":\"edictaapi: bearer token missing or invalid: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/route-not-found/cbor",
+    "status": 404,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301781a6564696374616170692e457272526f7574654e6f74466f756e640278226564696374616170693a20726f757465206e6f7420666f756e643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/route-not-found/json",
+    "status": 404,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"edictaapi.ErrRouteNotFound\",\"message\":\"edictaapi: route not found: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/method-not-allowed/cbor",
+    "status": 405,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301781d6564696374616170692e4572724d6574686f644e6f74416c6c6f7765640278256564696374616170693a206d6574686f64206e6f7420616c6c6f7765643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/method-not-allowed/json",
+    "status": 405,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"edictaapi.ErrMethodNotAllowed\",\"message\":\"edictaapi: method not allowed: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/media-type/cbor",
+    "status": 415,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301766564696374616170692e4572724d65646961547970650278386564696374616170693a20636f6e74656e742074797065206d757374206265206170706c69636174696f6e2f63626f723a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/media-type/json",
+    "status": 415,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"edictaapi.ErrMediaType\",\"message\":\"edictaapi: content type must be application/cbor: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/too-large/cbor",
+    "status": 413,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016b457272546f6f4c6172676502781d636f6d6d69746d656e743a20746f6f206c617267653a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/too-large/json",
+    "status": 413,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrTooLarge\",\"message\":\"commitment: too large: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/deadline/cbor",
+    "status": 504,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301756564696374616170692e457272446561646c696e6502783f6564696374616170693a20646561646c696e652065786365656465643a20636f6e7465787420646561646c696e652065786365656465643a2070696e6e65640301"
+  },
+  {
+    "name": "http/refusal/deadline/json",
+    "status": 504,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"edictaapi.ErrDeadline\",\"message\":\"edictaapi: deadline exceeded: context deadline exceeded: pinned\",\"retryable\":1}"
+  },
+  {
+    "name": "http/refusal/malformed/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016c4572724d616c666f726d6564027822636f6d6d69746d656e743a206d616c666f726d65642043424f523a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/malformed/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrMalformed\",\"message\":\"commitment: malformed CBOR: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/trailing-data/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016f457272547261696c696e6744617461027821636f6d6d69746d656e743a20747261696c696e6720646174613a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/trailing-data/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrTrailingData\",\"message\":\"commitment: trailing data: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/float/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30168457272466c6f6174027825636f6d6d69746d656e743a20666c6f6174206e6f7420616c6c6f7765643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/float/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrFloat\",\"message\":\"commitment: float not allowed: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/simple-value/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016e45727253696d706c6556616c756502782c636f6d6d69746d656e743a2073696d706c652076616c7565206e6f7420616c6c6f7765643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/simple-value/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrSimpleValue\",\"message\":\"commitment: simple value not allowed: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/tag/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30166457272546167027828636f6d6d69746d656e743a2043424f5220746167206e6f7420616c6c6f7765643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/tag/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrTag\",\"message\":\"commitment: CBOR tag not allowed: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/indefinite-length/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30173457272496e646566696e6974654c656e677468027831636f6d6d69746d656e743a20696e646566696e697465206c656e677468206e6f7420616c6c6f7765643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/indefinite-length/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrIndefiniteLength\",\"message\":\"commitment: indefinite length not allowed: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/non-minimal-int/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301704572724e6f6e4d696e696d616c496e7402782c636f6d6d69746d656e743a206e6f6e2d6d696e696d616c20696e746567657220686561643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/non-minimal-int/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrNonMinimalInt\",\"message\":\"commitment: non-minimal integer head: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/nesting-too-deep/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301714572724e657374696e67546f6f44656570027824636f6d6d69746d656e743a206e657374696e6720746f6f20646565703a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/nesting-too-deep/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrNestingTooDeep\",\"message\":\"commitment: nesting too deep: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/unsorted-map/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016e457272556e736f727465644d617002782a636f6d6d69746d656e743a206d6170206b657973206e6f7420617363656e64696e673a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/unsorted-map/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrUnsortedMap\",\"message\":\"commitment: map keys not ascending: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/duplicate-key/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016f4572724475706c69636174654b6579027825636f6d6d69746d656e743a206475706c6963617465206d6170206b65793a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/duplicate-key/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrDuplicateKey\",\"message\":\"commitment: duplicate map key: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/key-type/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016a4572724b657954797065027829636f6d6d69746d656e743a206d6170206b6579206973206e6f7420612075696e743a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/key-type/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrKeyType\",\"message\":\"commitment: map key is not a uint: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/invalid-string/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30170457272496e76616c6964537472696e67027822636f6d6d69746d656e743a20696e76616c696420737472696e673a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/invalid-string/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrInvalidString\",\"message\":\"commitment: invalid string: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/unknown-key/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016d457272556e6b6e6f776e4b657902781f636f6d6d69746d656e743a20756e6b6e6f776e206b65793a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/unknown-key/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrUnknownKey\",\"message\":\"commitment: unknown key: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/wrong-type/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016c45727257726f6e6754797065027823636f6d6d69746d656e743a2077726f6e672043424f5220747970653a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/wrong-type/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrWrongType\",\"message\":\"commitment: wrong CBOR type: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/missing-field/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016f4572724d697373696e674669656c6402782a636f6d6d69746d656e743a206d697373696e67207265717569726564206669656c643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/missing-field/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrMissingField\",\"message\":\"commitment: missing required field: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/field-size/cbor",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016c4572724669656c6453697a6502782b636f6d6d69746d656e743a206669656c642073697a65206f7574206f662072616e67653a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/field-size/json",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrFieldSize\",\"message\":\"commitment: field size out of range: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/internal/cbor",
+    "status": 500,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301727369676e65722e457272496e7465726e616c026e696e7465726e616c206572726f720300"
+  },
+  {
+    "name": "http/refusal/internal/json",
+    "status": 500,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrInternal\",\"message\":\"internal error\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/order/escrow-code-unavailable/cbor",
+    "status": 503,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301757369676e65722e457272556e617661696c61626c6502784e7369676e65723a20657363726f7720636f6465206973206e6f7420746865207461626c6527733a207369676e65723a20646570656e64656e637920756e617661696c61626c653a2070696e6e65640301"
+  },
+  {
+    "name": "http/refusal/order/escrow-code-unavailable/json",
+    "status": 503,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrUnavailable\",\"message\":\"signer: escrow code is not the table's: signer: dependency unavailable: pinned\",\"retryable\":1}"
+  },
+  {
+    "name": "http/refusal/order/pin-mismatch-unavailable/cbor",
+    "status": 503,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301757369676e65722e457272556e617661696c61626c650278507369676e65723a20616374696f6e206f75747369646520746865207369676e657227732070696e733a207369676e65723a20646570656e64656e637920756e617661696c61626c653a2070696e6e65640301"
+  },
+  {
+    "name": "http/refusal/order/pin-mismatch-unavailable/json",
+    "status": 503,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrUnavailable\",\"message\":\"signer: action outside the signer's pins: signer: dependency unavailable: pinned\",\"retryable\":1}"
+  },
+  {
+    "name": "http/refusal/order/requirements-edenescrow/cbor",
+    "status": 422,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301767369676e65722e457272526571756972656d656e74730278667369676e65723a207061796d656e7420726571756972656d656e747320726566757365643a206564656e657363726f773a207061796d656e7420726571756972656d656e747320646f206e6f74206d617463682074686520616374696f6e3a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/order/requirements-edenescrow/json",
+    "status": 422,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrRequirements\",\"message\":\"signer: payment requirements refused: edenescrow: payment requirements do not match the action: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/order/pin-mismatch-edenescrow/cbor",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301757369676e65722e45727250696e4d69736d6174636802786a6564656e657363726f773a207061796d656e7420726571756972656d656e747320646f206e6f74206d617463682074686520616374696f6e3a207369676e65723a20616374696f6e206f75747369646520746865207369676e657227732070696e733a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/order/pin-mismatch-edenescrow/json",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrPinMismatch\",\"message\":\"edenescrow: payment requirements do not match the action: signer: action outside the signer's pins: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/order/edenescrow-malformed-cbor/cbor",
+    "status": 422,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301776564656e657363726f772e4572724d616c666f726d6564027839636f6d6d69746d656e743a206d616c666f726d65642043424f523a206564656e657363726f773a206d616c666f726d65643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/order/edenescrow-malformed-cbor/json",
+    "status": 422,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"edenescrow.ErrMalformed\",\"message\":\"commitment: malformed CBOR: edenescrow: malformed: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/order/edenescrow-deadline/cbor",
+    "status": 422,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301781b6564656e657363726f772e457272556e6b6e6f776e446f6d61696e0278646564696374616170693a20646561646c696e652065786365656465643a20636f6e7465787420646561646c696e652065786365656465643a206564656e657363726f773a20756e6b6e6f776e20636861696e206f7220657363726f773a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/order/edenescrow-deadline/json",
+    "status": 422,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"edenescrow.ErrUnknownDomain\",\"message\":\"edictaapi: deadline exceeded: context deadline exceeded: edenescrow: unknown chain or escrow: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/refusal/order/token-malformed/cbor",
+    "status": 401,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178196564696374616170692e457272546f6b656e496e76616c696402784e636f6d6d69746d656e743a206d616c666f726d65642043424f523a206564696374616170693a2062656172657220746f6b656e206d697373696e67206f7220696e76616c69643a2070696e6e65640300"
+  },
+  {
+    "name": "http/refusal/order/token-malformed/json",
+    "status": 401,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"edictaapi.ErrTokenInvalid\",\"message\":\"commitment: malformed CBOR: edictaapi: bearer token missing or invalid: pinned\",\"retryable\":0}"
+  },
+  {
+    "name": "http/transport/route",
+    "status": 404,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301781a6564696374616170692e457272526f7574654e6f74466f756e6402781a6564696374616170693a20726f757465206e6f7420666f756e640300"
+  },
+  {
+    "name": "http/transport/method-sign",
+    "status": 405,
+    "headers": {
+      "Allow": "POST",
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301781d6564696374616170692e4572724d6574686f644e6f74416c6c6f77656402781d6564696374616170693a206d6574686f64206e6f7420616c6c6f7765640300"
+  },
+  {
+    "name": "http/transport/method-payment",
+    "status": 405,
+    "headers": {
+      "Allow": "POST",
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301781d6564696374616170692e4572724d6574686f644e6f74416c6c6f77656402781d6564696374616170693a206d6574686f64206e6f7420616c6c6f7765640300"
+  },
+  {
+    "name": "http/transport/method-status",
+    "status": 405,
+    "headers": {
+      "Allow": "GET",
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301781d6564696374616170692e4572724d6574686f644e6f74416c6c6f77656402781d6564696374616170693a206d6574686f64206e6f7420616c6c6f7765640300"
+  },
+  {
+    "name": "http/transport/method-health",
+    "status": 405,
+    "headers": {
+      "Allow": "GET",
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301781d6564696374616170692e4572724d6574686f644e6f74416c6c6f77656402781d6564696374616170693a206d6574686f64206e6f7420616c6c6f7765640300"
+  },
+  {
+    "name": "http/transport/media-type",
+    "status": 415,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301766564696374616170692e4572724d65646961547970650278306564696374616170693a20636f6e74656e742074797065206d757374206265206170706c69636174696f6e2f63626f720300"
+  },
+  {
+    "name": "http/transport/no-token",
+    "status": 401,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178196564696374616170692e457272546f6b656e496e76616c696402782a6564696374616170693a2062656172657220746f6b656e206d697373696e67206f7220696e76616c69640300"
+  },
+  {
+    "name": "http/transport/wrong-token",
+    "status": 401,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178196564696374616170692e457272546f6b656e496e76616c696402782a6564696374616170693a2062656172657220746f6b656e206d697373696e67206f7220696e76616c69640300"
+  },
+  {
+    "name": "http/transport/admin-token-on-sign",
+    "status": 401,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178196564696374616170692e457272546f6b656e496e76616c696402782a6564696374616170693a2062656172657220746f6b656e206d697373696e67206f7220696e76616c69640300"
+  },
+  {
+    "name": "http/transport/too-large",
+    "status": 413,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016b457272546f6f4c6172676502782a636f6d6d69746d656e743a20746f6f206c617267653a20626f6479206f662038343433332062797465730300"
+  },
+  {
+    "name": "http/transport/payment-too-large",
+    "status": 413,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016b457272546f6f4c6172676502782a636f6d6d69746d656e743a20746f6f206c617267653a20626f6479206f662038343531332062797465730300"
+  },
+  {
+    "name": "http/transport/requirements-too-large",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016c4572724669656c6453697a65027842636f6d6d69746d656e743a206669656c642073697a65206f7574206f662072616e67653a207061796d656e745f7265717569726564206c656e6774682031363338350300"
+  },
+  {
+    "name": "http/transport/trailing",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a3016f457272547261696c696e6744617461027845636f6d6d69746d656e743a20747261696c696e6720646174613a206f6666736574203934323a2062797465732061667465722074686520746f702d6c6576656c206974656d0300"
+  },
+  {
+    "name": "http/transport/json-unknown-member",
+    "status": 400,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"ErrMalformed\",\"message\":\"commitment: malformed CBOR: json: unknown key \\\"amount\\\"\",\"retryable\":0}"
+  },
+  {
+    "name": "http/transport/status-shared",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrSharedCredential\",\"message\":\"signer: the status route needs a per-agent credential\",\"retryable\":0}"
+  },
+  {
+    "name": "http/transport/status-bad-hash",
+    "status": 404,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301781a6564696374616170692e457272526f7574654e6f74466f756e6402781a6564696374616170693a20726f757465206e6f7420666f756e640300"
+  },
+  {
+    "name": "http/transport/status-unknown",
+    "status": 404,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178197369676e65722e457272556e6b6e6f776e4465636973696f6e0278187369676e65723a20756e6b6e6f776e206465636973696f6e0300"
+  },
+  {
+    "name": "http/transport/payment-field-off",
+    "status": 403,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a301757369676e65722e45727250696e4d69736d617463680278517369676e65723a20616374696f6e206f75747369646520746865207369676e657227732070696e733a206e6f207061796d656e742070726f6f66206f766572206669656c6420227061796d656e744964220300"
+  },
+  {
+    "name": "http/transport/requeue-agent-token",
+    "status": 401,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178196564696374616170692e457272546f6b656e496e76616c696402782a6564696374616170693a2062656172657220746f6b656e206d697373696e67206f7220696e76616c69640300"
+  },
+  {
+    "name": "http/transport/requeue-unknown",
+    "status": 404,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178197369676e65722e457272556e6b6e6f776e4465636973696f6e02785a7369676e65723a20756e6b6e6f776e206465636973696f6e3a20303930393039303930393039303930393039303930393039303930393039303930393039303930393039303930393039303930393039303930393039303930390300"
+  },
+  {
+    "name": "http/transport/health/cbor",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a101626f6b"
+  },
+  {
+    "name": "http/transport/health/json",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"status\":\"ok\"}"
+  },
+  {
+    "name": "http/flow/sign-shared/cbor",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a40159013702f901338202ca07018208fb83030d409465d77c98e73dfbea91ecb72b27c9753e186a94c8873972f538a8081db8c4b707d860040ffd5925d40e11c67b7238a7fc9957850b8b9a46e9729fab88c24d6a98aff20000000000000000000000009a70000000000000000000000000000000000000000000000000000000000000fac1117a70400000000000000000000000000000000000000000000000000000000000000000000000000000000000006b49d32c000000000000000000000000000000000000000000000000000000006b49e13c000000000000000000000000000000000000000000000000000000000000002ac080a0df9d4fafd1042a207801e4a4d50cc01ddeee0ed1a2d964785c263dfef4b4c779a06196ab37bd18a0847412c424457040ab9afc02df63e3fdb3f7cd98706d9017220278406337386332306161623239303934306263373063656137363839343737386330346364323733323432396565636661323438346563383337316630343533396503582003c230de1b7eefe29719b941226f95ab018c29854e18b8d174ee4fe711e53b4c0400"
+  },
+  {
+    "name": "http/flow/sign-shared/json",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"signed_tx\":\"AvkBM4ICygcBggj7gwMNQJRl13yY5z376pHstysnyXU+GGqUyIc5cvU4qAgduMS3B9hgBA/9WSXUDhHGe3I4p/yZV4ULi5pG6XKfq4jCTWqYr/IAAAAAAAAAAAAAAACacAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPrBEXpwQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGtJ0ywAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAa0nhPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAqwICg351Pr9EEKiB4AeSk1QzAHd7uDtGi2WR4XCY9/vS0x3mgYZarN70YoIR0EsQkRXBAq5r8At9j4/2z982YcG2QFyI=\",\"rail_ref\":\"c78c20aab290940bc70cea76894778c04cd2732429eecfa2484ec8371f04539e\",\"commitment_hash\":\"A8Iw3ht+7+KXGblBIm+VqwGMKYVOGLjRdO5P5xHlO0w=\",\"repeat\":1}"
+  },
+  {
+    "name": "http/flow/requeue-not-wrong/cbor",
+    "status": 409,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a30178187369676e65722e4572724e6f745265717565756561626c650278327369676e65723a206465636973696f6e2063616e6e6f742062652072652d7175657565643a207374617465207369676e65640300"
+  },
+  {
+    "name": "http/flow/requeue-not-wrong/json",
+    "status": 409,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"code\":\"signer.ErrNotRequeueable\",\"message\":\"signer: decision cannot be re-queued: state signed\",\"retryable\":0}"
+  },
+  {
+    "name": "http/flow/status-wrong/cbor",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a7016577726f6e6702582003c230de1b7eefe29719b941226f95ab018c29854e18b8d174ee4fe711e53b4c0301047840633738633230616162323930393430626337306365613736383934373738633034636432373332343239656563666132343834656338333731663034353339650559013702f901338202ca07018208fb83030d409465d77c98e73dfbea91ecb72b27c9753e186a94c8873972f538a8081db8c4b707d860040ffd5925d40e11c67b7238a7fc9957850b8b9a46e9729fab88c24d6a98aff20000000000000000000000009a70000000000000000000000000000000000000000000000000000000000000fac1117a70400000000000000000000000000000000000000000000000000000000000000000000000000000000000006b49d32c000000000000000000000000000000000000000000000000000000006b49e13c000000000000000000000000000000000000000000000000000000000000002ac080a0df9d4fafd1042a207801e4a4d50cc01ddeee0ed1a2d964785c263dfef4b4c779a06196ab37bd18a0847412c424457040ab9afc02df63e3fdb3f7cd98706d901722077270696e6e65642077726f6e672073746174650800"
+  },
+  {
+    "name": "http/flow/status-wrong/json",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "json": "{\"state\":\"wrong\",\"commitment_hash\":\"A8Iw3ht+7+KXGblBIm+VqwGMKYVOGLjRdO5P5xHlO0w=\",\"sent\":1,\"rail_ref\":\"c78c20aab290940bc70cea76894778c04cd2732429eecfa2484ec8371f04539e\",\"signed_tx\":\"AvkBM4ICygcBggj7gwMNQJRl13yY5z376pHstysnyXU+GGqUyIc5cvU4qAgduMS3B9hgBA/9WSXUDhHGe3I4p/yZV4ULi5pG6XKfq4jCTWqYr/IAAAAAAAAAAAAAAACacAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPrBEXpwQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGtJ0ywAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAa0nhPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAqwICg351Pr9EEKiB4AeSk1QzAHd7uDtGi2WR4XCY9/vS0x3mgYZarN70YoIR0EsQkRXBAq5r8At9j4/2z982YcG2QFyI=\",\"detail\":\"pinned wrong state\",\"payment_proof_allowed\":0}"
+  },
+  {
+    "name": "http/flow/requeue/cbor",
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/cbor",
+      "Vary": "Accept, Content-Type",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "cbor_hex": "a101667369676e6564"
+  }
+]

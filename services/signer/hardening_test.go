@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
+	"github.com/vgonkivs/edicta/api/signerapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/services/signer"
@@ -75,7 +76,7 @@ const adminToken = "fedcba9876543210-admin"
 func admin(t *testing.T, srv string, tok string, h []byte) (int, string) {
 	t.Helper()
 	body := edictaapi.EncodeWrapper(edictaapi.BytesItem(1, h))
-	req, err := http.NewRequest(http.MethodPost, srv+signer.RouteRequeue, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, srv+signerapi.RouteRequeue, bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/cbor")
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -87,7 +88,7 @@ func admin(t *testing.T, srv string, tok string, h []byte) (int, string) {
 	if resp.StatusCode != http.StatusOK {
 		return resp.StatusCode, errorCode(t, "application/cbor", b.Bytes())
 	}
-	f, err := edictaapi.DecodeWrapper(b.Bytes(), signer.RequeueResponseSchema)
+	f, err := edictaapi.DecodeWrapper(b.Bytes(), signerapi.RequeueResponseSchema)
 	require.NoError(t, err)
 	return resp.StatusCode, f.Text(1)
 }

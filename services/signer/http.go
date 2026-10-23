@@ -14,211 +14,17 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
+	"github.com/vgonkivs/edicta/api/signerapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
-
-// Routes of the signer API.
-const (
-	RouteSign   = "/v1/sign"
-	RouteHealth = "/v1/health"
-	// RouteRequeue is the operator's route back from state wrong.
-	RouteRequeue = "/v1/admin/requeue"
-	// RoutePaymentSignature releases the payment proof of a decision the
-	// rail executed.
-	RoutePaymentSignature = "/v1/payment-signature"
-	// RouteStatusPrefix is followed by a commitment hash in 64 lower-case
-	// hex digits: GET shows the caller's own decision.
-	RouteStatusPrefix = "/v1/status/"
-)
-
-// MaxRequirementsSize bounds the payment requirements of a request.
-const MaxRequirementsSize = edenescrow.MaxRequirementsSize
-
-// SignLimit bounds a sign request in CBOR: the envelope, the action, the
-// salt, the Authorization and the payment requirements with their wrapper
-// heads.
-const SignLimit = commitment.MaxSignedSize + commitment.MaxActionSize + commitment.ActionSaltSize +
-	commitment.MaxAuthorizationSize + MaxRequirementsSize + 48
-
-// PaymentLimit bounds a payment-signature request in CBOR: a sign request,
-// the commitment hash and the field.
-const PaymentLimit = SignLimit + 32 + maxFieldName + 16
-
-const maxFieldName = 32
 
 // MaxCredentials bounds the API credentials.
 const MaxCredentials = 1024
-
-func fieldNameChar(c byte) bool {
-	return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
-}
-
-var (
-	// SignRequestSchema is the request of POST /v1/sign.
-	SignRequestSchema = edictaapi.NewSchema(
-		edictaapi.Field{Key: 1, Name: "envelope", Kind: edictaapi.KindBytes, Min: 1, Max: commitment.MaxSignedSize, Required: true},
-		edictaapi.Field{Key: 2, Name: "action", Kind: edictaapi.KindBytes, Min: 1, Max: commitment.MaxActionSize, Required: true},
-		edictaapi.Field{Key: 3, Name: "action_salt", Kind: edictaapi.KindBytes, Min: commitment.ActionSaltSize, Max: commitment.ActionSaltSize, Required: true},
-		edictaapi.Field{Key: 4, Name: "signed_authorization", Kind: edictaapi.KindBytes, Min: 1, Max: commitment.MaxAuthorizationSize, Required: true},
-		edictaapi.Field{Key: 5, Name: "payment_required", Kind: edictaapi.KindBytes, Min: 1, Max: MaxRequirementsSize},
-	)
-	// PaymentRequestSchema is the request of POST /v1/payment-signature.
-	PaymentRequestSchema = edictaapi.NewSchema(
-		edictaapi.Field{Key: 1, Name: "commitment_hash", Kind: edictaapi.KindBytes, Min: 32, Max: 32, Required: true},
-		edictaapi.Field{Key: 2, Name: "field", Kind: edictaapi.KindText, Min: 1, Max: maxFieldName, Charset: fieldNameChar, Required: true},
-		edictaapi.Field{Key: 3, Name: "envelope", Kind: edictaapi.KindBytes, Min: 1, Max: commitment.MaxSignedSize, Required: true},
-		edictaapi.Field{Key: 4, Name: "action", Kind: edictaapi.KindBytes, Min: 1, Max: commitment.MaxActionSize, Required: true},
-		edictaapi.Field{Key: 5, Name: "action_salt", Kind: edictaapi.KindBytes, Min: commitment.ActionSaltSize, Max: commitment.ActionSaltSize, Required: true},
-		edictaapi.Field{Key: 6, Name: "signed_authorization", Kind: edictaapi.KindBytes, Min: 1, Max: commitment.MaxAuthorizationSize, Required: true},
-		edictaapi.Field{Key: 7, Name: "payment_required", Kind: edictaapi.KindBytes, Min: 1, Max: MaxRequirementsSize},
-	)
-	// PaymentResponseSchema is the 200 answer of POST /v1/payment-signature.
-	PaymentResponseSchema = edictaapi.NewSchema(
-		edictaapi.Field{Key: 1, Name: "signature", Kind: edictaapi.KindText, Min: 1, Max: 256, Required: true},
-		edictaapi.Field{Key: 2, Name: "message", Kind: edictaapi.KindBytes, Min: 32, Max: 32, Required: true},
-		edictaapi.Field{Key: 3, Name: "repeat", Kind: edictaapi.KindUint, Required: true},
-	)
-	// StatusResponseSchema is the 200 answer of GET /v1/status/{hash}.
-	StatusResponseSchema = edictaapi.NewSchema(
-		edictaapi.Field{Key: 1, Name: "state", Kind: edictaapi.KindText, Min: 1, Max: 32, Required: true},
-		edictaapi.Field{Key: 2, Name: "commitment_hash", Kind: edictaapi.KindBytes, Min: 32, Max: 32, Required: true},
-		edictaapi.Field{Key: 3, Name: "sent", Kind: edictaapi.KindUint, Required: true},
-		edictaapi.Field{Key: 4, Name: "rail_ref", Kind: edictaapi.KindText, Max: 128},
-		edictaapi.Field{Key: 5, Name: "signed_tx", Kind: edictaapi.KindBytes},
-		edictaapi.Field{Key: 6, Name: "outcome", Kind: edictaapi.KindText, Max: 64},
-		edictaapi.Field{Key: 7, Name: "detail", Kind: edictaapi.KindText, Max: 1024},
-		edictaapi.Field{Key: 8, Name: "payment_proof_allowed", Kind: edictaapi.KindUint, Required: true},
-		edictaapi.Field{Key: 9, Name: "receipt", Kind: edictaapi.KindBytes},
-	)
-	// SignResponseSchema is the 200 answer of POST /v1/sign.
-	SignResponseSchema = edictaapi.NewSchema(
-		edictaapi.Field{Key: 1, Name: "signed_tx", Kind: edictaapi.KindBytes, Min: 1, Required: true},
-		edictaapi.Field{Key: 2, Name: "rail_ref", Kind: edictaapi.KindText, Min: 1, Max: 128, Required: true},
-		edictaapi.Field{Key: 3, Name: "commitment_hash", Kind: edictaapi.KindBytes, Min: 32, Max: 32, Required: true},
-		edictaapi.Field{Key: 4, Name: "repeat", Kind: edictaapi.KindUint, Required: true},
-	)
-	// RequeueRequestSchema and RequeueResponseSchema are POST
-	// /v1/admin/requeue.
-	RequeueRequestSchema = edictaapi.NewSchema(
-		edictaapi.Field{Key: 1, Name: "commitment_hash", Kind: edictaapi.KindBytes, Min: 32, Max: 32, Required: true},
-	)
-	RequeueResponseSchema = edictaapi.NewSchema(
-		edictaapi.Field{Key: 1, Name: "state", Kind: edictaapi.KindText, Min: 1, Max: 32, Required: true},
-	)
-	// HealthSchema is the 200 answer of GET /v1/health.
-	HealthSchema = edictaapi.NewSchema(
-		edictaapi.Field{Key: 1, Name: "status", Kind: edictaapi.KindText, Min: 1, Max: 64, Required: true},
-	)
-)
-
-// DecodeSignRequest decodes a CBOR sign request with the strict wrapper
-// decoder.
-func DecodeSignRequest(b []byte) (Request, error) {
-	f, err := edictaapi.DecodeWrapper(b, SignRequestSchema)
-	if err != nil {
-		return Request{}, err
-	}
-	r := Request{Envelope: f.Bytes(1), Action: f.Bytes(2), Salt: f.Bytes(3), Authorization: f.Bytes(4)}
-	if f.Has(5) {
-		r.Requirements = f.Bytes(5)
-	}
-	return r, nil
-}
-
-// EncodeSignRequest is the canonical CBOR of a sign request.
-func EncodeSignRequest(r Request) []byte {
-	items := []edictaapi.Item{
-		edictaapi.BytesItem(1, r.Envelope), edictaapi.BytesItem(2, r.Action),
-		edictaapi.BytesItem(3, r.Salt), edictaapi.BytesItem(4, r.Authorization),
-	}
-	if r.Requirements != nil {
-		items = append(items, edictaapi.BytesItem(5, r.Requirements))
-	}
-	return edictaapi.EncodeWrapper(items...)
-}
-
-// DecodePaymentRequest decodes a CBOR payment-signature request with the
-// strict wrapper decoder.
-func DecodePaymentRequest(b []byte) (PaymentProofRequest, error) {
-	f, err := edictaapi.DecodeWrapper(b, PaymentRequestSchema)
-	if err != nil {
-		return PaymentProofRequest{}, err
-	}
-	r := PaymentProofRequest{Field: f.Text(2), Request: Request{
-		Envelope: f.Bytes(3), Action: f.Bytes(4), Salt: f.Bytes(5), Authorization: f.Bytes(6),
-	}}
-	copy(r.CommitmentHash[:], f.Bytes(1))
-	if f.Has(7) {
-		r.Requirements = f.Bytes(7)
-	}
-	return r, nil
-}
-
-// EncodePaymentRequest is the canonical CBOR of a payment-signature request.
-func EncodePaymentRequest(r PaymentProofRequest) []byte {
-	items := []edictaapi.Item{
-		edictaapi.BytesItem(1, r.CommitmentHash[:]), edictaapi.TextItem(2, r.Field),
-		edictaapi.BytesItem(3, r.Envelope), edictaapi.BytesItem(4, r.Action),
-		edictaapi.BytesItem(5, r.Salt), edictaapi.BytesItem(6, r.Authorization),
-	}
-	if r.Requirements != nil {
-		items = append(items, edictaapi.BytesItem(7, r.Requirements))
-	}
-	return edictaapi.EncodeWrapper(items...)
-}
-
-func encodePaymentProof(p PaymentProof) []byte {
-	var rep uint64
-	if p.Repeat {
-		rep = 1
-	}
-	return edictaapi.EncodeWrapper(
-		edictaapi.TextItem(1, string(p.Signature)), edictaapi.BytesItem(2, p.Message[:]), edictaapi.UintItem(3, rep),
-	)
-}
-
-// DecodePaymentResponse decodes a CBOR 200 answer of POST
-// /v1/payment-signature.
-func DecodePaymentResponse(b []byte) (PaymentProof, error) {
-	f, err := edictaapi.DecodeWrapper(b, PaymentResponseSchema)
-	if err != nil {
-		return PaymentProof{}, err
-	}
-	p := PaymentProof{Signature: []byte(f.Text(1))}
-	copy(p.Message[:], f.Bytes(2))
-	rep, _ := f.Uint(3)
-	p.Repeat = rep == 1
-	return p, nil
-}
-
-func encodeOutput(o Output) []byte {
-	var rep uint64
-	if o.Repeat {
-		rep = 1
-	}
-	return edictaapi.EncodeWrapper(
-		edictaapi.BytesItem(1, o.Signed), edictaapi.TextItem(2, o.RailRef),
-		edictaapi.BytesItem(3, o.CommitmentHash[:]), edictaapi.UintItem(4, rep),
-	)
-}
-
-// DecodeSignResponse decodes a CBOR 200 answer of POST /v1/sign.
-func DecodeSignResponse(b []byte) (Output, error) {
-	f, err := edictaapi.DecodeWrapper(b, SignResponseSchema)
-	if err != nil {
-		return Output{}, err
-	}
-	o := Output{Signed: f.Bytes(1), RailRef: f.Text(2)}
-	copy(o.CommitmentHash[:], f.Bytes(3))
-	rep, _ := f.Uint(4)
-	o.Repeat = rep == 1
-	return o, nil
-}
 
 // Credential is one bearer token of the API. Agent pins it to one served
 // agent key, which the payment-proof route requires; a nil Agent is a
@@ -297,26 +103,28 @@ type errRule struct {
 	retryable bool
 }
 
-// errTable maps refusals to codes, in match order: a dependency failure
-// first, since a fail-closed check wraps both its refusal and the cause.
-var errTable = []errRule{
-	{"signer.ErrUnavailable", ErrUnavailable, 503, true},
-	{"signer.ErrExpired", ErrExpired, 410, false},
-	{"signer.ErrNotAuthorized", ErrNotAuthorized, 403, false},
-	{"signer.ErrPinMismatch", ErrPinMismatch, 403, false},
-	{"signer.ErrEscrowCode", ErrEscrowCode, 403, false},
-	{"signer.ErrFastModeRefused", ErrFastModeRefused, 403, false},
-	{"signer.ErrDigestConflict", ErrDigestConflict, 409, false},
-	{"signer.ErrNotRequeueable", ErrNotRequeueable, 409, false},
-	{"signer.ErrUnknownDecision", ErrUnknownDecision, 404, false},
-	{"signer.ErrSharedCredential", ErrSharedCredential, 403, false},
-	{"signer.ErrRiskLimit", ErrRiskLimit, 429, true},
-	{"signer.ErrNotExecuted", ErrNotExecuted, 409, true},
-	{"signer.ErrRequirements", ErrRequirements, 422, false},
-	{"signer.ErrRequirements", edenescrow.ErrRequirements, 422, false},
-	{"edenescrow.ErrMalformed", edenescrow.ErrMalformed, 422, false},
-	{"edenescrow.ErrUnknownDomain", edenescrow.ErrUnknownDomain, 422, false},
+// signerRules are the signer's own refusals, matched first: a dependency
+// failure before all, since a fail-closed check wraps both its refusal and
+// the cause.
+var signerRules = []errRule{
+	{signerapi.CodeUnavailable, ErrUnavailable, 503, true},
+	{signerapi.CodeExpired, ErrExpired, 410, false},
+	{signerapi.CodeNotAuthorized, ErrNotAuthorized, 403, false},
+	{signerapi.CodePinMismatch, ErrPinMismatch, 403, false},
+	{signerapi.CodeEscrowCode, ErrEscrowCode, 403, false},
+	{signerapi.CodeFastModeRefused, ErrFastModeRefused, 403, false},
+	{signerapi.CodeDigestConflict, ErrDigestConflict, 409, false},
+	{signerapi.CodeNotRequeueable, ErrNotRequeueable, 409, false},
+	{signerapi.CodeUnknownDecision, ErrUnknownDecision, 404, false},
+	{signerapi.CodeSharedCredential, ErrSharedCredential, 403, false},
+	{signerapi.CodeRiskLimit, ErrRiskLimit, 429, true},
+	{signerapi.CodeNotExecuted, ErrNotExecuted, 409, true},
+	{signerapi.CodeRequirements, ErrRequirements, 422, false},
+}
 
+// transportRules match after the handlers' rules: a rail refusal may wrap
+// a decoding error of the action bytes.
+var transportRules = []errRule{
 	{"edictaapi.ErrTokenInvalid", edictaapi.ErrTokenInvalid, 401, false},
 	{"edictaapi.ErrRouteNotFound", edictaapi.ErrRouteNotFound, 404, false},
 	{"edictaapi.ErrMethodNotAllowed", edictaapi.ErrMethodNotAllowed, 405, false},
@@ -342,13 +150,46 @@ var errTable = []errRule{
 	{"ErrFieldSize", commitment.ErrFieldSize, 400, false},
 }
 
-func classify(err error) errRule {
-	for _, r := range errTable {
+// errorTable is the match order of the error answers: the signer's
+// refusals, the handlers' rules in the handlers' order, then transport and
+// encoding errors.
+func errorTable(hs []Handler) ([]errRule, error) {
+	t := slices.Clone(signerRules)
+	for _, h := range hs {
+		for i, r := range h.ErrorRules() {
+			if r.Err == nil || r.Code == "" || r.Status < 400 || r.Status > 599 {
+				return nil, fmt.Errorf("signer: error rule %d of %s: needs an error, a code and a 4xx or 5xx status", i, h.ActionType())
+			}
+			t = append(t, errRule{r.Code, r.Err, r.Status, false})
+		}
+	}
+	return append(t, transportRules...), nil
+}
+
+func (h *apiHandler) classify(err error) errRule {
+	for _, r := range h.rules {
 		if errors.Is(err, r.err) {
 			return r
 		}
 	}
-	return errRule{"signer.ErrInternal", nil, 500, false}
+	return errRule{signerapi.CodeInternal, nil, 500, false}
+}
+
+// requestLimits are the body limits of the sign and payment-signature
+// routes: the wire's limits less what no served handler takes of the
+// payment requirements.
+func requestLimits(hs []Handler) (sign, payment uint64, err error) {
+	var most int64
+	for _, h := range hs {
+		n := h.MaxRequestBytes()
+		if n < 0 || n > signerapi.MaxRequirementsSize {
+			return 0, 0, fmt.Errorf("signer: %s takes %d bytes of payment requirements, the API carries 0 to %d",
+				h.ActionType(), n, signerapi.MaxRequirementsSize)
+		}
+		most = max(most, n)
+	}
+	cut := uint64(signerapi.MaxRequirementsSize - most)
+	return signerapi.SignLimit - cut, signerapi.PaymentLimit - cut, nil
 }
 
 // NewHandler serves the signer API: POST /v1/sign and GET /v1/health, in
@@ -364,7 +205,15 @@ func NewHandler(s *Service, o HTTPOptions, log *slog.Logger) (http.Handler, erro
 	if o.RequestTimeout == 0 {
 		o.RequestTimeout = 30 * time.Second
 	}
-	h := &apiHandler{s: s, o: o, log: log}
+	rules, err := errorTable(s.ordered)
+	if err != nil {
+		return nil, err
+	}
+	signLimit, paymentLimit, err := requestLimits(s.ordered)
+	if err != nil {
+		return nil, err
+	}
+	h := &apiHandler{s: s, o: o, log: log, rules: rules, signLimit: signLimit, paymentLimit: paymentLimit}
 	for i, c := range o.all() {
 		if c.Agent != nil && !s.agentPinned(c.Agent) {
 			return nil, fmt.Errorf("signer: API credential %d is pinned to an agent key the signer does not serve", i)
@@ -395,6 +244,9 @@ type apiHandler struct {
 	admin   [32]byte
 	adminOn bool
 	log     *slog.Logger
+
+	rules                   []errRule
+	signLimit, paymentLimit uint64
 }
 
 type answer struct {
@@ -417,7 +269,7 @@ func (h *apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			h.log.Error("signer: render json", "err", err)
 			a.status = 500
-			js, _ = edictaapi.WrapperToJSON(edictaapi.ErrorBody("signer.ErrInternal", "internal error", false), edictaapi.ErrorSchema)
+			js, _ = edictaapi.WrapperToJSON(edictaapi.ErrorBody(signerapi.CodeInternal, "internal error", false), edictaapi.ErrorSchema)
 		}
 		a.body = js
 	}
@@ -434,7 +286,7 @@ func (h *apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *apiHandler) fail(err error) answer {
-	rule := classify(err)
+	rule := h.classify(err)
 	msg := err.Error()
 	if rule.status == 500 {
 		h.log.Error("signer: request failed", "err", err)
@@ -452,20 +304,20 @@ func (h *apiHandler) serve(r *http.Request) (a answer) {
 				panic(p)
 			}
 			h.log.Error("signer: handler panic", "panic", fmt.Sprint(p))
-			a = answer{status: 500, body: edictaapi.ErrorBody("signer.ErrInternal", "internal error", false)}
+			a = answer{status: 500, body: edictaapi.ErrorBody(signerapi.CodeInternal, "internal error", false)}
 		}
 	}()
 	method, admin := http.MethodPost, false
 	var statusHash string
 	path := r.URL.Path
 	switch {
-	case strings.HasPrefix(path, RouteStatusPrefix):
-		method, statusHash = http.MethodGet, strings.TrimPrefix(path, RouteStatusPrefix)
-		path = RouteStatusPrefix
-	case path == RouteSign, path == RoutePaymentSignature:
-	case path == RouteHealth:
+	case strings.HasPrefix(path, signerapi.RouteStatusPrefix):
+		method, statusHash = http.MethodGet, strings.TrimPrefix(path, signerapi.RouteStatusPrefix)
+		path = signerapi.RouteStatusPrefix
+	case path == signerapi.RouteSign, path == signerapi.RoutePaymentSignature:
+	case path == signerapi.RouteHealth:
 		method = http.MethodGet
-	case path == RouteRequeue:
+	case path == signerapi.RouteRequeue:
 		if !h.adminOn {
 			return h.fail(edictaapi.ErrRouteNotFound)
 		}
@@ -489,20 +341,20 @@ func (h *apiHandler) serve(r *http.Request) (a answer) {
 	if !ok {
 		return h.fail(edictaapi.ErrTokenInvalid)
 	}
-	if path == RouteStatusPrefix {
+	if path == signerapi.RouteStatusPrefix {
 		return h.status(r, statusHash, agent)
 	}
 	if method == http.MethodGet {
-		return answer{status: 200, body: edictaapi.EncodeWrapper(edictaapi.TextItem(1, "ok")), schema: HealthSchema}
+		return answer{status: 200, body: edictaapi.EncodeWrapper(edictaapi.TextItem(1, "ok")), schema: signerapi.HealthSchema}
 	}
 	switch r.URL.Path {
-	case RouteRequeue:
+	case signerapi.RouteRequeue:
 		return h.requeue(r, isJSON)
-	case RoutePaymentSignature:
+	case signerapi.RoutePaymentSignature:
 		return h.paymentSignature(r, isJSON, agent)
 	}
 
-	limit := uint64(SignLimit)
+	limit := h.signLimit
 	if isJSON {
 		limit = edictaapi.JSONBodyLimit(limit)
 	}
@@ -511,14 +363,14 @@ func (h *apiHandler) serve(r *http.Request) (a answer) {
 		return h.fail(err)
 	}
 	if isJSON {
-		if body, err = edictaapi.JSONToWrapper(body, SignRequestSchema); err != nil {
+		if body, err = edictaapi.JSONToWrapper(body, signerapi.SignRequestSchema); err != nil {
 			return h.fail(err)
 		}
-		if len(body) > SignLimit {
+		if uint64(len(body)) > h.signLimit {
 			return h.fail(fmt.Errorf("%w: body of %d bytes", commitment.ErrTooLarge, len(body)))
 		}
 	}
-	req, err := DecodeSignRequest(body)
+	req, err := signerapi.DecodeSignRequest(body)
 	if err != nil {
 		return h.fail(err)
 	}
@@ -531,7 +383,7 @@ func (h *apiHandler) serve(r *http.Request) (a answer) {
 		}
 		return h.fail(err)
 	}
-	return answer{status: 200, body: encodeOutput(out), schema: SignResponseSchema}
+	return answer{status: 200, body: signerapi.EncodeSignResponse(out), schema: signerapi.SignResponseSchema}
 }
 
 // status shows one decision to the agent whose credential is pinned to it.
@@ -549,33 +401,7 @@ func (h *apiHandler) status(r *http.Request, name string, agent []byte) answer {
 	if err != nil {
 		return h.fail(err)
 	}
-	var sent, allowed uint64
-	if st.Sent {
-		sent = 1
-	}
-	if st.PaymentProofAllowed {
-		allowed = 1
-	}
-	items := []edictaapi.Item{
-		edictaapi.TextItem(1, string(st.State)), edictaapi.BytesItem(2, ch[:]), edictaapi.UintItem(3, sent),
-	}
-	if st.RailRef != "" {
-		items = append(items, edictaapi.TextItem(4, st.RailRef))
-	}
-	if len(st.Signed) != 0 {
-		items = append(items, edictaapi.BytesItem(5, st.Signed))
-	}
-	if st.Outcome != "" {
-		items = append(items, edictaapi.TextItem(6, st.Outcome))
-	}
-	if st.Detail != "" {
-		items = append(items, edictaapi.TextItem(7, st.Detail))
-	}
-	items = append(items, edictaapi.UintItem(8, allowed))
-	if len(st.Receipt) != 0 {
-		items = append(items, edictaapi.BytesItem(9, st.Receipt))
-	}
-	return answer{status: 200, body: edictaapi.EncodeWrapper(items...), schema: StatusResponseSchema}
+	return answer{status: 200, body: signerapi.EncodeStatusResponse(ch, st), schema: signerapi.StatusResponseSchema}
 }
 
 const requeueLimit = 64
@@ -590,11 +416,11 @@ func (h *apiHandler) requeue(r *http.Request, isJSON bool) answer {
 		return h.fail(err)
 	}
 	if isJSON {
-		if body, err = edictaapi.JSONToWrapper(body, RequeueRequestSchema); err != nil {
+		if body, err = edictaapi.JSONToWrapper(body, signerapi.RequeueRequestSchema); err != nil {
 			return h.fail(err)
 		}
 	}
-	f, err := edictaapi.DecodeWrapper(body, RequeueRequestSchema)
+	f, err := edictaapi.DecodeWrapper(body, signerapi.RequeueRequestSchema)
 	if err != nil {
 		return h.fail(err)
 	}
@@ -606,7 +432,7 @@ func (h *apiHandler) requeue(r *http.Request, isJSON bool) answer {
 	if err != nil {
 		return h.fail(err)
 	}
-	return answer{status: 200, body: edictaapi.EncodeWrapper(edictaapi.TextItem(1, string(st))), schema: RequeueResponseSchema}
+	return answer{status: 200, body: edictaapi.EncodeWrapper(edictaapi.TextItem(1, string(st))), schema: signerapi.RequeueResponseSchema}
 }
 
 // caller checks the bearer token and, unless remote callers are allowed, a
@@ -644,7 +470,7 @@ func (h *apiHandler) caller(r *http.Request, admin bool) ([]byte, bool) {
 }
 
 func (h *apiHandler) paymentSignature(r *http.Request, isJSON bool, agent []byte) answer {
-	limit := uint64(PaymentLimit)
+	limit := h.paymentLimit
 	if isJSON {
 		limit = edictaapi.JSONBodyLimit(limit)
 	}
@@ -653,14 +479,14 @@ func (h *apiHandler) paymentSignature(r *http.Request, isJSON bool, agent []byte
 		return h.fail(err)
 	}
 	if isJSON {
-		if body, err = edictaapi.JSONToWrapper(body, PaymentRequestSchema); err != nil {
+		if body, err = edictaapi.JSONToWrapper(body, signerapi.PaymentRequestSchema); err != nil {
 			return h.fail(err)
 		}
-		if len(body) > PaymentLimit {
+		if uint64(len(body)) > h.paymentLimit {
 			return h.fail(fmt.Errorf("%w: body of %d bytes", commitment.ErrTooLarge, len(body)))
 		}
 	}
-	req, err := DecodePaymentRequest(body)
+	req, err := signerapi.DecodePaymentRequest(body)
 	if err != nil {
 		return h.fail(err)
 	}
@@ -673,7 +499,7 @@ func (h *apiHandler) paymentSignature(r *http.Request, isJSON bool, agent []byte
 		}
 		return h.fail(err)
 	}
-	return answer{status: 200, body: encodePaymentProof(out), schema: PaymentResponseSchema}
+	return answer{status: 200, body: signerapi.EncodePaymentResponse(out), schema: signerapi.PaymentResponseSchema}
 }
 
 // IsLoopbackHost reports whether host names the loopback interface.

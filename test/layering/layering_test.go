@@ -62,6 +62,7 @@ var classes = map[string]class{
 	"engine/archive":                  engine,
 	"engine/verifier":                 engine,
 	"api/edictaapi":                   api,
+	"api/signerapi":                   api,
 
 	"plugins/banksend": plugin + "banksend",
 
@@ -92,7 +93,7 @@ var allowed = map[class][]class{
 	principalsig: {format, internalPkg},
 	sdk:          {format, sdk, internalPkg},
 	engine:       {format, principalsig, sdk, engine, internalPkg},
-	api:          {format, principalsig, sdk, engine, internalPkg},
+	api:          {format, principalsig, sdk, engine, api, internalPkg},
 	contracts:    {contracts, internalPkg},
 }
 
@@ -121,6 +122,11 @@ var narrow = []struct {
 		from: []string{"services/signer"},
 		to:   func(rel string) bool { return strings.HasPrefix(string(classify(rel, false)), plugin) },
 	},
+	{
+		why:  "the agent's signer client speaks the wire format and links no part of the signer",
+		from: []string{"services/cli/commitcmd"},
+		to:   under("services/signer"),
+	},
 }
 
 // exceptions are today's known violations, as importer -> imported paths
@@ -128,10 +134,6 @@ var narrow = []struct {
 var exceptions = map[string][]string{
 	// The agent HTTP client maps error codes to the gate's sentinels.
 	"api/edictaapi": {"engine/gate"},
-
-	// The signer core takes wallet signature types and requirement errors
-	// from the Eden escrow profile.
-	"services/signer": {"plugins/edenescrow"},
 }
 
 func TestLayering(t *testing.T) {

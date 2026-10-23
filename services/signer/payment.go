@@ -9,30 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"time"
-
-	"github.com/vgonkivs/edicta/engine/commitment"
 )
-
-// PaymentProofRequest asks for the payment proof of one decision: the
-// commitment hash it names, the field the proof covers, and the decision's
-// own signing request (envelope, action, salt, Authorization, and optionally
-// the payment requirements again).
-type PaymentProofRequest struct {
-	CommitmentHash commitment.Hash
-	Field          string
-	Request
-}
-
-// PaymentProof is a released payment proof.
-type PaymentProof struct {
-	CommitmentHash commitment.Hash
-	// Message is what the proof covers; Signature is the proof as the
-	// profile formats it.
-	Message   [32]byte
-	Signature []byte
-	// Repeat is set when the stored proof is returned.
-	Repeat bool
-}
 
 // PaymentProofsEnabled says whether some handler offers payment proofs.
 func (s *Service) PaymentProofsEnabled() bool { return len(s.provers) > 0 }

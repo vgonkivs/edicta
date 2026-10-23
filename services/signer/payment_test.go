@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/api/signerapi"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 	"github.com/vgonkivs/edicta/services/signer"
@@ -277,7 +278,7 @@ func TestHTTPPaymentSignature(t *testing.T) {
 	defer srv.Close()
 
 	call := func(tok string, body []byte) (int, []byte) {
-		req, err := http.NewRequest(http.MethodPost, srv.URL+signer.RoutePaymentSignature, bytes.NewReader(body))
+		req, err := http.NewRequest(http.MethodPost, srv.URL+signerapi.RoutePaymentSignature, bytes.NewReader(body))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/cbor")
 		req.Header.Set("Authorization", "Bearer "+tok)
@@ -288,7 +289,7 @@ func TestHTTPPaymentSignature(t *testing.T) {
 		require.NoError(t, err)
 		return resp.StatusCode, b
 	}
-	body := signer.EncodePaymentRequest(proofRequest(d))
+	body := signerapi.EncodePaymentRequest(proofRequest(d))
 	status, b := call(otherToken, body)
 	assert.Equal(t, http.StatusForbidden, status)
 	assert.Equal(t, "signer.ErrNotAuthorized", errorCode(t, "application/cbor", b))
@@ -297,12 +298,12 @@ func TestHTTPPaymentSignature(t *testing.T) {
 
 	status, b = call(agentToken, body)
 	require.Equal(t, http.StatusOK, status, string(b))
-	p, err := signer.DecodePaymentResponse(b)
+	p, err := signerapi.DecodePaymentResponse(b)
 	require.NoError(t, err)
 	assert.Equal(t, dep.PaymentID, p.Message)
 	assert.Len(t, p.Signature, 132)
 
-	status, _ = call(otherToken, signer.EncodeSignRequest(quotedRequest(d, dep)))
+	status, _ = call(otherToken, signerapi.EncodeSignRequest(quotedRequest(d, dep)))
 	assert.Equal(t, http.StatusBadRequest, status, "a sign request is not a payment request")
 }
 

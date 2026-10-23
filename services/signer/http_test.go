@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
+	"github.com/vgonkivs/edicta/api/signerapi"
 	"github.com/vgonkivs/edicta/services/signer"
 	"github.com/vgonkivs/edicta/services/signer/signertest"
 )
@@ -36,7 +37,7 @@ func newAPI(t *testing.T, e *env, o signer.HTTPOptions) *httptest.Server {
 
 func post(t *testing.T, srv *httptest.Server, ctype string, body []byte, mut ...func(*http.Request)) (*http.Response, []byte) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPost, srv.URL+signer.RouteSign, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, srv.URL+signerapi.RouteSign, bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", ctype)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -70,10 +71,10 @@ func TestHTTPSignCBORAndJSONGiveTheSameBytes(t *testing.T) {
 	srv := newAPI(t, e, signer.HTTPOptions{})
 	d := e.decision(signertest.DecisionOpts{})
 
-	resp, body := post(t, srv, "application/cbor", signer.EncodeSignRequest(request(d)))
+	resp, body := post(t, srv, "application/cbor", signerapi.EncodeSignRequest(request(d)))
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
 	assert.Equal(t, "application/cbor", resp.Header.Get("Content-Type"))
-	out, err := signer.DecodeSignResponse(body)
+	out, err := signerapi.DecodeSignResponse(body)
 	require.NoError(t, err)
 	assert.False(t, out.Repeat)
 	assert.Equal(t, d.Hash, out.CommitmentHash)
@@ -100,7 +101,7 @@ func TestHTTPSignCBORAndJSONGiveTheSameBytes(t *testing.T) {
 func TestHTTPRefusals(t *testing.T) {
 	e := newEnv(t)
 	srv := newAPI(t, e, signer.HTTPOptions{})
-	good := signer.EncodeSignRequest(request(e.decision(signertest.DecisionOpts{})))
+	good := signerapi.EncodeSignRequest(request(e.decision(signertest.DecisionOpts{})))
 
 	cases := []struct {
 		name   string
@@ -116,7 +117,7 @@ func TestHTTPRefusals(t *testing.T) {
 		{"media type", "text/plain", good, nil, 415, "edictaapi.ErrMediaType"},
 		{"route", "application/cbor", good, func(r *http.Request) { r.URL.Path = "/v1/release" }, 404, "edictaapi.ErrRouteNotFound"},
 		{"method", "application/cbor", good, func(r *http.Request) { r.Method = http.MethodPut }, 405, "edictaapi.ErrMethodNotAllowed"},
-		{"too large", "application/cbor", make([]byte, signer.SignLimit+1), nil, 413, "ErrTooLarge"},
+		{"too large", "application/cbor", make([]byte, signerapi.SignLimit+1), nil, 413, "ErrTooLarge"},
 		{"trailing bytes", "application/cbor", append(append([]byte(nil), good...), 0x00), nil, 400, "ErrTrailingData"},
 		{"missing field", "application/cbor", edictaapi.EncodeWrapper(edictaapi.BytesItem(1, []byte{1})), nil, 400, "ErrMissingField"},
 		{"json duplicate member", "application/json", []byte(`{"envelope":"AA==","envelope":"AA=="}`), nil, 400, "ErrMalformed"},
@@ -147,12 +148,12 @@ func TestHTTPRefusalOfTheSignerHasItsCode(t *testing.T) {
 	srv := newAPI(t, e, signer.HTTPOptions{})
 	r := request(e.decision(signertest.DecisionOpts{}))
 	r.Salt = make([]byte, 32)
-	resp, body := post(t, srv, "application/cbor", signer.EncodeSignRequest(r))
+	resp, body := post(t, srv, "application/cbor", signerapi.EncodeSignRequest(r))
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	assert.Equal(t, "signer.ErrNotAuthorized", errorCode(t, "application/cbor", body))
 
 	e.chain.Set(func(c *signertest.Chain) { c.CodeErr = io.ErrUnexpectedEOF })
-	resp, body = post(t, srv, "application/cbor", signer.EncodeSignRequest(request(e.decision(signertest.DecisionOpts{Label: "x"}))))
+	resp, body = post(t, srv, "application/cbor", signerapi.EncodeSignRequest(request(e.decision(signertest.DecisionOpts{Label: "x"}))))
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, "a failed code check refuses, retryably")
 	assert.Equal(t, "signer.ErrUnavailable", errorCode(t, "application/cbor", body))
 }
@@ -160,7 +161,7 @@ func TestHTTPRefusalOfTheSignerHasItsCode(t *testing.T) {
 func TestHTTPHealthNeedsTheToken(t *testing.T) {
 	e := newEnv(t)
 	srv := newAPI(t, e, signer.HTTPOptions{})
-	req, err := http.NewRequest(http.MethodGet, srv.URL+signer.RouteHealth, nil)
+	req, err := http.NewRequest(http.MethodGet, srv.URL+signerapi.RouteHealth, nil)
 	require.NoError(t, err)
 	resp, err := srv.Client().Do(req)
 	require.NoError(t, err)

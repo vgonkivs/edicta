@@ -10,30 +10,6 @@ import (
 	"github.com/vgonkivs/edicta/engine/commitment"
 )
 
-// State is where one decision stands at the signer.
-type State string
-
-const (
-	// StateReserved: the digest is reserved and counted, nothing is signed
-	// yet. A repeat of the request signs it.
-	StateReserved State = "reserved"
-	// StateSigned: the signed bytes are stored and may be on their way; the
-	// rail has not been seen to include them.
-	StateSigned State = "signed"
-	// StateExecuted and StateReverted: the rail included the transaction at
-	// the confirmation depth with that outcome; the record request is due.
-	StateExecuted State = "executed"
-	StateReverted State = "reverted"
-	// StateRecorded: the gate returned its receipt for the rail_ref.
-	StateRecorded State = "recorded"
-	// StateNotExecuted: no source served the transaction by the deadline.
-	// Nothing is recorded and nothing else is ever signed for the decision.
-	StateNotExecuted State = "not_executed"
-	// StateWrong: the rail answered with something the signed bytes cannot
-	// explain, or the gate refused the record for good. The operator looks.
-	StateWrong State = "wrong"
-)
-
 // Entry is the durable record of one decision. Everything a restart needs to
 // resume is in it: the request, the signed bytes, the state.
 type Entry struct {

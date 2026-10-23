@@ -31,29 +31,6 @@ type systemClock struct{}
 
 func (systemClock) Now() time.Time { return time.Now() }
 
-// Request is one signing request: the agent's signed envelope, the action
-// bytes and salt it committed, and the gate's SignedAuthorization, with the
-// payment requirements the action binds when the profile has them.
-type Request struct {
-	Envelope      []byte
-	Action        []byte
-	Salt          []byte
-	Authorization []byte
-	// Requirements are optional; a profile may require them.
-	Requirements []byte
-}
-
-// Output is what the signer hands back: the signed rail request, ready to
-// send, and its rail_ref.
-type Output struct {
-	CommitmentHash commitment.Hash
-	Signed         []byte
-	RailRef        string
-	// Repeat is set when the decision was signed before and the stored
-	// bytes are returned; nothing was counted again.
-	Repeat bool
-}
-
 // Verified is a request that carries a valid agent envelope and a valid
 // gate Authorization for its exact bytes.
 type Verified struct {
@@ -121,6 +98,23 @@ type Handler interface {
 	// state is unknown: look again later, never sign again; the returned
 	// Settlement's Seen still counts.
 	Settle(ctx context.Context, e Entry, resend bool) (Settlement, error)
+	// ErrorRules are the rail's request refusals for the API's error
+	// answers. They match after the signer's own refusals and before the
+	// transport and encoding errors, and are not retryable.
+	ErrorRules() []ErrorRule
+	// MaxRequestBytes bounds the rail's part of a request, the payment
+	// requirements, from 0 to signerapi.MaxRequirementsSize. The API reads
+	// a request body no longer than the core material plus the largest
+	// bound of the served handlers.
+	MaxRequestBytes() int64
+}
+
+// ErrorRule maps a rail's request refusal to an HTTP status and an error
+// code of the API.
+type ErrorRule struct {
+	Err    error
+	Status int
+	Code   string
 }
 
 // Slotter is a Handler whose plans hold slots: it names the slot of a
@@ -177,6 +171,7 @@ type Service struct {
 	st       Store
 	wallets  map[uint64]WalletBackend
 	handlers map[string]Handler
+	ordered  []Handler // as in Deps: the order of the handlers' error rules
 	provers  map[string]PaymentProver
 	exec     ExecutorKey
 	rec      Recorder
@@ -212,6 +207,7 @@ func New(cfg Config, d Deps) (*Service, error) {
 		}
 	}
 	hs := make(map[string]Handler, len(d.Handlers))
+	ordered := make([]Handler, 0, len(d.Handlers))
 	ps := map[string]PaymentProver{}
 	for _, h := range d.Handlers {
 		if h == nil {
@@ -221,6 +217,7 @@ func New(cfg Config, d Deps) (*Service, error) {
 			return nil, fmt.Errorf("signer: two handlers for %s", h.ActionType())
 		}
 		hs[h.ActionType()] = h
+		ordered = append(ordered, h)
 		if p, ok := h.(PaymentProver); ok && p.PaymentProofEnabled() {
 			ps[h.ActionType()] = p
 		}
@@ -237,7 +234,7 @@ func New(cfg Config, d Deps) (*Service, error) {
 		d.Log = slog.Default()
 	}
 	return &Service{
-		cfg: cfg, st: d.Store, wallets: d.Wallets, handlers: hs, provers: ps, exec: d.Executor, rec: d.Recorder,
+		cfg: cfg, st: d.Store, wallets: d.Wallets, handlers: hs, ordered: ordered, provers: ps, exec: d.Executor, rec: d.Recorder,
 		clk: d.Clock, log: d.Log, kick: make(chan struct{}, 1), inflight: map[commitment.Hash]bool{},
 	}, nil
 }

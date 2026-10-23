@@ -16,6 +16,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/vgonkivs/edicta/api/signerapi"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 	"github.com/vgonkivs/edicta/services/signer"
@@ -292,6 +293,29 @@ func New(cfg Config, d Deps) (*Handler, error) {
 
 func (h *Handler) ActionType() string { return edenescrow.ActionType }
 
+// ErrorRules answers the profile's refusals of the action bytes and the
+// payment requirements; a requirement that does not match the action is the
+// signer's own requirements refusal.
+func (h *Handler) ErrorRules() []signer.ErrorRule {
+	return []signer.ErrorRule{
+		{Err: edenescrow.ErrRequirements, Status: 422, Code: signerapi.CodeRequirements},
+		{Err: edenescrow.ErrMalformed, Status: 422, Code: "edenescrow.ErrMalformed"},
+		{Err: edenescrow.ErrUnknownDomain, Status: 422, Code: "edenescrow.ErrUnknownDomain"},
+	}
+}
+
+func (h *Handler) MaxRequestBytes() int64 { return edenescrow.MaxRequirementsSize }
+
+// UnpackSig is the wallet's r || s || y_parity signature as the profile's
+// transaction signature.
+func UnpackSig(b [65]byte) edenescrow.Signature {
+	var s edenescrow.Signature
+	copy(s.R[:], b[:32])
+	copy(s.S[:], b[32:64])
+	s.YParity = b[64]
+	return s
+}
+
 // Start checks, for every served chain: the RPC serves that chain, the
 // chain's wallet is the pinned payer, the escrow code is the table's, and
 // the payer has no code.
@@ -444,7 +468,7 @@ func (h *Handler) Finish(action []byte, sig [65]byte, payer [20]byte) ([]byte, s
 	if err != nil {
 		return nil, "", err
 	}
-	signed, err := a.Splice(signer.UnpackSig(sig), payer)
+	signed, err := a.Splice(UnpackSig(sig), payer)
 	if err != nil {
 		return nil, "", err
 	}

@@ -10,7 +10,7 @@ import (
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 
-	"github.com/vgonkivs/edicta/plugins/edenescrow"
+	"github.com/vgonkivs/edicta/internal/evm"
 )
 
 // WalletBackend holds one payer key. An implementation may be remote.
@@ -45,32 +45,11 @@ func (w *KeyWallet) String() string   { return "KeyWallet{[redacted]}" }
 func (w *KeyWallet) GoString() string { return w.String() }
 
 func (w *KeyWallet) Address(context.Context) ([20]byte, error) {
-	return edenescrow.Address(w.priv.PubKey()), nil
+	return evm.Address(w.priv.PubKey()), nil
 }
 
 func (w *KeyWallet) SignDigest(_ context.Context, digest [32]byte) ([65]byte, error) {
-	sig, err := edenescrow.Sign(w.priv, digest)
-	if err != nil {
-		return [65]byte{}, err
-	}
-	return packSig(sig), nil
-}
-
-func packSig(s edenescrow.Signature) [65]byte {
-	var out [65]byte
-	copy(out[:32], s.R[:])
-	copy(out[32:64], s.S[:])
-	out[64] = s.YParity
-	return out
-}
-
-// UnpackSig is the inverse of the r || s || y_parity layout.
-func UnpackSig(b [65]byte) edenescrow.Signature {
-	var s edenescrow.Signature
-	copy(s.R[:], b[:32])
-	copy(s.S[:], b[32:64])
-	s.YParity = b[64]
-	return s
+	return evm.Sign(w.priv, digest)
 }
 
 // ExecutorKey is the executor's Ed25519 key: it signs record requests and

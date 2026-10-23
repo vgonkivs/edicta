@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
+	"github.com/vgonkivs/edicta/api/signerapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/internal/secret"
 	"github.com/vgonkivs/edicta/services/cli/commitcmd"
@@ -36,14 +37,14 @@ func TestSignerClientSignAndPaymentSignature(t *testing.T) {
 		assert.Equal(t, "application/cbor", r.Header.Get("Content-Type"))
 		body, _ := io.ReadAll(r.Body)
 		switch r.URL.Path {
-		case signer.RouteSign:
-			req, err := signer.DecodeSignRequest(body)
+		case signerapi.RouteSign:
+			req, err := signerapi.DecodeSignRequest(body)
 			require.NoError(t, err)
 			assert.Equal(t, []byte("R"), req.Requirements)
 			cbor(w, 200, edictaapi.EncodeWrapper(edictaapi.BytesItem(1, []byte("tx")), edictaapi.TextItem(2, "ref"),
 				edictaapi.BytesItem(3, hash[:]), edictaapi.UintItem(4, 1)))
-		case signer.RoutePaymentSignature:
-			req, err := signer.DecodePaymentRequest(body)
+		case signerapi.RoutePaymentSignature:
+			req, err := signerapi.DecodePaymentRequest(body)
 			require.NoError(t, err)
 			assert.Equal(t, "paymentId", req.Field)
 			cbor(w, 200, edictaapi.EncodeWrapper(edictaapi.TextItem(1, "0xabc"), edictaapi.BytesItem(2, make([]byte, 32)), edictaapi.UintItem(3, 0)))

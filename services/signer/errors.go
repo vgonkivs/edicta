@@ -2,7 +2,11 @@
 
 package signer
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/vgonkivs/edicta/api/signerapi"
+)
 
 // Refusals of the signer. A refused request leaves nothing stored and
 // counts nothing. The names are the codes of the HTTP API with the prefix
@@ -34,7 +38,7 @@ var (
 	// bytes.
 	ErrUnavailable = errors.New("signer: dependency unavailable")
 	// ErrUnknownDecision: the store holds nothing for this commitment hash.
-	ErrUnknownDecision = errors.New("signer: unknown decision")
+	ErrUnknownDecision = signerapi.ErrUnknownDecision
 	// ErrSharedCredential: the status route needs a credential pinned to one
 	// agent. It is answered before any lookup, so it says nothing about the hash.
 	ErrSharedCredential = errors.New("signer: the status route needs a per-agent credential")
@@ -47,5 +51,5 @@ var (
 	ErrRequirements = errors.New("signer: payment requirements refused")
 	// ErrNotExecuted: no payment proof before the rail executed the
 	// decision's transaction on the word of enough operators. Retryable.
-	ErrNotExecuted = errors.New("signer: not executed")
+	ErrNotExecuted = signerapi.ErrNotExecuted
 )

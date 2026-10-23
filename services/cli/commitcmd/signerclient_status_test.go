@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
+	"github.com/vgonkivs/edicta/api/signerapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/internal/secret"
 	"github.com/vgonkivs/edicta/services/cli/commitcmd"
@@ -26,7 +27,7 @@ func TestSignerClientStatus(t *testing.T) {
 	hash[0] = 9
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
-		assert.Equal(t, signer.RouteStatusPrefix+hex.EncodeToString(hash[:]), r.URL.Path)
+		assert.Equal(t, signerapi.RouteStatusPrefix+hex.EncodeToString(hash[:]), r.URL.Path)
 		cbor(w, 200, edictaapi.EncodeWrapper(edictaapi.TextItem(1, "executed"), edictaapi.BytesItem(2, hash[:]),
 			edictaapi.UintItem(3, 1), edictaapi.TextItem(4, "ref"), edictaapi.BytesItem(5, []byte("tx")), edictaapi.UintItem(8, 1)))
 	}))

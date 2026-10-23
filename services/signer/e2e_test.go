@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vgonkivs/edicta/api/signerapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
@@ -34,9 +35,9 @@ func TestEndToEnd(t *testing.T) {
 	}()
 
 	d := e.decision(signertest.DecisionOpts{})
-	resp, body := post(t, srv, "application/cbor", signer.EncodeSignRequest(request(d)))
+	resp, body := post(t, srv, "application/cbor", signerapi.EncodeSignRequest(request(d)))
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
-	out, err := signer.DecodeSignResponse(body)
+	out, err := signerapi.DecodeSignResponse(body)
 	require.NoError(t, err)
 
 	var got signer.Entry
@@ -63,9 +64,9 @@ func TestEndToEnd(t *testing.T) {
 	assert.Equal(t, e.keys.PayerAddress(), rep.Payer)
 
 	// A retry of the same request returns the same bytes and does nothing else.
-	resp, body = post(t, srv, "application/cbor", signer.EncodeSignRequest(request(d)))
+	resp, body = post(t, srv, "application/cbor", signerapi.EncodeSignRequest(request(d)))
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
-	again, err := signer.DecodeSignResponse(body)
+	again, err := signerapi.DecodeSignResponse(body)
 	require.NoError(t, err)
 	assert.True(t, again.Repeat)
 	assert.Equal(t, out.Signed, again.Signed)

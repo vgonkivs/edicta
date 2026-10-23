@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
+	"github.com/vgonkivs/edicta/api/signerapi"
 	"github.com/vgonkivs/edicta/services/signer"
 	"github.com/vgonkivs/edicta/services/signer/signertest"
 )
@@ -24,19 +25,19 @@ func FuzzDecodeSignRequest(f *testing.F) {
 	require.NoError(f, err)
 	d, err := signertest.NewDecision(k, action, now, signertest.DecisionOpts{})
 	require.NoError(f, err)
-	good := signer.EncodeSignRequest(request(d))
+	good := signerapi.EncodeSignRequest(request(d))
 	f.Add(good)
 	f.Add(good[:len(good)-1])
 	f.Add([]byte(`{"envelope":"AA==","action":"AA==","action_salt":"AA==","signed_authorization":"AA=="}`))
 	f.Add([]byte{0xa0})
 	f.Fuzz(func(t *testing.T, b []byte) {
-		if req, err := signer.DecodeSignRequest(b); err == nil {
-			require.True(t, bytes.Equal(b, signer.EncodeSignRequest(req)), "only the canonical encoding decodes")
+		if req, err := signerapi.DecodeSignRequest(b); err == nil {
+			require.True(t, bytes.Equal(b, signerapi.EncodeSignRequest(req)), "only the canonical encoding decodes")
 			require.Len(t, req.Salt, 32)
 		}
-		if w, err := edictaapi.JSONToWrapper(b, signer.SignRequestSchema); err == nil {
-			if req, err := signer.DecodeSignRequest(w); err == nil {
-				require.True(t, bytes.Equal(w, signer.EncodeSignRequest(req)))
+		if w, err := edictaapi.JSONToWrapper(b, signerapi.SignRequestSchema); err == nil {
+			if req, err := signerapi.DecodeSignRequest(w); err == nil {
+				require.True(t, bytes.Equal(w, signerapi.EncodeSignRequest(req)))
 			}
 		}
 	})
@@ -54,20 +55,20 @@ func FuzzDecodePaymentRequest(f *testing.F) {
 	d, err := signertest.NewDecision(k, action, now, signertest.DecisionOpts{})
 	require.NoError(f, err)
 	req := signer.PaymentProofRequest{CommitmentHash: d.Hash, Field: "paymentId", Request: request(d)}
-	f.Add(signer.EncodePaymentRequest(req))
+	f.Add(signerapi.EncodePaymentRequest(req))
 	req.Requirements = dep.Requirements
-	good := signer.EncodePaymentRequest(req)
+	good := signerapi.EncodePaymentRequest(req)
 	f.Add(good)
 	f.Add(good[:len(good)-1])
 	f.Add([]byte(`{"commitment_hash":"AA==","field":"paymentId","envelope":"AA==","action":"AA==","action_salt":"AA==","signed_authorization":"AA=="}`))
 	f.Fuzz(func(t *testing.T, b []byte) {
-		if req, err := signer.DecodePaymentRequest(b); err == nil {
-			require.True(t, bytes.Equal(b, signer.EncodePaymentRequest(req)), "only the canonical encoding decodes")
+		if req, err := signerapi.DecodePaymentRequest(b); err == nil {
+			require.True(t, bytes.Equal(b, signerapi.EncodePaymentRequest(req)), "only the canonical encoding decodes")
 			require.NotEmpty(t, req.Field)
 		}
-		if w, err := edictaapi.JSONToWrapper(b, signer.PaymentRequestSchema); err == nil {
-			if req, err := signer.DecodePaymentRequest(w); err == nil {
-				require.True(t, bytes.Equal(w, signer.EncodePaymentRequest(req)))
+		if w, err := edictaapi.JSONToWrapper(b, signerapi.PaymentRequestSchema); err == nil {
+			if req, err := signerapi.DecodePaymentRequest(w); err == nil {
+				require.True(t, bytes.Equal(w, signerapi.EncodePaymentRequest(req)))
 			}
 		}
 	})
