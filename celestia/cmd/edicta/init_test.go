@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/doctor"
 	"github.com/vgonkivs/edicta/celestia/initcmd"
+	"github.com/vgonkivs/edicta/config"
 )
 
 // useInitEnv gives init an environment with no probes, so every preflight

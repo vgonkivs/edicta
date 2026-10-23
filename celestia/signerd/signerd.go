@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
-	"github.com/vgonkivs/edicta/celestia/keyfile"
-	"github.com/vgonkivs/edicta/celestia/secret"
+	"github.com/vgonkivs/edicta/internal/keyfile"
+	"github.com/vgonkivs/edicta/internal/secret"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrpc"
 	"github.com/vgonkivs/edicta/signer"

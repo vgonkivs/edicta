@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/doctor"
 	"github.com/vgonkivs/edicta/celestia/initcmd"
+	"github.com/vgonkivs/edicta/config"
 )
 
 const initUsage = "usage: edicta init [--home DIR] [--preset CELESTIA+SETTLEMENT] [--set network.key=value]... [--max-per-payment USDC] [--max-per-hour USDC]"

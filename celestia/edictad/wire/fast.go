@@ -9,7 +9,7 @@ import (
 
 	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/celestia/secret"
+	"github.com/vgonkivs/edicta/internal/secret"
 )
 
 // Seams for tests; the defaults use the real keyring signer and Fibre client.

@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/vgonkivs/edicta/celestia/config"
+	"github.com/vgonkivs/edicta/config"
 	"github.com/vgonkivs/edicta/engine/verifier"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/celestia/clearerr"
-	"github.com/vgonkivs/edicta/celestia/config"
+	"github.com/vgonkivs/edicta/config"
 )
 
 // Status is the outcome of one check.

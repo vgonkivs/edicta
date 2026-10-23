@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/celestia/railtx"
-	"github.com/vgonkivs/edicta/celestia/secret"
+	"github.com/vgonkivs/edicta/internal/secret"
 )
 
 // writeNew creates path with mode 0600 and never overwrites.

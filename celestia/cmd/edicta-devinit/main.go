@@ -19,7 +19,7 @@ import (
 	"strings"
 
 	"github.com/vgonkivs/edicta/celestia/initcmd"
-	"github.com/vgonkivs/edicta/celestia/keyfile"
+	"github.com/vgonkivs/edicta/internal/keyfile"
 )
 
 func main() {

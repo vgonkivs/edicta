@@ -10,8 +10,8 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/vgonkivs/edicta/celestia/secret"
 	"github.com/vgonkivs/edicta/engine/gate"
+	"github.com/vgonkivs/edicta/internal/secret"
 )
 
 const seedLen = 32

@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
-	"github.com/vgonkivs/edicta/celestia/secret"
+	"github.com/vgonkivs/edicta/internal/secret"
 )
 
 func goodArgs() []string {

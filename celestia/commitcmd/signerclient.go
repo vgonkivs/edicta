@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
-	"github.com/vgonkivs/edicta/celestia/secret"
 	"github.com/vgonkivs/edicta/engine/commitment"
+	"github.com/vgonkivs/edicta/internal/secret"
 	"github.com/vgonkivs/edicta/signer"
 )
 

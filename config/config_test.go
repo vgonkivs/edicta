@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/config"
+	"github.com/vgonkivs/edicta/config"
 )
 
 func pub(b byte) string { return hex.EncodeToString(append(make([]byte, 31), b)) }

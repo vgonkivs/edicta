@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/initcmd"
-	"github.com/vgonkivs/edicta/celestia/keyfile"
+	"github.com/vgonkivs/edicta/config"
+	"github.com/vgonkivs/edicta/internal/keyfile"
 )
 
 func noSettlement(t *testing.T, home string) (initcmd.Result, error) {

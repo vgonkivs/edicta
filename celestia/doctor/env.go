@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/node"
+	"github.com/vgonkivs/edicta/config"
 	"github.com/vgonkivs/edicta/engine/policy"
 )
 

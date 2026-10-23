@@ -17,10 +17,10 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/edictad"
-	"github.com/vgonkivs/edicta/celestia/keyfile"
+	"github.com/vgonkivs/edicta/config"
 	"github.com/vgonkivs/edicta/engine/policy"
+	"github.com/vgonkivs/edicta/internal/keyfile"
 	"github.com/vgonkivs/edicta/plugins/banksend/bankaction"
 )
 

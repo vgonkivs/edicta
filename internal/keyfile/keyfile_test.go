@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/keyfile"
-	"github.com/vgonkivs/edicta/celestia/secret"
+	"github.com/vgonkivs/edicta/internal/keyfile"
+	"github.com/vgonkivs/edicta/internal/secret"
 )
 
 func write(t *testing.T, data []byte, mode os.FileMode) string {

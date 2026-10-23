@@ -23,7 +23,7 @@ import (
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
 	"github.com/vgonkivs/edicta/celestia/commitcmd"
-	"github.com/vgonkivs/edicta/celestia/config"
+	"github.com/vgonkivs/edicta/config"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/sdk"
 	"github.com/vgonkivs/edicta/sdk/blob"

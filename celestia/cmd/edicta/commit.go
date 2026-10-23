@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"github.com/vgonkivs/edicta/celestia/commitcmd"
-	"github.com/vgonkivs/edicta/celestia/secret"
+	"github.com/vgonkivs/edicta/internal/secret"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 )
 

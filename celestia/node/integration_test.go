@@ -16,7 +16,7 @@ import (
 
 	"github.com/celestiaorg/celestia-node/blob"
 
-	"github.com/vgonkivs/edicta/celestia/secret"
+	"github.com/vgonkivs/edicta/internal/secret"
 )
 
 // Environment (nothing is read from the repository; secrets only from files):

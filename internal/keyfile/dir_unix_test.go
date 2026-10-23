@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/keyfile"
+	"github.com/vgonkivs/edicta/internal/keyfile"
 )
 
 func TestCheckDir(t *testing.T) {

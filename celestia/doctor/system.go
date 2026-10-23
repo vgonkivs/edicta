@@ -19,10 +19,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 
 	"github.com/vgonkivs/edicta/celestia/clearerr"
-	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/node"
-	"github.com/vgonkivs/edicta/celestia/secret"
+	"github.com/vgonkivs/edicta/config"
 	"github.com/vgonkivs/edicta/engine/policy"
+	"github.com/vgonkivs/edicta/internal/secret"
 )
 
 // maxBody bounds what a probe reads from any HTTP answer.

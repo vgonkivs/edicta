@@ -12,9 +12,9 @@ import (
 	"strings"
 
 	"github.com/vgonkivs/edicta/celestia/clearerr"
-	"github.com/vgonkivs/edicta/celestia/config"
-	"github.com/vgonkivs/edicta/celestia/keyfile"
+	"github.com/vgonkivs/edicta/config"
 	"github.com/vgonkivs/edicta/engine/principalsig"
+	"github.com/vgonkivs/edicta/internal/keyfile"
 )
 
 // PayerAddress derives the 0x address of the secp256k1 payer key file (mode

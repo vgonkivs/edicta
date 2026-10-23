@@ -7,8 +7,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/doctor"
+	"github.com/vgonkivs/edicta/config"
 )
 
 // Exit codes follow the other subcommands: 1 for a failed check, 4 for misuse.

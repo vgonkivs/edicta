@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/vgonkivs/edicta/celestia/clearerr"
-	"github.com/vgonkivs/edicta/celestia/config"
-	"github.com/vgonkivs/edicta/celestia/secret"
+	"github.com/vgonkivs/edicta/config"
+	"github.com/vgonkivs/edicta/internal/secret"
 )
 
 type epKind int

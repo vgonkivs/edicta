@@ -72,9 +72,7 @@ var classes = map[string]class{
 	"contracts": contracts,
 	"test":      testsupport,
 
-	"celestia/config":  config,
-	"celestia/keyfile": internalPkg,
-	"celestia/secret":  internalPkg,
+	"config": config,
 }
 
 // allowed lists the classes each class may import, besides the global

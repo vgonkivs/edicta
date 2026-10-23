@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vgonkivs/edicta/celestia/config"
+	"github.com/vgonkivs/edicta/config"
 )
 
 // ErrNotAvailable is what a probe returns when the thing it asks about does

@@ -5,8 +5,8 @@ import (
 	"io/fs"
 	"strings"
 
-	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/verifycli"
+	"github.com/vgonkivs/edicta/config"
 )
 
 // verifyDefaults reads the defaults of verify and replay from edicta.toml. An

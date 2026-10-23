@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/doctor"
+	"github.com/vgonkivs/edicta/config"
 )
 
 const doctorNS = "0000000000000000000000000000000000000000ab000000000000000000"

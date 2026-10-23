@@ -16,7 +16,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/vgonkivs/edicta/celestia/secret"
+	"github.com/vgonkivs/edicta/internal/secret"
 )
 
 // SeedLen is the length of a raw Ed25519 seed file.

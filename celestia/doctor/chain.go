@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/vgonkivs/edicta/celestia/clearerr"
-	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/fibrecommit"
 	"github.com/vgonkivs/edicta/celestia/node"
 	"github.com/vgonkivs/edicta/celestia/recorder"
+	"github.com/vgonkivs/edicta/config"
 )
 
 const (

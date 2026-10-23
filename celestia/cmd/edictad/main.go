@@ -13,9 +13,9 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/vgonkivs/edicta/celestia/config"
 	"github.com/vgonkivs/edicta/celestia/edictad"
 	"github.com/vgonkivs/edicta/celestia/edictad/wire"
+	"github.com/vgonkivs/edicta/config"
 )
 
 func main() {

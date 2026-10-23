@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/vgonkivs/edicta/celestia/secret"
+	"github.com/vgonkivs/edicta/internal/secret"
 )
 
 // TerminalConsole reads the operator's answers from a terminal. A line read
