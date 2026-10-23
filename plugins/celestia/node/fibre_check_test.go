@@ -19,7 +19,7 @@ import (
 	"github.com/vgonkivs/edicta/plugins/celestia/node/heightcheck"
 )
 
-const pinnedBridge = "v0.34.2-mocha"
+const pinnedBridge = "v0.34.3"
 
 var errSeam = errors.New("seam failure")
 
@@ -259,7 +259,7 @@ func TestCheckFibreBridgeVersion(t *testing.T) {
 		want bool
 	}{
 		{"matches the pin", func(context.Context) (string, error) { return pinnedBridge, nil }, pinnedBridge, true},
-		{"differs from the pin", func(context.Context) (string, error) { return "v0.35.0-mocha", nil }, pinnedBridge, false},
+		{"differs from the pin", func(context.Context) (string, error) { return "v0.34.2-mocha", nil }, pinnedBridge, false},
 		{"empty version", func(context.Context) (string, error) { return "", nil }, pinnedBridge, false},
 		{"version unreadable", func(context.Context) (string, error) { return "", errSeam }, pinnedBridge, false},
 	}
