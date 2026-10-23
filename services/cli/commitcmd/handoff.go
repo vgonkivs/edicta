@@ -5,6 +5,7 @@ package commitcmd
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -277,7 +278,9 @@ func (s *Service) decideRetry(rep PaidRetry, pickup time.Duration) (PaidRetryRes
 	if st.PaymentSignature == "" {
 		return PaidRetryResult{}, nil, handoffRefused("no Payment-Signature was released here for commitment %s", rep.CommitmentHash)
 	}
-	if rep.PaymentSignature != st.PaymentSignature {
+	// The Payment-Signature is a bearer proof of payment, and in loopback
+	// mode any local process may ask.
+	if subtle.ConstantTimeCompare([]byte(rep.PaymentSignature), []byte(st.PaymentSignature)) != 1 {
 		return PaidRetryResult{}, nil, handoffRefused("the paid retry did not carry this decision's Payment-Signature")
 	}
 	tx, err := edenescrow.DecodeTxAction(st.Action)
