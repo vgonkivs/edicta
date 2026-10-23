@@ -115,7 +115,7 @@ In this order; every failure is `ibkrorder.ErrInvalid`:
 | V4 | `conid`, `qty`, `limit_price` (if present) are nonzero | `order_conid_0`, `order_qty_0`, `order_limit_price_0` |
 | V5 | `limit_price` present if and only if `order_type == 1` | `order_lmt_no_price` |
 
-## 3. Executor (`plugins/ibkr`)
+## 3. Executor (`examples/dca-agent/ibkr`)
 
 ### 3.1 Configuration
 
@@ -368,7 +368,7 @@ Threat notes:
 | `ibkr.ErrSeen` | X6 | none (store state; example tests) |
 | `dca.ErrMalformed` | section 5 | `dca_context.json` `reject` |
 
-The prefix is the Go package under `plugins/ibkr/` (`ibkr`, `ibkrorder`) or `examples/dca-agent/` (`dca`). The core sentinels
+The prefix is the Go package under `examples/dca-agent/`. The core sentinels
 of X1 keep their core names.
 
 ## 7. Vectors
