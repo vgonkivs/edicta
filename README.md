@@ -77,9 +77,24 @@ The demo prints an address to fund with testnet TIA and starts only after you
 press Enter. Using your own funded key, the trust root, the verdicts and how
 to re-verify a run offline: [examples/tia-transfer/demo/README.md](examples/tia-transfer/demo/README.md).
 
-`make build` only builds (`edicta`, the standalones `edicta-signer` and
-`edicta-principal`, and the example binaries `edicta-demo` and `edicta-live`
-into `bin/`); `make vet` and `make test` run every Go module. To run the tests
+## Commands
+
+- `edicta`, the one binary: `init`, `doctor`, `commit`, `agent serve`,
+  `verify`, `replay`, `absence`, `gate serve` (the gate daemon),
+  `signer serve`, `principal`, and `dev init` in builds with the `edictadev`
+  tag.
+- `edicta-signer` and `edicta-principal`: light standalones for the signer
+  service and the principal's mandate tool. They link no Celestia node or
+  chain code, so the processes that hold the payer key and the principal key
+  stay small.
+- `edicta-demo` and `edicta-live`: the example binaries.
+
+## Build and test
+
+`make build` builds all of these into `bin/`; `make vet` and `make test` run
+every Go module; `make release-check` builds, vets and checks every module,
+the guard tests, the command line pin, the vector manifest and the
+documentation links, without running the full test suite. To run the tests
 directly, from the repository root:
 
 ```sh
@@ -91,9 +106,13 @@ go -C services/cli test ./...
 go -C examples test ./...
 ```
 
-The older manual runner (`edicta-live`, with your own `edictad` and
-endpoints), step by step: [examples/tia-transfer/README.md](examples/tia-transfer/README.md).
-The `edictad` configuration reference: [services/gate/README.md](services/gate/README.md).
+The older manual runner (`edicta-live`, with your own gate started as
+`edicta gate serve`, and your endpoints), step by step:
+[examples/tia-transfer/README.md](examples/tia-transfer/README.md).
+The gate daemon's configuration reference (the `edictad` package and
+configuration): [services/gate/README.md](services/gate/README.md).
+Coming from an older path or binary name:
+[docs/code-locations.md](docs/code-locations.md).
 
 User guides (quickstart, operator, principal, profiles, private mode,
 verifier): [docs/](docs/README.md).
@@ -149,10 +168,11 @@ Cross-language test vectors (with an independent Python checker): [spec/vectors/
 
 ## Status
 
-Wire version 1 (the earlier v0 drafts are superseded and unsupported). The gate, the Go SDK, the Recorder, the
-`edictad` daemon, the archive and the verifier (`edicta verify`, `edicta
-replay`, `edicta absence`) work end to end; the demo above, with the
-`celestia_blob` mode and a mandate, ran live on Celestia Mocha.
+Wire version 1 (the earlier v0 drafts are superseded and unsupported). The gate
+(`edicta gate serve`), the Go SDK, the Recorder, the archive and the verifier
+(`edicta verify`, `edicta replay`, `edicta absence`) work end to end; the demo
+above, with the `celestia_blob` mode and a mandate, ran live on Celestia
+Mocha. The HTTP API speaks CBOR and, alongside it, JSON.
 
 - Mandates (spending limits, recipients, private mode with auditors) are
   implemented. Principals sign with Ed25519, Keplr (ADR-036) or MetaMask
@@ -163,6 +183,13 @@ replay`, `edicta absence`) work end to end; the demo above, with the
   Mocha checklist ([docs/mocha-checklist.md](docs/mocha-checklist.md)) has
   not been run.
 - Fibre support is implemented but has not run live yet.
+- Eden escrow payment profile (x402 escrow-upto on Eden, chain 714): a draft
+  profile, [spec/profiles/eden-escrow-v1.md](spec/profiles/eden-escrow-v1.md),
+  not frozen. Its signer service (`edicta signer serve` or `edicta-signer`)
+  holds the dedicated payer key behind the gate, so the gate stays keyless,
+  and the TypeScript wrapper `@edicta/houston`
+  ([sdk/ts/edicta-houston](sdk/ts/edicta-houston/README.md)) puts it into the
+  payment flow. The Eden flow has not yet run live end to end through Edicta.
 
 Not production-ready.
 
@@ -172,7 +199,7 @@ Not production-ready.
 |---|---|
 | `/` (module `github.com/vgonkivs/edicta`) | Core: `engine/commitment` (encoding, hashing, checks), `engine/gate`, `engine/dasource` (DA read and recompute interfaces), `engine/recorder` (the Recorder interface and its refusal reasons), `engine/policy` (mandates), `engine/principalsig`, `engine/archive`, `engine/verifier`, `sdk`, `api/edictaapi` (HTTP API), `api/signerapi` (the signer's HTTP wire format), `engine/dacommit`, `test`; `cmd/edicta-principal` (the principal's mandate tool, also `edicta principal`) |
 | `plugins/celestia/` (own module) | The Celestia plugin: node client (`node`), chain readers (`chain`), proof checks (`proof`), the Recorder (`recorder`), Fibre blob commitment (`fibrecommit`), the bank-send transaction signer and checker (`banksend`), and test fakes (`celestiatest`) |
-| `services/gate/` (own module) | The `edictad` daemon, its wiring (`edictad/wire`) and its command line (`gatecmd`, run as `edicta gate serve`) |
+| `services/gate/` (own module) | The gate daemon (package `edictad`), its wiring (`edictad/wire`) and its command line (`gatecmd`, run as `edicta gate serve`) |
 | `services/signer/` (own module, links no Celestia node or chain code) | The payer key's service `edicta-signer` (also `edicta signer serve`): rail-agnostic signing core, Eden escrow handler (`eden`), daemon (`signerd`), command line (`signercmd`) |
 | `services/cli/` (own module) | The `edicta` binary: init, doctor, commit, agent serve, verify, replay, absence, gate serve, signer serve, principal, and dev init in edictadev builds |
 | `config/` (root module) | The `edicta.toml` schema, defaults and presets |
@@ -181,13 +208,17 @@ Not production-ready.
 | `plugins/edenescrow` (root module) | The Eden escrow rail: action format, escrow table, executor-side checks (`edenexec`) and the JSON-RPC reader (`edenrpc`) |
 | `plugins/ibkr` (root module) | The IBKR rail: order format (`ibkrorder`), executor, and a fake broker (`brokerfake`) |
 | `examples/` (own module) | Profiles in use: `tia-transfer` (Cosmos `MsgSend` on a price trigger, with the `edicta-demo` demo and the `edicta-live` runner) and `dca-agent` (IBKR order, offline with a fake broker) |
+| `sdk/ts/edicta-houston/` | `@edicta/houston`, the TypeScript wrapper for the escrow-upto payment flow (npm package, not a Go module) |
 | `contracts/` | The `EdictaPublish` contract and its deploy tool |
 | `deploy/dev/` | The local docker compose stack (DEV ONLY keys) |
 | `test/` | Cross-package tests: attacks, fixtures, the command line pin and the layering, import and doc guards |
+| `make/` | Makefile includes and the release check script |
 | `spec/` | Specification, profiles, test vectors and their generators |
 | `docs/` | User guides |
 
-Where older text, including the frozen specification, names a package path
+Own Go modules: the root, `plugins/celestia`, `services/gate`,
+`services/signer`, `services/cli` and `examples`; the vector generators
+under `spec/vectors/tools/` are separate small modules. Where older text, including the frozen specification, names a package path
 or a binary from before this layout, [docs/code-locations.md](docs/code-locations.md)
 gives the current one.
 
