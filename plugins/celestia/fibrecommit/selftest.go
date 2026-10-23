@@ -79,14 +79,14 @@ const appModule = "github.com/celestiaorg/celestia-app/v10"
 // A linked module with a replace must match this table; modules in
 // pinnedModules are additionally checked for version and sum.
 var pinnedReplaces = map[string]string{
-	"cosmossdk.io/api":                            "github.com/celestiaorg/cosmos-sdk/api@v0.7.6",
+	"cosmossdk.io/api":                            "github.com/celestiaorg/cosmos-sdk/api@v0.7.7",
 	"cosmossdk.io/log":                            "github.com/celestiaorg/cosmos-sdk/log@v1.3.0",
-	"cosmossdk.io/store":                          "github.com/celestiaorg/cosmos-sdk/store@v1.1.3-celestia.1",
+	"cosmossdk.io/store":                          "github.com/celestiaorg/cosmos-sdk/store@v1.1.3-celestia.3",
 	"cosmossdk.io/x/tx":                           "github.com/celestiaorg/cosmos-sdk/x/tx@v0.13.9",
 	"cosmossdk.io/x/upgrade":                      "github.com/celestiaorg/cosmos-sdk/x/upgrade@v0.2.0",
 	"github.com/bcp-innovations/hyperlane-cosmos": "github.com/celestiaorg/hyperlane-cosmos@v1.3.0",
-	"github.com/cometbft/cometbft":                "github.com/celestiaorg/celestia-core@v0.42.0",
-	"github.com/cosmos/cosmos-sdk":                "github.com/celestiaorg/cosmos-sdk@v0.52.8",
+	"github.com/cometbft/cometbft":                "github.com/celestiaorg/celestia-core@v0.42.3",
+	"github.com/cosmos/cosmos-sdk":                "github.com/celestiaorg/cosmos-sdk@v0.52.12",
 	"github.com/cosmos/ibc-go/v8":                 "github.com/celestiaorg/ibc-go/v8@v8.7.2",
 	"github.com/cosmos/ledger-cosmos-go":          "github.com/cosmos/ledger-cosmos-go@v0.16.0",
 	"github.com/etclabscore/go-jsonschema-walk":   "github.com/LexLuthr/go-jsonschema-walk@v1.0.0",

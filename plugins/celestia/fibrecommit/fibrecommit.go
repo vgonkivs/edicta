@@ -16,7 +16,7 @@ import (
 const (
 	// PinnedAppVersion is the only celestia-app release whose encoder the
 	// test vectors were generated with.
-	PinnedAppVersion = "v10.4.0-mocha"
+	PinnedAppVersion = "v10.4.0"
 
 	// MaxDataSize is the largest blob the pinned encoder accepts.
 	MaxDataSize = 1<<27 - 5

@@ -196,7 +196,7 @@ func TestNewCap(t *testing.T) {
 }
 
 func TestConstants(t *testing.T) {
-	assert.Equal(t, "v10.4.0-mocha", fibrecommit.PinnedAppVersion)
+	assert.Equal(t, "v10.4.0", fibrecommit.PinnedAppVersion)
 	assert.EqualValues(t, 1<<27-5, fibrecommit.MaxDataSize)
 	assert.EqualValues(t, 16<<20, fibrecommit.DefaultMaxDataSize)
 }

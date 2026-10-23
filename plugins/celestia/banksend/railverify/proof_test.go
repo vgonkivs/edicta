@@ -176,8 +176,9 @@ func TestVerifyShareProofTamperedLive(t *testing.T) {
 }
 
 // The rows of a share proof are only valid for a block when they are rows of
-// the original square, counted from the first row the proof names. Validate
-// does not look at StartRow.
+// the original square, counted from the first row the proof names. The
+// verifier checks this itself: older celestia-core releases of ShareProof.Validate
+// do not look at StartRow, and the outcome must not depend on the linked one.
 func TestVerifyShareProofChecksTheRowPosition(t *testing.T) {
 	txs := [][]byte{bytes.Repeat([]byte{1}, 1300), bytes.Repeat([]byte{2}, 3000), bytes.Repeat([]byte{3}, 1300)}
 	p, root := proofOf(t, txs, 1)
@@ -198,9 +199,6 @@ func TestVerifyShareProofChecksTheRowPosition(t *testing.T) {
 			rp := m["row_proof"].(map[string]any)
 			rp["start_row"], rp["end_row"] = start+shift, end+shift
 		})
-		var sp core.ShareProof
-		require.NoError(t, cmtjson.Unmarshal(bad, &sp))
-		require.NoError(t, sp.Validate(root), "core's own validation still accepts the shifted position (shift %v)", shift)
 		assert.ErrorIs(t, railverify.VerifyShareProof(bad, txs[1], root), railverify.ErrTxProof, "shift %v", shift)
 	}
 	t.Run("rows swapped", func(t *testing.T) {
