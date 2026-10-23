@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.3.0 (2026-10-24, spec revision v1.2.1)
 
 No v1 wire byte, archive record, domain tag, core test vector or gate check
 changed.
