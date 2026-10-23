@@ -373,6 +373,8 @@ replace github.com/vgonkivs/edicta/celestia => ../celestia
 
 replace github.com/vgonkivs/edicta/services/gate => ../services/gate
 
+replace github.com/vgonkivs/edicta/services/signer => ../services/signer
+
 replace github.com/vgonkivs/edicta/services/cli => ../services/cli
 
 replace (

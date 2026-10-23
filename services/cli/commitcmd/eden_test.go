@@ -25,7 +25,7 @@ import (
 	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/services/cli/commitcmd"
-	"github.com/vgonkivs/edicta/signer"
+	"github.com/vgonkivs/edicta/services/signer"
 )
 
 // The quote of the saved fixture expires at this time.

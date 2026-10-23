@@ -67,7 +67,6 @@ var classes = map[string]class{
 	"plugins/ibkr":       plugin + "ibkr",
 
 	"examples":  example,
-	"signer":    service,
 	"cmd":       service,
 	"services":  service,
 	"contracts": contracts,
@@ -110,7 +109,7 @@ var narrow = []struct {
 	},
 	{
 		why:  "the signer core must stay rail-agnostic",
-		from: []string{"signer"},
+		from: []string{"services/signer"},
 		to:   func(rel string) bool { return strings.HasPrefix(string(classify(rel, false)), plugin) },
 	},
 }
@@ -130,7 +129,7 @@ var exceptions = map[string][]string{
 
 	// The signer core takes wallet signature types and requirement errors
 	// from the Eden escrow profile.
-	"signer": {"plugins/edenescrow"},
+	"services/signer": {"plugins/edenescrow"},
 }
 
 func TestLayering(t *testing.T) {

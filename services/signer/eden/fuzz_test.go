@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/signer/eden"
+	"github.com/vgonkivs/edicta/services/signer/eden"
 )
 
 // FuzzCheckRelayAnswer: the relay answer reader never panics, and an

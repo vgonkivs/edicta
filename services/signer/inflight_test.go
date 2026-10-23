@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
-	"github.com/vgonkivs/edicta/signer"
-	"github.com/vgonkivs/edicta/signer/signertest"
+	"github.com/vgonkivs/edicta/services/signer"
+	"github.com/vgonkivs/edicta/services/signer/signertest"
 )
 
 // A nonce signed for one unresolved decision is refused for another, even

@@ -18,7 +18,7 @@ import (
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/internal/secret"
 	"github.com/vgonkivs/edicta/services/cli/commitcmd"
-	"github.com/vgonkivs/edicta/signer"
+	"github.com/vgonkivs/edicta/services/signer"
 )
 
 func TestSignerClientStatus(t *testing.T) {

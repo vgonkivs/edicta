@@ -17,7 +17,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/vgonkivs/edicta/celestia/signerd"
+	"github.com/vgonkivs/edicta/services/signer/signerd"
 )
 
 func main() {

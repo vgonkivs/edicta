@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/signerd"
+	"github.com/vgonkivs/edicta/services/signer/signerd"
 )
 
 var chainSources = regexp.MustCompile(`(?m)^(chain_id|rpc|settlement_rpc) = .*\n`)

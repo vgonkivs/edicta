@@ -21,7 +21,7 @@ import (
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/sdk/sdktest"
 	"github.com/vgonkivs/edicta/services/cli/commitcmd"
-	"github.com/vgonkivs/edicta/signer"
+	"github.com/vgonkivs/edicta/services/signer"
 )
 
 const (

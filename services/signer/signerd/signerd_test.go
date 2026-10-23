@@ -24,9 +24,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vgonkivs/edicta/celestia/signerd"
 	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
+	"github.com/vgonkivs/edicta/services/signer/signerd"
 )
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))

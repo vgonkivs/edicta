@@ -12,7 +12,7 @@ var entries = map[string]entry{
 	"edicta":           {module: "services/cli", pkg: "./cmd/edicta"},
 	"edictad":          {module: "services/gate", pkg: "./cmd/edictad"},
 	"edicta-verify":    {module: "services/cli", pkg: "./cmd/edicta-verify"},
-	"edicta-signer":    {module: "celestia", pkg: "./cmd/edicta-signer"},
+	"edicta-signer":    {module: "services/signer", pkg: "./cmd/edicta-signer"},
 	"edicta-live":      {module: "examples", pkg: "./tia-transfer/cmd/edicta-live"},
 	"edicta-demo":      {module: "examples", pkg: "./tia-transfer/cmd/edicta-demo"},
 	"edicta-devinit":   {module: "services/cli", pkg: "./cmd/edicta-devinit", tags: "edictadev"},

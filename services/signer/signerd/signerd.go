@@ -16,8 +16,8 @@ import (
 	"github.com/vgonkivs/edicta/internal/secret"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrpc"
-	"github.com/vgonkivs/edicta/signer"
-	"github.com/vgonkivs/edicta/signer/eden"
+	"github.com/vgonkivs/edicta/services/signer"
+	"github.com/vgonkivs/edicta/services/signer/eden"
 )
 
 // Daemon is a started signer: the service passed its startup checks.

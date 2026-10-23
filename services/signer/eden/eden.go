@@ -18,7 +18,7 @@ import (
 
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
-	"github.com/vgonkivs/edicta/signer"
+	"github.com/vgonkivs/edicta/services/signer"
 )
 
 // emptyCodeHash is keccak256 of no code: an account without code.

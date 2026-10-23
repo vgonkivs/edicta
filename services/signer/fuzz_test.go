@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/api/edictaapi"
-	"github.com/vgonkivs/edicta/signer"
-	"github.com/vgonkivs/edicta/signer/signertest"
+	"github.com/vgonkivs/edicta/services/signer"
+	"github.com/vgonkivs/edicta/services/signer/signertest"
 )
 
 // FuzzDecodeSignRequest: the request decoder never panics, accepts only the

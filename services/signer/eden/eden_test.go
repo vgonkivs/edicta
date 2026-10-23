@@ -16,9 +16,9 @@ import (
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
-	"github.com/vgonkivs/edicta/signer"
-	"github.com/vgonkivs/edicta/signer/eden"
-	"github.com/vgonkivs/edicta/signer/signertest"
+	"github.com/vgonkivs/edicta/services/signer"
+	"github.com/vgonkivs/edicta/services/signer/eden"
+	"github.com/vgonkivs/edicta/services/signer/signertest"
 )
 
 type world struct {

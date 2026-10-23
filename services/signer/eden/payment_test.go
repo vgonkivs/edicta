@@ -13,9 +13,9 @@ import (
 
 	"github.com/vgonkivs/edicta/internal/testkit"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
-	"github.com/vgonkivs/edicta/signer"
-	"github.com/vgonkivs/edicta/signer/eden"
-	"github.com/vgonkivs/edicta/signer/signertest"
+	"github.com/vgonkivs/edicta/services/signer"
+	"github.com/vgonkivs/edicta/services/signer/eden"
+	"github.com/vgonkivs/edicta/services/signer/signertest"
 )
 
 type paymentVectors struct {

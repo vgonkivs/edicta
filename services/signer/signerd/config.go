@@ -21,8 +21,8 @@ import (
 	"github.com/vgonkivs/edicta/config"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenexec"
 	"github.com/vgonkivs/edicta/plugins/edenescrow/edenrpc"
-	"github.com/vgonkivs/edicta/signer"
-	"github.com/vgonkivs/edicta/signer/eden"
+	"github.com/vgonkivs/edicta/services/signer"
+	"github.com/vgonkivs/edicta/services/signer/eden"
 )
 
 // Config is edicta-signer.toml. Amounts are decimal strings in the chain's

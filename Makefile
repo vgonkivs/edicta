@@ -3,7 +3,7 @@ export GOWORK := off
 # Binaries go to bin/. The nested modules, in dependency order; each has a
 # Makefile on make/go.mk, and they never run in parallel.
 BIN := bin
-MODS := celestia services/gate services/cli examples
+MODS := celestia services/gate services/signer services/cli examples
 
 .PHONY: build demo test test-clipin test-q vet vectors clean contracts contracts-check dev-up dev-down dev-smoke test-dev check-mods
 

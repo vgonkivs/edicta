@@ -19,8 +19,8 @@ import (
 	"github.com/vgonkivs/edicta/api/edictaapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
-	"github.com/vgonkivs/edicta/signer"
-	"github.com/vgonkivs/edicta/signer/signertest"
+	"github.com/vgonkivs/edicta/services/signer"
+	"github.com/vgonkivs/edicta/services/signer/signertest"
 )
 
 func TestTheCommitmentBoundsWhatAGateMayAuthorize(t *testing.T) {

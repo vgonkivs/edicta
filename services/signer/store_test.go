@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vgonkivs/edicta/engine/commitment"
-	"github.com/vgonkivs/edicta/signer"
+	"github.com/vgonkivs/edicta/services/signer"
 )
 
 func admitAll(signer.Totals) error { return nil }

@@ -8,7 +8,7 @@ import (
 	"slices"
 
 	"github.com/vgonkivs/edicta/plugins/edenescrow"
-	"github.com/vgonkivs/edicta/signer"
+	"github.com/vgonkivs/edicta/services/signer"
 )
 
 // PaymentSignatureMessage runs the steps of a Payment-Signature request that

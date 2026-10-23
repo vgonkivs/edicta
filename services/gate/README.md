@@ -10,9 +10,10 @@ Everything here is Edicta wire version 1 (spec revision `v1.0`, tags `v1.0.0` an
 
 This module holds the `edictad` daemon: the gate's HTTP service and its
 wiring to the Celestia module (`celestia/`: the Recorder, the chain client
-for the gate, the executor's transaction signer and `edicta-signer`). The
-`edicta` command line is the `services/cli` module. No network name, chain id
-or endpoint is built in; they come from your configuration.
+for the gate and the executor's transaction signer). The `edicta` command
+line is the `services/cli` module and `edicta-signer` the `services/signer`
+module. No network name, chain id or endpoint is built in; they come from
+your configuration.
 
 ## Configure and start edictad
 

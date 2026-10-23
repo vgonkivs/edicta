@@ -18,7 +18,7 @@ import (
 	"github.com/vgonkivs/edicta/api/edictaapi"
 	"github.com/vgonkivs/edicta/engine/commitment"
 	"github.com/vgonkivs/edicta/internal/secret"
-	"github.com/vgonkivs/edicta/signer"
+	"github.com/vgonkivs/edicta/services/signer"
 )
 
 // Signer is the agent's view of edicta-signer: the two routes `edicta commit`
